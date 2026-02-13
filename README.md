@@ -65,30 +65,212 @@ nowen-note/
 └── package.json           # 根级脚本
 ```
 
-### 快速开始
+### 安装部署
 
-#### 开发模式
+> **默认管理员账号：`admin` / `admin123`**
+>
+> 首次登录后请立即在「设置 → 账号安全」中修改密码。
+
+---
+
+#### 方式一：Windows 本地安装（开发 / 体验）
+
+**环境要求：** Node.js 20+、Git
 
 ```bash
-# 安装所有依赖
+# 1. 克隆项目
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
+
+# 2. 安装所有依赖
 npm run install:all
 
-# 启动后端（端口 3001）
+# 3. 启动后端（端口 3001）
 npm run dev:backend
 
-# 启动前端（Vite，自动代理 /api → 3001）
+# 4. 新开一个终端，启动前端（端口 5173，自动代理 /api → 3001）
 npm run dev:frontend
 ```
 
-默认管理员账号：`admin` / `admin123`
+浏览器访问 `http://localhost:5173` 即可使用。
 
-#### Docker 部署
+数据库文件位于 `backend/data/nowen-note.db`，备份此文件即可迁移数据。
+
+---
+
+#### 方式二：Docker 通用安装（推荐）
+
+适用于任何安装了 Docker 的 Linux / macOS / Windows 设备。
+
+**方法 A：docker-compose（推荐）**
 
 ```bash
+# 1. 克隆项目
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
+
+# 2. 一键构建并启动
 docker-compose up -d
 ```
 
-访问 `http://localhost:3001` 即可使用。
+**方法 B：纯 docker 命令**
+
+```bash
+# 1. 克隆并构建镜像
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
+docker build -t nowen-note .
+
+# 2. 创建数据目录并运行
+mkdir -p /opt/nowen-note/data
+docker run -d \
+  --name nowen-note \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  -v /opt/nowen-note/data:/app/data \
+  -e DB_PATH=/app/data/nowen-note.db \
+  nowen-note
+```
+
+浏览器访问 `http://<你的IP>:3001` 即可使用。
+
+**环境变量说明：**
+
+| 变量名     | 默认值                     | 说明             |
+| ---------- | -------------------------- | ---------------- |
+| `PORT`     | `3001`                     | 服务监听端口     |
+| `DB_PATH`  | `/app/data/nowen-note.db`  | 数据库文件路径   |
+| `NODE_ENV` | `production`               | 运行环境         |
+
+---
+
+#### 方式三：群晖 Synology NAS 安装
+
+**前提：** 已安装 Container Manager（DSM 7.2+）或 Docker 套件（DSM 7.0 / 7.1）。
+
+**步骤：**
+
+1. **上传镜像**
+   - 在电脑上执行 `docker build -t nowen-note .` 构建镜像
+   - 导出镜像：`docker save nowen-note -o nowen-note.tar`
+   - 在群晖 Container Manager → 映像 → 导入 → 上传 `nowen-note.tar`
+
+2. **创建容器**
+   - 映像列表中选择 `nowen-note` → 启动
+   - **端口设置**：本地端口 `3001` → 容器端口 `3001`
+   - **存储空间**：新增文件夹映射
+     - 本地路径：`/docker/nowen-note/data`
+     - 容器路径：`/app/data`
+   - **环境变量**（默认即可，无需修改）
+
+3. **访问使用**
+   - 浏览器访问 `http://<群晖IP>:3001`
+
+> **提示：** 数据备份只需复制 `/docker/nowen-note/data/nowen-note.db` 文件。可使用群晖 Hyper Backup 定期备份该目录。
+
+---
+
+#### 方式四：绿联 UGOS NAS 安装
+
+**前提：** 已开启 Docker 功能（绿联 UGOS Pro / UGOS）。
+
+**步骤：**
+
+1. **导入镜像**
+   - 在电脑上构建并导出镜像（同群晖步骤）
+   - 绿联 NAS → Docker → 镜像管理 → 本地导入 `nowen-note.tar`
+
+2. **创建容器**
+   - 选择 `nowen-note` 镜像 → 创建容器
+   - **网络**：选择 bridge 模式
+   - **端口映射**：主机 `3001` → 容器 `3001`
+   - **存储映射**：
+     - 主机路径：`/mnt/user/appdata/nowen-note/data`（或自定义路径）
+     - 容器路径：`/app/data`
+   - **重启策略**：开机自启
+
+3. **访问使用**
+   - 浏览器访问 `http://<绿联NAS IP>:3001`
+
+---
+
+#### 方式五：飞牛 fnOS 安装
+
+**前提：** 飞牛 fnOS 已开启 Docker 功能。
+
+**步骤：**
+
+1. **导入镜像**
+   - 在电脑上构建并导出镜像（同群晖步骤）
+   - 飞牛 fnOS → Docker → 镜像 → 导入 `nowen-note.tar`
+
+2. **创建容器**
+   - 选择 `nowen-note` 镜像 → 创建容器
+   - **端口映射**：主机 `3001` → 容器 `3001`
+   - **卷映射**：
+     - 主机路径：`/vol1/docker/nowen-note/data`（根据实际存储卷调整）
+     - 容器路径：`/app/data`
+   - **重启策略**：除非手动停止
+
+3. **访问使用**
+   - 浏览器访问 `http://<飞牛NAS IP>:3001`
+
+---
+
+#### 方式六：威联通 QNAP 安装
+
+**前提：** 已安装 Container Station（QTS 5.0+ / QuTS hero）。
+
+**步骤：**
+
+1. **导入镜像**
+   - 在电脑上构建并导出镜像（同群晖步骤）
+   - Container Station → 映像档 → 导入 → 选择 `nowen-note.tar`
+
+2. **创建容器**
+   - 选择 `nowen-note` 映像 → 创建
+   - **网络设置**：NAT 模式，端口映射 `3001` → `3001`
+   - **共享文件夹**：
+     - 主机路径：`/share/Container/nowen-note/data`
+     - 容器路径：`/app/data`
+   - **其他**：勾选"自动重新启动"
+
+3. **访问使用**
+   - 浏览器访问 `http://<威联通IP>:3001`
+
+> **提示：** QNAP 也支持 docker-compose，在 Container Station → 创建 → 使用 YAML 创建，粘贴本项目的 `docker-compose.yml` 内容即可。
+
+---
+
+#### 方式七：极空间 NAS 安装
+
+**前提：** 极空间 ZOS 已开启 Docker 功能（极空间 Z4S / Z4 Pro / Z2 Pro 等）。
+
+**步骤：**
+
+1. **导入镜像**
+   - 在电脑上构建并导出镜像（同群晖步骤）
+   - 极空间 → Docker → 镜像 → 本地镜像 → 导入 `nowen-note.tar`
+
+2. **创建容器**
+   - 选择 `nowen-note` 镜像 → 创建容器
+   - **端口映射**：本地 `3001` → 容器 `3001`
+   - **路径映射**：
+     - 本地路径：选择一个文件夹（如 `极空间/docker/nowen-note/data`）
+     - 容器路径：`/app/data`
+   - **重启策略**：自动重启
+
+3. **访问使用**
+   - 浏览器访问 `http://<极空间IP>:3001`
+
+---
+
+#### 通用注意事项
+
+- **数据持久化**：务必将容器内的 `/app/data` 目录映射到宿主机，否则容器删除后数据丢失
+- **数据备份**：只需备份映射目录中的 `nowen-note.db` 文件
+- **端口冲突**：如 3001 端口被占用，可修改主机端口映射（如 `8080:3001`）
+- **安全建议**：首次登录后请立即修改默认密码；如需外网访问，建议搭配反向代理（Nginx / Caddy）并启用 HTTPS
 
 ### 核心功能
 
@@ -205,30 +387,87 @@ nowen-note/
 └── package.json           # Root-level scripts
 ```
 
-### Quick Start
+### Installation & Deployment
 
-#### Development
+> **Default admin credentials: `admin` / `admin123`**
+>
+> Please change the password immediately after first login via Settings → Account Security.
+
+---
+
+#### Option 1: Windows Local Install (Dev / Preview)
+
+**Requirements:** Node.js 20+, Git
 
 ```bash
-# Install all dependencies
+# 1. Clone the project
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
+
+# 2. Install all dependencies
 npm run install:all
 
-# Start backend (port 3001)
+# 3. Start backend (port 3001)
 npm run dev:backend
 
-# Start frontend (Vite, auto-proxies /api → 3001)
+# 4. Open a new terminal, start frontend (port 5173, auto-proxies /api → 3001)
 npm run dev:frontend
 ```
 
-Default admin credentials: `admin` / `admin123`
+Visit `http://localhost:5173` in your browser.
 
-#### Docker Deployment
+#### Option 2: Docker (Recommended)
+
+Works on any device with Docker installed (Linux / macOS / Windows).
+
+**Method A: docker-compose (Recommended)**
 
 ```bash
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
 docker-compose up -d
 ```
 
-Visit `http://localhost:3001` to use the app.
+**Method B: docker run**
+
+```bash
+git clone https://github.com/cropflre/nowen-note.git
+cd nowen-note
+docker build -t nowen-note .
+
+mkdir -p /opt/nowen-note/data
+docker run -d \
+  --name nowen-note \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  -v /opt/nowen-note/data:/app/data \
+  -e DB_PATH=/app/data/nowen-note.db \
+  nowen-note
+```
+
+Visit `http://<your-ip>:3001` in your browser.
+
+**Environment Variables:**
+
+| Variable   | Default                    | Description          |
+| ---------- | -------------------------- | -------------------- |
+| `PORT`     | `3001`                     | Server listen port   |
+| `DB_PATH`  | `/app/data/nowen-note.db`  | Database file path   |
+| `NODE_ENV` | `production`               | Runtime environment  |
+
+#### Option 3: NAS Deployment (Synology / QNAP / UGREEN / fnOS / Zspace)
+
+All NAS platforms with Docker support follow the same general steps:
+
+1. **Build & export image** on your PC: `docker build -t nowen-note . && docker save nowen-note -o nowen-note.tar`
+2. **Import** `nowen-note.tar` into your NAS Docker manager
+3. **Create container** with:
+   - Port mapping: host `3001` → container `3001`
+   - Volume mapping: host folder → container `/app/data`
+   - Restart policy: always / unless-stopped
+4. Visit `http://<nas-ip>:3001`
+
+> **Important:** Always map the `/app/data` directory to persist your database. Back up the `nowen-note.db` file for data safety.
 
 ### Key Features
 
