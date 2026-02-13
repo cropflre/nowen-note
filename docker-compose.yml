@@ -1,19 +1,19 @@
 version: "3.8"
 
 services:
-  mystation:
+  nowen-note:
     build: .
-    container_name: mystation
+    container_name: nowen-note
     restart: unless-stopped
     ports:
       - "3001:3001"
     volumes:
-      - mystation-data:/app/data
+      - nowen-note-data:/app/data
     environment:
       - NODE_ENV=production
-      - DB_PATH=/app/data/mystation.db
+      - DB_PATH=/app/data/nowen-note.db
       - PORT=3001
 
 volumes:
-  mystation-data:
+  nowen-note-data:
     driver: local

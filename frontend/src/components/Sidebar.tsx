@@ -145,7 +145,7 @@ export default function Sidebar() {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-dark-border">
-        <h1 className="text-sm font-semibold text-text-primary tracking-wide">MyStation</h1>
+        <h1 className="text-sm font-semibold text-text-primary tracking-wide">nowen-note</h1>
         <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
           <PanelLeftClose size={16} />
         </Button>

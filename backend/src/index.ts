@@ -63,5 +63,5 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-console.log(`🚀 MyStation API running on http://localhost:${port}`);
+console.log(`🚀 nowen-note API running on http://localhost:${port}`);
 serve({ fetch: app.fetch, port });

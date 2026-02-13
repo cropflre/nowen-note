@@ -1,4 +1,4 @@
-# MyStation
+# nowen-note
 
 自托管私有笔记应用，对标群晖 Note Station。
 
@@ -10,7 +10,7 @@ A self-hosted private note-taking app, inspired by Synology Note Station.
 
 ### 简介
 
-MyStation 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持无限层级笔记本、全文搜索、标签管理等功能。
+nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持无限层级笔记本、全文搜索、标签管理等功能。
 
 ### 技术栈
 
@@ -84,7 +84,7 @@ docker-compose up -d
 
 ### Introduction
 
-MyStation is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring a Tiptap rich-text editor, unlimited nested notebooks, full-text search, and tag management.
+nowen-note is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring a Tiptap rich-text editor, unlimited nested notebooks, full-text search, and tag management.
 
 ### Tech Stack
 
