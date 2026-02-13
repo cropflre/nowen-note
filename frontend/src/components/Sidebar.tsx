@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Star, Trash2, Search, ChevronRight,
   ChevronDown, Hash, PanelLeftClose, PanelLeft, ListTodo,
-  Settings, LogOut, FilePlus, FolderPlus, Edit2
+  Settings, LogOut, FilePlus, FolderPlus, Edit2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import SettingsModal from "@/components/SettingsModal";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { Notebook, ViewMode } from "@/types";
 import { cn } from "@/lib/utils";
@@ -139,8 +140,10 @@ const notebookMenuItems: ContextMenuItem[] = [
 export default function Sidebar() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { siteConfig } = useSiteSettings();
   const [searchInput, setSearchInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [tagsExpanded, setTagsExpanded] = useState(true);
 
   // 右键菜单
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
@@ -162,6 +165,7 @@ export default function Sidebar() {
   const handleNotebookSelect = (id: string) => {
     actions.setSelectedNotebook(id);
     actions.setViewMode("notebook");
+    actions.setMobileSidebar(false);
   };
 
   const handleToggle = (id: string) => {
@@ -269,7 +273,7 @@ export default function Sidebar() {
 
   if (state.sidebarCollapsed) {
     return (
-      <div className="w-12 h-full bg-app-sidebar border-r border-app-border flex flex-col items-center py-3 gap-2 shrink-0 transition-colors">
+      <div className="hidden md:flex w-12 h-full bg-app-sidebar border-r border-app-border flex-col items-center py-3 gap-2 shrink-0 transition-colors">
         <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
           <PanelLeft size={16} />
         </Button>
@@ -278,13 +282,18 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-[260px] min-w-[260px] h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors">
+    <div className="w-full md:w-[260px] md:min-w-[260px] h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
-        <h1 className="text-sm font-semibold text-tx-primary tracking-wide">nowen-note</h1>
-        <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
-          <PanelLeftClose size={16} />
-        </Button>
+        <h1 className="text-sm font-semibold text-tx-primary tracking-wide">{siteConfig.title}</h1>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={actions.toggleSidebar}>
+            <PanelLeftClose size={16} />
+          </Button>
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => actions.setMobileSidebar(false)}>
+            <X size={16} />
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -317,6 +326,7 @@ export default function Sidebar() {
             onClick={() => {
               actions.setViewMode(item.mode);
               actions.setSelectedNotebook(null);
+              actions.setMobileSidebar(false);
             }}
             className={cn(
               "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm transition-colors",
@@ -364,20 +374,67 @@ export default function Sidebar() {
       </ScrollArea>
 
       {/* Tags */}
-      <div className="border-t border-app-border px-3 py-2">
-        <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">标签</span>
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {state.tags.map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ backgroundColor: tag.color + "20", color: tag.color }}
+      <div className="border-t border-app-border">
+        <button
+          onClick={() => setTagsExpanded(!tagsExpanded)}
+          className="w-full flex items-center justify-between px-3 py-2 hover:bg-app-hover transition-colors"
+        >
+          <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">标签</span>
+          <ChevronDown
+            size={14}
+            className={cn(
+              "text-tx-tertiary transition-transform duration-200",
+              !tagsExpanded && "-rotate-90"
+            )}
+          />
+        </button>
+        <AnimatePresence initial={false}>
+          {tagsExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
             >
-              <Hash size={10} />
-              {tag.name}
-            </span>
-          ))}
-        </div>
+              <div className="px-2 pb-2 space-y-0.5">
+                {state.tags.length === 0 ? (
+                  <p className="text-[10px] text-tx-tertiary px-2 py-1">暂无标签</p>
+                ) : (
+                  state.tags.map((tag) => {
+                    const isActive = state.viewMode === "tag" && state.selectedTagId === tag.id;
+                    return (
+                      <button
+                        key={tag.id}
+                        onClick={() => {
+                          actions.setSelectedTag(tag.id);
+                          actions.setSelectedNotebook(null);
+                          actions.setViewMode("tag");
+                          actions.setMobileSidebar(false);
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors group/tag",
+                          isActive
+                            ? "bg-app-active text-tx-primary"
+                            : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                        )}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span className="flex-1 truncate text-left">{tag.name}</span>
+                        {tag.noteCount !== undefined && tag.noteCount > 0 && (
+                          <span className="text-[10px] text-tx-tertiary tabular-nums">{tag.noteCount}</span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Footer: Settings + Logout */}

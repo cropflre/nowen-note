@@ -12,6 +12,7 @@ app.get("/", (c) => {
   const isFavorite = c.req.query("isFavorite");
   const isTrashed = c.req.query("isTrashed");
   const search = c.req.query("search");
+  const tagId = c.req.query("tagId");
 
   let query = `SELECT id, userId, notebookId, title, contentText, isPinned, isFavorite,
     isArchived, isTrashed, version, createdAt, updatedAt FROM notes WHERE userId = ?`;
@@ -28,6 +29,9 @@ app.get("/", (c) => {
     query += " AND isTrashed = 1";
   } else if (isFavorite === "1") {
     query += " AND isFavorite = 1 AND isTrashed = 0";
+  } else if (tagId) {
+    query += " AND isTrashed = 0 AND id IN (SELECT noteId FROM note_tags WHERE tagId = ?)";
+    params.push(tagId);
   } else if (notebookId) {
     query += " AND notebookId = ? AND isTrashed = 0";
     params.push(notebookId);

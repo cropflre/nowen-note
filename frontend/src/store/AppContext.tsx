@@ -1,16 +1,24 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 import { Notebook, NoteListItem, Note, Tag, ViewMode } from "@/types";
 
+export type SyncStatus = "idle" | "saving" | "saved" | "error";
+export type MobileView = "list" | "editor";
+
 interface AppState {
   notebooks: Notebook[];
   notes: NoteListItem[];
   activeNote: Note | null;
   tags: Tag[];
   selectedNotebookId: string | null;
+  selectedTagId: string | null;
   viewMode: ViewMode;
   searchQuery: string;
   sidebarCollapsed: boolean;
   isLoading: boolean;
+  syncStatus: SyncStatus;
+  lastSyncedAt: string | null;
+  mobileView: MobileView;
+  mobileSidebarOpen: boolean;
 }
 
 type Action =
@@ -19,11 +27,16 @@ type Action =
   | { type: "SET_ACTIVE_NOTE"; payload: Note | null }
   | { type: "SET_TAGS"; payload: Tag[] }
   | { type: "SET_SELECTED_NOTEBOOK"; payload: string | null }
+  | { type: "SET_SELECTED_TAG"; payload: string | null }
   | { type: "SET_VIEW_MODE"; payload: ViewMode }
   | { type: "SET_SEARCH_QUERY"; payload: string }
   | { type: "TOGGLE_SIDEBAR" }
   | { type: "SET_LOADING"; payload: boolean }
-  | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } };
+  | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } }
+  | { type: "SET_SYNC_STATUS"; payload: SyncStatus }
+  | { type: "SET_LAST_SYNCED"; payload: string }
+  | { type: "SET_MOBILE_VIEW"; payload: MobileView }
+  | { type: "SET_MOBILE_SIDEBAR"; payload: boolean };
 
 const initialState: AppState = {
   notebooks: [],
@@ -31,10 +44,15 @@ const initialState: AppState = {
   activeNote: null,
   tags: [],
   selectedNotebookId: null,
+  selectedTagId: null,
   viewMode: "all",
   searchQuery: "",
   sidebarCollapsed: false,
   isLoading: false,
+  syncStatus: "idle",
+  lastSyncedAt: null,
+  mobileView: "list",
+  mobileSidebarOpen: false,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -49,6 +67,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, tags: action.payload };
     case "SET_SELECTED_NOTEBOOK":
       return { ...state, selectedNotebookId: action.payload };
+    case "SET_SELECTED_TAG":
+      return { ...state, selectedTagId: action.payload };
     case "SET_VIEW_MODE":
       return { ...state, viewMode: action.payload };
     case "SET_SEARCH_QUERY":
@@ -64,6 +84,14 @@ function reducer(state: AppState, action: Action): AppState {
           n.id === action.payload.id ? { ...n, ...action.payload } : n
         ),
       };
+    case "SET_SYNC_STATUS":
+      return { ...state, syncStatus: action.payload };
+    case "SET_LAST_SYNCED":
+      return { ...state, lastSyncedAt: action.payload };
+    case "SET_MOBILE_VIEW":
+      return { ...state, mobileView: action.payload };
+    case "SET_MOBILE_SIDEBAR":
+      return { ...state, mobileSidebarOpen: action.payload };
     default:
       return state;
   }
@@ -98,10 +126,15 @@ export function useAppActions() {
     setActiveNote: useCallback((v: Note | null) => dispatch({ type: "SET_ACTIVE_NOTE", payload: v }), [dispatch]),
     setTags: useCallback((v: Tag[]) => dispatch({ type: "SET_TAGS", payload: v }), [dispatch]),
     setSelectedNotebook: useCallback((v: string | null) => dispatch({ type: "SET_SELECTED_NOTEBOOK", payload: v }), [dispatch]),
+    setSelectedTag: useCallback((v: string | null) => dispatch({ type: "SET_SELECTED_TAG", payload: v }), [dispatch]),
     setViewMode: useCallback((v: ViewMode) => dispatch({ type: "SET_VIEW_MODE", payload: v }), [dispatch]),
     setSearchQuery: useCallback((v: string) => dispatch({ type: "SET_SEARCH_QUERY", payload: v }), [dispatch]),
     toggleSidebar: useCallback(() => dispatch({ type: "TOGGLE_SIDEBAR" }), [dispatch]),
     setLoading: useCallback((v: boolean) => dispatch({ type: "SET_LOADING", payload: v }), [dispatch]),
     updateNoteInList: useCallback((v: Partial<NoteListItem> & { id: string }) => dispatch({ type: "UPDATE_NOTE_IN_LIST", payload: v }), [dispatch]),
+    setSyncStatus: useCallback((v: SyncStatus) => dispatch({ type: "SET_SYNC_STATUS", payload: v }), [dispatch]),
+    setLastSynced: useCallback((v: string) => dispatch({ type: "SET_LAST_SYNCED", payload: v }), [dispatch]),
+    setMobileView: useCallback((v: MobileView) => dispatch({ type: "SET_MOBILE_VIEW", payload: v }), [dispatch]),
+    setMobileSidebar: useCallback((v: boolean) => dispatch({ type: "SET_MOBILE_SIDEBAR", payload: v }), [dispatch]),
   };
 }

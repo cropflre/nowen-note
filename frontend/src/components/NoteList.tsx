@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -101,12 +101,14 @@ export default function NoteList() {
         createdAt: r.updatedAt,
         updatedAt: r.updatedAt,
       }));
+    } else if (state.viewMode === "tag" && state.selectedTagId) {
+      notes = await api.getNotesWithTag(state.selectedTagId);
     } else {
       notes = await api.getNotes();
     }
     actions.setNotes(notes);
     actions.setLoading(false);
-  }, [state.viewMode, state.selectedNotebookId, state.searchQuery]);
+  }, [state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagId]);
 
   useEffect(() => {
     fetchNotes().catch(console.error);
@@ -115,6 +117,7 @@ export default function NoteList() {
   const handleSelectNote = async (noteId: string) => {
     const note = await api.getNote(noteId);
     actions.setActiveNote(note);
+    actions.setMobileView("editor");
   };
 
   const handleCreateNote = async () => {
@@ -203,12 +206,27 @@ export default function NoteList() {
     favorites: "收藏",
     trash: "回收站",
     search: `搜索: ${state.searchQuery}`,
+    tag: `# ${state.tags.find((t) => t.id === state.selectedTagId)?.name || "标签"}`,
   };
 
   return (
-    <div className="w-[300px] min-w-[300px] h-full bg-app-surface border-r border-app-border flex flex-col shrink-0 transition-colors">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+    <div className="w-full md:w-[300px] md:min-w-[300px] h-full bg-app-surface border-r border-app-border flex flex-col shrink-0 transition-colors relative">
+      {/* Mobile Header */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-app-border md:hidden">
+        <button
+          onClick={() => actions.setMobileSidebar(true)}
+          className="p-1.5 -ml-1.5 rounded-md text-tx-secondary hover:bg-app-hover"
+        >
+          <Menu size={22} />
+        </button>
+        <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCreateNote}>
+          <Plus size={15} />
+        </Button>
+      </header>
+
+      {/* Desktop Header */}
+      <div className="hidden md:flex items-center justify-between px-4 py-3 border-b border-app-border">
         <div className="flex items-center gap-2">
           <FileText size={16} className="text-accent-primary" />
           <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
@@ -246,6 +264,14 @@ export default function NoteList() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Mobile FAB - 新建笔记 */}
+      <button
+        onClick={handleCreateNote}
+        className="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-accent-primary rounded-2xl shadow-lg shadow-accent-primary/30 flex items-center justify-center text-white active:scale-95 transition-transform z-10"
+      >
+        <Plus size={24} />
+      </button>
 
       {/* Note Context Menu */}
       <ContextMenu

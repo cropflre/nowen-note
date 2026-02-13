@@ -11,6 +11,7 @@ import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
 import tasksRouter from "./routes/tasks";
 import exportRouter from "./routes/export";
+import settingsRouter from "./routes/settings";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
@@ -33,6 +34,17 @@ app.route("/api/auth", authRouter);
 
 // 健康检查（无需 JWT）
 app.get("/api/health", (c) => c.json({ status: "ok", version: "1.0.0" }));
+
+// 站点设置（GET 无需 JWT，允许未登录时加载品牌信息）
+app.get("/api/settings", (c) => {
+  const db = getDb();
+  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%'").all() as { key: string; value: string }[];
+  const result: Record<string, string> = { site_title: "nowen-note", site_favicon: "" };
+  for (const row of rows) {
+    result[row.key] = row.value;
+  }
+  return c.json(result);
+});
 
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 app.use("/api/*", async (c, next) => {
@@ -60,6 +72,7 @@ app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
 app.route("/api/tasks", tasksRouter);
 app.route("/api/export", exportRouter);
+app.route("/api/settings", settingsRouter);
 
 // 获取当前登录用户信息
 app.get("/api/me", (c) => {

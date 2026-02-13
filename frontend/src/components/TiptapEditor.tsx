@@ -17,7 +17,8 @@ import {
   FileCode
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Note } from "@/types";
+import { Note, Tag } from "@/types";
+import TagInput from "@/components/TagInput";
 
 const lowlight = createLowlight(common);
 
@@ -56,9 +57,10 @@ function ToolbarDivider() {
 interface TiptapEditorProps {
   note: Note;
   onUpdate: (data: { content: string; contentText: string; title: string }) => void;
+  onTagsChange?: (tags: Tag[]) => void;
 }
 
-export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
+export default function TiptapEditor({ note, onUpdate, onTagsChange }: TiptapEditorProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -161,7 +163,7 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 flex-wrap transition-colors">
+      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors">
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销">
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -290,7 +292,7 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
       </div>
 
       {/* Title */}
-      <div className="px-8 pt-6 pb-2">
+      <div className="px-4 md:px-8 pt-4 md:pt-6 pb-0">
         <input
           ref={titleRef}
           defaultValue={note.title}
@@ -303,6 +305,15 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
           <span>·</span>
           <span>更新于 {new Date(note.updatedAt + "Z").toLocaleString("zh-CN")}</span>
         </div>
+      </div>
+
+      {/* Tag Bar */}
+      <div className="px-4 md:px-8 pb-2">
+        <TagInput
+          noteId={note.id}
+          noteTags={note.tags || []}
+          onTagsChange={onTagsChange}
+        />
       </div>
 
       {/* Bubble menu for inline formatting */}
@@ -329,7 +340,7 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
       )}
 
       {/* Editor content */}
-      <div className="flex-1 overflow-auto px-8 pb-12">
+      <div className="flex-1 overflow-auto px-4 md:px-8 pb-12">
         <EditorContent editor={editor} />
       </div>
     </div>

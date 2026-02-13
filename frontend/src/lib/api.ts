@@ -30,6 +30,13 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Public (no auth required)
+  getSiteSettingsPublic: async (): Promise<{ site_title: string; site_favicon: string }> => {
+    const res = await fetch(`${BASE_URL}/settings`);
+    if (!res.ok) return { site_title: "nowen-note", site_favicon: "" };
+    return res.json();
+  },
+
   // User
   getMe: () => request<User>("/me"),
 
@@ -55,6 +62,7 @@ export const api = {
   deleteTag: (id: string) => request(`/tags/${id}`, { method: "DELETE" }),
   addTagToNote: (noteId: string, tagId: string) => request(`/tags/note/${noteId}/tag/${tagId}`, { method: "POST" }),
   removeTagFromNote: (noteId: string, tagId: string) => request(`/tags/note/${noteId}/tag/${tagId}`, { method: "DELETE" }),
+  getNotesWithTag: (tagId: string) => request<NoteListItem[]>(`/notes?tagId=${encodeURIComponent(tagId)}`),
 
   // Search
   search: (q: string) => request<SearchResult[]>(`/search?q=${encodeURIComponent(q)}`),
@@ -86,5 +94,13 @@ export const api = {
     request<{ success: boolean; count: number; notebookId: string; notes: any[] }>("/export/import", {
       method: "POST",
       body: JSON.stringify({ notes, notebookId }),
+    }),
+
+  // Site Settings
+  getSiteSettings: () => request<{ site_title: string; site_favicon: string }>("/settings"),
+  updateSiteSettings: (data: { site_title?: string; site_favicon?: string }) =>
+    request<{ site_title: string; site_favicon: string }>("/settings", {
+      method: "PUT",
+      body: JSON.stringify(data),
     }),
 };

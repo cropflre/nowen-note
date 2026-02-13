@@ -74,7 +74,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag";
 
 export type TaskPriority = 1 | 2 | 3; // 1=低, 2=中, 3=高
 

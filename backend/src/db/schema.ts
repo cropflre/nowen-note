@@ -105,6 +105,13 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    -- 系统设置表（键值对）
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- 待办任务表
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
