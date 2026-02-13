@@ -56,22 +56,18 @@ function DateBadge({ dateStr }: { dateStr: string | null }) {
 }
 
 /* ===== 任务项组件 ===== */
-function TaskRow({
-  task,
-  onToggle,
-  onSelect,
-  onDelete,
-}: {
+const TaskRow = React.forwardRef<HTMLDivElement, {
   task: Task;
   onToggle: (id: string) => void;
   onSelect: (task: Task) => void;
   onDelete: (id: string) => void;
-}) {
+}>(({ task, onToggle, onSelect, onDelete }, ref) => {
   const isCompleted = task.isCompleted === 1;
   const pri = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG[2];
 
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
@@ -119,20 +115,15 @@ function TaskRow({
       </div>
     </motion.div>
   );
-}
+});
 
 /* ===== 任务详情面板 ===== */
-function TaskDetail({
-  task,
-  onClose,
-  onUpdate,
-  onDelete,
-}: {
+const TaskDetail = React.forwardRef<HTMLDivElement, {
   task: Task;
   onClose: () => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
   onDelete: (id: string) => void;
-}) {
+}>(({ task, onClose, onUpdate, onDelete }, ref) => {
   const [title, setTitle] = useState(task.title);
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate || "");
@@ -150,6 +141,7 @@ function TaskDetail({
 
   return (
     <motion.div
+      ref={ref}
       initial={{ x: 320, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 320, opacity: 0 }}
@@ -239,7 +231,7 @@ function TaskDetail({
       </div>
     </motion.div>
   );
-}
+});
 
 /* ===== 主组件 ===== */
 export default function TaskCenter() {

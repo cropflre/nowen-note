@@ -183,12 +183,14 @@ function AppearancePanel() {
   );
 }
 
-export default function SettingsModal({ onClose, defaultTab = "appearance" }: SettingsModalProps) {
+const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
+  function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const { siteConfig } = useSiteSettings();
 
   return (
     <motion.div
+      ref={ref}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -276,4 +278,6 @@ export default function SettingsModal({ onClose, defaultTab = "appearance" }: Se
       </motion.div>
     </motion.div>
   );
-}
+});
+
+export default SettingsModal;
