@@ -105,6 +105,24 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    -- 待办任务表
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      title TEXT NOT NULL,
+      isCompleted INTEGER DEFAULT 0,
+      priority INTEGER DEFAULT 2,
+      dueDate TEXT,
+      noteId TEXT,
+      parentId TEXT,
+      sortOrder INTEGER DEFAULT 0,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE SET NULL,
+      FOREIGN KEY (parentId) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+
     -- 全文搜索虚拟表
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       title,
@@ -122,6 +140,10 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(userId);
     CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(noteId);
     CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tagId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(userId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(dueDate);
+    CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parentId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(isCompleted);
 
     -- FTS 同步触发器
     CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN

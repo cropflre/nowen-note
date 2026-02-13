@@ -74,4 +74,31 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks";
+
+export type TaskPriority = 1 | 2 | 3; // 1=低, 2=中, 3=高
+
+export type TaskFilter = "all" | "today" | "week" | "overdue" | "completed";
+
+export interface Task {
+  id: string;
+  userId: string;
+  title: string;
+  isCompleted: number;
+  priority: TaskPriority;
+  dueDate: string | null;
+  noteId: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  children?: Task[];
+}
+
+export interface TaskStats {
+  total: number;
+  completed: number;
+  pending: number;
+  today: number;
+  overdue: number;
+}

@@ -40,7 +40,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title }: Toolbar
         "p-1.5 rounded-md transition-colors",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
-          : "text-text-secondary hover:bg-dark-hover hover:text-text-primary",
+          : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
         disabled && "opacity-30 cursor-not-allowed"
       )}
     >
@@ -50,7 +50,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title }: Toolbar
 }
 
 function ToolbarDivider() {
-  return <div className="w-px h-5 bg-dark-border mx-1" />;
+  return <div className="w-px h-5 bg-app-border mx-1" />;
 }
 
 interface TiptapEditorProps {
@@ -81,15 +81,24 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
       Underline,
       Highlight.configure({
         multicolor: true,
-        HTMLAttributes: { class: "bg-yellow-400/30 rounded px-0.5" },
+        HTMLAttributes: { class: "highlight-mark" },
       }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
+      TaskList.configure({
+        HTMLAttributes: {
+          class: 'task-list',
+        },
+      }),
+      TaskItem.configure({
+        nested: true,
+        HTMLAttributes: {
+          class: 'task-item',
+        },
+      }),
     ],
     content: parseContent(note.content),
     editorProps: {
       attributes: {
-        class: "prose prose-invert prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
+        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
       },
     },
     onUpdate: ({ editor }) => {
@@ -152,7 +161,7 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-dark-border bg-dark-surface/50 flex-wrap">
+      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 flex-wrap transition-colors">
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销">
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -287,9 +296,9 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
           defaultValue={note.title}
           onChange={handleTitleChange}
           placeholder="笔记标题"
-          className="w-full bg-transparent text-2xl font-bold text-text-primary placeholder:text-text-tertiary focus:outline-none"
+          className="w-full bg-transparent text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
         />
-        <div className="flex items-center gap-3 mt-2 text-[10px] text-text-tertiary">
+        <div className="flex items-center gap-3 mt-2 text-[10px] text-tx-tertiary">
           <span>版本 {note.version}</span>
           <span>·</span>
           <span>更新于 {new Date(note.updatedAt + "Z").toLocaleString("zh-CN")}</span>
@@ -299,7 +308,7 @@ export default function TiptapEditor({ note, onUpdate }: TiptapEditorProps) {
       {/* Bubble menu for inline formatting */}
       {editor && (
         <BubbleMenu editor={editor}
-          className="flex items-center gap-0.5 bg-dark-elevated border border-dark-border rounded-lg shadow-lg p-1"
+          className="flex items-center gap-0.5 bg-app-elevated border border-app-border rounded-lg shadow-lg p-1"
         >
           <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")}>
             <Bold size={14} />

@@ -4,8 +4,83 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
+/* ===== Light Theme (默认) ===== */
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --color-bg: #ffffff;
+  --color-surface: #f9fafb;
+  --color-sidebar: #f3f4f6;
+  --color-elevated: #ffffff;
+  --color-border: #e5e7eb;
+  --color-hover: #f3f4f6;
+  --color-active: #e0e7ff;
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-text-inverse: #ffffff;
+
+  --color-accent-primary: #3b82f6;
+  --color-accent-secondary: #22c55e;
+  --color-accent-warning: #f59e0b;
+  --color-accent-danger: #ef4444;
+  --color-accent-muted: #9ca3af;
+
+  /* ProseMirror 编辑器色值 */
+  --pm-text: #374151;
+  --pm-heading: #111827;
+  --pm-code-bg: #f3f4f6;
+  --pm-code-text: #dc2626;
+  --pm-pre-bg: #f9fafb;
+  --pm-pre-border: #e5e7eb;
+  --pm-pre-text: #374151;
+  --pm-blockquote-border: #3b82f6;
+  --pm-blockquote-text: #6b7280;
+  --pm-hr: #e5e7eb;
+  --pm-placeholder: #9ca3af;
+  --pm-task-done: #9ca3af;
+  --pm-scrollbar: #d1d5db;
+  --pm-scrollbar-hover: #9ca3af;
+  --pm-selection: rgba(59, 130, 246, 0.2);
+}
+
+/* ===== Dark Theme ===== */
+.dark {
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-sidebar: #1c2128;
+  --color-elevated: #1c2333;
+  --color-border: #30363d;
+  --color-hover: #1f2937;
+  --color-active: #253040;
+
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-text-tertiary: #6e7681;
+  --color-text-inverse: #0d1117;
+
+  --color-accent-primary: #58a6ff;
+  --color-accent-secondary: #7ee787;
+  --color-accent-warning: #f0883e;
+  --color-accent-danger: #f85149;
+  --color-accent-muted: #8b949e;
+
+  --pm-text: #c9d1d9;
+  --pm-heading: #e6edf3;
+  --pm-code-bg: #1c2333;
+  --pm-code-text: #f0883e;
+  --pm-pre-bg: #161b22;
+  --pm-pre-border: #30363d;
+  --pm-pre-text: #c9d1d9;
+  --pm-blockquote-border: #58a6ff;
+  --pm-blockquote-text: #8b949e;
+  --pm-hr: #30363d;
+  --pm-placeholder: #6e7681;
+  --pm-task-done: #6e7681;
+  --pm-scrollbar: #30363d;
+  --pm-scrollbar-hover: #484f58;
+  --pm-selection: rgba(88, 166, 255, 0.25);
 }
 
 html, body, #root {
@@ -17,18 +92,19 @@ html, body, #root {
 }
 
 body {
-  background: #0d1117;
-  color: #e6edf3;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Tiptap Editor Styles */
+/* ===== Tiptap / ProseMirror 编辑器样式 ===== */
 .ProseMirror {
   outline: none;
   min-height: 300px;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
-  color: #6e7681;
+  color: var(--pm-placeholder);
   content: attr(data-placeholder);
   float: left;
   height: 0;
@@ -39,7 +115,7 @@ body {
   font-size: 1.75rem;
   font-weight: 700;
   margin: 1.5rem 0 0.5rem;
-  color: #e6edf3;
+  color: var(--pm-heading);
   line-height: 1.3;
 }
 
@@ -47,7 +123,7 @@ body {
   font-size: 1.375rem;
   font-weight: 600;
   margin: 1.25rem 0 0.5rem;
-  color: #e6edf3;
+  color: var(--pm-heading);
   line-height: 1.3;
 }
 
@@ -55,14 +131,14 @@ body {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 1rem 0 0.4rem;
-  color: #e6edf3;
+  color: var(--pm-heading);
   line-height: 1.4;
 }
 
 .ProseMirror p {
   margin: 0.4rem 0;
   line-height: 1.7;
-  color: #c9d1d9;
+  color: var(--pm-text);
 }
 
 .ProseMirror ul,
@@ -73,7 +149,7 @@ body {
 
 .ProseMirror li {
   margin: 0.2rem 0;
-  color: #c9d1d9;
+  color: var(--pm-text);
 }
 
 .ProseMirror li p {
@@ -81,16 +157,16 @@ body {
 }
 
 .ProseMirror blockquote {
-  border-left: 3px solid #58a6ff;
+  border-left: 3px solid var(--pm-blockquote-border);
   padding-left: 1rem;
   margin: 0.75rem 0;
-  color: #8b949e;
+  color: var(--pm-blockquote-text);
   font-style: italic;
 }
 
 .ProseMirror code {
-  background: #1c2333;
-  color: #f0883e;
+  background: var(--pm-code-bg);
+  color: var(--pm-code-text);
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
   font-family: 'JetBrains Mono', monospace;
@@ -98,8 +174,8 @@ body {
 }
 
 .ProseMirror pre {
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: var(--pm-pre-bg);
+  border: 1px solid var(--pm-pre-border);
   border-radius: 8px;
   padding: 1rem;
   margin: 0.75rem 0;
@@ -108,7 +184,7 @@ body {
 
 .ProseMirror pre code {
   background: none;
-  color: #c9d1d9;
+  color: var(--pm-pre-text);
   padding: 0;
   font-size: 0.85rem;
   line-height: 1.6;
@@ -116,7 +192,7 @@ body {
 
 .ProseMirror hr {
   border: none;
-  border-top: 1px solid #30363d;
+  border-top: 1px solid var(--pm-hr);
   margin: 1.5rem 0;
 }
 
@@ -127,48 +203,139 @@ body {
   display: block;
 }
 
-/* Task list */
+/* ===== Task List ===== */
 .ProseMirror ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;
+  margin: 0.5rem 0;
 }
 
-.ProseMirror ul[data-type="taskList"] li {
+/* 嵌套 task list 缩进 */
+.ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin: 0.25rem 0 0.25rem 1.25rem;
+}
+
+/* 待办项容器 */
+.ProseMirror li[data-type="taskItem"] {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   gap: 0.5rem;
+  margin: 0.375rem 0;
+  border-radius: 6px;
+  padding: 2px 4px;
+  transition: background-color 0.15s ease;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label {
-  margin-top: 0.25rem;
+.ProseMirror li[data-type="taskItem"]:hover {
+  background-color: var(--color-hover);
 }
 
-.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
-  accent-color: #58a6ff;
-  width: 14px;
-  height: 14px;
+/* Checkbox label 容器 */
+.ProseMirror li[data-type="taskItem"] > label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.2rem;
   cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
 }
 
-.ProseMirror ul[data-type="taskList"] li > div {
+/* ===== 自定义 Checkbox 核心样式 ===== */
+.ProseMirror li[data-type="taskItem"] > label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid var(--task-checkbox-border);
+  background: var(--task-checkbox-bg);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Hover 效果 - 放大 + 边框变色 */
+.ProseMirror li[data-type="taskItem"] > label input[type="checkbox"]:hover {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  transform: scale(1.1);
+}
+
+/* 选中态 - 主题色背景 + 白色对勾 */
+.ProseMirror li[data-type="taskItem"] > label input[type="checkbox"]:checked {
+  background: #6366f1;
+  border-color: #6366f1;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.ProseMirror li[data-type="taskItem"] > label input[type="checkbox"]:checked:hover {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+/* 文本内容区 */
+.ProseMirror li[data-type="taskItem"] > div {
   flex: 1;
+  min-width: 0;
+  transition: all 0.2s ease;
+  outline: none;
 }
 
-.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div p {
+/* 已完成态：文字变灰 + 删除线 */
+.ProseMirror li[data-type="taskItem"][data-checked="true"] > div p {
   text-decoration: line-through;
-  color: #6e7681;
+  text-decoration-color: var(--task-done-strike);
+  color: var(--pm-task-done);
+  transition: color 0.2s ease, text-decoration-color 0.2s ease;
 }
 
-/* Highlight syntax colors */
-.hljs-keyword { color: #ff7b72; }
-.hljs-string { color: #a5d6ff; }
-.hljs-comment { color: #6e7681; }
-.hljs-number { color: #79c0ff; }
-.hljs-function { color: #d2a8ff; }
-.hljs-title { color: #d2a8ff; }
-.hljs-built_in { color: #ffa657; }
-.hljs-attr { color: #79c0ff; }
-.hljs-params { color: #c9d1d9; }
+/* ===== Task Checkbox 色彩变量 ===== */
+:root {
+  --task-checkbox-border: #d1d5db;
+  --task-checkbox-bg: #ffffff;
+  --task-done-strike: #d1d5db;
+}
+
+.dark {
+  --task-checkbox-border: #52525b;
+  --task-checkbox-bg: #27272a;
+  --task-done-strike: #52525b;
+}
+
+/* Highlight syntax colors - 这些在 dark 下才需要高对比 */
+.dark .hljs-keyword { color: #ff7b72; }
+.dark .hljs-string { color: #a5d6ff; }
+.dark .hljs-comment { color: #6e7681; }
+.dark .hljs-number { color: #79c0ff; }
+.dark .hljs-function { color: #d2a8ff; }
+.dark .hljs-title { color: #d2a8ff; }
+.dark .hljs-built_in { color: #ffa657; }
+.dark .hljs-attr { color: #79c0ff; }
+.dark .hljs-params { color: #c9d1d9; }
+
+:root .hljs-keyword { color: #d73a49; }
+:root .hljs-string { color: #032f62; }
+:root .hljs-comment { color: #6a737d; }
+:root .hljs-number { color: #005cc5; }
+:root .hljs-function { color: #6f42c1; }
+:root .hljs-title { color: #6f42c1; }
+:root .hljs-built_in { color: #e36209; }
+:root .hljs-attr { color: #005cc5; }
+:root .hljs-params { color: #24292e; }
+
+/* Highlight mark */
+.highlight-mark {
+  background: rgba(250, 204, 21, 0.3);
+  border-radius: 2px;
+  padding: 0 2px;
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar {
@@ -181,15 +348,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30363d;
+  background: var(--pm-scrollbar);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
+  background: var(--pm-scrollbar-hover);
 }
 
 /* Selection */
 ::selection {
-  background: rgba(88, 166, 255, 0.25);
+  background: var(--pm-selection);
 }

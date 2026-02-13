@@ -37,26 +37,26 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
       className={cn(
         "px-3 py-2.5 rounded-lg cursor-pointer border transition-all group",
         isActive
-          ? "bg-dark-active border-accent-primary/30 shadow-sm"
-          : "bg-transparent border-transparent hover:bg-dark-hover"
+          ? "bg-app-active border-accent-primary/30 shadow-sm"
+          : "bg-transparent border-transparent hover:bg-app-hover"
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className={cn(
           "text-sm font-medium truncate flex-1",
-          isActive ? "text-text-primary" : "text-text-secondary"
+          isActive ? "text-tx-primary" : "text-tx-secondary"
         )}>
           {note.title || "无标题笔记"}
         </h3>
         <div className="flex items-center gap-1 shrink-0">
           {note.isPinned === 1 && <Pin size={12} className="text-accent-primary" />}
-          {note.isFavorite === 1 && <Star size={12} className="text-yellow-400 fill-yellow-400" />}
+          {note.isFavorite === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
         </div>
       </div>
       {preview && (
-        <p className="text-xs text-text-tertiary mt-1 line-clamp-2 leading-relaxed">{preview}</p>
+        <p className="text-xs text-tx-tertiary mt-1 line-clamp-2 leading-relaxed">{preview}</p>
       )}
-      <div className="flex items-center gap-1.5 mt-1.5 text-text-tertiary">
+      <div className="flex items-center gap-1.5 mt-1.5 text-tx-tertiary">
         <Clock size={10} />
         <span className="text-[10px]">{formatTime(note.updatedAt)}</span>
       </div>
@@ -126,12 +126,12 @@ export default function NoteList() {
   };
 
   return (
-    <div className="w-[300px] min-w-[300px] h-full bg-dark-bg border-r border-dark-border flex flex-col shrink-0">
+    <div className="w-[300px] min-w-[300px] h-full bg-app-surface border-r border-app-border flex flex-col shrink-0 transition-colors">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-dark-border">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
         <div className="flex items-center gap-2">
           <FileText size={16} className="text-accent-primary" />
-          <h2 className="text-sm font-medium text-text-primary">{viewTitles[state.viewMode]}</h2>
+          <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCreateNote}>
           <Plus size={15} />
@@ -140,7 +140,7 @@ export default function NoteList() {
 
       {/* Count */}
       <div className="px-4 py-1.5">
-        <span className="text-[10px] text-text-tertiary">{state.notes.length} 条笔记</span>
+        <span className="text-[10px] text-tx-tertiary">{state.notes.length} 条笔记</span>
       </div>
 
       {/* List */}
@@ -157,7 +157,7 @@ export default function NoteList() {
             ))}
           </AnimatePresence>
           {state.notes.length === 0 && !state.isLoading && (
-            <div className="flex flex-col items-center justify-center py-12 text-text-tertiary">
+            <div className="flex flex-col items-center justify-center py-12 text-tx-tertiary">
               <FileText size={32} className="mb-2 opacity-30" />
               <p className="text-xs">暂无笔记</p>
             </div>

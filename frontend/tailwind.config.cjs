@@ -8,27 +8,29 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        dark: {
-          bg: "#0d1117",
-          surface: "#161b22",
-          elevated: "#1c2333",
-          border: "#30363d",
-          hover: "#1f2937",
-          active: "#253040",
+        // 语义化颜色 - 通过 CSS 变量切换 Light/Dark
+        app: {
+          bg: "var(--color-bg)",
+          surface: "var(--color-surface)",
+          sidebar: "var(--color-sidebar)",
+          elevated: "var(--color-elevated)",
+          border: "var(--color-border)",
+          hover: "var(--color-hover)",
+          active: "var(--color-active)",
+        },
+        tx: {
+          primary: "var(--color-text-primary)",
+          secondary: "var(--color-text-secondary)",
+          tertiary: "var(--color-text-tertiary)",
+          inverse: "var(--color-text-inverse)",
         },
         accent: {
-          primary: "#58a6ff",
-          secondary: "#7ee787",
-          warning: "#f0883e",
-          danger: "#f85149",
-          muted: "#8b949e",
+          primary: "var(--color-accent-primary)",
+          secondary: "var(--color-accent-secondary)",
+          warning: "var(--color-accent-warning)",
+          danger: "var(--color-accent-danger)",
+          muted: "var(--color-accent-muted)",
         },
-        text: {
-          primary: "#e6edf3",
-          secondary: "#8b949e",
-          tertiary: "#6e7681",
-          inverse: "#0d1117",
-        }
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

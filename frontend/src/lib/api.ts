@@ -1,4 +1,4 @@
-import { Notebook, Note, NoteListItem, Tag, SearchResult, User } from "@/types";
+import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter } from "@/types";
 
 const BASE_URL = "/api";
 
@@ -47,4 +47,27 @@ export const api = {
 
   // Search
   search: (q: string) => request<SearchResult[]>(`/search?q=${encodeURIComponent(q)}`),
+
+  // Tasks
+  getTasks: (filter?: TaskFilter, noteId?: string) => {
+    const params = new URLSearchParams();
+    if (filter && filter !== "all") params.set("filter", filter);
+    if (noteId) params.set("noteId", noteId);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<Task[]>(`/tasks${qs}`);
+  },
+  getTask: (id: string) => request<Task>(`/tasks/${id}`),
+  createTask: (data: Partial<Task>) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
+  updateTask: (id: string, data: Partial<Task>) => request<Task>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  toggleTask: (id: string) => request<Task>(`/tasks/${id}/toggle`, { method: "PATCH" }),
+  deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
+  getTaskStats: () => request<TaskStats>("/tasks/stats/summary"),
+
+  // Export / Import
+  getExportNotes: () => request<any[]>("/export/notes"),
+  importNotes: (notes: { title: string; content: string; contentText: string }[], notebookId?: string) =>
+    request<{ success: boolean; count: number; notebookId: string; notes: any[] }>("/export/import", {
+      method: "POST",
+      body: JSON.stringify({ notes, notebookId }),
+    }),
 };

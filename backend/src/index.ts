@@ -8,6 +8,8 @@ import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
+import tasksRouter from "./routes/tasks";
+import exportRouter from "./routes/export";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
 
@@ -42,6 +44,8 @@ app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
+app.route("/api/tasks", tasksRouter);
+app.route("/api/export", exportRouter);
 
 // 健康检查
 app.get("/api/health", (c) => c.json({ status: "ok", version: "1.0.0" }));

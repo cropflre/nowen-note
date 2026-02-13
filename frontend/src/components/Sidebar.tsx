@@ -2,11 +2,14 @@ import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Star, Trash2, FolderOpen, Search, ChevronRight,
-  ChevronDown, Settings, Hash, MoreHorizontal, PanelLeftClose, PanelLeft
+  ChevronDown, Settings, Hash, MoreHorizontal, PanelLeftClose, PanelLeft, ListTodo,
+  Database
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import ThemeToggle from "@/components/ThemeToggle";
+import DataManager from "@/components/DataManager";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { Notebook, ViewMode } from "@/types";
@@ -44,7 +47,7 @@ function NotebookItem({
         animate={{ opacity: 1, x: 0 }}
         className={cn(
           "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors",
-          isSelected ? "bg-dark-active text-text-primary" : "text-text-secondary hover:bg-dark-hover hover:text-text-primary"
+          isSelected ? "bg-app-active text-tx-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
         )}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={() => onSelect(notebook.id)}
@@ -52,7 +55,7 @@ function NotebookItem({
         {hasChildren ? (
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(notebook.id); }}
-            className="p-0.5 rounded hover:bg-dark-border transition-colors"
+            className="p-0.5 rounded hover:bg-app-border transition-colors"
           >
             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
@@ -61,7 +64,7 @@ function NotebookItem({
         )}
         <span className="text-base">{notebook.icon}</span>
         <span className="flex-1 truncate">{notebook.name}</span>
-        <button className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-dark-border transition-all">
+        <button className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-border transition-all">
           <MoreHorizontal size={14} />
         </button>
       </motion.div>
@@ -94,7 +97,7 @@ export default function Sidebar() {
   const { state } = useApp();
   const actions = useAppActions();
   const [searchInput, setSearchInput] = useState("");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [showDataManager, setShowDataManager] = useState(false);
 
   const tree = useMemo(() => buildTree(state.notebooks), [state.notebooks]);
 
@@ -125,13 +128,14 @@ export default function Sidebar() {
 
   const navItems: { icon: React.ReactNode; label: string; mode: ViewMode; active: boolean }[] = [
     { icon: <BookOpen size={16} />, label: "所有笔记", mode: "all", active: state.viewMode === "all" },
+    { icon: <ListTodo size={16} />, label: "待办事项", mode: "tasks", active: state.viewMode === "tasks" },
     { icon: <Star size={16} />, label: "收藏", mode: "favorites", active: state.viewMode === "favorites" },
     { icon: <Trash2 size={16} />, label: "回收站", mode: "trash", active: state.viewMode === "trash" },
   ];
 
   if (state.sidebarCollapsed) {
     return (
-      <div className="w-12 h-full bg-dark-surface border-r border-dark-border flex flex-col items-center py-3 gap-2 shrink-0">
+      <div className="w-12 h-full bg-app-sidebar border-r border-app-border flex flex-col items-center py-3 gap-2 shrink-0 transition-colors">
         <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
           <PanelLeft size={16} />
         </Button>
@@ -140,12 +144,10 @@ export default function Sidebar() {
   }
 
   return (
-    <div
-      className="w-[260px] min-w-[260px] h-full bg-dark-surface border-r border-dark-border flex flex-col shrink-0"
-    >
+    <div className="w-[260px] min-w-[260px] h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-dark-border">
-        <h1 className="text-sm font-semibold text-text-primary tracking-wide">nowen-note</h1>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+        <h1 className="text-sm font-semibold text-tx-primary tracking-wide">nowen-note</h1>
         <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
           <PanelLeftClose size={16} />
         </Button>
@@ -154,10 +156,10 @@ export default function Sidebar() {
       {/* Search */}
       <div className="px-3 py-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" size={14} />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" size={14} />
           <Input
             placeholder="搜索笔记..."
-            className="pl-8 h-8 text-xs bg-dark-bg border-dark-border"
+            className="pl-8 h-8 text-xs bg-app-bg border-app-border"
             value={searchInput}
             onChange={(e) => {
               setSearchInput(e.target.value);
@@ -185,8 +187,8 @@ export default function Sidebar() {
             className={cn(
               "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm transition-colors",
               item.active
-                ? "bg-dark-active text-text-primary"
-                : "text-text-secondary hover:bg-dark-hover hover:text-text-primary"
+                ? "bg-app-active text-tx-primary"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
             )}
           >
             {item.icon}
@@ -196,11 +198,11 @@ export default function Sidebar() {
       </div>
 
       {/* Separator */}
-      <div className="mx-3 my-2 border-t border-dark-border" />
+      <div className="mx-3 my-2 border-t border-app-border" />
 
       {/* Notebooks */}
       <div className="px-3 flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">笔记本</span>
+        <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">笔记本</span>
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleCreateNotebook}>
           <Plus size={14} />
         </Button>
@@ -222,8 +224,8 @@ export default function Sidebar() {
       </ScrollArea>
 
       {/* Tags */}
-      <div className="border-t border-dark-border px-3 py-2">
-        <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">标签</span>
+      <div className="border-t border-app-border px-3 py-2">
+        <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">标签</span>
         <div className="flex flex-wrap gap-1.5 mt-2">
           {state.tags.map((tag) => (
             <span
@@ -237,6 +239,25 @@ export default function Sidebar() {
           ))}
         </div>
       </div>
+
+      {/* Footer: Theme Toggle + Data Manager */}
+      <div className="border-t border-app-border px-3 py-2 flex items-center justify-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-tx-tertiary hover:text-tx-primary"
+          onClick={() => setShowDataManager(true)}
+          title="数据管理"
+        >
+          <Database size={16} />
+        </Button>
+        <ThemeToggle />
+      </div>
+
+      {/* Data Manager Modal */}
+      <AnimatePresence>
+        {showDataManager && <DataManager onClose={() => setShowDataManager(false)} />}
+      </AnimatePresence>
     </div>
   );
 }

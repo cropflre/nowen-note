@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, MoreVertical, ArrowLeft } from "lucide-react";
+import { motion } from "framer-motion";
+import { Star, Pin, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TiptapEditor from "@/components/TiptapEditor";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -46,11 +46,11 @@ export default function EditorPane() {
 
   if (!activeNote) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-dark-bg">
+      <div className="flex-1 flex items-center justify-center bg-app-bg transition-colors">
         <div className="text-center">
           <div className="text-6xl mb-4 opacity-10">✍️</div>
-          <p className="text-text-tertiary text-sm">选择一条笔记开始编辑</p>
-          <p className="text-text-tertiary text-xs mt-1">或创建新笔记</p>
+          <p className="text-tx-tertiary text-sm">选择一条笔记开始编辑</p>
+          <p className="text-tx-tertiary text-xs mt-1">或创建新笔记</p>
         </div>
       </div>
     );
@@ -62,12 +62,12 @@ export default function EditorPane() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.15 }}
-      className="flex-1 flex flex-col bg-dark-bg overflow-hidden"
+      className="flex-1 flex flex-col bg-app-bg overflow-hidden transition-colors"
     >
       {/* Editor Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-dark-border bg-dark-surface/30">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">
+          <span className="text-xs text-tx-tertiary">
             {state.notebooks.find((n) => n.id === activeNote.notebookId)?.icon}{" "}
             {state.notebooks.find((n) => n.id === activeNote.notebookId)?.name}
           </span>
@@ -85,7 +85,7 @@ export default function EditorPane() {
             onClick={toggleFavorite}
             title={activeNote.isFavorite ? "取消收藏" : "收藏"}
           >
-            <Star size={14} className={cn(activeNote.isFavorite && "text-yellow-400 fill-yellow-400")} />
+            <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
           </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={moveToTrash} title="移到回收站">
             <Trash2 size={14} />

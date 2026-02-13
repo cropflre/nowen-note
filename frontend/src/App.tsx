@@ -2,26 +2,39 @@ import React from "react";
 import Sidebar from "@/components/Sidebar";
 import NoteList from "@/components/NoteList";
 import EditorPane from "@/components/EditorPane";
-import { AppProvider } from "@/store/AppContext";
+import TaskCenter from "@/components/TaskCenter";
+import { AppProvider, useApp } from "@/store/AppContext";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 function AppLayout() {
+  const { state } = useApp();
+  const isTaskView = state.viewMode === "tasks";
+
   return (
-    <div className="flex h-screen w-screen bg-dark-bg overflow-hidden">
+    <div className="flex h-screen w-screen bg-app-bg overflow-hidden transition-colors duration-200">
       <Sidebar />
-      <NoteList />
-      <EditorPane />
+      {isTaskView ? (
+        <TaskCenter />
+      ) : (
+        <>
+          <NoteList />
+          <EditorPane />
+        </>
+      )}
     </div>
   );
 }
 
 function App() {
   return (
-    <AppProvider>
-      <TooltipProvider>
-        <AppLayout />
-      </TooltipProvider>
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <TooltipProvider>
+          <AppLayout />
+        </TooltipProvider>
+      </AppProvider>
+    </ThemeProvider>
   );
 }
 
