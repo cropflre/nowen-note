@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BookOpen, Plus, Star, Trash2, FolderOpen, Search, ChevronRight,
-  ChevronDown, Settings, Hash, MoreHorizontal, PanelLeftClose, PanelLeft, ListTodo,
-  Database
+  BookOpen, Plus, Star, Trash2, Search, ChevronRight,
+  ChevronDown, Hash, PanelLeftClose, PanelLeft, ListTodo,
+  Settings, LogOut, FilePlus, FolderPlus, Edit2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import ThemeToggle from "@/components/ThemeToggle";
-import DataManager from "@/components/DataManager";
+import SettingsModal from "@/components/SettingsModal";
+import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
+import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { Notebook, ViewMode } from "@/types";
@@ -31,14 +32,27 @@ function buildTree(notebooks: Notebook[]): Notebook[] {
 }
 
 function NotebookItem({
-  notebook, depth, onSelect, selectedId, onToggle
+  notebook, depth, onSelect, selectedId, onToggle, onContextMenu,
+  editingId, editValue, onEditChange, onEditSubmit, onEditCancel,
 }: {
   notebook: Notebook; depth: number; onSelect: (id: string) => void;
   selectedId: string | null; onToggle: (id: string) => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
+  editingId: string | null; editValue: string;
+  onEditChange: (v: string) => void; onEditSubmit: () => void; onEditCancel: () => void;
 }) {
   const isSelected = selectedId === notebook.id;
   const hasChildren = notebook.children && notebook.children.length > 0;
   const isExpanded = notebook.isExpanded === 1;
+  const isEditing = editingId === notebook.id;
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
 
   return (
     <>
@@ -51,6 +65,7 @@ function NotebookItem({
         )}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={() => onSelect(notebook.id)}
+        onContextMenu={(e) => onContextMenu(e, notebook.id)}
       >
         {hasChildren ? (
           <button
@@ -63,10 +78,22 @@ function NotebookItem({
           <span className="w-5" />
         )}
         <span className="text-base">{notebook.icon}</span>
-        <span className="flex-1 truncate">{notebook.name}</span>
-        <button className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-border transition-all">
-          <MoreHorizontal size={14} />
-        </button>
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onEditSubmit();
+              if (e.key === "Escape") onEditCancel();
+            }}
+            onBlur={onEditSubmit}
+            className="flex-1 text-sm bg-transparent border border-accent-primary/50 rounded px-1 py-0 outline-none text-tx-primary"
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className="flex-1 truncate">{notebook.name}</span>
+        )}
       </motion.div>
       <AnimatePresence>
         {hasChildren && isExpanded && (
@@ -84,6 +111,12 @@ function NotebookItem({
                 onSelect={onSelect}
                 selectedId={selectedId}
                 onToggle={onToggle}
+                onContextMenu={onContextMenu}
+                editingId={editingId}
+                editValue={editValue}
+                onEditChange={onEditChange}
+                onEditSubmit={onEditSubmit}
+                onEditCancel={onEditCancel}
               />
             ))}
           </motion.div>
@@ -93,11 +126,31 @@ function NotebookItem({
   );
 }
 
+// 笔记本右键菜单项
+const notebookMenuItems: ContextMenuItem[] = [
+  { id: "new_note", label: "新建笔记", icon: <FilePlus size={14} /> },
+  { id: "new_sub", label: "新建子笔记本", icon: <FolderPlus size={14} /> },
+  { id: "sep1", label: "", separator: true },
+  { id: "rename", label: "重命名", icon: <Edit2 size={14} /> },
+  { id: "sep2", label: "", separator: true },
+  { id: "delete", label: "删除笔记本", icon: <Trash2 size={14} />, danger: true },
+];
+
 export default function Sidebar() {
   const { state } = useApp();
   const actions = useAppActions();
   const [searchInput, setSearchInput] = useState("");
-  const [showDataManager, setShowDataManager] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // 右键菜单
+  const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
+
+  // 重命名状态
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = useState<Notebook | null>(null);
 
   const tree = useMemo(() => buildTree(state.notebooks), [state.notebooks]);
 
@@ -124,6 +177,87 @@ export default function Sidebar() {
   const handleCreateNotebook = async () => {
     const nb = await api.createNotebook({ name: "新笔记本", icon: "📒" });
     actions.setNotebooks([...state.notebooks, nb]);
+    // 自动进入重命名
+    setEditingId(nb.id);
+    setEditValue(nb.name);
+  };
+
+  // 右键菜单操作分发
+  const handleMenuAction = async (actionId: string) => {
+    const targetId = menu.targetId;
+    closeMenu();
+    if (!targetId) return;
+
+    const targetNb = state.notebooks.find((nb) => nb.id === targetId);
+
+    switch (actionId) {
+      case "new_note": {
+        const note = await api.createNote({ notebookId: targetId, title: "无标题笔记" });
+        actions.setActiveNote(note);
+        actions.setSelectedNotebook(targetId);
+        actions.setViewMode("notebook");
+        break;
+      }
+      case "new_sub": {
+        const sub = await api.createNotebook({ name: "新笔记本", icon: "📁", parentId: targetId } as any);
+        actions.setNotebooks([...state.notebooks, sub]);
+        // 展开父级
+        if (targetNb && targetNb.isExpanded !== 1) {
+          api.updateNotebook(targetId, { isExpanded: 1 } as any).catch(console.error);
+          actions.setNotebooks(
+            [...state.notebooks, sub].map((n) => n.id === targetId ? { ...n, isExpanded: 1 } : n)
+          );
+        }
+        setEditingId(sub.id);
+        setEditValue(sub.name);
+        break;
+      }
+      case "rename": {
+        if (targetNb) {
+          setEditingId(targetId);
+          setEditValue(targetNb.name);
+        }
+        break;
+      }
+      case "delete": {
+        if (targetNb) {
+          setDeleteTarget(targetNb);
+        }
+        break;
+      }
+    }
+  };
+
+  // 重命名提交
+  const handleEditSubmit = async () => {
+    if (!editingId || !editValue.trim()) {
+      setEditingId(null);
+      return;
+    }
+    const original = state.notebooks.find((nb) => nb.id === editingId);
+    if (original && editValue.trim() !== original.name) {
+      await api.updateNotebook(editingId, { name: editValue.trim() }).catch(console.error);
+      actions.setNotebooks(
+        state.notebooks.map((nb) => nb.id === editingId ? { ...nb, name: editValue.trim() } : nb)
+      );
+    }
+    setEditingId(null);
+  };
+
+  const handleEditCancel = () => {
+    setEditingId(null);
+  };
+
+  // 删除笔记本
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    await api.deleteNotebook(deleteTarget.id).catch(console.error);
+    actions.setNotebooks(state.notebooks.filter((nb) => nb.id !== deleteTarget.id));
+    if (state.selectedNotebookId === deleteTarget.id) {
+      actions.setSelectedNotebook(null);
+      actions.setViewMode("all");
+    }
+    setDeleteTarget(null);
   };
 
   const navItems: { icon: React.ReactNode; label: string; mode: ViewMode; active: boolean }[] = [
@@ -218,6 +352,12 @@ export default function Sidebar() {
               onSelect={handleNotebookSelect}
               selectedId={state.selectedNotebookId}
               onToggle={handleToggle}
+              onContextMenu={(e, id) => openMenu(e, id, "notebook")}
+              editingId={editingId}
+              editValue={editValue}
+              onEditChange={setEditValue}
+              onEditSubmit={handleEditSubmit}
+              onEditCancel={handleEditCancel}
             />
           ))}
         </div>
@@ -240,23 +380,87 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Footer: Theme Toggle + Data Manager */}
-      <div className="border-t border-app-border px-3 py-2 flex items-center justify-center gap-2">
+      {/* Footer: Settings + Logout */}
+      <div className="border-t border-app-border px-3 py-2 flex items-center justify-between">
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors"
+        >
+          <Settings size={15} />
+          <span>设置</span>
+        </button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-tx-tertiary hover:text-tx-primary"
-          onClick={() => setShowDataManager(true)}
-          title="数据管理"
+          className="h-8 w-8 text-tx-tertiary hover:text-red-500 dark:hover:text-red-400"
+          onClick={() => {
+            localStorage.removeItem("nowen-token");
+            window.location.reload();
+          }}
+          title="退出登录"
         >
-          <Database size={16} />
+          <LogOut size={16} />
         </Button>
-        <ThemeToggle />
       </div>
 
-      {/* Data Manager Modal */}
+      {/* Settings Modal */}
       <AnimatePresence>
-        {showDataManager && <DataManager onClose={() => setShowDataManager(false)} />}
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      </AnimatePresence>
+
+      {/* Notebook Context Menu */}
+      <ContextMenu
+        isOpen={menu.isOpen && menu.targetType === "notebook"}
+        x={menu.x}
+        y={menu.y}
+        menuRef={menuRef}
+        items={notebookMenuItems}
+        onAction={handleMenuAction}
+        header={state.notebooks.find((nb) => nb.id === menu.targetId)?.name}
+      />
+
+      {/* Delete Confirmation */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-zinc-900/50 backdrop-blur-sm"
+              onClick={() => setDeleteTarget(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", duration: 0.4, bounce: 0 }}
+              className="relative bg-white dark:bg-zinc-900 w-full max-w-sm p-5 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h4 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mb-2">
+                删除笔记本
+              </h4>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+                确定要删除「{deleteTarget.icon} {deleteTarget.name}」吗？该笔记本下的所有笔记也将被删除，此操作不可撤销。
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );

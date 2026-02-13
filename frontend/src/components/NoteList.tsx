@@ -1,8 +1,10 @@
 import React, { useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, Star, Clock, FileText } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
+import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { NoteListItem } from "@/types";
@@ -24,7 +26,9 @@ function formatTime(dateStr: string) {
 
 const NoteCard = React.forwardRef<HTMLDivElement, {
   note: NoteListItem; isActive: boolean; onClick: () => void;
-}>(function NoteCard({ note, isActive, onClick }, ref) {
+  onContextMenu: (e: React.MouseEvent) => void;
+  isContextTarget: boolean;
+}>(function NoteCard({ note, isActive, onClick, onContextMenu, isContextTarget }, ref) {
   const preview = note.contentText?.slice(0, 80) || "";
 
   return (
@@ -34,10 +38,13 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4 }}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={cn(
         "px-3 py-2.5 rounded-lg cursor-pointer border transition-all group",
         isActive
           ? "bg-app-active border-accent-primary/30 shadow-sm"
+          : isContextTarget
+          ? "bg-app-hover border-accent-primary/20"
           : "bg-transparent border-transparent hover:bg-app-hover"
       )}
     >
@@ -67,6 +74,7 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
 
   const fetchNotes = useCallback(async () => {
     actions.setLoading(true);
@@ -117,6 +125,78 @@ export default function NoteList() {
     await fetchNotes();
   };
 
+  // 根据当前视图和目标笔记动态构建菜单项
+  const getMenuItems = (): ContextMenuItem[] => {
+    const targetNote = state.notes.find((n) => n.id === menu.targetId);
+    if (!targetNote) return [];
+
+    const isTrashView = state.viewMode === "trash";
+
+    if (isTrashView) {
+      return [
+        { id: "restore", label: "恢复笔记", icon: <ArchiveRestore size={14} /> },
+        { id: "sep1", label: "", separator: true },
+        { id: "delete_permanent", label: "永久删除", icon: <Trash2 size={14} />, danger: true },
+      ];
+    }
+
+    return [
+      {
+        id: "toggle_pin",
+        label: targetNote.isPinned === 1 ? "取消置顶" : "置顶",
+        icon: targetNote.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
+      },
+      {
+        id: "toggle_fav",
+        label: targetNote.isFavorite === 1 ? "取消收藏" : "收藏",
+        icon: targetNote.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
+      },
+      { id: "sep1", label: "", separator: true },
+      { id: "trash", label: "移入回收站", icon: <Trash2 size={14} />, danger: true },
+    ];
+  };
+
+  const handleMenuAction = async (actionId: string) => {
+    const targetId = menu.targetId;
+    closeMenu();
+    if (!targetId) return;
+
+    const targetNote = state.notes.find((n) => n.id === targetId);
+    if (!targetNote) return;
+
+    switch (actionId) {
+      case "toggle_pin": {
+        const newVal = targetNote.isPinned === 1 ? 0 : 1;
+        await api.updateNote(targetId, { isPinned: newVal } as any);
+        actions.updateNoteInList({ id: targetId, isPinned: newVal });
+        break;
+      }
+      case "toggle_fav": {
+        const newVal = targetNote.isFavorite === 1 ? 0 : 1;
+        await api.updateNote(targetId, { isFavorite: newVal } as any);
+        actions.updateNoteInList({ id: targetId, isFavorite: newVal });
+        break;
+      }
+      case "trash": {
+        await api.updateNote(targetId, { isTrashed: 1 } as any);
+        if (state.activeNote?.id === targetId) actions.setActiveNote(null);
+        await fetchNotes();
+        break;
+      }
+      case "restore": {
+        await api.updateNote(targetId, { isTrashed: 0 } as any);
+        await fetchNotes();
+        break;
+      }
+      case "delete_permanent": {
+        await api.deleteNote(targetId);
+        if (state.activeNote?.id === targetId) actions.setActiveNote(null);
+        await fetchNotes();
+        break;
+      }
+    }
+  };
+
   const viewTitles: Record<string, string> = {
     all: "所有笔记",
     notebook: state.notebooks.find((n) => n.id === state.selectedNotebookId)?.name || "笔记本",
@@ -152,7 +232,9 @@ export default function NoteList() {
                 key={note.id}
                 note={note}
                 isActive={state.activeNote?.id === note.id}
+                isContextTarget={menu.isOpen && menu.targetId === note.id}
                 onClick={() => handleSelectNote(note.id)}
+                onContextMenu={(e) => openMenu(e, note.id, "note")}
               />
             ))}
           </AnimatePresence>
@@ -164,6 +246,17 @@ export default function NoteList() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Note Context Menu */}
+      <ContextMenu
+        isOpen={menu.isOpen && menu.targetType === "note"}
+        x={menu.x}
+        y={menu.y}
+        menuRef={menuRef}
+        items={getMenuItems()}
+        onAction={handleMenuAction}
+        header={state.notes.find((n) => n.id === menu.targetId)?.title || "笔记"}
+      />
     </div>
   );
 }

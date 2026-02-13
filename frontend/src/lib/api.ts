@@ -2,15 +2,26 @@ import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats,
 
 const BASE_URL = "/api";
 
+function getToken(): string | null {
+  return localStorage.getItem("nowen-token");
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${BASE_URL}${url}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-User-Id": "demo",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   });
+  if (res.status === 401) {
+    // Token 过期或无效，清除并跳转登录
+    localStorage.removeItem("nowen-token");
+    window.location.reload();
+    throw new Error("未授权");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Request failed: ${res.status}`);
@@ -62,6 +73,12 @@ export const api = {
   toggleTask: (id: string) => request<Task>(`/tasks/${id}/toggle`, { method: "PATCH" }),
   deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
   getTaskStats: () => request<TaskStats>("/tasks/stats/summary"),
+
+  // Security
+  updateSecurity: (data: { currentPassword: string; newUsername?: string; newPassword?: string }) =>
+    request<{ success: boolean; message: string }>("/auth/change-password", { method: "POST", body: JSON.stringify(data) }),
+  factoryReset: (confirmText: string) =>
+    request<{ success: boolean; message: string }>("/auth/factory-reset", { method: "POST", body: JSON.stringify({ confirmText }) }),
 
   // Export / Import
   getExportNotes: () => request<any[]>("/export/notes"),
