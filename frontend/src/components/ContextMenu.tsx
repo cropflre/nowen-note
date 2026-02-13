@@ -16,7 +16,7 @@ interface ContextMenuProps {
   x: number;
   y: number;
   items: ContextMenuItem[];
-  menuRef: React.RefObject<HTMLDivElement | null>;
+  menuRef: React.Ref<HTMLDivElement>;
   onAction: (actionId: string) => void;
   header?: string;
 }
