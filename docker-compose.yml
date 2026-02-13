@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  mystation:
+    build: .
+    container_name: mystation
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - mystation-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/app/data/mystation.db
+      - PORT=3001
+
+volumes:
+  mystation-data:
+    driver: local

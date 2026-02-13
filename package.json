@@ -1,0 +1,10 @@
+{
+  "name": "mystation-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:backend": "node backend/node_modules/tsx/dist/cli.mjs backend/src/index.ts",
+    "dev:frontend": "node frontend/node_modules/.bin/vite --config frontend/vite.config.ts",
+    "install:all": "npm install --prefix backend && npm install --prefix frontend"
+  }
+}
