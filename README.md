@@ -10,7 +10,7 @@ A self-hosted private note-taking app, inspired by Synology Note Station.
 
 ### 简介
 
-nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持 JWT 认证、无限层级笔记本、全文搜索、待办事项、标签管理、数据导入导出、自定义字体、笔记大纲、字数统计等功能。
+nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持 JWT 认证、无限层级笔记本、全文搜索、待办事项、标签管理、思维导图、数据导入导出、自定义字体、笔记大纲、字数统计、国际化等功能。
 
 ### 技术栈
 
@@ -20,6 +20,7 @@ nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分
 | 编辑器   | Tiptap 3（代码高亮、图片、任务列表、下划线、文本高亮等）     |
 | UI 组件  | Radix UI + shadcn/ui 风格组件 + Lucide Icons                 |
 | 样式     | Tailwind CSS 3.4 + Framer Motion                             |
+| 国际化   | i18next（中英文切换）                                         |
 | 后端框架 | Hono 4 + @hono/node-server                                   |
 | 数据库   | SQLite（better-sqlite3）+ FTS5 全文搜索                      |
 | 认证     | JWT（jsonwebtoken）+ bcryptjs 密码哈希                       |
@@ -37,6 +38,7 @@ nowen-note/
 │   │   │   ├── NoteList.tsx         # 笔记列表（多视图 + 右键菜单）
 │   │   │   ├── EditorPane.tsx       # 编辑器面板
 │   │   │   ├── TiptapEditor.tsx     # Tiptap 富文本编辑器
+│   │   │   ├── MindMapEditor.tsx    # 思维导图编辑器
 │   │   │   ├── LoginPage.tsx        # 登录页
 │   │   │   ├── ContextMenu.tsx      # 通用右键菜单组件
 │   │   │   ├── SettingsModal.tsx    # 设置中心（外观/安全/数据）
@@ -51,6 +53,7 @@ nowen-note/
 │   │   ├── lib/           # 工具函数 & API 封装
 │   │   │   ├── api.ts            # API 客户端
 │   │   │   └── miNoteService.ts  # 小米云笔记服务封装
+│   │   ├── i18n/          # 国际化配置 & 语言包
 │   │   └── types/         # 类型定义
 │   └── ...
 ├── backend/               # 后端 Hono 应用
@@ -62,6 +65,7 @@ nowen-note/
 │       │   ├── notes.ts       # 笔记 CRUD
 │       │   ├── tags.ts        # 标签管理
 │       │   ├── tasks.ts       # 待办事项
+│       │   ├── mindmaps.ts    # 思维导图
 │       │   ├── search.ts      # 全文搜索
 │       │   ├── export.ts      # 数据导入导出
 │       │   ├── settings.ts    # 站点设置（标题/图标/字体）
@@ -323,6 +327,14 @@ docker run -d \
 - 多对多关系，彩色标签
 - 侧边栏标签面板快速筛选
 
+#### 思维导图
+- 可视化脑图编辑器，树形结构布局
+- 节点操作：新增子节点、编辑、删除、折叠/展开
+- 支持键盘快捷键（Tab/Enter/Delete/Space）
+- 小地图导航，缩放平移，触摸手势
+- 右键导出：PNG（2x 高清）、SVG、.xmind 格式
+- 移动端适配：长按编辑、响应式布局
+
 #### 数据管理
 - **导出备份**：全量导出为 ZIP 压缩包（Markdown + YAML frontmatter），含进度条
 - **导入笔记**：支持拖拽上传 `.md` / `.txt` / `.zip` 文件，可选择目标笔记本
@@ -339,6 +351,8 @@ docker run -d \
 #### 主题与交互
 - 深色 / 浅色 / 跟随系统三种主题模式
 - 侧边栏可折叠（仅图标模式）
+- 国际化支持：中英文双语切换
+- 移动端响应式布局，触摸手势支持
 - Framer Motion 丝滑动画
 
 ---
@@ -347,7 +361,7 @@ docker run -d \
 
 ### Introduction
 
-nowen-note is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring JWT authentication, a Tiptap rich-text editor, unlimited nested notebooks, full-text search, task management, tag system, data import/export, custom fonts, note outline, word count, and more.
+nowen-note is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring JWT authentication, a Tiptap rich-text editor, unlimited nested notebooks, full-text search, task management, tag system, mind mapping, data import/export, custom fonts, note outline, word count, internationalization, and more.
 
 ### Tech Stack
 
@@ -357,6 +371,7 @@ nowen-note is a self-hosted private note-taking application with a modern fronte
 | Editor        | Tiptap 3 (code highlight, image, task list, underline, text highlight, etc.)  |
 | UI Components | Radix UI + shadcn/ui style components + Lucide Icons                          |
 | Styling       | Tailwind CSS 3.4 + Framer Motion                                             |
+| i18n          | i18next (Chinese/English)                                                    |
 | Backend       | Hono 4 + @hono/node-server                                                   |
 | Database      | SQLite (better-sqlite3) + FTS5 full-text search                              |
 | Auth          | JWT (jsonwebtoken) + bcryptjs password hashing                                |
@@ -374,6 +389,7 @@ nowen-note/
 │   │   │   ├── NoteList.tsx         # Note list (multi-view + context menu)
 │   │   │   ├── EditorPane.tsx       # Editor pane
 │   │   │   ├── TiptapEditor.tsx     # Tiptap rich-text editor
+│   │   │   ├── MindMapEditor.tsx    # Mind map editor
 │   │   │   ├── LoginPage.tsx        # Login page
 │   │   │   ├── ContextMenu.tsx      # Reusable context menu component
 │   │   │   ├── SettingsModal.tsx    # Settings center (appearance/security/data)
@@ -388,6 +404,7 @@ nowen-note/
 │   │   ├── lib/           # Utilities & API client
 │   │   │   ├── api.ts            # API client
 │   │   │   └── miNoteService.ts  # Mi Cloud notes service wrapper
+│   │   ├── i18n/          # i18n config & locales
 │   │   └── types/         # Type definitions
 │   └── ...
 ├── backend/               # Hono backend app
@@ -399,6 +416,7 @@ nowen-note/
 │       │   ├── notes.ts       # Note CRUD
 │       │   ├── tags.ts        # Tag management
 │       │   ├── tasks.ts       # Task/Todo management
+│       │   ├── mindmaps.ts    # Mind maps
 │       │   ├── search.ts      # Full-text search
 │       │   ├── export.ts      # Data import/export
 │       │   ├── settings.ts    # Site settings (title/favicon/font)
@@ -535,6 +553,14 @@ All NAS platforms with Docker support follow the same general steps:
 - Many-to-many relationships with colored tags
 - Sidebar tag panel for quick filtering
 
+#### Mind Mapping
+- Visual mind map editor with tree layout
+- Node operations: add child, edit, delete, collapse/expand
+- Keyboard shortcuts (Tab/Enter/Delete/Space)
+- Mini-map navigation, zoom/pan, touch gestures
+- Right-click export: PNG (2x HD), SVG, .xmind format
+- Mobile responsive: long-press to edit, adaptive layout
+
 #### Data Management
 - **Export backup**: Full export as ZIP archive (Markdown + YAML frontmatter) with progress bar
 - **Import notes**: Drag-and-drop `.md` / `.txt` / `.zip` files, choose target notebook
@@ -551,4 +577,6 @@ All NAS platforms with Docker support follow the same general steps:
 #### Theme & Interaction
 - Light / Dark / System three theme modes
 - Collapsible sidebar (icon-only mode)
+- Internationalization: Chinese/English language switching
+- Mobile responsive layout with touch gesture support
 - Smooth Framer Motion animations
