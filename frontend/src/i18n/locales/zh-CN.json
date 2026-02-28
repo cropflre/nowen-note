@@ -35,6 +35,7 @@
     "deleteNotebook": "删除笔记本",
     "allNotes": "所有笔记",
     "tasks": "待办事项",
+    "mindMaps": "思维导图",
     "favorites": "收藏",
     "trash": "回收站",
     "searchPlaceholder": "搜索笔记...",
@@ -323,5 +324,25 @@
     "importSuccess": "成功导入 {{count}} 条便签",
     "importFailed": "导入失败",
     "importButton": "导入 {{count}} 条便签"
+  },
+  "mindMap": {
+    "title": "思维导图",
+    "create": "新建导图",
+    "untitled": "无标题导图",
+    "empty": "暂无思维导图",
+    "createFirst": "创建第一个思维导图",
+    "totalCount": "共 {{count}} 个导图",
+    "selectOrCreate": "选择或创建一个思维导图",
+    "newNode": "新节点",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "fitView": "适应视图",
+    "shortcutAdd": "添加子节点",
+    "shortcutEdit": "编辑节点",
+    "shortcutDelete": "删除节点",
+    "shortcutCollapse": "展开/折叠",
+    "dragToMove": "拖拽画布移动 · 滚轮缩放"
   }
 }

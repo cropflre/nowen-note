@@ -75,7 +75,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps";
 
 export type TaskPriority = 1 | 2 | 3; // 1=低, 2=中, 3=高
 
@@ -111,4 +111,32 @@ export interface CustomFont {
   format: string;
   fileSize?: number;
   createdAt: string;
+}
+
+export interface MindMapNode {
+  id: string;
+  text: string;
+  children: MindMapNode[];
+  collapsed?: boolean;
+}
+
+export interface MindMapData {
+  root: MindMapNode;
+}
+
+export interface MindMap {
+  id: string;
+  userId: string;
+  title: string;
+  data: string; // JSON string of MindMapData
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MindMapListItem {
+  id: string;
+  userId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
 }

@@ -1,4 +1,4 @@
-import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont } from "@/types";
+import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem } from "@/types";
 
 const BASE_URL = "/api";
 
@@ -154,4 +154,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ notes, notebookId }),
     }),
+
+  // Mind Maps
+  getMindMaps: () => request<MindMapListItem[]>("/mindmaps"),
+  getMindMap: (id: string) => request<MindMap>(`/mindmaps/${id}`),
+  createMindMap: (data: { title?: string; data?: string }) =>
+    request<MindMap>("/mindmaps", { method: "POST", body: JSON.stringify(data) }),
+  updateMindMap: (id: string, data: { title?: string; data?: string }) =>
+    request<MindMap>(`/mindmaps/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteMindMap: (id: string) => request(`/mindmaps/${id}`, { method: "DELETE" }),
 };

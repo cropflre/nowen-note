@@ -35,6 +35,7 @@
     "deleteNotebook": "Delete Notebook",
     "allNotes": "All Notes",
     "tasks": "Tasks",
+    "mindMaps": "Mind Maps",
     "favorites": "Favorites",
     "trash": "Trash",
     "searchPlaceholder": "Search notes...",
@@ -323,5 +324,25 @@
     "importSuccess": "Successfully imported {{count}} notes",
     "importFailed": "Import failed",
     "importButton": "Import {{count}} notes"
+  },
+  "mindMap": {
+    "title": "Mind Maps",
+    "create": "New Mind Map",
+    "untitled": "Untitled Mind Map",
+    "empty": "No mind maps yet",
+    "createFirst": "Create your first mind map",
+    "totalCount": "{{count}} mind maps",
+    "selectOrCreate": "Select or create a mind map",
+    "newNode": "New Node",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "fitView": "Fit to View",
+    "shortcutAdd": "Add child",
+    "shortcutEdit": "Edit node",
+    "shortcutDelete": "Delete node",
+    "shortcutCollapse": "Expand/Collapse",
+    "dragToMove": "Drag to pan · Scroll to zoom"
   }
 }
