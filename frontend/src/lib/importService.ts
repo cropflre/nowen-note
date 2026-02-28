@@ -195,6 +195,24 @@ export async function readMarkdownFromZip(file: File): Promise<ImportFileInfo[]>
   return result;
 }
 
+// 从 YAML frontmatter 中提取日期信息
+function extractFrontmatterDates(md: string): { createdAt?: string; updatedAt?: string } {
+  const fmMatch = md.match(/^---\n([\s\S]*?)\n---/m);
+  if (!fmMatch) return {};
+
+  const fm = fmMatch[1];
+  let createdAt: string | undefined;
+  let updatedAt: string | undefined;
+
+  const createdMatch = fm.match(/^created:\s*(.+)$/m);
+  if (createdMatch) createdAt = createdMatch[1].trim();
+
+  const updatedMatch = fm.match(/^updated:\s*(.+)$/m);
+  if (updatedMatch) updatedAt = updatedMatch[1].trim();
+
+  return { createdAt, updatedAt };
+}
+
 // 将 Markdown 转为简单的 HTML（用于存储到 Tiptap 格式）
 function markdownToSimpleHtml(md: string): string {
   // 去除 YAML frontmatter
@@ -324,11 +342,20 @@ export async function importNotes(
   try {
     onProgress?.({ phase: "uploading", current: 0, total: selected.length, message: i18n.t('dataManager.uploadingProgress') });
 
-    const notes = selected.map((f) => ({
-      title: f.title,
-      content: convertToHtml(f),
-      contentText: extractPlainText(f),
-    }));
+    const notes = selected.map((f) => {
+      const note: { title: string; content: string; contentText: string; createdAt?: string; updatedAt?: string } = {
+        title: f.title,
+        content: convertToHtml(f),
+        contentText: extractPlainText(f),
+      };
+      // 对 Markdown 文件尝试提取 frontmatter 中的日期
+      if (f.source === "md" || !f.source) {
+        const dates = extractFrontmatterDates(f.content);
+        if (dates.createdAt) note.createdAt = dates.createdAt;
+        if (dates.updatedAt) note.updatedAt = dates.updatedAt;
+      }
+      return note;
+    });
 
     const result = await api.importNotes(notes, notebookId);
 

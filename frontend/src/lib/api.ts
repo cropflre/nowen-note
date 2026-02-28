@@ -90,7 +90,7 @@ export const api = {
 
   // Export / Import
   getExportNotes: () => request<any[]>("/export/notes"),
-  importNotes: (notes: { title: string; content: string; contentText: string }[], notebookId?: string) =>
+  importNotes: (notes: { title: string; content: string; contentText: string; createdAt?: string; updatedAt?: string }[], notebookId?: string) =>
     request<{ success: boolean; count: number; notebookId: string; notes: any[] }>("/export/import", {
       method: "POST",
       body: JSON.stringify({ notes, notebookId }),

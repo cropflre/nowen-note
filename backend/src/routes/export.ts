@@ -26,7 +26,7 @@ app.post("/import", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json();
   const { notes, notebookId } = body as {
-    notes: { title: string; content: string; contentText: string }[];
+    notes: { title: string; content: string; contentText: string; createdAt?: string; updatedAt?: string }[];
     notebookId?: string;
   };
 
@@ -52,7 +52,11 @@ app.post("/import", async (c) => {
     }
   }
 
-  const insert = db.prepare(`
+  const insertWithDates = db.prepare(`
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertDefault = db.prepare(`
     INSERT INTO notes (id, userId, notebookId, title, content, contentText)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
@@ -63,7 +67,13 @@ app.post("/import", async (c) => {
   const tx = db.transaction(() => {
     for (const note of notes) {
       const id = uuid();
-      insert.run(id, userId, targetNotebookId, note.title, note.content, note.contentText);
+      if (note.createdAt || note.updatedAt) {
+        const createdAt = note.createdAt || new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+        const updatedAt = note.updatedAt || createdAt;
+        insertWithDates.run(id, userId, targetNotebookId, note.title, note.content, note.contentText, createdAt, updatedAt);
+      } else {
+        insertDefault.run(id, userId, targetNotebookId, note.title, note.content, note.contentText);
+      }
       imported.push({ id, title: note.title });
     }
   });
