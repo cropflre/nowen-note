@@ -262,7 +262,7 @@ export default function OppoCloudImport() {
         )}
 
         {/* 笔记列表 */}
-        {(phase === "parsed" || phase === "importing" || phase === "done") && (
+        {(phase === "parsed" || phase === "importing" || phase === "done" || phase === "error") && notes.length > 0 && (
           <div className="space-y-3">
             {/* 操作栏 */}
             <div className="flex items-center justify-between">
