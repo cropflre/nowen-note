@@ -130,4 +130,28 @@ export const api = {
   },
   deleteFont: (id: string) => request(`/fonts/${id}`, { method: "DELETE" }),
   getFontFileUrl: (id: string) => `${BASE_URL}/fonts/file/${id}`,
+
+  // Mi Cloud
+  miCloudVerify: (cookie: string) =>
+    request<{ valid: boolean; error?: string }>("/micloud/verify", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    }),
+  miCloudNotes: (cookie: string) =>
+    request<{ notes: any[]; folders: Record<string, string> }>("/micloud/notes", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    }),
+  miCloudImport: (cookie: string, noteIds: string[], notebookId?: string) =>
+    request<{ success: boolean; count: number; errors: string[] }>("/micloud/import", {
+      method: "POST",
+      body: JSON.stringify({ cookie, noteIds, notebookId }),
+    }),
+
+  // OPPO Cloud
+  oppoCloudImport: (notes: { id: string; title: string; content: string }[], notebookId?: string) =>
+    request<{ success: boolean; count: number; notebookId: string; notes: any[]; errors: string[] }>("/oppocloud/import", {
+      method: "POST",
+      body: JSON.stringify({ notes, notebookId }),
+    }),
 };

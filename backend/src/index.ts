@@ -14,6 +14,8 @@ import tasksRouter from "./routes/tasks";
 import exportRouter from "./routes/export";
 import settingsRouter from "./routes/settings";
 import fontsRouter from "./routes/fonts";
+import micloudRouter from "./routes/micloud";
+import oppoCloudRouter from "./routes/oppocloud";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
@@ -105,6 +107,8 @@ app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
 app.route("/api/tasks", tasksRouter);
 app.route("/api/export", exportRouter);
+app.route("/api/micloud", micloudRouter);
+app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 
