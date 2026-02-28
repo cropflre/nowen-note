@@ -10,7 +10,7 @@ A self-hosted private note-taking app, inspired by Synology Note Station.
 
 ### 简介
 
-nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持无限层级笔记本、全文搜索、标签管理等功能。
+nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分离架构，支持 Docker 一键部署。内置 Tiptap 富文本编辑器，支持无限层级笔记本、全文搜索、标签管理、思维导图等功能。
 
 ### 技术栈
 
@@ -20,6 +20,7 @@ nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分
 | 编辑器 | Tiptap 3（代码高亮、图片、任务列表、下划线、高亮等） |
 | UI 组件 | Radix UI + shadcn/ui 风格组件 |
 | 样式 | Tailwind CSS 3.4 + Framer Motion |
+| 国际化 | i18next（中英文切换） |
 | 后端框架 | Hono 4 + @hono/node-server |
 | 数据库 | SQLite（better-sqlite3） |
 | 数据校验 | Zod |
@@ -30,15 +31,16 @@ nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分
 nowen-note/
 ├── frontend/          # 前端 React 应用
 │   ├── src/
-│   │   ├── components/   # 组件（Sidebar、NoteList、EditorPane、TiptapEditor）
+│   │   ├── components/   # 组件（Sidebar、NoteList、EditorPane、TiptapEditor、MindMapEditor）
 │   │   ├── store/        # 状态管理（useReducer + Context）
 │   │   ├── lib/          # 工具函数 & API 封装
+│   │   ├── i18n/         # 国际化配置 & 语言包
 │   │   └── types/        # 类型定义
 │   └── ...
 ├── backend/           # 后端 Hono 应用
 │   └── src/
 │       ├── db/           # 数据库 Schema & 种子数据
-│       ├── routes/       # API 路由（notebooks、notes、tags、search）
+│       ├── routes/       # API 路由（notebooks、notes、tags、search、mindmaps）
 │       └── index.ts      # 入口文件
 ├── Dockerfile         # 多阶段构建
 ├── docker-compose.yml # 容器编排
@@ -75,6 +77,9 @@ docker-compose up -d
 - **Tiptap 富文本编辑器**：Markdown 快捷键、代码高亮、图片插入、任务列表
 - **FTS5 全文搜索**：基于 SQLite 虚拟表，通过触发器自动同步
 - **标签管理**：多对多关系，彩色标签
+- **思维导图**：可视化脑图编辑，支持导出 PNG/SVG/xmind 格式
+- **移动端适配**：响应式布局，触摸手势支持
+- **国际化**：中英文双语切换
 - **乐观锁**：version 字段防止编辑冲突
 - **深色主题**：沉浸式深色配色方案
 
@@ -84,7 +89,7 @@ docker-compose up -d
 
 ### Introduction
 
-nowen-note is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring a Tiptap rich-text editor, unlimited nested notebooks, full-text search, and tag management.
+nowen-note is a self-hosted private note-taking application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, featuring a Tiptap rich-text editor, unlimited nested notebooks, full-text search, tag management, and mind mapping.
 
 ### Tech Stack
 
@@ -94,6 +99,7 @@ nowen-note is a self-hosted private note-taking application with a modern fronte
 | Editor | Tiptap 3 (code highlight, image, task list, underline, highlight, etc.) |
 | UI Components | Radix UI + shadcn/ui style components |
 | Styling | Tailwind CSS 3.4 + Framer Motion |
+| i18n | i18next (Chinese/English) |
 | Backend | Hono 4 + @hono/node-server |
 | Database | SQLite (better-sqlite3) |
 | Validation | Zod |
@@ -104,15 +110,16 @@ nowen-note is a self-hosted private note-taking application with a modern fronte
 nowen-note/
 ├── frontend/          # React frontend app
 │   ├── src/
-│   │   ├── components/   # Components (Sidebar, NoteList, EditorPane, TiptapEditor)
+│   │   ├── components/   # Components (Sidebar, NoteList, EditorPane, TiptapEditor, MindMapEditor)
 │   │   ├── store/        # State management (useReducer + Context)
 │   │   ├── lib/          # Utilities & API client
+│   │   ├── i18n/         # i18n config & locales
 │   │   └── types/        # Type definitions
 │   └── ...
 ├── backend/           # Hono backend app
 │   └── src/
 │       ├── db/           # Database schema & seed data
-│       ├── routes/       # API routes (notebooks, notes, tags, search)
+│       ├── routes/       # API routes (notebooks, notes, tags, search, mindmaps)
 │       └── index.ts      # Entry point
 ├── Dockerfile         # Multi-stage build
 ├── docker-compose.yml # Container orchestration
@@ -149,5 +156,8 @@ Visit `http://localhost:3001` to use the app.
 - **Tiptap rich-text editor**: Markdown shortcuts, code highlighting, image upload, task lists
 - **FTS5 full-text search**: Based on SQLite virtual tables with auto-sync triggers
 - **Tag management**: Many-to-many relationships with colored tags
+- **Mind mapping**: Visual mind map editor with PNG/SVG/xmind export
+- **Mobile responsive**: Adaptive layout with touch gesture support
+- **Internationalization**: Chinese/English language switching
 - **Optimistic locking**: Version field to prevent edit conflicts
 - **Dark theme**: Immersive dark color scheme
