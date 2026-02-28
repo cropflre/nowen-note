@@ -417,7 +417,15 @@ function parseContent(content: string): any {
     return { type: "doc", content: [{ type: "paragraph" }] };
   }
   if (typeof content === "string") {
-    try { return JSON.parse(content); } catch { return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] }; }
+    try {
+      return JSON.parse(content);
+    } catch {
+      // HTML 内容直接返回字符串，Tiptap 可以解析 HTML
+      if (content.trim().startsWith("<")) {
+        return content;
+      }
+      return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+    }
   }
   return content;
 }
