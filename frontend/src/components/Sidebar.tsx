@@ -294,7 +294,10 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-full md:w-[260px] md:min-w-[260px] h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors">
+    <div
+      className="w-full h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors"
+      style={{ width: undefined }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
         <h1 className="text-sm font-semibold text-tx-primary tracking-wide">{siteConfig.title}</h1>

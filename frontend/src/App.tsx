@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -9,11 +9,102 @@ import TaskCenter from "@/components/TaskCenter";
 import MindMapCenter from "@/components/MindMapEditor";
 import DocumentCenter from "@/components/DocumentCenter";
 import LoginPage from "@/components/LoginPage";
-import { AppProvider, useApp, useAppActions } from "@/store/AppContext";
+import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { User } from "@/types";
+
+function SidebarResizeHandle() {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = state.sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const newWidth = startWidth.current + (ev.clientX - startX.current);
+      actions.setSidebarWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, [state.sidebarWidth, actions]);
+
+  if (state.sidebarCollapsed) return null;
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      onDoubleClick={() => actions.setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+      className="hidden md:flex w-1 cursor-col-resize items-center justify-center hover:bg-accent-primary/30 active:bg-accent-primary/50 transition-colors shrink-0 group"
+      title="拖拽调整侧边栏宽度 / 双击恢复默认"
+    >
+      <div className="w-[2px] h-8 rounded-full bg-transparent group-hover:bg-accent-primary/60 transition-colors" />
+    </div>
+  );
+}
+
+function NoteListResizeHandle() {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = state.noteListWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const newWidth = startWidth.current + (ev.clientX - startX.current);
+      actions.setNoteListWidth(Math.max(MIN_NOTELIST_WIDTH, Math.min(MAX_NOTELIST_WIDTH, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, [state.noteListWidth, actions]);
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      onDoubleClick={() => actions.setNoteListWidth(DEFAULT_NOTELIST_WIDTH)}
+      className="hidden md:flex w-1 cursor-col-resize items-center justify-center hover:bg-accent-primary/30 active:bg-accent-primary/50 transition-colors shrink-0 group"
+    >
+      <div className="w-[2px] h-8 rounded-full bg-transparent group-hover:bg-accent-primary/60 transition-colors" />
+    </div>
+  );
+}
 
 function AppLayout() {
   const { state } = useApp();
@@ -48,10 +139,14 @@ function AppLayout() {
         )}
       </AnimatePresence>
 
-      {/* ===== 桌面端：固定侧边栏 ===== */}
-      <div className="hidden md:flex">
+      {/* ===== 桌面端：固定侧边栏 + 拖拽条 ===== */}
+      <div
+        className="hidden md:flex shrink-0"
+        style={{ width: state.sidebarCollapsed ? undefined : `${state.sidebarWidth}px` }}
+      >
         <Sidebar />
       </div>
+      <SidebarResizeHandle />
 
       {/* ===== 主内容区 ===== */}
       {isTaskView ? (
@@ -71,17 +166,23 @@ function AppLayout() {
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
-          {/* 笔记列表 — 移动端根据 mobileView 控制显隐 */}
-          <div className={`
-            flex flex-col w-full md:w-[300px] md:min-w-[300px] md:shrink-0
-            ${state.mobileView === "list" ? "flex" : "hidden md:flex"}
-          `}>
+          {/* 笔记列表 — 桌面端动态宽度，移动端全宽 */}
+          <div
+            className={`
+              flex flex-col shrink-0 h-full
+              ${state.mobileView === "list" ? "flex" : "hidden md:flex"}
+            `}
+            style={{ width: `${state.noteListWidth}px` }}
+          >
             <NoteList />
           </div>
 
+          {/* 拖拽分割条 */}
+          <NoteListResizeHandle />
+
           {/* 编辑器 — 移动端全屏覆盖 */}
           <div className={`
-            absolute inset-0 z-20 md:static md:z-auto md:flex-1 flex flex-col
+            absolute inset-0 z-20 md:static md:z-auto md:flex-1 flex flex-col min-w-0
             ${state.mobileView === "editor" ? "flex" : "hidden md:flex"}
           `}>
             <EditorPane />

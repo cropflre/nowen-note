@@ -15,6 +15,8 @@ interface AppState {
   viewMode: ViewMode;
   searchQuery: string;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
+  noteListWidth: number;
   isLoading: boolean;
   syncStatus: SyncStatus;
   lastSyncedAt: string | null;
@@ -32,12 +34,44 @@ type Action =
   | { type: "SET_VIEW_MODE"; payload: ViewMode }
   | { type: "SET_SEARCH_QUERY"; payload: string }
   | { type: "TOGGLE_SIDEBAR" }
+  | { type: "SET_SIDEBAR_WIDTH"; payload: number }
+  | { type: "SET_NOTELIST_WIDTH"; payload: number }
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } }
   | { type: "SET_SYNC_STATUS"; payload: SyncStatus }
   | { type: "SET_LAST_SYNCED"; payload: string }
   | { type: "SET_MOBILE_VIEW"; payload: MobileView }
   | { type: "SET_MOBILE_SIDEBAR"; payload: boolean };
+
+const DEFAULT_SIDEBAR_WIDTH = 260;
+const MIN_SIDEBAR_WIDTH = 200;
+const MAX_SIDEBAR_WIDTH = 480;
+
+const DEFAULT_NOTELIST_WIDTH = 300;
+const MIN_NOTELIST_WIDTH = 220;
+const MAX_NOTELIST_WIDTH = 500;
+
+function getSavedSidebarWidth(): number {
+  try {
+    const saved = localStorage.getItem("nowen-sidebar-width");
+    if (saved) {
+      const w = Number(saved);
+      if (w >= MIN_SIDEBAR_WIDTH && w <= MAX_SIDEBAR_WIDTH) return w;
+    }
+  } catch {}
+  return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function getSavedNoteListWidth(): number {
+  try {
+    const saved = localStorage.getItem("nowen-notelist-width");
+    if (saved) {
+      const w = Number(saved);
+      if (w >= MIN_NOTELIST_WIDTH && w <= MAX_NOTELIST_WIDTH) return w;
+    }
+  } catch {}
+  return DEFAULT_NOTELIST_WIDTH;
+}
 
 const initialState: AppState = {
   notebooks: [],
@@ -49,12 +83,16 @@ const initialState: AppState = {
   viewMode: "all",
   searchQuery: "",
   sidebarCollapsed: false,
+  sidebarWidth: getSavedSidebarWidth(),
+  noteListWidth: getSavedNoteListWidth(),
   isLoading: false,
   syncStatus: "idle",
   lastSyncedAt: null,
   mobileView: "list",
   mobileSidebarOpen: false,
 };
+
+export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH };
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -76,6 +114,16 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, searchQuery: action.payload };
     case "TOGGLE_SIDEBAR":
       return { ...state, sidebarCollapsed: !state.sidebarCollapsed };
+    case "SET_SIDEBAR_WIDTH": {
+      const w = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, action.payload));
+      try { localStorage.setItem("nowen-sidebar-width", String(w)); } catch {}
+      return { ...state, sidebarWidth: w };
+    }
+    case "SET_NOTELIST_WIDTH": {
+      const w = Math.max(MIN_NOTELIST_WIDTH, Math.min(MAX_NOTELIST_WIDTH, action.payload));
+      try { localStorage.setItem("nowen-notelist-width", String(w)); } catch {}
+      return { ...state, noteListWidth: w };
+    }
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
     case "UPDATE_NOTE_IN_LIST":
@@ -131,6 +179,8 @@ export function useAppActions() {
     setViewMode: useCallback((v: ViewMode) => dispatch({ type: "SET_VIEW_MODE", payload: v }), [dispatch]),
     setSearchQuery: useCallback((v: string) => dispatch({ type: "SET_SEARCH_QUERY", payload: v }), [dispatch]),
     toggleSidebar: useCallback(() => dispatch({ type: "TOGGLE_SIDEBAR" }), [dispatch]),
+    setSidebarWidth: useCallback((v: number) => dispatch({ type: "SET_SIDEBAR_WIDTH", payload: v }), [dispatch]),
+    setNoteListWidth: useCallback((v: number) => dispatch({ type: "SET_NOTELIST_WIDTH", payload: v }), [dispatch]),
     setLoading: useCallback((v: boolean) => dispatch({ type: "SET_LOADING", payload: v }), [dispatch]),
     updateNoteInList: useCallback((v: Partial<NoteListItem> & { id: string }) => dispatch({ type: "UPDATE_NOTE_IN_LIST", payload: v }), [dispatch]),
     setSyncStatus: useCallback((v: SyncStatus) => dispatch({ type: "SET_SYNC_STATUS", payload: v }), [dispatch]),

@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, Folder, X, Check } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, Folder, X, Check, Lock, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -208,6 +208,7 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
           {note.title || t('common.untitledNote')}
         </h3>
         <div className="flex items-center gap-1 shrink-0">
+          {note.isLocked === 1 && <Lock size={12} className="text-orange-500" />}
           {note.isPinned === 1 && <Pin size={12} className="text-accent-primary" />}
           {note.isFavorite === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
         </div>
@@ -251,6 +252,7 @@ export default function NoteList() {
         isFavorite: r.isFavorite,
         isArchived: 0,
         isTrashed: 0,
+        isLocked: 0,
         version: 0,
         createdAt: r.updatedAt,
         updatedAt: r.updatedAt,
@@ -309,14 +311,20 @@ export default function NoteList() {
         label: targetNote.isFavorite === 1 ? t('noteList.unfavorite') : t('noteList.favorite'),
         icon: targetNote.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
       },
+      {
+        id: "toggle_lock",
+        label: targetNote.isLocked === 1 ? t('noteList.unlock') : t('noteList.lock'),
+        icon: targetNote.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
+      },
       { id: "sep1", label: "", separator: true },
       {
         id: "move",
         label: t('noteList.moveTo'),
         icon: <FolderInput size={14} />,
+        disabled: !!targetNote.isLocked,
       },
       { id: "sep2", label: "", separator: true },
-      { id: "trash", label: t('noteList.moveToTrash'), icon: <Trash2 size={14} />, danger: true },
+      { id: "trash", label: t('noteList.moveToTrash'), icon: <Trash2 size={14} />, danger: true, disabled: !!targetNote.isLocked },
     ];
   };
 
@@ -339,6 +347,15 @@ export default function NoteList() {
         const newVal = targetNote.isFavorite === 1 ? 0 : 1;
         await api.updateNote(targetId, { isFavorite: newVal } as any);
         actions.updateNoteInList({ id: targetId, isFavorite: newVal });
+        break;
+      }
+      case "toggle_lock": {
+        const newVal = targetNote.isLocked === 1 ? 0 : 1;
+        await api.updateNote(targetId, { isLocked: newVal } as any);
+        actions.updateNoteInList({ id: targetId, isLocked: newVal });
+        if (state.activeNote?.id === targetId) {
+          actions.setActiveNote({ ...state.activeNote, isLocked: newVal });
+        }
         break;
       }
       case "trash": {
@@ -393,7 +410,7 @@ export default function NoteList() {
   };
 
   return (
-    <div className="w-full md:w-[300px] md:min-w-[300px] h-full bg-app-surface border-r border-app-border flex flex-col shrink-0 transition-colors relative">
+    <div className="w-full h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-app-border md:hidden">
         <button

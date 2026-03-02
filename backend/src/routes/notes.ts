@@ -14,7 +14,7 @@ app.get("/", (c) => {
   const search = c.req.query("search");
   const tagId = c.req.query("tagId");
 
-  let query = `SELECT id, userId, notebookId, title, contentText, isPinned, isFavorite,
+  let query = `SELECT id, userId, notebookId, title, contentText, isPinned, isFavorite, isLocked,
     isArchived, isTrashed, version, createdAt, updatedAt FROM notes WHERE userId = ?`;
   const params: any[] = [userId];
 
@@ -88,6 +88,18 @@ app.put("/:id", async (c) => {
     }
   }
 
+  // 锁定保护：锁定状态下禁止修改内容（但允许切换 isLocked 本身和元数据操作）
+  const contentFields = ["title", "content", "contentText", "notebookId"];
+  const isContentChange = contentFields.some((f) => body[f] !== undefined);
+  const isOnlyLockToggle = body.isLocked !== undefined && Object.keys(body).filter(k => k !== "isLocked" && k !== "version").length === 0;
+
+  if (isContentChange && !isOnlyLockToggle) {
+    const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
+    if (note && note.isLocked === 1) {
+      return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
+    }
+  }
+
   const fields: string[] = [];
   const params: any[] = [];
 
@@ -97,6 +109,7 @@ app.put("/:id", async (c) => {
   if (body.notebookId !== undefined) { fields.push("notebookId = ?"); params.push(body.notebookId); }
   if (body.isPinned !== undefined) { fields.push("isPinned = ?"); params.push(body.isPinned); }
   if (body.isFavorite !== undefined) { fields.push("isFavorite = ?"); params.push(body.isFavorite); }
+  if (body.isLocked !== undefined) { fields.push("isLocked = ?"); params.push(body.isLocked); }
   if (body.isArchived !== undefined) { fields.push("isArchived = ?"); params.push(body.isArchived); }
   if (body.isTrashed !== undefined) {
     fields.push("isTrashed = ?"); params.push(body.isTrashed);
@@ -116,6 +129,13 @@ app.put("/:id", async (c) => {
 app.delete("/:id", (c) => {
   const db = getDb();
   const id = c.req.param("id");
+
+  // 锁定保护：禁止删除锁定的笔记
+  const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
+  if (note && note.isLocked === 1) {
+    return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
+  }
+
   db.prepare("DELETE FROM notes WHERE id = ?").run(id);
   return c.json({ success: true });
 });

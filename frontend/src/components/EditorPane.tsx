@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, Folder, X, ListTree } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, Folder, X, ListTree, Lock, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -23,7 +23,7 @@ export default function EditorPane() {
   const { t } = useTranslation();
 
   const handleUpdate = useCallback(async (data: { content: string; contentText: string; title: string }) => {
-    if (!activeNote) return;
+    if (!activeNote || activeNote.isLocked) return;
     actions.setSyncStatus("saving");
     try {
       const updated = await api.updateNote(activeNote.id, {
@@ -80,8 +80,15 @@ export default function EditorPane() {
     actions.updateNoteInList({ id: updated.id, isPinned: updated.isPinned });
   }, [activeNote, actions]);
 
-  const moveToTrash = useCallback(async () => {
+  const toggleLock = useCallback(async () => {
     if (!activeNote) return;
+    const updated = await api.updateNote(activeNote.id, { isLocked: activeNote.isLocked ? 0 : 1 } as any);
+    actions.setActiveNote(updated);
+    actions.updateNoteInList({ id: updated.id, isLocked: updated.isLocked });
+  }, [activeNote, actions]);
+
+  const moveToTrash = useCallback(async () => {
+    if (!activeNote || activeNote.isLocked) return;
     await api.updateNote(activeNote.id, { isTrashed: 1 } as any);
     actions.setActiveNote(null);
     actions.refreshNotebooks();
@@ -133,6 +140,12 @@ export default function EditorPane() {
         </button>
         <div className="ml-auto flex items-center gap-1">
           <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLock}
+            title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}>
+            {activeNote.isLocked
+              ? <Lock size={14} className="text-orange-500" />
+              : <Unlock size={14} />}
+          </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={togglePin}>
             <Pin size={14} className={cn(activeNote.isPinned && "text-accent-primary fill-accent-primary")} />
           </Button>
@@ -204,6 +217,15 @@ export default function EditorPane() {
 
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
+            onClick={toggleLock}
+            title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
+          >
+            {activeNote.isLocked
+              ? <Lock size={14} className="text-orange-500" />
+              : <Unlock size={14} />}
+          </Button>
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
             onClick={togglePin}
             title={activeNote.isPinned ? t('editor.unpinTooltip') : t('editor.pinTooltip')}
           >
@@ -216,8 +238,13 @@ export default function EditorPane() {
           >
             <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={moveToTrash} title={t('editor.trashTooltip')}>
-            <Trash2 size={14} />
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={moveToTrash}
+            title={t('editor.trashTooltip')}
+            disabled={!!activeNote.isLocked}
+          >
+            <Trash2 size={14} className={cn(activeNote.isLocked && "opacity-30")} />
           </Button>
           <div className="w-px h-4 bg-app-border mx-1" />
           <Button
@@ -239,6 +266,7 @@ export default function EditorPane() {
             onTagsChange={handleTagsChange}
             onHeadingsChange={setHeadings}
             onEditorReady={(fn) => { scrollToRef.current = fn; }}
+            editable={!activeNote.isLocked}
           />
         </div>
         {showOutline && (

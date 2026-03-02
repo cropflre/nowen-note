@@ -60,6 +60,7 @@ function initSchema(db: Database.Database) {
       contentText TEXT DEFAULT '',
       isPinned INTEGER DEFAULT 0,
       isFavorite INTEGER DEFAULT 0,
+      isLocked INTEGER DEFAULT 0,
       isArchived INTEGER DEFAULT 0,
       isTrashed INTEGER DEFAULT 0,
       trashedAt TEXT,
@@ -176,4 +177,11 @@ function initSchema(db: Database.Database) {
       INSERT INTO notes_fts(rowid, title, contentText) VALUES (new.rowid, new.title, new.contentText);
     END;
   `);
+
+  // 数据库迁移：为已有表添加新字段
+  try {
+    db.prepare("SELECT isLocked FROM notes LIMIT 1").get();
+  } catch {
+    db.prepare("ALTER TABLE notes ADD COLUMN isLocked INTEGER DEFAULT 0").run();
+  }
 }

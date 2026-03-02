@@ -369,14 +369,6 @@ function AppearancePanel() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div>
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.sidebarWidth')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.sidebarWidthDesc')}</p>
-          </div>
-          <span className="text-xs text-zinc-400 dark:text-zinc-600 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">{t('settings.standard')}</span>
-        </div>
-
         {/* 语言切换 */}
         <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
           <div className="flex items-center gap-2">

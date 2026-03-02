@@ -31,6 +31,7 @@ export interface Note {
   contentText: string;
   isPinned: number;
   isFavorite: number;
+  isLocked: number;
   isArchived: number;
   isTrashed: number;
   trashedAt: string | null;
@@ -49,6 +50,7 @@ export interface NoteListItem {
   contentText: string;
   isPinned: number;
   isFavorite: number;
+  isLocked: number;
   isArchived: number;
   isTrashed: number;
   version: number;

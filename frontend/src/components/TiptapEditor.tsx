@@ -68,6 +68,7 @@ interface TiptapEditorProps {
   onTagsChange?: (tags: Tag[]) => void;
   onHeadingsChange?: (headings: HeadingItem[]) => void;
   onEditorReady?: (scrollTo: (pos: number) => void) => void;
+  editable?: boolean;
 }
 
 function extractHeadings(editor: any): HeadingItem[] {
@@ -87,7 +88,7 @@ function extractHeadings(editor: any): HeadingItem[] {
   return headings;
 }
 
-export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady }: TiptapEditorProps) {
+export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, editable = true }: TiptapEditorProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
@@ -139,6 +140,7 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       }),
     ],
     content: parseContent(note.content),
+    editable,
     editorProps: {
       attributes: {
         class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
@@ -172,6 +174,13 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       titleRef.current.value = note.title;
     }
   }, [note.id]);
+
+  // 动态切换编辑器的可编辑状态
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(editable);
+    }
+  }, [editor, editable]);
 
   // Provide scrollTo callback to parent
   useEffect(() => {
@@ -359,7 +368,11 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
           defaultValue={note.title}
           onChange={handleTitleChange}
           placeholder={t('tiptap.titlePlaceholder')}
-          className="w-full bg-transparent text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
+          readOnly={!editable}
+          className={cn(
+            "w-full bg-transparent text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none",
+            !editable && "cursor-default"
+          )}
         />
         <div className="flex items-center gap-3 mt-2 text-[10px] text-tx-tertiary">
           <span>{t('tiptap.version')}{note.version}</span>
