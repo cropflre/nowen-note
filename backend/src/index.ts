@@ -17,6 +17,7 @@ import fontsRouter from "./routes/fonts";
 import micloudRouter from "./routes/micloud";
 import oppoCloudRouter from "./routes/oppocloud";
 import mindmapsRouter from "./routes/mindmaps";
+import documentsRouter, { handleCallback as documentsCallback, handleFileDownload as documentsFileDownload } from "./routes/documents";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
@@ -82,6 +83,10 @@ app.get("/api/fonts/file/:id", (c) => {
   });
 });
 
+// ONLYOFFICE 回调 & 文件下载（无需 JWT，ONLYOFFICE 服务端直接调用）
+app.post("/api/documents/callback", (c) => documentsCallback(c));
+app.get("/api/documents/:id/file", (c) => documentsFileDownload(c));
+
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 app.use("/api/*", async (c, next) => {
   const authHeader = c.req.header("Authorization");
@@ -111,6 +116,7 @@ app.route("/api/export", exportRouter);
 app.route("/api/micloud", micloudRouter);
 app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
+app.route("/api/documents", documentsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 

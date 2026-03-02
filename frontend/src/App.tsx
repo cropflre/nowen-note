@@ -7,6 +7,7 @@ import NoteList from "@/components/NoteList";
 import EditorPane from "@/components/EditorPane";
 import TaskCenter from "@/components/TaskCenter";
 import MindMapCenter from "@/components/MindMapEditor";
+import DocumentCenter from "@/components/DocumentCenter";
 import LoginPage from "@/components/LoginPage";
 import { AppProvider, useApp, useAppActions } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -19,6 +20,7 @@ function AppLayout() {
   const actions = useAppActions();
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
+  const isDocumentView = state.viewMode === "documents";
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
@@ -62,6 +64,10 @@ function AppLayout() {
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
           <MindMapCenter />
+        </div>
+      ) : isDocumentView ? (
+        <div className="flex-1 flex flex-col">
+          <DocumentCenter />
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">

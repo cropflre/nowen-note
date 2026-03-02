@@ -28,6 +28,7 @@ RUN apk add --no-cache python3 make g++ \
     && rm -rf /root/.npm /tmp/*
 
 COPY --from=backend-build /app/backend/dist ./backend/dist
+COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 RUN mkdir -p /app/data

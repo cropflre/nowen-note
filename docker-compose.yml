@@ -16,7 +16,28 @@ services:
       - NODE_ENV=production
       - DB_PATH=/app/data/nowen-note.db
       - PORT=3001
+      - ONLYOFFICE_URL=http://onlyoffice:80
+      - ONLYOFFICE_JWT_SECRET=nowen-note-onlyoffice-secret
+    depends_on:
+      - onlyoffice
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: nowen-onlyoffice
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-logs:/var/log/onlyoffice
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=nowen-note-onlyoffice-secret
 
 volumes:
   nowen-note-data:
+    driver: local
+  onlyoffice-data:
+    driver: local
+  onlyoffice-logs:
     driver: local

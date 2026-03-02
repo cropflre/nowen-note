@@ -1,4 +1,4 @@
-import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem } from "@/types";
+import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, DocumentItem, DocumentListItem, DocType } from "@/types";
 
 const BASE_URL = "/api";
 
@@ -163,4 +163,40 @@ export const api = {
   updateMindMap: (id: string, data: { title?: string; data?: string }) =>
     request<MindMap>(`/mindmaps/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMindMap: (id: string) => request(`/mindmaps/${id}`, { method: "DELETE" }),
+
+  // Documents
+  getDocuments: (docType?: string) => {
+    const params = docType && docType !== "all" ? `?docType=${docType}` : "";
+    return request<DocumentListItem[]>(`/documents${params}`);
+  },
+  getDocument: (id: string) => request<DocumentItem>(`/documents/${id}`),
+  createDocument: (data: { title?: string; docType?: DocType }) =>
+    request<DocumentItem>("/documents", { method: "POST", body: JSON.stringify(data) }),
+  uploadDocument: async (file: File): Promise<DocumentItem> => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${BASE_URL}/documents/upload`, {
+      method: "POST",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "上传失败");
+    }
+    return res.json();
+  },
+  updateDocument: (id: string, data: { title?: string }) =>
+    request<DocumentItem>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteDocument: (id: string) => request(`/documents/${id}`, { method: "DELETE" }),
+  batchDeleteDocuments: (ids: string[]) =>
+    request<{ success: boolean; count: number }>("/documents/batch-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+  getDocumentEditorConfig: (id: string) =>
+    request<{ editorConfig: any; onlyofficeUrl: string }>(`/documents/${id}/editor-config`),
+  getOnlyOfficeStatus: () =>
+    request<{ available: boolean; url: string }>("/documents/onlyoffice/status"),
 };

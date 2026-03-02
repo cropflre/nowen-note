@@ -36,6 +36,7 @@
     "allNotes": "All Notes",
     "tasks": "Tasks",
     "mindMaps": "Mind Maps",
+    "documents": "Documents",
     "favorites": "Favorites",
     "trash": "Trash",
     "searchPlaceholder": "Search notes...",
@@ -348,5 +349,29 @@
     "downloadPNG": "Download as PNG",
     "downloadSVG": "Download as SVG",
     "downloadXmind": "Download as .xmind"
+  },
+  "documents": {
+    "title": "Documents",
+    "totalCount": "{{count}} documents",
+    "create": "New",
+    "upload": "Upload",
+    "download": "Download",
+    "searchPlaceholder": "Search documents...",
+    "filterAll": "All",
+    "type_word": "Word",
+    "type_cell": "Excel",
+    "type_slide": "PPT",
+    "batchManage": "Manage",
+    "deleteSelected": "Delete ({{count}})",
+    "deselectAll": "Deselect All",
+    "selectAll": "Select All",
+    "empty": "No documents yet",
+    "createFirst": "Click \"New\" to create Word, Excel, or PPT",
+    "loadingEditor": "Loading editor...",
+    "editorError": "Failed to load editor",
+    "onlyofficeLoadFailed": "Failed to load ONLYOFFICE editor script",
+    "onlyofficeUnavailable": "ONLYOFFICE Document Server is not available. Documents can be created/deleted/downloaded, but editing requires the ONLYOFFICE service.",
+    "backToList": "Back to list",
+    "retry": "Retry"
   }
 }
