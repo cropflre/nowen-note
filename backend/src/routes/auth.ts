@@ -70,8 +70,20 @@ auth.post("/login", async (c) => {
 
 // 修改账号安全信息（用户名 + 密码）
 auth.post("/change-password", async (c) => {
-  const userId = c.req.header("X-User-Id");
-  if (!userId) return c.json({ error: "未授权" }, 401);
+  // auth 路由不经过 JWT 中间件，需要自行解析 token 获取 userId
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return c.json({ error: "未授权" }, 401);
+  }
+
+  let userId: string;
+  try {
+    const token = authHeader.slice(7);
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
+    userId = decoded.userId;
+  } catch {
+    return c.json({ error: "Token 无效或已过期" }, 401);
+  }
 
   const body = await c.req.json();
   const { currentPassword, newUsername, newPassword } = body as {
