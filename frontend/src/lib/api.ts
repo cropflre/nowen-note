@@ -195,10 +195,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids }),
     }),
-  getDocumentEditorConfig: (id: string) =>
-    request<{ editorConfig: any; onlyofficeUrl: string }>(`/documents/${id}/editor-config`),
-  getOnlyOfficeStatus: () =>
-    request<{ available: boolean; url: string }>("/documents/onlyoffice/status"),
+  getDocumentContent: async (id: string): Promise<ArrayBuffer> => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}/documents/${id}/content`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "获取文档内容失败");
+    }
+    return res.arrayBuffer();
+  },
+  saveDocumentContent: async (id: string, blob: Blob): Promise<void> => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}/documents/${id}/content`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": blob.type || "application/octet-stream",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: blob,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "保存文档失败");
+    }
+  },
 
   // AI
   getAISettings: () =>

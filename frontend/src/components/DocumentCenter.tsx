@@ -1,22 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  FileText, Table, Presentation, Plus, Trash2, Edit2,
-  Loader2, Check, Upload, Download, Search, X, ChevronDown,
-  MoreHorizontal, CheckSquare, Square, ArrowLeft, AlertCircle,
-  FileUp, RefreshCw, Menu
+  FileText, Table, Plus, Trash2, Edit2,
+  Loader2, Check, Upload, Download, Search, X,
+  CheckSquare, Square, ArrowLeft, Save,
+  FileUp, Menu, Eye, Pencil
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { DocumentListItem, DocType } from "@/types";
 import { cn } from "@/lib/utils";
 import { useAppActions } from "@/store/AppContext";
-import { useSiteSettings } from "@/hooks/useSiteSettings";
 
-// 文档类型图标和颜色映射
-const DOC_TYPE_CONFIG: Record<DocType, { icon: typeof FileText; color: string; label: string; labelEn: string }> = {
-  word: { icon: FileText, color: "text-blue-500", label: "Word 文档", labelEn: "Word Document" },
-  cell: { icon: Table, color: "text-green-500", label: "Excel 表格", labelEn: "Excel Spreadsheet" },
-  slide: { icon: Presentation, color: "text-orange-500", label: "PPT 演示", labelEn: "PPT Presentation" },
+// 文档类型图标和颜色映射（移除 slide）
+const DOC_TYPE_CONFIG: Record<string, { icon: typeof FileText; color: string; label: string }> = {
+  word: { icon: FileText, color: "text-blue-500", label: "Word" },
+  cell: { icon: Table, color: "text-green-500", label: "Excel" },
 };
 
 function formatFileSize(bytes: number): string {
@@ -40,151 +38,505 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-// ========== ONLYOFFICE 编辑器组件 ==========
-function OnlyOfficeEditor({
+// ========== Word 编辑器组件（mammoth 预览 + contenteditable 编辑） ==========
+function WordEditor({
   documentId,
-  onBack,
   title,
+  onBack,
 }: {
   documentId: string;
-  onBack: () => void;
   title: string;
+  onBack: () => void;
 }) {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<any>(null);
+  const [htmlContent, setHtmlContent] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [modified, setModified] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let destroyed = false;
-
-    async function initEditor() {
+    async function loadDocument() {
       try {
-        const { editorConfig, onlyofficeUrl } = await api.getDocumentEditorConfig(documentId);
-
-        if (destroyed) return;
-
-        // 动态推算 ONLYOFFICE 公网地址：与当前页面同主机，端口 8080
-        const effectiveOnlyofficeUrl = onlyofficeUrl === "http://localhost:8080"
-          ? `${window.location.protocol}//${window.location.hostname}:8080`
-          : onlyofficeUrl;
-
-        // 动态加载 ONLYOFFICE API 脚本
-        const apiUrl = `${effectiveOnlyofficeUrl}/web-apps/apps/api/documents/api.js`;
-
-        // 检查是否已加载
-        if (!(window as any).DocsAPI) {
-          await new Promise<void>((resolve, reject) => {
-            // 移除旧的脚本
-            const oldScript = document.getElementById("onlyoffice-api-script");
-            if (oldScript) oldScript.remove();
-
-            const script = document.createElement("script");
-            script.id = "onlyoffice-api-script";
-            script.src = apiUrl;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error(t("documents.onlyofficeLoadFailed")));
-            document.head.appendChild(script);
-          });
-        }
-
-        if (destroyed) return;
-
-        // 销毁旧编辑器
-        if (editorRef.current) {
-          try { editorRef.current.destroyEditor(); } catch {}
-          editorRef.current = null;
-        }
-
-        // 创建编辑器
-        editorRef.current = new (window as any).DocsAPI.DocEditor("onlyoffice-editor-container", {
-          ...editorConfig,
-          width: "100%",
-          height: "100%",
-          events: {
-            onReady: () => {
-              if (!destroyed) setLoading(false);
-            },
-            onError: (event: any) => {
-              console.error("ONLYOFFICE error:", event);
-              if (!destroyed) {
-                setError(t("documents.editorError"));
-                setLoading(false);
-              }
-            },
-          },
-        });
+        setLoading(true);
+        const arrayBuffer = await api.getDocumentContent(documentId);
+        const mammoth = await import("mammoth");
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setHtmlContent(result.value);
       } catch (err: any) {
-        if (!destroyed) {
-          setError(err.message || t("documents.editorError"));
-          setLoading(false);
-        }
+        setError(err.message || t("documents.loadFailed"));
+      } finally {
+        setLoading(false);
       }
     }
-
-    initEditor();
-
-    return () => {
-      destroyed = true;
-      if (editorRef.current) {
-        try { editorRef.current.destroyEditor(); } catch {}
-        editorRef.current = null;
-      }
-    };
+    loadDocument();
   }, [documentId]);
+
+  const handleSave = async () => {
+    if (!editorRef.current) return;
+    setSaving(true);
+    try {
+      const html = editorRef.current.innerHTML;
+      // 将编辑后的 HTML 转为 docx 并保存
+      const { Document, Packer, Paragraph, TextRun } = await import("docx");
+
+      // 解析 HTML 为简单段落（保留基本格式）
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = html;
+      const paragraphs: any[] = [];
+
+      const processNode = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent || "";
+          if (text.trim()) {
+            paragraphs.push(new Paragraph({
+              children: [new TextRun(text)],
+            }));
+          }
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const el = node as HTMLElement;
+        const tag = el.tagName.toLowerCase();
+
+        if (["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li"].includes(tag)) {
+          const runs: any[] = [];
+          const walkInline = (n: Node) => {
+            if (n.nodeType === Node.TEXT_NODE) {
+              const t = n.textContent || "";
+              if (t) {
+                const parent = n.parentElement;
+                const bold = parent?.closest("strong,b") !== null;
+                const italic = parent?.closest("em,i") !== null;
+                const underline = parent?.closest("u") !== null;
+                runs.push(new TextRun({ text: t, bold, italics: italic, underline: underline ? {} : undefined }));
+              }
+            } else if (n.nodeType === Node.ELEMENT_NODE) {
+              const childEl = n as HTMLElement;
+              const childTag = childEl.tagName.toLowerCase();
+              if (["strong", "b", "em", "i", "u", "span", "a", "code"].includes(childTag)) {
+                for (const child of Array.from(n.childNodes)) walkInline(child);
+              } else {
+                for (const child of Array.from(n.childNodes)) walkInline(child);
+              }
+            }
+          };
+          for (const child of Array.from(el.childNodes)) walkInline(child);
+
+          if (runs.length === 0) {
+            runs.push(new TextRun(""));
+          }
+
+          const heading = tag.match(/^h(\d)$/);
+          paragraphs.push(new Paragraph({
+            children: runs,
+            heading: heading ? (`Heading${heading[1]}` as any) : undefined,
+          }));
+        } else if (["ul", "ol", "table", "thead", "tbody", "tr"].includes(tag)) {
+          for (const child of Array.from(el.childNodes)) processNode(child);
+        } else {
+          // 其他块级元素也递归处理
+          for (const child of Array.from(el.childNodes)) processNode(child);
+        }
+      };
+
+      for (const child of Array.from(tempDiv.childNodes)) processNode(child);
+
+      if (paragraphs.length === 0) {
+        paragraphs.push(new Paragraph({ children: [new TextRun("")] }));
+      }
+
+      const doc = new Document({
+        sections: [{ children: paragraphs }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      await api.saveDocumentContent(documentId, blob);
+      setModified(false);
+    } catch (err: any) {
+      console.error("Save failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-app-bg">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-accent-primary" />
+          <p className="text-sm text-tx-secondary">{t("documents.loadingDocument")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-app-bg">
+        <div className="flex flex-col items-center gap-3 text-center px-4">
+          <p className="text-sm text-red-500">{error}</p>
+          <button onClick={onBack} className="px-4 py-2 text-sm bg-app-hover text-tx-primary rounded-lg">
+            {t("documents.backToList")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-app-border bg-app-surface/50 shrink-0">
+        <button onClick={onBack} className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors">
+          <ArrowLeft size={18} />
+        </button>
+        <span className="text-sm font-medium text-tx-primary truncate flex-1">{title}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors",
+              editMode ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover"
+            )}
+          >
+            {editMode ? <Pencil size={14} /> : <Eye size={14} />}
+            {editMode ? t("documents.editing") : t("documents.preview")}
+          </button>
+          {editMode && modified && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-md transition-colors"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? t("common.saving") : t("common.save")}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto bg-white dark:bg-zinc-900">
+        <div className="max-w-4xl mx-auto px-8 py-6">
+          {editMode ? (
+            <div
+              ref={editorRef}
+              contentEditable
+              suppressContentEditableWarning
+              className="prose prose-sm dark:prose-invert max-w-none min-h-[60vh] outline-none
+                prose-p:my-2 prose-headings:my-3
+                prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
+                prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:bg-gray-50
+                prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
+                dark:prose-th:border-zinc-600 dark:prose-td:border-zinc-600 dark:prose-th:bg-zinc-800
+                focus:ring-0"
+              dangerouslySetInnerHTML={{ __html: htmlContent }}
+              onInput={() => setModified(true)}
+            />
+          ) : (
+            <div
+              className="prose prose-sm dark:prose-invert max-w-none
+                prose-p:my-2 prose-headings:my-3
+                prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
+                prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:bg-gray-50
+                prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
+                dark:prose-th:border-zinc-600 dark:prose-td:border-zinc-600 dark:prose-th:bg-zinc-800"
+              dangerouslySetInnerHTML={{ __html: htmlContent }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Excel 编辑器组件（SheetJS 读取 + 可编辑表格） ==========
+function ExcelEditor({
+  documentId,
+  title,
+  onBack,
+}: {
+  documentId: string;
+  title: string;
+  onBack: () => void;
+}) {
+  const { t } = useTranslation();
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [activeSheet, setActiveSheet] = useState(0);
+  const [sheetData, setSheetData] = useState<Record<string, string[][]>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [modified, setModified] = useState(false);
+  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const workbookRef = useRef<any>(null);
+
+  useEffect(() => {
+    async function loadDocument() {
+      try {
+        setLoading(true);
+        const arrayBuffer = await api.getDocumentContent(documentId);
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        workbookRef.current = workbook;
+
+        const names = workbook.SheetNames;
+        setSheetNames(names);
+
+        const data: Record<string, string[][]> = {};
+        for (const name of names) {
+          const sheet = workbook.Sheets[name];
+          const json = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: "" });
+          // 确保至少有一些行列
+          if (json.length === 0) json.push([""]);
+          // 统一列数
+          const maxCols = Math.max(...json.map(r => r.length), 1);
+          data[name] = json.map(r => {
+            while (r.length < maxCols) r.push("");
+            return r.map(c => String(c ?? ""));
+          });
+        }
+        setSheetData(data);
+      } catch (err: any) {
+        setError(err.message || t("documents.loadFailed"));
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadDocument();
+  }, [documentId]);
+
+  const currentData = sheetData[sheetNames[activeSheet]] || [];
+
+  const handleCellEdit = (row: number, col: number, value: string) => {
+    const sheetName = sheetNames[activeSheet];
+    setSheetData(prev => {
+      const newData = { ...prev };
+      const rows = [...newData[sheetName]];
+      rows[row] = [...rows[row]];
+      rows[row][col] = value;
+      newData[sheetName] = rows;
+      return newData;
+    });
+    setModified(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      for (const name of sheetNames) {
+        const rows = sheetData[name] || [];
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      }
+      const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      await api.saveDocumentContent(documentId, blob);
+      setModified(false);
+    } catch (err: any) {
+      console.error("Save failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 添加行/列
+  const addRow = () => {
+    const sheetName = sheetNames[activeSheet];
+    setSheetData(prev => {
+      const newData = { ...prev };
+      const rows = [...newData[sheetName]];
+      const cols = rows[0]?.length || 1;
+      rows.push(new Array(cols).fill(""));
+      newData[sheetName] = rows;
+      return newData;
+    });
+    setModified(true);
+  };
+
+  const addCol = () => {
+    const sheetName = sheetNames[activeSheet];
+    setSheetData(prev => {
+      const newData = { ...prev };
+      newData[sheetName] = newData[sheetName].map(r => [...r, ""]);
+      return newData;
+    });
+    setModified(true);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-app-bg">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-accent-primary" />
+          <p className="text-sm text-tx-secondary">{t("documents.loadingDocument")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-app-bg">
+        <div className="flex flex-col items-center gap-3 text-center px-4">
+          <p className="text-sm text-red-500">{error}</p>
+          <button onClick={onBack} className="px-4 py-2 text-sm bg-app-hover text-tx-primary rounded-lg">
+            {t("documents.backToList")}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* 顶栏 */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-app-border bg-app-surface/50 shrink-0">
-        <button
-          onClick={onBack}
-          className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors"
-        >
+        <button onClick={onBack} className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors">
           <ArrowLeft size={18} />
         </button>
-        <span className="text-sm font-medium text-tx-primary truncate">{title}</span>
+        <span className="text-sm font-medium text-tx-primary truncate flex-1">{title}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors",
+              editMode ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover"
+            )}
+          >
+            {editMode ? <Pencil size={14} /> : <Eye size={14} />}
+            {editMode ? t("documents.editing") : t("documents.preview")}
+          </button>
+          {editMode && (
+            <>
+              <button onClick={addRow} className="px-2 py-1.5 text-xs text-tx-secondary hover:text-tx-primary hover:bg-app-hover rounded-md">
+                + {t("documents.addRow")}
+              </button>
+              <button onClick={addCol} className="px-2 py-1.5 text-xs text-tx-secondary hover:text-tx-primary hover:bg-app-hover rounded-md">
+                + {t("documents.addCol")}
+              </button>
+            </>
+          )}
+          {editMode && modified && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-md transition-colors"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? t("common.saving") : t("common.save")}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* 编辑器容器 */}
-      <div className="flex-1 relative">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-app-bg z-10">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-accent-primary" />
-              <p className="text-sm text-tx-secondary">{t("documents.loadingEditor")}</p>
-            </div>
-          </div>
-        )}
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-app-bg z-10">
-            <div className="flex flex-col items-center gap-3 max-w-md text-center px-4">
-              <AlertCircle className="w-10 h-10 text-red-500" />
-              <p className="text-sm text-tx-primary font-medium">{t("documents.editorError")}</p>
-              <p className="text-xs text-tx-secondary">{error}</p>
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={onBack}
-                  className="px-4 py-2 text-sm bg-app-hover text-tx-primary rounded-lg hover:bg-app-border transition-colors"
-                >
-                  {t("documents.backToList")}
-                </button>
-                <button
-                  onClick={() => { setError(null); setLoading(true); }}
-                  className="px-4 py-2 text-sm bg-accent-primary text-white rounded-lg hover:bg-accent-hover transition-colors"
-                >
-                  {t("documents.retry")}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        <div
-          id="onlyoffice-editor-container"
-          ref={containerRef}
-          className="w-full h-full"
-        />
+      {/* Sheet 标签 */}
+      {sheetNames.length > 1 && (
+        <div className="flex items-center gap-0.5 px-4 py-1.5 border-b border-app-border bg-app-surface/30 shrink-0 overflow-x-auto">
+          {sheetNames.map((name, i) => (
+            <button
+              key={name}
+              onClick={() => { setActiveSheet(i); setEditingCell(null); }}
+              className={cn(
+                "px-3 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                i === activeSheet
+                  ? "bg-accent-primary/10 text-accent-primary font-medium"
+                  : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover"
+              )}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 表格 */}
+      <div className="flex-1 overflow-auto">
+        <table className="border-collapse text-xs w-full">
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th className="bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-1 py-1 text-center text-tx-tertiary font-normal w-10 min-w-[40px]">
+                #
+              </th>
+              {(currentData[0] || [""]).map((_, ci) => (
+                <th key={ci} className="bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-2 py-1 text-center text-tx-tertiary font-normal min-w-[80px]">
+                  {String.fromCharCode(65 + (ci % 26))}{ci >= 26 ? Math.floor(ci / 26) : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {currentData.map((row, ri) => (
+              <tr key={ri}>
+                <td className="bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 px-1 py-1 text-center text-tx-tertiary font-normal">
+                  {ri + 1}
+                </td>
+                {row.map((cell, ci) => {
+                  const isEditing = editingCell?.row === ri && editingCell?.col === ci;
+                  return (
+                    <td
+                      key={ci}
+                      className={cn(
+                        "border border-gray-200 dark:border-zinc-700 px-2 py-1 text-tx-primary",
+                        editMode && "cursor-pointer hover:bg-accent-primary/5",
+                        isEditing && "bg-accent-primary/10 p-0"
+                      )}
+                      onClick={() => {
+                        if (editMode && !isEditing) {
+                          setEditingCell({ row: ri, col: ci });
+                          setEditValue(cell);
+                        }
+                      }}
+                    >
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => {
+                            handleCellEdit(ri, ci, editValue);
+                            setEditingCell(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handleCellEdit(ri, ci, editValue);
+                              // 移到下一行
+                              if (ri + 1 < currentData.length) {
+                                setEditingCell({ row: ri + 1, col: ci });
+                                setEditValue(currentData[ri + 1][ci] || "");
+                              } else {
+                                setEditingCell(null);
+                              }
+                            }
+                            if (e.key === "Tab") {
+                              e.preventDefault();
+                              handleCellEdit(ri, ci, editValue);
+                              if (ci + 1 < row.length) {
+                                setEditingCell({ row: ri, col: ci + 1 });
+                                setEditValue(row[ci + 1] || "");
+                              } else {
+                                setEditingCell(null);
+                              }
+                            }
+                            if (e.key === "Escape") setEditingCell(null);
+                          }}
+                          className="w-full h-full px-2 py-1 text-xs outline-none bg-transparent border-2 border-accent-primary rounded-sm"
+                        />
+                      ) : (
+                        <span className="block truncate max-w-[200px]">{cell}</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -194,7 +546,6 @@ function OnlyOfficeEditor({
 export default function DocumentCenter() {
   const { t } = useTranslation();
   const actions = useAppActions();
-  const { siteConfig } = useSiteSettings();
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
@@ -204,14 +555,11 @@ export default function DocumentCenter() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const [editingDocId, setEditingDocId] = useState<string | null>(null);
-  const [editingDocTitle, setEditingDocTitle] = useState("");
-  const [onlyofficeAvailable, setOnlyofficeAvailable] = useState<boolean | null>(null);
+  const [openDoc, setOpenDoc] = useState<{ id: string; title: string; docType: DocType } | null>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 加载文档列表
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     try {
@@ -226,14 +574,6 @@ export default function DocumentCenter() {
 
   useEffect(() => { loadDocuments(); }, [loadDocuments]);
 
-  // 检查 ONLYOFFICE 可用性
-  useEffect(() => {
-    api.getOnlyOfficeStatus()
-      .then((res) => setOnlyofficeAvailable(res.available))
-      .catch(() => setOnlyofficeAvailable(false));
-  }, []);
-
-  // 点击外部关闭创建菜单
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) {
@@ -244,7 +584,6 @@ export default function DocumentCenter() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showCreateMenu]);
 
-  // 聚焦重命名输入框
   useEffect(() => {
     if (editingId && editInputRef.current) {
       editInputRef.current.focus();
@@ -252,28 +591,21 @@ export default function DocumentCenter() {
     }
   }, [editingId]);
 
-  // 搜索过滤
   const filteredDocs = searchQuery.trim()
     ? documents.filter((d) => d.title.toLowerCase().includes(searchQuery.toLowerCase()))
     : documents;
 
-  // 创建文档
   const handleCreate = async (docType: DocType) => {
     setShowCreateMenu(false);
     try {
       const doc = await api.createDocument({ docType });
       setDocuments((prev) => [doc as any, ...prev]);
-      // 如果 ONLYOFFICE 可用，直接打开编辑
-      if (onlyofficeAvailable) {
-        setEditingDocId(doc.id);
-        setEditingDocTitle(doc.title);
-      }
+      setOpenDoc({ id: doc.id, title: doc.title, docType: doc.docType });
     } catch (err: any) {
       console.error("Create failed:", err);
     }
   };
 
-  // 上传文档
   const handleUpload = async (files: FileList) => {
     for (const file of Array.from(files)) {
       try {
@@ -285,7 +617,6 @@ export default function DocumentCenter() {
     }
   };
 
-  // 重命名
   const handleRename = async () => {
     if (!editingId || !editTitle.trim()) {
       setEditingId(null);
@@ -296,9 +627,8 @@ export default function DocumentCenter() {
       setDocuments((prev) =>
         prev.map((d) => (d.id === editingId ? { ...d, title: editTitle.trim() } : d))
       );
-      // 如果正在编辑这个文档，同步标题
-      if (editingDocId === editingId) {
-        setEditingDocTitle(editTitle.trim());
+      if (openDoc && openDoc.id === editingId) {
+        setOpenDoc({ ...openDoc, title: editTitle.trim() });
       }
     } catch (err) {
       console.error("Rename failed:", err);
@@ -306,20 +636,16 @@ export default function DocumentCenter() {
     setEditingId(null);
   };
 
-  // 删除
   const handleDelete = async (id: string) => {
     try {
       await api.deleteDocument(id);
       setDocuments((prev) => prev.filter((d) => d.id !== id));
-      if (editingDocId === id) {
-        setEditingDocId(null);
-      }
+      if (openDoc?.id === id) setOpenDoc(null);
     } catch (err) {
       console.error("Delete failed:", err);
     }
   };
 
-  // 批量删除
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     try {
@@ -332,7 +658,6 @@ export default function DocumentCenter() {
     }
   };
 
-  // 选择/取消选择
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -350,21 +675,26 @@ export default function DocumentCenter() {
     }
   };
 
-  // 如果正在编辑文档，显示 ONLYOFFICE 编辑器
-  if (editingDocId) {
+  // 打开文档编辑器
+  if (openDoc) {
+    if (openDoc.docType === "cell") {
+      return (
+        <ExcelEditor
+          documentId={openDoc.id}
+          title={openDoc.title}
+          onBack={() => { setOpenDoc(null); loadDocuments(); }}
+        />
+      );
+    }
     return (
-      <OnlyOfficeEditor
-        documentId={editingDocId}
-        title={editingDocTitle}
-        onBack={() => {
-          setEditingDocId(null);
-          loadDocuments(); // 刷新列表（可能已保存）
-        }}
+      <WordEditor
+        documentId={openDoc.id}
+        title={openDoc.title}
+        onBack={() => { setOpenDoc(null); loadDocuments(); }}
       />
     );
   }
 
-  // 文档列表视图
   return (
     <div className="flex-1 flex flex-col h-full bg-app-bg">
       {/* 顶栏 */}
@@ -416,7 +746,7 @@ export default function DocumentCenter() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".docx,.doc,.xlsx,.xls,.csv,.pptx,.ppt,.odt,.rtf,.txt"
+                accept=".docx,.doc,.xlsx,.xls,.csv,.odt,.rtf,.txt"
                 className="hidden"
                 multiple
                 onChange={(e) => {
@@ -436,8 +766,9 @@ export default function DocumentCenter() {
                 </button>
                 {showCreateMenu && (
                   <div className="absolute right-0 top-full mt-1 w-48 py-1 bg-white dark:bg-zinc-900 rounded-lg shadow-xl border border-app-border z-50">
-                    {(["word", "cell", "slide"] as DocType[]).map((type) => {
+                    {(["word", "cell"] as DocType[]).map((type) => {
                       const config = DOC_TYPE_CONFIG[type];
+                      if (!config) return null;
                       const Icon = config.icon;
                       return (
                         <button
@@ -458,7 +789,7 @@ export default function DocumentCenter() {
         </div>
       </div>
 
-      {/* 工具栏：搜索 + 筛选 */}
+      {/* 工具栏 */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-app-border shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" size={14} />
@@ -469,16 +800,13 @@ export default function DocumentCenter() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary"
-            >
+            <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary">
               <X size={12} />
             </button>
           )}
         </div>
         <div className="flex items-center gap-1">
-          {["all", "word", "cell", "slide"].map((type) => (
+          {["all", "word", "cell"].map((type) => (
             <button
               key={type}
               onClick={() => setFilter(type)}
@@ -503,14 +831,6 @@ export default function DocumentCenter() {
         )}
       </div>
 
-      {/* ONLYOFFICE 状态提示 */}
-      {onlyofficeAvailable === false && (
-        <div className="mx-4 mt-3 flex items-center gap-2 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-          <AlertCircle size={14} />
-          <span>{t("documents.onlyofficeUnavailable")}</span>
-        </div>
-      )}
-
       {/* 文档列表 */}
       <div className="flex-1 overflow-auto px-4 py-3">
         {loading ? (
@@ -526,7 +846,7 @@ export default function DocumentCenter() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {filteredDocs.map((doc) => {
-              const config = DOC_TYPE_CONFIG[doc.docType];
+              const config = DOC_TYPE_CONFIG[doc.docType] || DOC_TYPE_CONFIG.word;
               const Icon = config.icon;
               const isSelected = selectedIds.has(doc.id);
               const isEditing = editingId === doc.id;
@@ -543,13 +863,11 @@ export default function DocumentCenter() {
                   onClick={() => {
                     if (batchMode) {
                       toggleSelect(doc.id);
-                    } else if (onlyofficeAvailable) {
-                      setEditingDocId(doc.id);
-                      setEditingDocTitle(doc.title);
+                    } else {
+                      setOpenDoc({ id: doc.id, title: doc.title, docType: doc.docType });
                     }
                   }}
                 >
-                  {/* 批量选择复选框 */}
                   {batchMode && (
                     <div className="absolute top-2 left-2 z-10">
                       {isSelected ? (
@@ -560,7 +878,6 @@ export default function DocumentCenter() {
                     </div>
                   )}
 
-                  {/* 操作按钮 */}
                   {!batchMode && (
                     <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
@@ -575,13 +892,20 @@ export default function DocumentCenter() {
                         <Edit2 size={13} />
                       </button>
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          // 下载
-                          const a = document.createElement("a");
-                          a.href = `/api/documents/${doc.id}/file`;
-                          a.download = doc.title;
-                          a.click();
+                          try {
+                            const buf = await api.getDocumentContent(doc.id);
+                            const blob = new Blob([buf]);
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = doc.title;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          } catch (err) {
+                            console.error("Download failed:", err);
+                          }
                         }}
                         className="p-1 rounded text-tx-tertiary hover:text-tx-primary hover:bg-app-hover transition-colors"
                         title={t("documents.download")}
@@ -601,16 +925,12 @@ export default function DocumentCenter() {
                     </div>
                   )}
 
-                  {/* 图标 */}
                   <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mb-3",
-                    doc.docType === "word" ? "bg-blue-50 dark:bg-blue-900/20" :
-                    doc.docType === "cell" ? "bg-green-50 dark:bg-green-900/20" :
-                    "bg-orange-50 dark:bg-orange-900/20"
+                    doc.docType === "word" ? "bg-blue-50 dark:bg-blue-900/20" : "bg-green-50 dark:bg-green-900/20"
                   )}>
                     <Icon size={22} className={config.color} />
                   </div>
 
-                  {/* 标题 */}
                   {isEditing ? (
                     <input
                       ref={editInputRef}
@@ -630,7 +950,6 @@ export default function DocumentCenter() {
                     </h3>
                   )}
 
-                  {/* 元信息 */}
                   <div className="flex items-center gap-2 text-[10px] text-tx-tertiary mt-auto">
                     <span>{t(`documents.type_${doc.docType}`)}</span>
                     <span>·</span>

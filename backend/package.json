@@ -12,7 +12,6 @@
     "better-sqlite3": "^11.7.0",
     "hono": "^4.6.15",
     "jsonwebtoken": "^9.0.3",
-    "nowen-note": "file:..",
     "uuid": "^11.0.5",
     "zod": "^3.24.1"
   },

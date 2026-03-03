@@ -79,7 +79,7 @@ export interface SearchResult {
 
 export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "documents" | "ai-chat";
 
-export type DocType = "word" | "cell" | "slide";
+export type DocType = "word" | "cell";
 
 export interface DocumentItem {
   id: string;
