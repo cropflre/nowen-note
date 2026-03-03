@@ -306,6 +306,8 @@ app.get("/:id/editor-config", (c) => {
       title: `${doc.title}.${ext}`,
       url: fileUrl,
       permissions: {
+        chat: false,
+        comment: false,
         download: true,
         edit: true,
         print: true,
@@ -323,8 +325,6 @@ app.get("/:id/editor-config", (c) => {
       },
       customization: {
         autosave: true,
-        chat: false,
-        comments: false,
         compactHeader: true,
         compactToolbar: false,
         feedback: false,
