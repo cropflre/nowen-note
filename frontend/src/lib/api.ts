@@ -199,4 +199,107 @@ export const api = {
     request<{ editorConfig: any; onlyofficeUrl: string }>(`/documents/${id}/editor-config`),
   getOnlyOfficeStatus: () =>
     request<{ available: boolean; url: string }>("/documents/onlyoffice/status"),
+
+  // AI
+  getAISettings: () =>
+    request<{ ai_provider: string; ai_api_url: string; ai_api_key: string; ai_api_key_set: boolean; ai_model: string }>("/ai/settings"),
+  updateAISettings: (data: { ai_provider?: string; ai_api_url?: string; ai_api_key?: string; ai_model?: string }) =>
+    request<{ ai_provider: string; ai_api_url: string; ai_api_key: string; ai_api_key_set: boolean; ai_model: string }>("/ai/settings", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  testAIConnection: () =>
+    request<{ success: boolean; message?: string; error?: string }>("/ai/test", { method: "POST" }),
+  getAIModels: () =>
+    request<{ models: { id: string; name: string }[] }>("/ai/models"),
+  aiChat: async (action: string, text: string, context?: string, onChunk?: (chunk: string) => void): Promise<string> => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}/ai/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ action, text, context }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `AI 请求失败: ${res.status}`);
+    }
+    // SSE stream
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let result = "";
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") break;
+        result += data;
+        onChunk?.(data);
+      }
+    }
+    return result;
+  },
+
+  aiAsk: async (
+    question: string,
+    history?: { role: string; content: string }[],
+    onChunk?: (chunk: string) => void,
+    onReferences?: (refs: { id: string; title: string }[]) => void
+  ): Promise<string> => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}/ai/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ question, history }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `AI 请求失败: ${res.status}`);
+    }
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let result = "";
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("event:")) {
+          const event = trimmed.slice(6).trim();
+          // Read next data line
+          continue;
+        }
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") break;
+        // Check if this is a references event by trying to parse as JSON array
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed) && parsed[0]?.id && parsed[0]?.title) {
+            onReferences?.(parsed);
+            continue;
+          }
+        } catch { /* not JSON, treat as content chunk */ }
+        result += data;
+        onChunk?.(data);
+      }
+    }
+    return result;
+  },
 };

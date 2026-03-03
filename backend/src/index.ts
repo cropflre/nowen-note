@@ -18,6 +18,7 @@ import micloudRouter from "./routes/micloud";
 import oppoCloudRouter from "./routes/oppocloud";
 import mindmapsRouter from "./routes/mindmaps";
 import documentsRouter, { handleCallback as documentsCallback, handleFileDownload as documentsFileDownload } from "./routes/documents";
+import aiRouter from "./routes/ai";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
@@ -117,6 +118,7 @@ app.route("/api/micloud", micloudRouter);
 app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/documents", documentsRouter);
+app.route("/api/ai", aiRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 

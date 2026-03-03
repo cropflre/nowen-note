@@ -18,8 +18,10 @@ services:
       - PORT=3001
       - ONLYOFFICE_URL=http://onlyoffice:80
       - ONLYOFFICE_JWT_SECRET=nowen-note-onlyoffice-secret
+      - OLLAMA_URL=http://ollama:11434
     depends_on:
       - onlyoffice
+      - ollama
 
   onlyoffice:
     image: onlyoffice/documentserver:latest
@@ -34,10 +36,29 @@ services:
       - JWT_ENABLED=true
       - JWT_SECRET=nowen-note-onlyoffice-secret
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: nowen-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # 如需 GPU 加速，取消以下注释：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 volumes:
   nowen-note-data:
     driver: local
   onlyoffice-data:
     driver: local
   onlyoffice-logs:
+    driver: local
+  ollama-data:
     driver: local

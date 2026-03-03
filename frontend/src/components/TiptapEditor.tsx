@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
+import { AnimatePresence } from "framer-motion";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
@@ -14,11 +15,12 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   Code, List, ListOrdered, Heading1, Heading2, Heading3,
   Quote, ImagePlus, CheckSquare, Highlighter, Minus, Undo, Redo,
-  FileCode
+  FileCode, Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Note, Tag } from "@/types";
 import TagInput from "@/components/TagInput";
+import AIWritingAssistant from "@/components/AIWritingAssistant";
 import { useTranslation } from "react-i18next";
 
 const lowlight = createLowlight(common);
@@ -92,6 +94,9 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
+  const [showAI, setShowAI] = useState(false);
+  const [aiSelectedText, setAiSelectedText] = useState("");
+  const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
   const { t, i18n } = useTranslation();
 
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
@@ -224,6 +229,39 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       reader.readAsDataURL(file);
     };
     input.click();
+  }, [editor]);
+
+  const openAIAssistant = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const selected = editor.state.doc.textBetween(from, to, " ");
+    setAiSelectedText(selected || editor.getText().slice(0, 500));
+
+    // 获取选区在屏幕上的位置
+    const coords = editor.view.coordsAtPos(from);
+    const editorRect = editor.view.dom.getBoundingClientRect();
+    setAiPosition({
+      top: Math.min(coords.top + 28, window.innerHeight - 500),
+      left: Math.min(coords.left, window.innerWidth - 420),
+    });
+    setShowAI(true);
+  }, [editor]);
+
+  const handleAIInsert = useCallback((text: string) => {
+    if (!editor) return;
+    const { to } = editor.state.selection;
+    editor.chain().focus().insertContentAt(to, text).run();
+  }, [editor]);
+
+  const handleAIReplace = useCallback((text: string) => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      // 无选区时，插入到光标处
+      editor.chain().focus().insertContent(text).run();
+    } else {
+      editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, text).run();
+    }
   }, [editor]);
 
   if (!editor) return null;
@@ -359,6 +397,12 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
         <ToolbarButton onClick={handleImageUpload} title={t('tiptap.insertImage')}>
           <ImagePlus size={iconSize} />
         </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+          <Sparkles size={iconSize} className="text-violet-500" />
+        </ToolbarButton>
       </div>
 
       {/* Title */}
@@ -414,6 +458,10 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
           <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} isActive={editor.isActive("code")}>
             <Code size={14} />
           </ToolbarButton>
+          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+            <Sparkles size={14} className="text-violet-500" />
+          </ToolbarButton>
         </BubbleMenu>
       )}
 
@@ -421,6 +469,20 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       <div className="flex-1 overflow-auto px-4 md:px-8 pb-12">
         <EditorContent editor={editor} />
       </div>
+
+      {/* AI Writing Assistant */}
+      <AnimatePresence>
+        {showAI && (
+          <AIWritingAssistant
+            selectedText={aiSelectedText}
+            fullText={editor?.getText() || ""}
+            onInsert={handleAIInsert}
+            onReplace={handleAIReplace}
+            onClose={() => setShowAI(false)}
+            position={aiPosition}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

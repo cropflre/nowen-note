@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, Folder, X, ListTree, Lock, Unlock } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, Folder, X, ListTree, Lock, Unlock, Sparkles, Tag as TagIcon, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -99,6 +99,56 @@ export default function EditorPane() {
     actions.setActiveNote({ ...activeNote, tags });
     api.getTags().then(actions.setTags).catch(console.error);
   }, [activeNote, actions]);
+
+  // AI 生成标题
+  const [aiTitleLoading, setAiTitleLoading] = useState(false);
+  const handleAITitle = useCallback(async () => {
+    if (!activeNote || !activeNote.contentText || aiTitleLoading) return;
+    setAiTitleLoading(true);
+    try {
+      const title = await api.aiChat("title", activeNote.contentText.slice(0, 2000));
+      const cleaned = title.replace(/^["'"""'']+|["'"""'']+$/g, "").trim();
+      if (cleaned) {
+        const updated = await api.updateNote(activeNote.id, { title: cleaned, version: activeNote.version } as any);
+        actions.setActiveNote(updated);
+        actions.updateNoteInList({ id: updated.id, title: updated.title, updatedAt: updated.updatedAt });
+      }
+    } catch (e) { console.error("AI title error:", e); }
+    setAiTitleLoading(false);
+  }, [activeNote, actions, aiTitleLoading]);
+
+  // AI 推荐标签
+  const [aiTagsLoading, setAiTagsLoading] = useState(false);
+  const handleAITags = useCallback(async () => {
+    if (!activeNote || !activeNote.contentText || aiTagsLoading) return;
+    setAiTagsLoading(true);
+    try {
+      const result = await api.aiChat("tags", activeNote.contentText.slice(0, 2000));
+      const tagNames = result.split(/[,，、\s]+/).map(s => s.replace(/^#/, "").trim()).filter(Boolean);
+      const userId = activeNote.userId;
+      for (const name of tagNames) {
+        // 检查是否已存在
+        const existing = state.tags.find(t => t.name === name);
+        let tagId: string;
+        if (existing) {
+          tagId = existing.id;
+        } else {
+          const newTag = await api.createTag({ name });
+          tagId = newTag.id;
+        }
+        // 检查是否已关联
+        const noteTags = activeNote.tags || [];
+        if (!noteTags.find(t => t.id === tagId)) {
+          await api.addTagToNote(activeNote.id, tagId);
+        }
+      }
+      // 重新获取笔记和标签
+      const updatedNote = await api.getNote(activeNote.id);
+      actions.setActiveNote(updatedNote);
+      api.getTags().then(actions.setTags).catch(console.error);
+    } catch (e) { console.error("AI tags error:", e); }
+    setAiTagsLoading(false);
+  }, [activeNote, actions, state.tags, aiTagsLoading]);
 
   const handleMoveToNotebook = useCallback(async (notebookId: string) => {
     if (!activeNote || notebookId === activeNote.notebookId) return;
@@ -253,6 +303,23 @@ export default function EditorPane() {
             title={showOutline ? t('editor.hideOutline') : t('editor.showOutline')}
           >
             <ListTree size={14} className={cn(showOutline && "text-accent-primary")} />
+          </Button>
+          <div className="w-px h-4 bg-app-border mx-1" />
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={handleAITitle}
+            disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
+            title={t('editor.aiGenerateTitle')}
+          >
+            {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
+          </Button>
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={handleAITags}
+            disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
+            title={t('editor.aiSuggestTags')}
+          >
+            {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
           </Button>
         </div>
       </div>

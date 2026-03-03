@@ -77,7 +77,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "documents";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "documents" | "ai-chat";
 
 export type DocType = "word" | "cell" | "slide";
 
