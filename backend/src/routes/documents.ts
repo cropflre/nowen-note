@@ -217,14 +217,13 @@ app.post("/upload", async (c) => {
 
   const id = uuidv4();
   const title = file.name.replace(/\.[^.]+$/, "") || "未命名文档";
-  let buffer = Buffer.from(await file.arrayBuffer());
+  let buffer: Buffer = Buffer.from(await file.arrayBuffer());
 
   // 对非 docx 的 word 类文件，尝试转换为 docx
   let finalExt = ext;
   if (docType === "word" && ext !== "docx") {
     try {
-      const converted = await convertToDocx(buffer, ext);
-      buffer = converted;
+      buffer = await convertToDocx(buffer, ext) as any;
       finalExt = "docx";
     } catch (err) {
       console.error(`Failed to convert .${ext} to .docx:`, err);
@@ -335,7 +334,7 @@ app.get("/:id/file", (c) => {
   const typeInfo = DOC_TYPE_MAP[doc.docType] || DOC_TYPE_MAP.word;
 
   const buffer = fs.readFileSync(filePath);
-  return new Response(buffer, {
+  return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": typeInfo.mime,
       "Content-Disposition": `attachment; filename="${encodeURIComponent(doc.title)}.${ext}"`,
@@ -357,7 +356,7 @@ app.get("/:id/content", async (c) => {
   if (!fs.existsSync(filePath)) return c.json({ error: "文件不存在" }, 404);
 
   const typeInfo = DOC_TYPE_MAP[doc.docType] || DOC_TYPE_MAP.word;
-  let buffer = fs.readFileSync(filePath);
+  let buffer: Buffer = fs.readFileSync(filePath);
 
   // 如果是旧格式的 word 文件（.doc/.txt/.rtf/.odt），在读取时转换为 docx
   if (doc.docType === "word") {
@@ -374,7 +373,7 @@ app.get("/:id/content", async (c) => {
           .run(newFileKey, converted.length, id);
         // 删除旧文件
         try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-        buffer = converted;
+        buffer = converted as any;
       } catch (err) {
         console.error(`Failed to convert .${fileExt} on read:`, err);
         // 转换失败，返回原始内容
@@ -382,7 +381,7 @@ app.get("/:id/content", async (c) => {
     }
   }
 
-  return new Response(buffer, {
+  return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": typeInfo.mime,
       "Content-Length": String(buffer.length),
@@ -418,7 +417,7 @@ async function convertToDocx(buffer: Buffer, ext: string): Promise<Buffer> {
   if (ext === "doc") {
     // 先尝试 mammoth（支持 .docx 格式的 .doc 文件），转 HTML 保留图片
     try {
-      const result = await mammoth.convertToHtml({
+      const result = await (mammoth as any).convertToHtml({
         buffer,
         convertImage: mammoth.images.imgElement(async (image: any) => {
           const buf = await image.read();
