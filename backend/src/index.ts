@@ -19,6 +19,7 @@ import oppoCloudRouter from "./routes/oppocloud";
 import mindmapsRouter from "./routes/mindmaps";
 import documentsRouter from "./routes/documents";
 import aiRouter from "./routes/ai";
+import diaryRouter from "./routes/diary";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
@@ -115,6 +116,7 @@ app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/documents", documentsRouter);
 app.route("/api/ai", aiRouter);
+app.route("/api/diary", diaryRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 
@@ -130,8 +132,19 @@ const port = Number(process.env.PORT) || 3001;
 
 // 生产模式：服务前端静态文件
 if (process.env.NODE_ENV === "production") {
-  app.use("/*", serveStatic({ root: path.resolve(process.cwd(), "frontend/dist") }));
+  // 静态资源（排除 /api 路径）
+  app.use("/*", async (c, next) => {
+    if (c.req.path.startsWith("/api")) {
+      return next();
+    }
+    const mw = serveStatic({ root: path.resolve(process.cwd(), "frontend/dist") });
+    return mw(c, next);
+  });
+  // SPA fallback（排除 /api 路径）
   app.get("*", (c) => {
+    if (c.req.path.startsWith("/api")) {
+      return c.json({ error: "Not Found" }, 404);
+    }
     return c.html(fs.readFileSync(path.resolve(process.cwd(), "frontend/dist/index.html"), "utf-8"));
   });
 }
