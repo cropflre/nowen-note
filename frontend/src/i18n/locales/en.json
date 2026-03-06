@@ -39,6 +39,7 @@
     "mindMaps": "Mind Maps",
     "documents": "Documents",
     "aiChat": "AI Chat",
+    "diary": "Moments",
     "favorites": "Favorites",
     "trash": "Trash",
     "searchPlaceholder": "Search notes...",
@@ -438,5 +439,25 @@
     "clearChat": "Clear Chat",
     "you": "You",
     "ai": "AI"
+  },
+  "diary": {
+    "title": "Moments",
+    "subtitle": "Capture fleeting thoughts and daily moments",
+    "placeholder": "What's on your mind…",
+    "publish": "Post",
+    "publishing": "Posting...",
+    "charCount": "{{count}} chars",
+    "ctrlEnter": "Ctrl+Enter to post",
+    "empty": "No moments yet. Start recording your first one!",
+    "confirmDelete": "Are you sure you want to delete this moment?",
+    "edit": "Edit",
+    "editing": "Edit Moment",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hr ago",
+    "daysAgo": "{{count}} days ago",
+    "dateFormat": "MMM d, HH:mm"
   }
 }

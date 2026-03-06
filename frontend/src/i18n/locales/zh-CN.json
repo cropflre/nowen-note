@@ -39,6 +39,7 @@
     "mindMaps": "思维导图",
     "documents": "文档中心",
     "aiChat": "AI 问答",
+    "diary": "碎片日记",
     "favorites": "收藏",
     "trash": "回收站",
     "searchPlaceholder": "搜索笔记...",
@@ -438,5 +439,25 @@
     "clearChat": "清空对话",
     "you": "你",
     "ai": "AI"
+  },
+  "diary": {
+    "title": "碎片日记",
+    "subtitle": "记录转瞬即逝的灵感与日常",
+    "placeholder": "此刻你在想什么…",
+    "publish": "发布",
+    "publishing": "发送中...",
+    "charCount": "{{count}} 字",
+    "ctrlEnter": "Ctrl+Enter 快速发布",
+    "empty": "还没有任何碎片，开始记录你的第一条日常吧",
+    "confirmDelete": "确定要删除这条碎片吗？",
+    "edit": "编辑",
+    "editing": "编辑碎片",
+    "saveEdit": "保存",
+    "cancelEdit": "取消",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前",
+    "dateFormat": "M月d日 HH:mm"
   }
 }

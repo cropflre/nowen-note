@@ -1,4 +1,4 @@
-import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, DocumentItem, DocumentListItem, DocType } from "@/types";
+import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, DocumentItem, DocumentListItem, DocType, DiaryEntry } from "@/types";
 
 const BASE_URL = "/api";
 
@@ -324,4 +324,12 @@ export const api = {
     }
     return result;
   },
+
+  // Diary
+  getDiaryEntries: () => request<DiaryEntry[]>("/diary"),
+  createDiaryEntry: (content: string) =>
+    request<DiaryEntry>("/diary", { method: "POST", body: JSON.stringify({ content }) }),
+  updateDiaryEntry: (id: string, content: string) =>
+    request<DiaryEntry>(`/diary/${id}`, { method: "PUT", body: JSON.stringify({ content }) }),
+  deleteDiaryEntry: (id: string) => request(`/diary/${id}`, { method: "DELETE" }),
 };

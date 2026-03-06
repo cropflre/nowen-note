@@ -9,6 +9,7 @@ import TaskCenter from "@/components/TaskCenter";
 import MindMapCenter from "@/components/MindMapEditor";
 import DocumentCenter from "@/components/DocumentCenter";
 import AIChatPanel from "@/components/AIChatPanel";
+import DiaryCenter from "@/components/DiaryCenter";
 import LoginPage from "@/components/LoginPage";
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -114,6 +115,7 @@ function AppLayout() {
   const isMindMapView = state.viewMode === "mindmaps";
   const isDocumentView = state.viewMode === "documents";
   const isAIChatView = state.viewMode === "ai-chat";
+  const isDiaryView = state.viewMode === "diary";
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
@@ -170,6 +172,11 @@ function AppLayout() {
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
           <AIChatPanel onClose={() => actions.setViewMode("all")} />
+        </div>
+      ) : isDiaryView ? (
+        <div className="flex-1 flex flex-col">
+          <MobileTopBar />
+          <DiaryCenter />
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
