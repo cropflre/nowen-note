@@ -27,7 +27,6 @@ export default defineConfig({
           'vendor-tiptap': [
             '@tiptap/react',
             '@tiptap/starter-kit',
-            '@tiptap/pm',
             '@tiptap/extension-code-block-lowlight',
             '@tiptap/extension-highlight',
             '@tiptap/extension-image',
