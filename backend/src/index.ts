@@ -19,7 +19,6 @@ import oppoCloudRouter from "./routes/oppocloud";
 import mindmapsRouter from "./routes/mindmaps";
 
 import aiRouter from "./routes/ai";
-import diaryRouter from "./routes/diary";
 import authRouter, { JWT_SECRET } from "./routes/auth";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
