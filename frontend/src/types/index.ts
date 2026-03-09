@@ -79,7 +79,7 @@ export interface SearchResult {
 
 export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary";
 
-export type TaskPriority
+
 
 
 

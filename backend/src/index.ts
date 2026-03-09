@@ -67,7 +67,7 @@ app.get("/api/fonts/file/:id", (c) => {
   const row = db.prepare("SELECT id, fileName, format FROM custom_fonts WHERE id = ?").get(id) as any;
   if (!row) return c.json({ error: "字体不存在" }, 404);
 
-  const fontsDir = path.join(process.cwd(), "data/fonts");
+  const fontsDir = path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "fonts");
   const filePath = path.join(fontsDir, `${row.id}.${row.format}`);
   if (!fs.existsSync(filePath)) return c.json({ error: "字体文件丢失" }, 404);
 
@@ -130,12 +130,13 @@ const port = Number(process.env.PORT) || 3001;
 
 // 生产模式：服务前端静态文件
 if (process.env.NODE_ENV === "production") {
+  const frontendDist = process.env.FRONTEND_DIST || path.resolve(process.cwd(), "frontend/dist");
   // 静态资源（排除 /api 路径）
   app.use("/*", async (c, next) => {
     if (c.req.path.startsWith("/api")) {
       return next();
     }
-    const mw = serveStatic({ root: path.resolve(process.cwd(), "frontend/dist") });
+    const mw = serveStatic({ root: frontendDist });
     return mw(c, next);
   });
   // SPA fallback（排除 /api 路径）
@@ -143,7 +144,7 @@ if (process.env.NODE_ENV === "production") {
     if (c.req.path.startsWith("/api")) {
       return c.json({ error: "Not Found" }, 404);
     }
-    return c.html(fs.readFileSync(path.resolve(process.cwd(), "frontend/dist/index.html"), "utf-8"));
+    return c.html(fs.readFileSync(path.join(frontendDist, "index.html"), "utf-8"));
   });
 }
 

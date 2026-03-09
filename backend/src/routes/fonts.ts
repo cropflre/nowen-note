@@ -6,7 +6,7 @@ import path from "path";
 
 const fonts = new Hono();
 
-const FONTS_DIR = path.join(process.cwd(), "data/fonts");
+const FONTS_DIR = path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "fonts");
 
 // 确保字体目录存在
 function ensureFontsDir() {

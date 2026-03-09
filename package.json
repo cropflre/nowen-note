@@ -1,11 +1,22 @@
 {
   "name": "nowen-note",
   "version": "1.0.0",
+  "description": "Nowen Note - A modern note-taking application",
+  "author": "Nowen",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev:backend": "cd backend && npx tsx src/index.ts",
     "dev:frontend": "cd frontend && npx vite",
-    "install:all": "cd backend && npm install && cd ../frontend && npm install"
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "electron:dev": "npm run build:all && electron .",
+    "electron:build": "npm run build:all && electron-builder --config electron/builder.config.js",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build:all": "npm run build:backend && npm run build:frontend"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
 }
