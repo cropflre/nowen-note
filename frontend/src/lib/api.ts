@@ -78,6 +78,7 @@ export const api = {
   // Tags
   getTags: () => request<Tag[]>("/tags"),
   createTag: (data: Partial<Tag>) => request<Tag>("/tags", { method: "POST", body: JSON.stringify(data) }),
+  updateTag: (id: string, data: Partial<Tag>) => request<Tag>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteTag: (id: string) => request(`/tags/${id}`, { method: "DELETE" }),
   addTagToNote: (noteId: string, tagId: string) => request(`/tags/note/${noteId}/tag/${tagId}`, { method: "POST" }),
   removeTagFromNote: (noteId: string, tagId: string) => request(`/tags/note/${noteId}/tag/${tagId}`, { method: "DELETE" }),

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { Tag } from "@/types";
+import TagColorPicker from "@/components/TagColorPicker";
 
 interface TagInputProps {
   noteId: string;
@@ -156,6 +157,23 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
                 color: tag.color,
               }}
             >
+              <TagColorPicker
+                currentColor={tag.color}
+                size="sm"
+                onColorChange={async (color) => {
+                  try {
+                    const updated = await api.updateTag(tag.id, { color });
+                    // 更新本地标签列表
+                    const newTags = noteTags.map((t) => t.id === tag.id ? { ...t, color } : t);
+                    onTagsChange?.(newTags);
+                    // 刷新全局标签
+                    const allTags = await api.getTags();
+                    actions.setTags(allTags);
+                  } catch (err) {
+                    console.error("Failed to update tag color:", err);
+                  }
+                }}
+              />
               <span>{tag.name}</span>
               <button
                 onClick={(e) => {

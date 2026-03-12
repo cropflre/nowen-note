@@ -26,11 +26,18 @@
     "networkError": "网络错误，请检查服务是否运行",
     "appTitle": "nowen-note",
     "subtitle": "私有化知识库 · 欢迎回来",
+    "subtitleClient": "连接你的私有知识库",
     "username": "用户名",
     "usernamePlaceholder": "请输入用户名",
     "password": "密码",
     "loginButton": "登录工作台",
-    "defaultCredentials": "默认账号: admin / admin123"
+    "defaultCredentials": "默认账号: admin / admin123",
+    "serverAddress": "服务器地址",
+    "serverPlaceholder": "例如: 192.168.1.100:3001 或 note.example.com",
+    "serverHint": "输入 IP:端口 或域名，自动补全 http://",
+    "serverRequired": "请输入服务器地址",
+    "resetServer": "清除服务器配置",
+    "clientNote": "请确保服务器已启动且网络可达，客户端通过 HTTP 连接到服务器"
   },
   "sidebar": {
     "newNote": "新建笔记",
@@ -275,7 +282,9 @@
   },
   "tags": {
     "addTagPlaceholder": "添加标签...",
-    "createTag": "创建标签 \"{{name}}\""
+    "createTag": "创建标签 \"{{name}}\"",
+    "changeColor": "更换颜色",
+    "tagColor": "标签颜色"
   },
   "theme": {
     "light": "浅色",

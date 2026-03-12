@@ -26,11 +26,18 @@
     "networkError": "Network error, please check if the server is running",
     "appTitle": "nowen-note",
     "subtitle": "Private Knowledge Base · Welcome Back",
+    "subtitleClient": "Connect to your private knowledge base",
     "username": "Username",
     "usernamePlaceholder": "Enter username",
     "password": "Password",
     "loginButton": "Sign In",
-    "defaultCredentials": "Default: admin / admin123"
+    "defaultCredentials": "Default: admin / admin123",
+    "serverAddress": "Server Address",
+    "serverPlaceholder": "e.g. 192.168.1.100:3001 or note.example.com",
+    "serverHint": "Enter IP:port or domain, http:// is added automatically",
+    "serverRequired": "Server address is required",
+    "resetServer": "Clear server config",
+    "clientNote": "Make sure the server is running and reachable from this device"
   },
   "sidebar": {
     "newNote": "New Note",
@@ -275,7 +282,9 @@
   },
   "tags": {
     "addTagPlaceholder": "Add tag...",
-    "createTag": "Create tag \"{{name}}\""
+    "createTag": "Create tag \"{{name}}\"",
+    "changeColor": "Change color",
+    "tagColor": "Tag color"
   },
   "theme": {
     "light": "Light",

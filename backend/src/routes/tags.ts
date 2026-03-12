@@ -25,6 +25,26 @@ app.post("/", async (c) => {
   return c.json(tag, 201);
 });
 
+// 更新标签（名称/颜色）
+app.put("/:id", async (c) => {
+  const db = getDb();
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const fields: string[] = [];
+  const values: any[] = [];
+  if (body.name !== undefined) { fields.push("name = ?"); values.push(body.name); }
+  if (body.color !== undefined) { fields.push("color = ?"); values.push(body.color); }
+  if (fields.length === 0) return c.json({ error: "No fields to update" }, 400);
+  values.push(id);
+  db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  const tag = db.prepare(`
+    SELECT t.*, COUNT(nt.noteId) as noteCount
+    FROM tags t LEFT JOIN note_tags nt ON t.id = nt.tagId
+    WHERE t.id = ? GROUP BY t.id
+  `).get(id);
+  return c.json(tag);
+});
+
 app.delete("/:id", (c) => {
   const db = getDb();
   const id = c.req.param("id");

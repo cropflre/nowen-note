@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import SettingsModal from "@/components/SettingsModal";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
+import TagColorPicker from "@/components/TagColorPicker";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
@@ -623,9 +624,18 @@ export default function Sidebar() {
                           actions.setMobileSidebar(false);
                         }}
                       >
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: tag.color }}
+                        <TagColorPicker
+                          currentColor={tag.color}
+                          size="sm"
+                          onColorChange={async (color) => {
+                            try {
+                              await api.updateTag(tag.id, { color });
+                              const allTags = await api.getTags();
+                              actions.setTags(allTags);
+                            } catch (err) {
+                              console.error("Failed to update tag color:", err);
+                            }
+                          }}
                         />
                         <span className="flex-1 truncate text-left">{tag.name}</span>
                         {tag.noteCount !== undefined && tag.noteCount > 0 && (
