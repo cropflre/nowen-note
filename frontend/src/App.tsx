@@ -250,8 +250,11 @@ function AuthGate() {
   const { t } = useTranslation();
 
   // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
+  const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.() 
+    || !!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web";
   const isClientMode = window.location.protocol === "file:"
     || window.location.protocol === "capacitor:"
+    || isCapacitor
     || !!getServerUrl();
 
   const checkAuth = useCallback(() => {
