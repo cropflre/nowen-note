@@ -10,7 +10,6 @@ import MindMapCenter from "@/components/MindMapEditor";
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import LoginPage from "@/components/LoginPage";
-import ServerConnect from "@/components/ServerConnect";
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
@@ -124,7 +123,7 @@ function AppLayout() {
       if (e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         // 优先使用当前选中的笔记本，否则取第一个笔记本
-        const notebookId = state.selectedNotebook || state.notebooks[0]?.id;
+        const notebookId = state.selectedNotebookId || state.notebooks[0]?.id;
         if (!notebookId) return;
         try {
           const { api } = await import("@/lib/api");
@@ -141,7 +140,7 @@ function AppLayout() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [state.selectedNotebook, state.notebooks, actions, t]);
+  }, [state.selectedNotebookId, state.notebooks, actions, t]);
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
@@ -248,8 +247,12 @@ function MobileTopBar() {
 function AuthGate() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [needServer, setNeedServer] = useState(false);
   const { t } = useTranslation();
+
+  // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
+  const isClientMode = window.location.protocol === "file:"
+    || window.location.protocol === "capacitor:"
+    || !!getServerUrl();
 
   const checkAuth = useCallback(() => {
     const token = localStorage.getItem("nowen-token");
@@ -279,30 +282,17 @@ function AuthGate() {
   }, []);
 
   useEffect(() => {
-    // 判断是否需要服务器地址配置：
-    // 如果是 capacitor / file:// 协议 / 已保存了服务器地址，则需要检测
-    const isClientMode = window.location.protocol === "file:" 
-      || window.location.protocol === "capacitor:"
-      || !!getServerUrl();
-    
+    // 客户端模式但没有服务器地址：直接显示登录页（含服务器输入框）
     if (isClientMode && !getServerUrl()) {
-      setNeedServer(true);
       setIsAuthenticated(false);
       return;
     }
-
     checkAuth();
-  }, [checkAuth]);
-
-  const handleServerConnected = () => {
-    setNeedServer(false);
-    checkAuth();
-  };
+  }, [checkAuth, isClientMode]);
 
   const handleDisconnect = () => {
     clearServerUrl();
     localStorage.removeItem("nowen-token");
-    setNeedServer(true);
     setIsAuthenticated(false);
     setUser(null);
   };
@@ -324,14 +314,15 @@ function AuthGate() {
     );
   }
 
-  // 需要配置服务器地址
-  if (needServer) {
-    return <ServerConnect onConnected={handleServerConnected} />;
-  }
-
-  // 未登录
+  // 未登录 → 一体化登录页
   if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLogin} serverUrl={getServerUrl()} onDisconnect={getServerUrl() ? handleDisconnect : undefined} />;
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        isClientMode={isClientMode}
+        onDisconnect={isClientMode ? handleDisconnect : undefined}
+      />
+    );
   }
 
   // 已登录
