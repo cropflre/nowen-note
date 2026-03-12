@@ -16,6 +16,7 @@ import settingsRouter from "./routes/settings";
 import fontsRouter from "./routes/fonts";
 import micloudRouter from "./routes/micloud";
 import oppoCloudRouter from "./routes/oppocloud";
+import icloudRouter from "./routes/icloud";
 import mindmapsRouter from "./routes/mindmaps";
 
 import aiRouter from "./routes/ai";
@@ -113,6 +114,7 @@ app.route("/api/tasks", tasksRouter);
 app.route("/api/export", exportRouter);
 app.route("/api/micloud", micloudRouter);
 app.route("/api/oppocloud", oppoCloudRouter);
+app.route("/api/icloud", icloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/ai", aiRouter);
 

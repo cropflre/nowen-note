@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Google Fonts 已移至 index.html <link> preload 以避免渲染阻塞 */
 
 @tailwind base;
 @tailwind components;

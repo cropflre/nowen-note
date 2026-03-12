@@ -472,26 +472,26 @@ export default function Sidebar() {
       </div>
 
       {/* Footer: Settings + Logout */}
-      <div className="border-t border-app-border px-3 py-2 flex items-center justify-between">
+      <div className="border-t border-app-border px-3 py-2.5 flex items-center gap-2">
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors"
+          className="flex-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-tx-secondary hover:text-tx-primary hover:bg-app-hover transition-colors group"
         >
-          <Settings size={15} />
-          <span>{t('sidebar.settings')}</span>
+          <div className="w-7 h-7 rounded-lg bg-app-hover group-hover:bg-accent-primary/10 flex items-center justify-center transition-colors">
+            <Settings size={14} className="group-hover:text-accent-primary transition-colors" />
+          </div>
+          <span className="text-xs font-medium">{t('sidebar.settings')}</span>
         </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-tx-tertiary hover:text-red-500 dark:hover:text-red-400"
+        <button
           onClick={() => {
             localStorage.removeItem("nowen-token");
             window.location.reload();
           }}
           title={t('sidebar.logout')}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10 transition-colors"
         >
-          <LogOut size={16} />
-        </Button>
+          <LogOut size={15} />
+        </button>
       </div>
 
       {/* Settings Modal */}
@@ -518,7 +518,7 @@ export default function Sidebar() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-zinc-900/50 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
               onClick={() => setDeleteTarget(null)}
             />
             <motion.div
@@ -526,25 +526,31 @@ export default function Sidebar() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ type: "spring", duration: 0.4, bounce: 0 }}
-              className="relative bg-white dark:bg-zinc-900 w-full max-w-sm p-5 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800"
+              className="relative bg-app-elevated w-full max-w-sm p-5 rounded-xl shadow-2xl border border-app-border"
               onClick={(e) => e.stopPropagation()}
             >
-              <h4 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mb-2">
-                {t('sidebar.deleteNotebookTitle')}
-              </h4>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+              {/* 危险图标 */}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-accent-danger/10 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} className="text-accent-danger" />
+                </div>
+                <h4 className="text-base font-bold text-tx-primary">
+                  {t('sidebar.deleteNotebookTitle')}
+                </h4>
+              </div>
+              <p className="text-sm text-tx-secondary mb-5 pl-[52px]">
                 {t('sidebar.deleteNotebookConfirm', { name: `${deleteTarget.icon} ${deleteTarget.name}` })}
               </p>
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => setDeleteTarget(null)}
-                  className="px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm text-tx-secondary hover:bg-app-hover rounded-lg transition-colors"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleDeleteConfirm}
-                  className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-white bg-accent-danger hover:bg-accent-danger/90 rounded-lg transition-colors"
                 >
                   {t('sidebar.confirmDelete')}
                 </button>

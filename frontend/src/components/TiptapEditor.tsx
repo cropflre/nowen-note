@@ -100,6 +100,14 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
   const { t, i18n } = useTranslation();
 
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  // 防止 setContent 触发 onUpdate 导致无限循环
+  const isSettingContent = useRef(false);
+  // 保持最新的 note ref，避免闭包引用过期
+  const noteRef = useRef(note);
+  noteRef.current = note;
+  // 保持最新的 onUpdate ref
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
   const computeStats = useCallback((text: string) => {
     const chars = text.length;
@@ -152,25 +160,41 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       },
     },
     onUpdate: ({ editor }) => {
+      // setContent 触发的 onUpdate 不应该保存（防止死循环）
+      if (isSettingContent.current) return;
+
       const text = editor.getText();
       setWordStats(computeStats(text));
       onHeadingsChange?.(extractHeadings(editor));
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => {
         const json = JSON.stringify(editor.getJSON());
-        const title = titleRef.current?.value || note.title;
-        onUpdate({ content: json, contentText: text, title });
+        const title = titleRef.current?.value || noteRef.current.title;
+        onUpdateRef.current({ content: json, contentText: text, title });
       }, 500);
     },
   });
 
+  // 切换笔记时同步编辑器内容
   useEffect(() => {
+    // 切换笔记时立即清理旧的 debounce timer，防止旧笔记的保存请求泄漏
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+
     if (editor && note) {
       const parsed = parseContent(note.content);
       const currentJson = JSON.stringify(editor.getJSON());
       const newJson = JSON.stringify(parsed);
       if (currentJson !== newJson) {
+        // 标记正在设置内容，阻止 onUpdate 触发保存
+        isSettingContent.current = true;
         editor.commands.setContent(parsed);
+        // 使用 queueMicrotask 确保在 Tiptap 事务完成后才解锁
+        queueMicrotask(() => {
+          isSettingContent.current = false;
+        });
       }
       setWordStats(computeStats(editor.getText()));
       onHeadingsChange?.(extractHeadings(editor));
@@ -179,6 +203,16 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       titleRef.current.value = note.title;
     }
   }, [note.id]);
+
+  // 组件卸载时清理 debounce timer
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+    };
+  }, []);
 
   // 动态切换编辑器的可编辑状态
   useEffect(() => {

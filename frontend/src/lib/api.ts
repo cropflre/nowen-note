@@ -174,6 +174,13 @@ export const api = {
       body: JSON.stringify({ notes, notebookId }),
     }),
 
+  // iCloud (iPhone 备忘录)
+  icloudImport: (notes: { id: string; title: string; content: string; folder?: string; date?: string; createDate?: string; modifyDate?: string }[], notebookId?: string) =>
+    request<{ success: boolean; count: number; notebookId: string; notes: any[]; errors: string[] }>("/icloud/import", {
+      method: "POST",
+      body: JSON.stringify({ notes, notebookId }),
+    }),
+
   // Mind Maps
   getMindMaps: () => request<MindMapListItem[]>("/mindmaps"),
   getMindMap: (id: string) => request<MindMap>(`/mindmaps/${id}`),

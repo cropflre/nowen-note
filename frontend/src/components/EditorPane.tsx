@@ -22,27 +22,44 @@ export default function EditorPane() {
   const scrollToRef = useRef<((pos: number) => void) | null>(null);
   const { t } = useTranslation();
 
+  // 使用 ref 追踪最新的 activeNote，避免 handleUpdate 闭包引用过期
+  const activeNoteRef = useRef(activeNote);
+  activeNoteRef.current = activeNote;
+
   const handleUpdate = useCallback(async (data: { content: string; contentText: string; title: string }) => {
-    if (!activeNote || activeNote.isLocked) return;
+    const currentNote = activeNoteRef.current;
+    if (!currentNote || currentNote.isLocked) return;
     actions.setSyncStatus("saving");
     try {
-      const updated = await api.updateNote(activeNote.id, {
+      const updated = await api.updateNote(currentNote.id, {
         title: data.title,
         content: data.content,
         contentText: data.contentText,
-        version: activeNote.version,
+        version: currentNote.version,
       } as any);
-      actions.setActiveNote(updated);
-      actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
-      actions.setSyncStatus("saved");
-      actions.setLastSynced(new Date().toISOString());
-      // 2秒后恢复 idle
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-      savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
+      // 仅在保存的笔记仍是当前激活笔记时更新状态（防止快速切换时覆盖错误笔记）
+      if (activeNoteRef.current?.id === updated.id) {
+        // 只合并服务端返回的元数据（version, updatedAt），保留编辑器内的 content
+        // 避免用服务端返回的 content 覆盖 activeNote，否则可能因微小 JSON 差异触发编辑器 setContent → onUpdate 死循环
+        actions.setActiveNote({
+          ...activeNoteRef.current,
+          version: updated.version,
+          updatedAt: updated.updatedAt,
+          title: data.title,
+          content: data.content,
+          contentText: data.contentText,
+        });
+        actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
+        actions.setSyncStatus("saved");
+        actions.setLastSynced(new Date().toISOString());
+        // 2秒后恢复 idle
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
+      }
     } catch {
       actions.setSyncStatus("error");
     }
-  }, [activeNote, actions]);
+  }, [actions]);
 
   // 手动触发同步：重新保存当前编辑器内容
   const handleManualSync = useCallback(async () => {
@@ -162,10 +179,26 @@ export default function EditorPane() {
   if (!activeNote) {
     return (
       <div className="flex-1 flex items-center justify-center bg-app-bg transition-colors">
-        <div className="text-center hidden md:block">
-          <div className="text-6xl mb-4 opacity-10">✍️</div>
-          <p className="text-tx-tertiary text-sm">{t('editor.selectNote')}</p>
-          <p className="text-tx-tertiary text-xs mt-1">{t('editor.orCreateNew')}</p>
+        <div className="text-center hidden md:flex flex-col items-center">
+          <div className="relative mb-6">
+            <div className="w-20 h-20 rounded-2xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="text-accent-primary/30">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="8" y1="17" x2="12" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent-primary/10 border border-accent-primary/15 flex items-center justify-center">
+              <span className="text-accent-primary/50 text-xs">✦</span>
+            </div>
+          </div>
+          <p className="text-tx-secondary text-sm font-medium mb-1">{t('editor.selectNote')}</p>
+          <p className="text-tx-tertiary text-xs max-w-[220px] leading-relaxed">{t('editor.orCreateNew')}</p>
+          <div className="flex items-center gap-3 mt-5">
+            <kbd className="px-2 py-1 rounded-md bg-app-hover border border-app-border text-[10px] text-tx-tertiary font-mono">Alt+N</kbd>
+            <span className="text-[10px] text-tx-tertiary">{t('editor.newNoteShortcut') || '快速新建笔记'}</span>
+          </div>
         </div>
       </div>
     );
@@ -254,49 +287,53 @@ export default function EditorPane() {
           )}
         </div>
 
-        {/* Sync Indicator + Actions */}
-        <div className="flex items-center gap-1">
-          {/* 同步状态指示器 */}
+        {/* Sync Indicator + Grouped Actions */}
+        <div className="flex items-center gap-2">
+          {/* 同步状态 */}
           <SyncIndicator
             syncStatus={syncStatus}
             lastSyncedAt={lastSyncedAt}
             onManualSync={handleManualSync}
           />
 
-          <div className="w-px h-4 bg-app-border mx-1" />
+          <div className="w-px h-4 bg-app-border" />
 
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={toggleLock}
-            title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
-          >
-            {activeNote.isLocked
-              ? <Lock size={14} className="text-orange-500" />
-              : <Unlock size={14} />}
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={togglePin}
-            title={activeNote.isPinned ? t('editor.unpinTooltip') : t('editor.pinTooltip')}
-          >
-            <Pin size={14} className={cn(activeNote.isPinned && "text-accent-primary fill-accent-primary")} />
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={toggleFavorite}
-            title={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}
-          >
-            <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={moveToTrash}
-            title={t('editor.trashTooltip')}
-            disabled={!!activeNote.isLocked}
-          >
-            <Trash2 size={14} className={cn(activeNote.isLocked && "opacity-30")} />
-          </Button>
-          <div className="w-px h-4 bg-app-border mx-1" />
+          {/* 编辑操作组 */}
+          <div className="flex items-center gap-0.5 bg-app-hover/50 rounded-lg px-1 py-0.5">
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={toggleLock}
+              title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
+            >
+              {activeNote.isLocked
+                ? <Lock size={14} className="text-orange-500" />
+                : <Unlock size={14} />}
+            </Button>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={togglePin}
+              title={activeNote.isPinned ? t('editor.unpinTooltip') : t('editor.pinTooltip')}
+            >
+              <Pin size={14} className={cn(activeNote.isPinned && "text-accent-primary fill-accent-primary")} />
+            </Button>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={toggleFavorite}
+              title={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}
+            >
+              <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
+            </Button>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={moveToTrash}
+              title={t('editor.trashTooltip')}
+              disabled={!!activeNote.isLocked}
+            >
+              <Trash2 size={14} className={cn(activeNote.isLocked && "opacity-30")} />
+            </Button>
+          </div>
+
+          {/* 大纲 */}
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setShowOutline(!showOutline)}
@@ -304,23 +341,28 @@ export default function EditorPane() {
           >
             <ListTree size={14} className={cn(showOutline && "text-accent-primary")} />
           </Button>
-          <div className="w-px h-4 bg-app-border mx-1" />
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={handleAITitle}
-            disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
-            title={t('editor.aiGenerateTitle')}
-          >
-            {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={handleAITags}
-            disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
-            title={t('editor.aiSuggestTags')}
-          >
-            {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
-          </Button>
+
+          <div className="w-px h-4 bg-app-border" />
+
+          {/* AI 工具组 */}
+          <div className="flex items-center gap-0.5 bg-violet-500/5 dark:bg-violet-500/10 rounded-lg px-1 py-0.5">
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={handleAITitle}
+              disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
+              title={t('editor.aiGenerateTitle')}
+            >
+              {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
+            </Button>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={handleAITags}
+              disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
+              title={t('editor.aiSuggestTags')}
+            >
+              {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
+            </Button>
+          </div>
         </div>
       </div>
 

@@ -112,10 +112,36 @@ function NoteListResizeHandle() {
 function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { t } = useTranslation();
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
   const isDiaryView = state.viewMode === "diary";
+
+  // Alt+N 全局快捷键：快速新建笔记
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        // 优先使用当前选中的笔记本，否则取第一个笔记本
+        const notebookId = state.selectedNotebook || state.notebooks[0]?.id;
+        if (!notebookId) return;
+        try {
+          const { api } = await import("@/lib/api");
+          const note = await api.createNote({ notebookId, title: t('common.untitledNote') });
+          actions.setActiveNote(note);
+          actions.setSelectedNotebook(notebookId);
+          actions.setViewMode("notebook");
+          actions.setMobileView("editor");
+          actions.refreshNotebooks();
+        } catch (err) {
+          console.error("Quick create note failed:", err);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state.selectedNotebook, state.notebooks, actions, t]);
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">

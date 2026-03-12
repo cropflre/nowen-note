@@ -180,8 +180,9 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
   onContextMenu: (e: React.MouseEvent) => void;
   isContextTarget: boolean;
 }>(function NoteCard({ note, isActive, onClick, onContextMenu, isContextTarget }, ref) {
-  const preview = note.contentText?.slice(0, 80) || "";
+  const preview = note.contentText?.slice(0, 100) || "";
   const { t } = useTranslation();
+  const wordCount = note.contentText?.length || 0;
 
   return (
     <motion.div
@@ -192,7 +193,7 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "px-3 py-2.5 rounded-lg cursor-pointer border transition-all group",
+        "relative rounded-lg cursor-pointer border transition-all group overflow-hidden",
         isActive
           ? "bg-app-active border-accent-primary/30 shadow-sm"
           : isContextTarget
@@ -200,25 +201,51 @@ const NoteCard = React.forwardRef<HTMLDivElement, {
           : "bg-transparent border-transparent hover:bg-app-hover"
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className={cn(
-          "text-sm font-medium truncate flex-1",
-          isActive ? "text-tx-primary" : "text-tx-secondary"
-        )}>
-          {note.title || t('common.untitledNote')}
-        </h3>
-        <div className="flex items-center gap-1 shrink-0">
-          {note.isLocked === 1 && <Lock size={12} className="text-orange-500" />}
-          {note.isPinned === 1 && <Pin size={12} className="text-accent-primary" />}
-          {note.isFavorite === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
+      {/* 左侧彩色指示条 */}
+      <div className={cn(
+        "absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg transition-colors",
+        isActive
+          ? "bg-accent-primary"
+          : note.isFavorite === 1
+          ? "bg-amber-400"
+          : note.isPinned === 1
+          ? "bg-accent-primary/50"
+          : "bg-transparent group-hover:bg-app-border"
+      )} />
+
+      <div className="pl-3.5 pr-3 py-2.5">
+        {/* 标题行 + 状态图标 */}
+        <div className="flex items-center justify-between gap-2">
+          <h3 className={cn(
+            "text-sm font-medium truncate flex-1",
+            isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary"
+          )}>
+            {note.title || t('common.untitledNote')}
+          </h3>
+          <div className="flex items-center gap-1 shrink-0">
+            {note.isLocked === 1 && <Lock size={11} className="text-orange-500" />}
+            {note.isPinned === 1 && <Pin size={11} className="text-accent-primary" />}
+            {note.isFavorite === 1 && <Star size={11} className="text-amber-400 fill-amber-400" />}
+          </div>
         </div>
-      </div>
-      {preview && (
-        <p className="text-xs text-tx-tertiary mt-1 line-clamp-2 leading-relaxed">{preview}</p>
-      )}
-      <div className="flex items-center gap-1.5 mt-1.5 text-tx-tertiary">
-        <Clock size={10} />
-        <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
+
+        {/* 内容预览 */}
+        {preview && (
+          <p className="text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed">{preview}</p>
+        )}
+
+        {/* 底部元信息行 */}
+        <div className="flex items-center justify-between mt-2 text-tx-tertiary">
+          <div className="flex items-center gap-1.5">
+            <Clock size={10} />
+            <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
+          </div>
+          {wordCount > 0 && (
+            <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity tabular-nums">
+              {wordCount > 999 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} {t('common.chars') || '字'}
+            </span>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -457,9 +484,40 @@ export default function NoteList() {
             ))}
           </AnimatePresence>
           {state.notes.length === 0 && !state.isLoading && (
-            <div className="flex flex-col items-center justify-center py-12 text-tx-tertiary">
-              <FileText size={32} className="mb-2 opacity-30" />
-              <p className="text-xs">{t('common.noNotes')}</p>
+            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-accent-primary/10 flex items-center justify-center mb-4">
+                <FileText size={28} className="text-accent-primary/40" />
+              </div>
+              <p className="text-sm font-medium text-tx-secondary mb-1">{t('common.noNotes')}</p>
+              <p className="text-xs text-tx-tertiary mb-5 max-w-[200px] leading-relaxed">
+                {t('common.noNotesHint') || '点击下方按钮创建你的第一篇笔记'}
+              </p>
+              <button
+                onClick={handleCreateNote}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
+              >
+                <Plus size={14} />
+                {t('common.newNote') || '新建笔记'}
+              </button>
+            </div>
+          )}
+          {/* 骨架屏 Loading */}
+          {state.isLoading && state.notes.length === 0 && (
+            <div className="space-y-2 px-1">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="rounded-lg border border-transparent p-3 animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 bg-app-hover rounded w-3/5" />
+                    <div className="h-3 bg-app-hover rounded w-4 ml-auto" />
+                  </div>
+                  <div className="h-3 bg-app-hover/70 rounded w-full mt-2.5" />
+                  <div className="h-3 bg-app-hover/50 rounded w-4/5 mt-1.5" />
+                  <div className="flex items-center gap-1.5 mt-2.5">
+                    <div className="h-2.5 w-2.5 bg-app-hover/60 rounded-full" />
+                    <div className="h-2.5 bg-app-hover/40 rounded w-16" />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

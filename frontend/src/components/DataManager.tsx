@@ -14,6 +14,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import MiCloudImport from "@/components/MiCloudImport";
 import OppoCloudImport from "@/components/OppoCloudImport";
+import ICloudImport from "@/components/iCloudImport";
 
 export default function DataManager() {
   const { t } = useTranslation();
@@ -396,6 +397,9 @@ export default function DataManager() {
 
       {/* ===== OPPO 云便签导入 ===== */}
       <OppoCloudImport />
+
+      {/* ===== iPhone 备忘录导入 ===== */}
+      <ICloudImport />
 
       {/* ===== 危险区域 (Danger Zone) ===== */}
       <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
