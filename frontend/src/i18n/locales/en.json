@@ -314,7 +314,7 @@
   },
   "miCloud": {
     "title": "Mi Cloud Import",
-    "description": "Import notes directly from Mi Cloud using your Cookie. No manual export needed. Supports batch selection and one-click import.",
+    "description": "Import notes directly from Mi Cloud using your Cookie. No manual export needed. Supports batch selection, one-click import, and automatic image downloading.",
     "cookieRequired": "Please enter your Mi Cloud Cookie",
     "cookiePlaceholder": "Paste Cookie from i.mi.com...",
     "cookieInvalid": "Cookie is invalid or expired, please get a new one",

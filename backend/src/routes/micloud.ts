@@ -259,8 +259,8 @@ app.post("/import", async (c) => {
       // 解析标题
       const title = extractTitle(entry);
 
-      // 转换内容为 HTML
-      const content = convertMiNoteToHtml(entry.content || "");
+      // 转换内容为 HTML（含图片下载）
+      const content = await convertMiNoteToHtmlAsync(entry.content || "", cookie);
       const contentText = extractPlainText(entry.content || "");
 
       results.push({
@@ -364,8 +364,57 @@ app.post("/import", async (c) => {
   );
 });
 
-// 将小米笔记内容转换为 HTML（兼容 Tiptap 编辑器）
-function convertMiNoteToHtml(content: string): string {
+// 从小米云服务下载图片并转为 base64 Data URL
+async function downloadMiNoteImage(fileId: string, cookie: string): Promise<string | null> {
+  try {
+    // 小米云服务图片下载接口，可能会有多种 URL 格式
+    const urls = [
+      `/file/full?type=note_img&fileid=${encodeURIComponent(fileId)}`,
+      `/note/file/${encodeURIComponent(fileId)}`,
+    ];
+
+    for (const urlPath of urls) {
+      try {
+        const res = await miCloudFetch(urlPath, cookie);
+        if (!res.ok) continue;
+
+        const contentType = res.headers.get("content-type") || "image/jpeg";
+        // 确保返回的确实是图片
+        if (!contentType.startsWith("image/")) continue;
+
+        const buffer = Buffer.from(await res.arrayBuffer());
+        if (buffer.length === 0) continue;
+
+        const base64 = buffer.toString("base64");
+        const mimeType = contentType.split(";")[0].trim();
+        return `data:${mimeType};base64,${base64}`;
+      } catch {
+        continue;
+      }
+    }
+
+    console.log(`[micloud] 图片 ${fileId} 所有下载方式均失败`);
+    return null;
+  } catch (err: any) {
+    console.log(`[micloud] 图片 ${fileId} 下载异常: ${err.message}`);
+    return null;
+  }
+}
+
+// 从内容中提取所有图片 fileId
+function extractImageFileIds(content: string): string[] {
+  const fileIds: string[] = [];
+  // 匹配 <img> 标签中的 fileid 属性（不区分大小写）
+  const imgRegex = /<img[^>]*\bfileid\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = imgRegex.exec(content)) !== null) {
+    fileIds.push(match[1]);
+  }
+  return fileIds;
+}
+
+// 将小米笔记内容转换为 HTML（兼容 Tiptap 编辑器），支持异步下载图片
+async function convertMiNoteToHtmlAsync(content: string, cookie: string): Promise<string> {
   if (!content) return "<p></p>";
 
   let html = content;
@@ -440,8 +489,47 @@ function convertMiNoteToHtml(content: string): string {
     '<mark>$2</mark>'
   );
 
-  // 移除图片引用（小米笔记中的图片需要额外下载，暂不支持）
-  html = html.replace(/<img[^>]*>/gi, "");
+  // 处理图片：下载小米云中的图片并转为 base64 嵌入
+  const imgMatches: { fullMatch: string; fileId: string }[] = [];
+  const imgRegex = /<img[^>]*\bfileid\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = imgRegex.exec(html)) !== null) {
+    imgMatches.push({ fullMatch: match[0], fileId: match[1] });
+  }
+
+  if (imgMatches.length > 0) {
+    console.log(`[micloud] 发现 ${imgMatches.length} 张图片，开始下载...`);
+    // 并发下载所有图片（限制并发数为 5）
+    const CONCURRENCY = 5;
+    const imageMap = new Map<string, string | null>();
+
+    for (let i = 0; i < imgMatches.length; i += CONCURRENCY) {
+      const batch = imgMatches.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (img) => {
+          const dataUrl = await downloadMiNoteImage(img.fileId, cookie);
+          return { fileId: img.fileId, dataUrl };
+        })
+      );
+      for (const r of results) {
+        imageMap.set(r.fileId, r.dataUrl);
+      }
+    }
+
+    // 替换 img 标签为包含 base64 的标准 img 标签
+    for (const img of imgMatches) {
+      const dataUrl = imageMap.get(img.fileId);
+      if (dataUrl) {
+        html = html.replace(img.fullMatch, `<img src="${dataUrl}" />`);
+      } else {
+        // 下载失败则移除该图片标签
+        html = html.replace(img.fullMatch, "");
+      }
+    }
+  }
+
+  // 移除没有 fileid 但也不是标准 img 的残留 img 标签（无 src 的）
+  html = html.replace(/<img(?![^>]*\bsrc\s*=)[^>]*>/gi, "");
 
   // 移除剩余的自定义标签
   html = html.replace(/<\/?(?:text|background|color)[^>]*>/gi, "");
@@ -462,6 +550,7 @@ function convertMiNoteToHtml(content: string): string {
       trimmed.startsWith("<li") ||
       trimmed.startsWith("<blockquote") ||
       trimmed.startsWith("<hr") ||
+      trimmed.startsWith("<img") ||
       trimmed.startsWith("</")
     ) {
       processedLines.push(trimmed);

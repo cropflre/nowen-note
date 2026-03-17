@@ -314,7 +314,7 @@
   },
   "miCloud": {
     "title": "小米云服务导入",
-    "description": "通过小米云服务 Cookie 直接从云端导入笔记，无需手动导出文件。支持批量选择和一键导入。",
+    "description": "通过小米云服务 Cookie 直接从云端导入笔记，无需手动导出文件。支持批量选择、一键导入，并自动下载笔记中的图片。",
     "cookieRequired": "请输入小米云服务的 Cookie",
     "cookiePlaceholder": "粘贴从 i.mi.com 获取的 Cookie...",
     "cookieInvalid": "Cookie 无效或已过期，请重新获取",
