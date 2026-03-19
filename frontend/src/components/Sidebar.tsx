@@ -488,7 +488,7 @@ export default function Sidebar() {
       style={{ width: undefined }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <h1 className="text-sm font-semibold text-tx-primary tracking-wide">{siteConfig.title}</h1>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={actions.toggleSidebar}>

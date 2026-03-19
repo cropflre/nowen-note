@@ -97,7 +97,10 @@
     "weekWed": "三",
     "weekThu": "四",
     "weekFri": "五",
-    "weekSat": "六"
+    "weekSat": "六",
+    "pullToRefresh": "下拉刷新",
+    "releaseToRefresh": "释放刷新",
+    "refreshing": "刷新中..."
   },
   "editor": {
     "selectNote": "选择一条笔记开始编辑",

@@ -16,6 +16,7 @@ import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { User } from "@/types";
 import { getServerUrl, clearServerUrl } from "@/lib/api";
+import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 
 function SidebarResizeHandle() {
   const { state } = useApp();
@@ -108,6 +109,65 @@ function NoteListResizeHandle() {
   );
 }
 
+/**
+ * P3: 侧边栏边缘滑动手势 Hook
+ * 从屏幕左侧 30px 区域右滑打开侧边栏，侧边栏打开时左滑关闭
+ */
+function useSwipeGesture({
+  onSwipeRight,
+  onSwipeLeft,
+  mobileSidebarOpen,
+}: {
+  onSwipeRight: () => void;
+  onSwipeLeft: () => void;
+  mobileSidebarOpen: boolean;
+}) {
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const isSwiping = useRef(false);
+
+  useEffect(() => {
+    // 仅在小屏幕（移动端）上启用手势
+    const EDGE_THRESHOLD = 30; // 边缘检测区域宽度
+    const SWIPE_MIN_DISTANCE = 60; // 最小滑动距离
+    const SWIPE_MAX_Y_RATIO = 0.6; // y 偏移不超过 x 偏移的 60%
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      touchStartX.current = touch.clientX;
+      touchStartY.current = touch.clientY;
+      // 仅在左边缘区域或侧边栏已打开时激活
+      isSwiping.current = touch.clientX <= EDGE_THRESHOLD || mobileSidebarOpen;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!isSwiping.current) return;
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - touchStartX.current;
+      const deltaY = Math.abs(touch.clientY - touchStartY.current);
+
+      // 确保是水平滑动而非垂直滑动
+      if (deltaY > Math.abs(deltaX) * SWIPE_MAX_Y_RATIO) return;
+
+      if (deltaX > SWIPE_MIN_DISTANCE && touchStartX.current <= EDGE_THRESHOLD && !mobileSidebarOpen) {
+        onSwipeRight();
+      } else if (deltaX < -SWIPE_MIN_DISTANCE && mobileSidebarOpen) {
+        onSwipeLeft();
+      }
+
+      isSwiping.current = false;
+    };
+
+    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [mobileSidebarOpen, onSwipeRight, onSwipeLeft]);
+}
+
 function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
@@ -116,6 +176,38 @@ function AppLayout() {
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
   const isDiaryView = state.viewMode === "diary";
+
+  // P0: Android 返回键处理
+  const handleBackToList = useCallback(() => {
+    actions.setMobileView("list");
+  }, [actions]);
+  const handleCloseSidebar = useCallback(() => {
+    actions.setMobileSidebar(false);
+  }, [actions]);
+
+  useBackButton({
+    mobileView: state.mobileView,
+    mobileSidebarOpen: state.mobileSidebarOpen,
+    onBackToList: handleBackToList,
+    onCloseSidebar: handleCloseSidebar,
+  });
+
+  // P2: 状态栏与主题同步
+  useStatusBarSync();
+
+  // P5: 键盘弹出布局适配
+  useKeyboardLayout();
+
+  // P3: 侧边栏边缘滑动手势
+  const handleSwipeOpen = useCallback(() => {
+    actions.setMobileSidebar(true);
+  }, [actions]);
+
+  useSwipeGesture({
+    onSwipeRight: handleSwipeOpen,
+    onSwipeLeft: handleCloseSidebar,
+    mobileSidebarOpen: state.mobileSidebarOpen,
+  });
 
   // Alt+N 全局快捷键：快速新建笔记
   useEffect(() => {
@@ -160,7 +252,7 @@ function AppLayout() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", bounce: 0, duration: 0.35 }}
-              className="fixed inset-y-0 left-0 z-50 w-[80%] max-w-[300px] md:hidden shadow-2xl"
+              className="fixed inset-y-0 left-0 z-50 w-[85%] max-w-[340px] md:hidden shadow-2xl"
             >
               <Sidebar />
             </motion.div>
@@ -205,6 +297,7 @@ function AppLayout() {
           <div
             className={`
               flex flex-col shrink-0 h-full
+              max-md:!w-full
               ${state.mobileView === "list" ? "flex" : "hidden md:flex"}
             `}
             style={{ width: `${state.noteListWidth}px` }}
@@ -232,12 +325,12 @@ function MobileTopBar() {
   const actions = useAppActions();
   const { siteConfig } = useSiteSettings();
   return (
-    <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden">
+    <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
       <button
         onClick={() => actions.setMobileSidebar(true)}
-        className="p-1.5 -ml-1.5 rounded-md text-tx-secondary hover:bg-app-hover"
+        className="p-2 -ml-2 rounded-lg text-tx-secondary hover:bg-app-hover active:bg-app-active"
       >
-        <Menu size={22} />
+        <Menu size={24} />
       </button>
       <span className="ml-3 text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
     </header>
@@ -248,6 +341,13 @@ function AuthGate() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const { t } = useTranslation();
+
+  // P1: Splash Screen — 应用就绪后隐藏启动屏（必须在条件返回之前调用）
+  useEffect(() => {
+    if (isAuthenticated !== null) {
+      hideSplashScreen();
+    }
+  }, [isAuthenticated]);
 
   // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
   const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.() 

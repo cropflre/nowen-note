@@ -1,8 +1,5 @@
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  /* 脚手架默认样式已清除，由 index.css 统一控制 */
 }
 
 .logo {

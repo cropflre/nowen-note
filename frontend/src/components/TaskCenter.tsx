@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2, Circle, Flag, Calendar, Plus, ListTodo,
   CalendarDays, AlertTriangle, CheckCheck, Inbox, X,
-  ChevronRight, Trash2
+  Trash2
 } from "lucide-react";
 import { format, isToday, isPast, isTomorrow, isThisWeek, parseISO } from "date-fns";
 import { zhCN, enUS } from "date-fns/locale";
@@ -101,7 +101,7 @@ const TaskRow = React.forwardRef<HTMLDivElement, {
         <Flag size={14} className={pri.flagClass} />
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
-          className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all"
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all"
         >
           <Trash2 size={14} />
         </button>
@@ -147,10 +147,16 @@ const TaskDetail = React.forwardRef<HTMLDivElement, {
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 320, opacity: 0 }}
       transition={{ type: "spring", damping: 25, stiffness: 300 }}
-      className="w-[340px] min-w-[340px] h-full border-l border-app-border bg-app-surface flex flex-col shrink-0"
+      className={cn(
+        "h-full border-l border-app-border bg-app-surface flex flex-col shrink-0",
+        // 移动端：全屏覆盖
+        "fixed inset-0 z-30 w-full border-l-0",
+        // 桌面端：侧边面板
+        "md:static md:z-auto md:w-[340px] md:min-w-[340px] md:border-l"
+      )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <span className="text-sm font-semibold text-tx-primary">{t('tasks.taskDetail')}</span>
         <button onClick={onClose} className="p-1 rounded-md hover:bg-app-hover transition-colors">
           <X size={16} className="text-tx-secondary" />
@@ -221,7 +227,7 @@ const TaskDetail = React.forwardRef<HTMLDivElement, {
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-app-border">
+      <div className="p-4 border-t border-app-border" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}>
         <button
           onClick={() => { onDelete(task.id); onClose(); }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm text-accent-danger border border-accent-danger/30 hover:bg-accent-danger/10 transition-colors"
@@ -337,9 +343,9 @@ export default function TaskCenter() {
   };
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      {/* Left: Filter Panel */}
-      <div className="w-[220px] min-w-[220px] shrink-0 border-r border-app-border bg-app-surface flex flex-col transition-colors">
+    <div className="flex h-full w-full overflow-hidden relative">
+      {/* Left: Filter Panel — 桌面端显示 */}
+      <div className="hidden md:flex w-[220px] min-w-[220px] shrink-0 border-r border-app-border bg-app-surface flex-col transition-colors">
         <div className="px-4 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
             <ListTodo size={18} className="text-accent-primary" />
@@ -381,15 +387,40 @@ export default function TaskCenter() {
 
       {/* Center: Task List */}
       <div className="flex-1 flex flex-col overflow-hidden bg-app-bg transition-colors">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-app-border">
+        {/* 移动端：水平筛选标签 */}
+        <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b border-app-border overflow-x-auto no-scrollbar">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => { setFilter(f.key); setSelectedTask(null); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
+                filter === f.key
+                  ? "bg-accent-primary/15 text-accent-primary"
+                  : "text-tx-secondary bg-app-hover/50 active:bg-app-active"
+              )}
+            >
+              {f.icon}
+              {f.label}
+              <span className={cn(
+                "text-[10px] min-w-[16px] text-center",
+                filter === f.key ? "text-accent-primary" : "text-tx-tertiary"
+              )}>
+                {filterCount(f.key)}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Header — 桌面端显示 */}
+        <div className="hidden md:block px-6 py-4 border-b border-app-border">
           <h1 className="text-lg font-bold text-tx-primary">
             {FILTERS.find((f) => f.key === filter)?.label || t('tasks.allTasks')}
           </h1>
         </div>
 
         {/* Quick Add */}
-        <div className="px-6 py-3 border-b border-app-border">
+        <div className="px-4 md:px-6 py-3 border-b border-app-border">
           <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-dashed border-app-border bg-app-elevated/50 hover:border-accent-primary/40 transition-colors">
             <Plus size={16} className="text-tx-tertiary flex-shrink-0" />
             <input
@@ -404,7 +435,7 @@ export default function TaskCenter() {
         </div>
 
         {/* Task List */}
-        <div className="flex-1 overflow-auto px-6 py-3">
+        <div className="flex-1 overflow-auto px-4 md:px-6 py-3">
           {isLoading ? (
             <div className="flex items-center justify-center h-32 text-tx-tertiary text-sm">
               {t('common.loading')}

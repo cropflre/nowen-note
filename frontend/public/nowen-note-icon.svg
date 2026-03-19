@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <!-- 背景 - Nowen Note 深色主题 -->
+  <rect width="108" height="108" fill="#0D1117"/>
+  
+  <!-- 笔记纸 - 带折角的圆角矩形（白色纸面） -->
+  <path fill="#FFFFFF" d="M28,26 L66,26 L80,40 L80,82 C80,83.66 78.66,85 77,85 L28,85 C26.34,85 25,83.66 25,82 L25,29 C25,27.34 26.34,26 28,26 Z"/>
+
+  <!-- 纸张折角阴影 -->
+  <path fill="#C8D6E5" d="M66,26 L66,40 L80,40 Z"/>
+
+  <!-- 品牌蓝色标记笔效果 - 左侧竖向色带 -->
+  <path fill="#3B82F6" d="M25,26 L30,26 L30,85 L25,85 Z"/>
+
+  <!-- 笔记横线 -->
+  <line x1="35" y1="48" x2="72" y2="48" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
+  <line x1="35" y1="55" x2="72" y2="55" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
+  <line x1="35" y1="62" x2="72" y2="62" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
+  <line x1="35" y1="69" x2="60" y2="69" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
+
+  <!-- 大写字母 N - Nowen品牌标识 -->
+  <path fill="#3B82F6" d="M40,78 L40,44 L44.5,44 L62,72 L62,44 L66.5,44 L66.5,78 L62,78 L44.5,50 L44.5,78 Z"/>
+
+  <!-- 右下角小铅笔装饰 -->
+  <path fill="#3B82F6" d="M72,66 L78,60 L84,66 L78,72 Z"/>
+  <path fill="#2563EB" d="M78,72 L75,75 L81,75 Z"/>
+  <!-- 铅笔笔尖 -->
+  <path fill="#F59E0B" d="M75,75 L78,78 L81,75 Z"/>
+</svg>

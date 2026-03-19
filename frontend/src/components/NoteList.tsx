@@ -1,6 +1,6 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
+import { haptic } from "@/hooks/useCapacitor";
 
 function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
   const d = new Date(dateStr + "Z");
@@ -127,7 +128,7 @@ function MoveNoteModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-[360px] max-h-[480px] bg-app-elevated border border-app-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      <div className="relative w-full max-w-[360px] mx-4 max-h-[480px] bg-app-elevated border border-app-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
         style={{ animation: "contextMenuIn 0.15s ease-out" }}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
@@ -313,6 +314,127 @@ function MiniCalendarFilter({
   );
 }
 
+/* ===== P6: 下拉刷新组件 ===== */
+function PullToRefresh({
+  onRefresh,
+  children,
+}: {
+  onRefresh: () => Promise<void>;
+  children: React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pulling, setPulling] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const touchStartY = useRef(0);
+  const isAtTop = useRef(false);
+  const { t } = useTranslation();
+
+  const THRESHOLD = 70; // 触发刷新的下拉距离
+  const MAX_PULL = 120; // 最大下拉距离
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (refreshing) return;
+    const scrollContainer = containerRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    isAtTop.current = !scrollContainer || scrollContainer.scrollTop <= 0;
+    if (isAtTop.current) {
+      touchStartY.current = e.touches[0].clientY;
+    }
+  }, [refreshing]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isAtTop.current || refreshing) return;
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+    if (deltaY > 0) {
+      // 应用阻尼效果：越往下拉越难拉
+      const dampedDistance = Math.min(MAX_PULL, deltaY * 0.45);
+      setPullDistance(dampedDistance);
+      setPulling(true);
+
+      // 达到阈值时触发触觉反馈
+      if (dampedDistance >= THRESHOLD && pullDistance < THRESHOLD) {
+        haptic.light();
+      }
+    } else {
+      setPulling(false);
+      setPullDistance(0);
+    }
+  }, [refreshing, pullDistance]);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (!pulling) return;
+
+    if (pullDistance >= THRESHOLD) {
+      setRefreshing(true);
+      setPullDistance(THRESHOLD * 0.6); // 刷新时保持一定偏移显示 loading
+      haptic.medium();
+      try {
+        await onRefresh();
+        haptic.success();
+      } catch {
+        haptic.error();
+      }
+      setRefreshing(false);
+    }
+
+    setPulling(false);
+    setPullDistance(0);
+  }, [pulling, pullDistance, onRefresh]);
+
+  return (
+    <div
+      ref={containerRef}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      className="relative flex-1 flex flex-col overflow-hidden"
+    >
+      {/* 下拉刷新指示器 */}
+      <div
+        className="absolute top-0 left-0 right-0 flex items-center justify-center z-10 pointer-events-none transition-opacity"
+        style={{
+          height: `${Math.max(pullDistance, 0)}px`,
+          opacity: pullDistance > 10 ? 1 : 0,
+        }}
+      >
+        <div className="flex items-center gap-2 text-tx-tertiary">
+          <RefreshCw
+            size={16}
+            className={cn(
+              "transition-transform",
+              refreshing && "animate-spin",
+              pullDistance >= THRESHOLD && !refreshing && "text-accent-primary"
+            )}
+            style={{
+              transform: refreshing
+                ? undefined
+                : `rotate(${Math.min(pullDistance / THRESHOLD, 1) * 360}deg)`,
+            }}
+          />
+          <span className="text-xs">
+            {refreshing
+              ? t("noteList.refreshing") || "刷新中..."
+              : pullDistance >= THRESHOLD
+              ? t("noteList.releaseToRefresh") || "释放刷新"
+              : t("noteList.pullToRefresh") || "下拉刷新"}
+          </span>
+        </div>
+      </div>
+
+      {/* 内容区域 */}
+      <div
+        className="flex-1 flex flex-col transition-transform"
+        style={{
+          transform: pullDistance > 0 ? `translateY(${pullDistance}px)` : undefined,
+          transition: pulling ? "none" : "transform 0.3s ease-out",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 const NoteCard = React.forwardRef<HTMLDivElement, {
   note: NoteListItem; isActive: boolean; onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -450,12 +572,14 @@ export default function NoteList() {
   }, [state.viewMode]);
 
   const handleSelectNote = async (noteId: string) => {
+    haptic.selection();
     const note = await api.getNote(noteId);
     actions.setActiveNote(note);
     actions.setMobileView("editor");
   };
 
   const handleCreateNote = async () => {
+    haptic.light();
     const notebookId = state.selectedNotebookId || state.notebooks[0]?.id;
     if (!notebookId) return;
     const note = await api.createNote({ notebookId, title: t('common.untitledNote') });
@@ -517,18 +641,21 @@ export default function NoteList() {
 
     switch (actionId) {
       case "toggle_pin": {
+        haptic.light();
         const newVal = targetNote.isPinned === 1 ? 0 : 1;
         await api.updateNote(targetId, { isPinned: newVal } as any);
         actions.updateNoteInList({ id: targetId, isPinned: newVal });
         break;
       }
       case "toggle_fav": {
+        haptic.light();
         const newVal = targetNote.isFavorite === 1 ? 0 : 1;
         await api.updateNote(targetId, { isFavorite: newVal } as any);
         actions.updateNoteInList({ id: targetId, isFavorite: newVal });
         break;
       }
       case "toggle_lock": {
+        haptic.medium();
         const newVal = targetNote.isLocked === 1 ? 0 : 1;
         await api.updateNote(targetId, { isLocked: newVal } as any);
         actions.updateNoteInList({ id: targetId, isLocked: newVal });
@@ -538,6 +665,7 @@ export default function NoteList() {
         break;
       }
       case "trash": {
+        haptic.heavy();
         await api.updateNote(targetId, { isTrashed: 1 } as any);
         if (state.activeNote?.id === targetId) actions.setActiveNote(null);
         await fetchNotes();
@@ -553,12 +681,14 @@ export default function NoteList() {
         break;
       }
       case "restore": {
+        haptic.success();
         await api.updateNote(targetId, { isTrashed: 0 } as any);
         await fetchNotes();
         actions.refreshNotebooks();
         break;
       }
       case "delete_permanent": {
+        haptic.heavy();
         await api.deleteNote(targetId);
         if (state.activeNote?.id === targetId) actions.setActiveNote(null);
         await fetchNotes();
@@ -591,17 +721,36 @@ export default function NoteList() {
   return (
     <div className="w-full h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-app-border md:hidden">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-app-border md:hidden" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <button
           onClick={() => actions.setMobileSidebar(true)}
-          className="p-1.5 -ml-1.5 rounded-md text-tx-secondary hover:bg-app-hover"
+          className="p-2 -ml-2 rounded-lg text-tx-secondary hover:bg-app-hover active:bg-app-active"
         >
-          <Menu size={22} />
+          <Menu size={24} />
         </button>
-        <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCreateNote}>
-          <Plus size={15} />
-        </Button>
+        <h2 className="text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
+        <div className="flex items-center gap-1">
+          {/* 移动端日历筛选按钮 */}
+          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+            <button
+              onClick={() => setShowCalendar(!showCalendar)}
+              className={cn(
+                "p-1.5 rounded-md transition-colors relative",
+                showCalendar || dateFilter
+                  ? "text-accent-primary bg-accent-primary/10"
+                  : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
+              )}
+            >
+              <CalendarDays size={18} />
+              {dateFilter && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-primary" />
+              )}
+            </button>
+          )}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleCreateNote}>
+            <Plus size={18} />
+          </Button>
+        </div>
       </header>
 
       {/* Desktop Header */}
@@ -637,7 +786,7 @@ export default function NoteList() {
 
       {/* 日历筛选面板 */}
       {showCalendar && state.viewMode !== "trash" && state.viewMode !== "search" && (
-        <div className="border-b border-app-border bg-app-surface">
+        <div className="border-b border-app-border bg-app-surface max-md:animate-in max-md:slide-in-from-top max-md:duration-200">
           <MiniCalendarFilter
             selectedDate={dateFilter}
             onSelect={(d) => setDateFilter(d)}
@@ -651,8 +800,9 @@ export default function NoteList() {
         <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: state.notes.length })}</span>
       </div>
 
-      {/* List */}
-      <ScrollArea className="flex-1">
+      {/* List - 包裹下拉刷新（仅移动端生效，桌面端不影响） */}
+      <PullToRefresh onRefresh={fetchNotes}>
+        <ScrollArea className="flex-1">
         <div className="px-2 pb-2 space-y-1">
           <AnimatePresence mode="popLayout">
             {state.notes.map((note) => (
@@ -705,6 +855,7 @@ export default function NoteList() {
           )}
         </div>
       </ScrollArea>
+      </PullToRefresh>
 
       {/* Mobile FAB - 新建笔记 */}
       <button

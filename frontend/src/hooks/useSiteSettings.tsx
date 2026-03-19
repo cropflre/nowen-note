@@ -16,10 +16,10 @@ const DEFAULT_CONFIG: SiteConfig = {
 
 // 内置字体选项（不需要上传）
 export const BUILTIN_FONTS = [
-  { id: "", nameKey: "fonts.interDefault", family: "'Inter', system-ui, -apple-system, sans-serif" },
+  { id: "", nameKey: "fonts.interDefault", family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif" },
   { id: "__system", nameKey: "fonts.systemDefault", family: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
   { id: "__serif", nameKey: "fonts.serif", family: "Georgia, 'Noto Serif SC', 'Source Han Serif SC', serif" },
-  { id: "__mono", nameKey: "fonts.monospace", family: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace" },
+  { id: "__mono", nameKey: "fonts.monospace", family: "'Cascadia Code', 'Fira Code', 'Source Code Pro', 'Menlo', 'Consolas', monospace" },
 ];
 
 // Helper to get translated font name
@@ -92,7 +92,7 @@ function applyEditorFont(fontId: string, customFontName?: string) {
   // 回退默认
   document.documentElement.style.setProperty(
     "--editor-font-family",
-    "'Inter', system-ui, -apple-system, sans-serif"
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif"
   );
 }
 

@@ -11,3 +11,6 @@ release2/
 dist-electron/
 electron/node/
 $null
+*.apk
+generate-icons.js
+frontend/android/build_output.txt

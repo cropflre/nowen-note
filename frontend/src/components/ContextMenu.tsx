@@ -24,6 +24,7 @@ export default function ContextMenu({
   isOpen, x, y, items, menuRef, onAction, header,
 }: ContextMenuProps) {
   const internalRef = useRef<HTMLDivElement | null>(null);
+  const [adjustedPos, setAdjustedPos] = React.useState({ x, y });
 
   // 同步内部 ref 到外部 menuRef
   useEffect(() => {
@@ -32,6 +33,41 @@ export default function ContextMenu({
     }
   });
 
+  // 位置边界修正：防止菜单超出屏幕
+  useEffect(() => {
+    if (!isOpen) return;
+    // 延迟一帧，等 DOM 渲染后获取菜单尺寸
+    requestAnimationFrame(() => {
+      const el = internalRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let newX = x;
+      let newY = y;
+      // 右侧溢出
+      if (newX + rect.width > vw - 8) {
+        newX = vw - rect.width - 8;
+      }
+      // 底部溢出
+      if (newY + rect.height > vh - 8) {
+        newY = vh - rect.height - 8;
+      }
+      // 左侧溢出
+      if (newX < 8) newX = 8;
+      // 顶部溢出
+      if (newY < 8) newY = 8;
+      if (newX !== x || newY !== y) {
+        setAdjustedPos({ x: newX, y: newY });
+      }
+    });
+  }, [isOpen, x, y]);
+
+  // x/y 变化时重置 adjustedPos
+  useEffect(() => {
+    setAdjustedPos({ x, y });
+  }, [x, y]);
+
   if (!isOpen) return null;
 
   return (
@@ -39,8 +75,8 @@ export default function ContextMenu({
       ref={internalRef}
       style={{
         position: "fixed",
-        top: y,
-        left: x,
+        top: adjustedPos.y,
+        left: adjustedPos.x,
         zIndex: 100,
         animation: "contextMenuIn 0.12s ease-out",
       }}

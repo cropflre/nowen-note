@@ -1,14 +1,15 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, Folder, X, ListTree, Lock, Unlock, Sparkles, Tag as TagIcon, Type } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
 import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Tag, Notebook } from "@/types";
+import { Tag } from "@/types";
 import { useTranslation } from "react-i18next";
+import { haptic } from "@/hooks/useCapacitor";
 
 export default function EditorPane() {
   const { state } = useApp();
@@ -21,10 +22,27 @@ export default function EditorPane() {
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const scrollToRef = useRef<((pos: number) => void) | null>(null);
   const { t } = useTranslation();
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
+  const [showMobileOutline, setShowMobileOutline] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 使用 ref 追踪最新的 activeNote，避免 handleUpdate 闭包引用过期
   const activeNoteRef = useRef(activeNote);
   activeNoteRef.current = activeNote;
+
+  // 点击外部关闭移动端菜单
+  useEffect(() => {
+    if (!showMobileMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setShowMobileMenu(false);
+        setShowMobileMoveMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMobileMenu]);
 
   const handleUpdate = useCallback(async (data: { content: string; contentText: string; title: string }) => {
     const currentNote = activeNoteRef.current;
@@ -85,6 +103,7 @@ export default function EditorPane() {
 
   const toggleFavorite = useCallback(async () => {
     if (!activeNote) return;
+    haptic.light();
     const updated = await api.updateNote(activeNote.id, { isFavorite: activeNote.isFavorite ? 0 : 1 } as any);
     actions.setActiveNote(updated);
     actions.updateNoteInList({ id: updated.id, isFavorite: updated.isFavorite });
@@ -92,6 +111,7 @@ export default function EditorPane() {
 
   const togglePin = useCallback(async () => {
     if (!activeNote) return;
+    haptic.light();
     const updated = await api.updateNote(activeNote.id, { isPinned: activeNote.isPinned ? 0 : 1 } as any);
     actions.setActiveNote(updated);
     actions.updateNoteInList({ id: updated.id, isPinned: updated.isPinned });
@@ -99,6 +119,7 @@ export default function EditorPane() {
 
   const toggleLock = useCallback(async () => {
     if (!activeNote) return;
+    haptic.medium();
     const updated = await api.updateNote(activeNote.id, { isLocked: activeNote.isLocked ? 0 : 1 } as any);
     actions.setActiveNote(updated);
     actions.updateNoteInList({ id: updated.id, isLocked: updated.isLocked });
@@ -106,6 +127,7 @@ export default function EditorPane() {
 
   const moveToTrash = useCallback(async () => {
     if (!activeNote || activeNote.isLocked) return;
+    haptic.heavy();
     await api.updateNote(activeNote.id, { isTrashed: 1 } as any);
     actions.setActiveNote(null);
     actions.refreshNotebooks();
@@ -213,30 +235,207 @@ export default function EditorPane() {
       className="flex-1 flex flex-col bg-app-bg overflow-hidden transition-colors"
     >
       {/* Mobile Editor Header - 返回按钮 */}
-      <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden">
+      <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 8px)' }}>
         <button
           onClick={() => actions.setMobileView("list")}
-          className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-md"
+          className="flex items-center text-accent-primary py-1.5 px-1.5 -ml-1.5 rounded-lg active:bg-app-hover"
         >
-          <ChevronLeft size={22} />
-          <span className="text-sm">{t('editor.back')}</span>
+          <ChevronLeft size={24} />
+          <span className="text-sm font-medium">{t('editor.back')}</span>
         </button>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
           <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLock}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleLock}
             title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}>
             {activeNote.isLocked
-              ? <Lock size={14} className="text-orange-500" />
-              : <Unlock size={14} />}
+              ? <Lock size={16} className="text-orange-500" />
+              : <Unlock size={16} />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={togglePin}>
-            <Pin size={14} className={cn(activeNote.isPinned && "text-accent-primary fill-accent-primary")} />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={togglePin}>
+            <Pin size={16} className={cn(activeNote.isPinned && "text-accent-primary fill-accent-primary")} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleFavorite}>
-            <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleFavorite}>
+            <Star size={16} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
           </Button>
+          {/* 更多操作按钮 */}
+          <div className="relative" ref={mobileMenuRef}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setShowMobileMenu(!showMobileMenu); setShowMobileMoveMenu(false); }}>
+              <MoreHorizontal size={16} />
+            </Button>
+            {/* 更多操作下拉菜单 */}
+            <AnimatePresence>
+              {showMobileMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute top-full right-0 mt-1 w-56 bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                >
+                  {/* 移动笔记本 */}
+                  <button
+                    onClick={() => setShowMobileMoveMenu(!showMobileMoveMenu)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <FolderInput size={15} className="text-tx-tertiary" />
+                    <span className="flex-1 text-left">{t('editor.moveToNotebook')}</span>
+                    <ChevronRight size={14} className="text-tx-tertiary" />
+                  </button>
+                  {/* 移动笔记本子菜单 */}
+                  <AnimatePresence>
+                    {showMobileMoveMenu && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden border-t border-b border-app-border bg-app-bg/50"
+                      >
+                        <div className="max-h-40 overflow-auto py-1">
+                          {state.notebooks.map((nb) => (
+                            <button
+                              key={nb.id}
+                              disabled={nb.id === activeNote.notebookId}
+                              onClick={() => {
+                                handleMoveToNotebook(nb.id);
+                                setShowMobileMenu(false);
+                                setShowMobileMoveMenu(false);
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-5 py-2 text-sm transition-colors",
+                                nb.id === activeNote.notebookId
+                                  ? "opacity-40 cursor-not-allowed text-tx-tertiary"
+                                  : "text-tx-secondary active:bg-app-hover"
+                              )}
+                            >
+                              <span>{nb.icon || "📁"}</span>
+                              <span className="truncate">{nb.name}</span>
+                              {nb.id === activeNote.notebookId && (
+                                <span className="ml-auto text-[10px] text-tx-tertiary">{t('common.current')}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  {/* 大纲 */}
+                  <button
+                    onClick={() => {
+                      setShowMobileOutline(true);
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <ListTree size={15} className="text-tx-tertiary" />
+                    <span>{t('editor.showOutline')}</span>
+                  </button>
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  {/* AI 生成标题 */}
+                  <button
+                    onClick={() => {
+                      handleAITitle();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiTitleLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Type size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiGenerateTitle')}</span>
+                  </button>
+                  {/* AI 推荐标签 */}
+                  <button
+                    onClick={() => {
+                      handleAITags();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiTagsLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <TagIcon size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiSuggestTags')}</span>
+                  </button>
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  {/* 删除笔记 */}
+                  <button
+                    onClick={() => {
+                      moveToTrash();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={!!activeNote.isLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-500 active:bg-red-50 dark:active:bg-red-900/20 transition-colors disabled:opacity-40"
+                  >
+                    <Trash2 size={15} />
+                    <span>{t('editor.trashTooltip')}</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
+
+      {/* Mobile Outline Panel (全屏覆盖) */}
+      <AnimatePresence>
+        {showMobileOutline && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed inset-0 z-40 bg-app-surface flex flex-col md:hidden"
+            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 0px)' }}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-tx-primary">
+                <ListTree size={16} className="text-accent-primary" />
+                <span>{t('editor.outline')}</span>
+              </div>
+              <button
+                onClick={() => setShowMobileOutline(false)}
+                className="p-1.5 rounded-md hover:bg-app-hover text-tx-secondary transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="py-2 px-2">
+                {headings.length === 0 ? (
+                  <div className="px-3 py-12 text-center">
+                    <p className="text-sm text-tx-tertiary">{t('editor.noHeadings')}</p>
+                    <p className="text-xs text-tx-tertiary mt-1">{t('editor.noHeadingsHint')}</p>
+                  </div>
+                ) : (
+                  headings.map((h) => (
+                    <button
+                      key={h.id}
+                      onClick={() => {
+                        scrollToRef.current?.(h.pos);
+                        setShowMobileOutline(false);
+                      }}
+                      className={cn(
+                        "w-full text-left px-4 py-2.5 text-sm transition-colors active:bg-app-hover rounded-lg",
+                        h.level === 1 && "font-medium text-tx-primary",
+                        h.level === 2 && "text-tx-secondary",
+                        h.level === 3 && "text-tx-tertiary",
+                      )}
+                      style={{ paddingLeft: `${(h.level - 1) * 16 + 16}px` }}
+                    >
+                      <span className={cn(
+                        "inline-block w-2 h-2 rounded-full mr-2.5 shrink-0 align-middle",
+                        h.level === 1 && "bg-accent-primary",
+                        h.level === 2 && "bg-accent-primary/50",
+                        h.level === 3 && "bg-tx-tertiary/50",
+                      )} />
+                      {h.text || t('editor.untitled')}
+                    </button>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Desktop Editor Header */}
       <div className="hidden md:flex items-center justify-between px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">

@@ -274,7 +274,7 @@ function DiaryCard({
                 "flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all",
                 showConfirm
                   ? "bg-red-500/10 text-red-500"
-                  : "opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-red-400 hover:bg-red-500/5"
+                  : "opacity-100 md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-red-400 hover:bg-red-500/5"
               )}
             >
               <Trash2 size={12} />

@@ -321,6 +321,7 @@ function MindMapListRow({
 }) {
   const date = new Date(item.updatedAt + (item.updatedAt.endsWith("Z") ? "" : "Z"));
   const dateStr = date.toLocaleDateString();
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return (
     <div
@@ -332,6 +333,33 @@ function MindMapListRow({
       )}
       onClick={onSelect}
       onContextMenu={onContextMenu}
+      onTouchStart={(e) => {
+        longPressTimer.current = setTimeout(() => {
+          // 长按触发右键菜单（移动端导出入口）
+          const touch = e.touches[0];
+          if (touch) {
+            const syntheticEvent = {
+              preventDefault: () => {},
+              stopPropagation: () => {},
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+            } as React.MouseEvent;
+            onContextMenu(syntheticEvent);
+          }
+        }, 600);
+      }}
+      onTouchEnd={() => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      }}
+      onTouchMove={() => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      }}
     >
       <BrainCircuit size={18} className="text-indigo-500 flex-shrink-0" />
       <div className="flex-1 min-w-0">
@@ -340,7 +368,7 @@ function MindMapListRow({
       </div>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all flex-shrink-0"
+        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all flex-shrink-0"
       >
         <Trash2 size={14} />
       </button>
@@ -1292,35 +1320,85 @@ export default function MindMapCenter() {
 
       {/* 列表右键菜单 */}
       {listContextMenu && (
-        <div
-          className="fixed z-50 min-w-[180px] py-1 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 animate-in fade-in zoom-in-95 duration-100"
-          style={{ left: listContextMenu.x, top: listContextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-            onClick={handleListDownloadPNG}
-          >
-            <Image size={15} className="text-indigo-500" />
-            {t("mindMap.downloadPNG")}
-          </button>
-          <button
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-            onClick={handleListDownloadSVG}
-          >
-            <FileImage size={15} className="text-emerald-500" />
-            {t("mindMap.downloadSVG")}
-          </button>
-          <div className="h-px bg-zinc-200 dark:bg-zinc-700 my-1" />
-          <button
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-            onClick={handleListDownloadXmind}
-          >
-            <FileDown size={15} className="text-orange-500" />
-            {t("mindMap.downloadXmind")}
-          </button>
-        </div>
+        <MindMapContextMenuOverlay
+          menu={listContextMenu}
+          onClose={() => setListContextMenu(null)}
+          onDownloadPNG={handleListDownloadPNG}
+          onDownloadSVG={handleListDownloadSVG}
+          onDownloadXmind={handleListDownloadXmind}
+          t={t}
+        />
       )}
+    </div>
+  );
+}
+
+/* ===== 列表右键菜单（带位置修正） ===== */
+function MindMapContextMenuOverlay({
+  menu,
+  onClose,
+  onDownloadPNG,
+  onDownloadSVG,
+  onDownloadXmind,
+  t,
+}: {
+  menu: { x: number; y: number; mapId: string; title: string };
+  onClose: () => void;
+  onDownloadPNG: () => void;
+  onDownloadSVG: () => void;
+  onDownloadXmind: () => void;
+  t: (key: string) => string;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+
+  // 位置边界修正
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = menuRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let newX = menu.x;
+      let newY = menu.y;
+      if (newX + rect.width > vw - 8) newX = vw - rect.width - 8;
+      if (newY + rect.height > vh - 8) newY = vh - rect.height - 8;
+      if (newX < 8) newX = 8;
+      if (newY < 8) newY = 8;
+      setPos({ x: newX, y: newY });
+    });
+  }, [menu.x, menu.y]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[180px] py-1 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 animate-in fade-in zoom-in-95 duration-100"
+      style={{ left: pos.x, top: pos.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+        onClick={onDownloadPNG}
+      >
+        <Image size={15} className="text-indigo-500" />
+        {t("mindMap.downloadPNG")}
+      </button>
+      <button
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+        onClick={onDownloadSVG}
+      >
+        <FileImage size={15} className="text-emerald-500" />
+        {t("mindMap.downloadSVG")}
+      </button>
+      <div className="h-px bg-zinc-200 dark:bg-zinc-700 my-1" />
+      <button
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+        onClick={onDownloadXmind}
+      >
+        <FileDown size={15} className="text-orange-500" />
+        {t("mindMap.downloadXmind")}
+      </button>
     </div>
   );
 }

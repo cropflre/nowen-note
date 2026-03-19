@@ -97,7 +97,10 @@
     "weekWed": "We",
     "weekThu": "Th",
     "weekFri": "Fr",
-    "weekSat": "Sa"
+    "weekSat": "Sa",
+    "pullToRefresh": "Pull to refresh",
+    "releaseToRefresh": "Release to refresh",
+    "refreshing": "Refreshing..."
   },
   "editor": {
     "selectNote": "Select a note to start editing",

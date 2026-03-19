@@ -422,7 +422,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 md:sm:p-6"
     >
       {/* 背景遮罩 */}
       <motion.div
@@ -439,11 +439,42 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-        className="relative w-full max-w-4xl h-[80vh] min-h-[500px] flex overflow-hidden bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800"
+        className="relative w-full max-w-4xl h-[80vh] min-h-[500px] flex flex-col md:flex-row overflow-hidden bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-md:h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 左侧导航栏 */}
-        <div className="w-56 flex-shrink-0 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 p-4 flex flex-col">
+        {/* 移动端：顶部标签栏 + 关闭按钮 */}
+        <div className="md:hidden flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 0px)' }}>
+          <div className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto no-scrollbar">
+            {SETTING_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0",
+                    isActive
+                      ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
+                      : "text-zinc-500 dark:text-zinc-400 active:bg-zinc-200/40 dark:active:bg-zinc-800/50"
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 mr-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg transition-colors shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* 桌面端：左侧导航栏 */}
+        <div className="hidden md:flex w-56 flex-shrink-0 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 p-4 flex-col">
           <div className="flex items-center gap-2 mb-6 px-2">
             <Settings className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{t('settings.title')}</span>
@@ -478,16 +509,16 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
 
         {/* 右侧内容区 */}
         <div className="flex-1 overflow-y-auto relative">
-          {/* 关闭按钮 */}
+          {/* 关闭按钮 — 桌面端 */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors z-10"
+            className="hidden md:block absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors z-10"
           >
             <X className="w-4 h-4" />
           </button>
 
           {/* 动态渲染内容 */}
-          <div className="p-8 pr-14">
+          <div className="p-4 md:p-8 md:pr-14">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}

@@ -452,13 +452,13 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
             !editable && "cursor-default"
           )}
         />
-        <div className="flex items-center gap-3 mt-2 text-[10px] text-tx-tertiary">
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary">
           <span>{t('tiptap.version')}{note.version}</span>
-          <span>·</span>
+          <span className="max-md:hidden">·</span>
           <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
-          <span>·</span>
+          <span className="max-md:hidden">·</span>
           <span>{wordStats.words}{t('tiptap.words')}</span>
-          <span>·</span>
+          <span className="max-md:hidden">·</span>
           <span>{wordStats.charsNoSpace}{t('tiptap.chars')}</span>
         </div>
       </div>

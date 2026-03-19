@@ -1,4 +1,4 @@
-/* Google Fonts 已移至 index.html <link> preload 以避免渲染阻塞 */
+/* 使用系统字体栈，无需依赖 Google Fonts CDN */
 
 @tailwind base;
 @tailwind components;
@@ -6,8 +6,8 @@
 
 /* ===== Light Theme (默认) ===== */
 :root {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  --editor-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --editor-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 
   --color-bg: #ffffff;
   --color-surface: #f9fafb;
@@ -171,7 +171,7 @@ body {
   color: var(--pm-code-text);
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Cascadia Code', 'Fira Code', 'Source Code Pro', 'Menlo', 'Consolas', monospace;
   font-size: 0.85em;
 }
 
@@ -372,6 +372,15 @@ body {
   scrollbar-width: none;
 }
 
+/* 隐藏滚动条但保留滚动功能 */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Context menu open animation */
 @keyframes contextMenuIn {
   from {
@@ -381,5 +390,33 @@ body {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* ===== 移动端 Android 适配 ===== */
+
+/* 确保 Tailwind 的 max-md:!w-full 在 < 768px 时覆盖 inline style */
+@media (max-width: 767px) {
+  .max-md\:\!w-full {
+    width: 100% !important;
+  }
+}
+
+/* 移动端触控优化 */
+@media (max-width: 767px) {
+  /* 增大可触控元素的最小尺寸 */
+  button, [role="button"], a {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  /* 编辑器工具栏在移动端不换行，允许横向滚动 */
+  .hide-scrollbar {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 编辑器内容区域移动端减少水平 padding */
+  .ProseMirror {
+    min-height: 200px;
   }
 }
