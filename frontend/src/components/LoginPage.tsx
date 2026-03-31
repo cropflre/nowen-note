@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, Lock, User, BookOpen, Globe, CheckCircle2, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { getServerUrl, setServerUrl, clearServerUrl, testServerConnection, isDesktopRemoteModeEnabled, setDesktopRemoteMode } from "@/lib/api";
+import { getServerUrl, setServerUrl, clearServerUrl, testServerConnection, isDesktopRemoteModeEnabled, setDesktopModeSelection, setDesktopRemoteMode } from "@/lib/api";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -123,11 +123,13 @@ export default function LoginPage({ onLogin, isClientMode = false, isDesktopApp 
   };
 
   const handleEnableRemoteMode = () => {
+    setDesktopModeSelection(true);
     setDesktopRemoteMode(true);
     window.location.reload();
   };
 
   const handleUseBuiltInServer = () => {
+    setDesktopModeSelection(true);
     setDesktopRemoteMode(false);
     clearServerUrl();
     localStorage.removeItem("nowen-token");

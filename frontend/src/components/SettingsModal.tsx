@@ -7,7 +7,7 @@ import SecuritySettings from "@/components/SecuritySettings";
 import DataManager from "@/components/DataManager";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
-import { api, clearServerUrl, getServerUrl, isDesktopRemoteModeEnabled, isElectronRuntime, setDesktopRemoteMode, setServerUrl, testServerConnection } from "@/lib/api";
+import { api, clearServerUrl, getServerUrl, isDesktopRemoteModeEnabled, isElectronRuntime, setDesktopModeSelection, setDesktopRemoteMode, setServerUrl, testServerConnection } from "@/lib/api";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -459,6 +459,7 @@ function ConnectionPanel() {
     setServerStatus("ok");
     setServerUrl(normalized);
     localStorage.setItem("nowen-server-url-last", normalized);
+    setDesktopModeSelection(true);
     setDesktopRemoteMode(true);
     localStorage.removeItem("nowen-token");
     setMessage(t("connection.switching"));
@@ -466,6 +467,7 @@ function ConnectionPanel() {
   };
 
   const handleUseBuiltInServer = () => {
+    setDesktopModeSelection(true);
     setDesktopRemoteMode(false);
     clearServerUrl();
     localStorage.removeItem("nowen-token");

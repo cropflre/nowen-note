@@ -41,6 +41,14 @@
     "switchToRemote": "Switch to remote server mode",
     "useBuiltInServer": "Use built-in local server"
   },
+  "startup": {
+    "title": "Choose how the desktop app connects",
+    "description": "On first launch, choose whether the desktop client should use its built-in local service or connect to a remote backend you already deployed.",
+    "useBuiltInTitle": "Use built-in local service",
+    "useBuiltInDesc": "Best for single-machine use. The desktop app will start its local backend automatically and use local data.",
+    "useRemoteTitle": "Connect to remote backend",
+    "useRemoteDesc": "Best for a cloud or LAN deployment. The next step will ask you for the server address."
+  },
   "sidebar": {
     "newNote": "New Note",
     "newSubNotebook": "New Sub-Notebook",

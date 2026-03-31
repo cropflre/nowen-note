@@ -41,6 +41,14 @@
     "switchToRemote": "切换到远程服务器模式",
     "useBuiltInServer": "使用内置本地服务"
   },
+  "startup": {
+    "title": "选择桌面端连接方式",
+    "description": "首次启动桌面客户端时，请先选择使用内置本地服务，或连接你已经部署好的远程后端服务器。",
+    "useBuiltInTitle": "使用内置本地服务",
+    "useBuiltInDesc": "适合单机使用，客户端会自动启动本地后端并连接到本机数据。",
+    "useRemoteTitle": "连接远程后端",
+    "useRemoteDesc": "适合连接云端或局域网中的 Nowen Note 服务，下一步会让你填写服务器地址。"
+  },
   "sidebar": {
     "newNote": "新建笔记",
     "newSubNotebook": "新建子笔记本",
