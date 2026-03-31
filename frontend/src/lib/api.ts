@@ -2,6 +2,19 @@ import { Notebook, Note, NoteListItem, Tag, SearchResult, User, Task, TaskStats,
 
 // 服务器地址管理
 const SERVER_URL_KEY = "nowen-server-url";
+const DESKTOP_REMOTE_MODE_KEY = "nowen-desktop-remote-mode";
+
+export function isElectronRuntime(): boolean {
+  return typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
+}
+
+export function isDesktopRemoteModeEnabled(): boolean {
+  return localStorage.getItem(DESKTOP_REMOTE_MODE_KEY) === "true";
+}
+
+export function setDesktopRemoteMode(enabled: boolean) {
+  localStorage.setItem(DESKTOP_REMOTE_MODE_KEY, enabled ? "true" : "false");
+}
 
 export function getServerUrl(): string {
   return localStorage.getItem(SERVER_URL_KEY) || "";

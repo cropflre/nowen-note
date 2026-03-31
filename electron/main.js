@@ -7,6 +7,16 @@ let mainWindow = null;
 let backendProcess = null;
 const BACKEND_PORT = 3001;
 
+function isRemoteServerMode() {
+  return process.env.USE_REMOTE_SERVER === "true";
+}
+
+function getRemoteServerUrl() {
+  const raw = (process.env.REMOTE_SERVER_URL || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\/+$/, "");
+}
+
 // 获取用户数据目录（存放 SQLite 数据库和字体文件）
 function getUserDataPath() {
   return path.join(app.getPath("userData"), "nowen-data");
@@ -110,6 +120,9 @@ function stopBackend() {
 
 // 创建主窗口
 function createWindow() {
+  const useRemote = isRemoteServerMode();
+  const remoteServerUrl = getRemoteServerUrl();
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -124,8 +137,16 @@ function createWindow() {
     show: false,
   });
 
-  // 加载前端页面（通过后端服务提供）
-  mainWindow.loadURL(`http://localhost:${BACKEND_PORT}`);
+  if (useRemote) {
+    if (!remoteServerUrl) {
+      throw new Error("USE_REMOTE_SERVER=true but REMOTE_SERVER_URL is not set");
+    }
+    console.log("[Electron] Remote server mode enabled:", remoteServerUrl);
+    mainWindow.loadURL(remoteServerUrl);
+  } else {
+    // 加载前端页面（通过本地后端服务提供）
+    mainWindow.loadURL(`http://localhost:${BACKEND_PORT}`);
+  }
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -147,7 +168,9 @@ function createWindow() {
 // App 生命周期
 app.whenReady().then(async () => {
   try {
-    await startBackend();
+    if (!isRemoteServerMode()) {
+      await startBackend();
+    }
     createWindow();
   } catch (err) {
     console.error("[Electron] Failed to start:", err);

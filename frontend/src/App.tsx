@@ -17,7 +17,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { User } from "@/types";
-import { getServerUrl, clearServerUrl } from "@/lib/api";
+import { getServerUrl, clearServerUrl, isDesktopRemoteModeEnabled, isElectronRuntime } from "@/lib/api";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 
 function SidebarResizeHandle() {
@@ -375,9 +375,12 @@ function AuthGate() {
   // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
   const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.() 
     || !!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web";
+  const isElectron = isElectronRuntime();
+  const desktopRemoteMode = isDesktopRemoteModeEnabled();
   const isClientMode = window.location.protocol === "file:"
     || window.location.protocol === "capacitor:"
     || isCapacitor
+    || (isElectron && desktopRemoteMode)
     || !!getServerUrl();
 
   const checkAuth = useCallback(() => {
@@ -446,6 +449,7 @@ function AuthGate() {
       <LoginPage
         onLogin={handleLogin}
         isClientMode={isClientMode}
+        isDesktopApp={isElectron}
         onDisconnect={isClientMode ? handleDisconnect : undefined}
       />
     );

@@ -2,16 +2,17 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, Lock, User, BookOpen, Globe, CheckCircle2, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { getServerUrl, setServerUrl, clearServerUrl, testServerConnection } from "@/lib/api";
+import { getServerUrl, setServerUrl, clearServerUrl, testServerConnection, isDesktopRemoteModeEnabled, setDesktopRemoteMode } from "@/lib/api";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
   /** 是否为客户端模式（Electron / Android / 曾配置过服务器地址） */
   isClientMode?: boolean;
+  isDesktopApp?: boolean;
   onDisconnect?: () => void;
 }
 
-export default function LoginPage({ onLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
+export default function LoginPage({ onLogin, isClientMode = false, isDesktopApp = false, onDisconnect }: LoginPageProps) {
   const [serverAddress, setServerAddress] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -19,6 +20,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const [error, setError] = useState("");
   const [serverStatus, setServerStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
   const { t } = useTranslation();
+  const isDesktopRemoteMode = isDesktopApp && isDesktopRemoteModeEnabled();
 
   // 回填上次的服务器地址
   useEffect(() => {
@@ -107,6 +109,9 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   };
 
   const handleDisconnect = () => {
+    if (isDesktopApp) {
+      setDesktopRemoteMode(false);
+    }
     clearServerUrl();
     localStorage.removeItem("nowen-token");
     setServerAddress("");
@@ -115,6 +120,18 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     setPassword("");
     setError("");
     onDisconnect?.();
+  };
+
+  const handleEnableRemoteMode = () => {
+    setDesktopRemoteMode(true);
+    window.location.reload();
+  };
+
+  const handleUseBuiltInServer = () => {
+    setDesktopRemoteMode(false);
+    clearServerUrl();
+    localStorage.removeItem("nowen-token");
+    window.location.reload();
   };
 
   const serverStatusIcon = () => {
@@ -289,6 +306,30 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
                 className="text-xs text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors"
               >
                 {t("auth.resetServer")}
+              </button>
+            </div>
+          )}
+
+          {isDesktopApp && !isClientMode && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={handleEnableRemoteMode}
+                className="text-xs text-zinc-400 hover:text-indigo-500 dark:text-zinc-500 dark:hover:text-indigo-400 transition-colors"
+              >
+                {t("auth.switchToRemote")}
+              </button>
+            </div>
+          )}
+
+          {isDesktopRemoteMode && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={handleUseBuiltInServer}
+                className="text-xs text-zinc-400 hover:text-emerald-500 dark:text-zinc-500 dark:hover:text-emerald-400 transition-colors"
+              >
+                {t("auth.useBuiltInServer")}
               </button>
             </div>
           )}
