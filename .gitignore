@@ -8,6 +8,7 @@ data/
 .codebuddy/
 release/
 release2/
+release-embedded/
 dist-electron/
 electron/node/
 $null

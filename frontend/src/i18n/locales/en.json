@@ -37,7 +37,17 @@
     "serverHint": "Enter IP:port or domain, http:// is added automatically",
     "serverRequired": "Server address is required",
     "resetServer": "Clear server config",
-    "clientNote": "Make sure the server is running and reachable from this device"
+    "clientNote": "Make sure the server is running and reachable from this device",
+    "switchToRemote": "Switch to remote server mode",
+    "useBuiltInServer": "Use built-in local server"
+  },
+  "startup": {
+    "title": "Choose how the desktop app connects",
+    "description": "On first launch, choose whether the desktop client should use its built-in local service or connect to a remote backend you already deployed.",
+    "useBuiltInTitle": "Use built-in local service",
+    "useBuiltInDesc": "Best for single-machine use. The desktop app will start its local backend automatically and use local data.",
+    "useRemoteTitle": "Connect to remote backend",
+    "useRemoteDesc": "Best for a cloud or LAN deployment. The next step will ask you for the server address."
   },
   "sidebar": {
     "newNote": "New Note",
@@ -226,6 +236,7 @@
   "settings": {
     "title": "Settings",
     "appearance": "Appearance",
+    "connection": "Server Connection",
     "ai": "AI Assistant",
     "security": "Security",
     "dataManagement": "Data",
@@ -259,6 +270,27 @@
     "fontUploadSuccess": "Successfully imported {{count}} fonts",
     "fontUploadFailed": "Upload failed",
     "interDefault": "Inter (Default)"
+  },
+  "connection": {
+    "title": "Server Connection",
+    "description": "The Electron desktop app can use its built-in local service or connect to a backend you deployed on a cloud server or LAN.",
+    "modeTitle": "Current Mode",
+    "modeDesc": "Switching servers will clear the current login and return you to the sign-in page.",
+    "serverAddress": "Server Address",
+    "serverPlaceholder": "e.g. 192.168.1.100:3001 or note.example.com",
+    "serverHint": "Enter an IP:port or domain. http:// is added automatically. Do not append /api",
+    "testConnection": "Test Connection",
+    "saveAndSwitch": "Save and Switch",
+    "useBuiltIn": "Use Built-in Server",
+    "enterServer": "Please enter a server address",
+    "testing": "Testing connection...",
+    "testSuccess": "Connection successful. You can switch to this server.",
+    "testFailed": "Connection failed. Please check the address and network.",
+    "switching": "Switching to remote server...",
+    "switchingLocal": "Switching back to the built-in local server...",
+    "statusConnected": "Reachable",
+    "statusRemote": "Remote Mode",
+    "statusLocal": "Local Mode"
   },
   "securitySettings": {
     "title": "Account & Security",

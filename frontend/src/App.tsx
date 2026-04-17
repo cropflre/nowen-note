@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { Globe, Menu, PlugZap, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import NoteList from "@/components/NoteList";
@@ -17,7 +17,15 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { User } from "@/types";
-import { getServerUrl, clearServerUrl } from "@/lib/api";
+import {
+  clearServerUrl,
+  getServerUrl,
+  hasDesktopModeSelection,
+  isDesktopRemoteModeEnabled,
+  isElectronRuntime,
+  setDesktopModeSelection,
+  setDesktopRemoteMode,
+} from "@/lib/api";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 
 function SidebarResizeHandle() {
@@ -360,6 +368,86 @@ function MobileTopBar() {
   );
 }
 
+function DesktopModeSelector() {
+  const { t } = useTranslation();
+
+  const handleUseBuiltInServer = () => {
+    setDesktopModeSelection(true);
+    setDesktopRemoteMode(false);
+    clearServerUrl();
+    localStorage.removeItem("nowen-token");
+    window.location.reload();
+  };
+
+  const handleUseRemoteServer = () => {
+    setDesktopModeSelection(true);
+    setDesktopRemoteMode(true);
+    localStorage.removeItem("nowen-token");
+    window.location.reload();
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors px-4">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent rounded-full blur-3xl" />
+        <div className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-emerald-500/5 via-transparent to-transparent rounded-full blur-3xl" />
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="relative w-full max-w-3xl"
+      >
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl dark:shadow-2xl dark:shadow-black/20 p-8 md:p-10">
+          <div className="text-center max-w-xl mx-auto">
+            <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+              {t("startup.title")}
+            </h1>
+            <p className="text-sm md:text-base text-zinc-500 dark:text-zinc-400 mt-3 leading-7">
+              {t("startup.description")}
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4 mt-8">
+            <button
+              type="button"
+              onClick={handleUseBuiltInServer}
+              className="text-left p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/40 hover:border-emerald-500/40 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 transition-colors"
+            >
+              <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <PlugZap size={22} />
+              </div>
+              <div className="mt-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                {t("startup.useBuiltInTitle")}
+              </div>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 leading-6">
+                {t("startup.useBuiltInDesc")}
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUseRemoteServer}
+              className="text-left p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/40 hover:border-indigo-500/40 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 transition-colors"
+            >
+              <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <Globe size={22} />
+              </div>
+              <div className="mt-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                {t("startup.useRemoteTitle")}
+              </div>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 leading-6">
+                {t("startup.useRemoteDesc")}
+              </p>
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function AuthGate() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -375,9 +463,13 @@ function AuthGate() {
   // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
   const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.() 
     || !!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web";
+  const isElectron = isElectronRuntime();
+  const desktopModeSelected = isElectron ? hasDesktopModeSelection() : true;
+  const desktopRemoteMode = isDesktopRemoteModeEnabled();
   const isClientMode = window.location.protocol === "file:"
     || window.location.protocol === "capacitor:"
     || isCapacitor
+    || (isElectron && desktopRemoteMode)
     || !!getServerUrl();
 
   const checkAuth = useCallback(() => {
@@ -408,13 +500,17 @@ function AuthGate() {
   }, []);
 
   useEffect(() => {
+    if (isElectron && !desktopModeSelected) {
+      setIsAuthenticated(false);
+      return;
+    }
     // 客户端模式但没有服务器地址：直接显示登录页（含服务器输入框）
     if (isClientMode && !getServerUrl()) {
       setIsAuthenticated(false);
       return;
     }
     checkAuth();
-  }, [checkAuth, isClientMode]);
+  }, [checkAuth, desktopModeSelected, isClientMode, isElectron]);
 
   const handleDisconnect = () => {
     clearServerUrl();
@@ -442,10 +538,14 @@ function AuthGate() {
 
   // 未登录 → 一体化登录页
   if (!isAuthenticated) {
+    if (isElectron && !desktopModeSelected) {
+      return <DesktopModeSelector />;
+    }
     return (
       <LoginPage
         onLogin={handleLogin}
         isClientMode={isClientMode}
+        isDesktopApp={isElectron}
         onDisconnect={isClientMode ? handleDisconnect : undefined}
       />
     );

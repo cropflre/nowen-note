@@ -1,17 +1,17 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Server, Wifi, PlugZap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ThemeToggle from "@/components/ThemeToggle";
 import SecuritySettings from "@/components/SecuritySettings";
 import DataManager from "@/components/DataManager";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
-import { api } from "@/lib/api";
+import { api, clearServerUrl, getServerUrl, isDesktopRemoteModeEnabled, isElectronRuntime, setDesktopModeSelection, setDesktopRemoteMode, setServerUrl, testServerConnection } from "@/lib/api";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
-type TabId = "appearance" | "ai" | "security" | "data";
+type TabId = "appearance" | "connection" | "ai" | "security" | "data";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -403,14 +403,175 @@ function AppearancePanel() {
   );
 }
 
+function ConnectionPanel() {
+  const { t } = useTranslation();
+  const [serverAddress, setServerAddress] = useState(() => {
+    const saved = getServerUrl();
+    return saved.replace(/^https?:\/\//, "");
+  });
+  const [serverStatus, setServerStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [message, setMessage] = useState("");
+  const remoteModeEnabled = isDesktopRemoteModeEnabled();
+
+  const normalizeUrl = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return /^(https?:)?\/\//i.test(trimmed) ? trimmed.replace(/\/+$/, "") : `http://${trimmed.replace(/\/+$/, "")}`;
+  };
+
+  const handleTestConnection = async () => {
+    const normalized = normalizeUrl(serverAddress);
+    if (!normalized) {
+      setMessage(t("connection.enterServer"));
+      setServerStatus("fail");
+      return;
+    }
+
+    setServerStatus("checking");
+    setMessage("");
+    const result = await testServerConnection(normalized);
+    if (result.ok) {
+      setServerStatus("ok");
+      setMessage(t("connection.testSuccess"));
+    } else {
+      setServerStatus("fail");
+      setMessage(result.error || t("connection.testFailed"));
+    }
+  };
+
+  const handleSaveAndSwitch = async () => {
+    const normalized = normalizeUrl(serverAddress);
+    if (!normalized) {
+      setMessage(t("connection.enterServer"));
+      setServerStatus("fail");
+      return;
+    }
+
+    setServerStatus("checking");
+    setMessage("");
+    const result = await testServerConnection(normalized);
+    if (!result.ok) {
+      setServerStatus("fail");
+      setMessage(result.error || t("connection.testFailed"));
+      return;
+    }
+
+    setServerStatus("ok");
+    setServerUrl(normalized);
+    localStorage.setItem("nowen-server-url-last", normalized);
+    setDesktopModeSelection(true);
+    setDesktopRemoteMode(true);
+    localStorage.removeItem("nowen-token");
+    setMessage(t("connection.switching"));
+    setTimeout(() => window.location.reload(), 300);
+  };
+
+  const handleUseBuiltInServer = () => {
+    setDesktopModeSelection(true);
+    setDesktopRemoteMode(false);
+    clearServerUrl();
+    localStorage.removeItem("nowen-token");
+    setMessage(t("connection.switchingLocal"));
+    setTimeout(() => window.location.reload(), 300);
+  };
+
+  const statusColor = serverStatus === "ok"
+    ? "text-emerald-500"
+    : serverStatus === "fail"
+      ? "text-red-500"
+      : "text-zinc-400";
+
+  const statusLabel = serverStatus === "checking"
+    ? t("connection.testing")
+    : serverStatus === "ok"
+      ? t("connection.statusConnected")
+      : remoteModeEnabled
+        ? t("connection.statusRemote")
+        : t("connection.statusLocal");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t("connection.title")}</h3>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">{t("connection.description")}</p>
+      </div>
+
+      <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
+              <Server size={18} />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{t("connection.modeTitle")}</div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{t("connection.modeDesc")}</div>
+            </div>
+          </div>
+          <div className={`text-xs font-medium ${statusColor}`}>{statusLabel}</div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("connection.serverAddress")}</label>
+          <input
+            type="text"
+            value={serverAddress}
+            onChange={(e) => {
+              setServerAddress(e.target.value);
+              if (serverStatus !== "idle") setServerStatus("idle");
+              setMessage("");
+            }}
+            className="w-full px-3 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400"
+            placeholder={t("connection.serverPlaceholder")}
+          />
+          <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t("connection.serverHint")}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleTestConnection}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:border-accent-primary/40 hover:text-accent-primary transition-colors"
+          >
+            {serverStatus === "checking" ? <Loader2 size={13} className="animate-spin" /> : <Wifi size={13} />}
+            {t("connection.testConnection")}
+          </button>
+
+          <button
+            onClick={handleSaveAndSwitch}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary/90 text-white text-xs font-medium transition-colors"
+          >
+            <Globe size={13} />
+            {t("connection.saveAndSwitch")}
+          </button>
+
+          <button
+            onClick={handleUseBuiltInServer}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-500 transition-colors"
+          >
+            <PlugZap size={13} />
+            {t("connection.useBuiltIn")}
+          </button>
+        </div>
+
+        {message && (
+          <p className={`text-xs ${serverStatus === "fail" ? "text-red-500" : "text-emerald-500"}`}>
+            {message}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const { siteConfig } = useSiteSettings();
+  const showConnectionTab = isElectronRuntime();
 
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
+    ...(showConnectionTab ? [{ id: "connection" as const, label: t("settings.connection"), icon: Server }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "security" as const, label: t('settings.security'), icon: Shield },
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
@@ -528,6 +689,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                 transition={{ duration: 0.15 }}
               >
                 {activeTab === "appearance" && <AppearancePanel />}
+                {activeTab === "connection" && <ConnectionPanel />}
                 {activeTab === "ai" && <AISettingsPanel />}
                 {activeTab === "security" && <SecuritySettings />}
                 {activeTab === "data" && <DataManager />}

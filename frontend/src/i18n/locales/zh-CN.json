@@ -37,7 +37,17 @@
     "serverHint": "输入 IP:端口 或域名，自动补全 http://",
     "serverRequired": "请输入服务器地址",
     "resetServer": "清除服务器配置",
-    "clientNote": "请确保服务器已启动且网络可达，客户端通过 HTTP 连接到服务器"
+    "clientNote": "请确保服务器已启动且网络可达，客户端通过 HTTP 连接到服务器",
+    "switchToRemote": "切换到远程服务器模式",
+    "useBuiltInServer": "使用内置本地服务"
+  },
+  "startup": {
+    "title": "选择桌面端连接方式",
+    "description": "首次启动桌面客户端时，请先选择使用内置本地服务，或连接你已经部署好的远程后端服务器。",
+    "useBuiltInTitle": "使用内置本地服务",
+    "useBuiltInDesc": "适合单机使用，客户端会自动启动本地后端并连接到本机数据。",
+    "useRemoteTitle": "连接远程后端",
+    "useRemoteDesc": "适合连接云端或局域网中的 Nowen Note 服务，下一步会让你填写服务器地址。"
   },
   "sidebar": {
     "newNote": "新建笔记",
@@ -226,6 +236,7 @@
   "settings": {
     "title": "设置",
     "appearance": "外观设置",
+    "connection": "服务器连接",
     "ai": "AI 助手",
     "security": "账号安全",
     "dataManagement": "数据管理",
@@ -259,6 +270,27 @@
     "fontUploadSuccess": "成功导入 {{count}} 个字体",
     "fontUploadFailed": "上传失败",
     "interDefault": "Inter (默认)"
+  },
+  "connection": {
+    "title": "服务器连接",
+    "description": "Electron 桌面端可以使用内置本地服务，也可以切换到你部署在云端或局域网中的后端。",
+    "modeTitle": "当前连接模式",
+    "modeDesc": "切换服务器后会清除当前登录状态，并重新进入登录页。",
+    "serverAddress": "服务器地址",
+    "serverPlaceholder": "例如: 192.168.1.100:3001 或 note.example.com",
+    "serverHint": "输入 IP:端口 或域名，自动补全 http://，不要手动添加 /api",
+    "testConnection": "测试连接",
+    "saveAndSwitch": "保存并切换",
+    "useBuiltIn": "切回内置服务",
+    "enterServer": "请输入服务器地址",
+    "testing": "连接测试中...",
+    "testSuccess": "连接成功，可以切换到该服务器。",
+    "testFailed": "连接失败，请检查地址和网络。",
+    "switching": "正在切换到远程服务器...",
+    "switchingLocal": "正在切回内置本地服务...",
+    "statusConnected": "连接可用",
+    "statusRemote": "远程模式",
+    "statusLocal": "本地模式"
   },
   "securitySettings": {
     "title": "账号与安全",
