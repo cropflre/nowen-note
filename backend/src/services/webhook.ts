@@ -23,7 +23,7 @@ import crypto from "crypto";
 // ===== 类型定义 =====
 
 export type WebhookEvent =
-  | "note.created" | "note.updated" | "note.deleted" | "note.trashed"
+  | "note.created" | "note.updated" | "note.deleted" | "note.trashed" | "note.trash_emptied"
   | "notebook.created" | "notebook.deleted"
   | "tag.created"
   | "task.created" | "task.completed"
