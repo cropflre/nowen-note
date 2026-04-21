@@ -436,16 +436,17 @@ function NotebookItem({
         className={cn(
           "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors",
           isSelected ? "bg-app-active text-tx-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
-          showInsideIndicator && "ring-2 ring-accent-primary/70 bg-accent-primary/10"
+          // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
+          showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15"
         )}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={() => onSelect(notebook.id)}
         onContextMenu={(e) => onContextMenu(e, notebook.id)}
         draggable={draggable && !isEditing}
-        onDragStart={(e) => onDragStart?.(e, notebook.id)}
-        onDragOver={(e) => { e.preventDefault(); onDragOver?.(e, notebook.id); }}
+        onDragStart={(e) => { e.stopPropagation(); onDragStart?.(e, notebook.id); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragOver?.(e, notebook.id); }}
         onDragEnd={() => onDragEnd?.()}
-        onDrop={(e) => { e.preventDefault(); onDrop?.(e, notebook.id); }}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop?.(e, notebook.id); }}
       >
         {draggable && (
           <GripVertical size={12} className="text-tx-tertiary opacity-0 group-hover:opacity-60 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
@@ -677,11 +678,12 @@ export default function Sidebar() {
       return;
     }
     // 根据鼠标在目标元素内的纵向位置划分区域：
-    //   上 1/4 → before（同级排到目标之前）
-    //   下 3/4 → inside（成为该笔记本的子项）
+    //   上 30% → before（同级排到目标之前）
+    //   下 70% → inside（成为该笔记本的子项）
+    // 扩大 inside 命中区，避免用户在行中央偏上时误触发 before 导致"拖了等于没拖"
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const offset = e.clientY - rect.top;
-    const zone: "before" | "inside" = offset < rect.height * 0.25 ? "before" : "inside";
+    const zone: "before" | "inside" = offset < rect.height * 0.3 ? "before" : "inside";
     setDragOverNbId(id);
     setDragOverNbZone(zone);
   }, [dragNbId, isDescendant]);
