@@ -82,7 +82,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
       setPreviewContent(data.contentText || "");
     } catch (e) {
       console.error("加载版本内容失败:", e);
-      setPreviewContent("加载失败");
+      setPreviewContent(t("versions.loadFailed"));
     } finally {
       setLoadingPreview(false);
     }
@@ -106,8 +106,8 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
 
   const formatTime = (date: string) => {
     // 后端 SQLite datetime('now') 存的是 UTC 字符串但不带 Z 后缀（形如 "2025-04-21 07:30:12"）。
-    // 若直接 new Date(date)，浏览器会按本地时区解析，东八区下会多算 8 小时（"1 分钟前"显示成"8 小时前"）。
-    // 这里统一补 "Z" 让 JS 按 UTC 解析。与 NoteList.tsx 的做法保持一致。
+    // 若直接 new Date(date)，浏览器会按本地时区解析，东八区下会多算 8 小时。
+    // 统一补 "Z" 让 JS 按 UTC 解析。
     const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(date) ? date : date.replace(" ", "T") + "Z";
     const d = new Date(normalized);
     const now = new Date();
@@ -116,17 +116,18 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
     const diffHour = Math.floor(diffMs / 3600000);
     const diffDay = Math.floor(diffMs / 86400000);
 
-    if (diffMin < 1) return "刚刚";
-    if (diffMin < 60) return `${diffMin}分钟前`;
-    if (diffHour < 24) return `${diffHour}小时前`;
-    if (diffDay < 7) return `${diffDay}天前`;
-    return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    if (diffMin < 1) return t("versions.justNow");
+    if (diffMin < 60) return t("versions.minutesAgo", { n: diffMin });
+    if (diffHour < 24) return t("versions.hoursAgo", { n: diffHour });
+    if (diffDay < 7) return t("versions.daysAgo", { n: diffDay });
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   };
 
-  const changeTypeLabels: Record<string, { label: string; color: string }> = {
-    edit: { label: "编辑", color: "bg-blue-500/10 text-blue-500" },
-    restore: { label: "恢复", color: "bg-amber-500/10 text-amber-500" },
-    comment: { label: "评论", color: "bg-green-500/10 text-green-500" },
+  const changeTypeLabels: Record<string, { labelKey: string; color: string }> = {
+    edit: { labelKey: "versions.typeEdit", color: "bg-blue-500/10 text-blue-500" },
+    restore: { labelKey: "versions.typeRestore", color: "bg-amber-500/10 text-amber-500" },
+    comment: { labelKey: "versions.typeComment", color: "bg-green-500/10 text-green-500" },
+    guest_edit: { labelKey: "versions.typeGuestEdit", color: "bg-violet-500/10 text-violet-500" },
   };
 
   return (
@@ -140,16 +141,18 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
+            <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0">
               <History size={16} className="text-violet-500" />
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-tx-primary">版本历史</h2>
-              <p className="text-[11px] text-tx-tertiary truncate max-w-[300px]">{noteTitle} · {total} 个版本</p>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-tx-primary">{t("versions.title")}</h2>
+              <p className="text-[11px] text-tx-tertiary truncate">
+                {noteTitle} · {t("versions.countLabel", { count: total })}
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {total > 0 && (
               confirmClear ? (
                 <div className="flex items-center gap-1.5 mr-1">
@@ -160,7 +163,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                     disabled={clearing}
                     className="h-7 text-xs"
                   >
-                    取消
+                    {t("versions.cancel")}
                   </Button>
                   <Button
                     size="sm"
@@ -202,8 +205,8 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                 ) : versions.length === 0 ? (
                   <div className="text-center py-12">
                     <History size={28} className="mx-auto mb-2 text-tx-tertiary/30" />
-                    <p className="text-xs text-tx-tertiary">暂无版本历史</p>
-                    <p className="text-[10px] text-tx-tertiary/60 mt-0.5">编辑保存后会自动记录</p>
+                    <p className="text-xs text-tx-tertiary">{t("versions.empty")}</p>
+                    <p className="text-[10px] text-tx-tertiary/60 mt-0.5">{t("versions.emptyHint")}</p>
                   </div>
                 ) : (
                   versions.map((v) => {
@@ -217,12 +220,14 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                           selectedVersion?.id === v.id && "bg-accent-primary/5"
                         )}
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={cn("px-1.5 py-0.5 text-[9px] rounded font-medium", ct.color)}>{ct.label}</span>
-                          <span className="text-[10px] text-tx-tertiary">v{v.version}</span>
-                          <span className="text-[10px] text-tx-tertiary/60 ml-auto">{formatTime(v.createdAt)}</span>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={cn("px-1.5 py-0.5 text-[9px] rounded font-medium flex-shrink-0", ct.color)}>
+                            {t(ct.labelKey)}
+                          </span>
+                          <span className="text-[10px] text-tx-tertiary flex-shrink-0">v{v.version}</span>
+                          <span className="text-[10px] text-tx-tertiary/60 ml-auto flex-shrink-0">{formatTime(v.createdAt)}</span>
                         </div>
-                        <p className="text-xs text-tx-secondary truncate">{v.title || "无标题"}</p>
+                        <p className="text-xs text-tx-secondary truncate">{v.title || t("versions.noTitle")}</p>
                         {v.changeSummary && (
                           <p className="text-[10px] text-tx-tertiary mt-0.5 truncate">{v.changeSummary}</p>
                         )}
@@ -239,20 +244,22 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
             {selectedVersion ? (
               <>
                 <div className="px-4 py-3 border-b border-app-border bg-app-bg/50">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-medium text-tx-primary">{selectedVersion.title}</p>
-                      <p className="text-[10px] text-tx-tertiary">版本 {selectedVersion.version} · {formatTime(selectedVersion.createdAt)}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-tx-primary truncate">{selectedVersion.title}</p>
+                      <p className="text-[10px] text-tx-tertiary">
+                        {t("versions.versionLabel", { version: selectedVersion.version })} · {formatTime(selectedVersion.createdAt)}
+                      </p>
                     </div>
                     {confirmRestore === selectedVersion.id ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => setConfirmRestore(null)}
                           className="h-7 text-xs"
                         >
-                          取消
+                          {t("versions.cancel")}
                         </Button>
                         <Button
                           size="sm"
@@ -261,7 +268,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                           className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-white"
                         >
                           {restoring ? <Loader2 size={12} className="animate-spin mr-1" /> : <RotateCcw size={12} className="mr-1" />}
-                          确认恢复
+                          {t("versions.restoreConfirm")}
                         </Button>
                       </div>
                     ) : (
@@ -269,10 +276,10 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                         size="sm"
                         variant="ghost"
                         onClick={() => setConfirmRestore(selectedVersion.id)}
-                        className="h-7 text-xs text-amber-500 hover:bg-amber-500/10"
+                        className="h-7 text-xs text-amber-500 hover:bg-amber-500/10 flex-shrink-0"
                       >
                         <RotateCcw size={12} className="mr-1" />
-                        恢复此版本
+                        {t("versions.restore")}
                       </Button>
                     )}
                   </div>
@@ -285,7 +292,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                       </div>
                     ) : (
                       <pre className="text-xs text-tx-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">
-                        {previewContent || "（空内容）"}
+                        {previewContent || t("versions.emptyContent")}
                       </pre>
                     )}
                   </div>
@@ -295,7 +302,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
                   <FileText size={28} className="mx-auto mb-2 text-tx-tertiary/30" />
-                  <p className="text-xs text-tx-tertiary">选择一个版本查看内容</p>
+                  <p className="text-xs text-tx-tertiary">{t("versions.selectHint")}</p>
                 </div>
               </div>
             )}

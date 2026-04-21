@@ -692,5 +692,32 @@
     "noStepsYet": "还没有添加步骤，从下方选择添加",
     "availableSteps": "可用步骤（点击添加）",
     "customPromptPlaceholder": "输入自定义 AI 指令..."
+  },
+  "versions": {
+    "title": "版本历史",
+    "countLabel": "{{count}} 个版本",
+    "clear": "清空历史",
+    "clearConfirmTitle": "确认清空",
+    "clearEmpty": "暂无版本可清空",
+    "clearSuccess": "已清空 {{count}} 个版本",
+    "clearFailed": "清空版本历史失败",
+    "empty": "暂无版本历史",
+    "emptyHint": "编辑保存后会自动记录",
+    "noTitle": "无标题",
+    "loadFailed": "加载失败",
+    "emptyContent": "（空内容）",
+    "selectHint": "选择一个版本查看内容",
+    "versionLabel": "版本 {{version}}",
+    "restore": "恢复此版本",
+    "restoreConfirm": "确认恢复",
+    "cancel": "取消",
+    "typeEdit": "编辑",
+    "typeRestore": "恢复",
+    "typeComment": "评论",
+    "typeGuestEdit": "访客编辑",
+    "justNow": "刚刚",
+    "minutesAgo": "{{n}}分钟前",
+    "hoursAgo": "{{n}}小时前",
+    "daysAgo": "{{n}}天前"
   }
 }

@@ -12,7 +12,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
-import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
+import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import {
@@ -33,6 +33,48 @@ import CodeBlockView from "@/components/CodeBlockView";
 import { useTranslation } from "react-i18next";
 
 const lowlight = createLowlight(common);
+
+// ---------------------------------------------------------------------------
+// ProseMirror 防御性补丁：避免 "Position X out of range" RangeError 导致崩溃
+// ---------------------------------------------------------------------------
+// 背景：
+//   ProseMirror 的 DOMObserver 在某些情况下（如中文 IME composition、React
+//   NodeView 的 DOM 结构与 PM 文档树短暂不一致、inputRule 引起的节点类型转换
+//   等）会调用 Node.resolve(pos) 解析一个越界（常为负数）的位置，直接抛出
+//   未被捕获的 RangeError，导致整个编辑器崩溃、页面显示异常。
+//
+// 思路：
+//   覆盖 Node.prototype.resolve，对越界位置钳制到 [0, content.size] 范围内
+//   再调用原实现。对于绝大多数场景：
+//     - 合法位置：行为完全不变（走原 resolve 路径）。
+//     - 越界位置：返回一个合法端点的 ResolvedPos，而不是抛错崩溃。
+//
+//   这与 PM 的设计哲学兼容：它会在下一次事务中通过 DOMObserver 重新同步 DOM
+//   与文档树，通常一瞬即恢复一致；而崩溃后编辑器无法继续操作，用户必须刷新。
+//
+// 这是全局一次性补丁，使用 Symbol 防重复应用。
+// ---------------------------------------------------------------------------
+const RESOLVE_PATCHED = Symbol.for("nowen.pm.resolve.patched");
+if (!(ProseMirrorNode.prototype as any)[RESOLVE_PATCHED]) {
+  const originalResolve = ProseMirrorNode.prototype.resolve;
+  ProseMirrorNode.prototype.resolve = function patchedResolve(pos: number) {
+    const size = this.content.size;
+    if (pos < 0 || pos > size) {
+      // 位置越界：钳制到合法范围，避免抛 RangeError 崩溃。
+      // 记录一次警告方便排查，但不中断用户输入。
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn(
+          `[PM Patch] resolve() called with out-of-range position ${pos} (valid: 0..${size}); clamped.`
+        );
+      }
+      const clamped = Math.max(0, Math.min(size, pos));
+      return originalResolve.call(this, clamped);
+    }
+    return originalResolve.call(this, pos);
+  };
+  (ProseMirrorNode.prototype as any)[RESOLVE_PATCHED] = true;
+}
+
 
 // 自定义缩进扩展
 // 支持段落、标题、列表（bullet / ordered / task）、引用、代码块整体做"手动缩进"调整。
@@ -439,11 +481,12 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
             return true;
           }
 
-          // 3) 多行纯文本（非 Markdown）：整段包进单一 codeBlock。
+          // 3) 多行纯文本（非 Markdown）且看起来像代码：整段包进单一 codeBlock。
           //    注意：必须优先于 HTML 分支，因为 VS Code / 浏览器复制代码时
           //    通常同时带 text/html（每行一个 <div> 或 <pre><br>），
           //    若走 HTML 解析会被拆成多块，导致"每行一个代码块"。
-          if (text && text.includes("\n") && !looksLikeMarkdown(text)) {
+          //    增加 looksLikeCode 判断：含大量中文自然语言的多行文本不应被包成 codeBlock。
+          if (text && text.includes("\n") && !looksLikeMarkdown(text) && looksLikeCode(text)) {
             // 把纯文本包在 <pre><code> 中，通过 PM 的 DOMParser.parseSlice → replaceSelection
             // 让 PM 自己处理块级节点（codeBlock）的嵌套与光标定位。
             // 之前的做法是手动 codeBlockType.create() + replaceSelectionWith()，
@@ -1273,6 +1316,52 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
       </AnimatePresence>
     </div>
   );
+}
+
+/**
+ * 检测粘贴的多行纯文本是否看起来像代码/命令，而非中文自然语言段落。
+ *
+ * 策略：计算"中文字符密度"——如果文本中中文字符占比较高，说明是自然语言文本，
+ * 不应自动包成 codeBlock。同时检测一些代码特征（缩进、大括号、分号结尾等）。
+ *
+ * 用例对比：
+ *   - 代码：`const x = 1;\nif (x) {\n  return;\n}`       → true（无中文，有代码特征）
+ *   - 运维文档：`#查看raid信息\nyum install megacli -y\n通过命令...` → false（中文占比高）
+ *   - shell 命令：`ls -la\ncd /tmp\nmkdir test`           → true（无中文，命令格式）
+ */
+function looksLikeCode(text: string): boolean {
+  // 统计中文字符数量（CJK统一汉字 + 扩展）
+  const cjkChars = text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g);
+  const cjkCount = cjkChars ? cjkChars.length : 0;
+  // 统计非空白可见字符总数
+  const visibleChars = text.replace(/\s/g, "").length;
+  if (visibleChars === 0) return false;
+
+  const cjkRatio = cjkCount / visibleChars;
+
+  // 如果中文字符占比 > 20%，大概率是自然语言文本而非代码
+  if (cjkRatio > 0.2) return false;
+
+  // 如果中文字符占比 > 8% 且没有明显的代码特征，也不当做代码
+  if (cjkRatio > 0.08) {
+    const lines = text.split("\n");
+    let codeSignals = 0;
+    for (const line of lines) {
+      const trimmed = line.trimEnd();
+      // 缩进（至少2空格或tab开头）
+      if (/^(\s{2,}|\t)/.test(line) && trimmed.length > 0) codeSignals++;
+      // 行尾分号、大括号
+      if (/[;{}]\s*$/.test(trimmed)) codeSignals++;
+      // 赋值语句
+      if (/[=!<>]=|=>|->/.test(trimmed)) codeSignals++;
+      // 函数调用 xxx(...)
+      if (/\w+\(.*\)\s*[;{]?\s*$/.test(trimmed)) codeSignals++;
+    }
+    // 如果代码特征不够多，不当做代码
+    if (codeSignals < lines.length * 0.3) return false;
+  }
+
+  return true;
 }
 
 /**

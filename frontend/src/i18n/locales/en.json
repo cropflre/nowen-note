@@ -685,5 +685,32 @@
     "noStepsYet": "No steps added yet, add from below",
     "availableSteps": "Available Steps (click to add)",
     "customPromptPlaceholder": "Enter custom AI instruction..."
+  },
+  "versions": {
+    "title": "Version History",
+    "countLabel": "{{count}} versions",
+    "clear": "Clear History",
+    "clearConfirmTitle": "Confirm Clear",
+    "clearEmpty": "No versions to clear",
+    "clearSuccess": "Cleared {{count}} versions",
+    "clearFailed": "Failed to clear version history",
+    "empty": "No version history",
+    "emptyHint": "Versions are recorded automatically on save",
+    "noTitle": "Untitled",
+    "loadFailed": "Failed to load",
+    "emptyContent": "(Empty content)",
+    "selectHint": "Select a version to preview",
+    "versionLabel": "Version {{version}}",
+    "restore": "Restore this version",
+    "restoreConfirm": "Confirm Restore",
+    "cancel": "Cancel",
+    "typeEdit": "Edit",
+    "typeRestore": "Restore",
+    "typeComment": "Comment",
+    "typeGuestEdit": "Guest Edit",
+    "justNow": "Just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "daysAgo": "{{n}}d ago"
   }
 }
