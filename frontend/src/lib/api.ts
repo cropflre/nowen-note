@@ -37,8 +37,13 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (res.status === 401) {
     // Token 过期或无效，清除并跳转登录
-    localStorage.removeItem("nowen-token");
-    window.location.reload();
+    // ⚠️ 分享页（/share/:token）是无登录场景，不应执行 reload —— 否则访客端调用 TagInput / AI 等
+    //    登录态 API 会把整个分享页刷回登录页。这里对分享页路径做豁免，仅抛错，由调用方静默忽略。
+    const isSharePage = typeof window !== "undefined" && /^\/share\//.test(window.location.pathname);
+    if (!isSharePage) {
+      localStorage.removeItem("nowen-token");
+      window.location.reload();
+    }
     throw new Error("未授权");
   }
   if (!res.ok) {
@@ -274,6 +279,35 @@ export const api = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `请求失败: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * 访客更新分享笔记内容（仅当 share.permission === 'edit'）
+   * - guestName 必填，后端用于版本历史 changeSummary 审计
+   * - version 由调用方带上用于乐观锁；冲突时后端返回 409
+   * - accessToken 仅在密码分享时需要
+   */
+  updateSharedContent: async (
+    token: string,
+    data: { title?: string; content: string; contentText: string; version?: number; guestName: string },
+    accessToken?: string,
+  ): Promise<{ success: true; noteId: string; title: string; version: number; updatedAt: string; guestName: string }> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+    const res = await fetch(`${getBaseUrl()}/shared/${token}/content`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const error = new Error(err.error || `请求失败: ${res.status}`) as Error & { code?: string; currentVersion?: number; status?: number };
+      error.code = err.code;
+      error.currentVersion = err.currentVersion;
+      error.status = res.status;
+      throw error;
     }
     return res.json();
   },

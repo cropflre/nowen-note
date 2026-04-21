@@ -204,6 +204,13 @@ interface TiptapEditorProps {
   onHeadingsChange?: (headings: HeadingItem[]) => void;
   onEditorReady?: (scrollTo: (pos: number) => void) => void;
   editable?: boolean;
+  /**
+   * 访客模式（分享页可编辑场景）：
+   * - 禁用 TagInput（依赖 useApp，分享页无 AppProvider，会崩）
+   * - 隐藏 AI 助手入口（访客无登录态，调 AI API 会 401）
+   * 默认 false（正常登录态使用）
+   */
+  isGuest?: boolean;
 }
 
 function extractHeadings(editor: any): HeadingItem[] {
@@ -223,7 +230,7 @@ function extractHeadings(editor: any): HeadingItem[] {
   return headings;
 }
 
-export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, editable = true }: TiptapEditorProps) {
+export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, editable = true, isGuest = false }: TiptapEditorProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
@@ -1017,11 +1024,13 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
           <AlignRight size={iconSize} />
         </ToolbarButton>
 
-        <ToolbarDivider />
+        {!isGuest && <ToolbarDivider />}
 
-        <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-          <Sparkles size={iconSize} className="text-violet-500" />
-        </ToolbarButton>
+        {!isGuest && (
+          <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+            <Sparkles size={iconSize} className="text-violet-500" />
+          </ToolbarButton>
+        )}
       </div>
 
       {/* Title */}
@@ -1048,14 +1057,16 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
         </div>
       </div>
 
-      {/* Tag Bar */}
-      <div className="px-4 md:px-8 pb-2">
-        <TagInput
-          noteId={note.id}
-          noteTags={note.tags || []}
-          onTagsChange={onTagsChange}
-        />
-      </div>
+      {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
+      {!isGuest && (
+        <div className="px-4 md:px-8 pb-2">
+          <TagInput
+            noteId={note.id}
+            noteTags={note.tags || []}
+            onTagsChange={onTagsChange}
+          />
+        </div>
+      )}
 
       {/* Bubble menu for inline formatting */}
       {editor && (
@@ -1104,10 +1115,14 @@ export default function TiptapEditor({ note, onUpdate, onTagsChange, onHeadingsC
           >
             <FileCode size={14} />
           </ToolbarButton>
-          <div className="w-px h-4 bg-app-border mx-0.5" />
-          <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-            <Sparkles size={14} className="text-violet-500" />
-          </ToolbarButton>
+          {!isGuest && (
+            <>
+              <div className="w-px h-4 bg-app-border mx-0.5" />
+              <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+                <Sparkles size={14} className="text-violet-500" />
+              </ToolbarButton>
+            </>
+          )}
         </BubbleMenu>
       )}
 

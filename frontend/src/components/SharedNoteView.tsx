@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Globe, Lock, Eye, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, X, Reply, Trash2 } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { ShareInfo, SharedNoteContent, ShareComment } from "@/types";
+import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import { cn } from "@/lib/utils";
 import { common, createLowlight } from "lowlight";
+import TiptapEditor from "@/components/TiptapEditor";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
+
+/** 访客昵称本地存储 key，用户在同一浏览器上只需要填写一次 */
+const GUEST_NAME_KEY = "nowen-guest-name";
 
 interface SharedNoteViewProps {
   shareToken: string;
@@ -34,6 +38,33 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const [showComments, setShowComments] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // ===== 访客编辑相关状态 =====
+  /** 访客昵称（从 localStorage 恢复），作为编辑身份标记 */
+  const [guestName, setGuestName] = useState<string>(() => {
+    try { return localStorage.getItem(GUEST_NAME_KEY) || ""; } catch { return ""; }
+  });
+  /** 是否已进入编辑模式（仅 permission='edit' 时可用） */
+  const [isEditing, setIsEditing] = useState(false);
+  /** 是否显示昵称输入弹窗 */
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  /** 昵称输入框临时值 */
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  /** 昵称输入校验错误 */
+  const [nicknameError, setNicknameError] = useState("");
+  /** 保存状态：idle/saving/saved/error */
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string>("");
+  /** 用最新的 version / accessToken / guestName / content 供 debounce 回调使用 */
+  const latestVersionRef = useRef<number | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
+  const guestNameRef = useRef<string>(guestName);
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const savedIdleTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => { guestNameRef.current = guestName; }, [guestName]);
+  useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
+  useEffect(() => { latestVersionRef.current = currentVersion; }, [currentVersion]);
 
   // 修复分享页面滚动问题：覆盖 #root 和 html/body 的 overflow:hidden
   useEffect(() => {
@@ -166,7 +197,12 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     if (!newComment.trim() || submittingComment) return;
     setSubmittingComment(true);
     try {
-      const comment = await api.addSharedComment(shareToken, { content: newComment.trim() }, accessToken || undefined);
+      // 评论也带上访客昵称（如果有），让所有者看到是哪个访客
+      const comment = await api.addSharedComment(
+        shareToken,
+        { content: newComment.trim(), guestName: guestNameRef.current || undefined },
+        accessToken || undefined,
+      );
       setComments((prev) => [...prev, comment]);
       setNewComment("");
     } catch (e: any) {
@@ -175,6 +211,142 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       setSubmittingComment(false);
     }
   };
+
+  // ===== 访客编辑相关 handler =====
+
+  /**
+   * 点击"开始编辑"按钮：
+   * - 如果没有昵称，弹昵称输入框；提交后才真正进入编辑模式
+   * - 如果已有昵称，直接进入编辑模式
+   */
+  const handleStartEditing = useCallback(() => {
+    if (!content || content.permission !== "edit") return;
+    if (content.isLocked) {
+      setSaveError("笔记已被所有者锁定，暂不可编辑");
+      setSaveStatus("error");
+      return;
+    }
+    if (!guestNameRef.current.trim()) {
+      setNicknameDraft("");
+      setNicknameError("");
+      setShowNicknameModal(true);
+      return;
+    }
+    setIsEditing(true);
+  }, [content]);
+
+  /**
+   * 昵称弹窗提交：
+   * - 校验非空、长度 ≤ 32
+   * - 写入 localStorage，供下次自动回填
+   * - 关闭弹窗并进入编辑模式
+   */
+  const handleConfirmNickname = useCallback(() => {
+    const name = nicknameDraft.trim();
+    if (!name) {
+      setNicknameError("请输入昵称");
+      return;
+    }
+    if (name.length > 32) {
+      setNicknameError("昵称过长，最多 32 个字符");
+      return;
+    }
+    try { localStorage.setItem(GUEST_NAME_KEY, name); } catch { /* 忽略存储失败 */ }
+    setGuestName(name);
+    setShowNicknameModal(false);
+    setIsEditing(true);
+  }, [nicknameDraft]);
+
+  /**
+   * 访客端 onUpdate 回调：
+   * - TiptapEditor 内部已做 500ms debounce，这里直接调 API
+   * - 发生 409 版本冲突时，自动拉取最新内容刷新（注意：这会丢弃本地未保存改动，所以先提示）
+   */
+  const handleGuestSave = useCallback(async (data: { content: string; contentText: string; title: string }) => {
+    if (!content) return;
+    if (!guestNameRef.current.trim()) {
+      // 正常流程里不会走到这，但防御一下
+      setShowNicknameModal(true);
+      return;
+    }
+    setSaveStatus("saving");
+    setSaveError("");
+    try {
+      const result = await api.updateSharedContent(
+        shareToken,
+        {
+          title: data.title,
+          content: data.content,
+          contentText: data.contentText,
+          version: latestVersionRef.current ?? undefined,
+          guestName: guestNameRef.current.trim(),
+        },
+        accessTokenRef.current || undefined,
+      );
+      latestVersionRef.current = result.version;
+      setCurrentVersion(result.version);
+      // 仅更新内容对象中的元数据字段，避免把刚刚输入的 content/contentText 回塞到 state
+      // 否则会触发 TiptapEditor 的 note.content 变化 → 可能引起光标抖动（与先前修复思路一致）
+      setContent((prev) => prev ? { ...prev, version: result.version, updatedAt: result.updatedAt } : prev);
+      setHasUpdate(false); // 自己刚保存过，清掉"有新版本"提示
+      setSaveStatus("saved");
+      if (savedIdleTimerRef.current) clearTimeout(savedIdleTimerRef.current);
+      savedIdleTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (e: any) {
+      console.error("访客保存失败:", e);
+      setSaveStatus("error");
+      if (e?.code === "VERSION_CONFLICT") {
+        setSaveError("内容已被其他人更新，请点击顶部『刷新』后再编辑");
+      } else if (e?.code === "NOTE_LOCKED") {
+        setSaveError("笔记已被所有者锁定，无法继续编辑");
+        setIsEditing(false);
+      } else if (e?.code === "GUEST_NAME_REQUIRED") {
+        setSaveError("请先填写访客昵称");
+        setShowNicknameModal(true);
+      } else {
+        setSaveError(e?.message || "保存失败");
+      }
+    }
+  }, [content, shareToken]);
+
+  // 卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (savedIdleTimerRef.current) clearTimeout(savedIdleTimerRef.current);
+    };
+  }, []);
+
+  // 构造一个供 TiptapEditor 使用的"伪 Note"。TiptapEditor 只用到
+  // note.id（用作 effect key）、note.title、note.content、note.contentText、note.isLocked 等字段，
+  // 其他字段给予合理默认值即可。
+  // 注意：id 用 noteId ?? shareToken，保证在分享会话内稳定、不会每次 re-render 变化（否则编辑器会 re-init）。
+  const fakeNoteForEditing = useMemo<Note | null>(() => {
+    if (!content) return null;
+    return {
+      id: content.noteId || shareToken,
+      userId: "",
+      notebookId: "",
+      title: content.title || "",
+      content: content.content || "{}",
+      contentText: content.contentText || "",
+      isPinned: 0,
+      isFavorite: 0,
+      isLocked: content.isLocked ? 1 : 0,
+      isArchived: 0,
+      isTrashed: 0,
+      trashedAt: null,
+      sortOrder: 0,
+      version: content.version || 0,
+      createdAt: content.updatedAt,
+      updatedAt: content.updatedAt,
+      tags: [],
+    } as Note;
+    // 仅当 noteId/permission 变化时重建；content 的 title/正文 在编辑态下由编辑器自己管理，
+    // 避免把 debounce 保存回塞的数据再次喂给编辑器导致光标抖动。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content?.noteId, shareToken, content?.permission, content?.isLocked]);
+
 
   // 分享页内的复制代码按钮事件委托
   const handleSharedContentClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -340,25 +512,89 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 {comments.length > 0 && <span>{comments.length}</span>}
               </button>
             )}
+
+            {/* 访客编辑：入口按钮 / 昵称徽章 / 保存状态（仅当 permission === 'edit' 且笔记未锁定） */}
+            {content.permission === "edit" && !content.isLocked && (
+              <>
+                {isEditing ? (
+                  <>
+                    {/* 当前昵称小标签 */}
+                    {guestName && (
+                      <span className="hidden sm:flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500" title="点击可修改昵称">
+                        <UserCircle2 size={11} />
+                        <button
+                          onClick={() => { setNicknameDraft(guestName); setNicknameError(""); setShowNicknameModal(true); }}
+                          className="hover:text-zinc-700 dark:hover:text-zinc-300"
+                        >
+                          {guestName}
+                        </button>
+                      </span>
+                    )}
+                    {/* 保存状态 */}
+                    <span className={cn(
+                      "flex items-center gap-1 px-2 py-1 text-[10px] rounded-md font-medium",
+                      saveStatus === "saving" && "bg-amber-500/10 text-amber-500",
+                      saveStatus === "saved" && "bg-green-500/10 text-green-500",
+                      saveStatus === "error" && "bg-red-500/10 text-red-500",
+                      saveStatus === "idle" && "bg-zinc-100 dark:bg-zinc-800 text-zinc-400",
+                    )}>
+                      {saveStatus === "saving" && <><Loader2 size={11} className="animate-spin" />保存中</>}
+                      {saveStatus === "saved" && <><Check size={11} />已保存</>}
+                      {saveStatus === "error" && <><AlertCircle size={11} />保存失败</>}
+                      {saveStatus === "idle" && <>已就绪</>}
+                    </span>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleStartEditing}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] rounded-md bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors"
+                  >
+                    <Edit3 size={11} />
+                    开始编辑
+                  </button>
+                )}
+              </>
+            )}
+
             <span className="px-2 py-1 text-[10px] rounded-md bg-indigo-500/10 text-indigo-500 font-medium">
               {content.permission === "view" ? "仅查看" : content.permission === "edit" ? "可编辑" : "可评论"}
             </span>
           </div>
         </div>
+        {/* 保存失败时的错误提示条 */}
+        {saveStatus === "error" && saveError && (
+          <div className="max-w-4xl mx-auto px-4 pb-2 -mt-1">
+            <p className="text-[11px] text-red-500 flex items-center gap-1">
+              <AlertCircle size={11} />
+              {saveError}
+            </p>
+          </div>
+        )}
       </header>
 
-      {/* 笔记内容 */}
+      {/* 笔记内容：edit + isEditing 时走 TiptapEditor；否则继续走只读 HTML 渲染 */}
       <main className="max-w-4xl mx-auto px-4 py-8">
-        <div
-          className="shared-note-content prose prose-sm dark:prose-invert max-w-none
-            prose-headings:text-zinc-800 dark:prose-headings:text-zinc-200
-            prose-p:text-zinc-600 dark:prose-p:text-zinc-300
-            prose-a:text-indigo-500
-            prose-code:text-indigo-600 dark:prose-code:text-indigo-400
-            prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-700"
-          onClick={handleSharedContentClick}
-          dangerouslySetInnerHTML={{ __html: renderContent(content.content) }}
-        />
+        {isEditing && content.permission === "edit" && fakeNoteForEditing ? (
+          <div className="shared-note-editor">
+            <TiptapEditor
+              note={fakeNoteForEditing}
+              onUpdate={handleGuestSave}
+              editable={!content.isLocked}
+              isGuest
+            />
+          </div>
+        ) : (
+          <div
+            className="shared-note-content prose prose-sm dark:prose-invert max-w-none
+              prose-headings:text-zinc-800 dark:prose-headings:text-zinc-200
+              prose-p:text-zinc-600 dark:prose-p:text-zinc-300
+              prose-a:text-indigo-500
+              prose-code:text-indigo-600 dark:prose-code:text-indigo-400
+              prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-700"
+            onClick={handleSharedContentClick}
+            dangerouslySetInnerHTML={{ __html: renderContent(content.content) }}
+          />
+        )}
       </main>
 
       {/* 评论区域 */}
@@ -422,6 +658,60 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
           通过 Nowen Note 分享
         </p>
       </footer>
+
+      {/* 访客昵称输入弹窗：首次点击"开始编辑"或服务端要求昵称时出现 */}
+      {showNicknameModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowNicknameModal(false); }}
+        >
+          <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+            <div className="flex flex-col items-center mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center mb-3">
+                <UserCircle2 size={24} className="text-indigo-500" />
+              </div>
+              <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">请填写昵称</h2>
+              <p className="text-xs text-zinc-500 mt-1 text-center">
+                在开始编辑之前，请留下一个昵称方便笔记作者知道是谁做的改动。
+              </p>
+            </div>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={nicknameDraft}
+                onChange={(e) => { setNicknameDraft(e.target.value); if (nicknameError) setNicknameError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleConfirmNickname(); } }}
+                placeholder="例如：张三"
+                maxLength={32}
+                autoFocus
+                className="w-full h-10 px-4 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
+              />
+              {nicknameError && (
+                <p className="text-xs text-red-500">{nicknameError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowNicknameModal(false)}
+                  variant="ghost"
+                  className="flex-1 h-10 text-sm"
+                >
+                  取消
+                </Button>
+                <Button
+                  onClick={handleConfirmNickname}
+                  disabled={!nicknameDraft.trim()}
+                  className="flex-1 h-10 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-xl"
+                >
+                  开始编辑
+                </Button>
+              </div>
+              <p className="text-[10px] text-zinc-400 text-center">
+                昵称会保存在本机浏览器中，下次访问自动填入。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

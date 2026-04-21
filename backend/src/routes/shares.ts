@@ -263,7 +263,9 @@ sharedRouter.get("/:token/content", (c) => {
   const token = c.req.param("token");
 
   const share = db.prepare(`
-    SELECT s.*, n.title, n.content, n.contentText, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion
+    SELECT s.id AS shareId, s.noteId, s.isActive, s.expiresAt, s.maxViews, s.viewCount, s.password, s.permission,
+           n.title, n.content, n.contentText, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
+           n.isLocked AS noteIsLocked
     FROM shares s
     LEFT JOIN notes n ON s.noteId = n.id
     WHERE s.shareToken = ?
@@ -291,7 +293,7 @@ sharedRouter.get("/:token/content", (c) => {
     }
     try {
       const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string; noteId: string };
-      if (decoded.shareId !== share.id) {
+      if (decoded.shareId !== share.shareId) {
         return c.json({ error: "访问令牌无效" }, 401);
       }
     } catch {
@@ -300,15 +302,137 @@ sharedRouter.get("/:token/content", (c) => {
   }
 
   // 增加访问计数
-  db.prepare("UPDATE shares SET viewCount = viewCount + 1 WHERE id = ?").run(share.id);
+  db.prepare("UPDATE shares SET viewCount = viewCount + 1 WHERE id = ?").run(share.shareId);
 
   return c.json({
+    noteId: share.noteId,
     title: share.title,
     content: share.content,
     contentText: share.contentText,
     permission: share.permission,
     updatedAt: share.noteUpdatedAt,
     version: share.noteVersion,
+    isLocked: share.noteIsLocked ? 1 : 0, // 用于前端判断是否允许进入编辑模式
+  });
+});
+
+// 访客更新分享笔记内容（仅当 permission === 'edit'）
+// 设计原则：
+//   - 不需要 JWT 登录态；若分享有密码则校验临时 accessToken
+//   - 强制乐观锁，由前端带上最新 version，避免覆盖他人改动
+//   - 写入版本历史，changeType='guest_edit'，changeSummary 记录访客昵称，便于所有者审计
+//   - 笔记 isLocked === 1 时禁止写入
+sharedRouter.put("/:token/content", async (c) => {
+  const db = getDb();
+  const token = c.req.param("token");
+  const body = await c.req.json();
+  const { title, content, contentText, version, guestName } = body as {
+    title?: string;
+    content?: string;
+    contentText?: string;
+    version?: number;
+    guestName?: string;
+  };
+
+  // 1) 查分享 + 笔记
+  const share = db.prepare(`
+    SELECT s.id AS shareId, s.noteId, s.permission, s.password, s.isActive, s.expiresAt, s.maxViews, s.viewCount,
+           n.isLocked, n.version AS noteVersion, n.title AS noteTitle, n.content AS noteContent,
+           n.contentText AS noteContentText, n.userId AS noteUserId
+    FROM shares s
+    LEFT JOIN notes n ON s.noteId = n.id
+    WHERE s.shareToken = ?
+  `).get(token) as any;
+
+  if (!share || !share.isActive) return c.json({ error: "分享不存在或已失效" }, 404);
+  if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
+    return c.json({ error: "分享链接已过期" }, 410);
+  }
+  if (share.maxViews && share.viewCount >= share.maxViews) {
+    return c.json({ error: "分享链接已达到最大访问次数" }, 410);
+  }
+
+  // 2) 权限校验：必须是 edit
+  if (share.permission !== "edit") {
+    return c.json({ error: "当前分享不支持编辑" }, 403);
+  }
+
+  // 3) 笔记锁定校验
+  if (share.isLocked === 1) {
+    return c.json({ error: "笔记已被所有者锁定，暂不可编辑", code: "NOTE_LOCKED" }, 403);
+  }
+
+  // 4) 密码分享：校验 accessToken
+  if (share.password) {
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return c.json({ error: "需要密码验证" }, 401);
+    }
+    try {
+      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string };
+      if (decoded.shareId !== share.shareId) return c.json({ error: "访问令牌无效" }, 401);
+    } catch {
+      return c.json({ error: "访问令牌已过期，请重新验证密码" }, 401);
+    }
+  }
+
+  // 5) 参数校验：昵称必填（至少 1 个可见字符，不超过 32）
+  const trimmedName = (guestName || "").trim();
+  if (!trimmedName) {
+    return c.json({ error: "请先填写访客昵称后再编辑", code: "GUEST_NAME_REQUIRED" }, 400);
+  }
+  if (trimmedName.length > 32) {
+    return c.json({ error: "昵称过长（最多 32 个字符）" }, 400);
+  }
+
+  // 6) 乐观锁
+  if (version !== undefined && version !== share.noteVersion) {
+    return c.json({ error: "内容已被他人更新，请刷新后再编辑", code: "VERSION_CONFLICT", currentVersion: share.noteVersion }, 409);
+  }
+
+  // 7) 写入前先存一份版本历史（保留原内容，便于回滚），changeType=guest_edit，用 changeSummary 记录访客昵称
+  //    userId 暂使用笔记所有者（访客无对应 users 记录）；真正的访客身份在 changeSummary 中。
+  if (content !== undefined || title !== undefined) {
+    const hasContentChange = (content !== undefined && content !== share.noteContent)
+      || (title !== undefined && title !== share.noteTitle);
+    if (hasContentChange) {
+      const versionId = uuid();
+      db.prepare(`
+        INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'guest_edit', ?)
+      `).run(
+        versionId,
+        share.noteId,
+        share.noteUserId,
+        share.noteTitle,
+        share.noteContent,
+        share.noteContentText,
+        share.noteVersion,
+        `访客 ${trimmedName} 编辑`,
+      );
+    }
+  }
+
+  // 8) 更新笔记
+  const fields: string[] = [];
+  const params: any[] = [];
+  if (title !== undefined) { fields.push("title = ?"); params.push(title); }
+  if (content !== undefined) { fields.push("content = ?"); params.push(content); }
+  if (contentText !== undefined) { fields.push("contentText = ?"); params.push(contentText); }
+  fields.push("version = version + 1");
+  fields.push("updatedAt = datetime('now')");
+  params.push(share.noteId);
+
+  db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+  const updated = db.prepare("SELECT id, title, version, updatedAt FROM notes WHERE id = ?").get(share.noteId) as any;
+
+  return c.json({
+    success: true,
+    noteId: updated.id,
+    title: updated.title,
+    version: updated.version,
+    updatedAt: updated.updatedAt,
+    guestName: trimmedName,
   });
 });
 

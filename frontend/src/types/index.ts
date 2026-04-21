@@ -199,12 +199,16 @@ export interface ShareInfo {
 }
 
 export interface SharedNoteContent {
+  /** 关联的笔记 ID（访客编辑时作为伪 Note.id 使用） */
+  noteId?: string;
   title: string;
   content: string;
   contentText: string;
   permission: SharePermission;
   updatedAt: string;
   version?: number;
+  /** 笔记是否被所有者锁定，锁定时即使 permission=edit 也禁止访客写入 */
+  isLocked?: 0 | 1;
 }
 
 // 版本历史
