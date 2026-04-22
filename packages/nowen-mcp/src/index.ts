@@ -381,57 +381,6 @@ server.tool(
   }
 );
 
-// ==================== 管道工具 ====================
-
-server.tool(
-  "nowen_list_pipelines",
-  "获取 Nowen Note 中的批处理管道列表，包括内置管道和自定义管道。每个管道由多个处理步骤组成",
-  {},
-  async () => {
-    try {
-      const pipelines = await api.listPipelines();
-      const summary = pipelines.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        icon: p.icon,
-        description: p.description,
-        steps: p.steps.map((s: any) => s.type).join(" -> "),
-        isBuiltin: p.isBuiltin,
-      }));
-      return { content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }] };
-    } catch (err: any) {
-      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
-    }
-  }
-);
-
-server.tool(
-  "nowen_run_pipeline",
-  "执行 Nowen Note 的批处理管道，对选定的笔记批量执行 AI 处理（如润色、摘要、翻译、格式化等）",
-  {
-    pipelineId: z.string().describe("管道 ID"),
-    noteIds: z.array(z.string()).describe("要处理的笔记 ID 列表（最多 50 个）"),
-  },
-  async ({ pipelineId, noteIds }) => {
-    try {
-      const result = await api.runPipeline(pipelineId, noteIds);
-      let text = `管道 "${result.pipelineName}" 执行完成\n`;
-      text += `总计: ${result.total} | 成功: ${result.success} | 失败: ${result.failed}\n\n`;
-      for (const r of result.results) {
-        const icon = r.success ? "✓" : "✗";
-        text += `${icon} ${r.title}\n`;
-        if (!r.success) {
-          const failStep = r.steps.find((s: any) => !s.success);
-          if (failStep?.error) text += `  └ ${failStep.error}\n`;
-        }
-      }
-      return { content: [{ type: "text" as const, text }] };
-    } catch (err: any) {
-      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
-    }
-  }
-);
-
 // ==================== 插件工具 ====================
 
 server.tool(

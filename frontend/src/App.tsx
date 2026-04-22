@@ -8,7 +8,6 @@ import EditorPane from "@/components/EditorPane";
 import TaskCenter from "@/components/TaskCenter";
 import MindMapCenter from "@/components/MindMapEditor";
 import AIChatPanel from "@/components/AIChatPanel";
-import CodexPanel from "@/components/CodexPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import SharedNoteView from "@/components/SharedNoteView";
 import LoginPage from "@/components/LoginPage";
@@ -18,7 +17,7 @@ import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
-import { getServerUrl, clearServerUrl } from "@/lib/api";
+import { getServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 
 function SidebarResizeHandle() {
@@ -179,7 +178,7 @@ function AppLayout() {
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
   const isDiaryView = state.viewMode === "diary";
-  const isCodexView = state.viewMode === "codex";
+
 
   // P0: Android 返回键处理
   const handleBackToList = useCallback(() => {
@@ -320,11 +319,6 @@ function AppLayout() {
           <MobileTopBar />
           <DiaryCenter />
         </div>
-      ) : isCodexView ? (
-        <div className="flex-1 flex flex-col">
-          <MobileTopBar />
-          <CodexPanel onClose={() => actions.setViewMode("all")} />
-        </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
           {/* 笔记列表 — 桌面端动态宽度，移动端全宽 */}
@@ -413,7 +407,8 @@ function AuthGate() {
         setIsAuthenticated(true);
       })
       .catch(() => {
-        localStorage.removeItem("nowen-token");
+        // L10: verify 失败 → 广播给其他 tab 一起下线
+        broadcastLogout("verify_failed");
         setIsAuthenticated(false);
       });
   }, []);
@@ -427,9 +422,57 @@ function AuthGate() {
     checkAuth();
   }, [checkAuth, isClientMode]);
 
+  // L10: 多标签页登录态同步
+  //
+  //   同一浏览器里开了多个 tab 时，常见的诉求：
+  //     1) A tab 退出登录 / 被踢下线 → B tab 要立刻跟着退出；
+  //     2) A tab 登录成功（或换了账号） → B tab 应该重载进入对应账号；
+  //     3) A tab 改了服务器地址 → B tab 的后续请求自然应该打到新服务器。
+  //
+  //   storage 事件只在"其他"tab 修改 localStorage 时触发（不会在自己这 tab 触发），
+  //   所以 handler 里调 window.location.reload() 不会导致死循环。
+  //   仅监听我们自己的 key：nowen-token / nowen-server-url / nowen-logout-broadcast。
+  //
+  //   另外单独用一个 "nowen-logout-broadcast" key 作为广播通道：
+  //   当某 tab 主动登出时 setItem(..., Date.now()) 即可通知所有其他 tab。
+  useEffect(() => {
+    const onStorage = (ev: StorageEvent) => {
+      if (!ev.key) return;
+      if (ev.key === "nowen-token") {
+        const oldHad = !!ev.oldValue;
+        const nowHas = !!ev.newValue;
+        if (oldHad && !nowHas) {
+          // 其他 tab 登出了 → 把本 tab 也拉回登录页
+          setIsAuthenticated(false);
+          setUser(null);
+        } else if (oldHad && nowHas && ev.oldValue !== ev.newValue) {
+          // token 被替换（换账号 / factory-reset 下发新 token）→ 重新验证并重载应用
+          window.location.reload();
+        } else if (!oldHad && nowHas) {
+          // 其他 tab 刚登录成功 → 本 tab 去走一遍 verify，无感进入已登录态
+          checkAuth();
+        }
+      } else if (ev.key === "nowen-logout-broadcast") {
+        // 其他 tab 主动登出 → 本 tab 也清本地 token 并回登录页
+        try { localStorage.removeItem("nowen-token"); } catch {}
+        setIsAuthenticated(false);
+        setUser(null);
+      } else if (ev.key === "nowen-server-url") {
+        // 服务器地址改了，接下来的 API 调用需要刷新页面才能命中新 base URL
+        // 只有已登录（或正在展示列表）才需要 reload，未登录状态本身就在输服务器地址那一步，不用动
+        if (isAuthenticated) {
+          window.location.reload();
+        }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [checkAuth, isAuthenticated]);
+
   const handleDisconnect = () => {
     clearServerUrl();
-    localStorage.removeItem("nowen-token");
+    // L10: 断开服务器相当于登出 + 切换服务器，通知其他 tab
+    broadcastLogout("disconnect_server");
     setIsAuthenticated(false);
     setUser(null);
   };

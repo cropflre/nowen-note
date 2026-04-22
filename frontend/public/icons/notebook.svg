@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 笔记本 · 左侧装订条 + 书脊 -->
+  <path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/>
+  <path d="M4 8h2M4 12h2M4 16h2"/>
+  <path d="M9 7h6M9 11h6M9 15h4" stroke="#3B82F6"/>
+</svg>

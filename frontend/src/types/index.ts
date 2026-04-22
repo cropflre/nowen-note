@@ -3,12 +3,68 @@ export interface User {
   username: string;
   email: string | null;
   avatarUrl: string | null;
+  displayName?: string | null;
+  role?: "admin" | "user";
+  isDisabled?: 0 | 1 | number;
+  createdAt: string;
+  updatedAt?: string;
+  lastLoginAt?: string | null;
+  noteCount?: number;
+  notebookCount?: number;
+}
+
+/** 搜索用户（用于 @提及、邀请等公开场景，只包含公开字段） */
+export interface UserPublicInfo {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+// ========== 多用户协作（Phase 1） ==========
+
+export type WorkspaceRole = "owner" | "admin" | "editor" | "commenter" | "viewer";
+export type WorkspacePermission = "read" | "comment" | "write" | "manage";
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  role?: WorkspaceRole;     // 当前用户在该工作区的角色
+  memberCount?: number;
+  notebookCount?: number;
+}
+
+export interface WorkspaceMember {
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  joinedAt: string;
+  username: string;
+  email: string | null;
+  avatarUrl: string | null;
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  workspaceId: string;
+  code: string;
+  role: WorkspaceRole;
+  maxUses: number;
+  useCount: number;
+  expiresAt: string | null;
+  createdBy: string;
   createdAt: string;
 }
 
 export interface Notebook {
   id: string;
   userId: string;
+  workspaceId: string | null;   // Phase 1 新增
   parentId: string | null;
   name: string;
   description: string | null;
@@ -26,6 +82,7 @@ export interface Note {
   id: string;
   userId: string;
   notebookId: string;
+  workspaceId: string | null;   // Phase 1 新增
   title: string;
   content: string;
   contentText: string;
@@ -40,12 +97,14 @@ export interface Note {
   createdAt: string;
   updatedAt: string;
   tags?: Tag[];
+  permission?: WorkspacePermission; // Phase 1 新增
 }
 
 export interface NoteListItem {
   id: string;
   userId: string;
   notebookId: string;
+  workspaceId: string | null;   // Phase 1 新增
   title: string;
   contentText: string;
   isPinned: number;
@@ -77,7 +136,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "codex";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary";
 
 
 

@@ -2,17 +2,15 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "./auth";
+import crypto from "crypto";
+import { signShareAccessToken, verifyShareAccessToken } from "../lib/auth-security";
 
-// 生成短随机 token（用于分享链接）
+// H3: 使用密码学安全的随机源生成分享 token。
+//     原实现用 Math.random()，理论上可被预测；改用 crypto.randomBytes。
+//     输出 12 位 URL-safe base64（~72 bits 熵），与原长度保持一致，避免破坏前端/已发送链接格式。
 function generateShareToken(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let token = "";
-  for (let i = 0; i < 12; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
+  // 9 bytes base64url = 12 字符（无需 padding）
+  return crypto.randomBytes(9).toString("base64url");
 }
 
 // ===== 需要 JWT 认证的管理路由 =====
@@ -239,7 +237,7 @@ sharedRouter.post("/:token/verify", async (c) => {
 
   if (!share.password) {
     // 没有密码保护，直接返回 accessToken
-    const accessToken = jwt.sign({ shareId: share.id, noteId: share.noteId }, JWT_SECRET, { expiresIn: "1h" });
+    const accessToken = signShareAccessToken({ shareId: share.id, noteId: share.noteId });
     return c.json({ success: true, accessToken });
   }
 
@@ -253,7 +251,7 @@ sharedRouter.post("/:token/verify", async (c) => {
   }
 
   // 密码正确，生成临时 accessToken（1小时有效）
-  const accessToken = jwt.sign({ shareId: share.id, noteId: share.noteId }, JWT_SECRET, { expiresIn: "1h" });
+  const accessToken = signShareAccessToken({ shareId: share.id, noteId: share.noteId });
   return c.json({ success: true, accessToken });
 });
 
@@ -291,18 +289,25 @@ sharedRouter.get("/:token/content", (c) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return c.json({ error: "需要密码验证", needPassword: true }, 401);
     }
-    try {
-      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string; noteId: string };
-      if (decoded.shareId !== share.shareId) {
-        return c.json({ error: "访问令牌无效" }, 401);
-      }
-    } catch {
-      return c.json({ error: "访问令牌已过期，请重新验证密码" }, 401);
+    const payload = verifyShareAccessToken(authHeader.slice(7), share.shareId);
+    if (!payload) {
+      return c.json({ error: "访问令牌无效或已过期，请重新验证密码" }, 401);
     }
   }
 
-  // 增加访问计数
-  db.prepare("UPDATE shares SET viewCount = viewCount + 1 WHERE id = ?").run(share.shareId);
+  // H5: 原子地自增 viewCount 并校验 maxViews 上限，避免并发绕过限制。
+  //     使用条件 UPDATE：如果 WHERE 条件不满足则 changes=0，此时返回 410。
+  const incRes = db
+    .prepare(
+      `UPDATE shares
+       SET viewCount = viewCount + 1
+       WHERE id = ? AND isActive = 1
+         AND (maxViews IS NULL OR viewCount < maxViews)`,
+    )
+    .run(share.shareId);
+  if (incRes.changes === 0) {
+    return c.json({ error: "分享链接已达到最大访问次数" }, 410);
+  }
 
   return c.json({
     noteId: share.noteId,
@@ -368,12 +373,8 @@ sharedRouter.put("/:token/content", async (c) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return c.json({ error: "需要密码验证" }, 401);
     }
-    try {
-      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string };
-      if (decoded.shareId !== share.shareId) return c.json({ error: "访问令牌无效" }, 401);
-    } catch {
-      return c.json({ error: "访问令牌已过期，请重新验证密码" }, 401);
-    }
+    const payload = verifyShareAccessToken(authHeader.slice(7), share.shareId);
+    if (!payload) return c.json({ error: "访问令牌无效或已过期" }, 401);
   }
 
   // 5) 参数校验：昵称必填（至少 1 个可见字符，不超过 32）
@@ -666,14 +667,8 @@ sharedRouter.get("/:token/poll", (c) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return c.json({ error: "需要密码验证" }, 401);
     }
-    try {
-      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string };
-      if (decoded.shareId !== share.id) {
-        return c.json({ error: "访问令牌无效" }, 401);
-      }
-    } catch {
-      return c.json({ error: "访问令牌已过期" }, 401);
-    }
+    const payload = verifyShareAccessToken(authHeader.slice(7), share.id);
+    if (!payload) return c.json({ error: "访问令牌无效或已过期" }, 401);
   }
 
   return c.json({
@@ -702,12 +697,8 @@ sharedRouter.get("/:token/comments", (c) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return c.json({ error: "需要密码验证" }, 401);
     }
-    try {
-      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string };
-      if (decoded.shareId !== share.id) return c.json({ error: "无效令牌" }, 401);
-    } catch {
-      return c.json({ error: "令牌已过期" }, 401);
-    }
+    const payload = verifyShareAccessToken(authHeader.slice(7), share.id);
+    if (!payload) return c.json({ error: "无效或已过期的令牌" }, 401);
   }
 
   const comments = db.prepare(`
@@ -747,12 +738,8 @@ sharedRouter.post("/:token/comments", async (c) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return c.json({ error: "需要密码验证" }, 401);
     }
-    try {
-      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as { shareId: string };
-      if (decoded.shareId !== share.id) return c.json({ error: "无效令牌" }, 401);
-    } catch {
-      return c.json({ error: "令牌已过期" }, 401);
-    }
+    const payload = verifyShareAccessToken(authHeader.slice(7), share.id);
+    if (!payload) return c.json({ error: "无效或已过期的令牌" }, 401);
   }
 
   const id = uuid();

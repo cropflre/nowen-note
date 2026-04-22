@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>nowen-note · Icon Preview</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; padding: 32px 28px 80px;
+      font-family: Inter, system-ui, -apple-system, "PingFang SC", sans-serif;
+      background: #f9fafb; color: #0f172a;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0d1117; color: #e5e7eb; }
+      .card { background: #111827; border-color: #1f2937 !important; }
+      .label { color: #94a3b8; }
+      .size { color: #64748b; }
+    }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    h2 { margin: 28px 0 12px; font-size: 14px; color: #3b82f6; text-transform: uppercase; letter-spacing: .08em; }
+    p.sub { margin: 0 0 24px; color: #64748b; font-size: 13px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 14px 10px 10px;
+      text-align: center;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    .card:hover { transform: translateY(-2px); border-color: #3b82f6; box-shadow: 0 6px 16px rgba(59,130,246,.15); }
+    .card svg { display: block; margin: 0 auto 8px; color: #334155; }
+    @media (prefers-color-scheme: dark) { .card svg { color: #cbd5e1; } }
+    .label { font-size: 12px; color: #334155; font-weight: 500; }
+    .size { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+    .sizes {
+      display: flex; gap: 16px; align-items: flex-end; justify-content: center;
+      padding: 16px; background: #fff;
+      border: 1px solid #e5e7eb; border-radius: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .sizes { background: #111827; border-color: #1f2937; }
+    }
+    .sizes figure { margin: 0; text-align: center; color: #64748b; font-size: 11px; }
+    .sizes svg { display: block; margin: 0 auto 6px; color: #3b82f6; }
+  </style>
+</head>
+<body>
+  <h1>nowen-note · 图标系统</h1>
+  <p class="sub">统一线性风格 · 2px 描边 · 主色 #3B82F6 · 支持 16 / 20 / 24 / 32 / 48 / 64 / 128 多尺寸。</p>
+
+  <h2>多尺寸演示（brand）</h2>
+  <div class="sizes">
+    <figure><svg width="16" height="16"><use href="./sprite.svg#brand" /></svg>16</figure>
+    <figure><svg width="20" height="20"><use href="./sprite.svg#brand" /></svg>20</figure>
+    <figure><svg width="24" height="24"><use href="./sprite.svg#brand" /></svg>24</figure>
+    <figure><svg width="32" height="32"><use href="./sprite.svg#brand" /></svg>32</figure>
+    <figure><svg width="48" height="48"><use href="./sprite.svg#brand" /></svg>48</figure>
+    <figure><svg width="64" height="64"><use href="./sprite.svg#brand" /></svg>64</figure>
+    <figure><svg width="128" height="128"><use href="./sprite.svg#brand" /></svg>128</figure>
+  </div>
+
+  <h2>导航与模块</h2>
+  <div class="grid" id="group-nav"></div>
+
+  <h2>协作与 AI</h2>
+  <div class="grid" id="group-collab"></div>
+
+  <h2>操作</h2>
+  <div class="grid" id="group-actions"></div>
+
+  <script>
+    const groups = {
+      "group-nav": [
+        ["notebook", "笔记本"], ["note", "笔记"], ["tag", "标签"],
+        ["task", "任务"], ["mindmap", "思维导图"], ["moment", "说说"],
+        ["search", "搜索"], ["trash", "回收站"], ["favorites", "收藏"],
+        ["history", "版本历史"]
+      ],
+      "group-collab": [
+        ["ai-assistant", "AI 助手"], ["share", "分享"], ["comment", "评论"],
+        ["user", "用户"], ["users", "用户管理"], ["webhook", "Webhook"]
+      ],
+      "group-actions": [
+        ["add", "新建"], ["edit", "编辑"], ["save", "保存"], ["delete", "删除"],
+        ["import", "导入"], ["export", "导出"], ["sync", "同步"], ["backup", "备份"],
+        ["settings", "设置"], ["plugin", "插件"]
+      ]
+    };
+    for (const [id, items] of Object.entries(groups)) {
+      const el = document.getElementById(id);
+      el.innerHTML = items.map(([name, label]) => `
+        <div class="card">
+          <svg width="32" height="32"><use href="./sprite.svg#${name}" /></svg>
+          <div class="label">${label}</div>
+          <div class="size">${name}.svg</div>
+        </div>
+      `).join("");
+    }
+  </script>
+</body>
+</html>

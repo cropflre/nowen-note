@@ -1,17 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ThemeToggle from "@/components/ThemeToggle";
 import SecuritySettings from "@/components/SecuritySettings";
 import DataManager from "@/components/DataManager";
 import AISettingsPanel from "@/components/AISettingsPanel";
+import UserManagement from "@/components/UserManagement";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
-type TabId = "appearance" | "ai" | "security" | "data";
+type TabId = "appearance" | "ai" | "security" | "data" | "users";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -408,11 +409,23 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const { siteConfig } = useSiteSettings();
+  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMe()
+      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const isAdmin = currentUser?.role === "admin";
 
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "security" as const, label: t('settings.security'), icon: Shield },
+    ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
   ];
 
@@ -530,6 +543,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                 {activeTab === "appearance" && <AppearancePanel />}
                 {activeTab === "ai" && <AISettingsPanel />}
                 {activeTab === "security" && <SecuritySettings />}
+                {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                 {activeTab === "data" && <DataManager />}
               </motion.div>
             </AnimatePresence>

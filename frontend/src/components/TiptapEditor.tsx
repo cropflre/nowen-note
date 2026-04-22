@@ -15,6 +15,7 @@ import { common, createLowlight } from "lowlight";
 import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { markdownToSimpleHtml } from "@/lib/importService";
+import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat } from "@/lib/contentFormat";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3,
@@ -612,6 +613,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
    *   - flushSave(): 切换编辑器 / 切换笔记时立即把 pending 的 debounce 更新写出去，
    *                 防止丢字。这里**不弹 toast**（避免切换瞬间刷屏），
    *                 与 Ctrl/Cmd+S 的交互保持分离。
+   *   - getSnapshot(): 同步读取编辑器当前内容。flushSave 只能触发**异步** PUT，
+   *                 切换 RTE→MD 时若只靠 flushSave，MD 一 mount 读到的还是
+   *                 切换前的旧 note.content（PUT 没回包），在几百毫秒内会闪烁
+   *                 旧内容甚至丢失用户最近的输入。父组件可以调 getSnapshot()
+   *                 拿到最新 JSON+纯文本，立即回填 activeNote 后再 setEditorMode，
+   *                 MD 侧的 normalizeToMarkdown 就能直接基于最新内容初始化。
    */
   useImperativeHandle(
     ref,
@@ -627,6 +634,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         lastEmittedContentRef.current = json;
         onUpdateRef.current({ content: json, contentText: text, title });
       },
+      discardPending: () => {
+        // 切换编辑器时调用方已经自己 PUT 规范化内容，清掉 debounce 避免竞态
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+      },
+      getSnapshot: () => {
+        if (!editor) return null;
+        return {
+          content: JSON.stringify(editor.getJSON()),
+          contentText: editor.getText(),
+        };
+      },
+      isReady: () => !!editor && !editor.isDestroyed,
     }),
     [editor],
   );
@@ -1474,6 +1496,10 @@ function looksLikeMarkdown(text: string): boolean {
  * 关键点：
  *   - MD 分支必须先转 HTML 再交给 Tiptap，否则标题/列表/代码块等结构
  *     全部塌缩成一段纯文本 → 用户切回富文本后修改/保存时实际丢失了结构。
+ *   - MD → HTML 优先用 `contentFormat.markdownToHtml`（基于 @lezer/markdown + GFM），
+ *     覆盖表格、任务列表、删除线、setext 标题、嵌套列表、块级 HTML 等；
+ *     失败时才降级到 `markdownToSimpleHtml`（逐行扫描，功能更弱但更宽松）。
+ *     此前一律走 simpleHtml → GFM 表格 / 删除线等切到 RTE 后会丢失结构。
  *   - MD 识别与 contentFormat.detectFormat 保持一致：JSON 合法 + 含 Tiptap
  *     文档特征才认 tiptap-json，否则一律按 MD 处理（原先兜底只保留纯文本，
  *     是"切到富文本内容丢失"的直接原因）。
@@ -1511,6 +1537,28 @@ function parseContent(content: string): any {
   }
 
   // 3) Markdown / 纯文本 → 转 HTML 再交给 Tiptap
+  //
+  //   首选 contentFormat.markdownToHtml：与 MarkdownEditor 同源的 @lezer/markdown + GFM
+  //   解析器，覆盖标题 / 列表 / 任务列表 / 表格 / 引用 / 代码块 / 水平线 / 链接 / 图片 /
+  //   删除线 / 内嵌 HTML 等全部语法，且格式识别与 detectFormat 保持一致。
+  //
+  //   降级到 importService.markdownToSimpleHtml：只覆盖少数基本语法，且对复杂嵌套
+  //   结构容易塌缩。当 mdToFullHtml 抛错（理论上不会）或返回空时才走它。
+  try {
+    // detectFormat 能把 "{ foo" 这种以 { 开头但不是 JSON 的内容识别为 md；
+    // empty/html 也会在这里被分类。html 已经在上面处理过，empty 就直接返回空 doc。
+    const fmt = detectContentFormat(content);
+    if (fmt === "empty") {
+      return { type: "doc", content: [{ type: "paragraph" }] };
+    }
+    // md / html 两种都尝试用完整 parser（html 走 markdownToHtml 时会被当作块级 HTML
+    // 原样传递，兼容）。Tiptap 随后会 parseHTML。
+    const html = mdToFullHtml(content);
+    if (html && html.trim()) return html;
+  } catch (err) {
+    console.warn("[TiptapEditor] markdownToHtml(full) failed, falling back to simpleHtml:", err);
+  }
+
   try {
     const html = markdownToSimpleHtml(content);
     if (html && html.trim()) return html;

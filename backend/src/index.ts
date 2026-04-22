@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import path from "path";
 import fs from "fs";
-import jwt from "jsonwebtoken";
+import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/auth-security";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
 import tagsRouter from "./routes/tags";
@@ -20,17 +20,22 @@ import mindmapsRouter from "./routes/mindmaps";
 import diaryRouter from "./routes/diary";
 
 import aiRouter from "./routes/ai";
-import pipelinesRouter from "./routes/pipelines";
 import pluginsRouter from "./routes/plugins";
 import webhooksRouter from "./routes/webhooks";
 import auditRouter from "./routes/audit";
 import backupsRouter from "./routes/backups";
 import { sharesRouter, sharedRouter } from "./routes/shares";
-import authRouter, { JWT_SECRET } from "./routes/auth";
+import workspacesRouter from "./routes/workspaces";
+import authRouter from "./routes/auth";
+import usersRouter from "./routes/users";
 import { seedDatabase } from "./db/seed";
 import { getDb } from "./db/schema";
 import { generateOpenAPISpec } from "./services/openapi";
 import { getBackupManager } from "./services/backup";
+import { attachRealtimeServer, getRealtimeStats, shutdownRealtime } from "./services/realtime";
+import { getYjsStats } from "./services/yjs";
+import { initWebhookTables } from "./services/webhook";
+import { initAuditTables } from "./services/audit";
 
 const app = new Hono();
 
@@ -45,6 +50,16 @@ app.use("*", cors({
 // 初始化数据库
 getDb();
 seedDatabase();
+
+// 提前创建 webhooks / audit_logs 表。
+// 这两张表原本是"路由被访问时懒初始化"，但 notes/notebooks/tasks 等路由会在写操作中
+// 同步调用 emitWebhook() / logAudit()，如果用户从未访问过 /api/webhooks 或 /api/audit，
+// 表就不存在，会在每次写操作时打印：
+//   [Webhook] 事件分发错误: no such table: webhooks
+//   [Audit] 日志记录失败: no such table: audit_logs
+// 在启动时强制建表即可消除这些噪音日志。CREATE TABLE IF NOT EXISTS 幂等，重复调用无害。
+try { initWebhookTables(); } catch (e) { console.warn("[init] initWebhookTables failed:", e); }
+try { initAuditTables(); } catch (e) { console.warn("[init] initAuditTables failed:", e); }
 
 // 认证路由（无需 JWT）
 app.route("/api/auth", authRouter);
@@ -158,21 +173,113 @@ app.get("/api/fonts/file/:id", (c) => {
 });
 
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
+//
+// 安全加固（C3）：
+//   - 校验 JWT 签名后，还要查 DB 确认用户仍存在、未被禁用，并且 JWT 里的
+//     tokenVersion（tver）与 DB 中的一致；禁用 / 改密 / factory-reset 会 bump
+//     tokenVersion，从而让所有旧 token 立即失效。
+//   - 为避免每个请求都撞 DB，做了一个 60s 的轻量缓存（在 lib/auth-security 中）。
+//     用户状态变更（禁用、改密、删除、bumpTokenVersion）路径上会主动 invalidate，
+//     确保敏感操作即时生效；其它场景最多 60s 自然过期。
+function lookupUserForAuth(userId: string) {
+  const cached = getCachedAuthUser(userId);
+  if (cached) return cached;
+
+  const db = getDb();
+  const row = db
+    .prepare("SELECT username, tokenVersion, isDisabled, role FROM users WHERE id = ?")
+    .get(userId) as
+    | { username: string; tokenVersion: number; isDisabled: number; role: string | null }
+    | undefined;
+  if (!row) return null;
+
+  const entry = {
+    username: row.username,
+    tokenVersion: row.tokenVersion ?? 0,
+    isDisabled: row.isDisabled ?? 0,
+    role: row.role || "user",
+  };
+  setCachedAuthUser(userId, entry);
+  return entry;
+}
+
+// Phase 6: lastSeenAt 更新节流（同一 session 60 秒内只写一次 DB）。
+//
+//   单机部署内存 Map 足够；多实例部署时每个实例最多写一次/分钟 × 实例数，依旧可接受。
+const SESSION_TOUCH_INTERVAL_MS = 60_000;
+const sessionLastTouched = new Map<string, number>();
+function touchSessionLastSeen(sessionId: string) {
+  const now = Date.now();
+  const last = sessionLastTouched.get(sessionId) || 0;
+  if (now - last < SESSION_TOUCH_INTERVAL_MS) return;
+  sessionLastTouched.set(sessionId, now);
+  try {
+    getDb()
+      .prepare("UPDATE user_sessions SET lastSeenAt = datetime('now') WHERE id = ?")
+      .run(sessionId);
+  } catch {
+    /* 更新失败不阻塞请求 */
+  }
+  // 防止 Map 无限增长：超过 5000 条时清理过期条目
+  if (sessionLastTouched.size > 5000) {
+    const cutoff = now - SESSION_TOUCH_INTERVAL_MS * 10;
+    for (const [k, v] of sessionLastTouched.entries()) {
+      if (v < cutoff) sessionLastTouched.delete(k);
+    }
+  }
+}
+
 app.use("/api/*", async (c, next) => {
   const authHeader = c.req.header("Authorization");
 
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    try {
-      const token = authHeader.slice(7);
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
-      c.req.raw.headers.set("X-User-Id", decoded.userId);
-    } catch {
-      return c.json({ error: "Token 无效或已过期" }, 401);
-    }
-  } else {
-    return c.json({ error: "未授权，请先登录" }, 401);
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return c.json({ error: "未授权，请先登录", code: "UNAUTHENTICATED" }, 401);
   }
 
+  const token = authHeader.slice(7);
+  const payload = verifyLoginToken(token);
+  if (!payload || !payload.userId) {
+    return c.json({ error: "Token 无效或已过期", code: "TOKEN_INVALID" }, 401);
+  }
+
+  // C3: DB 校验 —— 用户存在 + 未被禁用 + tokenVersion 一致
+  const user = lookupUserForAuth(payload.userId);
+  if (!user) {
+    return c.json({ error: "账号不存在或已被删除", code: "USER_NOT_FOUND" }, 401);
+  }
+  if (user.isDisabled) {
+    return c.json({ error: "该账号已被禁用，请联系管理员", code: "ACCOUNT_DISABLED" }, 403);
+  }
+  if ((payload.tver ?? 0) !== user.tokenVersion) {
+    return c.json(
+      { error: "会话已失效，请重新登录", code: "TOKEN_REVOKED" },
+      401,
+    );
+  }
+
+  // Phase 6: 会话级校验
+  //
+  //   - 登录成功时会生成一条 user_sessions 记录并把 id 放进 JWT 的 jti；
+  //   - 被"单端下线"时把 revokedAt 置为非 NULL → 这里检测到就拒绝；
+  //   - 旧 token 没有 jti（升级前签发的）→ 按兼容路径放行，但不更新 lastSeenAt；
+  //   - lastSeenAt 每 60 秒内同用户同 session 只更新一次，避免高频写 DB。
+  if (payload.jti) {
+    const db = getDb();
+    const sess = db
+      .prepare("SELECT id, revokedAt FROM user_sessions WHERE id = ? AND userId = ?")
+      .get(payload.jti, payload.userId) as { id: string; revokedAt: string | null } | undefined;
+    if (!sess) {
+      // 签发时有 jti，但 DB 里找不到对应 session（可能被 factory-reset 清库） → 视为吊销
+      return c.json({ error: "会话已失效，请重新登录", code: "TOKEN_REVOKED" }, 401);
+    }
+    if (sess.revokedAt) {
+      return c.json({ error: "该会话已被下线", code: "SESSION_REVOKED" }, 401);
+    }
+    touchSessionLastSeen(payload.jti);
+  }
+
+  c.req.raw.headers.set("X-User-Id", payload.userId);
+  if (payload.jti) c.req.raw.headers.set("X-Session-Id", payload.jti);
   await next();
 });
 
@@ -189,12 +296,13 @@ app.route("/api/icloud", icloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/diary", diaryRouter);
 app.route("/api/ai", aiRouter);
-app.route("/api/pipelines", pipelinesRouter);
 app.route("/api/plugins", pluginsRouter);
 app.route("/api/webhooks", webhooksRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);
 app.route("/api/shares", sharesRouter);
+app.route("/api/workspaces", workspacesRouter);
+app.route("/api/users", usersRouter);
 
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
@@ -203,8 +311,23 @@ app.route("/api/fonts", fontsRouter);
 app.get("/api/me", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id");
-  const user = db.prepare("SELECT id, username, email, avatarUrl, createdAt FROM users WHERE id = ?").get(userId);
+  const user = db
+    .prepare(
+      "SELECT id, username, email, avatarUrl, displayName, role, createdAt FROM users WHERE id = ?",
+    )
+    .get(userId) as any;
+  if (user && !user.role) user.role = "user";
   return c.json(user);
+});
+
+// Phase 2: 实时协作调试端点（仅开发期使用，不暴露敏感信息）
+app.get("/api/realtime/stats", (c) => {
+  return c.json(getRealtimeStats());
+});
+
+// Phase 3: Y.js CRDT 调试端点
+app.get("/api/yjs/stats", (c) => {
+  return c.json(getYjsStats());
 });
 
 const port = Number(process.env.PORT) || 3001;
@@ -268,4 +391,31 @@ try {
 
 console.log(`🚀 nowen-note API running on http://localhost:${port}`);
 console.log(`📖 OpenAPI 文档: http://localhost:${port}/api/openapi.json`);
-serve({ fetch: app.fetch, port });
+
+// @hono/node-server 的 serve 返回底层 http.Server；拿到后挂 WebSocket
+const server = serve({ fetch: app.fetch, port });
+// serve() 签名在不同版本返回不同对象；实际运行时是 http.Server
+attachRealtimeServer(server as unknown as import("http").Server);
+console.log(`🛰  WebSocket endpoint: ws://localhost:${port}/ws`);
+
+// Phase 3: 优雅关停 —— 把内存中的 Y.Doc 状态 flush 到磁盘
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[shutdown] received ${signal}, flushing Y.js state...`);
+  const timeoutId = setTimeout(() => {
+    console.warn("[shutdown] flush timeout (3s), force exit");
+    process.exit(1);
+  }, 3000);
+  try {
+    await shutdownRealtime();
+  } catch (e) {
+    console.warn("[shutdown] failed:", e);
+  } finally {
+    clearTimeout(timeoutId);
+    process.exit(0);
+  }
+}
+process.once("SIGINT", () => { gracefulShutdown("SIGINT"); });
+process.once("SIGTERM", () => { gracefulShutdown("SIGTERM"); });

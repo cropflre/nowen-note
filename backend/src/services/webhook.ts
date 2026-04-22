@@ -7,7 +7,6 @@
  *  - notebook.created / notebook.deleted
  *  - tag.created
  *  - task.created / task.completed
- *  - pipeline.completed
  *  - plugin.executed
  *
  * 特性：
@@ -27,7 +26,6 @@ export type WebhookEvent =
   | "notebook.created" | "notebook.deleted"
   | "tag.created"
   | "task.created" | "task.completed"
-  | "pipeline.completed"
   | "plugin.executed"
   | "*";  // 通配：接收所有事件
 

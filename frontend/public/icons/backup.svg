@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 备份 · 数据库叠层 -->
+  <ellipse cx="12" cy="5" rx="7" ry="2.5"/>
+  <path d="M5 5v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V5"/>
+  <path d="M5 12v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5" stroke="#3B82F6"/>
+</svg>

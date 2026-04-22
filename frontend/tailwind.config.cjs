@@ -24,13 +24,50 @@ module.exports = {
           tertiary: "var(--color-text-tertiary)",
           inverse: "var(--color-text-inverse)",
         },
+        // NOTE: "accent" 原本是 DEFAULT 对象，扩展后同时支持 bg-accent / bg-accent-primary 等
         accent: {
+          DEFAULT: "var(--color-hover)", // shadcn 风格的 bg-accent（悬停态浅灰）
+          foreground: "var(--color-text-primary)",
           primary: "var(--color-accent-primary)",
           secondary: "var(--color-accent-secondary)",
           warning: "var(--color-accent-warning)",
           danger: "var(--color-accent-danger)",
           muted: "var(--color-accent-muted)",
         },
+        // shadcn 语义色别名，映射到已有 CSS 变量。
+        // 之所以加这些：项目里有大量组件（WorkspaceSwitcher、MembersPanel、TagInput、
+        // SlashCommands 等）直接使用 bg-popover / bg-card / bg-background / border-border
+        // / text-muted-foreground 等 shadcn 习惯类。若不定义，它们会变成透明色，
+        // 导致下拉/浮层背景穿透，出现视觉错位。
+        background: "var(--color-bg)",
+        foreground: "var(--color-text-primary)",
+        card: {
+          DEFAULT: "var(--color-elevated)",
+          foreground: "var(--color-text-primary)",
+        },
+        popover: {
+          DEFAULT: "var(--color-elevated)",
+          foreground: "var(--color-text-primary)",
+        },
+        primary: {
+          DEFAULT: "var(--color-accent-primary)",
+          foreground: "var(--color-text-inverse)",
+        },
+        secondary: {
+          DEFAULT: "var(--color-surface)",
+          foreground: "var(--color-text-primary)",
+        },
+        muted: {
+          DEFAULT: "var(--color-surface)",
+          foreground: "var(--color-text-secondary)",
+        },
+        destructive: {
+          DEFAULT: "var(--color-accent-danger)",
+          foreground: "var(--color-text-inverse)",
+        },
+        border: "var(--color-border)",
+        input: "var(--color-border)",
+        ring: "var(--color-accent-primary)",
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

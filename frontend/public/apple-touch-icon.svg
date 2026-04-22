@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <!-- iOS / Android 主屏幕图标（180x180）
+       因为主屏幕需要一个"完整方块"，这里保留品牌蓝底
+       但用更明亮的渐变，避免压成黑块
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方块背景（iOS squircle） -->
+  <rect width="180" height="180" rx="40" ry="40" fill="url(#bg)"/>
+
+  <!-- 左上柔光 -->
+  <circle cx="40" cy="40" r="60" fill="#FFFFFF" opacity="0.15"/>
+
+  <!-- 笔记卡片 -->
+  <path fill="url(#paper)"
+        d="M42 40h58l28 28v64a8 8 0 0 1-8 8h-78a8 8 0 0 1-8-8v-84a8 8 0 0 1 8-8z"/>
+  <!-- 折角阴影 -->
+  <path fill="#DBEAFE" d="M100 40v28h28z"/>
+  <path fill="none" stroke="#93C5FD" stroke-width="2" d="M100 40v28h28"/>
+
+  <!-- 笔记横线 -->
+  <line x1="54" y1="86"  x2="118" y2="86"  stroke="#CBD5E1" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="54" y1="100" x2="118" y2="100" stroke="#CBD5E1" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="54" y1="114" x2="94"  y2="114" stroke="#CBD5E1" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- 大写 N -->
+  <path fill="#2563EB"
+        d="M54 146v-22h6.5l17 15v-15h6.5v22h-6.5l-17-15v15z"/>
+
+  <!-- 笔尖橙色高光 -->
+  <circle cx="128" cy="146" r="6" fill="#F59E0B"/>
+  <circle cx="128" cy="146" r="2.5" fill="#FFFFFF"/>
+</svg>

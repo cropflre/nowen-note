@@ -16,29 +16,34 @@ import { toast } from "@/lib/toast";
 import ShareModal from "@/components/ShareModal";
 import VersionHistoryPanel from "@/components/VersionHistoryPanel";
 import CommentPanel from "@/components/CommentPanel";
+import {
+  PresenceBar,
+  EditingLockBanner,
+  RemoteUpdateBanner,
+  RemoteDeleteBanner,
+} from "@/components/PresenceBar";
+import { useRealtimeNote } from "@/hooks/useRealtimeNote";
+import { useYDoc } from "@/hooks/useYDoc";
+import { normalizeToMarkdown, detectFormat, markdownToPlainText } from "@/lib/contentFormat";
+import {
+  resolveEditorMode,
+  persistEditorMode,
+  clearForcedModeFromUrl,
+  nextEditorMode,
+  type EditorMode,
+} from "@/lib/editorMode";
+import {
+  putWithReconcile,
+  makeFetchLatestNoteVersion,
+  isAborted,
+} from "@/lib/optimisticLockApi";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
 // ---------------------------------------------------------------------------
-// - URL 带 `?md=1` 强制启用 MarkdownEditor（便于对比测试）
-// - 否则读 localStorage["nowen.editor_mode"]: "md" | "tiptap"，默认 "tiptap"
-// 两者 props 完全一致，切换零风险
-const EDITOR_MODE_KEY = "nowen.editor_mode";
-
-function resolveEditorMode(): "md" | "tiptap" {
-  try {
-    if (typeof window !== "undefined") {
-      const sp = new URLSearchParams(window.location.search);
-      if (sp.get("md") === "1") return "md";
-      if (sp.get("md") === "0") return "tiptap";
-      const stored = localStorage.getItem(EDITOR_MODE_KEY);
-      if (stored === "md" || stored === "tiptap") return stored;
-    }
-  } catch {
-    /* SSR / 无 localStorage */
-  }
-  return "tiptap";
-}
+// URL `?md=1|0` 强制；否则读 localStorage["nowen.editor_mode"]。
+// 读写协议与工具：frontend/src/lib/editorMode.ts
+// 切换完整流程：docs/editor-mode-switch.md
 
 export default function EditorPane() {
   const { state } = useApp();
@@ -61,7 +66,7 @@ export default function EditorPane() {
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 编辑器模式（MD / Tiptap）——初值来自 URL / localStorage，运行时可切换
-  const [editorMode, setEditorMode] = useState<"md" | "tiptap">(() => resolveEditorMode());
+  const [editorMode, setEditorMode] = useState<EditorMode>(() => resolveEditorMode());
   /**
    * 当前编辑器（Tiptap 或 Markdown）暴露的命令式句柄。
    * EditorPane 只在需要"立即 flush"的临界点使用（切换编辑器、切换笔记、卸载前），
@@ -69,39 +74,306 @@ export default function EditorPane() {
    */
   const editorHandleRef = useRef<NoteEditorHandle | null>(null);
 
+  /** 正在进行编辑器模式切换（防止用户连点导致并发 PUT/mount 竞态） */
+  const modeSwitchInflightRef = useRef<boolean>(false);
+  const [modeSwitching, setModeSwitching] = useState(false);
+
   /**
-   * 切换 MD ↔ Tiptap。这里要做四件事：
-   *   1) flush 当前编辑器的 debounce pending（防止最近几百毫秒输入丢失）
-   *   2) 写入 localStorage 持久化用户选择
-   *   3) 若 URL 上还带着 `?md=1` / `?md=0` 的强制覆盖标记，清掉它，
-   *      否则刷新页面还是回到强制模式，用户会困惑
-   *   4) 用 toast 明确反馈，避免用户以为笔记内容丢了
+   * 最近一次 handleUpdate 触发的 PUT Promise。
+   *
+   * 用途：编辑器模式切换时若 RTE 的 debounce 刚好在 500ms 前 fire 了且 PUT 还在途中，
+   * 即使切换时 `discardPending()` 清了本地 timer 也无法阻止这个正在飞的请求。
+   * 而我们接下来要发一次带同 version 的"规范化 PUT"，二者并发会造成：
+   *   - 先到者 bump version=N+1；后到者带旧 version=N → 409
+   *   - 409 reconcile 会用最新 version 重放"后到者"，可能把 notes.content 写回
+   *     旧 Tiptap JSON（取决于到达次序），导致切换成果被覆盖
+   *
+   * 解决：toggleEditorMode 进入时 await 该 promise，让 in-flight 的 handleUpdate
+   * 跑完（handleUpdate 里已经处理 409/回填 version），之后我们的规范化 PUT 拿到
+   * 就是"最新且没有 in-flight"的版本号，可以安全并发。
    */
-  const toggleEditorMode = useCallback(() => {
-    try {
-      editorHandleRef.current?.flushSave();
-    } catch (err) {
-      console.warn("[EditorPane] flushSave before switch failed:", err);
+  const saveInflightRef = useRef<Promise<void> | null>(null);
+
+  /**
+   * 切换 MD ↔ Tiptap。
+   *
+   * 完整协议见 `docs/editor-mode-switch.md`。主干步骤：
+   *   1) 入口守卫：去重 / 协同未 sync 时拒绝
+   *   2) 记录 preSwitchNote 快照（失败回滚用）
+   *   3) await saveInflightRef（防止与 handleUpdate 并发 PUT）
+   *   4) 取当前编辑器 snapshot
+   *   5) flush / discardPending（按方向）
+   *   6) MD→RTE：从 yDoc 回填 activeNote
+   *   7) RTE→MD：normalizeToMarkdown + 规范化 PUT（带乐观锁 / syncToYjs）
+   *   8) 失败回滚 preSwitchNote，成功则提交副作用（persistEditorMode / clearForcedModeFromUrl / setEditorMode）
+   *   9) MD→RTE：releaseYjsRoom
+   */
+  const toggleEditorMode = useCallback(async () => {
+    if (modeSwitchInflightRef.current) return;
+
+    // ① 入口：CRDT 未 sync 时的保护 + 救命出口（D4/UX6+UX7）
+    // ------------------------------------------------------------------
+    // collabReady=true 表示已发起 y:join 但 synced=false 代表服务端还没把完整
+    // state 广播回来，此时 yDoc.getText("content") 可能是空串或 IDB 陈旧缓存。
+    // MD→RTE 会据此回填 activeNote → 用户最近输入被覆盖为空。
+    //
+    // 但若 collabSynced 因 provider/WS 异常永远卡在 false，禁止切换会把用户
+    // 堵死在 MD 模式（曾有用户反馈等了 10+ 分钟）。因此改为"二次点击强制切换"：
+    //   1st click：toast 警告 + 记录时间戳，阻止切换
+    //   3s 内 2nd click：视为用户坚持切换，放行（用户承担可能丢字的风险）
+    //   > 3s：时间戳过期，重新走一次警告流程
+    // i18n 文案保持不变，仅在警告文案里追加"再次点击可强制切换"。
+    if (collabReadyRef.current && !collabSyncedRef.current) {
+      const now = Date.now();
+      const last = lastUnsyncedClickAtRef.current;
+      if (last && now - last < 3000) {
+        // 2nd click in window → 放行，同时清掉时间戳避免误复用
+        console.warn(
+          "[EditorPane] toggleEditorMode: user forced mode switch while CRDT not synced; " +
+          "content may be incomplete if yDoc is stale",
+        );
+        lastUnsyncedClickAtRef.current = 0;
+        // 落到下面正常流程
+      } else {
+        lastUnsyncedClickAtRef.current = now;
+        try {
+          toast.warning(
+            `${t("editor.modeSwitch.syncingToast")}（${t("editor.modeSwitch.forceHint")}）`,
+            4000,
+          );
+        } catch { /* ignore */ }
+        return;
+      }
+    } else {
+      // 已同步或未启用协同 → 清掉遗留时间戳
+      lastUnsyncedClickAtRef.current = 0;
     }
-    setEditorMode((prev) => {
-      const next = prev === "md" ? "tiptap" : "md";
-      try { localStorage.setItem(EDITOR_MODE_KEY, next); } catch { /* ignore */ }
-      // 清理 URL 上的 ?md= 强制标记，保证后续刷新以 localStorage 为准
-      try {
-        if (typeof window !== "undefined") {
-          const url = new URL(window.location.href);
-          if (url.searchParams.has("md")) {
-            url.searchParams.delete("md");
-            window.history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
-          }
+
+    modeSwitchInflightRef.current = true;
+    setModeSwitching(true);
+
+    // ② 切换前快照，失败时回滚（D5）
+    const preSwitchNote = activeNoteRef.current
+      ? { ...activeNoteRef.current }
+      : null;
+
+    const fromMode = editorMode;
+    const next: EditorMode = nextEditorMode(fromMode);
+
+    try {
+      // ③ 等待 handleUpdate 的在途 PUT（D6，不变量 2）
+      //    不等的后果：规范化 PUT(v=N) 与 debounce PUT(v=N) 并发，409 reconcile 时
+      //    先到者 bump v 后，后到者重放把旧内容覆盖回来。
+      if (saveInflightRef.current) {
+        try {
+          await saveInflightRef.current;
+        } catch {
+          /* handleUpdate 内部已处理，这里只是串行化 */
         }
-      } catch { /* ignore */ }
+      }
+
+      // ④ 取当前编辑器内容快照（同步读，避免依赖 flushSave 的异步 PUT）
+      let snapshot: { content: string; contentText: string } | null = null;
       try {
-        toast.success(next === "md" ? "已切换到 Markdown 编辑器" : "已切换到富文本编辑器");
+        snapshot = editorHandleRef.current?.getSnapshot?.() ?? null;
+      } catch (err) {
+        console.warn("[EditorPane] getSnapshot before switch failed:", err);
+      }
+
+      // ⑤ 按方向选择 flush 策略
+      //    - MD→RTE：flushSave —— 内部 PUT 的是 markdown，与最终 notes.content 一致，无副作用
+      //    - RTE→MD：discardPending —— 避免 Tiptap JSON PUT 与规范化 PUT 竞态
+      try {
+        if (fromMode === "md") {
+          editorHandleRef.current?.flushSave();
+        } else {
+          editorHandleRef.current?.discardPending?.();
+        }
+      } catch (err) {
+        console.warn("[EditorPane] flush/discard before switch failed:", err);
+      }
+
+      // ⑥ MD→RTE：CRDT 漂移兜底 —— 从 yDoc 读最新 markdown 回填 activeNote
+      //    MD 下真正内容在 yText 里，activeNote.content 只在打开笔记时赋过一次；
+      //    不回填，TiptapEditor mount 时 parseContent 会用旧 note.content 初始化。
+      if (fromMode === "md") {
+        syncActiveNoteFromYDoc();
+      }
+
+      // ⑦ RTE→MD：normalizeToMarkdown + 规范化 PUT
+      //    失败时 rollback + return（不变量 4）
+      if (fromMode === "tiptap") {
+        const ok = await normalizeAndPersistOnSwitchRteToMd(snapshot, preSwitchNote);
+        if (!ok) return;
+      }
+
+      // ⑧ 副作用提交
+      //    所有副作用放在 setEditorMode 外面（avoid React18 "setState during render"）
+      persistEditorMode(next);
+      clearForcedModeFromUrl();
+      setEditorMode(next);
+
+      // 清状态栏残留：旧编辑器的 saving/error 文案不应跨越到新编辑器
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = null;
+      }
+      actions.setSyncStatus("idle");
+
+      try {
+        toast.success(
+          next === "md"
+            ? t("editor.modeSwitch.successToMd")
+            : t("editor.modeSwitch.successToTiptap"),
+        );
       } catch { /* toast 不可用也没关系 */ }
-      return next;
+
+      // ⑨ MD→RTE：释放服务端 y room（不变量 3）
+      //    失败仅记录日志——syncToYjs 机制会在下次切回 MD 前修正状态。
+      if (next === "tiptap" && preSwitchNote) {
+        try {
+          await api.releaseYjsRoom(preSwitchNote.id);
+        } catch (err) {
+          console.warn("[EditorPane] releaseYjsRoom after MD→RTE switch failed:", err);
+        }
+      }
+    } finally {
+      modeSwitchInflightRef.current = false;
+      setModeSwitching(false);
+    }
+  // toggleEditorMode 依赖仅 editorMode / actions / t；子函数读取其他 ref 不需要入 deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorMode, actions, t]);
+
+  // ---------------------------------------------------------------------------
+  // toggleEditorMode 的内部子过程（拆出来降低圈复杂度，见 A1）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * MD→RTE 前，从 yDoc 读取最新 markdown 回填 activeNote。
+   *
+   * 只读取 ref（不依赖闭包），因此不需要 useCallback；也避免把它加到
+   * toggleEditorMode 的 deps 里。
+   */
+  function syncActiveNoteFromYDoc() {
+    const yDocNow = collabYDocRef.current;
+    const note = activeNoteRef.current;
+    if (!yDocNow || !note || note.isLocked) return;
+    try {
+      const latestMd = yDocNow.getText("content").toString();
+      if (latestMd && latestMd !== note.content) {
+        actions.setActiveNote({
+          ...note,
+          content: latestMd,
+          contentText: latestMd,
+        });
+      }
+    } catch (err) {
+      console.warn("[EditorPane] sync yDoc before switch failed:", err);
+    }
+  }
+
+  /**
+   * RTE→MD：把 Tiptap JSON 规范化为 markdown，本地先回填 activeNote，
+   * 再 PUT 回服务端（带乐观锁 + syncToYjs）。
+   *
+   * 返回 true 表示成功或无需 PUT（可以继续推进 setEditorMode）；
+   * 返回 false 表示规范化 PUT 失败并已完成回滚（toggleEditorMode 应提前 return）。
+   */
+  async function normalizeAndPersistOnSwitchRteToMd(
+    snapshot: { content: string; contentText: string } | null,
+    preSwitchNote: ReturnType<typeof Object.assign> | null,
+  ): Promise<boolean> {
+    const note = activeNoteRef.current;
+    if (!snapshot || !note || note.isLocked) return true;
+
+    // snapshot.content 通常是 Tiptap JSON 字符串；兜底识别一下。
+    const fmt = detectFormat(snapshot.content);
+    let normalizedMd = snapshot.content;
+    let normalizedText = snapshot.contentText;
+    if (fmt === "tiptap-json" || fmt === "html") {
+      try {
+        const md = normalizeToMarkdown(snapshot.content, snapshot.contentText);
+        if (md) {
+          normalizedMd = md;
+          normalizedText = markdownToPlainText(md) || snapshot.contentText;
+        }
+      } catch (err) {
+        console.warn("[EditorPane] normalize RTE→MD content failed:", err);
+      }
+    }
+
+    // 本地先回填，让新 MD 编辑器 mount 时读到规范化后的内容
+    // （即使后续 PUT 失败，也能立即以本地 markdown 渲染）
+    const needUpdate =
+      normalizedMd !== note.content || normalizedText !== note.contentText;
+    if (!needUpdate) return true;
+
+    actions.setActiveNote({
+      ...note,
+      content: normalizedMd,
+      contentText: normalizedText,
     });
-  }, []);
+
+    const noteId = note.id;
+    const initialVersion = note.version;
+
+    // syncToYjs=true 让服务端在 REST 成功后把 yText 同步替换为这份 markdown，
+    // 保证下次切回 MD 时 y:join 拿到的 state 与 notes.content 一致。
+    const sendNormalizePut = (version: number) =>
+      api.updateNote(noteId, {
+        content: normalizedMd,
+        contentText: normalizedText,
+        version,
+        syncToYjs: true,
+      } as any);
+
+    try {
+      actions.setSyncStatus("saving");
+      const updated = await putWithReconcile({
+        initialVersion,
+        send: sendNormalizePut,
+        fetchLatestVersion: makeFetchLatestNoteVersion(noteId),
+        onAbort: () => activeNoteRef.current?.id !== noteId,
+      });
+
+      // 回填 version / updatedAt，避免后续 handleUpdate 继续 409
+      if (updated && activeNoteRef.current?.id === noteId) {
+        actions.setActiveNote({
+          ...activeNoteRef.current,
+          content: normalizedMd,
+          contentText: normalizedText,
+          version: updated.version,
+          updatedAt: updated.updatedAt,
+        });
+        actions.updateNoteInList({
+          id: updated.id,
+          title: updated.title,
+          contentText: updated.contentText,
+          updatedAt: updated.updatedAt,
+        });
+        actions.setSyncStatus("saved");
+        actions.setLastSynced(new Date().toISOString());
+      }
+      return true;
+    } catch (err) {
+      // Abort（切笔记）按 idle 处理，仍视为可继续切换
+      if (isAborted(err)) {
+        actions.setSyncStatus("idle");
+        return true;
+      }
+      console.warn("[EditorPane] normalize PUT on mode switch failed:", err);
+      actions.setSyncStatus("error");
+
+      // 回滚 activeNote：避免本地 content 已被 normalizedMd 覆盖但 editorMode 没切
+      // （会让 Tiptap 把 markdown 当 JSON 解析 → 编辑器视觉错乱）
+      if (preSwitchNote && activeNoteRef.current?.id === (preSwitchNote as any).id) {
+        actions.setActiveNote(preSwitchNote as any);
+      }
+      try { toast.error(t("editor.modeSwitch.failRollback")); } catch { /* ignore */ }
+      return false;
+    }
+  }
 
   /**
    * 切换笔记（activeNote.id 变化）前，也把当前编辑器的 debounce 立刻刷一次，
@@ -116,6 +388,185 @@ export default function EditorPane() {
     }
     lastActiveIdRef.current = nextId;
   }, [activeNote?.id]);
+
+  // 使用 ref 追踪最新的 activeNote，避免 handleUpdate 闭包引用过期
+  const activeNoteRef = useRef(activeNote);
+  activeNoteRef.current = activeNote;
+
+  // ---------------------------------------------------------------------------
+  // Phase 2: 实时协作 —— Presence / 软锁 / 远程更新提示
+  // ---------------------------------------------------------------------------
+  /** 远程更新横幅：当别人保存了同一篇笔记，提示用户重新加载 */
+  const [remoteUpdate, setRemoteUpdate] = useState<{ actorUserId?: string; version: number } | null>(null);
+  /** 远程删除横幅 */
+  const [remoteDelete, setRemoteDelete] = useState<{ actorUserId?: string; trashed?: boolean } | null>(null);
+
+  const { presenceUsers, isConnected, setEditing: rtSetEditing } = useRealtimeNote({
+    noteId: activeNote?.id ?? null,
+    onRemoteUpdate: (msg) => {
+      // 只对当前激活笔记生效；注意闭包里用 activeNoteRef 拿最新值
+      const cur = activeNoteRef.current;
+      if (!cur || cur.id !== msg.noteId) return;
+      // 若我方 version 已经 >= 远程版本（自己刚保存过但广播延迟到达），忽略
+      if (cur.version >= msg.version) return;
+      // Phase 3: CRDT 托管的笔记不需要"请重新加载"横幅，因为 yCollab 会自动合并
+      if (collabYDoc) return;
+      setRemoteUpdate({ actorUserId: msg.actorUserId, version: msg.version });
+    },
+    onRemoteDelete: (msg) => {
+      const cur = activeNoteRef.current;
+      if (!cur || cur.id !== msg.noteId) return;
+      setRemoteDelete({ actorUserId: msg.actorUserId, trashed: msg.trashed });
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 3: Y.js CRDT 协同
+  // ---------------------------------------------------------------------------
+  /** 当前登录用户信息，用于 awareness 显示本人名字与颜色 */
+  const [selfUser, setSelfUser] = useState<{ userId: string; username: string } | null>(() => {
+    try {
+      const cachedId = localStorage.getItem("nowen-self-userid");
+      const cachedName = localStorage.getItem("nowen-self-username");
+      if (cachedId && cachedName) return { userId: cachedId, username: cachedName };
+    } catch {}
+    return null;
+  });
+  useEffect(() => {
+    if (selfUser) return;
+    let cancelled = false;
+    api.getMe()
+      .then((me: any) => {
+        if (cancelled || !me?.id) return;
+        try {
+          localStorage.setItem("nowen-self-userid", me.id);
+          localStorage.setItem("nowen-self-username", me.username || me.id);
+        } catch {}
+        setSelfUser({ userId: me.id, username: me.username || me.id });
+      })
+      .catch(() => { /* 未登录/网络失败静默 */ });
+    return () => { cancelled = true; };
+  }, [selfUser]);
+
+  /**
+   * Phase 3 启用条件：
+   *   - 使用 Markdown 编辑器（Tiptap JSON 无法无损映射到 Y.Text）
+   *   - 笔记未锁定（锁定态直接只读，无需协同）
+   *   - 已知当前用户信息（作为 awareness 身份）
+   *   - 有 activeNote
+   *
+   * 注：单人场景下也启用——本地只一个 client，y-collab 相当于空操作，但获得了
+   * 服务端增量持久化与断线重连后的自动合并。
+   */
+  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md");
+  const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
+    noteId: collabReady ? (activeNote?.id ?? null) : null,
+    user: selfUser,
+    enabled: collabReady,
+  });
+
+  /**
+   * collabYDoc 的 ref 镜像。
+   *
+   * 背景：`toggleEditorMode`（在组件顶部定义）需要在切换前从 yDoc 读取最新
+   * markdown 回填 activeNote，避免切到 RTE 后丢最近几百毫秒的输入。但是
+   * `toggleEditorMode` 声明点在 `collabYDoc` 之前，若把 collabYDoc 直接写进
+   * useCallback 的闭包与 deps，会踩 TDZ（初次 render 时 deps 数组求值发生在
+   * useYDoc 之前，collabYDoc 还在暂时性死区）。用 ref 间接访问即可规避。
+   */
+  const collabYDocRef = useRef<typeof collabYDoc>(null);
+  collabYDocRef.current = collabYDoc;
+
+  /**
+   * CRDT synced 状态的 ref 镜像。
+   *
+   * 用途：
+   *   - toggleEditorMode 需要在切换前判断"CRDT 是否已完成初次 sync"。未 synced 时
+   *     yDoc.getText("content") 读出来可能是空串（还没收到服务端 y:sync），
+   *     此时贸然切到 RTE 会把空内容当作最新内容回填 activeNote，用户最近输入全丢。
+   *   - 同样用 ref 而非直接引用 collabSynced，规避 toggleEditorMode useCallback
+   *     的 TDZ 问题（声明顺序晚于 toggleEditorMode）。
+   *   - collabReadyRef 用于区分"没启用 CRDT (MD→RTE 不在 CRDT 模式)"与"启用但未 sync"。
+   */
+  const collabSyncedRef = useRef<boolean>(false);
+  collabSyncedRef.current = collabSynced;
+  const collabReadyRef = useRef<boolean>(false);
+  collabReadyRef.current = collabReady;
+
+  /**
+   * UX7 救命出口：记录上次"未 sync 时尝试切换"的时间戳。
+   * 第一次点击：toast 警告+记录时间戳，阻止切换。
+   * 3 秒内第二次点击：认为用户坚持切换，放行（绕过 UX6 保护）。
+   * 超过 3 秒：时间戳过期，视为新一次"第一次点击"。
+   * 用 ref 存，不污染 render 循环。
+   */
+  const lastUnsyncedClickAtRef = useRef<number>(0);
+
+  // 切换笔记时清空横幅
+  useEffect(() => {
+    setRemoteUpdate(null);
+    setRemoteDelete(null);
+  }, [activeNote?.id]);
+
+  /** 从 presence 中反查用户名（用于横幅显示） */
+  const findUsername = useCallback(
+    (userId?: string) => {
+      if (!userId) return undefined;
+      const match = presenceUsers.find((u) => u.userId === userId);
+      return match?.username;
+    },
+    [presenceUsers],
+  );
+
+  /** 用户点"重新加载"：拉取最新笔记，先 flush 本地 pending 再覆盖 activeNote */
+  const handleReloadRemote = useCallback(async () => {
+    const cur = activeNoteRef.current;
+    if (!cur) return;
+    try { editorHandleRef.current?.flushSave(); } catch {}
+    try {
+      const fresh = await api.getNote(cur.id);
+      actions.setActiveNote(fresh);
+      actions.updateNoteInList({
+        id: fresh.id,
+        title: fresh.title,
+        contentText: fresh.contentText,
+        updatedAt: fresh.updatedAt,
+      });
+    } catch (e) {
+      console.warn("[Phase2] reload remote note failed:", e);
+      toast.error("加载最新版本失败");
+    }
+    setRemoteUpdate(null);
+  }, [actions]);
+
+  /** 用户确认远程删除提示：清空当前笔记并从列表移除 */
+  const handleAckRemoteDelete = useCallback(() => {
+    const cur = activeNoteRef.current;
+    if (cur) {
+      actions.setActiveNote(null);
+      actions.removeNoteFromList(cur.id);
+      // 回收站：refreshNotes 会把它加回"回收站"视图
+      actions.refreshNotes();
+    }
+    setRemoteDelete(null);
+  }, [actions]);
+
+  /** 编辑态广播：handleUpdate 调用时临时置 editing=true，500ms 后自动取消 */
+  const editingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flagEditing = useCallback(() => {
+    rtSetEditing(true);
+    if (editingTimerRef.current) clearTimeout(editingTimerRef.current);
+    editingTimerRef.current = setTimeout(() => {
+      rtSetEditing(false);
+      editingTimerRef.current = null;
+    }, 1500);
+  }, [rtSetEditing]);
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      if (editingTimerRef.current) clearTimeout(editingTimerRef.current);
+    };
+  }, []);
 
   // 窗口卸载前兜底 flush（刷新、关闭标签）
   useEffect(() => {
@@ -143,10 +594,6 @@ export default function EditorPane() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeNote]);
 
-  // 使用 ref 追踪最新的 activeNote，避免 handleUpdate 闭包引用过期
-  const activeNoteRef = useRef(activeNote);
-  activeNoteRef.current = activeNote;
-
   // 点击外部关闭移动端菜单
   useEffect(() => {
     if (!showMobileMenu) return;
@@ -160,17 +607,46 @@ export default function EditorPane() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showMobileMenu]);
 
-  const handleUpdate = useCallback(async (data: { content: string; contentText: string; title: string }) => {
+  const handleUpdate = useCallback(async (data: { content?: string; contentText?: string; title: string }) => {
     const currentNote = activeNoteRef.current;
     if (!currentNote || currentNote.isLocked) return;
+    // Phase 2: 广播"我正在编辑"（1.5s 内无新输入则自动取消）
+    try { flagEditing(); } catch {}
     actions.setSyncStatus("saving");
+
+    // 封装成小函数以便 409 后用 server 返回的 currentVersion 重放一次。
+    const sendOnce = (version: number) => {
+      // P0-#2 修复：CRDT 模式下 content 未传 → 只同步 meta（title），
+      // 避免 REST PUT 与服务端 yjs 回写 notes.content 产生竞态覆盖
+      const payload: any = { title: data.title, version };
+      if (data.content !== undefined) payload.content = data.content;
+      if (data.contentText !== undefined) payload.contentText = data.contentText;
+      return api.updateNote(currentNote.id, payload);
+    };
+
+    // 把本次 PUT 注册为 "inflight"，供 toggleEditorMode 在切换前 await。
+    // 串行化的是"本组件发起的 REST PUT"，不涉及 yjs update 流。
+    //
+    // 并发多次调用时后进者直接覆盖 ref（上一次的 handleUpdate 也还在 await 这个
+    // inflight 链），无需 FIFO 队列；toggleEditorMode 只关心"切换点当下还未完成
+    // 的那一笔 PUT"。
+    const inflight = (async () => {
     try {
-      const updated = await api.updateNote(currentNote.id, {
-        title: data.title,
-        content: data.content,
-        contentText: data.contentText,
-        version: currentNote.version,
-      } as any);
+      // 乐观锁冲突 reconcile：服务端返回 { status: 409, currentVersion: N }。
+      // 不做这一步的话，本地 activeNote.version 永远停留在旧值，之后每次 debounce
+      // 自动保存都会再次 409，形成"409 风暴"（后端日志里能看到几十次连续 409）。
+      //
+      // putWithReconcile 的策略（与 toggleEditorMode 的规范化 PUT 共用同一套实现）：
+      //   1) 首选用 err.currentVersion 重放一次；
+      //   2) 服务端没附带版本号时再兜底走 fetchLatestVersion（GET /notes/:id）；
+      //   3) 期间切笔记（onAbort）则 abort 重放，防止把旧笔记内容写入新笔记。
+      const updated = await putWithReconcile({
+        initialVersion: currentNote.version,
+        send: sendOnce,
+        fetchLatestVersion: makeFetchLatestNoteVersion(currentNote.id),
+        onAbort: () => activeNoteRef.current?.id !== currentNote.id,
+      });
+
       // 仅在保存的笔记仍是当前激活笔记时更新状态（防止快速切换时覆盖错误笔记）
       if (activeNoteRef.current?.id === updated.id) {
         // 关键：必须把刚保存的 content / contentText 也回填到 activeNote。
@@ -194,8 +670,10 @@ export default function EditorPane() {
           version: updated.version,
           updatedAt: updated.updatedAt,
           title: data.title,
-          content: data.content,
-          contentText: data.contentText,
+          // CRDT 模式下 data.content 为 undefined → 保留 activeNote 原值（由 yjs 广播更新）
+          content: data.content !== undefined ? data.content : activeNoteRef.current.content,
+          contentText:
+            data.contentText !== undefined ? data.contentText : activeNoteRef.current.contentText,
         });
         actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
         actions.setSyncStatus("saved");
@@ -204,10 +682,24 @@ export default function EditorPane() {
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
         savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
       }
-    } catch {
+    } catch (err) {
+      // 切笔记中断（putWithReconcile 内部标记为 aborted）不是真正的错误
+      if (isAborted(err)) return;
+      console.warn("[EditorPane] save failed:", err);
       actions.setSyncStatus("error");
     }
-  }, [actions]);
+    })();
+
+    saveInflightRef.current = inflight;
+    try {
+      await inflight;
+    } finally {
+      // 只清空"自己"注册的那份；若期间又有新 PUT 注册新 promise，保留不动
+      if (saveInflightRef.current === inflight) {
+        saveInflightRef.current = null;
+      }
+    }
+  }, [actions, flagEditing]);
 
   // 手动触发同步：重新保存当前编辑器内容
   const handleManualSync = useCallback(async () => {
@@ -283,16 +775,55 @@ export default function EditorPane() {
     if (!activeNote || !activeNote.contentText || aiTitleLoading) return;
     setAiTitleLoading(true);
     try {
-      const title = await api.aiChat("title", activeNote.contentText.slice(0, 2000));
-      const cleaned = title.replace(/^["'"""'']+|["'"""'']+$/g, "").trim();
-      if (cleaned) {
-        const updated = await api.updateNote(activeNote.id, { title: cleaned, version: activeNote.version } as any);
-        actions.setActiveNote(updated);
-        actions.updateNoteInList({ id: updated.id, title: updated.title, updatedAt: updated.updatedAt });
+      // 1) 先把编辑器里 pending 的 debounce 改动 flush 出去，避免：
+      //    - AI 基于过期的 contentText 生成标题
+      //    - 稍后 updateNote 因 version 落后被后端返回 409 "Version conflict"
+      //      导致标题请求静默失败（之前只 console.error，用户看不到任何反馈）。
+      try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
+
+      // 2) AI 生成
+      const rawTitle = await api.aiChat("title", activeNote.contentText.slice(0, 2000));
+      const cleaned = rawTitle.replace(/^["'"""'']+|["'"""'']+$/g, "").trim();
+      if (!cleaned) {
+        toast.error(t('editor.aiTitleFailed') || "AI 未返回有效标题");
+        return;
       }
-    } catch (e) { console.error("AI title error:", e); }
-    setAiTitleLoading(false);
-  }, [activeNote, actions, aiTitleLoading]);
+
+      // 3) 写入标题：带乐观锁冲突的一次性重试。
+      //    MD 编辑器 debounce 虽然已 flush，但 AI 请求耗时中用户仍可能继续输入
+      //    → 保存 → version 自增；这里如果 409，就重新拉最新笔记拿新 version 再试。
+      const doUpdate = async (version: number) =>
+        api.updateNote(activeNote.id, { title: cleaned, version } as any);
+
+      let updated;
+      try {
+        updated = await doUpdate(activeNote.version);
+      } catch (err: any) {
+        const msg = String(err?.message || "");
+        if (/409|conflict/i.test(msg)) {
+          const latest = await api.getNote(activeNote.id).catch(() => null);
+          if (latest?.version !== undefined) {
+            updated = await doUpdate(latest.version);
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
+
+      // 4) 同步前端状态；MarkdownEditor 侧有独立的 [note.title] effect
+      //    会把非受控 title input 的 DOM 值刷新成新标题。
+      actions.setActiveNote(updated);
+      actions.updateNoteInList({ id: updated.id, title: updated.title, updatedAt: updated.updatedAt });
+      toast.success(t('editor.aiTitleApplied') || "已应用 AI 生成的标题");
+    } catch (e: any) {
+      console.error("AI title error:", e);
+      toast.error(e?.message || t('editor.aiTitleFailed') || "AI 生成标题失败");
+    } finally {
+      setAiTitleLoading(false);
+    }
+  }, [activeNote, actions, aiTitleLoading, t]);
 
   // AI 推荐标签
   const [aiTagsLoading, setAiTagsLoading] = useState(false);
@@ -302,7 +833,6 @@ export default function EditorPane() {
     try {
       const result = await api.aiChat("tags", activeNote.contentText.slice(0, 2000));
       const tagNames = result.split(/[,，、\s]+/).map(s => s.replace(/^#/, "").trim()).filter(Boolean);
-      const userId = activeNote.userId;
       for (const name of tagNames) {
         // 检查是否已存在
         const existing = state.tags.find(t => t.name === name);
@@ -390,6 +920,7 @@ export default function EditorPane() {
           <span className="text-sm font-medium">{t('editor.back')}</span>
         </button>
         <div className="ml-auto flex items-center gap-1.5">
+          <PresenceBar users={presenceUsers} isConnected={isConnected} maxVisible={2} />
           <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleLock}
             title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}>
@@ -664,6 +1195,23 @@ export default function EditorPane() {
 
         {/* Sync Indicator + Grouped Actions */}
         <div className="flex items-center gap-2">
+          {/* Phase 2: Presence 头像条 */}
+          <PresenceBar users={presenceUsers} isConnected={isConnected} />
+
+          {/* Phase 3: CRDT 协同状态小徽章 */}
+          {collabYDoc && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 h-5 rounded text-[10px] font-medium border",
+                "bg-accent-primary/5 text-accent-primary border-accent-primary/20"
+              )}
+              title="Live 协同编辑（CRDT）：字符级实时合并，无冲突"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
+              Live
+            </span>
+          )}
+
           {/* 同步状态 */}
           <SyncIndicator
             syncStatus={syncStatus}
@@ -745,14 +1293,37 @@ export default function EditorPane() {
           </Button>
 
           {/* 编辑器模式切换（MD / Tiptap） */}
+          {/*
+            disabled 条件：
+              - 仅 modeSwitching：正在切换中，避免重入。
+            关于 collabSynced：
+              早期版本曾在 `collabReady && !collabSynced` 时禁用按钮 + 显示"协同
+              正在同步中"tooltip，但实测发现部分环境下 collabSynced 不可靠地停留在
+              false（例如 realtime 未连通、provider 竟态、或服务端 y:sync 丢失），
+              导致按钮永久灰灭、无法切回 RTE —— 这是比"误切丢字"更严重的体验问题。
+              真正的保护放在入口 `toggleEditorMode` 开头（见上方 ① 入口）：
+                if (collabReadyRef.current && !collabSyncedRef.current) {
+                  toast.error(...); return;
+                }
+              按钮保持可点击，若 CRDT 仍未 sync 只弹 toast 不执行切换；sync 完成后
+              再点即可顺利切换，永远不会陷入"按钮坏了"的死状态。
+          */}
           <button
             onClick={toggleEditorMode}
-            title={editorMode === "md" ? "当前 Markdown 编辑器，点击切换到富文本" : "当前富文本编辑器，点击切换到 Markdown"}
+            disabled={modeSwitching}
+            title={
+              modeSwitching
+                ? t("editor.modeSwitch.switching")
+                : editorMode === "md"
+                ? t("editor.modeSwitch.toTiptap")
+                : t("editor.modeSwitch.toMd")
+            }
             className={cn(
               "flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium transition-colors border",
               editorMode === "md"
                 ? "bg-accent-primary/10 text-accent-primary border-accent-primary/30 hover:bg-accent-primary/15"
-                : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active"
+                : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active",
+              modeSwitching && "opacity-50 cursor-not-allowed"
             )}
           >
             <FileCode size={12} />
@@ -783,18 +1354,42 @@ export default function EditorPane() {
         </div>
       </div>
 
+      {/* Phase 2: 实时协作横幅（软锁 / 远程更新 / 远程删除） */}
+      <EditingLockBanner users={presenceUsers} />
+      {remoteUpdate && (
+        <RemoteUpdateBanner
+          actorName={findUsername(remoteUpdate.actorUserId)}
+          onReload={handleReloadRemote}
+          onDismiss={() => setRemoteUpdate(null)}
+        />
+      )}
+      {remoteDelete && (
+        <RemoteDeleteBanner
+          actorName={findUsername(remoteDelete.actorUserId)}
+          trashed={remoteDelete.trashed}
+          onDismiss={handleAckRemoteDelete}
+        />
+      )}
+
       {/* Editor (MD / Tiptap 按模式分派) + Outline */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
           {editorMode === "md" ? (
             <MarkdownEditor
+              // Phase 3: key 绑定 CRDT 启用态，切换 provider 时强制重建编辑器，
+              // 避免 yCollab 扩展在运行时更换 yText 带来的状态错乱
+              key={collabYDoc ? `md-y-${activeNote.id}` : `md-${activeNote.id}`}
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={(fn) => { scrollToRef.current = fn; }}
-              editable={!activeNote.isLocked}
+              // UX3：模式切换期间冻结编辑（避免用户在 mount→unmount 间隔里敲字，
+              // 这段输入进不了任一编辑器的数据流，属于"黑洞输入"）。
+              editable={!activeNote.isLocked && !modeSwitching}
+              yDoc={collabYDoc}
+              awareness={collabProvider?.awareness ?? null}
             />
           ) : (
             <TiptapEditor
@@ -804,9 +1399,32 @@ export default function EditorPane() {
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={(fn) => { scrollToRef.current = fn; }}
-              editable={!activeNote.isLocked}
+              editable={!activeNote.isLocked && !modeSwitching}
             />
           )}
+          {/*
+            UX1/UX2：编辑器切换中 overlay。
+            - 盖在当前编辑器上方，阻挡误点击 / 视觉提示"切换中"；
+            - AnimatePresence 让进出过渡平滑，避免"咔"一下；
+            - pointer-events-auto 既拦截点击也防止 Tiptap/CM6 的选区被破坏。
+          */}
+          <AnimatePresence>
+            {modeSwitching && (
+              <motion.div
+                key="editor-mode-switching-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="absolute inset-0 z-20 flex items-center justify-center bg-app-bg/60 backdrop-blur-sm pointer-events-auto"
+              >
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-app-elevated border border-app-border shadow-sm text-sm text-tx-secondary">
+                  <Loader2 size={14} className="animate-spin text-accent-primary" />
+                  <span>{t("editor.modeSwitch.switchingLabel")}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       {/* 分享弹窗 */}
       {showShareModal && (

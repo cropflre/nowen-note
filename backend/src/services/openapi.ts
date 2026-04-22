@@ -87,17 +87,6 @@ export function generateOpenAPISpec(): Record<string, any> {
             noteId: { type: "string", nullable: true },
           },
         },
-        Pipeline: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            name: { type: "string" },
-            icon: { type: "string" },
-            description: { type: "string" },
-            steps: { type: "array", items: { type: "object" } },
-            isBuiltin: { type: "integer" },
-          },
-        },
         Plugin: {
           type: "object",
           properties: {
@@ -241,18 +230,6 @@ export function generateOpenAPISpec(): Record<string, any> {
         get: { tags: ["AI"], summary: "知识库统计", responses: { "200": { description: "统计数据" } } },
       },
 
-      // ===== 管道 =====
-      "/api/pipelines": {
-        get: { tags: ["批处理管道"], summary: "获取管道列表", responses: { "200": { description: "管道列表" } } },
-        post: { tags: ["批处理管道"], summary: "创建管道", responses: { "201": { description: "创建成功" } } },
-      },
-      "/api/pipelines/{id}/run": {
-        post: { tags: ["批处理管道"], summary: "执行管道", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], requestBody: { content: { "application/json": { schema: { type: "object", properties: { noteIds: { type: "array", items: { type: "string" } } } } } } }, responses: { "200": { description: "执行结果" } } },
-      },
-      "/api/pipelines/step-types": {
-        get: { tags: ["批处理管道"], summary: "获取可用步骤类型", responses: { "200": { description: "步骤类型列表" } } },
-      },
-
       // ===== 插件 =====
       "/api/plugins": {
         get: { tags: ["插件"], summary: "获取已加载插件列表", responses: { "200": { description: "插件列表", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Plugin" } } } } } } },
@@ -335,7 +312,6 @@ export function generateOpenAPISpec(): Record<string, any> {
       { name: "思维导图", description: "思维导图管理" },
       { name: "搜索", description: "全文搜索" },
       { name: "AI", description: "AI 写作助手与知识库问答" },
-      { name: "批处理管道", description: "笔记批处理管道" },
       { name: "插件", description: "插件管理与执行" },
       { name: "Webhook", description: "Webhook 事件推送" },
       { name: "审计日志", description: "操作审计日志" },

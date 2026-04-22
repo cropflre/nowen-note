@@ -11,7 +11,7 @@ import {
   ImportFileInfo, ImportProgress
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
-import { api } from "@/lib/api";
+import { api, withSudo } from "@/lib/api";
 import MiCloudImport from "@/components/MiCloudImport";
 import OppoCloudImport from "@/components/OppoCloudImport";
 import ICloudImport from "@/components/iCloudImport";
@@ -147,10 +147,18 @@ export default function DataManager() {
   const [isResetting, setIsResetting] = useState(false);
   const [resetError, setResetError] = useState("");
   const [shake, setShake] = useState(false);
+  // H2: factory-reset 需要 sudo 二次验证，复用同一个弹窗让管理员输入当前密码
+  const [sudoPwd, setSudoPwd] = useState("");
 
   const handleFactoryReset = async () => {
     if (confirmText !== "RESET") {
       setResetError(t('dataManager.incorrectVerification'));
+      setShake(true);
+      setTimeout(() => setShake(false), 400);
+      return;
+    }
+    if (!sudoPwd) {
+      setResetError(t('dataManager.sudoPasswordRequired'));
       setShake(true);
       setTimeout(() => setShake(false), 400);
       return;
@@ -160,7 +168,15 @@ export default function DataManager() {
     setResetError("");
 
     try {
-      await api.factoryReset(confirmText);
+      // 先用当前密码换 sudo token；失败会抛出（密码错 / 429）
+      const out = await withSudo(
+        (tk) => api.factoryReset(confirmText, tk),
+        () => sudoPwd,
+      );
+      if (!out) {
+        setIsResetting(false);
+        return;
+      }
       localStorage.clear();
       sessionStorage.clear();
       window.location.reload();
@@ -508,7 +524,7 @@ export default function DataManager() {
         </p>
 
         <button
-          onClick={() => { setShowResetModal(true); setConfirmText(""); setResetError(""); }}
+          onClick={() => { setShowResetModal(true); setConfirmText(""); setResetError(""); setSudoPwd(""); }}
           className="px-4 py-2 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg transition-colors text-sm"
         >
           {t('dataManager.factoryReset')}
@@ -581,9 +597,30 @@ export default function DataManager() {
                   <p className="text-sm text-red-500 mt-2">{resetError}</p>
                 )}
 
+                {/* H2: 二次密码验证（sudo） */}
+                <div className="mt-4">
+                  <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5">
+                    {t('dataManager.sudoPasswordLabel')}
+                  </label>
+                  <input
+                    type="password"
+                    value={sudoPwd}
+                    onChange={(e) => {
+                      setSudoPwd(e.target.value);
+                      setResetError("");
+                    }}
+                    placeholder={t('dataManager.sudoPasswordPlaceholder')}
+                    autoComplete="current-password"
+                    className="w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none text-sm transition-colors border-zinc-300 dark:border-zinc-700 focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
+                  />
+                  <p className="text-[11px] text-zinc-400 mt-1">
+                    {t('dataManager.sudoPasswordHint')}
+                  </p>
+                </div>
+
                 <div className="flex justify-end gap-3 mt-5">
                   <button
-                    onClick={() => setShowResetModal(false)}
+                    onClick={() => { setShowResetModal(false); setSudoPwd(""); }}
                     disabled={isResetting}
                     className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                   >
@@ -591,7 +628,7 @@ export default function DataManager() {
                   </button>
                   <button
                     onClick={handleFactoryReset}
-                    disabled={isResetting || confirmText !== "RESET"}
+                    disabled={isResetting || confirmText !== "RESET" || !sudoPwd}
                     className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg flex items-center transition-colors"
                   >
                     {isResetting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

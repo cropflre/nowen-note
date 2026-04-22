@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Star, Trash2, Search, ChevronRight,
-  ChevronDown, Hash, PanelLeftClose, PanelLeft, ListTodo,
+  ChevronDown, PanelLeftClose, PanelLeft, ListTodo,
   Settings, LogOut, FilePlus, FolderPlus, Edit2, X, BrainCircuit,
-  FileSpreadsheet, Bot, CalendarDays, Smile, Workflow, GripVertical,
-  FolderInput, Check, Folder, Home
+  Bot, CalendarDays, Smile, GripVertical,
+  FolderInput, Check, Home
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import SettingsModal from "@/components/SettingsModal";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import TagColorPicker from "@/components/TagColorPicker";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
-import { api } from "@/lib/api";
+import { api, broadcastLogout } from "@/lib/api";
 import { Notebook, ViewMode } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -443,10 +444,16 @@ function NotebookItem({
         onClick={() => onSelect(notebook.id)}
         onContextMenu={(e) => onContextMenu(e, notebook.id)}
         draggable={draggable && !isEditing}
-        onDragStart={(e) => { e.stopPropagation(); onDragStart?.(e, notebook.id); }}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragOver?.(e, notebook.id); }}
+        // framer-motion 的 motion.div 把 onDragStart/onDrag/onDragEnd 的类型
+        // 重载为手势系统签名（MouseEvent | PointerEvent | TouchEvent + PanInfo），
+        // 且没有暴露 React.DragEvent 的重载分支。但只有在 motion 组件显式设置
+        // drag prop 时才启用手势；我们没启用，运行时 motion 会把这些 handler
+        // 原样透传到底层 DOM 的 ondragstart/ondragover 等（HTML5 DnD）。
+        // 因此用 `as any` 绕过 TS 的手势签名约束，运行时行为与原生 DnD 一致。
+        onDragStart={((e: React.DragEvent) => { e.stopPropagation(); onDragStart?.(e, notebook.id); }) as any}
+        onDragOver={((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); onDragOver?.(e, notebook.id); }) as any}
         onDragEnd={() => onDragEnd?.()}
-        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop?.(e, notebook.id); }}
+        onDrop={(e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); onDrop?.(e, notebook.id); }}
       >
         {draggable && (
           <GripVertical size={12} className="text-tx-tertiary opacity-0 group-hover:opacity-60 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
@@ -627,8 +634,23 @@ export default function Sidebar() {
   const tree = useMemo(() => buildTree(state.notebooks), [state.notebooks]);
 
   useEffect(() => {
-    api.getNotebooks().then(actions.setNotebooks).catch(console.error);
-    api.getTags().then(actions.setTags).catch(console.error);
+    const loadScopedData = () => {
+      api.getNotebooks().then(actions.setNotebooks).catch(console.error);
+      api.getTags().then(actions.setTags).catch(console.error);
+    };
+    loadScopedData();
+
+    // Phase 1: 工作区切换时重载数据
+    const onWorkspaceChange = () => {
+      // 清空选中状态避免跨空间残留
+      actions.setSelectedNotebook(null);
+      actions.setViewMode("all");
+      loadScopedData();
+      // 触发 NoteList 重新拉取
+      actions.refreshNotes();
+    };
+    window.addEventListener("nowen:workspace-changed", onWorkspaceChange);
+    return () => window.removeEventListener("nowen:workspace-changed", onWorkspaceChange);
   }, []);
 
   // 更换笔记本图标
@@ -1003,7 +1025,6 @@ export default function Sidebar() {
     { icon: <ListTodo size={16} />, label: t('sidebar.tasks'), mode: "tasks", active: state.viewMode === "tasks" },
     { icon: <BrainCircuit size={16} />, label: t('sidebar.mindMaps'), mode: "mindmaps", active: state.viewMode === "mindmaps" },
     { icon: <Bot size={16} />, label: t('sidebar.aiChat'), mode: "ai-chat", active: state.viewMode === "ai-chat" },
-    { icon: <Workflow size={16} />, label: t('sidebar.codex'), mode: "codex", active: state.viewMode === "codex" },
 
     { icon: <Star size={16} />, label: t('sidebar.favorites'), mode: "favorites", active: state.viewMode === "favorites" },
     { icon: <Trash2 size={16} />, label: t('sidebar.trash'), mode: "trash", active: state.viewMode === "trash" },
@@ -1035,6 +1056,11 @@ export default function Sidebar() {
             <X size={16} />
           </Button>
         </div>
+      </div>
+
+      {/* Workspace Switcher (Phase 1 多用户协作) */}
+      <div className="px-3 pt-2">
+        <WorkspaceSwitcher />
       </div>
 
       {/* Search */}
@@ -1279,7 +1305,8 @@ export default function Sidebar() {
         </button>
         <button
           onClick={() => {
-            localStorage.removeItem("nowen-token");
+            // L10: 广播给其他 tab 一起下线
+            broadcastLogout("user_logout");
             window.location.reload();
           }}
           title={t('sidebar.logout')}

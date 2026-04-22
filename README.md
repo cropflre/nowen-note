@@ -4,146 +4,175 @@
 
 A self-hosted private knowledge base, inspired by Synology Note Station.
 
+> **问题反馈 QQ 群 / Support QQ Group：`1093473044`**
+
+## 语言 / Language
+
+- [中文文档](#中文文档)
+- [English Documentation](#english-documentation)
+
 ---
 
 ## 中文文档
-## 问题反馈QQ群：1093473044
+
+### 目录
+
+- [简介](#简介)
+- [技术栈](#技术栈)
+- [项目结构](#项目结构)
+- [安装部署](#安装部署)
+- [核心功能](#核心功能)
+- [开发者工具](#开发者工具)
+- [NPM 脚本](#npm-脚本)
+- [数据迁移脚本](#数据迁移脚本)
+- [Docker Compose 架构](#docker-compose-架构)
+- [数据库设计](#数据库设计)
+- [API 路由一览](#api-路由一览)
 
 ### 简介
 
-nowen-note 是一款自托管的私有化知识管理应用，采用现代前后端分离架构，支持 Docker 一键部署、Electron 桌面客户端、Android 移动端（Capacitor）。集成 Tiptap 富文本编辑器、AI 智能写作助手（支持 6 大 AI 服务商 + 本地 Ollama）、思维导图、任务管理中心、FTS5 全文搜索、笔记分享协作（密码保护/有效期/评论批注）、版本历史回溯、批处理管道（AI 增强）、插件系统、Webhook 事件推送、审计日志、数据备份恢复、多平台数据导入（小米/OPPO/iCloud）、数据导出等功能，打造一体化知识管理平台。同时提供 MCP Server（22 个 AI 工具）、TypeScript SDK 和命令行工具（CLI），构建完整的开发者生态系统。
+**nowen-note** 是一款自托管的私有化知识管理应用，采用现代前后端分离架构，支持 Docker 一键部署、Electron 桌面客户端，以及基于 Capacitor 的 Android 移动端。
+
+一体化能力：
+
+- **双编辑器引擎**：Tiptap 3 富文本 + CodeMirror 6 Markdown，可一键切换
+- **AI 智能助手**：集成 6 大 AI 服务商（通义千问 / OpenAI / Gemini / DeepSeek / 豆包 / Ollama），提供写作助手、生成标题、推荐标签、RAG 知识库问答
+- **知识管理**：无限层级笔记本、彩色标签、任务管理、思维导图、说说动态、FTS5 全文搜索
+- **协作与历史**：笔记分享（密码 / 有效期 / 权限 / 评论批注）、版本历史回溯
+- **自动化**：插件系统（沙箱热加载）、Webhook 事件推送、审计日志
+- **数据治理**：自动定时备份、一键恢复；多平台数据导入（小米云笔记 / OPPO 云便签 / iPhone 备忘录）、Markdown + YAML frontmatter 导出
+- **开发者生态**：MCP Server（22 个 AI 工具）、TypeScript SDK（60+ API）、CLI（8 组命令）、OpenAPI 3.0 规范
 
 ### 技术栈
 
-| 层级     | 技术                                                         |
-| -------- | ------------------------------------------------------------ |
-| 前端框架 | React 18 + TypeScript + Vite 5                               |
-| 编辑器   | Tiptap 3（代码高亮、图片、任务列表、下划线、文本高亮等）     |
-| UI 组件  | Radix UI + shadcn/ui 风格组件 + Lucide Icons                 |
-| 样式     | Tailwind CSS 3.4 + Framer Motion                             |
-| 国际化   | i18next（中英文切换）                                         |
-| 后端框架 | Hono 4 + @hono/node-server                                   |
-| 数据库   | SQLite（better-sqlite3）+ FTS5 全文搜索                      |
-| 认证     | JWT（jsonwebtoken）+ bcryptjs 密码哈希                       |
-| 数据校验 | Zod                                                          |
-| AI 引擎  | 通义千问 / OpenAI / Google Gemini / DeepSeek / 豆包 / Ollama |
-| 数据处理 | JSZip（压缩打包）、Turndown（HTML→Markdown）、FileSaver      |
-| Markdown | react-markdown + remark-gfm（AI 聊天渲染）                   |
-| 桌面端   | Electron 33（NSIS / DMG / AppImage 打包）                    |
-| 移动端   | Capacitor 8（Android 原生壳）                                 |
-| 开发者工具 | MCP Server + TypeScript SDK + CLI                           |
+| 层级       | 技术                                                                |
+| ---------- | ------------------------------------------------------------------- |
+| 前端框架   | React 18 + TypeScript + Vite 5                                      |
+| 富文本编辑 | Tiptap 3（代码高亮、图片、任务列表、下划线、文本高亮等）            |
+| Markdown   | CodeMirror 6 + `@codemirror/lang-markdown`                          |
+| UI 组件    | Radix UI + shadcn/ui 风格组件 + Lucide Icons                        |
+| 样式       | Tailwind CSS 3.4 + Framer Motion                                    |
+| 国际化     | i18next（中英文切换）                                               |
+| 后端框架   | Hono 4 + `@hono/node-server`                                        |
+| 数据库     | SQLite（better-sqlite3）+ FTS5 全文搜索                             |
+| 认证       | JWT（jsonwebtoken）+ bcryptjs 密码哈希                              |
+| 数据校验   | Zod                                                                 |
+| AI 引擎    | 通义千问 / OpenAI / Google Gemini / DeepSeek / 豆包 / Ollama        |
+| 数据处理   | JSZip（压缩打包）、Turndown（HTML→Markdown）、FileSaver             |
+| Markdown 渲染 | react-markdown + remark-gfm（AI 聊天渲染）                       |
+| 桌面端     | Electron 33（NSIS / DMG / AppImage 打包）                           |
+| 移动端     | Capacitor 8（Android 原生壳）                                       |
+| 开发者工具 | MCP Server + TypeScript SDK + CLI + OpenAPI 3.0                     |
 
 ### 项目结构
 
 ```
 nowen-note/
-├── frontend/              # 前端 React 应用
+├── frontend/                       # 前端 React 应用
 │   ├── src/
-│   │   ├── components/    # 组件（28 个）
-│   │   │   ├── Sidebar.tsx            # 侧边栏（笔记本树 + 导航 + 标签）
-│   │   │   ├── NoteList.tsx           # 笔记列表（多视图 + 右键菜单）
-│   │   │   ├── EditorPane.tsx         # 编辑器面板（AI 标题/标签 + 大纲 + 锁定 + 分享 + 版本历史）
-│   │   │   ├── TiptapEditor.tsx       # Tiptap 富文本编辑器
-│   │   │   ├── AIChatPanel.tsx        # AI 知识库问答面板（RAG + Markdown 渲染）
-│   │   │   ├── AIWritingAssistant.tsx # AI 写作助手（10 种文本操作）
-│   │   │   ├── AISettingsPanel.tsx    # AI 服务配置（6 大 Provider 卡片）
-│   │   │   ├── TaskCenter.tsx         # 任务管理中心
-│   │   │   ├── MindMapEditor.tsx      # 思维导图编辑器
-│   │   │   ├── DiaryCenter.tsx        # 说说/动态（微博风格时间线）
-│   │   │   ├── CodexPanel.tsx         # 批处理管道面板（Codex 可视化流水线）
-│   │   │   ├── ShareModal.tsx         # 分享弹窗（链接生成 + 密码 + 有效期 + 权限）
-│   │   │   ├── SharedNoteView.tsx     # 公开分享笔记查看页
-│   │   │   ├── CommentPanel.tsx       # 评论批注面板（行内锚点 + 回复 + 解决）
+│   │   ├── components/             # 业务组件（约 34 个）
+│   │   │   ├── Sidebar.tsx             # 侧边栏（笔记本树 + 导航 + 标签）
+│   │   │   ├── NoteList.tsx            # 笔记列表（多视图 + 右键菜单）
+│   │   │   ├── EditorPane.tsx          # 编辑器面板（AI 标题/标签 + 大纲 + 锁定 + 分享 + 版本历史）
+│   │   │   ├── TiptapEditor.tsx        # Tiptap 富文本编辑器
+│   │   │   ├── MarkdownEditor.tsx      # CodeMirror Markdown 编辑器
+│   │   │   ├── MarkdownSlashMenu.tsx   # Markdown 编辑器斜杠菜单
+│   │   │   ├── SlashCommands.tsx       # Tiptap 斜杠命令
+│   │   │   ├── CodeBlockView.tsx       # Tiptap 代码块视图（语言切换 / 一键复制）
+│   │   │   ├── editors/
+│   │   │   │   └── types.ts            # NoteEditorProps / NoteEditorHandle 统一契约
+│   │   │   ├── AIChatPanel.tsx         # AI 知识库问答面板（RAG + Markdown 渲染）
+│   │   │   ├── AIWritingAssistant.tsx  # AI 写作助手（10 种文本操作）
+│   │   │   ├── AISettingsPanel.tsx     # AI 服务配置（6 大 Provider 卡片）
+│   │   │   ├── TaskCenter.tsx          # 任务管理中心
+│   │   │   ├── MindMapEditor.tsx       # 思维导图编辑器
+│   │   │   ├── DiaryCenter.tsx         # 说说/动态（微博风格时间线）
+│   │   │   ├── ShareModal.tsx          # 分享弹窗（链接 + 密码 + 有效期 + 权限）
+│   │   │   ├── SharedNoteView.tsx      # 公开分享笔记查看页
+│   │   │   ├── CommentPanel.tsx        # 评论批注面板（行内锚点 + 回复 + 解决）
 │   │   │   ├── VersionHistoryPanel.tsx # 版本历史面板（版本对比 + 回滚）
-│   │   │   ├── TagColorPicker.tsx     # 标签颜色选择器
-│   │   │   ├── LoginPage.tsx          # 登录页
-│   │   │   ├── ServerConnect.tsx      # 服务器连接配置（客户端模式）
-│   │   │   ├── ContextMenu.tsx        # 通用右键菜单组件
-│   │   │   ├── SettingsModal.tsx      # 设置中心（外观/AI/安全/数据）
-│   │   │   ├── SecuritySettings.tsx   # 账号安全设置
-│   │   │   ├── DataManager.tsx        # 数据管理（导入导出 + 恢复出厂）
-│   │   │   ├── MiCloudImport.tsx      # 小米云笔记导入
-│   │   │   ├── OppoCloudImport.tsx    # OPPO 云便签导入
-│   │   │   ├── iCloudImport.tsx       # iPhone/iCloud 备忘录导入
-│   │   │   ├── TagInput.tsx           # 标签输入组件
-│   │   │   ├── ThemeProvider.tsx      # 主题 Provider
-│   │   │   └── ThemeToggle.tsx        # 主题切换
-│   │   ├── hooks/         # 自定义 Hooks
-│   │   │   ├── useContextMenu.ts      # 右键菜单状态管理 + 边缘碰撞检测
-│   │   │   ├── useCapacitor.ts        # Capacitor 移动端能力（返回键/状态栏/触觉反馈）
-│   │   │   └── useSiteSettings.tsx    # 站点设置 Context（标题/图标/字体）
-│   │   ├── store/         # 状态管理（useReducer + Context）
-│   │   ├── lib/           # 工具函数 & API 封装
-│   │   │   ├── api.ts              # API 客户端（含 AI 流式接口）
-│   │   │   ├── exportService.ts    # 导出服务
-│   │   │   ├── importService.ts    # 导入服务
-│   │   │   └── miNoteService.ts    # 小米云笔记服务封装
-│   │   ├── i18n/          # 国际化配置 & 语言包（中/英）
-│   │   └── types/         # 类型定义
-│   ├── capacitor.config.ts # Capacitor 移动端配置
-│   └── android/           # Android 原生壳
-├── backend/               # 后端 Hono 应用
+│   │   │   ├── TagColorPicker.tsx      # 标签颜色选择器
+│   │   │   ├── TagInput.tsx            # 标签输入组件
+│   │   │   ├── LoginPage.tsx           # 登录页
+│   │   │   ├── ServerConnect.tsx       # 服务器连接配置（客户端模式）
+│   │   │   ├── ContextMenu.tsx         # 通用右键菜单
+│   │   │   ├── SettingsModal.tsx       # 设置中心（外观/AI/安全/数据）
+│   │   │   ├── SecuritySettings.tsx    # 账号安全设置
+│   │   │   ├── DataManager.tsx         # 数据管理（导入导出 + 恢复出厂）
+│   │   │   ├── MiCloudImport.tsx       # 小米云笔记导入
+│   │   │   ├── OppoCloudImport.tsx     # OPPO 云便签导入
+│   │   │   ├── iCloudImport.tsx        # iPhone/iCloud 备忘录导入
+│   │   │   ├── ThemeProvider.tsx       # 主题 Provider
+│   │   │   ├── ThemeToggle.tsx         # 主题切换
+│   │   │   ├── Toaster.tsx             # 全局 Toast
+│   │   │   └── ui/                     # 通用 UI 基元（按钮、对话框等）
+│   │   ├── hooks/                  # 自定义 Hooks
+│   │   │   ├── useContextMenu.ts       # 右键菜单状态 + 边缘碰撞检测
+│   │   │   ├── useCapacitor.ts         # Capacitor 移动端能力（返回键/状态栏/触觉）
+│   │   │   └── useSiteSettings.tsx     # 站点设置 Context（标题/图标/字体）
+│   │   ├── store/                  # 状态管理（useReducer + Context）
+│   │   ├── lib/                    # 工具函数 & API 封装
+│   │   │   ├── api.ts                  # API 客户端（含 AI 流式接口）
+│   │   │   ├── contentFormat.ts        # Tiptap JSON / Markdown / HTML 互转
+│   │   │   ├── markdownCommands.ts     # Markdown 编辑器命令（加粗/列表/标题等）
+│   │   │   ├── codeBlockTheme.ts       # Tiptap 代码块主题
+│   │   │   ├── exportService.ts        # 导出服务
+│   │   │   ├── importService.ts        # 导入服务
+│   │   │   ├── miNoteService.ts        # 小米云笔记服务封装
+│   │   │   ├── toast.ts                # Toast 工具
+│   │   │   └── utils.ts                # 通用工具
+│   │   ├── i18n/                   # 国际化配置 & 语言包（中/英）
+│   │   └── types/                  # 类型定义
+│   ├── capacitor.config.ts         # Capacitor 移动端配置
+│   └── android/                    # Android 原生壳
+├── backend/                        # 后端 Hono 应用
 │   └── src/
-│       ├── db/            # 数据库 Schema & 迁移（16 张表 + FTS5）
-│       ├── routes/        # API 路由（21 个模块）
-│       │   ├── auth.ts        # 认证（登录/改密/恢复出厂）
-│       │   ├── notebooks.ts   # 笔记本 CRUD（无限层级）
-│       │   ├── notes.ts       # 笔记 CRUD（锁定/置顶/收藏 + Webhook/审计集成）
-│       │   ├── tags.ts        # 标签管理
-│       │   ├── tasks.ts       # 待办任务（子任务/优先级/截止日期）
-│       │   ├── mindmaps.ts    # 思维导图 CRUD
-│       │   ├── diary.ts       # 说说/动态（时间线 + 发布/删除/统计）
-│       │   ├── ai.ts          # AI 聊天 + 写作助手 + RAG 知识问答
-│       │   ├── search.ts      # FTS5 全文搜索
-│       │   ├── export.ts      # 数据导入导出
-│       │   ├── shares.ts      # 笔记分享（链接/密码/权限/评论/版本历史）
-│       │   ├── pipelines.ts   # 批处理管道引擎（5 种步骤类型）
-│       │   ├── plugins.ts     # 插件管理与执行
-│       │   ├── webhooks.ts    # Webhook 管理（CRUD + 测试 + 投递日志）
-│       │   ├── audit.ts       # 审计日志（查询/统计/清理）
-│       │   ├── backups.ts     # 数据备份与恢复
-│       │   ├── settings.ts    # 站点配置（标题/图标/字体）
-│       │   ├── fonts.ts       # 自定义字体管理（上传/下载/删除）
-│       │   ├── micloud.ts     # 小米云笔记导入 API
-│       │   ├── oppocloud.ts   # OPPO 云便签导入 API
-│       │   └── icloud.ts      # iPhone/iCloud 备忘录导入 API
-│       ├── services/      # 服务层
-│       │   ├── webhook.ts     # Webhook 事件分发（HMAC-SHA256 签名 + 重试）
-│       │   ├── audit.ts       # 审计日志记录器
-│       │   ├── backup.ts      # 备份管理器（全量/增量 + 自动定时）
-│       │   └── openapi.ts     # OpenAPI 3.0 规范生成
-│       ├── plugins/       # 插件系统
-│       │   └── plugin-loader.ts  # 插件加载器（热加载 + 沙箱执行）
-│       └── index.ts       # 入口文件（JWT 中间件 + 速率限制 + 路由注册 + 静态文件托管）
-├── packages/              # 开发者工具包
-│   ├── nowen-mcp/         # MCP Server（22 个 AI 工具 + 资源）
-│   │   └── src/
-│   │       ├── index.ts       # MCP 工具注册
-│   │       └── api-client.ts  # API 客户端
-│   ├── nowen-sdk/         # TypeScript SDK（60+ API 方法）
-│   │   └── src/
-│   │       ├── client.ts      # NowenClient 完整 API
-│   │       ├── types.ts       # 类型定义
-│   │       └── index.ts       # 导出入口
-│   └── nowen-cli/         # 命令行工具（8 组命令）
-│       └── src/
-│           ├── cli.ts         # CLI 入口 + Commander 注册
-│           └── commands/      # 命令模块
-│               ├── notes.ts       # 笔记命令
-│               ├── notebooks.ts   # 笔记本命令
-│               ├── tags.ts        # 标签命令
-│               ├── tasks.ts       # 任务命令
-│               ├── search.ts      # 搜索命令
-│               ├── ai.ts          # AI 命令
-│               ├── pipelines.ts   # 管道命令
-│               └── config.ts      # 配置命令
-├── electron/              # Electron 桌面端
-│   ├── main.js            # 主进程（fork 后端 + 创建窗口）
-│   ├── builder.config.js  # electron-builder 打包配置
-│   └── icon.png           # 应用图标
-├── Dockerfile             # 多阶段构建（3 阶段）
-├── docker-compose.yml     # 容器编排（单服务 + 持久化卷）
-└── package.json           # 根级脚本
+│       ├── db/                     # 数据库 Schema & 迁移（16 张表 + FTS5）
+│       ├── routes/                 # API 路由（21 个模块）
+│       │   ├── auth.ts                 # 认证（登录/改密/恢复出厂）
+│       │   ├── notebooks.ts            # 笔记本 CRUD（无限层级）
+│       │   ├── notes.ts                # 笔记 CRUD（锁定/置顶/收藏 + Webhook/审计集成）
+│       │   ├── tags.ts                 # 标签管理
+│       │   ├── tasks.ts                # 待办任务（子任务/优先级/截止日期）
+│       │   ├── mindmaps.ts             # 思维导图 CRUD
+│       │   ├── diary.ts                # 说说/动态（时间线 + 发布/删除/统计）
+│       │   ├── ai.ts                   # AI 聊天 + 写作助手 + RAG 知识问答
+│       │   ├── search.ts               # FTS5 全文搜索
+│       │   ├── export.ts               # 数据导入导出
+│       │   ├── shares.ts               # 笔记分享（链接/密码/权限/评论/版本历史）
+│       │   ├── plugins.ts              # 插件管理与执行
+│       │   ├── webhooks.ts             # Webhook 管理（CRUD + 测试 + 投递日志）
+│       │   ├── audit.ts                # 审计日志（查询/统计/清理）
+│       │   ├── backups.ts              # 数据备份与恢复
+│       │   ├── settings.ts             # 站点配置（标题/图标/字体）
+│       │   ├── fonts.ts                # 自定义字体（上传/下载/删除）
+│       │   ├── micloud.ts              # 小米云笔记导入 API
+│       │   ├── oppocloud.ts            # OPPO 云便签导入 API
+│       │   └── icloud.ts               # iPhone/iCloud 备忘录导入 API
+│       ├── services/               # 服务层
+│       │   ├── webhook.ts              # Webhook 事件分发（HMAC-SHA256 签名 + 重试）
+│       │   ├── audit.ts                # 审计日志记录器
+│       │   ├── backup.ts               # 备份管理器（全量/增量 + 自动定时）
+│       │   └── openapi.ts              # OpenAPI 3.0 规范生成
+│       ├── plugins/                # 插件系统
+│       │   └── plugin-loader.ts        # 插件加载器（热加载 + 沙箱执行）
+│       └── index.ts                # 入口（JWT 中间件 + 速率限制 + 路由注册 + 静态托管）
+├── packages/                       # 开发者工具包
+│   ├── nowen-mcp/                  # MCP Server（22 个 AI 工具 + 资源）
+│   ├── nowen-sdk/                  # TypeScript SDK（60+ API 方法）
+│   └── nowen-cli/                  # 命令行工具（8 组命令）
+├── electron/                       # Electron 桌面端
+│   ├── main.js                     # 主进程（fork 后端 + 创建窗口）
+│   ├── builder.config.js           # electron-builder 打包配置
+│   └── icon.png                    # 应用图标
+├── scripts/                        # 维护脚本
+│   ├── migrate-tiptap-to-md.mjs    # Tiptap JSON → Markdown 批量迁移
+│   ├── export-zip.mjs              # 项目打包（archiver）
+│   ├── export-zip-jszip.mjs        # 项目打包（JSZip）
+│   └── verify-zip.mjs              # 打包产物校验
+├── Dockerfile                      # 多阶段构建
+├── docker-compose.yml              # 容器编排（单服务 + 持久化卷）
+└── package.json                    # 根级脚本
 ```
 
 ### 安装部署
@@ -438,7 +467,8 @@ storeFile=你的keystore路径
 - **字数统计**：实时显示词数和字符数（中文按字计数，英文按空格分词）
 - **笔记大纲**：自动提取 H1-H3 标题生成大纲面板，点击标题跳转定位
 - **日历筛选**：笔记列表标题栏日历按钮，选择日期后按更新时间筛选笔记
-- **乐观锁**：version 字段防止编辑冲突
+- **乐观锁**：`version` 字段防止编辑冲突；AI 生成标题等写操作在 409 冲突时会自动以最新版本重试一次
+- **版本写入节流**：5 分钟窗口内的同类 `edit` 版本会合并，避免 debounce 每次保存都落一条版本
 - **快捷键**：`Alt+N` 快速新建笔记
 
 #### 笔记本
@@ -456,9 +486,10 @@ storeFile=你的keystore路径
 - **AI 推荐标签**：智能推荐标签并自动创建、关联
 - **AI 知识问答（RAG）**：
   - 基于 FTS5 + LIKE 模糊检索知识库相关笔记
-  - 将检索到的笔记片段作为上下文组装 RAG 提示词
-  - SSE 流式输出，Markdown 格式化渲染
-  - 支持多轮对话（自动携带最近 6 条历史消息）
+  - 中文查询会先做 CJK bigram 拆分并过滤停用词，避免整句切不出关键词
+  - FTS 查询使用前缀通配，LIKE 兜底同时匹配 `title` 与 `contentText`
+  - 仍无命中时回退到最近 5 篇笔记作为上下文
+  - SSE 流式输出 + Markdown 渲染；支持多轮对话（自动携带最近 6 条历史消息）
   - 显示参考笔记来源标签
 - **多 AI 服务商支持**：
 
@@ -485,11 +516,11 @@ storeFile=你的keystore路径
 - **安全防护**：速率限制（每分钟 60 次访问 + 密码验证每分钟 10 次）、安全响应头
 
 #### 版本历史
-- **自动记录**：笔记每次保存自动创建版本快照
+- **自动记录**：笔记每次保存自动创建版本快照，同 5 分钟窗口内的 `edit` 版本自动合并，避免刷屏
 - **版本列表**：按时间倒序展示所有历史版本
 - **版本对比**：查看任意版本的标题和内容
 - **版本回滚**：一键恢复到历史版本
-- **变更摘要**：自动记录变更类型（编辑/创建/回滚）
+- **变更摘要**：自动记录变更类型（`edit` / `create` / `rollback`）
 
 #### 思维导图
 - 可视化脑图编辑器，自研树形布局算法
@@ -515,18 +546,6 @@ storeFile=你的keystore路径
 - **时间线分组**：按日期自动分组（今天/昨天/具体日期），游标分页加载更多
 - **统计概览**：总动态数 + 今日发布数
 
-#### 批处理管道（Codex）
-- **可视化流水线编辑器**：拖拽式步骤排列，实时预览执行结果
-- **5 种步骤类型**：
-  - AI 摘要 — 自动为笔记生成摘要
-  - AI 翻译 — 批量翻译笔记内容
-  - AI 标签 — 智能推荐并关联标签
-  - 内容格式化 — 自动优化排版
-  - 导出 — 批量导出为 Markdown/HTML/JSON
-- **内置管道模板**：预置常用管道（周报生成、知识整理、翻译管线等）
-- **批量选择笔记**：支持多选笔记作为管道输入
-- **执行进度**：实时展示每个步骤的执行状态和结果
-
 #### 插件系统
 - **热加载**：自动扫描 `data/plugins/` 目录加载插件
 - **沙箱执行**：隔离运行插件代码，防止系统影响
@@ -540,7 +559,6 @@ storeFile=你的keystore路径
   - `notebook.created` / `notebook.deleted`
   - `tag.created`
   - `task.created` / `task.completed`
-  - `pipeline.completed`
   - `plugin.executed`
   - `*`（通配：接收所有事件）
 - **HMAC-SHA256 签名**：`X-Nowen-Signature` 请求头，防止伪造
@@ -550,7 +568,7 @@ storeFile=你的keystore路径
 - **测试发送**：一键发送测试事件验证 Webhook 配置
 
 #### 审计日志
-- **10 大分类**：auth / note / notebook / tag / task / share / ai / pipeline / plugin / system
+- **10 大分类**：auth / note / notebook / tag / task / share / ai / plugin / system
 - **3 个级别**：info / warn / error
 - **自动记录**：笔记创建/删除等关键操作自动写入审计日志
 - **多维查询**：按用户/分类/级别/目标/日期范围/分页查询
@@ -662,8 +680,6 @@ storeFile=你的keystore路径
 | `nowen_create_task` | 创建任务 |
 | `nowen_toggle_task` | 切换任务完成状态 |
 | `nowen_ai_chat` | AI 知识库问答 |
-| `nowen_list_pipelines` | 获取管道列表 |
-| `nowen_run_pipeline` | 执行批处理管道 |
 | `nowen_list_webhooks` | 获取 Webhook 列表 |
 | `nowen_create_webhook` | 创建 Webhook |
 | `nowen_audit_stats` | 审计统计 |
@@ -781,10 +797,6 @@ nowen search <关键词>                      # 全文搜索
 nowen ai ask "你的问题"                    # 知识库问答
 nowen ai chat "对话内容"                   # AI 对话
 
-# 管道
-nowen pipelines list                       # 列出管道
-nowen pipelines run <id> --notes <id1,id2> # 执行管道
-
 # 配置
 nowen config show                          # 显示配置
 nowen config set-url <url>                 # 设置服务器地址
@@ -803,16 +815,18 @@ GET http://localhost:3001/api/openapi.json
 
 ### NPM 脚本
 
-| 命令 | 说明 |
-|------|------|
-| `npm run install:all` | 一键安装前后端所有依赖 |
-| `npm run dev:backend` | 开发模式启动后端（端口 3001） |
-| `npm run dev:frontend` | 开发模式启动前端（端口 5173） |
-| `npm run build:all` | 全量构建前后端 |
-| `npm run build:frontend` | 仅构建前端 |
-| `npm run build:backend` | 仅构建后端 |
-| `npm run electron:dev` | Electron 开发运行 |
-| `npm run electron:build` | Electron 打包发布 |
+| 命令                       | 说明                             |
+| -------------------------- | -------------------------------- |
+| `npm run install:all`      | 一键安装前后端所有依赖           |
+| `npm run dev:backend`      | 开发模式启动后端（端口 3001）    |
+| `npm run dev:frontend`     | 开发模式启动前端（端口 5173）    |
+| `npm run build:all`        | 全量构建前后端                   |
+| `npm run build:frontend`   | 仅构建前端                       |
+| `npm run build:backend`    | 仅构建后端                       |
+| `npm run electron:dev`     | Electron 开发运行                |
+| `npm run electron:build`   | Electron 打包发布                |
+| `npm run zip`              | 项目打包（archiver）             |
+| `npm run zip:jszip`        | 项目打包（JSZip）                |
 
 ### 数据迁移脚本
 
@@ -868,7 +882,7 @@ node scripts/migrate-tiptap-to-md.mjs --apply
 │  │  ┌─────────────┐                    │  │
 │  │  │  Frontend   │                    │  │
 │  │  │  React      │                    │  │
-│  │  │  Tiptap     │                    │  │
+│  │  │  Tiptap/MD  │                    │  │
 │  │  ├─────────────┤                    │  │
 │  │  │  Backend    │                    │  │
 │  │  │  Hono       │◄──► 外部 AI API:   │  │
@@ -927,7 +941,6 @@ node scripts/migrate-tiptap-to-md.mjs --apply
 | `/api/diary` | ✓ | 说说/动态（发布/时间线/删除/统计） |
 | `/api/ai` | ✓ | AI 聊天 + 写作助手 + RAG |
 | `/api/shares` | ✓ | 分享管理（创建/列表/更新/删除） |
-| `/api/pipelines` | ✓ | 批处理管道（列表/创建/执行/步骤类型） |
 | `/api/plugins` | ✓ | 插件（列表/重新加载/执行） |
 | `/api/webhooks` | ✓ | Webhook（CRUD + 测试 + 投递日志） |
 | `/api/audit` | ✓ | 审计日志（查询/统计/清理） |
@@ -942,34 +955,55 @@ node scripts/migrate-tiptap-to-md.mjs --apply
 
 ---
 
-# 问题反馈QQ群：1093473044
-
-
 ## English Documentation
+
+### Table of Contents
+
+- [Introduction](#introduction)
+- [Tech Stack](#tech-stack)
+- [Installation & Deployment](#installation--deployment)
+- [Key Features](#key-features)
+- [Developer Tools](#developer-tools)
+- [NPM Scripts](#npm-scripts)
+- [Data Migration Script](#data-migration-script)
+- [Docker Compose Architecture](#docker-compose-architecture)
+- [Database Design](#database-design)
+- [API Routes](#api-routes)
 
 ### Introduction
 
-nowen-note is a self-hosted private knowledge management application with a modern frontend-backend separated architecture. It supports one-click Docker deployment, Electron desktop client, and Android mobile app (Capacitor). Featuring a Tiptap rich-text editor, AI-powered writing assistant (supporting 6 major AI providers + local Ollama), mind mapping, task management, moments/status updates, FTS5 full-text search, note sharing & collaboration (password protection / expiry / comments), version history, batch processing pipelines (AI-enhanced), plugin system, Webhook event notifications, audit logging, data backup & restore, multi-platform data import (Xiaomi / OPPO / iCloud), data export, and more — an all-in-one knowledge management platform. It also provides an MCP Server (22 AI tools), TypeScript SDK, and CLI, forming a complete developer ecosystem.
+**nowen-note** is a self-hosted private knowledge management application with a modern frontend–backend separated architecture. It supports one-click Docker deployment, an Electron desktop client, and an Android mobile app built on Capacitor.
+
+All-in-one capabilities:
+
+- **Dual editor engines**: Tiptap 3 rich-text + CodeMirror 6 Markdown, switchable at runtime
+- **AI assistant**: 6 providers (Qwen / OpenAI / Gemini / DeepSeek / Doubao / Ollama) powering writing assistant, title generation, tag suggestion, and RAG knowledge Q&A
+- **Knowledge management**: unlimited nested notebooks, colored tags, tasks, mind maps, moments, and FTS5 full-text search
+- **Collaboration & history**: note sharing (password / expiry / permissions / inline comments) and version history
+- **Automation**: sandboxed hot-reload plugin system, Webhook events, and audit logs
+- **Data governance**: scheduled auto-backups with one-click restore; multi-platform import (Mi / OPPO / iCloud notes) and Markdown + YAML frontmatter export
+- **Developer ecosystem**: MCP Server (22 AI tools), TypeScript SDK (60+ APIs), CLI (8 command groups), and OpenAPI 3.0 spec
 
 ### Tech Stack
 
-| Layer         | Technology                                                                    |
-| ------------- | ----------------------------------------------------------------------------- |
-| Frontend      | React 18 + TypeScript + Vite 5                                               |
-| Editor        | Tiptap 3 (code highlight, image, task list, underline, text highlight, etc.)  |
-| UI Components | Radix UI + shadcn/ui style components + Lucide Icons                          |
-| Styling       | Tailwind CSS 3.4 + Framer Motion                                             |
-| i18n          | i18next (Chinese/English)                                                    |
-| Backend       | Hono 4 + @hono/node-server                                                   |
-| Database      | SQLite (better-sqlite3) + FTS5 full-text search                              |
-| Auth          | JWT (jsonwebtoken) + bcryptjs password hashing                                |
-| Validation    | Zod                                                                           |
-| AI Engine     | Qwen / OpenAI / Google Gemini / DeepSeek / Doubao / Ollama                   |
-| Data Utils    | JSZip (compression), Turndown (HTML→Markdown), FileSaver                      |
-| Markdown      | react-markdown + remark-gfm (AI chat rendering)                              |
-| Desktop       | Electron 33 (NSIS / DMG / AppImage packaging)                                |
-| Mobile        | Capacitor 8 (Android native shell)                                            |
-| Dev Tools     | MCP Server + TypeScript SDK + CLI                                             |
+| Layer           | Technology                                                                    |
+| --------------- | ----------------------------------------------------------------------------- |
+| Frontend        | React 18 + TypeScript + Vite 5                                                |
+| Rich Text       | Tiptap 3 (code highlight, image, task list, underline, text highlight, etc.)  |
+| Markdown        | CodeMirror 6 + `@codemirror/lang-markdown`                                    |
+| UI Components   | Radix UI + shadcn/ui style components + Lucide Icons                          |
+| Styling         | Tailwind CSS 3.4 + Framer Motion                                              |
+| i18n            | i18next (Chinese / English)                                                   |
+| Backend         | Hono 4 + `@hono/node-server`                                                  |
+| Database        | SQLite (better-sqlite3) + FTS5 full-text search                               |
+| Auth            | JWT (jsonwebtoken) + bcryptjs password hashing                                |
+| Validation      | Zod                                                                           |
+| AI Engine       | Qwen / OpenAI / Google Gemini / DeepSeek / Doubao / Ollama                    |
+| Data Utils      | JSZip (compression), Turndown (HTML→Markdown), FileSaver                      |
+| Markdown Render | react-markdown + remark-gfm (AI chat rendering)                               |
+| Desktop         | Electron 33 (NSIS / DMG / AppImage packaging)                                 |
+| Mobile          | Capacitor 8 (Android native shell)                                            |
+| Dev Tools       | MCP Server + TypeScript SDK + CLI + OpenAPI 3.0                               |
 
 ### Installation & Deployment
 
@@ -1113,7 +1147,8 @@ All NAS platforms with Docker support follow the same general steps:
 - **Word count**: Real-time word and character count (CJK characters counted individually, English by whitespace)
 - **Note outline**: Auto-extract H1-H3 headings into outline panel with click-to-scroll navigation
 - **Calendar filter**: Calendar button in note list header, filter notes by update date
-- **Optimistic locking**: Version field to prevent edit conflicts
+- **Optimistic locking**: `version` field prevents edit conflicts; write operations such as AI title generation automatically retry once with the latest version on a 409 conflict
+- **Version write throttling**: consecutive `edit` versions within a 5-minute window are merged to avoid flooding the version list on every debounce save
 - **Keyboard shortcut**: `Alt+N` for quick note creation
 
 #### Notebooks
@@ -1131,9 +1166,10 @@ All NAS platforms with Docker support follow the same general steps:
 - **AI Tag Suggestion**: Smart tag recommendation with auto-creation
 - **AI Knowledge Q&A (RAG)**:
   - Retrieves related notes via FTS5 + LIKE fuzzy search
-  - Assembles RAG prompt with note snippets as context
-  - SSE streaming output with Markdown rendering
-  - Multi-turn conversation (last 6 messages as history)
+  - Chinese queries are pre-tokenized with CJK bigram expansion and stop-word filtering, so full sentences are still able to produce usable keywords
+  - FTS queries use prefix wildcards; the LIKE fallback matches both `title` and `contentText`
+  - If no notes match, falls back to the 5 most recently updated notes as context
+  - SSE streaming output with Markdown rendering; multi-turn conversation (last 6 messages as history)
   - Displays referenced note source tags
 - **Multi-provider support**:
 
@@ -1160,11 +1196,11 @@ All NAS platforms with Docker support follow the same general steps:
 - **Security**: Rate limiting (60 req/min for access + 10 req/min for password verification), security headers
 
 #### Version History
-- **Auto-snapshot**: Every save automatically creates a version snapshot
+- **Auto-snapshot**: Every save automatically creates a version snapshot; consecutive `edit` versions within a 5-minute window are merged
 - **Version list**: All historical versions displayed in reverse chronological order
 - **Version comparison**: View title and content of any historical version
 - **Rollback**: One-click restore to any previous version
-- **Change summary**: Automatic change type recording (edit/create/rollback)
+- **Change summary**: Automatic change type recording (`edit` / `create` / `rollback`)
 
 #### Mind Mapping
 - Visual mind map editor with custom tree layout algorithm
@@ -1190,18 +1226,6 @@ All NAS platforms with Docker support follow the same general steps:
 - **Timeline grouping**: Auto-grouped by date (today/yesterday/specific date), cursor-based pagination
 - **Stats overview**: Total moments count + today's post count
 
-#### Batch Processing Pipelines (Codex)
-- **Visual pipeline editor**: Drag-and-drop step arrangement with real-time preview
-- **5 step types**:
-  - AI Summary — Auto-generate note summaries
-  - AI Translation — Batch translate note content
-  - AI Tags — Smart tag recommendation and association
-  - Content Formatting — Auto optimize layout
-  - Export — Batch export as Markdown/HTML/JSON
-- **Built-in templates**: Pre-configured pipelines (weekly report, knowledge organization, translation, etc.)
-- **Batch note selection**: Multi-select notes as pipeline input
-- **Execution progress**: Real-time status and results for each step
-
 #### Plugin System
 - **Hot reload**: Auto-scan `data/plugins/` directory for plugins
 - **Sandboxed execution**: Isolated plugin code execution for safety
@@ -1215,7 +1239,6 @@ All NAS platforms with Docker support follow the same general steps:
   - `notebook.created` / `notebook.deleted`
   - `tag.created`
   - `task.created` / `task.completed`
-  - `pipeline.completed`
   - `plugin.executed`
   - `*` (wildcard: receive all events)
 - **HMAC-SHA256 signature**: `X-Nowen-Signature` header for tamper prevention
@@ -1225,7 +1248,7 @@ All NAS platforms with Docker support follow the same general steps:
 - **Test delivery**: One-click test event to verify Webhook configuration
 
 #### Audit Logging
-- **10 categories**: auth / note / notebook / tag / task / share / ai / pipeline / plugin / system
+- **10 categories**: auth / note / notebook / tag / task / share / ai / plugin / system
 - **3 levels**: info / warn / error
 - **Auto-logging**: Key operations (note create/delete, etc.) automatically recorded
 - **Multi-dimensional query**: By user / category / level / target / date range / pagination
@@ -1337,8 +1360,6 @@ Provides 22 callable tools and resources for AI assistants (Claude, Cursor, Wind
 | `nowen_create_task` | Create task |
 | `nowen_toggle_task` | Toggle task completion |
 | `nowen_ai_chat` | AI knowledge Q&A |
-| `nowen_list_pipelines` | List pipelines |
-| `nowen_run_pipeline` | Run batch pipeline |
 | `nowen_list_webhooks` | List Webhooks |
 | `nowen_create_webhook` | Create Webhook |
 | `nowen_audit_stats` | Audit statistics |
@@ -1399,7 +1420,6 @@ const backup = await client.createBackup("full");
 | Search | 1 | Full-text search |
 | AI | 5 | Chat / Q&A / settings / models / knowledge stats |
 | Export | 2 | Export / import |
-| Pipelines | 4 | List / create / run / step types |
 | Plugins | 3 | List / reload / execute |
 | Shares | 4 | Create / list / delete / update |
 | Mind Maps | 4 | CRUD |
@@ -1456,10 +1476,6 @@ nowen search <keyword>                     # Full-text search
 nowen ai ask "Your question"               # Knowledge Q&A
 nowen ai chat "Chat message"               # AI conversation
 
-# Pipelines
-nowen pipelines list                       # List pipelines
-nowen pipelines run <id> --notes <id1,id2> # Run pipeline
-
 # Config
 nowen config show                          # Show config
 nowen config set-url <url>                 # Set server URL
@@ -1478,16 +1494,18 @@ Covers 16 API groups, 50+ endpoints, with full request/response schema definitio
 
 ### NPM Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run install:all` | Install all frontend and backend dependencies |
-| `npm run dev:backend` | Start backend in development mode (port 3001) |
-| `npm run dev:frontend` | Start frontend in development mode (port 5173) |
-| `npm run build:all` | Build both frontend and backend |
-| `npm run build:frontend` | Build frontend only |
-| `npm run build:backend` | Build backend only |
-| `npm run electron:dev` | Run Electron in development mode |
-| `npm run electron:build` | Build Electron for release |
+| Command                      | Description                                           |
+| ---------------------------- | ----------------------------------------------------- |
+| `npm run install:all`        | Install all frontend and backend dependencies         |
+| `npm run dev:backend`        | Start backend in development mode (port 3001)         |
+| `npm run dev:frontend`       | Start frontend in development mode (port 5173)        |
+| `npm run build:all`          | Build both frontend and backend                       |
+| `npm run build:frontend`     | Build frontend only                                   |
+| `npm run build:backend`      | Build backend only                                    |
+| `npm run electron:dev`       | Run Electron in development mode                      |
+| `npm run electron:build`     | Build Electron for release                            |
+| `npm run zip`                | Project packaging (via `archiver`)                    |
+| `npm run zip:jszip`          | Project packaging (via `JSZip`)                       |
 
 ### Data Migration Script
 
@@ -1543,14 +1561,14 @@ The script only modifies the `notes.content` field; `contentText` is untouched s
 │  │  ┌─────────────┐                    │  │
 │  │  │  Frontend   │                    │  │
 │  │  │  React      │                    │  │
-│  │  │  Tiptap     │                    │  │
+│  │  │  Tiptap/MD  │                    │  │
 │  │  ├─────────────┤                    │  │
 │  │  │  Backend    │                    │  │
 │  │  │  Hono       │◄──► External AI:   │  │
 │  │  │  SQLite     │     Qwen/OpenAI    │  │
 │  │  │  JWT        │     Gemini/DeepSeek│  │
-│  │  │             │     Doubao/Ollama  │  │
-│  │  └─────────────┘                    │  │
+│  │  │             │     Doubao         │  │
+│  │  └─────────────┘     Ollama (opt.)  │  │
 │  └─────────────────────────────────────┘  │
 └───────────────────────────────────────────┘
 ```
@@ -1602,7 +1620,6 @@ The script only modifies the `notes.content` field; `contentText` is untouched s
 | `/api/diary` | ✓ | Moments (post / timeline / delete / stats) |
 | `/api/ai` | ✓ | AI chat + writing assistant + RAG |
 | `/api/shares` | ✓ | Share management (create / list / update / delete) |
-| `/api/pipelines` | ✓ | Batch pipelines (list / create / run / step types) |
 | `/api/plugins` | ✓ | Plugins (list / reload / execute) |
 | `/api/webhooks` | ✓ | Webhooks (CRUD + test + delivery logs) |
 | `/api/audit` | ✓ | Audit logs (query / stats / cleanup) |

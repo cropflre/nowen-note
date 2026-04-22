@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 编辑 · 铅笔 -->
+  <path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/>
+  <path d="m14.5 6.5 3 3" stroke="#3B82F6"/>
+  <path d="M5 17h3v3" stroke="#F59E0B"/>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Nowen Note Favicon · 轻量通透版
+       设计要点：
+       1. 透明背景，避免在浅色 tab 上形成黑块
+       2. 笔记卡片近乎填满画布（边距仅 2px），小尺寸可见度最大化
+       3. 白色纸面 + 品牌蓝描边，不再用深色底
+       4. 粗壮的蓝色 N 字母居中，16x16 也能识别
+  -->
+
+  <defs>
+    <!-- 纸面微渐变，避免纯白在浅色 tab 上消失 -->
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#EFF6FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 笔记卡片主体（带右上折角），品牌蓝 2px 描边 -->
+  <path fill="url(#paper)" stroke="#2563EB" stroke-width="2" stroke-linejoin="round"
+        d="M6 3h14l6 6v18a2 2 0 0 1-2 2h-18a2 2 0 0 1-2-2v-22a2 2 0 0 1 2-2z"/>
+
+  <!-- 折角：蓝色三角强化品牌识别 -->
+  <path fill="#3B82F6" stroke="#2563EB" stroke-width="1.5" stroke-linejoin="round"
+        d="M20 3v6h6z"/>
+
+  <!-- 字母 N（粗体几何风，实心色块） -->
+  <path fill="#2563EB"
+        d="M9 24V13h2.4l6.2 7V13H20v11h-2.4l-6.2-7v7z"/>
+
+  <!-- 右下角橙色小圆点，呼应品牌笔尖高光 -->
+  <circle cx="23" cy="23.5" r="1.6" fill="#F59E0B"/>
+</svg>

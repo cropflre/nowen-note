@@ -312,26 +312,6 @@ export class NowenApiClient {
     return this.request("/api/ai/knowledge-stats");
   }
 
-  // ==================== 管道 ====================
-
-  /** 获取管道列表 */
-  async listPipelines(): Promise<any[]> {
-    return this.request("/api/pipelines");
-  }
-
-  /** 执行管道 */
-  async runPipeline(pipelineId: string, noteIds: string[]): Promise<any> {
-    return this.request("/api/pipelines/" + pipelineId + "/run", {
-      method: "POST",
-      body: { noteIds },
-    });
-  }
-
-  /** 获取管道步骤类型 */
-  async getPipelineStepTypes(): Promise<any[]> {
-    return this.request("/api/pipelines/step-types");
-  }
-
   // ==================== 插件 ====================
 
   /** 获取已加载的插件列表 */

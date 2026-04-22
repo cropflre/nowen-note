@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 删除 · 危险色 -->
+  <path d="M4 7h16" stroke="#EF4444"/>
+  <path d="M9 7V4h6v3" stroke="#EF4444"/>
+  <path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" stroke="#EF4444"/>
+  <path d="m10 11 4 6M14 11l-4 6" stroke="#EF4444"/>
+</svg>

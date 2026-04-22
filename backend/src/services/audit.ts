@@ -17,7 +17,7 @@ import crypto from "crypto";
 
 // ===== 类型 =====
 
-export type AuditCategory = "auth" | "note" | "notebook" | "tag" | "task" | "share" | "ai" | "pipeline" | "plugin" | "system";
+export type AuditCategory = "auth" | "note" | "notebook" | "tag" | "task" | "share" | "ai" | "plugin" | "system";
 export type AuditLevel = "info" | "warn" | "error";
 
 export interface AuditEntry {

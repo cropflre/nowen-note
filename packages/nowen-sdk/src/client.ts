@@ -3,7 +3,6 @@
  *
  * 完整封装 Nowen Note 后端所有 REST API，支持：
  * - 笔记本/笔记/标签/任务/思维导图/日记 CRUD
- * - 批处理管道
  * - AI 写作助手 + 知识库问答
  * - 全文搜索
  * - 分享管理
@@ -17,8 +16,6 @@ import type {
   Tag, CreateTagParams,
   Task, TaskStats, ListTasksParams, CreateTaskParams, UpdateTaskParams,
   MindMap, CreateMindMapParams, UpdateMindMapParams,
-  Pipeline, CreatePipelineParams, UpdatePipelineParams,
-  PipelineRunResult, PipelineStepType, PipelineRun,
   AIChatParams, AIAskResult, AISettings, KnowledgeStats,
   SearchResult, SystemSettings, ExportFormat,
 } from "./types.js";
@@ -341,43 +338,6 @@ export class NowenClient {
   /** 全文搜索笔记 */
   async search(query: string): Promise<SearchResult[]> {
     return this.request("/api/search", { query: { q: query } });
-  }
-
-  // ==================== 批处理管道 ====================
-
-  /** 获取管道列表 */
-  async listPipelines(): Promise<Pipeline[]> {
-    return this.request("/api/pipelines");
-  }
-
-  /** 创建管道 */
-  async createPipeline(params: CreatePipelineParams): Promise<Pipeline> {
-    return this.request("/api/pipelines", { method: "POST", body: params });
-  }
-
-  /** 更新管道 */
-  async updatePipeline(id: string, params: UpdatePipelineParams): Promise<Pipeline> {
-    return this.request(`/api/pipelines/${id}`, { method: "PUT", body: params });
-  }
-
-  /** 删除管道 */
-  async deletePipeline(id: string): Promise<void> {
-    return this.request(`/api/pipelines/${id}`, { method: "DELETE" });
-  }
-
-  /** 执行管道 */
-  async runPipeline(id: string, noteIds: string[]): Promise<PipelineRunResult> {
-    return this.request(`/api/pipelines/${id}/run`, { method: "POST", body: { noteIds } });
-  }
-
-  /** 获取运行历史 */
-  async listPipelineRuns(): Promise<PipelineRun[]> {
-    return this.request("/api/pipelines/runs");
-  }
-
-  /** 获取可用步骤类型 */
-  async getPipelineStepTypes(): Promise<PipelineStepType[]> {
-    return this.request("/api/pipelines/step-types");
   }
 
   // ==================== AI ====================

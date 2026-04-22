@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 思维导图 · 中心节点 + 分支 -->
+  <circle cx="12" cy="12" r="3" fill="#3B82F6" stroke="#3B82F6"/>
+  <circle cx="4" cy="6" r="2"/>
+  <circle cx="4" cy="18" r="2"/>
+  <circle cx="20" cy="6" r="2"/>
+  <circle cx="20" cy="18" r="2"/>
+  <path d="M6 7l3.5 3.5M6 17l3.5-3.5M18 7l-3.5 3.5M18 17l-3.5-3.5"/>
+</svg>

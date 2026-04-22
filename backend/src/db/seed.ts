@@ -12,8 +12,8 @@ export function seedDatabase() {
   const passwordHash = crypto.createHash("sha256").update("admin123").digest("hex");
 
   db.prepare(`
-    INSERT INTO users (id, username, email, passwordHash) VALUES (?, ?, ?, ?)
-  `).run(userId, "admin", "admin@nowen-note.local", passwordHash);
+    INSERT INTO users (id, username, email, passwordHash, role, displayName) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(userId, "admin", "admin@nowen-note.local", passwordHash, "admin", "管理员");
 
   const nb1Id = uuid();
   const nb2Id = uuid();

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- 自适应深浅主题的 favicon
+       浅色主题：品牌蓝
+       深色主题：浅白灰
+       通过 prefers-color-scheme 控制
+  -->
+  <style>
+    .fg  { fill: #2563EB; }
+    .bg  { fill: #FFFFFF; }
+    .hl  { fill: #F59E0B; }
+    @media (prefers-color-scheme: dark) {
+      .fg { fill: #93C5FD; }
+      .bg { fill: #0F172A; }
+      .hl { fill: #FBBF24; }
+    }
+  </style>
+
+  <!-- 笔记卡片（外描边 + 内填充） -->
+  <path class="fg"
+        d="M6 3h14l6 6v18a2 2 0 0 1-2 2h-18a2 2 0 0 1-2-2v-22a2 2 0 0 1 2-2z"/>
+  <path class="bg"
+        d="M7.5 4.5h12l5 5v17a1 1 0 0 1-1 1h-16a1 1 0 0 1-1-1v-21a1 1 0 0 1 1-1z"/>
+  <!-- 折角 -->
+  <path class="fg" d="M19.5 4.5v5h5z"/>
+
+  <!-- 字母 N -->
+  <path class="fg"
+        d="M9 24V13h2.4l6.2 7V13H20v11h-2.4l-6.2-7v7z"/>
+
+  <!-- 橙色高光 -->
+  <circle class="hl" cx="23" cy="23.5" r="1.6"/>
+</svg>

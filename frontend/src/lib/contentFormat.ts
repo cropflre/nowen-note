@@ -31,6 +31,7 @@ import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
+import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
 import TurndownService from "turndown";
 import { parser as baseMdParser } from "@lezer/markdown";
@@ -74,8 +75,14 @@ export function detectFormat(content: string | null | undefined): ContentFormat 
     }
   }
 
-  // HTML 特征：以 `<tag` 开头（排除 `<3` / `<=` 这类非标签开头）
-  if (trimmed.startsWith("<") && /^<\w/.test(trimmed) && /<\/?\w+[\s>]/.test(trimmed)) {
+  // HTML 特征：以 `<tagname` 开头，且整体必须看起来像一个标签
+  //   正确：<p>…   <div class="x">…   <br/>
+  //   错误：<3 i love md   <= 5 items   < space
+  // 之前只用 `<\w` 检测首字符 + 全局查 `<\/?\w+[\s>]`，后者会把
+  // "<3 i love md" 里 " md" 部分误识为标签；这里改为只检查"开头是否
+  // 紧挨 tagname（直到遇到空白 / >、/）"是否合法，再要求整串至少含
+  // 一个完整标签（`<tag>` 或 `</tag>`），避免 heuristic 漂移。
+  if (trimmed.startsWith("<") && /^<[A-Za-z][A-Za-z0-9-]*(\s|\/|>)/.test(trimmed) && /<[A-Za-z][^<>]*>|<\/[A-Za-z][^<>]*>/.test(trimmed)) {
     return "html";
   }
 
@@ -103,6 +110,10 @@ function getTiptapExtensions() {
     TableRow,
     TableHeader,
     TableCell,
+    // TextAlign 必须与 TiptapEditor 的 extensions 对齐，否则 generateHTML 时
+    // `textAlign` 属性会被 Tiptap schema 过滤掉 → Turndown 拿不到 style
+    // → RTE→MD 时段落对齐被静默丢失。markdownToTiptapJSON 反向也靠它识别 align 属性。
+    TextAlign.configure({ types: ["heading", "paragraph"] }),
   ];
   return _extensions;
 }
@@ -131,15 +142,75 @@ function getTurndown(): TurndownService {
   });
 
   // 高亮 (mark) → ==text==
+  // 多色高亮：Tiptap 的 Highlight 多色扩展会把颜色写在 data-color / style 上，
+  // 为了 MD→RTE 回读时不丢颜色，有颜色的 mark 以 HTML 原样保留（MD 原生不支持染色语法）。
   td.addRule("highlight", {
     filter: "mark",
-    replacement: (content) => `==${content}==`,
+    replacement: (content, node) => {
+      const el = node as Element;
+      const color =
+        el.getAttribute("data-color") ||
+        (el.getAttribute("style") || "").match(/background-color:\s*([^;]+)/i)?.[1]?.trim() ||
+        "";
+      if (color) {
+        // 保留完整的 <mark data-color="..."> 使得 generateJSON 时 Highlight 能识别
+        return `<mark data-color="${color.replace(/"/g, "&quot;")}" style="background-color:${color.replace(/"/g, "&quot;")}">${content}</mark>`;
+      }
+      return `==${content}==`;
+    },
   });
 
   // 下划线保持 HTML（MD 原生不支持，且 Turndown 默认会丢 <u>）
   td.addRule("underline", {
     filter: ["u"] as any,
     replacement: (content) => `<u>${content}</u>`,
+  });
+
+  /**
+   * 段落 / 标题的 TextAlign：
+   *   Tiptap 的 TextAlign 扩展会在 <p> / <h1-3> 上渲染 style="text-align:center|right|justify"。
+   *   Markdown 没有原生对齐语法；如果完全按默认规则 turndown 会把 style 丢掉。
+   *   为了让 RTE→MD→RTE 回路能无损保留对齐，这里把带对齐的段落/标题"用 HTML 包一层"
+   *   重新输出：
+   *     - 标题：<h2 style="text-align:center">foo</h2>  —— Tiptap 的 HTML parser 会直接识别
+   *     - 段落：<p style="text-align:center">foo</p>
+   *   MD 渲染器（我们自己的 @lezer 解析 + markdownToHtml）遇到块级 HTML 会原样输出，
+   *   Tiptap generateJSON 再解析时能恢复 textAlign 属性。
+   *
+   *   对齐值为 'left' 或为空时视作默认，不做任何包装（避免 MD 里全是 HTML 噪音）。
+   */
+  const alignOf = (node: Element): string => {
+    const style = node.getAttribute("style") || "";
+    const m = style.match(/text-align:\s*([a-z]+)/i);
+    const v = (m?.[1] || "").toLowerCase();
+    if (v === "center" || v === "right" || v === "justify") return v;
+    return "";
+  };
+
+  td.addRule("alignedParagraph", {
+    filter: (node) => {
+      if (node.nodeName !== "P") return false;
+      return !!alignOf(node as Element);
+    },
+    replacement: (content, node) => {
+      const align = alignOf(node as Element);
+      const inner = content.replace(/^\n+|\n+$/g, "");
+      // 用块级 HTML 形式保留对齐；前后空行保证被 MD 解析器当作块级 HTML 而不是行内
+      return `\n\n<p style="text-align:${align}">${inner}</p>\n\n`;
+    },
+  });
+
+  td.addRule("alignedHeading", {
+    filter: (node) => {
+      if (!/^H[1-6]$/.test(node.nodeName)) return false;
+      return !!alignOf(node as Element);
+    },
+    replacement: (content, node) => {
+      const align = alignOf(node as Element);
+      const tag = node.nodeName.toLowerCase();
+      const inner = content.replace(/^\n+|\n+$/g, "");
+      return `\n\n<${tag} style="text-align:${align}">${inner}</${tag}>\n\n`;
+    },
   });
 
   _turndown = td;
@@ -326,7 +397,9 @@ function isMarkNode(name: string): boolean {
     name === "LinkTitle" ||
     name === "CodeInfo" ||
     name === "TaskMarker" ||
-    name === "TableDelimiter"
+    name === "TableDelimiter" ||
+    // GFM Strikethrough 的 `~~` 标记节点名（@lezer/markdown GFM 扩展）
+    name === "StrikethroughMark"
   );
 }
 
@@ -334,21 +407,29 @@ function isMarkNode(name: string): boolean {
  * 渲染 inline 节点序列为 HTML 片段
  *
  * 策略：
- *   - 直接对 node 的"覆盖区间"按顺序处理
- *   - 对于嵌套的 Emphasis / StrongEmphasis / Strikethrough / InlineCode / Link / Image
- *     走专门分支；其余位置把文本裸露输出并转义
+ *   - 把所有直接子节点（含 HeaderMark / EmphasisMark 等 mark 类）纳入
+ *     "已覆盖区间"，mark 区间跳过不输出（`**` / `#` 只是语法标记，不是内容）；
+ *   - 非 mark 的 child 走 renderInlineNode 产出 HTML；
+ *   - 区间之外的"gap"（通常只是空格）作为普通文本转义输出。
+ *
+ * 关键修正：以前用"已过滤掉 mark 的 child 列表"来推游标，会把 mark 节点覆盖
+ * 的 `**` / `# ` 原文当成 gap escapeHtml 出来，表现为：
+ *   "# H1"  → "<h1># H1</h1>"      （# 漏出）
+ *   "**bold**" → "<strong>**bold**</strong>" （** 漏出）
  */
 function renderInlineChildren(src: string, parent: SyntaxNode): string {
-  // 逐字符扫描：以 child 的区间覆盖输出，区间之外的原文作为普通文本
-  const kids = childrenOf(parent).filter((n) => !isMarkNode(n.name));
+  const allKids = childrenOf(parent);
   let out = "";
   let cursor = parent.from;
-  // 如果父是 ATXHeadingN，要跳过开头的 "# " 标记；我们靠 child 的 from/to 精确切即可
-  for (const child of kids) {
+  for (const child of allKids) {
     if (child.from > cursor) {
       out += escapeHtml(src.slice(cursor, child.from));
     }
-    out += renderInlineNode(src, child);
+    if (isMarkNode(child.name)) {
+      // 跳过标记符（`**`、`#`、`` ` `` 等），不输出
+    } else {
+      out += renderInlineNode(src, child);
+    }
     cursor = child.to;
   }
   if (cursor < parent.to) {

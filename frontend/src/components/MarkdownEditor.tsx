@@ -63,6 +63,8 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { tags as t } from "@lezer/highlight";
+import { yCollab } from "y-codemirror.next";
+import * as Y from "yjs";
 
 import { useTranslation } from "react-i18next";
 import {
@@ -317,11 +319,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   editable = true,
   isGuest = false,
   onAIAssistant,
+  yDoc,
+  awareness,
 }, ref) {
   const { t: tr } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+
+  /** Phase 3: 是否启用 CRDT 协同模式（y-codemirror.next 托管文档） */
+  const collabEnabled = !!(yDoc && awareness);
+  const collabEnabledRef = useRef(collabEnabled);
+  collabEnabledRef.current = collabEnabled;
 
   // 用 ref 追最新 note / callbacks，避免在 CM6 listener 里拿到过期闭包
   const noteRef = useRef(note);
@@ -472,7 +481,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const plain = markdownToPlainText(md);
     const title = titleRef.current?.value || noteRef.current.title;
     lastEmittedContentRef.current = md;
-    onUpdateRef.current({ content: md, contentText: plain, title });
+    // P0-#2 修复：CRDT 模式下 content 完全由服务端 Y.Doc 托管持久化，
+    // 若这里再发 content 会与 yjs 的 debounce 回写产生"后者覆盖前者"的竞态。
+    // 仅发送 meta（title），避免双写冲突。
+    if (collabEnabledRef.current) {
+      onUpdateRef.current({ title });
+    } else {
+      onUpdateRef.current({ content: md, contentText: plain, title });
+    }
   }, []);
 
   const scheduleSave = useCallback(() => {
@@ -510,6 +526,29 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         debounceTimer.current = null;
         emitSave();
       },
+      discardPending: () => {
+        // 切换编辑器时调用方已自行 PUT，清掉 debounce 避免后续覆盖
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+      },
+      /**
+       * 同步读取 CM6 当前文档内容，用于"切换 MD→RTE"时父组件直接回填
+       * activeNote.content，避免 RTE mount 时读到旧值。CRDT 模式下 yDoc 才是
+       * 权威来源，但这里的 markdown 字符串也与 yDoc 保持最终一致，仍可作为
+       * RTE 初始化的可靠快照。
+       */
+      getSnapshot: () => {
+        const view = viewRef.current;
+        if (!view) return null;
+        const md = view.state.doc.toString();
+        return {
+          content: md,
+          contentText: markdownToPlainText(md),
+        };
+      },
+      isReady: () => !!viewRef.current,
     }),
     [emitSave],
   );
@@ -520,7 +559,25 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     if (!hostRef.current) return;
     if (viewRef.current) return; // 防御重复挂载
 
-    const initialDoc = normalizeToMarkdown(note.content, note.contentText);
+    // Phase 3：CRDT 模式下，初始 doc 来自 yDoc.getText("content")（可能为空字符串，服务端 sync 后会填充）
+    // 注意：此时 yDoc 可能还没 synced，doc 里是空的——yCollab 扩展会在 applyUpdate 后自动反映到 CM。
+    //
+    // 安全准则：CRDT 分支下**不**用 normalizeToMarkdown(note.content) 兜底，否则会产生
+    // "客户端本地种子 → CM diff 回 yText → 客户端发 update；同时服务端也 seed 到 yText →
+    // sync 回来 applyUpdate" 的双向种子竞态，结果是 yText 中内容重复/错乱。
+    //
+    // RTE→MD 切换的内容迁移在 EditorPane.toggleEditorMode 里前置完成：
+    // 切换前先把 Tiptap JSON 规范化为 markdown 写回服务端 notes.content，
+    // CRDT 冷启动时服务端 inferMarkdownSeed 走 markdown 分支，一次性把结构化 MD
+    // 注入 yText，y:sync 回来就能看到正确内容。
+    let initialDoc: string;
+    if (collabEnabled && yDoc) {
+      initialDoc = yDoc.getText("content").toString();
+      // yText 还空就留空，等 y:sync
+      if (!initialDoc) initialDoc = "";
+    } else {
+      initialDoc = normalizeToMarkdown(note.content, note.contentText);
+    }
 
     const saveKeymap = keymap.of([
       {
@@ -576,6 +633,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const state = EditorState.create({
       doc: initialDoc,
       extensions: [
+        // Phase 3: CRDT 协同扩展（若启用）
+        // yCollab 必须放在靠前的位置，让它先处理 doc 变更
+        // P3-#14：显式配置 UndoManager 让撤销粒度按词语合并（350ms window）
+        ...(collabEnabled && yDoc && awareness
+          ? [yCollab(yDoc.getText("content"), awareness, {
+              undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
+            })]
+          : []),
+
         // 基础编辑能力
         lineNumbers({
           // 默认隐藏行号，但保留 gutter，便于未来装饰
@@ -595,7 +661,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         highlightActiveLine(),
         highlightSelectionMatches(),
         EditorView.lineWrapping,
-        placeholder(tr("tiptap.contentPlaceholder") || "开始写点什么..."),
+        placeholder(tr("tiptap.placeholder") || "开始写点什么..."),
 
         // MD 语法 + 代码块嵌套高亮
         markdown({
@@ -697,6 +763,20 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       debounceTimer.current = null;
     }
 
+    // Phase 3: CRDT 模式下文档由 yCollab 托管，不要手动 dispatch setContent，
+    // 否则会产生本地 update 覆盖远端状态。只保留统计/大纲刷新。
+    if (collabEnabledRef.current) {
+      if (lastSyncedNoteIdRef.current !== note.id) {
+        lastSyncedNoteIdRef.current = note.id;
+      }
+      setWordStats(computeStats(view.state.doc.toString()));
+      onHeadingsChangeRef.current?.(extractHeadings(view));
+      if (titleRef.current && titleRef.current.value !== note.title) {
+        titleRef.current.value = note.title;
+      }
+      return;
+    }
+
     // 切换笔记时重置自写守卫（新笔记的 content 肯定要真正应用）
     if (lastSyncedNoteIdRef.current !== note.id) {
       lastEmittedContentRef.current = null;
@@ -750,6 +830,21 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // 现在 EditorPane 会回填 content，所以 effect 会更频繁触发，
     // 上面的 lastEmittedContentRef 守卫负责避免"自己写完又被 setContent 回来"。
   }, [note.id, note.content]);
+
+  // ---------- 标题单独同步 ----------
+  //
+  // 为什么单拎出来：标题 input 是非受控的（`defaultValue={note.title}`），
+  // 上面的主 effect 只在 [note.id, note.content] 变化时才会跑。
+  // 当外部只改动 title（典型：点"AI 生成标题"按钮，后端返回新标题 → setActiveNote），
+  // content 没变，主 effect 不触发，DOM 里的标题永远保持旧值——用户会以为
+  //「AI 生成标题没生效」。这里加一个专用 effect 监听 note.title 即可。
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    if (el.value !== note.title) {
+      el.value = note.title;
+    }
+  }, [note.title]);
 
   // ---------- editable 开关同步 ----------
 

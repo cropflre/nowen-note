@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
     "cap:sync": "npx cap sync android",
     "cap:build": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android"
@@ -51,6 +53,7 @@
     "framer-motion": "^12.34.0",
     "i18next": "^25.8.13",
     "i18next-browser-languagedetector": "^8.2.1",
+    "jsdom": "^24.1.0",
     "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.563.0",
@@ -61,7 +64,12 @@
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "turndown": "^7.2.2"
+    "turndown": "^7.2.2",
+    "vitest": "^1.6.0",
+    "y-codemirror.next": "^0.3.5",
+    "y-indexeddb": "^9.0.12",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.30"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

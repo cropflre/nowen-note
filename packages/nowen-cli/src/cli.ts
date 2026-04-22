@@ -12,8 +12,6 @@
  *   nowen tags list               列出标签
  *   nowen ai ask <question>       知识库问答
  *   nowen ai process              AI 文本处理
- *   nowen pipelines list          列出管道
- *   nowen pipelines run <id>      运行管道
  *   nowen config                  配置连接信息
  *
  * 环境变量：
@@ -31,7 +29,6 @@ import { registerSearchCommand } from "./commands/search.js";
 import { registerTasksCommands } from "./commands/tasks.js";
 import { registerTagsCommands } from "./commands/tags.js";
 import { registerAICommands } from "./commands/ai.js";
-import { registerPipelinesCommands } from "./commands/pipelines.js";
 import { registerConfigCommand } from "./commands/config.js";
 
 // ===== 读取配置 =====
@@ -57,7 +54,6 @@ registerSearchCommand(program);
 registerTasksCommands(program);
 registerTagsCommands(program);
 registerAICommands(program);
-registerPipelinesCommands(program);
 registerConfigCommand(program);
 
 program.parse();

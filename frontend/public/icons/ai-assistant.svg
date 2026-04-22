@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- AI 助手 · 四角星 + 小星 -->
+  <path d="M13 3 15 9l6 2-6 2-2 6-2-6-6-2 6-2 2-6Z" fill="#3B82F6" stroke="#3B82F6" stroke-linejoin="round"/>
+  <path d="M19 15.5 20 18l2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z" fill="#F59E0B" stroke="#F59E0B"/>
+</svg>
