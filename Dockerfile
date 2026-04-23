@@ -28,6 +28,10 @@ FROM --platform=$BUILDPLATFORM node:20-slim AS frontend-build
 ARG TARGETARCH
 WORKDIR /app/frontend
 
+# 根 package.json 被 vite.config.ts 读取用于注入 __APP_VERSION__（真实版本号来源）。
+# 必须在 vite build 之前放到 /app/package.json，否则 vite 配置加载阶段就 ENOENT。
+COPY package.json /app/package.json
+
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 

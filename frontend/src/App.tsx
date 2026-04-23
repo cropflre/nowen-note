@@ -390,11 +390,18 @@ function AuthGate() {
   }, [isAuthenticated]);
 
   // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
-  const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.() 
+  //
+  // Electron 打包后窗口加载的是 http://127.0.0.1:<port>/，protocol 是 "http:" 而非 "file:"，
+  // 所以不能只靠 protocol 判断。preload 会注入 window.nowenDesktop.isDesktop=true，
+  // 用它精确识别 Electron 桌面端 —— 同一个 Electron 窗口既能连"内置 backend"（localhost）
+  // 也能连"远程服务器"（填 IP + 端口），登录页会展示服务器地址输入框。
+  const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.()
     || !!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web";
+  const isElectron = !!(window as any).nowenDesktop?.isDesktop;
   const isClientMode = window.location.protocol === "file:"
     || window.location.protocol === "capacitor:"
     || isCapacitor
+    || isElectron
     || !!getServerUrl();
 
   const checkAuth = useCallback(() => {

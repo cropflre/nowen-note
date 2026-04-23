@@ -44,13 +44,24 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const { t } = useTranslation();
 
   // 回填上次的服务器地址（兼容旧版：localStorage 里可能存的是完整 URL 字符串）
+  //
+  // Electron 桌面端特殊处理：首次启动时 localStorage 里什么都没有，若走常规逻辑会
+  // 展示一个空的"服务器地址"框，强迫用户先填才能登录 —— 但 Electron 本身就带一个
+  // 本机内置后端（窗口加载的就是 http://127.0.0.1:<port>/），默认就该连它。
+  // 因此若 Electron 检测到 nowenDesktop 且没有历史 serverUrl，用 window.location.origin
+  // 作为默认地址预填。用户想连远程时清空 host 另填即可。
   useEffect(() => {
-    if (isClientMode) {
-      const saved = getServerUrl() || localStorage.getItem("nowen-server-url-last") || "";
-      if (saved) {
-        setServerParts(parseServerUrl(saved));
-        setServerStatus("ok");
-      }
+    if (!isClientMode) return;
+    const saved = getServerUrl() || localStorage.getItem("nowen-server-url-last") || "";
+    if (saved) {
+      setServerParts(parseServerUrl(saved));
+      setServerStatus("ok");
+      return;
+    }
+    const isElectron = !!(window as any).nowenDesktop?.isDesktop;
+    if (isElectron && window.location.origin.startsWith("http")) {
+      setServerParts(parseServerUrl(window.location.origin));
+      // 不主动标 ok —— 让用户按"登录"时再测，避免误判
     }
   }, [isClientMode]);
 
