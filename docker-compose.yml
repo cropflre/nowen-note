@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       # 在 x86 主机上可以通过以下命令构建 arm64 镜像（A311D/RK3566 等板子）：
       #   docker buildx build --platform linux/arm64 -t nowen-note:arm64 --load .
-      # 或直接使用 scripts/build-arm64.sh。
+      # 或直接使用统一脚本：scripts/release.sh --build-only --arch arm64
       # compose 原生的 `platforms:` 字段在非 buildx 流程下会被忽略，这里仅做声明。
       platforms:
         - linux/amd64

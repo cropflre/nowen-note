@@ -451,7 +451,7 @@ Amlogic **A311D**（Cortex-A73+A53）、Rockchip **RK3566**（Cortex-A55），
 docker run --privileged --rm tonistiigi/binfmt --install arm64
 
 # 2. 构建 arm64 镜像并打成 tar
-bash scripts/build-arm64.sh --tar
+bash scripts/release.sh --build-only --arch arm64 --tar -y
 # 产物：nowen-note-arm64.tar
 
 # 3. 把 tar 文件传到板子（scp / U 盘都行），然后在板子上：
@@ -461,7 +461,7 @@ docker run -d \
   --restart unless-stopped \
   -p 3001:3001 \
   -v nowen-note-data:/app/data \
-  nowen-note:arm64
+  cropflre/nowen-note:arm64
 ```
 
 访问 `http://<板子 IP>:3001` 即可。

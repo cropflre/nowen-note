@@ -8,7 +8,7 @@
 #
 # 构建方式（x86 主机交叉构建）：
 #   docker buildx build --platform linux/arm64 -t nowen-note:arm64 --load .
-#   或见 scripts/build-arm64.sh。
+#   或用统一脚本：scripts/release.sh --build-only --arch arm64
 #
 # 关键设计：
 #   - 使用 BuildKit 自动注入的 TARGETARCH 选择正确的 rollup 原生二进制；
