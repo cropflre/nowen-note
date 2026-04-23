@@ -1,0 +1,154 @@
+# 三平台打包 + 可选发布到 GitHub Release
+#
+# 触发方式：
+#   1. push tag v*.*.*  → 自动打包并发布到对应 Release（草稿）
+#   2. workflow_dispatch → 手动触发，可选不发布
+#
+# 需配置的 Secrets（在仓库 Settings → Secrets and variables → Actions）：
+#   GH_TOKEN                      : 默认 ${{ secrets.GITHUB_TOKEN }} 即可
+#   # Windows 代码签名（可选）：
+#   WIN_CSC_LINK                  : 证书 .pfx 的 base64（或可访问的 URL）
+#   WIN_CSC_KEY_PASSWORD          : 证书密码
+#   # macOS 代码签名 + 公证（可选）：
+#   MAC_CSC_LINK                  : .p12 证书 base64
+#   MAC_CSC_KEY_PASSWORD          : p12 密码
+#   APPLE_API_KEY                 : App Store Connect API Key 文件内容（base64 或 p8 原文）
+#   APPLE_API_KEY_ID              : Key ID
+#   APPLE_API_ISSUER              : Issuer ID
+#   或：APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "发布到 GitHub Releases（always/never）"
+        required: false
+        default: "never"
+        type: choice
+        options:
+          - never
+          - always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: win
+          - os: macos-latest
+            name: mac
+          - os: ubuntu-latest
+            name: linux
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install root deps
+        run: npm ci --ignore-scripts
+        shell: bash
+
+      - name: Install backend & frontend deps
+        run: |
+          cd backend && npm ci --ignore-scripts && cd ..
+          cd frontend && npm ci --ignore-scripts && cd ..
+        shell: bash
+
+      - name: Fetch embedded Node binary
+        run: npm run fetch:node
+        shell: bash
+
+      - name: Build backend & frontend
+        run: npm run build:all
+        shell: bash
+
+      # ========= Windows 代码签名环境变量（可选） =========
+      - name: Export Windows signing env
+        if: matrix.os == 'windows-latest' && env.WIN_CSC_LINK != ''
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          echo "CSC_LINK=$WIN_CSC_LINK" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=$WIN_CSC_KEY_PASSWORD" >> $GITHUB_ENV
+        shell: bash
+
+      # ========= macOS 代码签名 + 公证环境变量（可选） =========
+      - name: Export macOS signing env
+        if: matrix.os == 'macos-latest' && env.MAC_CSC_LINK != ''
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          echo "CSC_LINK=$MAC_CSC_LINK" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> $GITHUB_ENV
+          echo "APPLE_ID=$APPLE_ID" >> $GITHUB_ENV
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> $GITHUB_ENV
+          echo "APPLE_API_KEY=$APPLE_API_KEY" >> $GITHUB_ENV
+          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> $GITHUB_ENV
+          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> $GITHUB_ENV
+        shell: bash
+
+      # ========= 打包 =========
+      - name: Build Electron (Windows)
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --config electron/builder.config.js --win --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        shell: bash
+
+      - name: Build Electron (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
+        run: npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        shell: bash
+
+      - name: Build Electron (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --config electron/builder.config.js --linux --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        shell: bash
+
+      # ========= 上传构建产物作为 workflow artifact（便于下载调试） =========
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-${{ matrix.name }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
+          if-no-files-found: ignore
+          retention-days: 14

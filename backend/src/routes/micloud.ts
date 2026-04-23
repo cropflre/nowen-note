@@ -28,15 +28,22 @@ const MI_IMG_PLACEHOLDER_CHARS = /[\u263A\u263B]/;
 const MI_PLACEHOLDER_WITH_INDEX_RE = /([\u263A\u263B])<(\d+)\s*\/>/g;
 // ☺ + 空白 + 裸 fileId 格式（老版小米便签 / 官方示例"欢迎使用小米便签"/"语音便签"）：
 // content 里直接写 `☺ 119791.G81zpx4HvpA7f-p2J5jK5A`，fileId 不在 extraInfo.imgs 里，
-// 而是紧跟 ☺ 后面，以空格/NBSP 分隔。fileId 字符集：字母、数字、小数点、下划线、减号，
-// 这类 fileId 长度通常在 15+，所以用 {10,} 比较安全，避免误伤普通文本。
+// 而是紧跟 ☺ 后面。中间的分隔符小米实测不只有普通空格/NBSP，还可能是 U+FE0F（emoji 变体
+// 选择符，让 ☺ 渲染为彩色 emoji）、U+200B 零宽空格、U+FEFF BOM 等不可见字符。
+// 所以这里放宽为：☺ 后面"非字母数字"直到遇到 fileId 首字符。fileId 长度通常 15+，用 {10,}。
 const MI_PLACEHOLDER_WITH_INLINE_ID_RE =
-  /[\u263A\u263B][\s\u00A0]*([A-Za-z0-9][A-Za-z0-9._-]{10,})/g;
-// 紧邻 <img ...> 前的 ☺（中间可能是空白、<br>、&nbsp;）：小米笔记会在图片标签前多写一个 ☺
+  /[\u263A\u263B][^A-Za-z0-9]{0,8}([A-Za-z0-9][A-Za-z0-9._-]{10,})/g;
+// 紧邻 <img ...> 前的 ☺（中间可能是各种空白、变体选择符、<br>、&nbsp;）
 const MI_PLACEHOLDER_BEFORE_IMG_RE =
-  /[\u263A\u263B][\s\u00A0]*(?:<br\s*\/?>|&nbsp;|\s)*(?=<img\b)/gi;
+  /[\u263A\u263B][^<]{0,10}?(?=<img\b)/gi;
 // 裸占位符（无索引）
 const MI_PLACEHOLDER_BARE_RE = /[\u263A\u263B]/g;
+
+// 孤儿段落索引标签：`<0/>`、`<1/>`、`<12 />` 这种纯数字内容的"伪标签"，
+// 本该紧跟 fileId 或 ☺，若因为小米那边格式变种导致分离，正则匹配不到，
+// 最后会作为纯文本残留在正文。单独留一个在图片后面肉眼很难看，兜底清理。
+// 注意：正则故意只匹配纯数字内容，避免误伤 <br/> / <hr/> / <li/>。
+const MI_ORPHAN_INDEX_RE = /<\d+\s*\/>/g;
 
 // 判断一行纯文本是否"只是"图片占位（短格式、<img> 标签、或 ☺ 占位符），用于标题提取时跳过
 function isImageOnlyLine(line: string): boolean {
@@ -269,11 +276,13 @@ app.post("/notes", async (c) => {
     // 解析每条笔记的基本信息
     const notes = allEntries.map((entry: any) => {
       const title = extractTitle(entry);
-      // snippet 也可能是 "☺" 或 "☺ fileId"，列表里展示成笑脸/乱码很奇怪，做同样的清理
+      // snippet 也可能是 "☺" / "☺ fileId" / "图<0/>"，列表里展示成这些很奇怪，统一清理
       const snippet = String(entry.snippet || "")
         .replace(MI_PLACEHOLDER_WITH_INDEX_RE, "")
         .replace(MI_PLACEHOLDER_WITH_INLINE_ID_RE, "")
         .replace(MI_PLACEHOLDER_BARE_RE, "")
+        .replace(MI_SHORT_IMG_RE, "")
+        .replace(MI_ORPHAN_INDEX_RE, "")
         .trim();
 
       return {
@@ -717,6 +726,11 @@ async function convertMiNoteToHtmlAsync(content: string, cookie: string, entry?:
   }
 
   html = processedLines.join("\n");
+
+  // 孤儿段落索引兜底：如果前面的 `fileId<N/>` / `☺<N/>` 规则都没匹配中（比如
+  // content 里 fileId 先被识别为 <img>、剩下一个裸 `<0/>` 悬浮在后面），
+  // 统一清掉，避免正文出现 `<0/>` 裸文本。
+  html = html.replace(MI_ORPHAN_INDEX_RE, "");
 
   // 清理空段落
   html = html.replace(/<p>\s*<\/p>/gi, "");

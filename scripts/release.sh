@@ -371,6 +371,39 @@ EOF
     fi
 fi
 
+# -------------------- 同步 package.json 的 version --------------------
+# 让前端 UI（例如设置面板底部版本号）在 docker image 构建前就看到最新版本，
+# vite 构建时会把该值通过 `define` 注入到打包产物里。
+# 注意：这里只改根 package.json 的 "version"，不改 frontend/ 下的 workspace 版本。
+sync_root_pkg_version() {
+    local target_version="$1"
+    local pkg_file
+    pkg_file="${REPO_ROOT:-.}/package.json"
+    [ -f "$pkg_file" ] || pkg_file="package.json"
+    [ -f "$pkg_file" ] || return 0
+
+    # 读取当前版本
+    local current
+    current="$(grep -oE '"version"\s*:\s*"[^"]+"' "$pkg_file" | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
+    if [ "$current" = "$target_version" ]; then
+        info "package.json version 已是 ${target_version}，无需改写"
+        return 0
+    fi
+
+    info "更新 package.json version: ${current:-(空)} -> ${target_version}"
+    # 用 sed 原地替换第一处 "version": "..."（根 package.json 不会含嵌套 version）
+    # 兼容 BSD sed（macOS）与 GNU sed
+    if sed --version >/dev/null 2>&1; then
+        sed -i -E "0,/\"version\"\s*:\s*\"[^\"]+\"/s//\"version\": \"${target_version}\"/" "$pkg_file"
+    else
+        sed -i '' -E "1,/\"version\"[[:space:]]*:[[:space:]]*\"[^\"]+\"/s//\"version\": \"${target_version}\"/" "$pkg_file"
+    fi
+}
+
+if [ "$BUILD_ONLY" != "1" ]; then
+    sync_root_pkg_version "$VERSION"
+fi
+
 # -------------------- 发布 / 构建 摘要 --------------------
 case "$ARCH" in
     amd64) PLATFORM_DESC="linux/amd64（原生 docker build）" ;;
@@ -568,6 +601,19 @@ fi
 # -------------------- git tag --------------------
 if [ "$DO_GIT_TAG" = "1" ]; then
     step "打 git tag 并推送到 GitHub"
+
+    # 若前面 sync_root_pkg_version 修改了 package.json，先把它提交进去，
+    # 否则 git tag 会打在一个"版本号还没更新"的 commit 上，GitHub 上看着很乱。
+    if [ -n "$(git status --porcelain -- package.json 2>/dev/null)" ]; then
+        info "package.json version 有变更，先 commit"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) git add package.json && git commit -m \"chore(release): ${VERSION_TAG}\""
+        else
+            run "git add package.json"
+            run "git commit -m \"chore(release): ${VERSION_TAG}\""
+        fi
+    fi
+
     if git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null 2>&1; then
         info "本地 tag ${VERSION_TAG} 已存在，跳过创建"
     else
@@ -576,9 +622,9 @@ if [ "$DO_GIT_TAG" = "1" ]; then
     fi
     info "git push origin ${VERSION_TAG}"
     if [ "$DRY_RUN" = "1" ]; then
-        echo "  (dry-run) git push origin \"${VERSION_TAG}\""
-    elif git push origin "${VERSION_TAG}"; then
-        ok "git tag ${VERSION_TAG} 已推送"
+        echo "  (dry-run) git push origin HEAD && git push origin \"${VERSION_TAG}\""
+    elif git push origin HEAD && git push origin "${VERSION_TAG}"; then
+        ok "git commit + tag ${VERSION_TAG} 已推送"
     else
         echo
         echo "${C_YELLOW}[!] git push tag 失败（镜像已成功推送至 Docker Hub，本地 tag 已保留）${C_RESET}"

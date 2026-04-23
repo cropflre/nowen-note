@@ -19,6 +19,7 @@ import Toaster from "@/components/Toaster";
 import { User } from "@/types";
 import { getServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
+import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
 
 function SidebarResizeHandle() {
   const { state } = useApp();
@@ -212,40 +213,51 @@ function AppLayout() {
     mobileSidebarOpen: state.mobileSidebarOpen,
   });
 
+  // Alt+N 全局快捷键 / 桌面端菜单"新建笔记"共用同一入口
+  const quickCreateNote = useCallback(async () => {
+    const { toast } = await import("@/lib/toast");
+    // 无笔记本时给出提示
+    if (state.notebooks.length === 0) {
+      toast.warning(t('common.needNotebookFirst'));
+      return;
+    }
+    // 优先使用当前选中的笔记本，否则取第一个笔记本
+    const notebookId = state.selectedNotebookId || state.notebooks[0]?.id;
+    if (!notebookId) {
+      toast.warning(t('common.needNotebookFirst'));
+      return;
+    }
+    try {
+      const { api } = await import("@/lib/api");
+      const note = await api.createNote({ notebookId, title: t('common.untitledNote') });
+      actions.setActiveNote(note);
+      actions.setSelectedNotebook(notebookId);
+      actions.setViewMode("notebook");
+      actions.setMobileView("editor");
+      actions.refreshNotebooks();
+    } catch (err: any) {
+      console.error("Quick create note failed:", err);
+      toast.error(err?.message || t('noteList.createFailed'));
+    }
+  }, [state.selectedNotebookId, state.notebooks, actions, t]);
+
   // Alt+N 全局快捷键：快速新建笔记
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        const { toast } = await import("@/lib/toast");
-        // 无笔记本时给出提示
-        if (state.notebooks.length === 0) {
-          toast.warning(t('common.needNotebookFirst'));
-          return;
-        }
-        // 优先使用当前选中的笔记本，否则取第一个笔记本
-        const notebookId = state.selectedNotebookId || state.notebooks[0]?.id;
-        if (!notebookId) {
-          toast.warning(t('common.needNotebookFirst'));
-          return;
-        }
-        try {
-          const { api } = await import("@/lib/api");
-          const note = await api.createNote({ notebookId, title: t('common.untitledNote') });
-          actions.setActiveNote(note);
-          actions.setSelectedNotebook(notebookId);
-          actions.setViewMode("notebook");
-          actions.setMobileView("editor");
-          actions.refreshNotebooks();
-        } catch (err: any) {
-          console.error("Quick create note failed:", err);
-          toast.error(err?.message || t('noteList.createFailed'));
-        }
+        void quickCreateNote();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [state.selectedNotebookId, state.notebooks, actions, t]);
+  }, [quickCreateNote]);
+
+  // Electron 桌面端：菜单 / 托盘动作 IPC 桥
+  useDesktopMenuBridge({
+    onNewNote: () => void quickCreateNote(),
+    onToggleSidebar: () => actions.toggleSidebar(),
+  });
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">

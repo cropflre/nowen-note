@@ -1,6 +1,6 @@
 {
   "name": "nowen-note",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Nowen Note - A modern note-taking application",
   "author": "Nowen",
   "private": true,
@@ -8,9 +8,13 @@
   "scripts": {
     "dev:backend": "cd backend && npx tsx src/index.ts",
     "dev:frontend": "cd frontend && npx vite",
-    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install && cd .. && npm run rebuild:native",
+    "fetch:node": "node scripts/fetch-node.mjs",
+    "fetch:node:all": "node scripts/fetch-node.mjs --all",
+    "rebuild:native": "node scripts/rebuild-native.mjs",
+    "build:icon": "node scripts/build-icon.mjs",
     "electron:dev": "npm run build:all && electron .",
-    "electron:build": "npm run build:all && electron-builder --config electron/builder.config.js",
+    "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
@@ -21,6 +25,7 @@
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^7.6.0",
     "@capacitor/core": "^8.2.0",
+    "@electron/rebuild": "^3.7.0",
     "archiver": "^7.0.1",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
@@ -32,6 +37,7 @@
     "@capacitor/haptics": "^8.0.1",
     "@capacitor/keyboard": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",
-    "@capacitor/status-bar": "^8.0.1"
+    "@capacitor/status-bar": "^8.0.1",
+    "electron-updater": "^6.3.9"
   }
 }

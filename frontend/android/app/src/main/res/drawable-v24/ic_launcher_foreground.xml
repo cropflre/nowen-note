@@ -4,57 +4,33 @@
     android:viewportHeight="108"
     android:viewportWidth="108">
 
-    <!-- 笔记纸 - 带折角的圆角矩形（白色纸面） -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M28,26 L66,26 L80,40 L80,82 C80,83.66 78.66,85 77,85 L28,85 C26.34,85 25,83.66 25,82 L25,29 C25,27.34 26.34,26 28,26 Z" />
+    <!--
+        Nowen Note 简约图标（foreground / v24）
+        内容与 drawable/ic_launcher_foreground.xml 保持一致，
+        仅为 API 24+ 独立副本（Android 构建系统要求）
+    -->
 
-    <!-- 纸张折角阴影 -->
+    <!-- 便签主体（单色靛蓝） -->
     <path
-        android:fillColor="#C8D6E5"
-        android:pathData="M66,26 L66,40 L80,40 Z" />
+        android:fillColor="#4F6BED"
+        android:pathData="M34,22 L80,22 L90,32 L90,80 Q90,86 84,86 L30,86 Q24,86 24,80 L24,28 Q24,22 30,22 Z
+                          M80,22 L80,32 L90,32 Z" />
 
-    <!-- 品牌蓝色标记笔效果 - 在左侧做一条竖向色带 -->
+    <!-- 折角（用背景色挖出） -->
     <path
-        android:fillColor="#3B82F6"
-        android:pathData="M25,26 L30,26 L30,85 L25,85 Z" />
+        android:fillColor="#F5F3EE"
+        android:pathData="M80,22 L80,32 L90,32 Z" />
 
-    <!-- 笔记横线 -->
+    <!-- 折角内缘描边 -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M35,48 L72,48"
-        android:strokeColor="#CBD5E1"
-        android:strokeWidth="1.5" />
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M35,55 L72,55"
-        android:strokeColor="#CBD5E1"
-        android:strokeWidth="1.5" />
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M35,62 L72,62"
-        android:strokeColor="#CBD5E1"
-        android:strokeWidth="1.5" />
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M35,69 L60,69"
-        android:strokeColor="#CBD5E1"
+        android:pathData="M80,22 L80,32 L90,32"
+        android:strokeColor="#4F6BED"
         android:strokeWidth="1.5" />
 
-    <!-- 大写字母 N - Nowen品牌标识 -->
+    <!-- 镂空的大写 N -->
     <path
-        android:fillColor="#3B82F6"
-        android:pathData="M40,78 L40,44 L44.5,44 L62,72 L62,44 L66.5,44 L66.5,78 L62,78 L44.5,50 L44.5,78 Z" />
+        android:fillColor="#F5F3EE"
+        android:pathData="M38,38 L45,38 L71,68 L71,38 L78,38 L78,74 L71,74 L45,44 L45,74 L38,74 Z" />
 
-    <!-- 右下角小铅笔装饰 - 倾斜45度 -->
-    <path
-        android:fillColor="#3B82F6"
-        android:pathData="M72,66 L78,60 L84,66 L78,72 Z" />
-    <path
-        android:fillColor="#2563EB"
-        android:pathData="M78,72 L75,75 L81,75 Z" />
-    <!-- 铅笔笔尖 -->
-    <path
-        android:fillColor="#F59E0B"
-        android:pathData="M75,75 L78,78 L81,75 Z" />
 </vector>

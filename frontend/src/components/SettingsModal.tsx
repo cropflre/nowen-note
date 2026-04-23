@@ -514,9 +514,9 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             })}
           </nav>
 
-          {/* 底部版本信息 */}
+          {/* 底部版本信息：版本号由 vite.config.ts 从根 package.json 注入 */}
           <div className="mt-auto pt-4 border-t border-zinc-200 dark:border-zinc-800 px-2">
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">{siteConfig.title} v1.0.0</p>
+            <p className="text-xs text-zinc-400 dark:text-zinc-600">{siteConfig.title} v{__APP_VERSION__}</p>
           </div>
         </div>
 

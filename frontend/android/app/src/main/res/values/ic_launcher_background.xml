@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0D1117</color>
+    <!-- Nowen Note 简约图标背景：温润奶白，避免纯白刺眼、避免黑色沉闷 -->
+    <color name="ic_launcher_background">#F5F3EE</color>
 </resources>

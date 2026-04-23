@@ -42,16 +42,16 @@ const config: CapacitorConfig = {
     SplashScreen: {
       // 禁用自动隐藏，由前端 JS 在渲染完成后手动调用 hide()
       launchAutoHide: false,
-      // 背景色与深色主题一致，减少视觉跳变
-      backgroundColor: "#0d1117",
+      // 奶白底，与 app icon 背景 (#F5F3EE) 一致，开机视觉不跳变
+      backgroundColor: "#F5F3EE",
       // 使用现有 splash.png
       launchShowDuration: 0,
       showSpinner: false,
     },
     StatusBar: {
-      // 默认深色模式状态栏（后续由 JS 动态切换）
-      style: "DARK",
-      backgroundColor: "#0d1117",
+      // 冷启动初始值（浅色）；启动后由 useStatusBarSync 根据主题动态切换
+      style: "LIGHT",
+      backgroundColor: "#F5F3EE",
     },
     Keyboard: {
       // 键盘弹出时不自动调整 WebView 大小，由前端 JS 手动控制布局

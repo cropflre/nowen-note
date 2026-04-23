@@ -4,8 +4,8 @@
     android:height="108dp"
     android:viewportHeight="108"
     android:viewportWidth="108">
-    <!-- Nowen Note 品牌深色背景 #0d1117 -->
+    <!-- Nowen Note 简约图标背景：温润奶白（与 values/ic_launcher_background.xml 保持一致） -->
     <path
-        android:fillColor="#0D1117"
+        android:fillColor="#F5F3EE"
         android:pathData="M0,0h108v108h-108z" />
 </vector>

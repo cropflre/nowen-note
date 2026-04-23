@@ -1,10 +1,22 @@
 import path from "path"
+import fs from "node:fs"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
+
+// 读取根 package.json 的 version，注入到前端以便 UI 展示真实版本号
+// （release.sh 会在发布时更新根 package.json 的 version 字段）
+const rootPkg = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"),
+) as { version?: string }
+const APP_VERSION = rootPkg.version || "0.0.0"
 
 export default defineConfig({
   root: path.resolve(__dirname),
   plugins: [react()],
+  define: {
+    // 编译期常量；使用 JSON.stringify 确保是带引号的字符串字面量
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
