@@ -1,8 +1,9 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Upload, CheckCircle, Loader2, FileText,
-  AlertCircle, Trash2, FileUp, FolderDown, AlertTriangle
+  AlertCircle, Trash2, FileUp, FolderDown, AlertTriangle,
+  Database, HardDrive, RefreshCw
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
@@ -513,6 +514,9 @@ export default function DataManager() {
       {/* ===== iPhone 备忘录导入 ===== */}
       <ICloudImport />
 
+      {/* ===== 数据库文件 (.data) 导出/导入/占用统计 ===== */}
+      <DataFileSection />
+
       {/* ===== 危险区域 (Danger Zone) ===== */}
       <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
         <div className="flex items-center gap-2 mb-2">
@@ -641,5 +645,454 @@ export default function DataManager() {
         </AnimatePresence>
       </section>
     </div>
+  );
+}
+
+// ============================================================================
+// 数据库文件（.data）管理子组件
+// ----------------------------------------------------------------------------
+// - 所有登录用户都能看"我的数据"和"系统合计"
+// - 管理员额外看到 data 目录占用 + 导出 / 导入按钮
+// - 导入前弹窗二次确认，且要求输入当前密码换 sudoToken
+// ============================================================================
+
+type DataFileInfo = Awaited<ReturnType<typeof api.dataFile.getInfo>>;
+
+/** 字节转人类可读 */
+function fmtBytes(n: number | undefined | null): string {
+  if (!n || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function DataFileSection() {
+  const { t } = useTranslation();
+  const [info, setInfo] = useState<DataFileInfo | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [infoError, setInfoError] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // 导出
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // 导入
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoadingInfo(true);
+    setInfoError("");
+    try {
+      const data = await api.dataFile.getInfo();
+      setInfo(data);
+    } catch (err: any) {
+      setInfoError(err.message || "加载失败");
+    } finally {
+      setLoadingInfo(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 拉取当前用户角色 —— 管理员才显示导出/导入
+    api.getMe()
+      .then((u) => setIsAdmin((u as any)?.role === "admin"))
+      .catch(() => setIsAdmin(false));
+    reload();
+  }, [reload]);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportMsg(null);
+    try {
+      const out = await api.dataFile.downloadExport();
+      setExportMsg({ type: "ok", text: t("dataManager.dataFile.exportSuccess", { filename: out.filename, size: fmtBytes(out.size) }) });
+    } catch (err: any) {
+      setExportMsg({ type: "err", text: t("dataManager.dataFile.exportFailed", { error: err.message || "error" }) });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  /** 校验选中文件是否是 SQLite（读前 16 字节） */
+  const validateSqliteFile = async (file: File): Promise<boolean> => {
+    if (file.size > 500 * 1024 * 1024) return false;
+    try {
+      const head = await file.slice(0, 16).arrayBuffer();
+      const bytes = new Uint8Array(head);
+      const expected = "SQLite format 3\u0000";
+      for (let i = 0; i < 16; i++) {
+        if (bytes[i] !== expected.charCodeAt(i)) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handlePickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError("");
+    setImportSuccess(null);
+    if (file.size > 500 * 1024 * 1024) {
+      setImportError(t("dataManager.dataFile.importTooLarge"));
+      setSelectedFile(null);
+      e.target.value = "";
+      return;
+    }
+    const ok = await validateSqliteFile(file);
+    if (!ok) {
+      setImportError(t("dataManager.dataFile.importNotSqlite"));
+      setSelectedFile(null);
+      e.target.value = "";
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const handleOpenConfirm = () => {
+    if (!selectedFile) return;
+    setConfirmPwd("");
+    setImportError("");
+    setShowConfirm(true);
+  };
+
+  const handleImport = async () => {
+    if (!selectedFile || !confirmPwd) return;
+    setIsImporting(true);
+    setImportError("");
+    try {
+      // 先拿 sudoToken
+      const { sudoToken } = await api.requestSudoToken(confirmPwd);
+      // 真正上传
+      const res = await api.dataFile.uploadImport(selectedFile, sudoToken);
+      setImportSuccess(
+        t("dataManager.dataFile.importSuccess", { backup: res.preImportBackup }),
+      );
+      setSelectedFile(null);
+      setShowConfirm(false);
+      setConfirmPwd("");
+      // 立即刷新统计（虽然后端需要重启才真正生效，但允许读取当前 db 句柄内的 schema）
+      reload();
+    } catch (err: any) {
+      setImportError(
+        err.code === "SUDO_PASSWORD_INVALID" || err.code === "WRONG_PASSWORD"
+          ? t("dataManager.sudoPasswordRequired")
+          : t("dataManager.dataFile.importFailed", { error: err.message || "error" }),
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-3">
+        <Database size={18} className="text-violet-500" />
+        <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          {t("dataManager.dataFile.title")}
+        </h4>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4 space-y-4">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          {t("dataManager.dataFile.description")}
+        </p>
+
+        {/* ===== 占用统计卡片 ===== */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <HardDrive size={14} className="text-zinc-500" />
+              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                {t("dataManager.dataFile.usageSectionTitle")}
+              </span>
+            </div>
+            <button
+              onClick={reload}
+              disabled={loadingInfo}
+              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-indigo-500 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={loadingInfo ? "animate-spin" : ""} />
+              {loadingInfo ? t("dataManager.dataFile.refreshing") : t("dataManager.dataFile.refresh")}
+            </button>
+          </div>
+
+          {infoError && (
+            <div className="text-xs text-red-500 mb-2 flex items-center gap-1">
+              <AlertCircle size={12} /> {infoError}
+            </div>
+          )}
+
+          {info && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* 我的数据 */}
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900/60 p-3">
+                <div className="text-xs font-medium text-zinc-500 mb-2">
+                  {t("dataManager.dataFile.myData")}
+                </div>
+                <div className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1.5">
+                  {fmtBytes(info.user.totalBytes)}
+                </div>
+                <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.myNotes")}</span>
+                    <span className="font-mono">{info.user.notes.count} · {fmtBytes(info.user.notes.bytes)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.myAttachments")}</span>
+                    <span className="font-mono">{info.user.attachments.count} · {fmtBytes(info.user.attachments.bytes)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.myNotebooks")}</span>
+                    <span className="font-mono">{info.user.notebookCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 系统合计 */}
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900/60 p-3">
+                <div className="text-xs font-medium text-zinc-500 mb-2">
+                  {t("dataManager.dataFile.systemTotal")}
+                </div>
+                <div className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1.5">
+                  {fmtBytes(info.dbFile.total)}
+                </div>
+                <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.dbFileMain")}</span>
+                    <span className="font-mono">{fmtBytes(info.dbFile.main)}</span>
+                  </div>
+                  {info.dbFile.wal > 0 && (
+                    <div className="flex justify-between">
+                      <span>{t("dataManager.dataFile.dbFileWal")}</span>
+                      <span className="font-mono">{fmtBytes(info.dbFile.wal)}</span>
+                    </div>
+                  )}
+                  {info.dbFile.shm > 0 && (
+                    <div className="flex justify-between">
+                      <span>{t("dataManager.dataFile.dbFileShm")}</span>
+                      <span className="font-mono">{fmtBytes(info.dbFile.shm)}</span>
+                    </div>
+                  )}
+                  {typeof info.system.dataDirBytes === "number" && (
+                    <div className="flex justify-between">
+                      <span>{t("dataManager.dataFile.dataDirSize")}</span>
+                      <span className="font-mono">{fmtBytes(info.system.dataDirBytes)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.noteCount")}</span>
+                    <span className="font-mono">{info.system.noteCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("dataManager.dataFile.userCount")}</span>
+                    <span className="font-mono">{info.system.userCount}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ===== 导出 ===== */}
+        {isAdmin && (
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center gap-2 mb-2">
+              <FolderDown size={14} className="text-indigo-500" />
+              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                {t("dataManager.dataFile.exportSectionTitle")}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
+              {t("dataManager.dataFile.exportDescription")}
+            </p>
+            {exportMsg && (
+              <div className={`text-xs mb-2 flex items-start gap-1 ${exportMsg.type === "ok" ? "text-green-600" : "text-red-500"}`}>
+                {exportMsg.type === "ok" ? <CheckCircle size={12} className="mt-0.5" /> : <AlertCircle size={12} className="mt-0.5" />}
+                <span>{exportMsg.text}</span>
+              </div>
+            )}
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className={`flex items-center justify-center w-full py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                isExporting
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
+              }`}
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {t("dataManager.dataFile.exporting")}
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  {t("dataManager.dataFile.exportButton")}
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* ===== 导入 ===== */}
+        {isAdmin && (
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center gap-2 mb-2">
+              <FileUp size={14} className="text-amber-500" />
+              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                {t("dataManager.dataFile.importSectionTitle")}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
+              {t("dataManager.dataFile.importDescription")}
+            </p>
+
+            {importSuccess && (
+              <div className="text-xs text-green-600 mb-2 flex items-start gap-1">
+                <CheckCircle size={12} className="mt-0.5" />
+                <span>{importSuccess}</span>
+              </div>
+            )}
+            {importError && !showConfirm && (
+              <div className="text-xs text-red-500 mb-2 flex items-start gap-1">
+                <AlertCircle size={12} className="mt-0.5" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".data,.db,.sqlite,.sqlite3,application/octet-stream"
+              onChange={handlePickFile}
+              className="hidden"
+            />
+
+            {!selectedFile ? (
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center justify-center w-full py-2 px-3 rounded-lg font-medium text-sm border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600 transition-colors"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {t("dataManager.dataFile.importButton")}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-700/30">
+                  <FileText size={14} className="text-amber-600 flex-shrink-0" />
+                  <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                    {t("dataManager.dataFile.importSelected", {
+                      name: selectedFile.name,
+                      size: fmtBytes(selectedFile.size),
+                    })}
+                  </span>
+                  <button
+                    onClick={() => { setSelectedFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                    className="text-xs text-zinc-500 hover:text-red-500"
+                  >
+                    {t("dataManager.dataFile.importChange")}
+                  </button>
+                </div>
+                <button
+                  onClick={handleOpenConfirm}
+                  className="flex items-center justify-center w-full py-2 px-3 rounded-lg font-medium text-sm bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  {t("dataManager.dataFile.importConfirm")}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isAdmin && (
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700 text-xs text-zinc-400">
+            {t("dataManager.dataFile.adminOnly")}
+          </div>
+        )}
+      </div>
+
+      {/* 导入二次确认弹窗 */}
+      <AnimatePresence>
+        {showConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm"
+              onClick={() => !isImporting && setShowConfirm(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", duration: 0.4, bounce: 0 }}
+              className="relative bg-white dark:bg-zinc-900 w-full max-w-md p-6 rounded-xl shadow-2xl border border-amber-200 dark:border-amber-900/50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={20} className="text-amber-600 dark:text-amber-500" />
+                </div>
+                <h4 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                  {t("dataManager.dataFile.importConfirmTitle")}
+                </h4>
+              </div>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
+                {t("dataManager.dataFile.importConfirmDesc")}
+              </p>
+
+              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5">
+                {t("dataManager.sudoPasswordLabel")}
+              </label>
+              <input
+                type="password"
+                value={confirmPwd}
+                onChange={(e) => { setConfirmPwd(e.target.value); setImportError(""); }}
+                placeholder={t("dataManager.sudoPasswordPlaceholder")}
+                autoComplete="current-password"
+                className="w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none text-sm transition-colors border-zinc-300 dark:border-zinc-700 focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                autoFocus
+              />
+
+              {importError && (
+                <p className="text-sm text-red-500 mt-2">{importError}</p>
+              )}
+
+              <div className="flex justify-end gap-3 mt-5">
+                <button
+                  onClick={() => { setShowConfirm(false); setConfirmPwd(""); }}
+                  disabled={isImporting}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  onClick={handleImport}
+                  disabled={isImporting || !confirmPwd}
+                  className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg flex items-center transition-colors"
+                >
+                  {isImporting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {isImporting ? t("dataManager.dataFile.importing") : t("dataManager.dataFile.importConfirm")}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 }

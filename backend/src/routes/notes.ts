@@ -147,10 +147,16 @@ app.put("/reorder/batch", async (c) => {
 });
 
 // 获取单个笔记（完整内容）
+//
+// 性能说明：
+//   notes.content 可能包含大量 base64 内联图片（粘贴图片 / 旧数据），单篇可达
+//   几十 MB。对于"只想拿 version / 元数据"的场景（比如乐观锁冲突重试），应
+//   传 ?slim=1，此时不 SELECT content，也跳过 yFlush，大幅降低延迟和阻塞。
 app.get("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
+  const slim = c.req.query("slim") === "1";
 
   const { permission } = resolveNotePermission(id, userId);
   if (!hasPermission(permission, "read")) {
@@ -158,9 +164,19 @@ app.get("/:id", (c) => {
   }
 
   // Phase 3: 若该笔记有活跃 Y.Doc，先把内存里的最新内容 flush 到磁盘
-  try { yFlush(id); } catch {}
+  // slim 模式不需要 content，因此跳过 flush（flush 本身也要读写大字段，很慢）。
+  if (!slim) {
+    try { yFlush(id); } catch {}
+  }
 
-  const note = db.prepare("SELECT * FROM notes WHERE id = ?").get(id);
+  // slim 模式：只取元数据字段，不含 content / contentText。
+  //   前端在"只想要 version"的路径（optimisticLockApi.makeFetchLatestNoteVersion、
+  //   EditorPane 的 409 重试）用这个。
+  const selectCols = slim
+    ? `id, userId, notebookId, workspaceId, title, isPinned, isFavorite, isLocked,
+       isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt`
+    : "*";
+  const note = db.prepare(`SELECT ${selectCols} FROM notes WHERE id = ?`).get(id);
   if (!note) return c.json({ error: "Note not found" }, 404);
 
   const tags = db.prepare(`

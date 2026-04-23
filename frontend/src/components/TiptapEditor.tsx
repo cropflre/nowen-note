@@ -16,6 +16,7 @@ import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tip
 import { TextSelection } from "@tiptap/pm/state";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat } from "@/lib/contentFormat";
+import { api } from "@/lib/api";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3,
@@ -446,25 +447,51 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         event.preventDefault();
         try {
           // 1) 处理剪贴板中的图片文件（如截图粘贴）
+          //    走 /api/attachments 上传接口：写磁盘 + 落 attachments 行，
+          //    编辑器插入的 <img> 引用服务端 URL，避免内联 base64 把文档体积撑大。
           const items = event.clipboardData?.items;
           if (items) {
             for (let i = 0; i < items.length; i++) {
               if (items[i].type.startsWith("image/")) {
                 const file = items[i].getAsFile();
                 if (file) {
-                  const reader = new FileReader();
-                  reader.onload = (e) => {
-                    const src = e.target?.result as string;
-                    if (src) {
-                      const { state: editorState, dispatch } = view;
-                      const node = editorState.schema.nodes.image?.create({ src });
-                      if (node) {
-                        const tr = editorState.tr.replaceSelectionWith(node);
-                        dispatch(tr);
-                      }
+                  const currentNote = noteRef.current;
+                  const insertAtSrc = (src: string) => {
+                    const { state: editorState, dispatch } = view;
+                    const node = editorState.schema.nodes.image?.create({ src });
+                    if (node) {
+                      const tr = editorState.tr.replaceSelectionWith(node);
+                      dispatch(tr);
                     }
                   };
-                  reader.readAsDataURL(file);
+                  if (currentNote?.id) {
+                    showPasteToast("converting", t("tiptap.imageUploading"));
+                    api.attachments
+                      .upload(currentNote.id, file)
+                      .then(({ url }) => {
+                        insertAtSrc(url);
+                        showPasteToast("success", t("tiptap.imageUploadSuccess"));
+                      })
+                      .catch((err) => {
+                        console.error("Attachment upload failed, falling back to base64:", err);
+                        showPasteToast("error", t("tiptap.imageUploadFailed"));
+                        // 上传失败兜底：仍用 base64 插入，保证用户不丢失截图
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                          const src = e.target?.result as string;
+                          if (src) insertAtSrc(src);
+                        };
+                        reader.readAsDataURL(file);
+                      });
+                  } else {
+                    // 没有 note 上下文（理论上不应发生）：退回 base64
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                      const src = e.target?.result as string;
+                      if (src) insertAtSrc(src);
+                    };
+                    reader.readAsDataURL(file);
+                  }
                 }
                 return true;
               }
@@ -820,15 +847,41 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const src = e.target?.result as string;
+      const currentNote = noteRef.current;
+      const insertAtSrc = (src: string) => {
         editor.chain().focus().setImage({ src }).run();
       };
-      reader.readAsDataURL(file);
+      if (currentNote?.id) {
+        // 走 /api/attachments：写磁盘 + 记录 attachments 表，编辑器只引用 URL
+        toast.info(t("tiptap.imageUploading") || "Uploading image...");
+        api.attachments
+          .upload(currentNote.id, file)
+          .then(({ url }) => {
+            insertAtSrc(url);
+            toast.success(t("tiptap.imageUploadSuccess") || "Image uploaded");
+          })
+          .catch((err) => {
+            console.error("Attachment upload failed, falling back to base64:", err);
+            toast.error(t("tiptap.imageUploadFailed") || "Image upload failed");
+            // 兜底：失败时退回 base64，保证用户仍可插图
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const src = e.target?.result as string;
+              if (src) insertAtSrc(src);
+            };
+            reader.readAsDataURL(file);
+          });
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const src = e.target?.result as string;
+          if (src) insertAtSrc(src);
+        };
+        reader.readAsDataURL(file);
+      }
     };
     input.click();
-  }, [editor]);
+  }, [editor, t]);
 
   /**
    * 严格作用于当前选区的代码块切换：

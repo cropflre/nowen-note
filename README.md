@@ -35,7 +35,7 @@ A self-hosted private knowledge base, inspired by Synology Note Station.
 
 一体化能力：
 
-- **双编辑器引擎**：Tiptap 3 富文本 + CodeMirror 6 Markdown，可一键切换
+- **现代富文本编辑器**：基于 Tiptap 3，支持 Markdown 快捷键、代码高亮、图片插入、任务列表（另内置 CodeMirror 6 Markdown 源码编辑器作为高级备选，可通过 URL 参数启用）
 - **AI 智能助手**：集成 6 大 AI 服务商（通义千问 / OpenAI / Gemini / DeepSeek / 豆包 / Ollama），提供写作助手、生成标题、推荐标签、RAG 知识库问答
 - **知识管理**：无限层级笔记本、彩色标签、任务管理、思维导图、说说动态、FTS5 全文搜索
 - **协作与历史**：笔记分享（密码 / 有效期 / 权限 / 评论批注）、版本历史回溯
@@ -458,10 +458,8 @@ storeFile=你的keystore路径
 
 #### 笔记管理
 - **三栏布局**：侧边栏 + 笔记列表 + 编辑器（均支持拖拽调整宽度，双击恢复默认）
-- **双编辑器引擎**：
-  - **Tiptap 富文本编辑器（默认）**：Markdown 快捷键、代码高亮、图片插入、任务列表
-  - **Markdown 编辑器（可切换）**：基于 CodeMirror 6 + @codemirror/lang-markdown，纯 Markdown 源码编辑，斜杠菜单、行内 AI 助手浮层、快捷键（加粗/斜体/标题/列表等），与 Tiptap 共享 AI 写作助手、版本历史、评论批注等所有上层能力
-  - **切换方式**：编辑器工具栏右上角 `MD` / `RTE` 徽标按钮一键切换；或 URL 追加 `?md=1`（强制 MD）/ `?md=0`（强制 Tiptap）；选择会记住到 `localStorage["nowen.editor_mode"]`
+- **Tiptap 富文本编辑器**：Markdown 快捷键、代码高亮、图片插入、任务列表；AI 写作助手、版本历史、评论批注、分享等所有上层能力都围绕它构建
+  - **Markdown 源码编辑器（高级备选）**：基于 CodeMirror 6 + @codemirror/lang-markdown，面向需要纯 Markdown 源码编辑的高级用户。默认对普通用户隐藏切换入口；开发或调试时可在 URL 追加 `?md=1` 强制启用、`?md=0` 强制关闭，选择会记住到 `localStorage["nowen.editor_mode"]`。两套引擎共享 AI 助手、版本历史、评论批注、CRDT 协同等全部上层能力
 - **笔记操作**：置顶、收藏、锁定（前后端双层保护）、软删除（回收站）、恢复、永久删除
 - **笔记移动**：右键菜单"移动到..."弹窗（树形笔记本选择器）、编辑器顶栏快速切换笔记本
 - **字数统计**：实时显示词数和字符数（中文按字计数，英文按空格分词）

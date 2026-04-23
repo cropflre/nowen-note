@@ -6,6 +6,29 @@ const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA 
 
 let db: Database.Database;
 
+/**
+ * 返回当前 SQLite 数据库文件的绝对路径。
+ * 用途：
+ *   - 数据管理模块导出/导入 .data 整库文件
+ *   - 占用空间统计（fs.statSync）
+ * 注意：返回的是**主数据库文件**路径，不含 -wal / -shm 旁路文件。
+ */
+export function getDbPath(): string {
+  return DB_PATH;
+}
+
+/**
+ * 关闭当前数据库连接。数据库导入替换文件前必须先关闭，否则 Windows 上
+ * 文件被占用无法重命名。调用后下次 getDb() 会重新打开。
+ */
+export function closeDb(): void {
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    // @ts-expect-error: 允许重新打开
+    db = undefined;
+  }
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     const dir = path.dirname(DB_PATH);
@@ -243,7 +266,14 @@ function initSchema(db: Database.Database) {
       INSERT INTO notes_fts(notes_fts, rowid, title, contentText) VALUES('delete', old.rowid, old.title, old.contentText);
     END;
 
-    CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+    -- 升级触发器：老库可能存在无条件重写 FTS 的旧版本，直接 DROP 后重建为带 WHEN 的条件版本。
+    -- 条件：只有 title 或 contentText 真正发生变化时，才重写 FTS 行。
+    -- 收益：每次保存都会 bump version/updatedAt，但正文经常没动；避免无用的 FTS 索引维护 I/O。
+    -- NULL 安全比较：用 IS NOT 而非 !=，避免任一侧为 NULL 时判断结果是 NULL（假）。
+    DROP TRIGGER IF EXISTS notes_au;
+    CREATE TRIGGER notes_au AFTER UPDATE ON notes
+    WHEN old.title IS NOT new.title OR old.contentText IS NOT new.contentText
+    BEGIN
       INSERT INTO notes_fts(notes_fts, rowid, title, contentText) VALUES('delete', old.rowid, old.title, old.contentText);
       INSERT INTO notes_fts(rowid, title, contentText) VALUES (new.rowid, new.title, new.contentText);
     END;

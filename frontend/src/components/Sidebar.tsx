@@ -576,6 +576,17 @@ export default function Sidebar() {
     }
   });
 
+  // 导航区（所有笔记 / 说说 / 待办 / 思维导图 / AI 问答 / 收藏 / 回收站）折叠状态
+  // 与笔记本、标签区的折叠策略保持一致：默认展开，切换后持久化到 localStorage
+  const [navExpanded, setNavExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem("nowen-nav-expanded");
+      return saved === null ? true : saved === "true";
+    } catch {
+      return true;
+    }
+  });
+
   // 切换标签折叠状态时持久化到 localStorage
   const toggleTagsExpanded = useCallback(() => {
     setTagsExpanded((prev) => {
@@ -590,6 +601,15 @@ export default function Sidebar() {
     setNotebooksExpanded((prev) => {
       const next = !prev;
       try { localStorage.setItem("nowen-notebooks-expanded", String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  // 切换导航区折叠状态时持久化到 localStorage
+  const toggleNavExpanded = useCallback(() => {
+    setNavExpanded((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("nowen-nav-expanded", String(next)); } catch {}
       return next;
     });
   }, []);
@@ -1086,52 +1106,80 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <div className="px-3 py-1 space-y-0.5">
-        {navItems.map((item) => {
-          const isTrashItem = item.mode === "trash";
-          return (
-            <div key={item.mode} className="relative group">
-              <button
-                onClick={() => {
-                  actions.setViewMode(item.mode);
-                  actions.setSelectedNotebook(null);
-                  actions.setMobileSidebar(false);
-                }}
-                onContextMenu={
-                  isTrashItem
-                    ? (e) => {
-                        e.preventDefault();
-                        openEmptyTrashConfirm();
-                      }
-                    : undefined
-                }
-                className={cn(
-                  "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm transition-colors",
-                  item.active
-                    ? "bg-app-active text-tx-primary"
-                    : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
-                  isTrashItem && "pr-8"
-                )}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-              {isTrashItem && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEmptyTrashConfirm();
-                  }}
-                  title={t('sidebar.emptyTrash')}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-tx-tertiary hover:text-red-500 transition-all"
-                >
-                  <Trash2 size={13} />
-                </button>
-              )}
-            </div>
-          );
-        })}
+      <div className="px-3 flex items-center justify-between mb-1 mt-1">
+        <button
+          onClick={() => toggleNavExpanded()}
+          className="flex items-center gap-1 hover:text-tx-secondary transition-colors"
+          title={t('sidebar.navigation')}
+        >
+          <ChevronDown
+            size={12}
+            className={cn(
+              "text-tx-tertiary transition-transform duration-200",
+              !navExpanded && "-rotate-90"
+            )}
+          />
+          <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">{t('sidebar.navigation')}</span>
+        </button>
       </div>
+
+      <AnimatePresence initial={false}>
+        {navExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{ height: "auto", opacity: 1, overflow: "visible", transitionEnd: { overflow: "visible" } }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="px-3 py-1 space-y-0.5">
+              {navItems.map((item) => {
+                const isTrashItem = item.mode === "trash";
+                return (
+                  <div key={item.mode} className="relative group">
+                    <button
+                      onClick={() => {
+                        actions.setViewMode(item.mode);
+                        actions.setSelectedNotebook(null);
+                        actions.setMobileSidebar(false);
+                      }}
+                      onContextMenu={
+                        isTrashItem
+                          ? (e) => {
+                              e.preventDefault();
+                              openEmptyTrashConfirm();
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm transition-colors",
+                        item.active
+                          ? "bg-app-active text-tx-primary"
+                          : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+                        isTrashItem && "pr-8"
+                      )}
+                    >
+                      {item.icon}
+                      {item.label}
+                    </button>
+                    {isTrashItem && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEmptyTrashConfirm();
+                        }}
+                        title={t('sidebar.emptyTrash')}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-tx-tertiary hover:text-red-500 transition-all"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Separator */}
       <div className="mx-3 my-2 border-t border-app-border" />

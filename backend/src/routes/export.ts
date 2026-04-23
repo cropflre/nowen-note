@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
+import { extractInlineBase64Images } from "./attachments";
 
 const app = new Hono();
 
@@ -126,6 +127,11 @@ app.post("/import", async (c) => {
     INSERT INTO notes (id, userId, notebookId, title, content, contentText)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
+  // 导入后如果发现 content 里有内联 base64 图片，需要再 UPDATE 一次把 src 换成 URL。
+  // 这里必须在 INSERT notes 之后才能写 attachments 行（外键依赖），所以走两步。
+  const updateContent = db.prepare(`
+    UPDATE notes SET content = ? WHERE id = ?
+  `);
 
   const imported: any[] = [];
   const usedNotebookIds = new Set<string>();
@@ -161,6 +167,22 @@ app.post("/import", async (c) => {
       } else {
         insertDefault.run(id, userId, targetId, note.title, note.content, note.contentText);
       }
+
+      // 抽取 content 里的内联 base64 图片为 attachments：
+      //   - 导入 zip 时前端 importService 会把图片编码进 data URI；若直接入库会把
+      //     notes.content 撑大到 MB 级，后续 GET 性能崩塌（这是本次改造的根本目的）。
+      //   - 短路策略保证"没有内联图"的常规导入完全无额外成本。
+      if (note.content && note.content.indexOf("data:image") >= 0) {
+        const { content: rewritten, replacedCount } = extractInlineBase64Images(
+          note.content,
+          userId,
+          id,
+        );
+        if (replacedCount > 0) {
+          updateContent.run(rewritten, id);
+        }
+      }
+
       imported.push({ id, title: note.title, notebookId: targetId });
     }
   });

@@ -35,6 +35,10 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 RUN mkdir -p /app/data
 
+# 启动脚本：首启自动生成并持久化 JWT_SECRET，使镜像开箱即用（同时保持安全基线）
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/nowen-note.db
 ENV PORT=3001
@@ -42,4 +46,5 @@ ENV PORT=3001
 EXPOSE 3001
 
 WORKDIR /app
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "backend/dist/index.js"]

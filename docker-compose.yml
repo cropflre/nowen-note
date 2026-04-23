@@ -10,6 +10,13 @@ services:
       - "3001:3001"
     volumes:
       - nowen-note-data:/app/data
+    # JWT_SECRET 等敏感变量由容器内 docker-entrypoint.sh 在首启时自动生成并
+    # 持久化到 data 卷；用户零配置即可启动。
+    # 如需手动覆盖（多实例共享密钥、企业统一密钥管理等），可在同目录下创建
+    # .env 文件填入 JWT_SECRET=... ，compose 会自动加载。.env 不存在则跳过。
+    env_file:
+      - path: .env
+        required: false
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/nowen-note.db

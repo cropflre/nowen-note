@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { compress } from "hono/compress";
 import path from "path";
 import fs from "fs";
 import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/auth-security";
@@ -11,8 +12,10 @@ import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
 import tasksRouter from "./routes/tasks";
 import exportRouter from "./routes/export";
+import dataFileRouter from "./routes/data-file";
 import settingsRouter from "./routes/settings";
 import fontsRouter from "./routes/fonts";
+import attachmentsRouter, { handleDownloadAttachment } from "./routes/attachments";
 import micloudRouter from "./routes/micloud";
 import oppoCloudRouter from "./routes/oppocloud";
 import icloudRouter from "./routes/icloud";
@@ -46,6 +49,14 @@ app.use("*", cors({
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization"],
   credentials: true,
 }));
+
+// HTTP 响应压缩（gzip/deflate）。
+//   - 针对 /api/* 的 JSON 响应启用；大多数"图片以 base64 内联在 notes.content"的
+//     笔记返回体能压到原大小的 20~30%，显著降低 GET /api/notes/:id 的网络耗时。
+//   - threshold 默认 1KB，小响应不压缩（避免无谓 CPU）。
+//   - 静态资源（字体、前端 dist）已有自己的 Cache-Control，这里不覆盖它们；
+//     仅包裹 /api/* 足够。
+app.use("/api/*", compress());
 
 // 初始化数据库
 getDb();
@@ -172,6 +183,12 @@ app.get("/api/fonts/file/:id", (c) => {
   });
 });
 
+// 附件下载（无需 JWT）。
+//   - <img src="/api/attachments/<id>"> 浏览器请求不会自动带 Authorization，
+//     走 JWT 中间件必然 401。和字体一样把下载 handler 注册在 JWT 中间件之前。
+//   - 授权靠附件 id 不可枚举（uuid）保护；详细权衡见 routes/attachments.ts 顶部注释。
+app.get("/api/attachments/:id", handleDownloadAttachment);
+
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 //
 // 安全加固（C3）：
@@ -290,6 +307,7 @@ app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
 app.route("/api/tasks", tasksRouter);
 app.route("/api/export", exportRouter);
+app.route("/api/data-file", dataFileRouter);
 app.route("/api/micloud", micloudRouter);
 app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/icloud", icloudRouter);
@@ -306,6 +324,7 @@ app.route("/api/users", usersRouter);
 
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
+app.route("/api/attachments", attachmentsRouter);
 
 // 获取当前登录用户信息
 app.get("/api/me", (c) => {

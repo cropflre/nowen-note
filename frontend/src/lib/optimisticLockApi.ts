@@ -109,7 +109,8 @@ export function isAborted(err: any): boolean {
 export function makeFetchLatestNoteVersion(noteId: string) {
   return async (): Promise<number | undefined> => {
     try {
-      const latest = await api.getNote(noteId);
+      // slim 模式：不拉 content（可能是几 MB base64 图片），只要 version。
+      const latest = await api.getNoteSlim(noteId);
       return latest?.version;
     } catch {
       return undefined;

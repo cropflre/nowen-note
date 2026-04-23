@@ -276,6 +276,23 @@ export const api = {
     return request<NoteListItem[]>(`/notes${qs}`);
   },
   getNote: (id: string) => request<Note>(`/notes/${id}`),
+  /**
+   * 轻量版笔记 GET：不返回 content / contentText，仅元数据（含 version）。
+   *
+   * 使用场景：
+   *   - 乐观锁 409 冲突重试时只需要 latest version
+   *   - optimisticLockApi.makeFetchLatestNoteVersion
+   * 背景：
+   *   notes.content 可能包含大量 base64 内联图片，完整 GET 一次可能传 10+ MB，
+   *   还会阻塞后端事件循环。slim 避开所有重字段。
+   *
+   * 注意：返回对象里 content / contentText 为 undefined，不要直接赋给 activeNote
+   * 否则编辑器会拿到空内容。只在"只用 version / 元数据"的路径使用。
+   */
+  getNoteSlim: (id: string) =>
+    request<Partial<Note> & { id: string; version: number; title: string; updatedAt: string }>(
+      `/notes/${id}?slim=1`,
+    ),
   createNote: (data: Partial<Note>) => request<Note>("/notes", { method: "POST", body: JSON.stringify(data) }),
   updateNote: (id: string, data: Partial<Note>) => request<Note>(`/notes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteNote: (id: string) => request(`/notes/${id}`, { method: "DELETE" }),
@@ -475,6 +492,62 @@ export const api = {
   },
   deleteFont: (id: string) => request(`/fonts/${id}`, { method: "DELETE" }),
   getFontFileUrl: (id: string) => `${getBaseUrl()}/fonts/file/${id}`,
+
+  // ========== Attachments（图片/附件走文件，不再内联 base64）==========
+  //
+  // 统一把编辑器里的图片从 data:image;base64,... 迁到 /api/attachments/<id>。
+  // 粘贴、拖拽、点"插入图片"按钮都应走 uploadAttachment；导入（importService）
+  // 在解析到本地图片时也走这里把字节落盘。
+  //
+  // 返回的 url 是**相对 URL**（/api/attachments/<id>），浏览器直接用作 img.src
+  // 能正确带上 Authorization（fetch）……不过 <img> 标签的 HTTP 请求不会带
+  // Authorization header。为此 attachments 下载接口不依赖 JWT，而是靠
+  // "noteId 的 read 权限"做 ACL；客户端本地（同源）可以直接访问。
+  // 若以后部署到不同域 + cookie 鉴权不可用，需改造为签名 URL。
+  attachments: {
+    /**
+     * 上传一张图片附件。
+     *
+     * @param noteId 必须：绑定的笔记 ID，后端用它做 ACL 校验
+     * @param file   File 对象（粘贴得到的 File、拖拽文件、或 input.files[0]）
+     * @returns      { id, url, mimeType, size, filename }
+     *
+     * 注意：
+     *   - 本调用绕过 request() 通用封装，因为 Content-Type 需要让浏览器自动
+     *     带上 multipart boundary；
+     *   - 错误时抛 Error（与 request() 风格一致）。
+     */
+    upload: async (
+      noteId: string,
+      file: File,
+    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename: string }> => {
+      const token = getToken();
+      const form = new FormData();
+      form.append("file", file);
+      form.append("noteId", noteId);
+      const res = await fetch(`${getBaseUrl()}/attachments`, {
+        method: "POST",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `附件上传失败: ${res.status}`);
+      }
+      return res.json();
+    },
+
+    /**
+     * 拼出一个附件的完整 URL。
+     * 本地部署（前端与后端同源或走 vite 代理）时直接返回 `/api/attachments/<id>`
+     * 即可；客户端模式若配置了外部 serverUrl，则前缀带上 serverUrl。
+     */
+    urlFor: (id: string): string => `${getBaseUrl()}/attachments/${id}`,
+
+    /** 删除一张附件。一般用于编辑器内显式删图 + 管理页。 */
+    remove: (id: string) =>
+      request<{ success: boolean }>(`/attachments/${id}`, { method: "DELETE" }),
+  },
 
   // Mi Cloud
   miCloudVerify: (cookie: string) =>
@@ -879,6 +952,93 @@ export const api = {
       "/workspaces/join",
       { method: "POST", body: JSON.stringify({ code }) },
     ),
+
+  // ========== 数据库文件（.data）导出 / 导入 / 占用统计 ==========
+  //
+  // - getDataFileInfo  所有登录用户可见；普通用户看自己数据量，管理员额外拿到整库文件大小/data 目录占用
+  // - exportDataFile   管理员下载当前 `.data` 文件（SQLite 在线快照）
+  // - importDataFile   管理员上传 `.data` 文件覆盖当前库（需 sudo + 重启后端）
+  dataFile: {
+    getInfo: () =>
+      request<{
+        dbFile: { path?: string; main: number; wal: number; shm: number; total: number };
+        user: {
+          notes: { count: number; bytes: number };
+          attachments: { count: number; bytes: number };
+          notebookCount: number;
+          totalBytes: number;
+        };
+        system: {
+          noteCount: number;
+          userCount: number;
+          notebookCount: number;
+          dataDirBytes?: number;
+          dataDirPath?: string;
+        };
+      }>("/data-file/info"),
+
+    /**
+     * 下载当前数据库文件。用浏览器原生下载流程：
+     *   - fetch 返回 Blob（带 Content-Disposition filename）
+     *   - 生成 ObjectURL → <a download> → click → revoke
+     * 不走 request()，因为 request 只处理 JSON。
+     */
+    downloadExport: async () => {
+      const token = localStorage.getItem("nowen-token");
+      const res = await fetch(`${getBaseUrl()}/data-file/export`, {
+        method: "GET",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`导出失败: ${res.status} ${errText}`);
+      }
+      // 从 Content-Disposition 里提取 filename
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = cd.match(/filename="?([^";]+)"?/);
+      const fallbackTs = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const filename = m?.[1] || `nowen-note-${fallbackTs}.data`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return { filename, size: blob.size };
+    },
+
+    /**
+     * 上传 `.data` 文件替换当前库。
+     * 需要 sudoToken（通过 withSudo 或 requestSudoToken 获取）。
+     * 成功后 requireRestart=true —— 调用方必须明确提示用户重启后端。
+     */
+    uploadImport: async (file: File, sudoToken: string) => {
+      const token = localStorage.getItem("nowen-token");
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${getBaseUrl()}/data-file/import`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          "X-Sudo-Token": sudoToken,
+          // 注意：不要手动设 Content-Type，浏览器会自动加 boundary
+        },
+        body: form,
+      });
+      const body = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        const err = new Error(body?.error || `导入失败: ${res.status}`) as Error & { code?: string; status?: number };
+        err.code = body?.code;
+        err.status = res.status;
+        throw err;
+      }
+      return body as { success: true; requireRestart: boolean; message: string; size: number; preImportBackup: string };
+    },
+  },
+
 
 };
 

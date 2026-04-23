@@ -41,26 +41,51 @@ const SiteSettingsContext = createContext<SiteSettingsContextValue>({
   isLoaded: false,
 });
 
+/**
+ * 应用站点标题与 favicon 到 DOM。
+ *
+ * 历史坑点（2026-04 修复）：
+ *  1. index.html 里同时存在 `<link rel="icon">`、`<link rel="alternate icon">`、
+ *     `<link rel="apple-touch-icon">`。以前只更新第一个，其他继续指向旧 URL，
+ *     浏览器可能回退到 `alternate icon` → 看起来"换了没生效"。
+ *  2. 直接改 `link.href` 时，浏览器常常复用已缓存的 favicon 不刷新。稳妥做法
+ *     是 **移除旧节点、新建节点**，这样浏览器必须重新发起解析。
+ *  3. 之前 `link.type` 只识别 svg / png / x-icon，上传 jpg/webp/ico 时一律被
+ *     写成 image/png → 某些浏览器直接拒渲。改为从 data URL 真实 MIME 读取。
+ */
+function parseDataUrlMime(url: string): string {
+  // data:image/png;base64,... → image/png
+  const m = /^data:([^;,]+)[;,]/i.exec(url);
+  return m ? m[1].toLowerCase() : "image/png";
+}
+
 function applyToDOM(title: string, faviconUrl: string) {
   document.title = title || "nowen-note";
 
-  let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-  if (!link) {
-    link = document.createElement("link");
-    link.rel = "icon";
-    document.head.appendChild(link);
-  }
+  // 清理页面上所有"图标类"link（含 alternate/apple-touch/shortcut），避免旧节点覆盖新节点
+  const oldLinks = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[rel="icon"], link[rel="shortcut icon"], link[rel="alternate icon"], link[rel="apple-touch-icon"]'
+  );
+  oldLinks.forEach((n) => n.parentNode?.removeChild(n));
 
+  // 新建主 icon 节点
+  const link = document.createElement("link");
+  link.rel = "icon";
   if (faviconUrl) {
+    link.type = parseDataUrlMime(faviconUrl) || "image/png";
     link.href = faviconUrl;
-    link.type = faviconUrl.startsWith("data:image/svg") ? "image/svg+xml"
-      : faviconUrl.startsWith("data:image/png") ? "image/png"
-      : faviconUrl.startsWith("data:image/x-icon") ? "image/x-icon"
-      : "image/png";
   } else {
-    link.href = "/vite.svg";
+    // 恢复内置品牌 favicon（与 index.html 保持一致）
     link.type = "image/svg+xml";
+    link.href = "/favicon.svg";
   }
+  document.head.appendChild(link);
+
+  // apple-touch-icon 同步更新；自定义图标时复用相同 href（PWA/添加到主屏幕体验一致）
+  const apple = document.createElement("link");
+  apple.rel = "apple-touch-icon";
+  apple.href = faviconUrl || "/apple-touch-icon.svg";
+  document.head.appendChild(apple);
 }
 
 function applyEditorFont(fontId: string, customFontName?: string) {

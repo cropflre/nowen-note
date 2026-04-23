@@ -44,6 +44,15 @@ import {
 // URL `?md=1|0` 强制；否则读 localStorage["nowen.editor_mode"]。
 // 读写协议与工具：frontend/src/lib/editorMode.ts
 // 切换完整流程：docs/editor-mode-switch.md
+//
+// UI 入口策略（2026-04 起）：
+//   顶栏的 `MD / RTE` 徽标按钮对普通用户隐藏 —— 绝大多数人用不到双引擎，
+//   按钮占位 + tooltip 反而造成困惑。双引擎**本身并没有删除**：
+//     - `?md=1` / `?md=0` URL 参数仍然生效（给高级用户和自动化测试留口子）
+//     - `localStorage["nowen.editor_mode"]` 仍然被读取
+//     - toggleEditorMode 完整切换协议保留，未来若把入口迁到设置页，一行开关即可恢复
+//   如要在开发期临时显示按钮，把下方常量改为 true；正式发布请保持 false。
+const SHOW_EDITOR_MODE_TOGGLE = false;
 
 export default function EditorPane() {
   const { state } = useApp();
@@ -801,7 +810,8 @@ export default function EditorPane() {
       } catch (err: any) {
         const msg = String(err?.message || "");
         if (/409|conflict/i.test(msg)) {
-          const latest = await api.getNote(activeNote.id).catch(() => null);
+          // 只需要 latest.version 去做重试，用 slim 避免拉大 content（可能几 MB base64 图）。
+          const latest = await api.getNoteSlim(activeNote.id).catch(() => null);
           if (latest?.version !== undefined) {
             updated = await doUpdate(latest.version);
           } else {
@@ -1294,6 +1304,9 @@ export default function EditorPane() {
 
           {/* 编辑器模式切换（MD / Tiptap） */}
           {/*
+            入口已对普通用户隐藏（见文件顶部 SHOW_EDITOR_MODE_TOGGLE 注释）。
+            URL `?md=1|0` 仍然生效；toggleEditorMode 完整协议保留在下方。
+
             disabled 条件：
               - 仅 modeSwitching：正在切换中，避免重入。
             关于 collabSynced：
@@ -1308,27 +1321,29 @@ export default function EditorPane() {
               按钮保持可点击，若 CRDT 仍未 sync 只弹 toast 不执行切换；sync 完成后
               再点即可顺利切换，永远不会陷入"按钮坏了"的死状态。
           */}
-          <button
-            onClick={toggleEditorMode}
-            disabled={modeSwitching}
-            title={
-              modeSwitching
-                ? t("editor.modeSwitch.switching")
-                : editorMode === "md"
-                ? t("editor.modeSwitch.toTiptap")
-                : t("editor.modeSwitch.toMd")
-            }
-            className={cn(
-              "flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium transition-colors border",
-              editorMode === "md"
-                ? "bg-accent-primary/10 text-accent-primary border-accent-primary/30 hover:bg-accent-primary/15"
-                : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active",
-              modeSwitching && "opacity-50 cursor-not-allowed"
-            )}
-          >
-            <FileCode size={12} />
-            <span>{editorMode === "md" ? "MD" : "RTE"}</span>
-          </button>
+          {SHOW_EDITOR_MODE_TOGGLE && (
+            <button
+              onClick={toggleEditorMode}
+              disabled={modeSwitching}
+              title={
+                modeSwitching
+                  ? t("editor.modeSwitch.switching")
+                  : editorMode === "md"
+                  ? t("editor.modeSwitch.toTiptap")
+                  : t("editor.modeSwitch.toMd")
+              }
+              className={cn(
+                "flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium transition-colors border",
+                editorMode === "md"
+                  ? "bg-accent-primary/10 text-accent-primary border-accent-primary/30 hover:bg-accent-primary/15"
+                  : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active",
+                modeSwitching && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              <FileCode size={12} />
+              <span>{editorMode === "md" ? "MD" : "RTE"}</span>
+            </button>
+          )}
 
           <div className="w-px h-4 bg-app-border" />
 
