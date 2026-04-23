@@ -6,6 +6,9 @@
 #
 #   [发布模式] 默认。面向 Docker Hub 正式发布：
 #     1. 交互式输入版本号（带校验 + 自动建议下一版本）
+#        自动建议版本会同时参考：本地 git tag / GitHub 远端 tag / Docker Hub 已有 tag，
+#        取三者最大值 + patch+1，保证三端版本号严格单调递增；
+#        --yes 模式下会直接采用建议版本，便于 CI 自动化。
 #     2. git pull 前检查工作区 / 暂存区是否干净
 #     3. 一次 docker build 同时打 :vX.Y.Z + :latest
 #     4. 推送到 Docker Hub
@@ -257,45 +260,114 @@ else
     # 发布模式：需要版本号
     IMAGE_NAME="$DEFAULT_IMAGE_NAME"
 
+    # ----- 版本号来源聚合 -----
+    # 汇聚以下三处已发布过的版本，合并去重后取最大值，保证本地 / GitHub / Docker Hub
+    # 三端版本号严格单调递增，避免出现 "本地 tag 落后 Docker Hub" 或反之的错位。
+    #   1) 本地 git tag
+    #   2) GitHub 远端 tag（origin）
+    #   3) Docker Hub 镜像 tag（cropflre/nowen-note）
+    # 网络不可用（ls-remote / curl 失败）时静默跳过该来源，不阻断发布。
+
+    # 提取形如 vX.Y.Z / X.Y.Z（可带 -rc.N 等后缀）并归一化为裸 X.Y.Z(-suffix)
+    normalize_tags() {
+        # 读 stdin，每行一个候选字符串；输出合法的 X.Y.Z(-suffix)
+        grep -Eo '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            | sed 's/^v//'
+    }
+
+    collect_local_tags() {
+        git tag --list 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null | normalize_tags || true
+    }
+
+    collect_github_tags() {
+        # 2s 超时避免网络挂死；ls-remote 输出形如 "<sha>\trefs/tags/vX.Y.Z(^{})"
+        timeout 5 git ls-remote --tags --refs origin 2>/dev/null \
+            | awk '{print $2}' | sed 's#^refs/tags/##' | normalize_tags || true
+    }
+
+    collect_dockerhub_tags() {
+        # Docker Hub v2 REST：匿名可读。分页拉到空为止，最多翻 5 页（500 个 tag）足够。
+        command -v curl >/dev/null 2>&1 || return 0
+        local ns="${IMAGE_NAME%%/*}" repo="${IMAGE_NAME##*/}"
+        local url="https://hub.docker.com/v2/repositories/${ns}/${repo}/tags/?page_size=100"
+        local page=1
+        while [ -n "$url" ] && [ "$page" -le 5 ]; do
+            local body
+            body="$(curl -fsSL --max-time 5 "$url" 2>/dev/null)" || return 0
+            echo "$body" \
+                | grep -Eo '"name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+                | sed -E 's/.*"([^"]+)"$/\1/' \
+                | normalize_tags
+            url="$(echo "$body" | grep -Eo '"next"[[:space:]]*:[[:space:]]*"[^"]+"' \
+                    | sed -E 's/.*"([^"]+)"$/\1/' | head -1)"
+            page=$((page + 1))
+        done
+    }
+
     suggest_next_version() {
-        local latest
-        latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1 | sed 's/^v//')" || latest=""
+        local all latest
+        all="$( { collect_local_tags; collect_github_tags; collect_dockerhub_tags; } | sort -u )"
+        # 只用 "纯三段"（不带 -rc 等后缀）作为递增基准，避免预发布被当正式版
+        latest="$(echo "$all" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
         if [ -z "$latest" ]; then
             echo "0.1.0"
             return
         fi
-        local base="${latest%%-*}"
         local major minor patch
         IFS='.' read -r major minor patch <<EOF
-$base
+$latest
 EOF
         patch=$((patch + 1))
         echo "${major}.${minor}.${patch}"
+    }
+
+    # 返回 0 = 该版本已在任一来源存在
+    version_exists_anywhere() {
+        local v="$1"
+        { collect_local_tags; collect_github_tags; collect_dockerhub_tags; } \
+            | sort -u | grep -Fxq "$v"
     }
 
     validate_version() {
         echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
     }
 
+    info "聚合历史版本（本地 tag / GitHub / Docker Hub）..."
+    SUGGEST="$(suggest_next_version)"
+    # 打印一下当前各源最大版本，方便肉眼核对
+    _LOCAL_MAX="$(collect_local_tags    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+    _GH_MAX="$(   collect_github_tags   | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+    _DH_MAX="$(   collect_dockerhub_tags| grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+    info "  本地 tag 最新 : ${_LOCAL_MAX:-(无)}"
+    info "  GitHub 最新   : ${_GH_MAX:-(无/不可达)}"
+    info "  Docker Hub 最新: ${_DH_MAX:-(无/不可达)}"
+    info "  建议下一版本   : ${C_GREEN}${SUGGEST}${C_RESET}"
+
     if [ -z "$VERSION" ]; then
-        SUGGEST="$(suggest_next_version)"
         if [ "$ASSUME_YES" = "1" ]; then
-            die "未指定版本号（-v），且 --yes 模式下不能交互输入"
+            # --yes 模式下自动采用建议版本，便于 CI / 自动化
+            VERSION="$SUGGEST"
+            info "--yes 模式自动采用建议版本：${VERSION}"
+        else
+            echo
+            echo "${C_BOLD}请输入本次发布版本号${C_RESET}（格式：1.2.3 或 v1.2.3，可带 -rc.1 等后缀）"
+            echo "   建议：${C_GREEN}${SUGGEST}${C_RESET}（回车使用建议值）"
+            read -r -p "> " VERSION
+            VERSION="${VERSION:-$SUGGEST}"
         fi
-        echo
-        echo "${C_BOLD}请输入本次发布版本号${C_RESET}（格式：1.2.3 或 v1.2.3，可带 -rc.1 等后缀）"
-        echo "   建议：${C_GREEN}${SUGGEST}${C_RESET}（回车使用建议值）"
-        read -r -p "> " VERSION
-        VERSION="${VERSION:-$SUGGEST}"
     fi
 
     VERSION="${VERSION#v}"
     validate_version "$VERSION" || die "版本号格式非法：$VERSION（期望 X.Y.Z 或 X.Y.Z-rc.N）"
     VERSION_TAG="v${VERSION}"
 
-    # 检查 git tag 是否已存在
+    # 检查 git tag 是否已存在（本地）
     if [ "$DO_GIT_TAG" = "1" ] && git rev-parse "refs/tags/${VERSION_TAG}" >/dev/null 2>&1; then
-        die "git tag ${VERSION_TAG} 已存在"
+        die "git tag ${VERSION_TAG} 已存在（本地）"
+    fi
+    # 检查 GitHub / Docker Hub 是否已存在（三端任何一处已占用都禁止覆盖）
+    if version_exists_anywhere "$VERSION"; then
+        die "版本 ${VERSION_TAG} 在 本地 / GitHub / Docker Hub 中已存在，拒绝覆盖"
     fi
 fi
 
