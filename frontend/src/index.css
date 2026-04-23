@@ -92,6 +92,31 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* ===== Safe Area 统一变量 =====
+ * 移动端顶部 / 底部避让高度。两种运行模式都要兼容：
+ *
+ *   A) 浏览器 / iOS WKWebView / Capacitor 开启 StatusBar.setOverlaysWebView(true)：
+ *      状态栏覆盖 WebView，CSS 的 env(safe-area-inset-*) 能拿到真实数值。
+ *   B) Android + Capacitor StatusBar.setOverlaysWebView(false)（当前默认）：
+ *      状态栏独占一条，WebView 顶边 = y=0，env(safe-area-inset-top) 恒为 0。
+ *      这种模式下我们在 JS (useStatusBarSync) 初始化时把 `visualViewport.offsetTop`
+ *      或原生状态栏高度写入 --android-status-bar-height 做兜底。
+ *
+ * 组件里统一使用 var(--safe-area-top/bottom)，无需再散落写 env() + max() 组合。
+ */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* Android 原生壳：status bar 不 overlay WebView，env() 恒为 0；
+ * 由 JS 注入 --android-status-bar-height 作为兜底，保证顶部 header 仍有呼吸空间 */
+html[data-native="android"] {
+  --safe-area-top: var(--android-status-bar-height, 0px);
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text-primary);

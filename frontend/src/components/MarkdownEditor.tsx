@@ -119,6 +119,8 @@ import {
   emptySlashState,
   getDefaultMdSlashItems,
 } from "@/components/MarkdownSlashMenu";
+import MobileFloatingToolbar, { MobileToolbarItem } from "@/components/MobileFloatingToolbar";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { redo, undo } from "@codemirror/commands";
 
 // ---------------------------------------------------------------------------
@@ -362,6 +364,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
   const [slashState, setSlashState] = useState<SlashState>(emptySlashState);
+  // 编辑器是否聚焦 —— 用来控制移动端浮动工具栏是否显示
+  const [editorFocused, setEditorFocused] = useState(false);
+  // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
+  const { visible: keyboardOpen } = useKeyboardVisible();
 
   // ---------- 选区气泡菜单（划词弹出）----------
   /**
@@ -629,6 +635,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       setBubble({ open: true, top, left });
     });
 
+    /**
+     * 聚焦状态同步 listener（给移动端浮动工具栏用）
+     * 只在 focusChanged 时触发 setState，避免每次按键都 re-render。
+     */
+    const focusListener = EditorView.updateListener.of((update) => {
+      if (!update.focusChanged) return;
+      setEditorFocused(update.view.hasFocus);
+    });
+
+
+
 
     const state = EditorState.create({
       doc: initialDoc,
@@ -691,6 +708,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         // 变更监听
         updateListener,
         bubbleListener,
+        focusListener,
 
         // 斜杠菜单 plugin
         createSlashPlugin((s) => setSlashState(s)),
@@ -947,7 +965,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
       {editable && (
-        <div className="flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors">
+        <div
+          className={cn(
+            "flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors",
+            // 键盘弹起时隐藏顶部工具栏（仅原生，hook 在非原生平台恒为 false）
+            keyboardOpen && "hidden",
+          )}
+        >
           <ToolbarButton
             onClick={() => withView((v) => undo(v))}
             title={tr("tiptap.undo") || "撤销"}
@@ -1097,8 +1121,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         )}
       </div>
 
-      {/* 编辑器主体 */}
-      <div className="flex-1 overflow-auto px-4 md:px-8">
+      {/* 编辑器主体
+          paddingBottom 同时吃键盘高度 + 底部浮动工具栏高度，让最后一行文字
+          在键盘弹起 / 底部工具栏显示时也不会被遮挡。
+          `--mobile-toolbar-h` 由 MobileFloatingToolbar 按显示状态维护（未显示为 0）。 */}
+      <div
+        className="flex-1 overflow-auto px-4 md:px-8"
+        style={{ paddingBottom: "calc(var(--keyboard-height, 0px) + var(--mobile-toolbar-h, 0px))" }}
+      >
         <div
           ref={hostRef}
           className="nowen-md-editor h-full"
@@ -1187,6 +1217,79 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           onReplace={handleAIReplace}
           onClose={() => setAiOpen(false)}
           position={aiPosition}
+        />
+      )}
+
+      {/*
+        移动端浮动工具栏（吸附键盘正上方）
+        - 仅在原生 App + 键盘弹起 + 编辑器聚焦时显示
+        - 最常用 10 个命令：撤销/H1/H2/加粗/斜体/行内代码/无序列表/任务列表/代码块/插图
+      */}
+      {editable && (
+        <MobileFloatingToolbar
+          visible={editorFocused}
+          items={[
+            {
+              key: "undo",
+              icon: <Undo size={18} />,
+              title: tr("tiptap.undo") || "撤销",
+              onClick: () => withView((v) => undo(v)),
+            },
+            {
+              key: "h1",
+              icon: <Heading1 size={18} />,
+              title: tr("tiptap.heading1") || "一级标题",
+              onClick: () => withView((v) => toggleHeading(v, 1)),
+            },
+            {
+              key: "h2",
+              icon: <Heading2 size={18} />,
+              title: tr("tiptap.heading2") || "二级标题",
+              onClick: () => withView((v) => toggleHeading(v, 2)),
+            },
+            {
+              key: "bold",
+              icon: <Bold size={18} />,
+              title: tr("tiptap.bold") || "加粗",
+              onClick: () => withView((v) => toggleWrap(v, "**")),
+            },
+            {
+              key: "italic",
+              icon: <Italic size={18} />,
+              title: tr("tiptap.italic") || "斜体",
+              onClick: () => withView((v) => toggleWrap(v, "*")),
+            },
+            {
+              key: "inlineCode",
+              icon: <CodeIcon size={18} />,
+              title: tr("tiptap.inlineCode") || "行内代码",
+              onClick: () => withView((v) => toggleInlineCode(v)),
+            },
+            {
+              key: "bullet",
+              icon: <List size={18} />,
+              title: tr("tiptap.bulletList") || "无序列表",
+              onClick: () => withView((v) => toggleBulletList(v)),
+            },
+            {
+              key: "task",
+              icon: <CheckSquare size={18} />,
+              title: tr("tiptap.taskList") || "任务列表",
+              onClick: () => withView((v) => toggleTaskList(v)),
+            },
+            {
+              key: "codeBlock",
+              icon: <FileCode size={18} />,
+              title: tr("tiptap.codeBlock") || "代码块",
+              onClick: () => withView((v) => toggleCodeBlock(v)),
+            },
+            {
+              key: "image",
+              icon: <ImagePlus size={18} />,
+              title: tr("tiptap.insertImage") || "插入图片",
+              onClick: triggerImagePicker,
+            },
+          ] as MobileToolbarItem[]}
         />
       )}
     </div>

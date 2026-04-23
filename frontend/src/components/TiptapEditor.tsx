@@ -34,6 +34,8 @@ import AIWritingAssistant from "@/components/AIWritingAssistant";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
 import CodeBlockView from "@/components/CodeBlockView";
+import MobileFloatingToolbar, { MobileToolbarItem } from "@/components/MobileFloatingToolbar";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useTranslation } from "react-i18next";
 
 const lowlight = createLowlight(common);
@@ -280,6 +282,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [imageZoom, setImageZoom] = useState(1);
   const [imageDrag, setImageDrag] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  // 编辑器是否聚焦 —— 用来控制移动端浮动工具栏是否显示
+  // （未聚焦时键盘其实已经收起，这里是双重保险：避免聚焦到标题栏时误显示）
+  const [editorFocused, setEditorFocused] = useState(false);
+  // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
+  const { visible: keyboardOpen } = useKeyboardVisible();
   const dragStart = useRef({ x: 0, y: 0, imgX: 0, imgY: 0 });
   const { t, i18n } = useTranslation();
 
@@ -853,6 +860,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     }
   }, [editor, editable]);
 
+  // 跟踪编辑器聚焦状态（给移动端浮动工具栏用）
+  useEffect(() => {
+    if (!editor) return;
+    const onFocus = () => setEditorFocused(true);
+    const onBlur = () => setEditorFocused(false);
+    editor.on("focus", onFocus);
+    editor.on("blur", onBlur);
+    // 初始状态
+    setEditorFocused(editor.isFocused);
+    return () => {
+      editor.off("focus", onFocus);
+      editor.off("blur", onBlur);
+    };
+  }, [editor]);
+
   // Provide scrollTo callback to parent
   useEffect(() => {
     if (!editor) return;
@@ -1047,8 +1069,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors">
+      {/* Toolbar
+          键盘弹起时（仅原生）隐藏，改由底部 MobileFloatingToolbar 提供常用命令。
+          CSS 变量 --keyboard-height 由 useKeyboardLayout 维护；此处通过 state 读取，
+          避免纯 CSS 方案下 display:none 切换时 sticky/flex 的尺寸突变导致光标跳动。 */}
+      <div
+        className={cn(
+          "flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors",
+          keyboardOpen && "hidden",
+        )}
+      >
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -1435,8 +1465,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         </BubbleMenu>
       )}
 
-      {/* Editor content */}
-      <div className="flex-1 overflow-auto px-4 md:px-8 pb-12">
+      {/* Editor content
+          paddingBottom 同时吃掉键盘高度和底部浮动工具栏高度，保证最后一行文字
+          不被键盘或底部浮动工具栏遮挡（`--mobile-toolbar-h` 由 MobileFloatingToolbar
+          按显示状态维护，未显示时为 0）。详见 useKeyboardLayout 注释。 */}
+      <div
+        className="flex-1 overflow-auto px-4 md:px-8 pb-12"
+        style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--mobile-toolbar-h, 0px))" }}
+      >
         <EditorContent editor={editor} />
       </div>
 
@@ -1553,6 +1589,89 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           />
         )}
       </AnimatePresence>
+
+      {/*
+        移动端浮动工具栏（吸附键盘正上方）
+        - 仅在原生 App + 键盘弹起 + 编辑器聚焦时显示
+        - 按钮阻止默认行为避免失焦收键盘
+        - 只放最常用 10 个命令：撤销/H1/H2/加粗/斜体/下划线/无序列表/任务列表/代码块/插图
+      */}
+      {editable && (
+        <MobileFloatingToolbar
+          visible={editorFocused}
+          items={[
+            {
+              key: "undo",
+              icon: <Undo size={18} />,
+              title: t("tiptap.undo"),
+              disabled: !editor.can().undo(),
+              onClick: () => editor.chain().focus().undo().run(),
+            },
+            {
+              key: "h1",
+              icon: <Heading1 size={18} />,
+              title: t("tiptap.heading1"),
+              isActive: editor.isActive("heading", { level: 1 }),
+              onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+            },
+            {
+              key: "h2",
+              icon: <Heading2 size={18} />,
+              title: t("tiptap.heading2"),
+              isActive: editor.isActive("heading", { level: 2 }),
+              onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+            },
+            {
+              key: "bold",
+              icon: <Bold size={18} />,
+              title: t("tiptap.bold"),
+              isActive: editor.isActive("bold"),
+              onClick: () => editor.chain().focus().toggleBold().run(),
+            },
+            {
+              key: "italic",
+              icon: <Italic size={18} />,
+              title: t("tiptap.italic"),
+              isActive: editor.isActive("italic"),
+              onClick: () => editor.chain().focus().toggleItalic().run(),
+            },
+            {
+              key: "underline",
+              icon: <UnderlineIcon size={18} />,
+              title: t("tiptap.underline"),
+              isActive: editor.isActive("underline"),
+              onClick: () => editor.chain().focus().toggleUnderline().run(),
+            },
+            {
+              key: "bullet",
+              icon: <List size={18} />,
+              title: t("tiptap.bulletList"),
+              isActive: editor.isActive("bulletList"),
+              onClick: () => editor.chain().focus().toggleBulletList().run(),
+            },
+            {
+              key: "task",
+              icon: <CheckSquare size={18} />,
+              title: t("tiptap.taskList"),
+              isActive: editor.isActive("taskList"),
+              onClick: () => editor.chain().focus().toggleTaskList().run(),
+            },
+            {
+              key: "code",
+              icon: <FileCode size={18} />,
+              title: t("tiptap.codeBlock"),
+              isActive: editor.isActive("codeBlock"),
+              onClick: toggleCodeBlockStrict,
+            },
+            {
+              key: "image",
+              icon: <ImagePlus size={18} />,
+              title: t("tiptap.insertImage"),
+              onClick: handleImageUpload,
+            },
+          ] as MobileToolbarItem[]}
+        />
+      )}
     </div>
   );
 });

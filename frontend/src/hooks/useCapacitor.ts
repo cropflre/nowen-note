@@ -80,6 +80,11 @@ export function useStatusBarSync() {
   useEffect(() => {
     if (!isNativePlatform()) return;
 
+    // 标注当前原生平台：CSS 里根据 html[data-native="android"] 切换 --safe-area-top
+    // 策略（详见 index.css），避免 Android overlay:false 下 env() 恒为 0 的坑
+    const platform = Capacitor.getPlatform(); // "android" | "ios" | "web"
+    document.documentElement.setAttribute("data-native", platform);
+
     // 确保状态栏不覆盖 WebView 内容（状态栏占据独立空间，不盖住返回按钮）
     // 延迟执行确保原生层已就绪
     const ensureNoOverlay = () => {
@@ -88,6 +93,27 @@ export function useStatusBarSync() {
     ensureNoOverlay();
     // 延迟再执行一次，防止初始化时序问题
     const timer = setTimeout(ensureNoOverlay, 500);
+
+    // Android overlay:false 下 env(safe-area-inset-top) 永远是 0，
+    // 但顶部 header 还是希望与状态栏有视觉隔离。策略：
+    //   - 优先用 visualViewport.offsetTop（部分机型/嵌入场景能拿到实际偏移）
+    //   - 否则按 Android Material 规范兜底 24 CSS px（与 24dp 等价）
+    //   - 只在 Android 上注入，iOS 走 env()
+    let applyStatusBarHeight: (() => void) | null = null;
+    if (platform === "android") {
+      applyStatusBarHeight = () => {
+        const vv = window.visualViewport;
+        const measured = vv?.offsetTop && vv.offsetTop > 0 ? vv.offsetTop : 24;
+        document.documentElement.style.setProperty(
+          "--android-status-bar-height",
+          `${measured}px`,
+        );
+      };
+      applyStatusBarHeight();
+      // 旋转屏或 splitscreen 变化后重新测量
+      window.visualViewport?.addEventListener("resize", applyStatusBarHeight);
+      window.addEventListener("orientationchange", applyStatusBarHeight);
+    }
 
     const updateStatusBar = () => {
       const isDark = document.documentElement.classList.contains("dark");
@@ -119,6 +145,10 @@ export function useStatusBarSync() {
     return () => {
       clearTimeout(timer);
       observer.disconnect();
+      if (applyStatusBarHeight) {
+        window.visualViewport?.removeEventListener("resize", applyStatusBarHeight);
+        window.removeEventListener("orientationchange", applyStatusBarHeight);
+      }
     };
   }, []);
 }
@@ -132,31 +162,47 @@ export function useKeyboardLayout() {
   useEffect(() => {
     if (!isNativePlatform()) return;
 
-    // 键盘弹出时，缩小 body 高度使编辑区可滚动
-    // 使用 window.innerHeight 替代 100vh，避免 Android 上 100vh 包含系统导航栏导致计算偏差产生多余空白
+    // 键盘弹出策略（重要 —— 别再回退到旧版做法）
+    // ------------------------------------------------------------------
+    // 之前的做法是：键盘弹起时把 `document.body.style.height` 压缩成
+    // `innerHeight - keyboardHeight`，并对光标 `scrollIntoView({block:"center"})`。
+    // 这会整体把 App 容器（含 `h-[100dvh]` 根 div）顶高变小，然后 scrollIntoView
+    // 为把光标推到"中央"只能把整个页面向上滚 —— 用户看到的现象就是
+    // **编辑器顶栏（返回/云/锁/三点）和格式化工具栏（H1/B/I/...）在打字时
+    // 被顶出视口**。业务上编辑时最需要随手能点到的就是工具栏，体验灾难。
+    //
+    // 新策略：
+    //   1) 不动 body/html 尺寸。只把 keyboardHeight 暴露为 CSS 变量
+    //      `--keyboard-height`，由内部滚动容器（MarkdownEditor 的
+    //      `.flex-1 .overflow-auto`）通过 `padding-bottom` 避让。
+    //      这样顶栏/工具栏仍然稳稳 sticky 在最外层 flex 顶部，不会被挤走。
+    //   2) scrollIntoView 从 `center` 改为 `nearest`：光标已经在视口里
+    //      就什么都不做；只在被键盘盖住时才最小程度滚动，避免整页上移。
+    //
+    // 注：Android AndroidManifest 未显式声明 windowSoftInputMode，Capacitor 默认
+    // 走 adjustResize；但无论是 resize 还是 pan 模式，我们都以 JS 侧的 CSS 变量
+    // 为单一事实来源，不依赖原生布局调整。
     const showHandler = Keyboard.addListener("keyboardWillShow", (info) => {
       const height = info.keyboardHeight;
-      const visualHeight = window.innerHeight;
       document.documentElement.style.setProperty("--keyboard-height", `${height}px`);
-      document.body.style.height = `${visualHeight - height}px`;
-      document.body.style.overflow = "hidden";
+      // 给 html 打标记，便于编辑器容器条件添加 padding-bottom
+      document.documentElement.setAttribute("data-keyboard", "open");
 
-      // 让光标所在元素滚动到可视区域
+      // 最小程度滚动：仅当光标被键盘遮挡才滚
       requestAnimationFrame(() => {
         const activeEl = document.activeElement;
         if (activeEl && "scrollIntoView" in activeEl) {
           (activeEl as HTMLElement).scrollIntoView({
             behavior: "smooth",
-            block: "center",
+            block: "nearest",
           });
         }
       });
     });
 
     const hideHandler = Keyboard.addListener("keyboardWillHide", () => {
-      document.documentElement.style.removeProperty("--keyboard-height");
-      document.body.style.height = "";
-      document.body.style.overflow = "";
+      document.documentElement.style.setProperty("--keyboard-height", "0px");
+      document.documentElement.removeAttribute("data-keyboard");
     });
 
     return () => {

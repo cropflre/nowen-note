@@ -1,5 +1,13 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
+// Live Reload 开关：设置环境变量 `CAP_LIVE_URL=http://<电脑LAN_IP>:5173` 后再
+// 执行 `npx cap sync android` / run android，即可让 WebView 直接加载电脑的
+// vite dev server，改代码秒刷。**发 release 时必须清掉该变量**（否则生成的
+// APK 会去连一个局域网地址，装在别的设备上直接白屏）。
+// 检测 `npm run cap:release` 这种生产构建时我们通过 NODE_ENV 兜底一下。
+const LIVE_URL = process.env.CAP_LIVE_URL;
+const isProd = process.env.NODE_ENV === "production";
+
 const config: CapacitorConfig = {
   appId: "com.nowen.note",
   appName: "Nowen Note",
@@ -7,6 +15,16 @@ const config: CapacitorConfig = {
   server: {
     // 允许 HTTP 明文（连接局域网 IP / HTTP 服务器需要）
     cleartext: true,
+    // Live Reload：仅在显式设置 CAP_LIVE_URL 且非生产时生效
+    ...(LIVE_URL && !isProd
+      ? {
+          url: LIVE_URL,
+          // androidScheme 切到 http，否则 http 的 server.url 与默认 https origin
+          // 不同源，WebView 的 fetch / WebSocket 会被跨 origin 策略干扰。
+          // 注意：此举只在 Live Reload 下临时生效，release 不走这里。
+          androidScheme: "http",
+        }
+      : {}),
     // androidScheme 保持默认 "https"（不显式指定）：
     //   1) 默认 origin 为 https://localhost，符合浏览器现代安全模型，
     //      avoids Service Worker / fetch / cookie 在 http origin 下被额外限制；

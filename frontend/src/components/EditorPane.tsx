@@ -921,7 +921,7 @@ export default function EditorPane() {
       className="flex-1 flex flex-col bg-app-bg overflow-hidden transition-colors"
     >
       {/* Mobile Editor Header - 返回按钮 */}
-      <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 8px)' }}>
+      <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
         <button
           onClick={() => actions.setMobileView("list")}
           className="flex items-center text-accent-primary py-1.5 px-1.5 -ml-1.5 rounded-lg active:bg-app-hover"
@@ -1095,7 +1095,7 @@ export default function EditorPane() {
             exit={{ x: '100%' }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="fixed inset-0 z-40 bg-app-surface flex flex-col md:hidden"
-            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 0px)' }}
+            style={{ paddingTop: 'var(--safe-area-top)' }}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-tx-primary">
