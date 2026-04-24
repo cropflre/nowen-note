@@ -33,6 +33,15 @@ export interface PublishOptions {
 
 /**
  * 启动 mDNS 广播。返回是否成功。重复调用会先停掉旧的。
+ *
+ * 重名策略：
+ *   - 默认 name = `nowen-note@${hostname}`。
+ *   - 同机多实例（Electron 内嵌 backend + Node dev、或两个 dev）会因 name 完全相同
+ *     而被 bonjour-service 的 probe 判定为冲突，抛 "Service name is already in use
+ *     on the network"。
+ *   - 这里把端口拼进 name —— `nowen-note@${hostname}:${port}`，同机同端口只可能有
+ *     一份，冲突概率骤降；真还冲突则交给下面的 error 回调兜底（仅 warn，不影响主
+ *     流程）。如果用户显式传了 name，则尊重用户选择，不自动追加端口。
  */
 export function publishMdns(opts: PublishOptions): boolean {
   stopMdns();
@@ -46,7 +55,8 @@ export function publishMdns(opts: PublishOptions): boolean {
     bonjourInstance = new Bonjour();
 
     const hostname = os.hostname() || "nowen-note";
-    const name = opts.name || `nowen-note@${hostname}`;
+    // 端口作为天然去重维度拼进 name，避免同机多实例 probe 冲突
+    const name = opts.name || `nowen-note@${hostname}:${opts.port}`;
 
     publishedService = bonjourInstance.publish({
       // 注意：bonjour-service 要求 type 不带下划线前缀和 ._tcp 后缀，它内部会拼
@@ -58,12 +68,33 @@ export function publishMdns(opts: PublishOptions): boolean {
         v: opts.version,
         path: "/",
         https: "0",
-        name,
+        // txt 里回传 hostname + port，便于客户端展示人类可读名字
+        name: `nowen-note@${hostname}`,
+        port: String(opts.port),
       },
     });
 
+    // 防御性订阅：bonjour-service 1.2.x 的 registry 在 probe 到重名时其实是
+    // `console.log(new Error(...))` 直接打印错误对象（并不 throw、也不 emit），
+    // 所以这里的 'error' 监听在当前版本收不到；保留是为了将来版本改成 emit-error
+    // 后能无缝兜住，不至于变成 unhandled error。
     publishedService.on?.("error", (err: unknown) => {
-      console.warn("[discovery] mdns publish error:", err);
+      const msg = (err as Error)?.message || String(err);
+      if (/already in use/i.test(msg)) {
+        console.warn(
+          `[discovery] mDNS name "${name}" 已被占用（可能是同机另一实例/Electron 客户端），` +
+            `本实例不对外广播，服务继续运行。`,
+        );
+      } else {
+        console.warn("[discovery] mdns publish error:", msg);
+      }
+      // 出错后主动清掉句柄，避免 stopMdns 时对已 teardown 的 service 再操作
+      try {
+        publishedService?.stop?.();
+      } catch {
+        /* ignore */
+      }
+      publishedService = null;
     });
 
     console.log(
