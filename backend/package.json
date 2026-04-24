@@ -11,6 +11,7 @@
     "@types/ws": "^8.18.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.7.0",
+    "bonjour-service": "^1.2.1",
     "hono": "^4.6.15",
     "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",

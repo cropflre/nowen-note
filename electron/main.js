@@ -11,6 +11,7 @@ const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray
 const { initAutoUpdater, checkForUpdatesManually } = require("./updater");
 const { initLogger, getLogDir } = require("./logger");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
+const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 
 // 日志 & 崩溃上报需尽早初始化（crashReporter.start 建议在 ready 之前）
 initLogger({
@@ -488,6 +489,9 @@ app.whenReady().then(async () => {
 
   // IPC
   registerAppIpc();
+  // 局域网服务发现（mDNS）：注册 discovery:start / stop / list，
+  // renderer 端通过 window.nowenDesktop.discovery.* 使用
+  registerDiscoveryIpc();
 
   // 自动更新（生产环境生效）
   initAutoUpdater({
@@ -520,4 +524,5 @@ app.on("before-quit", () => {
   markQuitting();
   stopBackend();
   destroyTray();
+  try { shutdownDiscovery(); } catch { /* ignore */ }
 });

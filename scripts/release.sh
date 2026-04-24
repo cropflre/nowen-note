@@ -51,6 +51,7 @@ set -euo pipefail
 DEFAULT_IMAGE_NAME="cropflre/nowen-note"
 DEFAULT_BRANCH="main"
 GITHUB_REPO_URL="https://github.com/cropflre/nowen-note"
+GITHUB_REPO_SLUG="cropflre/nowen-note"   # gh release create 需要的 "owner/repo"
 BUILDX_BUILDER="nowen-note-builder"
 DEFAULT_TAR_OUT="nowen-note-arm64.tar"
 
@@ -87,6 +88,16 @@ DO_TAR=0               # --tar，仅在 build-only + arm64 下
 TAR_OUT="$DEFAULT_TAR_OUT"
 DO_PUSH_CUSTOM=0       # --push，仅在 build-only + 自定义 image 下
 
+# ===== 多端发版（PC / Android / Docker / GitHub Releases） =====
+# TARGETS 用逗号分隔的集合：docker / pc / android / all
+# 默认 docker（向后兼容旧行为）；all = docker,pc,android
+TARGETS="docker"
+DO_GITHUB_RELEASE=0    # --github-release：把 PC/Android 产物上传到 GitHub Release（自动打 tag）
+RELEASE_NOTES=""       # --notes "xxx" 或 --notes-file path
+RELEASE_NOTES_FILE=""
+RELEASE_DRAFT=0        # --draft
+RELEASE_PRERELEASE=0   # --prerelease（版本号带 -rc 等预发布后缀时自动置 1）
+
 usage() {
     cat <<EOF
 用法: $0 [选项]
@@ -94,23 +105,46 @@ usage() {
 通用选项:
   -h, --help               显示帮助
       --dry-run            仅打印命令，不真实执行
-      --arch ARCH          构建架构：amd64(默认) / arm64 / multi
+      --arch ARCH          构建架构：amd64(默认) / arm64 / multi （仅对 docker target 生效）
   -y, --yes                跳过所有确认（发布模式也可用于 CI）
 
 发布模式（默认）:
   -v, --version VERSION    指定版本号（例: 1.3.0 或 v1.3.0）
       --no-pull            不执行 git pull
-      --no-latest          不打 :latest tag
+      --no-latest          不打 :latest tag（仅 docker）
       --no-git-tag         不打 git tag / 不推送到 GitHub
 
+多端发版选项（可组合）:
+      --target TARGETS     逗号分隔：docker / pc / android / all
+                           默认 docker；示例：--target pc,android
+      --github-release     把 pc/android 产物以 gh release create 上传到 GitHub Releases
+                           需要 gh CLI 已登录（gh auth login），或设了 GH_TOKEN 环境变量
+      --notes "TEXT"       Release 发布说明（简短文本）
+      --notes-file PATH    Release 发布说明（从文件读，优先级高于 --notes）
+      --draft              Release 作为草稿（可在网页上再发布）
+      --prerelease         标记为 Pre-release（版本号带 -rc / -alpha 等后缀会自动置位）
+
 构建模式（--build-only，取代 build-arm64.sh）:
-      --build-only         仅构建，不 git pull / 不版本号 / 不 git tag / 不 Docker Hub 推送
+      --build-only         仅构建 docker 镜像，不 git pull / 不版本号 / 不 git tag / 不 Docker Hub 推送
       --image NAME:TAG     自定义镜像名（默认 ${DEFAULT_IMAGE_NAME}:<arch>）
       --tar [PATH]         导出为 tar（仅 arch=arm64）；PATH 可用 --tar-out 指定
       --tar-out PATH       tar 输出路径（默认 ${DEFAULT_TAR_OUT}）
       --push               构建后推送到 --image 指定的 registry（arm64 / multi）
 
-架构说明:
+示例（多端一键发版）:
+  # 只打 PC 端（Windows exe + portable），发到 GitHub Releases
+  $0 -v 1.3.0 -y --target pc --github-release --no-latest
+
+  # 只打 Android APK，发到 GitHub Releases
+  $0 -v 1.3.0 -y --target android --github-release
+
+  # 三端同时发：Docker Hub + PC + Android + GitHub Release
+  $0 -v 1.3.0 -y --target all --github-release --notes "修复若干 bug"
+
+  # 预发布（自动置 prerelease）
+  $0 -v 1.3.0-rc.1 -y --target all --github-release
+
+架构说明（仅 docker target 生效）:
   amd64   原生 docker build，最快；适合 x86 服务器/NAS。
   arm64   buildx --platform linux/arm64 --load（或 --tar / --push）；适合 ARM 板子。
   multi   buildx --platform linux/amd64,linux/arm64 --push；一次性生成多架构 manifest。
@@ -132,10 +166,35 @@ while [ $# -gt 0 ]; do
         --tar)          DO_TAR=1; shift ;;
         --tar-out)      TAR_OUT="${2:-}"; shift 2 ;;
         --push)         DO_PUSH_CUSTOM=1; shift ;;
+        --target)       TARGETS="${2:-}"; shift 2 ;;
+        --github-release) DO_GITHUB_RELEASE=1; shift ;;
+        --notes)        RELEASE_NOTES="${2:-}"; shift 2 ;;
+        --notes-file)   RELEASE_NOTES_FILE="${2:-}"; shift 2 ;;
+        --draft)        RELEASE_DRAFT=1; shift ;;
+        --prerelease)   RELEASE_PRERELEASE=1; shift ;;
         -h|--help)      usage ;;
         *)              die "未知参数: $1（使用 -h 查看帮助）" ;;
     esac
 done
+
+# 展开 TARGETS
+# - all -> docker,pc,android
+# - 去重 / 校验
+TARGETS="$(echo "$TARGETS" | tr ',' '\n' | awk 'NF{print}' | sort -u | tr '\n' ',' | sed 's/,$//')"
+if echo ",$TARGETS," | grep -q ',all,'; then
+    TARGETS="docker,pc,android"
+fi
+HAS_DOCKER=0; HAS_PC=0; HAS_ANDROID=0
+for t in $(echo "$TARGETS" | tr ',' ' '); do
+    case "$t" in
+        docker)  HAS_DOCKER=1 ;;
+        pc)      HAS_PC=1 ;;
+        android) HAS_ANDROID=1 ;;
+        *)       die "--target 未知值: $t （合法: docker / pc / android / all）" ;;
+    esac
+done
+[ "$HAS_DOCKER" = "0" ] && [ "$HAS_PC" = "0" ] && [ "$HAS_ANDROID" = "0" ] \
+    && die "--target 至少包含一个目标"
 
 case "$ARCH" in
     amd64|arm64|multi) ;;
@@ -155,6 +214,13 @@ if [ "$BUILD_ONLY" = "1" ]; then
     if [ "$ARCH" = "multi" ] && [ "$DO_PUSH_CUSTOM" = "0" ]; then
         # multi 必然 push，用户没加 --push 也默认认为要 push（提示一下）
         DO_PUSH_CUSTOM=1
+    fi
+    # build-only 仅对 docker 构建有意义
+    if [ "$HAS_PC" = "1" ] || [ "$HAS_ANDROID" = "1" ]; then
+        die "--build-only 模式不支持 --target pc/android（仅限 docker）"
+    fi
+    if [ "$DO_GITHUB_RELEASE" = "1" ]; then
+        die "--build-only 模式不支持 --github-release"
     fi
 else
     # 发布模式禁用构建模式专属参数
@@ -195,18 +261,37 @@ info "构建架构：$ARCH"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die "当前目录不是 git 仓库"
 
-# docker 可用
-command -v docker >/dev/null 2>&1 || die "未安装 docker"
-docker info >/dev/null 2>&1 || die "docker daemon 不可用（请启动 docker）"
+# docker 可用（只有目标里有 docker 才检查）
+if [ "$HAS_DOCKER" = "1" ] || [ "$BUILD_ONLY" = "1" ]; then
+    command -v docker >/dev/null 2>&1 || die "未安装 docker"
+    docker info >/dev/null 2>&1 || die "docker daemon 不可用（请启动 docker）"
 
-# buildx 可用性（arm64 / multi 模式强制）
-if [ "$ARCH" != "amd64" ]; then
-    docker buildx version >/dev/null 2>&1 \
-        || die "未检测到 docker buildx；arm64 / multi 模式必须使用 buildx（请升级 Docker 或启用 BuildKit）"
+    # buildx 可用性（arm64 / multi 模式强制）
+    if [ "$ARCH" != "amd64" ]; then
+        docker buildx version >/dev/null 2>&1 \
+            || die "未检测到 docker buildx；arm64 / multi 模式必须使用 buildx（请升级 Docker 或启用 BuildKit）"
+    fi
+
+    # Dockerfile 存在
+    [ -f Dockerfile ] || die "仓库根目录未找到 Dockerfile"
 fi
 
-# Dockerfile 存在
-[ -f Dockerfile ] || die "仓库根目录未找到 Dockerfile"
+# PC target 前置检查
+if [ "$HAS_PC" = "1" ]; then
+    [ -f "scripts/safe-build.mjs" ] || die "未找到 scripts/safe-build.mjs（PC 端打包脚本）"
+    command -v node >/dev/null 2>&1 || die "未安装 node（PC 端打包需要）"
+fi
+
+# Android target 前置检查
+if [ "$HAS_ANDROID" = "1" ]; then
+    [ -d "frontend/android" ] || die "未找到 frontend/android 目录"
+    [ -f "frontend/android/app/build.gradle" ] || die "未找到 frontend/android/app/build.gradle"
+    if [ ! -f "frontend/android/keystore.properties" ]; then
+        warn "未找到 frontend/android/keystore.properties，APK 将不会被签名（只能用于调试）"
+    fi
+    command -v node >/dev/null 2>&1 || die "未安装 node（Android 端打包需要先跑 vite build + cap sync）"
+    # 不强制检查 JDK / gradle，让 gradlew 自己报错（它自带 wrapper）
+fi
 
 # -------------------- 发布模式专属前置检查 --------------------
 if [ "$BUILD_ONLY" != "1" ]; then
@@ -404,6 +489,55 @@ if [ "$BUILD_ONLY" != "1" ]; then
     sync_root_pkg_version "$VERSION"
 fi
 
+# -------------------- Android versionCode / versionName 同步 --------------------
+# frontend/android/app/build.gradle 里有硬编码的 `versionCode N` / `versionName "X"`，
+# 发版前必须改成本次 VERSION。versionCode 用 MAJOR*10000 + MINOR*100 + PATCH 生成
+# （单调递增、不受预发布后缀影响），versionName 直接等于 VERSION。
+android_version_code_of() {
+    # 入参: X.Y.Z[-suffix]  ->  整数
+    local v="$1"
+    local base="${v%%-*}"   # 去掉 -rc.1 之类的后缀
+    local major minor patch
+    IFS='.' read -r major minor patch <<EOF
+$base
+EOF
+    printf '%d\n' "$(( (major * 10000) + (minor * 100) + patch ))"
+}
+
+sync_android_version() {
+    local target_version="$1"
+    local gradle_file="${REPO_ROOT}/frontend/android/app/build.gradle"
+    [ -f "$gradle_file" ] || {
+        warn "未找到 $gradle_file，跳过 Android 版本号同步"
+        return 0
+    }
+
+    local new_code cur_name cur_code
+    new_code="$(android_version_code_of "$target_version")"
+    cur_name="$(grep -oE 'versionName[[:space:]]+"[^"]+"' "$gradle_file" | head -1 | sed -E 's/.*"([^"]+)"/\1/')"
+    cur_code="$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$gradle_file" | head -1 | awk '{print $2}')"
+
+    if [ "$cur_name" = "$target_version" ] && [ "$cur_code" = "$new_code" ]; then
+        info "Android build.gradle 版本已是 ${target_version}/${new_code}，无需改写"
+        return 0
+    fi
+
+    info "更新 Android build.gradle: versionName ${cur_name:-?} -> ${target_version}, versionCode ${cur_code:-?} -> ${new_code}"
+
+    # sed 原地替换（兼容 GNU / BSD）
+    if sed --version >/dev/null 2>&1; then
+        sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode ${new_code}/" "$gradle_file"
+        sed -i -E "s/versionName[[:space:]]+\"[^\"]+\"/versionName \"${target_version}\"/" "$gradle_file"
+    else
+        sed -i '' -E "s/versionCode[[:space:]]+[0-9]+/versionCode ${new_code}/" "$gradle_file"
+        sed -i '' -E "s/versionName[[:space:]]+\"[^\"]+\"/versionName \"${target_version}\"/" "$gradle_file"
+    fi
+}
+
+if [ "$BUILD_ONLY" != "1" ] && [ "$HAS_ANDROID" = "1" ]; then
+    sync_android_version "$VERSION"
+fi
+
 # -------------------- 发布 / 构建 摘要 --------------------
 case "$ARCH" in
     amd64) PLATFORM_DESC="linux/amd64（原生 docker build）" ;;
@@ -428,14 +562,25 @@ if [ "$BUILD_ONLY" = "1" ]; then
     echo "  构建时间      : ${BUILD_DATE}"
 else
     step "发布摘要"
-    echo "  镜像仓库      : ${IMAGE_NAME}"
     echo "  版本 tag      : ${VERSION_TAG}"
-    echo "  构建架构      : ${PLATFORM_DESC}"
-    echo "  同步 latest   : $([ "$DO_LATEST" = "1" ] && echo yes || echo no)"
+    echo "  目标集合      : ${TARGETS}"
+    if [ "$HAS_DOCKER" = "1" ]; then
+        echo "  Docker 仓库   : ${IMAGE_NAME}"
+        echo "  Docker 架构   : ${PLATFORM_DESC}"
+        echo "  Docker latest : $([ "$DO_LATEST" = "1" ] && echo yes || echo no)"
+    fi
+    if [ "$HAS_PC" = "1" ]; then
+        echo "  PC 打包       : electron-builder（safe-build.mjs）"
+    fi
+    if [ "$HAS_ANDROID" = "1" ]; then
+        echo "  Android 打包  : Capacitor + gradlew assembleRelease"
+        echo "  Android 版本  : versionName=${VERSION}, versionCode=$(android_version_code_of "$VERSION")"
+    fi
     echo "  同步 git tag  : $([ "$DO_GIT_TAG" = "1" ] && echo yes || echo no)"
+    echo "  GitHub Release: $([ "$DO_GITHUB_RELEASE" = "1" ] && echo yes || echo no)"
     echo "  git commit    : ${GIT_COMMIT}"
     echo "  构建时间      : ${BUILD_DATE}"
-    if [ "$ARCH" = "multi" ]; then
+    if [ "$HAS_DOCKER" = "1" ] && [ "$ARCH" = "multi" ]; then
         echo "  ${C_YELLOW}注意          : multi 模式会直接 push 多架构 manifest 到 Docker Hub${C_RESET}"
     fi
 fi
@@ -450,12 +595,18 @@ fi
 # -------------------- 构建 tags 与 labels --------------------
 START_TS=$(date +%s)
 
+# 各个 target 实际是否"被执行"，发布模式下由 HAS_DOCKER/HAS_PC/HAS_ANDROID 决定；
+# 构建模式 (BUILD_ONLY=1) 强制只跑 docker，前面参数校验已保证这点。
+SHOULD_BUILD_DOCKER=$( [ "$BUILD_ONLY" = "1" ] && echo 1 || echo "$HAS_DOCKER" )
+
 BUILD_TAGS=()
-if [ "$BUILD_ONLY" = "1" ]; then
-    BUILD_TAGS=( -t "${FULL_IMAGE}" )
-else
-    BUILD_TAGS=( -t "${IMAGE_NAME}:${VERSION_TAG}" )
-    [ "$DO_LATEST" = "1" ] && BUILD_TAGS+=( -t "${IMAGE_NAME}:latest" )
+if [ "$SHOULD_BUILD_DOCKER" = "1" ]; then
+    if [ "$BUILD_ONLY" = "1" ]; then
+        BUILD_TAGS=( -t "${FULL_IMAGE}" )
+    else
+        BUILD_TAGS=( -t "${IMAGE_NAME}:${VERSION_TAG}" )
+        [ "$DO_LATEST" = "1" ] && BUILD_TAGS+=( -t "${IMAGE_NAME}:latest" )
+    fi
 fi
 
 # OCI 标签：便于 docker inspect 时追溯
@@ -478,71 +629,74 @@ ensure_buildx_builder() {
     run_argv docker buildx inspect --bootstrap
 }
 
-step "开始构建"
-BUILD_START=$(date +%s)
+BUILD_DURATION=0
+if [ "$SHOULD_BUILD_DOCKER" = "1" ]; then
+    step "开始构建 Docker 镜像"
+    BUILD_START=$(date +%s)
 
-# 计算 buildx 输出模式（--load / --push / --output）
-BUILDX_OUTPUT=()
-if [ "$BUILD_ONLY" = "1" ]; then
-    if [ "$DO_TAR" = "1" ]; then
-        BUILDX_OUTPUT=( --output "type=docker,dest=${TAR_OUT}" )
-    elif [ "$DO_PUSH_CUSTOM" = "1" ]; then
-        BUILDX_OUTPUT=( --push )
+    # 计算 buildx 输出模式（--load / --push / --output）
+    BUILDX_OUTPUT=()
+    if [ "$BUILD_ONLY" = "1" ]; then
+        if [ "$DO_TAR" = "1" ]; then
+            BUILDX_OUTPUT=( --output "type=docker,dest=${TAR_OUT}" )
+        elif [ "$DO_PUSH_CUSTOM" = "1" ]; then
+            BUILDX_OUTPUT=( --push )
+        else
+            # 构建模式下 arm64 默认 --load；multi 已在前面被强制为 --push
+            BUILDX_OUTPUT=( --load )
+        fi
     else
-        # 构建模式下 arm64 默认 --load；multi 已在前面被强制为 --push
-        BUILDX_OUTPUT=( --load )
+        # 发布模式：arm64 用 --load（稍后 docker push），multi 用 --push（直接多架构推送）
+        if [ "$ARCH" = "multi" ]; then
+            BUILDX_OUTPUT=( --push )
+        else
+            BUILDX_OUTPUT=( --load )
+        fi
     fi
-else
-    # 发布模式：arm64 用 --load（稍后 docker push），multi 用 --push（直接多架构推送）
-    if [ "$ARCH" = "multi" ]; then
-        BUILDX_OUTPUT=( --push )
-    else
-        BUILDX_OUTPUT=( --load )
-    fi
+
+    case "$ARCH" in
+        amd64)
+            # 明确 -f Dockerfile 与上下文路径 "$REPO_ROOT"，避免个别环境下 docker build 被
+            # 劫持为 buildx bake 模式时无法正确定位 Dockerfile
+            BUILD_CMD=( docker build -f "$REPO_ROOT/Dockerfile" "${BUILD_TAGS[@]}" "${OCI_LABELS[@]}" "$REPO_ROOT" )
+            echo "  ${BUILD_CMD[*]}"
+            run_argv "${BUILD_CMD[@]}"
+            ;;
+        arm64)
+            ensure_buildx_builder
+            BUILD_CMD=(
+                docker buildx build
+                --platform linux/arm64
+                -f "$REPO_ROOT/Dockerfile"
+                "${BUILD_TAGS[@]}"
+                "${OCI_LABELS[@]}"
+                "${BUILDX_OUTPUT[@]}"
+                "$REPO_ROOT"
+            )
+            echo "  ${BUILD_CMD[*]}"
+            run_argv "${BUILD_CMD[@]}"
+            ;;
+        multi)
+            ensure_buildx_builder
+            # 多架构 manifest 不能 --load 也不能导成单 tar，只能 --push
+            BUILD_CMD=(
+                docker buildx build
+                --platform linux/amd64,linux/arm64
+                -f "$REPO_ROOT/Dockerfile"
+                "${BUILD_TAGS[@]}"
+                "${OCI_LABELS[@]}"
+                --push
+                "$REPO_ROOT"
+            )
+            echo "  ${BUILD_CMD[*]}"
+            run_argv "${BUILD_CMD[@]}"
+            ;;
+    esac
+
+    BUILD_END=$(date +%s)
+    BUILD_DURATION=$((BUILD_END - BUILD_START))
+    ok "Docker 构建完成，用时 ${BUILD_DURATION}s"
 fi
-
-case "$ARCH" in
-    amd64)
-        # 明确 -f Dockerfile 与上下文路径 "$REPO_ROOT"，避免个别环境下 docker build 被
-        # 劫持为 buildx bake 模式时无法正确定位 Dockerfile
-        BUILD_CMD=( docker build -f "$REPO_ROOT/Dockerfile" "${BUILD_TAGS[@]}" "${OCI_LABELS[@]}" "$REPO_ROOT" )
-        echo "  ${BUILD_CMD[*]}"
-        run_argv "${BUILD_CMD[@]}"
-        ;;
-    arm64)
-        ensure_buildx_builder
-        BUILD_CMD=(
-            docker buildx build
-            --platform linux/arm64
-            -f "$REPO_ROOT/Dockerfile"
-            "${BUILD_TAGS[@]}"
-            "${OCI_LABELS[@]}"
-            "${BUILDX_OUTPUT[@]}"
-            "$REPO_ROOT"
-        )
-        echo "  ${BUILD_CMD[*]}"
-        run_argv "${BUILD_CMD[@]}"
-        ;;
-    multi)
-        ensure_buildx_builder
-        # 多架构 manifest 不能 --load 也不能导成单 tar，只能 --push
-        BUILD_CMD=(
-            docker buildx build
-            --platform linux/amd64,linux/arm64
-            -f "$REPO_ROOT/Dockerfile"
-            "${BUILD_TAGS[@]}"
-            "${OCI_LABELS[@]}"
-            --push
-            "$REPO_ROOT"
-        )
-        echo "  ${BUILD_CMD[*]}"
-        run_argv "${BUILD_CMD[@]}"
-        ;;
-esac
-
-BUILD_END=$(date +%s)
-BUILD_DURATION=$((BUILD_END - BUILD_START))
-ok "构建完成，用时 ${BUILD_DURATION}s"
 
 # -------------------- 构建模式：到此结束 --------------------
 if [ "$BUILD_ONLY" = "1" ]; then
@@ -574,42 +728,168 @@ if [ "$BUILD_ONLY" = "1" ]; then
     exit 0
 fi
 
-# -------------------- 发布模式：push（arm64 / amd64） --------------------
+# -------------------- 发布模式：docker push（arm64 / amd64） --------------------
 PUSH_DURATION=0
-if [ "$ARCH" = "multi" ]; then
-    info "multi 模式 buildx 已经把镜像直接推送到 Docker Hub，跳过单独 push 步骤"
-else
-    step "推送镜像"
-    PUSH_START=$(date +%s)
-    info "推送：${IMAGE_NAME}:${VERSION_TAG}"
-    run "docker push \"${IMAGE_NAME}:${VERSION_TAG}\""
+if [ "$SHOULD_BUILD_DOCKER" = "1" ]; then
+    if [ "$ARCH" = "multi" ]; then
+        info "multi 模式 buildx 已经把镜像直接推送到 Docker Hub，跳过单独 push 步骤"
+    else
+        step "推送镜像"
+        PUSH_START=$(date +%s)
+        info "推送：${IMAGE_NAME}:${VERSION_TAG}"
+        run "docker push \"${IMAGE_NAME}:${VERSION_TAG}\""
 
-    if [ "$DO_LATEST" = "1" ]; then
-        info "推送：${IMAGE_NAME}:latest"
-        run "docker push \"${IMAGE_NAME}:latest\""
+        if [ "$DO_LATEST" = "1" ]; then
+            info "推送：${IMAGE_NAME}:latest"
+            run "docker push \"${IMAGE_NAME}:latest\""
+        fi
+        PUSH_END=$(date +%s)
+        PUSH_DURATION=$((PUSH_END - PUSH_START))
     fi
-    PUSH_END=$(date +%s)
-    PUSH_DURATION=$((PUSH_END - PUSH_START))
 fi
 
 # 尝试获取 digest（multi 模式本地没镜像，拿不到，留空）
 DIGEST=""
-if [ "$DRY_RUN" != "1" ] && [ "$ARCH" != "multi" ]; then
+if [ "$SHOULD_BUILD_DOCKER" = "1" ] && [ "$DRY_RUN" != "1" ] && [ "$ARCH" != "multi" ]; then
     DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_NAME}:${VERSION_TAG}" 2>/dev/null || echo "")"
+fi
+
+# -------------------- PC 端打包（electron-builder） --------------------
+# 产物会通过 safe-build.mjs 设的 NOWEN_BUILD_OUT=1 输出到 %TEMP%/nowen-note-build
+# 或 dist-electron/（取决于 builder.config.js 的逻辑）。
+# 我们收集本次所有 PC 平台安装包路径，用于后续上传到 GitHub Release。
+PC_ARTIFACTS=()
+PC_BUILD_DURATION=0
+if [ "$HAS_PC" = "1" ]; then
+    step "PC 端打包（electron-builder）"
+    PC_START=$(date +%s)
+
+    # 走 safe-build.mjs：它内部会做 taskkill + rebuild:native + build:all + electron-builder
+    # safe-build.mjs 默认把输出放到 %TEMP%/nowen-note-build（通过 NOWEN_BUILD_OUT=1）
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  (dry-run) node scripts/safe-build.mjs"
+    else
+        run_argv node "$REPO_ROOT/scripts/safe-build.mjs"
+    fi
+
+    # 解析产物目录：safe-build.mjs 设了 NOWEN_BUILD_OUT=1，对应 builder.config.js：
+    #   OUT_DIR = os.tmpdir() + '/nowen-note-build'
+    # 但实际用户环境是直接跑 electron:build 的场景也要兼容 dist-electron/
+    PC_OUT_CANDIDATES=(
+        "$(node -e 'console.log(require("os").tmpdir())' 2>/dev/null)/nowen-note-build"
+        "${REPO_ROOT}/dist-electron"
+    )
+    PC_OUT=""
+    for cand in "${PC_OUT_CANDIDATES[@]}"; do
+        if [ -d "$cand" ]; then
+            PC_OUT="$cand"
+            break
+        fi
+    done
+
+    if [ "$DRY_RUN" != "1" ] && [ -n "$PC_OUT" ]; then
+        # 收集要上传的产物：.exe / .dmg / .AppImage / .deb / -portable.exe / .zip / .blockmap / latest*.yml
+        # electron-updater 需要 latest.yml / latest-mac.yml / latest-linux.yml + blockmap
+        while IFS= read -r f; do
+            PC_ARTIFACTS+=( "$f" )
+        done < <(
+            find "$PC_OUT" -maxdepth 1 -type f \( \
+                -name "*.exe" -o \
+                -name "*.dmg" -o \
+                -name "*.zip" -o \
+                -name "*.AppImage" -o \
+                -name "*.deb" -o \
+                -name "*.blockmap" -o \
+                -name "latest*.yml" \
+            \) 2>/dev/null | sort
+        )
+        info "PC 产物目录: $PC_OUT"
+        for f in "${PC_ARTIFACTS[@]}"; do
+            echo "    - $(basename "$f")"
+        done
+    fi
+
+    PC_END=$(date +%s)
+    PC_BUILD_DURATION=$((PC_END - PC_START))
+    ok "PC 打包完成，用时 ${PC_BUILD_DURATION}s"
+fi
+
+# -------------------- Android 端打包（Capacitor + Gradle） --------------------
+ANDROID_ARTIFACTS=()
+ANDROID_BUILD_DURATION=0
+if [ "$HAS_ANDROID" = "1" ]; then
+    step "Android 端打包（Capacitor + gradlew assembleRelease）"
+    ANDROID_START=$(date +%s)
+
+    # 选择 gradlew 脚本：Windows 走 gradlew.bat，其他走 ./gradlew
+    UNAME_S="$(uname -s 2>/dev/null || echo unknown)"
+    case "$UNAME_S" in
+        MINGW*|MSYS*|CYGWIN*) GRADLEW="gradlew.bat" ;;
+        *)                    GRADLEW="./gradlew" ;;
+    esac
+
+    # 1. 前端 + capacitor sync
+    info "frontend build + npx cap sync android"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  (dry-run) cd frontend && npm run build && npx cap sync android"
+    else
+        ( cd "$REPO_ROOT/frontend" && run_argv npm run build )
+        ( cd "$REPO_ROOT/frontend" && run_argv npx cap sync android )
+    fi
+
+    # 2. gradle assembleRelease
+    info "gradlew assembleRelease"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  (dry-run) cd frontend/android && $GRADLEW assembleRelease"
+    else
+        ( cd "$REPO_ROOT/frontend/android" && run_argv $GRADLEW assembleRelease )
+    fi
+
+    # 3. 收集 APK 产物并重命名（加上 version 后缀，避免覆盖）
+    if [ "$DRY_RUN" != "1" ]; then
+        APK_SRC="${REPO_ROOT}/frontend/android/app/build/outputs/apk/release/app-release.apk"
+        if [ -f "$APK_SRC" ]; then
+            APK_OUT="${REPO_ROOT}/frontend/android/app/build/outputs/apk/release/Nowen-Note-${VERSION}.apk"
+            cp -f "$APK_SRC" "$APK_OUT"
+            ANDROID_ARTIFACTS+=( "$APK_OUT" )
+            info "APK: $APK_OUT"
+        else
+            # 未签名 APK
+            APK_UNSIGNED="${REPO_ROOT}/frontend/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+            if [ -f "$APK_UNSIGNED" ]; then
+                warn "只找到未签名 APK: $APK_UNSIGNED"
+                warn "检查 frontend/android/keystore.properties 是否配置正确"
+                ANDROID_ARTIFACTS+=( "$APK_UNSIGNED" )
+            else
+                die "Android 打包成功但找不到 APK 产物"
+            fi
+        fi
+    fi
+
+    ANDROID_END=$(date +%s)
+    ANDROID_BUILD_DURATION=$((ANDROID_END - ANDROID_START))
+    ok "Android 打包完成，用时 ${ANDROID_BUILD_DURATION}s"
 fi
 
 # -------------------- git tag --------------------
 if [ "$DO_GIT_TAG" = "1" ]; then
     step "打 git tag 并推送到 GitHub"
 
-    # 若前面 sync_root_pkg_version 修改了 package.json，先把它提交进去，
-    # 否则 git tag 会打在一个"版本号还没更新"的 commit 上，GitHub 上看着很乱。
+    # 若前面 sync_root_pkg_version / sync_android_version 修改了 package.json
+    # 或 android/build.gradle，一并 commit，这样 git tag 会落在"版本号已更新"的 commit 上。
+    CHANGED_FILES=()
     if [ -n "$(git status --porcelain -- package.json 2>/dev/null)" ]; then
-        info "package.json version 有变更，先 commit"
+        CHANGED_FILES+=( "package.json" )
+    fi
+    if [ -n "$(git status --porcelain -- frontend/android/app/build.gradle 2>/dev/null)" ]; then
+        CHANGED_FILES+=( "frontend/android/app/build.gradle" )
+    fi
+    if [ "${#CHANGED_FILES[@]}" -gt 0 ]; then
+        info "版本相关文件有变更，先 commit: ${CHANGED_FILES[*]}"
         if [ "$DRY_RUN" = "1" ]; then
-            echo "  (dry-run) git add package.json && git commit -m \"chore(release): ${VERSION_TAG}\""
+            echo "  (dry-run) git add ${CHANGED_FILES[*]} && git commit -m \"chore(release): ${VERSION_TAG}\""
         else
-            run "git add package.json"
+            run_argv git add "${CHANGED_FILES[@]}"
             run "git commit -m \"chore(release): ${VERSION_TAG}\""
         fi
     fi
@@ -627,7 +907,7 @@ if [ "$DO_GIT_TAG" = "1" ]; then
         ok "git commit + tag ${VERSION_TAG} 已推送"
     else
         echo
-        echo "${C_YELLOW}[!] git push tag 失败（镜像已成功推送至 Docker Hub，本地 tag 已保留）${C_RESET}"
+        echo "${C_YELLOW}[!] git push tag 失败（Docker 镜像已推送，本地 tag 已保留）${C_RESET}"
         echo "    常见原因：GitHub 已禁用密码认证，需使用 PAT 或 SSH key"
         echo "    修复方式任选一种，然后补推："
         echo "      git push origin ${VERSION_TAG}"
@@ -640,7 +920,7 @@ if [ "$DO_GIT_TAG" = "1" ]; then
         echo "    方案 B（SSH key）："
         echo "      1. ssh-keygen -t ed25519 -C \"\$(hostname)\""
         echo "      2. cat ~/.ssh/id_ed25519.pub  → 添加到 https://github.com/settings/keys"
-        echo "      3. git remote set-url origin git@github.com:cropflre/nowen-note.git"
+        echo "      3. git remote set-url origin git@github.com:${GITHUB_REPO_SLUG}.git"
         echo "      4. git push origin ${VERSION_TAG}"
         die "git tag 推送失败"
     fi
@@ -648,21 +928,131 @@ else
     info "跳过 git tag（--no-git-tag）"
 fi
 
+# -------------------- GitHub Release（多端产物统一上传） --------------------
+# 走 gh CLI（https://cli.github.com/），产物作为 Release assets 上传到 vX.Y.Z tag 上。
+# 要求：
+#   1. 环境已装 gh 且 gh auth status 通过，或设 GH_TOKEN 环境变量
+#   2. DO_GIT_TAG=1（tag 必须先推到远端，gh release create 才能找到）
+#   3. 收集到至少一个产物（PC_ARTIFACTS / ANDROID_ARTIFACTS 非空）
+RELEASE_URL=""
+if [ "$DO_GITHUB_RELEASE" = "1" ]; then
+    step "发布到 GitHub Releases"
+
+    if [ "$DO_GIT_TAG" != "1" ]; then
+        die "--github-release 需要同时打 git tag（不要与 --no-git-tag 一起用）"
+    fi
+
+    command -v gh >/dev/null 2>&1 || die "未安装 gh CLI。请先安装：https://cli.github.com/"
+    # gh 登录状态或 GH_TOKEN 任一满足即可
+    if ! gh auth status >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ]; then
+        die "gh 未登录（gh auth login），且未设置 GH_TOKEN 环境变量"
+    fi
+
+    # 是否预发布：显式 --prerelease 或版本号带 - 后缀
+    IS_PRERELEASE=0
+    [ "$RELEASE_PRERELEASE" = "1" ] && IS_PRERELEASE=1
+    case "$VERSION" in *-*) IS_PRERELEASE=1 ;; esac
+
+    # 整理 release notes
+    NOTES_ARGS=()
+    if [ -n "$RELEASE_NOTES_FILE" ]; then
+        [ -f "$RELEASE_NOTES_FILE" ] || die "--notes-file 不存在: $RELEASE_NOTES_FILE"
+        NOTES_ARGS=( --notes-file "$RELEASE_NOTES_FILE" )
+    elif [ -n "$RELEASE_NOTES" ]; then
+        NOTES_ARGS=( --notes "$RELEASE_NOTES" )
+    else
+        # 自动生成一份默认说明
+        AUTO_NOTES="Release ${VERSION_TAG}"$'\n\n'"Targets: ${TARGETS}"
+        if [ "$HAS_DOCKER" = "1" ]; then
+            AUTO_NOTES+=$'\n\n'"Docker image: \`${IMAGE_NAME}:${VERSION_TAG}\`"
+            [ "$DO_LATEST" = "1" ] && AUTO_NOTES+=$'\n'"Docker image: \`${IMAGE_NAME}:latest\`"
+        fi
+        AUTO_NOTES+=$'\n\n'"Commit: ${GIT_COMMIT}"
+        NOTES_ARGS=( --notes "$AUTO_NOTES" )
+    fi
+
+    # 合并所有产物
+    ALL_ASSETS=()
+    [ "${#PC_ARTIFACTS[@]}" -gt 0 ]      && ALL_ASSETS+=( "${PC_ARTIFACTS[@]}" )
+    [ "${#ANDROID_ARTIFACTS[@]}" -gt 0 ] && ALL_ASSETS+=( "${ANDROID_ARTIFACTS[@]}" )
+
+    if [ "${#ALL_ASSETS[@]}" -eq 0 ]; then
+        warn "没有产物需要上传到 GitHub Release，跳过"
+    else
+        info "将上传 ${#ALL_ASSETS[@]} 个产物到 ${GITHUB_REPO_SLUG} @ ${VERSION_TAG}"
+        for f in "${ALL_ASSETS[@]}"; do
+            echo "    - $(basename "$f")  ($(du -h "$f" 2>/dev/null | awk '{print $1}'))"
+        done
+
+        # gh release create 的开关组装
+        CREATE_ARGS=(
+            release create "$VERSION_TAG"
+            --repo "$GITHUB_REPO_SLUG"
+            --title "$VERSION_TAG"
+            --target "$(git rev-parse HEAD)"
+        )
+        [ "$IS_PRERELEASE" = "1" ] && CREATE_ARGS+=( --prerelease )
+        [ "$RELEASE_DRAFT" = "1" ] && CREATE_ARGS+=( --draft )
+        CREATE_ARGS+=( "${NOTES_ARGS[@]}" )
+        CREATE_ARGS+=( "${ALL_ASSETS[@]}" )
+
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) gh ${CREATE_ARGS[*]}"
+        else
+            # 已存在的 release 就改用 upload（常见于补传失败的那次）
+            if gh release view "$VERSION_TAG" --repo "$GITHUB_REPO_SLUG" >/dev/null 2>&1; then
+                info "Release ${VERSION_TAG} 已存在，改用 gh release upload --clobber"
+                run_argv gh release upload "$VERSION_TAG" \
+                    --repo "$GITHUB_REPO_SLUG" \
+                    --clobber \
+                    "${ALL_ASSETS[@]}"
+            else
+                run_argv gh "${CREATE_ARGS[@]}"
+            fi
+            RELEASE_URL="https://github.com/${GITHUB_REPO_SLUG}/releases/tag/${VERSION_TAG}"
+            ok "GitHub Release 已发布：${RELEASE_URL}"
+        fi
+    fi
+fi
+
 # -------------------- 完成 --------------------
 END_TS=$(date +%s)
 TOTAL=$((END_TS - START_TS))
 
 step "发布完成"
-echo "  ${C_GREEN}${IMAGE_NAME}:${VERSION_TAG}${C_RESET}  ←  已推送"
-[ "$DO_LATEST" = "1" ] && echo "  ${C_GREEN}${IMAGE_NAME}:latest${C_RESET}  ←  已推送"
+if [ "$HAS_DOCKER" = "1" ]; then
+    echo "  ${C_GREEN}${IMAGE_NAME}:${VERSION_TAG}${C_RESET}  ←  已推送到 Docker Hub"
+    [ "$DO_LATEST" = "1" ] && echo "  ${C_GREEN}${IMAGE_NAME}:latest${C_RESET}  ←  已推送到 Docker Hub"
+fi
+if [ "$HAS_PC" = "1" ] && [ "${#PC_ARTIFACTS[@]}" -gt 0 ]; then
+    echo "  ${C_GREEN}PC 产物${C_RESET}（${#PC_ARTIFACTS[@]} 个）："
+    for f in "${PC_ARTIFACTS[@]}"; do
+        echo "    - $(basename "$f")"
+    done
+fi
+if [ "$HAS_ANDROID" = "1" ] && [ "${#ANDROID_ARTIFACTS[@]}" -gt 0 ]; then
+    echo "  ${C_GREEN}Android 产物${C_RESET}："
+    for f in "${ANDROID_ARTIFACTS[@]}"; do
+        echo "    - $(basename "$f")"
+    done
+fi
 [ "$DO_GIT_TAG" = "1" ] && echo "  ${C_GREEN}git tag ${VERSION_TAG}${C_RESET}  ←  已推送到 GitHub"
-echo "  构建架构      : ${PLATFORM_DESC}"
-echo "  总耗时        : ${TOTAL}s （build ${BUILD_DURATION}s + push ${PUSH_DURATION}s）"
-[ -n "$DIGEST" ] && echo "  digest        : ${DIGEST}"
+[ -n "$RELEASE_URL" ]   && echo "  ${C_GREEN}GitHub Release${C_RESET}  ←  ${RELEASE_URL}"
+
+echo "  总耗时        : ${TOTAL}s  (docker:${BUILD_DURATION}s push:${PUSH_DURATION}s pc:${PC_BUILD_DURATION}s android:${ANDROID_BUILD_DURATION}s)"
+[ -n "$DIGEST" ] && echo "  docker digest : ${DIGEST}"
 
 echo
 ok "发布成功 🎉"
 echo
-echo "拉取命令（板子 / 服务器）："
-printf "    docker pull %s:%s\n" "$IMAGE_NAME" "$VERSION_TAG"
-[ "$DO_LATEST" = "1" ] && printf "    docker pull %s:latest\n" "$IMAGE_NAME"
+
+if [ "$HAS_DOCKER" = "1" ]; then
+    echo "Docker 拉取命令："
+    printf "    docker pull %s:%s\n" "$IMAGE_NAME" "$VERSION_TAG"
+    [ "$DO_LATEST" = "1" ] && printf "    docker pull %s:latest\n" "$IMAGE_NAME"
+fi
+if [ -n "$RELEASE_URL" ]; then
+    echo
+    echo "用户下载入口："
+    echo "    $RELEASE_URL"
+fi

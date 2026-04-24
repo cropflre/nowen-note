@@ -15,6 +15,7 @@
     "build:icon": "node scripts/build-icon.mjs",
     "electron:dev": "npm run build:all && electron .",
     "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js",
+    "electron:build:safe": "node scripts/safe-build.mjs",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
@@ -38,6 +39,7 @@
     "@capacitor/keyboard": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
+    "bonjour-service": "^1.2.1",
     "electron-updater": "^6.3.9"
   }
 }

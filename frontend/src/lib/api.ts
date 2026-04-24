@@ -68,6 +68,43 @@ function getBaseUrl(): string {
 }
 
 /**
+ * 把一个附件 URL（可能是相对路径，也可能是旧数据里的 /api/attachments/xxx）
+ * 规范化成当前运行环境可访问的 URL。
+ *
+ * 为什么需要这个：
+ *   - 后端写进笔记里的 attachment URL 是 `/api/attachments/<id>` 相对路径。
+ *   - Web 端前端与后端同源时没问题；
+ *   - 但原生 App / Capacitor / 某些把前端静态部署到独立域的场景，浏览器会
+ *     把它解析到**前端自己的 origin**（capacitor://localhost、CDN 域等），
+ *     请求打不到后端 → 图片一律 404 或返回 index.html 造成显示失败。
+ *
+ * 规则：
+ *   - data: / blob: / http(s): 绝对 URL → 原样返回
+ *   - 以 `/api/` 或 `api/` 开头 → 替换成 `${getServerUrl() || window.location.origin}/api/...`
+ *   - 其他相对路径（历史的 `attachments/xxx`、或错误写法）→ 走 `${base}/${path}`
+ *
+ * 设计权衡：
+ *   - 本函数是"渲染时兜底"，读取 localStorage 里的 serverUrl，因此调用方**不**
+ *     需要把 serverUrl 写进 Tiptap content；历史笔记里的相对路径也可显示。
+ *   - 也正因此，**不要**在上传成功时把绝对 URL 写回笔记——Electron 后端每次
+ *     启动端口都可能变（见 electron/main.js getFreePort），把带 port 的 URL
+ *     持久化到 notes.content 会让下次启动时所有图片全挂。相对路径 +
+ *     渲染时动态补 origin 才是稳健策略。
+ */
+export function resolveAttachmentUrl(src: string | null | undefined): string {
+  if (!src) return "";
+  // 已经是绝对 URL 或 data / blob / file 协议，原样返回
+  if (/^(https?:|data:|blob:|file:|capacitor:)/i.test(src)) return src;
+
+  const server = getServerUrl() || (typeof window !== "undefined" ? window.location.origin : "");
+  const base = server.replace(/\/+$/, "");
+
+  // 归一化：确保以 / 开头
+  const normalized = src.startsWith("/") ? src : `/${src}`;
+  return `${base}${normalized}`;
+}
+
+/**
  * 安全解析响应体为 JSON。
  *
  * 直接 `res.json()` 在服务端返回 HTML（常见于：dev server SPA fallback、

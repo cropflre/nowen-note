@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { getServerUrl, setServerUrl, clearServerUrl, testServerConnection, fetchRegisterConfig, registerAccount } from "@/lib/api";
 import { buildServerUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import ServerAddressInput from "@/components/ServerAddressInput";
+import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -408,6 +409,14 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">
                     {t("auth.serverHint")}
                   </p>
+                  {/* 桌面端：局域网 mDNS 自动发现。非 Electron 环境组件会自动隐身。 */}
+                  <LanDiscoveryPanel
+                    currentHostIsEmpty={!serverParts.host.trim()}
+                    onSelect={(next) => {
+                      setServerParts(next);
+                      setServerStatus("idle");
+                    }}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>

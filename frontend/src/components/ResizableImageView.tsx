@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewProps } from "@tiptap/react";
+import { resolveAttachmentUrl } from "@/lib/api";
 
 /**
  * ResizableImageView
@@ -244,7 +245,10 @@ export function ResizableImageView(props: NodeViewProps) {
     >
       <img
         ref={imgRef}
-        src={src}
+        // 把 /api/attachments/<id> 这类相对路径补成当前 serverUrl 下的绝对 URL，
+        // 保证 Capacitor / 独立前端域 / 分享页这些非同源环境下图片能正确加载。
+        // 对 data: / blob: / http(s): 会原样返回。
+        src={resolveAttachmentUrl(src)}
         alt={alt ?? ""}
         title={title ?? undefined}
         // 保留原扩展的样式类名，保证阅读态 / 只读预览 / 分享页视觉一致
