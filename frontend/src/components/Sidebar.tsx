@@ -5,7 +5,7 @@ import {
   ChevronDown, PanelLeftClose, PanelLeft, ListTodo,
   Settings, LogOut, FilePlus, FolderPlus, Edit2, X, BrainCircuit,
   Bot, CalendarDays, Smile, GripVertical,
-  FolderInput, Check, Home
+  FolderInput, Check, Home, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api, broadcastLogout } from "@/lib/api";
+import { exportNotebook } from "@/lib/exportService";
 import { Notebook, ViewMode } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -621,6 +622,8 @@ export default function Sidebar() {
     { id: "change_icon", label: t('sidebar.changeIcon'), icon: <Smile size={14} /> },
     { id: "rename", label: t('common.rename'), icon: <Edit2 size={14} /> },
     { id: "move", label: t('sidebar.moveNotebook'), icon: <FolderInput size={14} /> },
+    { id: "sep_export", label: "", separator: true },
+    { id: "export_md", label: t('sidebar.exportNotebookAsMarkdown'), icon: <Download size={14} /> },
     { id: "sep2", label: "", separator: true },
     { id: "delete", label: t('sidebar.deleteNotebook'), icon: <Trash2 size={14} />, danger: true },
   ];
@@ -900,6 +903,46 @@ export default function Sidebar() {
         }
         break;
       }
+      case "export_md": {
+        if (!targetNb) break;
+        // 收集根笔记本 + 所有子孙笔记本 id / name（递归）
+        // - ids：新后端正常路径使用（精确过滤）
+        // - names：旧后端降级路径使用（/export/notes 若无 notebookId 字段）
+        const ids = new Set<string>();
+        const names = new Set<string>();
+        const collect = (id: string) => {
+          if (ids.has(id)) return;
+          ids.add(id);
+          const cur = state.notebooks.find((nb) => nb.id === id);
+          if (cur?.name) names.add(cur.name);
+          for (const nb of state.notebooks) {
+            if (nb.parentId === id) collect(nb.id);
+          }
+        };
+        collect(targetNb.id);
+        // duration=0 让"导出中"提示常驻，完成后手动 dismiss；
+        // 流式进度提示（converting 每条都 emit）太频繁不放到 toast，只在出错时弹。
+        const toastId = toast.info(t('export.exportingNotebook', { name: targetNb.name }), 0);
+        try {
+          const ok = await exportNotebook(
+            {
+              notebookId: targetNb.id,
+              notebookName: targetNb.name,
+              descendantNotebookIds: ids,
+              descendantNotebookNames: names,
+            },
+            (p) => {
+              if (p.phase === "error") toast.error(p.message);
+            }
+          );
+          toast.dismiss(toastId);
+          if (ok) toast.success(t('export.exportComplete'));
+        } catch (err: any) {
+          toast.dismiss(toastId);
+          toast.error(err?.message || t('export.exportFailed', { error: String(err) }));
+        }
+        break;
+      }
       case "delete": {
         if (targetNb) {
           setDeleteTarget(targetNb);
@@ -1052,7 +1095,7 @@ export default function Sidebar() {
 
   if (state.sidebarCollapsed) {
     return (
-      <div className="hidden md:flex w-12 h-full bg-app-sidebar border-r border-app-border flex-col items-center py-3 gap-2 shrink-0 transition-colors">
+      <div className="hidden md:flex w-12 h-full vibrancy-sidebar bg-app-sidebar border-r border-app-border flex-col items-center py-3 gap-2 shrink-0 transition-colors">
         <Button variant="ghost" size="icon" onClick={actions.toggleSidebar}>
           <PanelLeft size={16} />
         </Button>
@@ -1062,7 +1105,7 @@ export default function Sidebar() {
 
   return (
     <div
-      className="w-full h-full bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors"
+      className="w-full h-full vibrancy-sidebar bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors"
       style={{ width: undefined }}
     >
       {/* Header */}

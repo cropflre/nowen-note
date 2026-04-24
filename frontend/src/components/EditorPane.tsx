@@ -1,10 +1,11 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
 import MarkdownEditor from "@/components/MarkdownEditor";
+import HtmlPreviewPane, { isFullHtmlDocument } from "@/components/HtmlPreviewPane";
 import type { NoteEditorHandle } from "@/components/editors/types";
 import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
@@ -73,6 +74,19 @@ export default function EditorPane() {
   const [showCommentPanel, setShowCommentPanel] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // ── HTML 预览模式 ──
+  // 当笔记内容被检测为 HTML 格式（如 clipper 剪藏）时自动启用只读预览，
+  // 用户可手动切换到 Tiptap 编辑（会有格式丢失警告）。
+  const [htmlPreviewMode, setHtmlPreviewMode] = useState(false);
+  const [showHtmlEditWarning, setShowHtmlEditWarning] = useState(false);
+  // 记住当前笔记的原始格式是否为 HTML。
+  // 切换到编辑模式后编辑器会把内容 normalize 成 Markdown，导致 detectFormat 返回 "md"，
+  // 如果单靠 detectFormat 判断，切换按钮会消失，用户就无法切回预览模式。
+  // 用这个标记来保持按钮始终可见。
+  const [noteIsHtml, setNoteIsHtml] = useState(false);
+  // 完全克隆模式（完整 HTML 文档，如 <!DOCTYPE ...>）不支持编辑，不显示切换按钮。
+  const [noteIsFullHtmlDoc, setNoteIsFullHtmlDoc] = useState(false);
 
   // 编辑器模式（MD / Tiptap）——初值来自 URL / localStorage，运行时可切换
   const [editorMode, setEditorMode] = useState<EditorMode>(() => resolveEditorMode());
@@ -516,6 +530,18 @@ export default function EditorPane() {
     setRemoteUpdate(null);
     setRemoteDelete(null);
   }, [activeNote?.id]);
+
+  // ── 切换笔记时自动检测 HTML 格式并进入预览模式 ──
+  // 如果笔记内容格式为 "html"，自动启用 HTML 预览；否则回退到常规编辑器。
+  useEffect(() => {
+    if (!activeNote) return;
+    const fmt = detectFormat(activeNote.content);
+    const isHtml = fmt === "html";
+    const isFullDoc = isHtml && isFullHtmlDocument(activeNote.content);
+    setHtmlPreviewMode(isHtml);
+    setNoteIsHtml(isHtml);
+    setNoteIsFullHtmlDoc(isFullDoc);
+  }, [activeNote?.id]); // 只在切换笔记时检测，编辑过程中不再自动切换
 
   /** 从 presence 中反查用户名（用于横幅显示） */
   const findUsername = useCallback(
@@ -1066,6 +1092,29 @@ export default function EditorPane() {
                     <MessageCircle size={15} className="text-blue-500" />
                     <span>评论批注</span>
                   </button>
+                  {/* HTML 预览 / 编辑切换（仅 HTML 片段笔记显示，完全克隆不支持编辑） */}
+                  {noteIsHtml && !noteIsFullHtmlDoc && (
+                    <>
+                      <div className="h-px bg-app-border mx-2 my-0.5" />
+                      <button
+                        onClick={async () => {
+                          setShowMobileMenu(false);
+                          if (htmlPreviewMode) {
+                            setShowHtmlEditWarning(true);
+                          } else {
+                            // 从编辑切回预览——先 flush 编辑器 pending 数据，确保最新内容已保存
+                            try { await editorHandleRef.current?.flushSave(); } catch {}
+                            // 不覆盖 activeNote.content：让预览展示编辑后的最新内容
+                            setHtmlPreviewMode(true);
+                          }
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                      >
+                        {htmlPreviewMode ? <Pencil size={15} className="text-amber-500" /> : <Eye size={15} className="text-blue-500" />}
+                        <span>{htmlPreviewMode ? t("editor.htmlPreview.switchToEdit") : t("editor.htmlPreview.switchToPreview")}</span>
+                      </button>
+                    </>
+                  )}
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* 删除笔记 */}
                   <button
@@ -1345,6 +1394,39 @@ export default function EditorPane() {
             </button>
           )}
 
+          {/* HTML 预览 / 编辑切换：仅在笔记原始格式为 HTML 时显示 */}
+          {noteIsHtml && (
+            <button
+              onClick={async () => {
+                if (htmlPreviewMode) {
+                  // 从预览切到编辑——弹确认弹窗
+                  setShowHtmlEditWarning(true);
+                } else {
+                  // 从编辑切回预览——先 flush 编辑器 pending 数据，确保最新内容已保存
+                  try { await editorHandleRef.current?.flushSave(); } catch {}
+                  // 不覆盖 activeNote.content：让 HtmlPreviewPane 展示编辑后的最新内容。
+                  // 如果用户没做任何编辑，content 仍然是原始 HTML（完全克隆模式依旧生效）；
+                  // 如果用户编辑过，content 已变为 MD/HTML 片段，预览组件会用片段模式渲染。
+                  setHtmlPreviewMode(true);
+                }
+              }}
+              title={
+                htmlPreviewMode
+                  ? t("editor.htmlPreview.switchToEditTooltip")
+                  : t("editor.htmlPreview.switchToPreviewTooltip")
+              }
+              className={cn(
+                "flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-medium transition-colors border",
+                htmlPreviewMode
+                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/15"
+                  : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active"
+              )}
+            >
+              {htmlPreviewMode ? <Eye size={12} /> : <Pencil size={12} />}
+              <span>{htmlPreviewMode ? t("editor.htmlPreview.switchToEdit") : t("editor.htmlPreview.switchToPreview")}</span>
+            </button>
+          )}
+
           <div className="w-px h-4 bg-app-border" />
 
           {/* AI 工具组 */}
@@ -1386,10 +1468,20 @@ export default function EditorPane() {
         />
       )}
 
-      {/* Editor (MD / Tiptap 按模式分派) + Outline */}
+      {/* Editor (HTML 预览 / MD / Tiptap 按模式分派) + Outline */}
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 overflow-hidden relative">
-          {editorMode === "md" ? (
+          {htmlPreviewMode ? (
+            <HtmlPreviewPane
+              key={`html-${activeNote.id}`}
+              ref={editorHandleRef}
+              note={activeNote}
+              onUpdate={handleUpdate}
+              onTagsChange={handleTagsChange}
+              onHeadingsChange={setHeadings}
+              editable={false}
+            />
+          ) : editorMode === "md" ? (
             <MarkdownEditor
               // Phase 3: key 绑定 CRDT 启用态，切换 provider 时强制重建编辑器，
               // 避免 yCollab 扩展在运行时更换 yText 带来的状态错乱
@@ -1511,6 +1603,56 @@ export default function EditorPane() {
                   className="px-4 py-2 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
                 >
                   {t('sidebar.confirmDeleteNote')}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* HTML 预览 → 编辑模式切换确认弹窗 */}
+      <AnimatePresence>
+        {showHtmlEditWarning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowHtmlEditWarning(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-app-surface border border-app-border rounded-xl shadow-2xl p-6 max-w-sm mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                  <Pencil size={18} className="text-amber-500" />
+                </div>
+                <h3 className="text-base font-semibold text-tx-primary">
+                  {t("editor.htmlPreview.editWarningTitle")}
+                </h3>
+              </div>
+              <p className="text-sm text-tx-secondary mb-5">
+                {t("editor.htmlPreview.editWarningMessage")}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowHtmlEditWarning(false)}
+                  className="px-4 py-2 text-sm rounded-lg bg-app-hover text-tx-secondary hover:bg-app-active transition-colors"
+                >
+                  {t("editor.htmlPreview.editWarningCancel")}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowHtmlEditWarning(false);
+                    setHtmlPreviewMode(false);
+                  }}
+                  className="px-4 py-2 text-sm rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                >
+                  {t("editor.htmlPreview.editWarningConfirm")}
                 </button>
               </div>
             </motion.div>

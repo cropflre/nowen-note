@@ -355,6 +355,23 @@ function openAboutWindow() {
 
 // ---------- 主窗口 ----------
 function createWindow() {
+  const isMac = process.platform === "darwin";
+
+  // macOS 原生观感：
+  //   - hiddenInset 把 Traffic Light 嵌入工具栏，不占独立标题栏；
+  //   - vibrancy: 'sidebar' 启用系统级毛玻璃（配合前端 macOS 皮肤效果最佳）；
+  //   - visualEffectState: 'active' 避免窗口失焦后毛玻璃褪色导致"发灰"。
+  // 注：仅 macOS 生效；Windows/Linux 保持原有无边框策略（默认），避免踩 Mica/Acrylic 的坑。
+  const macWindowOpts = isMac
+    ? {
+        titleBarStyle: "hiddenInset",
+        trafficLightPosition: { x: 12, y: 14 },
+        vibrancy: "sidebar",
+        visualEffectState: "active",
+        transparent: false, // 开启 vibrancy 时 backgroundColor 可设半透明或不设
+      }
+    : {};
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -362,8 +379,9 @@ function createWindow() {
     minHeight: 600,
     title: "Nowen Note",
     icon: path.join(__dirname, "icon.png"),
-    backgroundColor: "#0D1117",
+    backgroundColor: isMac ? "#00000000" : "#0D1117",
     show: false,
+    ...macWindowOpts,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

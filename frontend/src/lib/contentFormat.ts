@@ -75,13 +75,24 @@ export function detectFormat(content: string | null | undefined): ContentFormat 
     }
   }
 
-  // HTML 特征：以 `<tagname` 开头，且整体必须看起来像一个标签
-  //   正确：<p>…   <div class="x">…   <br/>
-  //   错误：<3 i love md   <= 5 items   < space
-  // 之前只用 `<\w` 检测首字符 + 全局查 `<\/?\w+[\s>]`，后者会把
-  // "<3 i love md" 里 " md" 部分误识为标签；这里改为只检查"开头是否
-  // 紧挨 tagname（直到遇到空白 / >、/）"是否合法，再要求整串至少含
-  // 一个完整标签（`<tag>` 或 `</tag>`），避免 heuristic 漂移。
+  // HTML 特征检测：
+  //   1. 完整 HTML 文档：以 `<!DOCTYPE` 或 `<html` 开头（来自 clipper 完全克隆模式）
+  //      注意：早期版本可能在文档前面拼了 HTML 注释（<!-- clipper-xxx -->），
+  //      需要先跳过这些注释再检测。
+  //   2. HTML 片段：以 `<tagname` 开头，且整体必须看起来像一个标签
+  //      正确：<p>…   <div class="x">…   <br/>
+  //      错误：<3 i love md   <= 5 items   < space
+
+  // 跳过开头的 HTML 注释后再做 <!DOCTYPE / <html 检测
+  const stripped = trimmed.replace(/^(\s*<!--[\s\S]*?-->\s*)+/, "");
+  const lower = stripped.slice(0, 20).toLowerCase();
+  if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
+    return "html";
+  }
+  // 也检查原始内容（以 <!-- 开头且后续含 <!DOCTYPE 也算 HTML）
+  if (trimmed.startsWith("<!--") && (lower.startsWith("<!doctype") || lower.startsWith("<html"))) {
+    return "html";
+  }
   if (trimmed.startsWith("<") && /^<[A-Za-z][A-Za-z0-9-]*(\s|\/|>)/.test(trimmed) && /<[A-Za-z][^<>]*>|<\/[A-Za-z][^<>]*>/.test(trimmed)) {
     return "html";
   }

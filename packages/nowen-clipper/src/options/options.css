@@ -1,0 +1,122 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+  font-size: 14px;
+  color: #1f2937;
+  background: #f3f4f6;
+}
+.container {
+  max-width: 720px;
+  margin: 32px auto 64px;
+  padding: 0 20px;
+}
+h1 { font-size: 22px; font-weight: 600; color: #111827; }
+.sub { color: #6b7280; margin-top: 6px; margin-bottom: 20px; }
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; color: #111827; }
+.hint { color: #6b7280; font-size: 12px; line-height: 1.6; margin-bottom: 10px; }
+.hint code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-family: SFMono-Regular, Consolas, monospace; font-size: 11px; }
+label {
+  display: block;
+  margin-bottom: 12px;
+}
+label > span {
+  display: block;
+  font-size: 12px;
+  color: #374151;
+  margin-bottom: 4px;
+}
+input[type="text"], input[type="url"], input[type="password"], select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+input:focus, select:focus { border-color: #3b82f6; }
+.input-with-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-with-toggle input { padding-right: 36px; }
+.icon-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  color: #6b7280;
+  border-radius: 4px;
+}
+.icon-btn:hover { background: #f3f4f6; }
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+}
+.checkbox input { width: 16px; height: 16px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background .15s;
+}
+.btn:hover { background: #f9fafb; }
+.btn.primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.btn.primary:hover { background: #1d4ed8; }
+.actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.test-result, .save-result {
+  font-size: 12px;
+}
+.test-result.ok, .save-result.ok { color: #166534; }
+.test-result.err, .save-result.err { color: #991b1b; }
+
+/* 登录相关 */
+.hidden { display: none !important; }
+.login-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.status-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.status-badge {
+  font-size: 13px;
+  font-weight: 500;
+}
+.status-badge.ok { color: #166534; }

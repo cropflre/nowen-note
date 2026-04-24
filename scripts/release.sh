@@ -98,6 +98,26 @@ RELEASE_NOTES_FILE=""
 RELEASE_DRAFT=0        # --draft
 RELEASE_PRERELEASE=0   # --prerelease（版本号带 -rc 等预发布后缀时自动置 1）
 
+# ===== PC 端平台选择（Linux 宿主跨平台打 Win/Linux/mac） =====
+# 逗号分隔：win / linux / mac
+# 默认值根据宿主 OS 决定：
+#   Linux（Debian）:  win,linux  （需 wine+mono；mac 只能在 macOS 上打）
+#   macOS:            mac,linux  （macOS 上也能打 Linux；Win 要 wine 比较折腾，默认不打）
+#   Windows:          win        （原生打 Windows，通过 safe-build.mjs 做日志降噪）
+PC_PLATFORMS=""        # --pc-platform，留空交给下面自动推断
+
+# ===== Android 端 Docker 构建支持 =====
+# 主机没装 JDK/Android SDK 时，用 docker 镜像挂载仓库跑 gradle。
+ANDROID_USE_DOCKER=0                                     # --android-docker
+ANDROID_DOCKER_IMAGE="cimg/android:2024.01.1-node"       # --android-docker-image NAME:TAG
+ANDROID_DOCKER_SYNC=0                                    # --android-docker-sync：把 frontend build + cap sync 也挪进 Docker
+
+# ===== PC 端打包后恢复 backend better-sqlite3 的 Node ABI =====
+# rebuild:native 会把 backend/better-sqlite3 编成 Electron ABI，
+# 这之后本机直接 `npm run dev:backend`（tsx 纯 Node）会报 ABI 不匹配。
+# 加这个开关后：PC 打包完自动 `cd backend && npm rebuild better-sqlite3`，恢复 Node ABI。
+RESTORE_BACKEND_ABI=0                                    # --restore-backend-abi
+
 usage() {
     cat <<EOF
 用法: $0 [选项]
@@ -117,6 +137,18 @@ usage() {
 多端发版选项（可组合）:
       --target TARGETS     逗号分隔：docker / pc / android / all
                            默认 docker；示例：--target pc,android
+      --pc-platform LIST   PC 端要打的平台，逗号分隔：win / linux / mac
+                           默认：Linux 宿主 => win,linux；macOS => mac,linux；Windows => win
+                           在 Debian 上打 Windows exe 需要 wine64 + mono（首次 apt install 一次）
+      --android-docker     Android 用 Docker 镜像跑 gradle（主机无需装 JDK/Android SDK）
+      --android-docker-image NAME:TAG
+                           指定 Android 构建镜像（默认 cimg/android:2024.01.1-node）
+      --android-docker-sync
+                           连同 frontend build + npx cap sync android 也放进 Docker 里跑
+                           （主机连 node 都不装也能打 APK，代价是首次镜像下载多走一遍）
+      --restore-backend-abi
+                           PC 打包完自动 rebuild backend 的 better-sqlite3 回 Node ABI
+                           （避免一边打包一边 npm run dev:backend 时 ABI 不匹配）
       --github-release     把 pc/android 产物以 gh release create 上传到 GitHub Releases
                            需要 gh CLI 已登录（gh auth login），或设了 GH_TOKEN 环境变量
       --notes "TEXT"       Release 发布说明（简短文本）
@@ -135,6 +167,17 @@ usage() {
   # 只打 PC 端（Windows exe + portable），发到 GitHub Releases
   $0 -v 1.3.0 -y --target pc --github-release --no-latest
 
+  # 在 Debian 上同时打 Win + Linux PC 产物 + Android APK（通过 Docker 构建 Android）
+  $0 -v 1.3.0 -y --target pc,android --pc-platform win,linux \
+      --android-docker --github-release
+
+  # 极简 Debian：宿主仅装 wine+mono+docker（连 Android node_modules 都可以省）
+  $0 -v 1.3.0 -y --target pc,android \
+      --pc-platform win,linux \
+      --android-docker --android-docker-sync \
+      --restore-backend-abi \
+      --github-release
+
   # 只打 Android APK，发到 GitHub Releases
   $0 -v 1.3.0 -y --target android --github-release
 
@@ -143,6 +186,19 @@ usage() {
 
   # 预发布（自动置 prerelease）
   $0 -v 1.3.0-rc.1 -y --target all --github-release
+
+环境变量（可选，供 CI 使用）:
+  NOWEN_ANDROID_KEYSTORE_B64      Android keystore 的 base64；脚本会还原为文件并生成
+                                  frontend/android/keystore.properties，构建后自动清理
+  NOWEN_ANDROID_KEYSTORE_PASSWORD store 密码
+  NOWEN_ANDROID_KEY_ALIAS         key alias（默认 nowen-release）
+  NOWEN_ANDROID_KEY_PASSWORD      key 密码（未设则等同于 store 密码）
+  NOWEN_SKIP_RCEDIT=1             跳过 electron-builder 的 rcedit（Windows exe 图标/版本注入）
+                                  和代码签名；适合 Debian 首次打 Win 包时，避免等 winCodeSign
+                                  约 60MB 从 GitHub 下载（国内网络容易卡）
+  NOWEN_LINUX_MAINTAINER          Linux 包 maintainer 字段（默认 "Nowen <noreply@nowen.local>"）
+  NOWEN_LINUX_VENDOR              Linux 包 vendor（默认 "Nowen"）
+  NOWEN_LINUX_HOMEPAGE            homepage URL（默认项目 GitHub 仓库）
 
 架构说明（仅 docker target 生效）:
   amd64   原生 docker build，最快；适合 x86 服务器/NAS。
@@ -167,6 +223,11 @@ while [ $# -gt 0 ]; do
         --tar-out)      TAR_OUT="${2:-}"; shift 2 ;;
         --push)         DO_PUSH_CUSTOM=1; shift ;;
         --target)       TARGETS="${2:-}"; shift 2 ;;
+        --pc-platform)  PC_PLATFORMS="${2:-}"; shift 2 ;;
+        --android-docker) ANDROID_USE_DOCKER=1; shift ;;
+        --android-docker-image) ANDROID_DOCKER_IMAGE="${2:-}"; shift 2 ;;
+        --android-docker-sync) ANDROID_DOCKER_SYNC=1; ANDROID_USE_DOCKER=1; shift ;;
+        --restore-backend-abi) RESTORE_BACKEND_ABI=1; shift ;;
         --github-release) DO_GITHUB_RELEASE=1; shift ;;
         --notes)        RELEASE_NOTES="${2:-}"; shift 2 ;;
         --notes-file)   RELEASE_NOTES_FILE="${2:-}"; shift 2 ;;
@@ -280,17 +341,92 @@ fi
 if [ "$HAS_PC" = "1" ]; then
     [ -f "scripts/safe-build.mjs" ] || die "未找到 scripts/safe-build.mjs（PC 端打包脚本）"
     command -v node >/dev/null 2>&1 || die "未安装 node（PC 端打包需要）"
+
+    # ---- PC_PLATFORMS 自动推断 ----
+    # 根据宿主 OS 给一个合理默认值；用户 --pc-platform 显式指定优先。
+    UNAME_S_PC="$(uname -s 2>/dev/null || echo unknown)"
+    if [ -z "$PC_PLATFORMS" ]; then
+        case "$UNAME_S_PC" in
+            Linux)          PC_PLATFORMS="win,linux" ;;
+            Darwin)         PC_PLATFORMS="mac,linux" ;;
+            MINGW*|MSYS*|CYGWIN*) PC_PLATFORMS="win" ;;
+            *)              PC_PLATFORMS="win,linux" ;;
+        esac
+        info "PC 端平台自动选择: ${PC_PLATFORMS}（宿主 OS: ${UNAME_S_PC}）"
+    fi
+
+    # 去重 + 校验
+    PC_PLATFORMS="$(echo "$PC_PLATFORMS" | tr ',' '\n' | awk 'NF{print}' | sort -u | tr '\n' ',' | sed 's/,$//')"
+    PC_HAS_WIN=0; PC_HAS_LINUX=0; PC_HAS_MAC=0
+    for p in $(echo "$PC_PLATFORMS" | tr ',' ' '); do
+        case "$p" in
+            win)    PC_HAS_WIN=1 ;;
+            linux)  PC_HAS_LINUX=1 ;;
+            mac)    PC_HAS_MAC=1 ;;
+            *)      die "--pc-platform 未知值: $p （合法: win / linux / mac）" ;;
+        esac
+    done
+
+    # ---- macOS 只能在 macOS 上打 ----
+    if [ "$PC_HAS_MAC" = "1" ] && [ "$UNAME_S_PC" != "Darwin" ]; then
+        warn "mac 目标只能在 macOS 宿主上产出（dmg/zip 需要 Apple 工具链），将从 PC_PLATFORMS 中移除"
+        PC_HAS_MAC=0
+        PC_PLATFORMS="$(echo "$PC_PLATFORMS" | tr ',' '\n' | grep -v '^mac$' | tr '\n' ',' | sed 's/,$//')"
+    fi
+
+    # ---- Linux 上打 Windows exe 需要 wine + mono ----
+    # electron-builder 跨平台打 Win 目标时会调 wine 跑 NSIS / rcedit；
+    # mono 用来跑 signtool 替代（虽然我们没配 CSC_LINK，不会真签名，但 mono 是 wine 环境常见依赖）
+    if [ "$PC_HAS_WIN" = "1" ] && [ "$UNAME_S_PC" = "Linux" ]; then
+        missing_pkgs=()
+        command -v wine64 >/dev/null 2>&1 || command -v wine >/dev/null 2>&1 || missing_pkgs+=("wine64")
+        command -v mono >/dev/null 2>&1 || missing_pkgs+=("mono-devel")
+        if [ "${#missing_pkgs[@]}" -gt 0 ]; then
+            warn "Linux 上打 Windows exe 需要 wine + mono，当前缺少: ${missing_pkgs[*]}"
+            echo "    Debian/Ubuntu 安装命令："
+            echo "      sudo dpkg --add-architecture i386"
+            echo "      sudo apt update"
+            echo "      sudo apt install -y wine64 wine32 mono-devel"
+            echo
+            echo "    首次运行 wine 会在 ~/.wine 初始化（几十秒）。"
+            echo "    如不想装 wine，改用 --pc-platform linux 只出 AppImage/deb。"
+            die "PC 环境不满足（缺 wine/mono），请先安装"
+        fi
+        ok "wine/mono 就绪，可跨平台打 Windows exe"
+    fi
 fi
 
 # Android target 前置检查
 if [ "$HAS_ANDROID" = "1" ]; then
     [ -d "frontend/android" ] || die "未找到 frontend/android 目录"
     [ -f "frontend/android/app/build.gradle" ] || die "未找到 frontend/android/app/build.gradle"
-    if [ ! -f "frontend/android/keystore.properties" ]; then
-        warn "未找到 frontend/android/keystore.properties，APK 将不会被签名（只能用于调试）"
+
+    # ---- 自动切换到 Docker 构建（主机没装 JDK/SDK 时） ----
+    # 如果用户显式传了 --android-docker，直接走 docker；
+    # 否则当主机既缺 JAVA_HOME 又缺 ANDROID_HOME/ANDROID_SDK_ROOT 时，也自动切到 docker。
+    if [ "$ANDROID_USE_DOCKER" != "1" ]; then
+        if [ -z "${JAVA_HOME:-}" ] && [ -z "${ANDROID_HOME:-}" ] && [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+            if command -v docker >/dev/null 2>&1; then
+                warn "未检测到本地 JDK / Android SDK，自动切换到 Docker 构建（镜像: ${ANDROID_DOCKER_IMAGE}）"
+                ANDROID_USE_DOCKER=1
+            else
+                die "本地无 JDK/Android SDK 且未安装 docker，无法构建 Android。请装 JDK17 + Android SDK，或装 docker 后加 --android-docker"
+            fi
+        fi
+    fi
+
+    if [ "$ANDROID_USE_DOCKER" = "1" ]; then
+        command -v docker >/dev/null 2>&1 || die "--android-docker 需要 docker"
+        docker info >/dev/null 2>&1 || die "docker daemon 不可用（请启动 docker）"
+        info "Android 构建模式: Docker（${ANDROID_DOCKER_IMAGE}）"
+    else
+        info "Android 构建模式: 本机 gradlew"
+    fi
+
+    if [ ! -f "frontend/android/keystore.properties" ] && [ -z "${NOWEN_ANDROID_KEYSTORE_B64:-}" ]; then
+        warn "未找到 frontend/android/keystore.properties 且未设 NOWEN_ANDROID_KEYSTORE_B64，APK 将不会被签名（只能用于调试）"
     fi
     command -v node >/dev/null 2>&1 || die "未安装 node（Android 端打包需要先跑 vite build + cap sync）"
-    # 不强制检查 JDK / gradle，让 gradlew 自己报错（它自带 wrapper）
 fi
 
 # -------------------- 发布模式专属前置检查 --------------------
@@ -570,10 +706,21 @@ else
         echo "  Docker latest : $([ "$DO_LATEST" = "1" ] && echo yes || echo no)"
     fi
     if [ "$HAS_PC" = "1" ]; then
-        echo "  PC 打包       : electron-builder（safe-build.mjs）"
+        echo "  PC 打包       : electron-builder（平台: ${PC_PLATFORMS}）"
+        if [ "$RESTORE_BACKEND_ABI" = "1" ]; then
+            echo "                  (打包后自动恢复 backend better-sqlite3 到 Node ABI)"
+        fi
     fi
     if [ "$HAS_ANDROID" = "1" ]; then
-        echo "  Android 打包  : Capacitor + gradlew assembleRelease"
+        if [ "$ANDROID_USE_DOCKER" = "1" ]; then
+            if [ "$ANDROID_DOCKER_SYNC" = "1" ]; then
+                echo "  Android 打包  : Docker（镜像: ${ANDROID_DOCKER_IMAGE}，前端 + gradle 全在容器内）"
+            else
+                echo "  Android 打包  : Docker + Capacitor + gradlew assembleRelease（镜像: ${ANDROID_DOCKER_IMAGE}）"
+            fi
+        else
+            echo "  Android 打包  : Capacitor + gradlew assembleRelease（本机）"
+        fi
         echo "  Android 版本  : versionName=${VERSION}, versionCode=$(android_version_code_of "$VERSION")"
     fi
     echo "  同步 git tag  : $([ "$DO_GIT_TAG" = "1" ] && echo yes || echo no)"
@@ -758,26 +905,67 @@ fi
 # 产物会通过 safe-build.mjs 设的 NOWEN_BUILD_OUT=1 输出到 %TEMP%/nowen-note-build
 # 或 dist-electron/（取决于 builder.config.js 的逻辑）。
 # 我们收集本次所有 PC 平台安装包路径，用于后续上传到 GitHub Release。
+#
+# 宿主 OS 策略：
+#   - Windows:        走 safe-build.mjs（内部做 taskkill + rcedit 日志降噪），只出 win 目标
+#   - Linux/macOS:    直接调 electron-builder，按 PC_PLATFORMS 拼 --win / --linux / --mac
+#                     跨平台打 win 需要 wine + mono（前置检查已过）
 PC_ARTIFACTS=()
 PC_BUILD_DURATION=0
 if [ "$HAS_PC" = "1" ]; then
     step "PC 端打包（electron-builder）"
     PC_START=$(date +%s)
 
-    # 走 safe-build.mjs：它内部会做 taskkill + rebuild:native + build:all + electron-builder
-    # safe-build.mjs 默认把输出放到 %TEMP%/nowen-note-build（通过 NOWEN_BUILD_OUT=1）
-    if [ "$DRY_RUN" = "1" ]; then
-        echo "  (dry-run) node scripts/safe-build.mjs"
+    UNAME_S_PC="$(uname -s 2>/dev/null || echo unknown)"
+
+    # 统一先跑 rebuild:native + build:all（safe-build.mjs 内部也是这三步，这里拆开以便非 Windows 分支复用）
+    if [ "$UNAME_S_PC" = "Linux" ] || [ "$UNAME_S_PC" = "Darwin" ]; then
+        # 输出目录：在 Linux/macOS 上不做 tmpdir 切换，默认 dist-electron/
+        # （NOWEN_BUILD_OUT 主要是 Windows 下避免 IDE 监听，Linux/macOS 不需要）
+        info "rebuild:native + build:all"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) npm run rebuild:native"
+            echo "  (dry-run) npm run build:all"
+        else
+            ( cd "$REPO_ROOT" && run_argv npm run rebuild:native )
+            ( cd "$REPO_ROOT" && run_argv npm run build:all )
+        fi
+
+        # 拼 electron-builder 平台参数
+        EB_PLATFORM_ARGS=()
+        [ "$PC_HAS_WIN" = "1" ]   && EB_PLATFORM_ARGS+=( --win )
+        [ "$PC_HAS_LINUX" = "1" ] && EB_PLATFORM_ARGS+=( --linux )
+        [ "$PC_HAS_MAC" = "1" ]   && EB_PLATFORM_ARGS+=( --mac )
+
+        info "electron-builder ${EB_PLATFORM_ARGS[*]}"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) npx electron-builder --config electron/builder.config.js ${EB_PLATFORM_ARGS[*]}"
+        else
+            # 临时关闭 publish（避免无意义尝试推 GitHub；我们自己用 gh release 上传）
+            # -c.publish=never 会覆盖 config.publish
+            ( cd "$REPO_ROOT" && run_argv npx electron-builder \
+                --config electron/builder.config.js \
+                -c.publish=never \
+                "${EB_PLATFORM_ARGS[@]}" )
+        fi
     else
-        run_argv node "$REPO_ROOT/scripts/safe-build.mjs"
+        # Windows 宿主：沿用 safe-build.mjs（只会出 win 目标，这里忽略用户 --pc-platform 里的 linux/mac）
+        if [ "$PC_HAS_LINUX" = "1" ] || [ "$PC_HAS_MAC" = "1" ]; then
+            warn "Windows 宿主暂不支持跨平台打 linux/mac 目标，本次仅产出 Windows 目标"
+        fi
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) node scripts/safe-build.mjs"
+        else
+            run_argv node "$REPO_ROOT/scripts/safe-build.mjs"
+        fi
     fi
 
-    # 解析产物目录：safe-build.mjs 设了 NOWEN_BUILD_OUT=1，对应 builder.config.js：
-    #   OUT_DIR = os.tmpdir() + '/nowen-note-build'
-    # 但实际用户环境是直接跑 electron:build 的场景也要兼容 dist-electron/
+    # 解析产物目录：
+    #   - Windows safe-build.mjs 用 NOWEN_BUILD_OUT=1 => %TEMP%/nowen-note-build
+    #   - Linux/macOS 直接走 dist-electron/
     PC_OUT_CANDIDATES=(
-        "$(node -e 'console.log(require("os").tmpdir())' 2>/dev/null)/nowen-note-build"
         "${REPO_ROOT}/dist-electron"
+        "$(node -e 'console.log(require("os").tmpdir())' 2>/dev/null)/nowen-note-build"
     )
     PC_OUT=""
     for cand in "${PC_OUT_CANDIDATES[@]}"; do
@@ -812,37 +1000,196 @@ if [ "$HAS_PC" = "1" ]; then
     PC_END=$(date +%s)
     PC_BUILD_DURATION=$((PC_END - PC_START))
     ok "PC 打包完成，用时 ${PC_BUILD_DURATION}s"
+
+    # ---- 恢复 backend better-sqlite3 的 Node ABI（可选） ----
+    # rebuild:native 把 backend/better-sqlite3 编成 Electron ABI，纯 Node 的 tsx 就跑不动了。
+    # 加 --restore-backend-abi 后，这里把它再 rebuild 回当前 Node 的 ABI。
+    if [ "$RESTORE_BACKEND_ABI" = "1" ]; then
+        step "恢复 backend better-sqlite3 到 Node ABI（--restore-backend-abi）"
+        if [ ! -d "${REPO_ROOT}/backend/node_modules/better-sqlite3" ]; then
+            warn "backend/node_modules/better-sqlite3 不存在，跳过"
+        elif [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) cd backend && npm rebuild better-sqlite3"
+        else
+            ( cd "$REPO_ROOT/backend" && run_argv npm rebuild better-sqlite3 ) \
+                || warn "rebuild better-sqlite3 (Node ABI) 失败；后续 npm run dev:backend 可能会报 ABI 不匹配，可手动 cd backend && npm rebuild better-sqlite3"
+            ok "backend ABI 已恢复为 Node（dev:backend 可直接跑）"
+        fi
+    fi
 fi
 
 # -------------------- Android 端打包（Capacitor + Gradle） --------------------
+#
+# Keystore 注入（CI 场景常用）：
+#   若设置了 NOWEN_ANDROID_KEYSTORE_B64，会把它 base64 -d 还原为 keystore 文件，
+#   并自动生成 frontend/android/keystore.properties。
+#   环境变量（全部可选，仅在传入 NOWEN_ANDROID_KEYSTORE_B64 时才读）：
+#     NOWEN_ANDROID_KEYSTORE_B64        keystore 文件 base64
+#     NOWEN_ANDROID_KEYSTORE_PASSWORD   store 密码
+#     NOWEN_ANDROID_KEY_ALIAS           key alias（默认 nowen-release）
+#     NOWEN_ANDROID_KEY_PASSWORD        key 密码（未设则沿用 store 密码）
+#
+# trap 机制：
+#   成功或失败退出时都会清理临时生成的 keystore / keystore.properties，
+#   避免把敏感文件遗留在工作区。（若 keystore.properties 原本就存在，不做任何事）
 ANDROID_ARTIFACTS=()
 ANDROID_BUILD_DURATION=0
+ANDROID_KEYSTORE_TEMP_CREATED=0
+ANDROID_KEYSTORE_PROPS_TEMP_CREATED=0
+
+cleanup_android_keystore() {
+    # 只清理脚本自己创建的；原本就存在的文件不动
+    if [ "$ANDROID_KEYSTORE_TEMP_CREATED" = "1" ]; then
+        rm -f "${REPO_ROOT}/frontend/android/app/nowen-release.keystore" 2>/dev/null || true
+    fi
+    if [ "$ANDROID_KEYSTORE_PROPS_TEMP_CREATED" = "1" ]; then
+        rm -f "${REPO_ROOT}/frontend/android/keystore.properties" 2>/dev/null || true
+    fi
+}
+
+prepare_android_keystore() {
+    # 幂等：外部已有 keystore.properties 时不覆盖，仅在用户提供了 B64 环境变量时才自动生成
+    local props_file="${REPO_ROOT}/frontend/android/keystore.properties"
+    local keystore_path="${REPO_ROOT}/frontend/android/app/nowen-release.keystore"
+
+    if [ -z "${NOWEN_ANDROID_KEYSTORE_B64:-}" ]; then
+        return 0
+    fi
+
+    if [ -f "$props_file" ]; then
+        warn "检测到已有 keystore.properties，忽略 NOWEN_ANDROID_KEYSTORE_B64（不覆盖）"
+        return 0
+    fi
+
+    command -v base64 >/dev/null 2>&1 || die "需要 base64 命令来还原 keystore"
+
+    local store_pwd="${NOWEN_ANDROID_KEYSTORE_PASSWORD:-}"
+    local key_alias="${NOWEN_ANDROID_KEY_ALIAS:-nowen-release}"
+    local key_pwd="${NOWEN_ANDROID_KEY_PASSWORD:-$store_pwd}"
+
+    [ -n "$store_pwd" ] || die "设置了 NOWEN_ANDROID_KEYSTORE_B64 但未设 NOWEN_ANDROID_KEYSTORE_PASSWORD"
+
+    info "从环境变量还原 Android keystore -> $keystore_path"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  (dry-run) 解码 keystore 并写入 keystore.properties"
+    else
+        # macOS 与 Linux 的 base64 兼容：-d 在两者上都支持
+        printf '%s' "$NOWEN_ANDROID_KEYSTORE_B64" | base64 -d > "$keystore_path" \
+            || die "NOWEN_ANDROID_KEYSTORE_B64 解码失败（是否正确的 base64？）"
+        ANDROID_KEYSTORE_TEMP_CREATED=1
+
+        # keystore.properties 中的 storeFile 是相对于 rootProject.projectDir（即 frontend/android/）
+        # 所以这里写 "app/nowen-release.keystore"
+        cat > "$props_file" <<EOF
+storeFile=app/nowen-release.keystore
+storePassword=${store_pwd}
+keyAlias=${key_alias}
+keyPassword=${key_pwd}
+EOF
+        chmod 600 "$props_file" 2>/dev/null || true
+        ANDROID_KEYSTORE_PROPS_TEMP_CREATED=1
+        ok "keystore.properties 已生成（将于脚本退出时清理）"
+    fi
+}
+
 if [ "$HAS_ANDROID" = "1" ]; then
+    # 注册清理 trap（幂等：多次调用 trap 会覆盖前一次）
+    trap cleanup_android_keystore EXIT
+
     step "Android 端打包（Capacitor + gradlew assembleRelease）"
     ANDROID_START=$(date +%s)
 
-    # 选择 gradlew 脚本：Windows 走 gradlew.bat，其他走 ./gradlew
-    UNAME_S="$(uname -s 2>/dev/null || echo unknown)"
-    case "$UNAME_S" in
-        MINGW*|MSYS*|CYGWIN*) GRADLEW="gradlew.bat" ;;
-        *)                    GRADLEW="./gradlew" ;;
-    esac
+    # 0. 先从环境变量还原 keystore（如有）
+    prepare_android_keystore
 
     # 1. 前端 + capacitor sync
-    info "frontend build + npx cap sync android"
-    if [ "$DRY_RUN" = "1" ]; then
-        echo "  (dry-run) cd frontend && npm run build && npx cap sync android"
+    # 默认：在宿主 node 上跑 `npm run build` + `npx cap sync android`
+    # --android-docker-sync：连同这两步也放进 Docker（镜像里自带 node，宿主可完全不装 node）
+    if [ "$ANDROID_DOCKER_SYNC" = "1" ]; then
+        info "frontend build + npx cap sync android（Docker 内）"
+        GRADLE_CACHE_VOL="${HOME}/.gradle-docker-nowen-note"
+        mkdir -p "$GRADLE_CACHE_VOL"
+        # 同步用一个 npm 缓存卷，避免每次都重新下载依赖
+        NPM_CACHE_VOL="${HOME}/.npm-docker-nowen-note"
+        mkdir -p "$NPM_CACHE_VOL"
+        DOCKER_UID="$(id -u 2>/dev/null || echo 1000)"
+        DOCKER_GID="$(id -g 2>/dev/null || echo 1000)"
+
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) docker run ... ${ANDROID_DOCKER_IMAGE} bash -lc 'cd frontend && npm ci && npm run build && npx cap sync android'"
+        else
+            # frontend 的依赖若没装，这里 npm ci 一把；已装则 cap sync 会直接复用
+            run_argv docker run --rm \
+                -u "${DOCKER_UID}:${DOCKER_GID}" \
+                -v "${REPO_ROOT}:/workspace" \
+                -v "${NPM_CACHE_VOL}:/home/circleci/.npm" \
+                -w /workspace \
+                -e npm_config_cache=/home/circleci/.npm \
+                "${ANDROID_DOCKER_IMAGE}" \
+                bash -lc '
+                    set -e
+                    cd frontend
+                    if [ ! -d node_modules ]; then
+                        echo "[docker] frontend/node_modules 不存在，执行 npm ci"
+                        npm ci --no-audit --no-fund
+                    fi
+                    npm run build
+                    npx cap sync android
+                '
+        fi
     else
-        ( cd "$REPO_ROOT/frontend" && run_argv npm run build )
-        ( cd "$REPO_ROOT/frontend" && run_argv npx cap sync android )
+        info "frontend build + npx cap sync android（宿主 node）"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) cd frontend && npm run build && npx cap sync android"
+        else
+            ( cd "$REPO_ROOT/frontend" && run_argv npm run build )
+            ( cd "$REPO_ROOT/frontend" && run_argv npx cap sync android )
+        fi
     fi
 
-    # 2. gradle assembleRelease
-    info "gradlew assembleRelease"
-    if [ "$DRY_RUN" = "1" ]; then
-        echo "  (dry-run) cd frontend/android && $GRADLEW assembleRelease"
+    # 2. gradle assembleRelease —— 本机 or Docker
+    if [ "$ANDROID_USE_DOCKER" = "1" ]; then
+        # Docker 模式：把仓库挂进容器里跑 gradlew。
+        # cimg/android:2024.01.1-node 自带 JDK 17 + Android SDK + Node，国内机器首次拉会慢些。
+        # - 用 host 的 UID/GID 避免产物文件变成 root
+        # - 挂载 ~/.gradle 作为缓存，避免每次重跑都下载依赖
+        GRADLE_CACHE_VOL="${HOME}/.gradle-docker-nowen-note"
+        mkdir -p "$GRADLE_CACHE_VOL"
+
+        # 构造 docker 命令
+        # --network host：gradle 拉依赖更快；如环境受限可删
+        DOCKER_UID="$(id -u 2>/dev/null || echo 1000)"
+        DOCKER_GID="$(id -g 2>/dev/null || echo 1000)"
+
+        info "docker run ${ANDROID_DOCKER_IMAGE} -> gradlew assembleRelease"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) docker run --rm -v ${REPO_ROOT}:/workspace -w /workspace/frontend/android ${ANDROID_DOCKER_IMAGE} ./gradlew assembleRelease"
+        else
+            # 注意：镜像里需要有 Android SDK 和 JDK 17；cimg/android 已经满足。
+            # 如果你换用更精简的镜像（如 openjdk:17 + SDK 手动装），记得在镜像里配好 ANDROID_HOME。
+            run_argv docker run --rm \
+                -u "${DOCKER_UID}:${DOCKER_GID}" \
+                -v "${REPO_ROOT}:/workspace" \
+                -v "${GRADLE_CACHE_VOL}:/home/circleci/.gradle" \
+                -w /workspace/frontend/android \
+                -e GRADLE_USER_HOME=/home/circleci/.gradle \
+                "${ANDROID_DOCKER_IMAGE}" \
+                bash -lc "chmod +x ./gradlew && ./gradlew assembleRelease --no-daemon"
+        fi
     else
-        ( cd "$REPO_ROOT/frontend/android" && run_argv $GRADLEW assembleRelease )
+        # 本机 gradlew
+        UNAME_S_AND="$(uname -s 2>/dev/null || echo unknown)"
+        case "$UNAME_S_AND" in
+            MINGW*|MSYS*|CYGWIN*) GRADLEW="gradlew.bat" ;;
+            *)                    GRADLEW="./gradlew" ;;
+        esac
+
+        info "gradlew assembleRelease（本机）"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  (dry-run) cd frontend/android && $GRADLEW assembleRelease"
+        else
+            ( cd "$REPO_ROOT/frontend/android" && run_argv $GRADLEW assembleRelease )
+        fi
     fi
 
     # 3. 收集 APK 产物并重命名（加上 version 后缀，避免覆盖）
@@ -858,7 +1205,7 @@ if [ "$HAS_ANDROID" = "1" ]; then
             APK_UNSIGNED="${REPO_ROOT}/frontend/android/app/build/outputs/apk/release/app-release-unsigned.apk"
             if [ -f "$APK_UNSIGNED" ]; then
                 warn "只找到未签名 APK: $APK_UNSIGNED"
-                warn "检查 frontend/android/keystore.properties 是否配置正确"
+                warn "检查 frontend/android/keystore.properties 或 NOWEN_ANDROID_KEYSTORE_B64 是否配置正确"
                 ANDROID_ARTIFACTS+=( "$APK_UNSIGNED" )
             else
                 die "Android 打包成功但找不到 APK 产物"

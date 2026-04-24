@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Nowen Note Clipper - 设置</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Nowen Note Clipper 设置</h1>
+      <p class="sub">把这里填好，就可以一键把网页内容剪藏到你的 Nowen Note 实例。</p>
+
+      <section class="card">
+        <h2>1. 服务器地址</h2>
+        <label>
+          <span>Server URL</span>
+          <input id="serverUrl" type="url" placeholder="https://note.example.com 或 http://localhost:3001" />
+        </label>
+      </section>
+
+      <section class="card" id="login-card">
+        <h2>2. 登录账号</h2>
+        <p class="hint">
+          输入你的 Nowen Note 用户名和密码，点击「登录」即可完成认证。
+        </p>
+        <label>
+          <span>用户名</span>
+          <input id="username" type="text" placeholder="用户名" autocomplete="username" />
+        </label>
+        <label>
+          <span>密码</span>
+          <div class="input-with-toggle">
+            <input id="password" type="password" placeholder="密码" autocomplete="current-password" />
+            <button type="button" id="toggle-password" class="icon-btn" title="显示/隐藏">👁</button>
+          </div>
+        </label>
+        <div class="login-actions">
+          <button id="login-btn" class="btn primary">登录</button>
+          <span id="login-result" class="test-result"></span>
+        </div>
+
+        <!-- 2FA 验证（默认隐藏） -->
+        <div id="twofa-section" class="hidden" style="margin-top: 14px;">
+          <label>
+            <span>两步验证码（6 位数字）</span>
+            <input id="twofa-code" type="text" maxlength="11" placeholder="123456 或恢复码" autocomplete="one-time-code" />
+          </label>
+          <div class="login-actions">
+            <button id="twofa-btn" class="btn primary">验证</button>
+            <span id="twofa-result" class="test-result"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 登录状态卡片（登录成功后显示） -->
+      <section class="card hidden" id="status-card">
+        <h2>2. 登录状态</h2>
+        <div class="status-info">
+          <span class="status-badge ok">✅ 已登录</span>
+          <span id="status-user"></span>
+        </div>
+        <div class="login-actions" style="margin-top: 10px;">
+          <button id="logout-btn" class="btn">退出登录</button>
+          <button id="relogin-btn" class="btn">重新登录</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3. 默认行为</h2>
+        <label>
+          <span>默认笔记本</span>
+          <input id="defaultNotebook" type="text" placeholder="Web 剪藏（不存在会自动创建）" />
+        </label>
+        <label>
+          <span>默认标签（逗号分隔）</span>
+          <input id="defaultTags" type="text" placeholder="技术, 剪藏" />
+        </label>
+        <label>
+          <span>图片处理</span>
+          <select id="imageMode">
+            <option value="inline">下载并随笔记保存（推荐，离线可看）</option>
+            <option value="link">保留原始链接（不下载）</option>
+            <option value="skip">忽略图片（只保留文字）</option>
+          </select>
+        </label>
+        <label>
+          <span>输出格式</span>
+          <select id="outputFormat">
+            <option value="markdown">Markdown（推荐，更轻量）</option>
+            <option value="html">HTML（保留更多样式）</option>
+          </select>
+        </label>
+        <label class="checkbox">
+          <input id="includeSource" type="checkbox" />
+          <span>在笔记末尾附加"来源 URL"</span>
+        </label>
+      </section>
+
+      <div class="actions">
+        <button id="save" class="btn primary">保存</button>
+        <span id="save-result" class="save-result"></span>
+      </div>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>

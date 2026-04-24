@@ -22,6 +22,9 @@ module.exports = {
           primary: "var(--color-text-primary)",
           secondary: "var(--color-text-secondary)",
           tertiary: "var(--color-text-tertiary)",
+          // 第四级文字色：禁用态 / 极弱提示（HIG quaternaryLabelColor 对齐）。
+          // 默认皮肤也有回退定义，保证所有皮肤下都能用 text-tx-quaternary。
+          quaternary: "var(--color-text-quaternary)",
           inverse: "var(--color-text-inverse)",
         },
         // NOTE: "accent" 原本是 DEFAULT 对象，扩展后同时支持 bg-accent / bg-accent-primary 等
@@ -72,6 +75,18 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+      },
+      borderRadius: {
+        // 与 CSS 变量绑定的语义圆角令牌：
+        //   rounded-window → 窗口/大面板（macOS 10px，默认 10px）
+        //   rounded-card   → 卡片/列表项（macOS 8px）
+        //   rounded-button → 按钮（macOS 6px）
+        //   rounded-input  → 输入框（macOS 5px）
+        // 皮肤切换时值由 index.css 里的 --radius-* 覆盖，组件代码无需改。
+        window: "var(--radius-window)",
+        card: "var(--radius-card)",
+        button: "var(--radius-button)",
+        input: "var(--radius-input)",
       },
       animation: {
         "fade-in": "fadeIn 0.2s ease-out",

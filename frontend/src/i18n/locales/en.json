@@ -74,6 +74,7 @@
   "sidebar": {
     "newNote": "New Note",
     "newSubNotebook": "New Sub-Notebook",
+    "exportNotebookAsMarkdown": "Export as Markdown",
     "deleteNotebook": "Delete Notebook",
     "moveNotebook": "Move to...",
     "moveNotebookTitle": "Move Notebook",
@@ -123,6 +124,7 @@
     "favorite": "Favorite",
     "lock": "Lock Note",
     "unlock": "Unlock Note",
+    "exportAsMarkdown": "Export as Markdown",
     "moveToTrash": "Move to Trash",
     "allNotes": "All Notes",
     "notebook": "Notebook",
@@ -205,6 +207,18 @@
       "successToMd": "Switched to Markdown editor",
       "successToTiptap": "Switched to rich-text editor",
       "failRollback": "Switch failed: normalize content save failed, rolled back"
+    },
+    "htmlPreview": {
+      "banner": "This note contains clipped HTML content — shown in read-only preview to preserve full formatting",
+      "fullPageBanner": "This note is a full-page clone — rendered in iframe mode for 1:1 fidelity",
+      "switchToEdit": "Switch to Edit Mode",
+      "switchToEditTooltip": "Switch to rich-text editor (some HTML tags may be lost)",
+      "switchToPreview": "HTML Preview",
+      "switchToPreviewTooltip": "Switch to HTML preview (preserves full formatting)",
+      "editWarningTitle": "Switch to Edit Mode?",
+      "editWarningMessage": "The rich-text editor does not support all HTML tags. Some formatting and styles may be lost after switching. Continue?",
+      "editWarningConfirm": "Continue Editing",
+      "editWarningCancel": "Stay in Preview"
     }
   },
   "tiptap": {
@@ -596,6 +610,14 @@
     "dark": "Dark",
     "system": "System"
   },
+  "appearance": {
+    "skinTitle": "Appearance Style",
+    "skinDesc": "Pick an overall visual language. macOS style feels most at home on Apple devices.",
+    "skinDefault": "Default",
+    "skinDefaultDesc": "Modern and minimal, consistent across platforms",
+    "skinMacos": "macOS",
+    "skinMacosDesc": "Apple design language with vibrancy and System Blue"
+  },
   "export": {
     "fetchingData": "Fetching note data...",
     "noNotesToExport": "No notes to export",
@@ -604,7 +626,10 @@
     "generatingZip": "Generating ZIP archive...",
     "compressing": "Compressing {{percent}}%...",
     "exportComplete": "Export complete!",
-    "exportFailed": "Export failed: {{error}}"
+    "exportFailed": "Export failed: {{error}}",
+    "exportingNotebook": "Exporting notebook \"{{name}}\"...",
+    "exportingNote": "Exporting note \"{{name}}\"...",
+    "someImagesFailed": "{{count}} image(s) failed to download; original URLs kept in md"
   },
   "fonts": {
     "interDefault": "Inter (Default)",

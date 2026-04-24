@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ThemeToggle from "@/components/ThemeToggle";
+import SkinSwitcher from "@/components/SkinSwitcher";
 import SecuritySettings from "@/components/SecuritySettings";
 import DataManager from "@/components/DataManager";
 import AISettingsPanel from "@/components/AISettingsPanel";
@@ -239,6 +241,19 @@ function AppearancePanel() {
       </div>
 
       <div className="space-y-4">
+        {/* 外观风格（Skin）：默认 / macOS —— 与下方明暗模式正交 */}
+        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-3">
+          <div>
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('appearance.skinTitle', { defaultValue: '外观风格' })}
+            </span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {t('appearance.skinDesc', { defaultValue: '选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。' })}
+            </p>
+          </div>
+          <SkinSwitcher />
+        </div>
+
         <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
           <div>
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.themeMode')}</span>
@@ -429,7 +444,14 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
   ];
 
-  return (
+  // 用 Portal 挂载到 body：
+  //   SettingsModal 调用点位于 Sidebar 组件内部（见 Sidebar.tsx 的 AnimatePresence）。
+  //   Sidebar 根容器使用 `.vibrancy-sidebar`，在 macOS 皮肤下会经由 ::before 应用
+  //   backdrop-filter；CSS 规范规定任何非 none 的 backdrop-filter 都会让宿主成为
+  //   内部 position: fixed 的 containing block。即使我们已经把 filter 挪到伪元素
+  //   减小了冲撞面，Sidebar 子树未来可能加入 transform / filter / contain 等属性，
+  //   都会再次困住本模态框。用 Portal 一次性脱离 Sidebar 子树，彻底杜绝此类布局事故。
+  return createPortal(
     <motion.div
       ref={ref}
       initial={{ opacity: 0 }}
@@ -550,7 +572,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           </div>
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 });
 

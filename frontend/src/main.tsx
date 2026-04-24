@@ -16,6 +16,17 @@ if (typeof localStorage !== "undefined" && !localStorage.getItem(THEME_KEY)) {
   localStorage.setItem(THEME_KEY, "light");
 }
 
+// Electron 平台标记：供 CSS 做平台定向样式（主要给 macOS hiddenInset 下的 drag region 用）。
+// 放在渲染之前，避免首帧看到侧栏被 Traffic Light 遮挡。
+try {
+  const desk: any = (window as any).nowenDesktop;
+  if (desk && desk.isDesktop && typeof desk.platform === "string") {
+    document.documentElement.setAttribute("data-electron", desk.platform);
+  }
+} catch {
+  /* 纯 Web 环境：静默 */
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

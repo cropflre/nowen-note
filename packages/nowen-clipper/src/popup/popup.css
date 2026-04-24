@@ -1,0 +1,249 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html, body {
+  width: 360px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  color: #1f2937;
+  background: #fafafa;
+}
+.app {
+  padding: 14px 14px 10px;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.logo {
+  width: 24px;
+  height: 24px;
+}
+h1 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+.panel.hidden { display: none; }
+.hidden { display: none !important; }
+
+/* 页面标题预览 */
+.page-title-row {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+.page-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.row {
+  margin-bottom: 10px;
+}
+.row label {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+/* 模式选择行 */
+.mode-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mode-icon {
+  flex-shrink: 0;
+  color: #6b7280;
+}
+.mode-select {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .15s;
+  appearance: auto;
+  color: #1f2937;
+}
+.mode-select:focus {
+  border-color: #3b82f6;
+}
+
+/* 输入行 with icon */
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field-icon {
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+.input-row input[type="text"],
+.input-row textarea {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+  font-family: inherit;
+}
+.input-row input[type="text"]:focus,
+.input-row textarea:focus {
+  border-color: #3b82f6;
+}
+
+/* 评论框 */
+.comment-row {
+  align-items: flex-start;
+}
+.comment-icon {
+  margin-top: 7px;
+}
+.comment-row textarea {
+  resize: vertical;
+  min-height: 36px;
+  max-height: 100px;
+  line-height: 1.5;
+}
+
+input[type="text"] {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+input[type="text"]:focus {
+  border-color: #3b82f6;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+.btn.primary {
+  background: #2563eb;
+  color: #fff;
+}
+.btn.primary:hover { background: #1d4ed8; }
+.btn.primary:disabled { opacity: .55; cursor: not-allowed; }
+.btn.large {
+  width: 100%;
+  padding: 10px;
+  font-weight: 500;
+}
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: #2563eb;
+  font-size: 12px;
+}
+.progress.hidden { display: none; }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid #dbeafe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.result {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.result.hidden { display: none; }
+.result.ok {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.result.err {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+.warn {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+/* 快速捕捉模式 */
+.quick-capture-row {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #6b7280;
+}
+.checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+.checkbox-label span {
+  user-select: none;
+}
+
+footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  font-size: 11px;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+footer a {
+  color: #2563eb;
+  text-decoration: none;
+}
+footer a:hover { text-decoration: underline; }
+.dot { color: #d1d5db; }

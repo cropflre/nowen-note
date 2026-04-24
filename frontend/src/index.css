@@ -1165,3 +1165,289 @@ html[data-code-theme="solarized-light"] {
   border-radius: 0 !important;
   margin: 0 !important;
 }
+
+/* ============================================================================
+ * macOS 外观风格（Skin）
+ * ----------------------------------------------------------------------------
+ * 设计来源：Apple Human Interface Guidelines（color / materials / typography）。
+ *
+ * 与默认皮肤的关键差异：
+ *   1. 调色板更冷、更"真实 Apple"。Light 用 macOS windowBackground (#ECECEC)
+ *      + 白色内容面板；Dark 用炭灰 (#1E1E1E / #2E2E2E) 而非纯黑，避免 OLED halo。
+ *   2. 强调色 Light=#007AFF / Dark=#0A84FF（System Blue），不是 Tailwind 默认蓝。
+ *   3. 分隔线与悬停态用 rgba() 而非硬编码灰——可叠加在任意背景上保持层级。
+ *   4. 新增第四级文字色 --color-text-quaternary（禁用态 / 极弱提示）。
+ *   5. 提供 --radius-window/card/button/input 四级圆角语义令牌。
+ *   6. 侧边栏语义色偏半透明，配合 .vibrancy-* 工具类呈现 Vibrancy 毛玻璃。
+ *
+ * 通过 [data-skin="macos"] 与 next-themes 的 .dark 正交组合：
+ *   [data-skin="macos"]          → macOS Light
+ *   [data-skin="macos"].dark     → macOS Dark
+ * ========================================================================= */
+
+:root {
+  /* 默认皮肤的圆角令牌（补齐，便于组件无差别使用） */
+  --radius-window: 10px;
+  --radius-card: 8px;
+  --radius-button: 6px;
+  --radius-input: 6px;
+
+  /* 默认皮肤的第四级文字色（禁用态） */
+  --color-text-quaternary: #d1d5db;
+
+  /* 毛玻璃降级时使用的不透明底色（默认皮肤） */
+  --color-sidebar-solid: #f3f4f6;
+  --color-elevated-solid: #ffffff;
+}
+
+.dark {
+  --color-text-quaternary: #4b5563;
+  --color-sidebar-solid: #1c2128;
+  --color-elevated-solid: #1c2333;
+}
+
+/* ---------- macOS Light ---------- */
+:root[data-skin="macos"] {
+  --color-bg: #ECECEC;
+  --color-surface: #ffffff;
+  --color-sidebar: rgba(246, 246, 246, 0.72);
+  --color-sidebar-solid: #F6F6F6;
+  --color-elevated: rgba(255, 255, 255, 0.85);
+  --color-elevated-solid: #ffffff;
+  --color-border: rgba(0, 0, 0, 0.10);
+  --color-hover: rgba(0, 0, 0, 0.04);
+  --color-active: #B4D8FF;
+
+  --color-text-primary: #000000;
+  --color-text-secondary: rgba(0, 0, 0, 0.60);
+  --color-text-tertiary: rgba(0, 0, 0, 0.40);
+  --color-text-quaternary: rgba(0, 0, 0, 0.20);
+  --color-text-inverse: #ffffff;
+
+  --color-accent-primary: #007AFF;
+  --color-accent-secondary: #34C759;
+  --color-accent-warning: #FF9500;
+  --color-accent-danger: #FF3B30;
+  --color-accent-muted: rgba(0, 0, 0, 0.40);
+
+  /* 编辑器与默认皮肤解耦：macOS 皮肤下编辑器正文用白底 + SF 灰 */
+  --pm-text: #1d1d1f;
+  --pm-heading: #000000;
+  --pm-code-bg: rgba(0, 0, 0, 0.05);
+  --pm-code-text: #D70015;
+  --pm-pre-bg: #F6F6F6;
+  --pm-pre-border: rgba(0, 0, 0, 0.10);
+  --pm-pre-text: #1d1d1f;
+  --pm-blockquote-border: #007AFF;
+  --pm-blockquote-text: rgba(0, 0, 0, 0.55);
+  --pm-hr: rgba(0, 0, 0, 0.10);
+  --pm-placeholder: rgba(0, 0, 0, 0.30);
+  --pm-task-done: rgba(0, 0, 0, 0.30);
+  --pm-scrollbar: rgba(0, 0, 0, 0.20);
+  --pm-scrollbar-hover: rgba(0, 0, 0, 0.35);
+  --pm-selection: rgba(0, 122, 255, 0.20);
+}
+
+/* ---------- macOS Dark ---------- */
+:root[data-skin="macos"].dark {
+  --color-bg: #1E1E1E;
+  --color-surface: #2E2E2E;
+  --color-sidebar: rgba(30, 30, 30, 0.72);
+  --color-sidebar-solid: #252525;
+  --color-elevated: rgba(58, 58, 58, 0.85);
+  --color-elevated-solid: #3A3A3A;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-active: rgba(10, 132, 255, 0.30);
+
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: rgba(255, 255, 255, 0.60);
+  --color-text-tertiary: rgba(255, 255, 255, 0.40);
+  --color-text-quaternary: rgba(255, 255, 255, 0.20);
+  --color-text-inverse: #1E1E1E;
+
+  --color-accent-primary: #0A84FF;
+  --color-accent-secondary: #30D158;
+  --color-accent-warning: #FF9F0A;
+  --color-accent-danger: #FF453A;
+  --color-accent-muted: rgba(255, 255, 255, 0.40);
+
+  --pm-text: #E8E8E8;
+  --pm-heading: #FFFFFF;
+  --pm-code-bg: rgba(255, 255, 255, 0.08);
+  --pm-code-text: #FF6B6B;
+  --pm-pre-bg: #252525;
+  --pm-pre-border: rgba(255, 255, 255, 0.10);
+  --pm-pre-text: #E8E8E8;
+  --pm-blockquote-border: #0A84FF;
+  --pm-blockquote-text: rgba(255, 255, 255, 0.55);
+  --pm-hr: rgba(255, 255, 255, 0.10);
+  --pm-placeholder: rgba(255, 255, 255, 0.30);
+  --pm-task-done: rgba(255, 255, 255, 0.30);
+  --pm-scrollbar: rgba(255, 255, 255, 0.20);
+  --pm-scrollbar-hover: rgba(255, 255, 255, 0.35);
+  --pm-selection: rgba(10, 132, 255, 0.30);
+}
+
+/* ---------- macOS 圆角令牌 ---------- */
+:root[data-skin="macos"] {
+  --radius-window: 10px;
+  --radius-card: 8px;
+  --radius-button: 6px;
+  --radius-input: 5px;
+}
+
+/* ---------- macOS 字体栈调整 ----------
+ * 默认栈把 Inter 排在 -apple-system 之前。macOS 下 -apple-system 会命中 SF Pro，
+ * 但被 Inter 抢先，用户感受不到"Apple 味"。皮肤激活后调换顺序。
+ */
+:root[data-skin="macos"] {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+               'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', Helvetica, Arial, sans-serif;
+  --editor-font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+               'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', Helvetica, Arial, sans-serif;
+}
+
+/* ============================================================================
+ * Vibrancy（毛玻璃）工具类
+ * ----------------------------------------------------------------------------
+ * 用法：在侧边栏、下拉菜单、弹出面板根节点加 className="vibrancy-sidebar" 等。
+ *
+ * 重要实现细节（踩坑经验）：
+ *   CSS 规范规定：非 none 的 `backdrop-filter` 会让元素成为 fixed/absolute 后代
+ *   的 containing block。若宿主元素内部有 `position: fixed` 的 Modal / Portal
+ *   组件（例如 SettingsModal 渲染在 Sidebar 子树里），宿主一旦开启 backdrop-filter，
+ *   fixed 就会被困在宿主盒子里而不是铺满视口——导致弹窗被挤成一小条。
+ *
+ *   因此**不能直接**在宿主上应用 `backdrop-filter`。这里改用 `::before` 伪元素
+ *   承担毛玻璃层：宿主保持"干净"，内部 fixed 不受影响。宿主需要 position: relative
+ *   以便 ::before 能 absolute 填充；实际 .vibrancy-sidebar 已经处在 flex 布局中，
+ *   加 position: relative 无副作用。
+ *
+ *   其它注意事项：
+ *   1. 依赖 backdrop-filter。Electron（Chromium 新版本）全平台支持；Web 端
+ *      Safari 14+ / Chrome 76+ / Firefox 103+。不支持时自动回退为 solid 变量。
+ *   2. @media (prefers-reduced-transparency: reduce) 会强制走 solid，尊重系统偏好。
+ *   3. 仅在 macOS 皮肤启用时才显露毛玻璃语义——默认皮肤只用 solid 底色，
+ *      避免给非 Apple 风格的设计引入不必要视觉负担。
+ * ========================================================================= */
+.vibrancy-sidebar,
+.vibrancy-panel {
+  position: relative;
+  background-color: var(--color-sidebar-solid);
+}
+
+/* macOS 皮肤下：宿主 bg 透明，由 ::before 伪元素负责毛玻璃层。
+ * 不使用 isolation: isolate，避免创建新层叠上下文（否则宿主内部的高 z-index
+ * 子元素，例如 Sidebar 子树里可能渲染的 SettingsModal，将被困在宿主 stacking
+ * context 内，出现被"塞进侧栏"的错乱）。靠 ::before 的 z-index: -1 让它穿透
+ * 宿主背景层；宿主本身背景透明，真实内容自然叠在上方。 */
+:root[data-skin="macos"] .vibrancy-sidebar,
+:root[data-skin="macos"] .vibrancy-panel {
+  background-color: transparent;
+}
+
+:root[data-skin="macos"] .vibrancy-sidebar::before,
+:root[data-skin="macos"] .vibrancy-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+:root[data-skin="macos"] .vibrancy-sidebar::before {
+  background-color: var(--color-sidebar);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+}
+
+:root[data-skin="macos"] .vibrancy-panel::before {
+  background-color: var(--color-elevated);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* 不支持 backdrop-filter 时回退到不透明底色（直接打到宿主，放弃伪元素） */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-skin="macos"] .vibrancy-sidebar { background-color: var(--color-sidebar-solid); }
+  :root[data-skin="macos"] .vibrancy-panel { background-color: var(--color-elevated-solid); }
+  :root[data-skin="macos"] .vibrancy-sidebar::before,
+  :root[data-skin="macos"] .vibrancy-panel::before { display: none; }
+}
+
+/* 用户开启"减少透明度"偏好 → 强制 solid（HIG 可访问性准则） */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-skin="macos"] .vibrancy-sidebar { background-color: var(--color-sidebar-solid); }
+  :root[data-skin="macos"] .vibrancy-panel { background-color: var(--color-elevated-solid); }
+  :root[data-skin="macos"] .vibrancy-sidebar::before,
+  :root[data-skin="macos"] .vibrancy-panel::before { display: none; }
+}
+
+/* ============================================================================
+ * Focus Ring：HIG 标准的 3px 蓝色光晕
+ * ----------------------------------------------------------------------------
+ * 仅在 macOS 皮肤下生效，不覆盖默认皮肤（默认皮肤继续用 Tailwind ring）。
+ * 使用 :focus-visible 而非 :focus，避免鼠标点击产生光晕。
+ * ========================================================================= */
+:root[data-skin="macos"] *:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 50%, transparent);
+  border-radius: var(--radius-input);
+  transition: box-shadow 0.12s ease-out;
+}
+
+/* 输入框自身原本就有 ring-*，我们避免双重光晕 */
+:root[data-skin="macos"] input:focus-visible,
+:root[data-skin="macos"] textarea:focus-visible,
+:root[data-skin="macos"] select:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 40%, transparent);
+  border-color: var(--color-accent-primary);
+}
+
+/* ============================================================================
+ * Reduce Motion：尊重系统"减少动效"偏好（HIG 无障碍要求）
+ * 注：仅限制 CSS transition 与 CSS 动画；framer-motion 的 JS 动画需要组件侧
+ *     配合 useReducedMotion()——本次方案 B 暂不全局铺设，可按需增补。
+ * ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================================
+ * Electron macOS：hiddenInset 窗口下的拖拽区与 Traffic Light 让位
+ * ----------------------------------------------------------------------------
+ * 主进程 createWindow() 里仅 macOS 开启 titleBarStyle:"hiddenInset"。
+ * 此时窗口没有独立标题栏，用户必须通过 -webkit-app-region: drag 的区域来拖动；
+ * 同时左上角三个 Traffic Light 按钮固定在 (x:12, y:14)，需要给 Sidebar 顶端
+ * 留出 ~72px 左 padding，避免被按钮压住。
+ *
+ * 选择器用 `html[data-electron="darwin"]`——main.tsx 在挂载前已写入；
+ * Web 端和 Windows/Linux Electron 下完全不生效，零影响。
+ * ========================================================================= */
+html[data-electron="darwin"] .vibrancy-sidebar,
+html[data-electron="darwin"] .vibrancy-sidebar > :first-child {
+  /* 整个侧栏顶部变成拖拽区，子元素里的按钮/链接单独声明 no-drag 放行交互 */
+  -webkit-app-region: drag;
+}
+
+html[data-electron="darwin"] .vibrancy-sidebar button,
+html[data-electron="darwin"] .vibrancy-sidebar a,
+html[data-electron="darwin"] .vibrancy-sidebar input,
+html[data-electron="darwin"] .vibrancy-sidebar [role="button"],
+html[data-electron="darwin"] .vibrancy-sidebar [contenteditable="true"] {
+  -webkit-app-region: no-drag;
+}
+
+/* Sidebar 顶部 header 给 Traffic Light 让位（72px 足够容纳红黄绿 + 12px 右侧间距） */
+html[data-electron="darwin"] .vibrancy-sidebar > :first-child {
+  padding-left: 72px;
+}
+

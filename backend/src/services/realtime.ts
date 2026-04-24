@@ -642,6 +642,18 @@ export function broadcastWorkspaceUpdated(
   });
 }
 
+/**
+ * 向指定用户的所有 WebSocket 连接广播消息。
+ * 用于不依赖房间订阅的场景（如导入笔记后通知前端刷新列表）。
+ */
+export function broadcastToUser(userId: string, msg: ServerMessage) {
+  for (const [, client] of clients.entries()) {
+    if (client.info.userId === userId) {
+      send(client.ws, msg);
+    }
+  }
+}
+
 /** 调试：返回当前 Hub 状态 */
 export function getRealtimeStats() {
   return {

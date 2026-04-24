@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
+import { broadcastToUser } from "../services/realtime";
 
 const app = new Hono();
 
@@ -9,8 +10,12 @@ app.get("/notes", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
 
+  // 注意：必须同时返回 notebookId。
+  //   前端 "按笔记本导出（含子孙）" 依赖 notebookId 过滤；如果只给 notebookName，
+  //   同名子笔记本在不同父目录下会混淆，且重命名/移动后无法准确识别归属。
   const notes = db.prepare(`
     SELECT n.id, n.title, n.content, n.contentText, n.createdAt, n.updatedAt,
+           n.notebookId as notebookId,
            nb.name as notebookName
     FROM notes n
     LEFT JOIN notebooks nb ON n.notebookId = nb.id
@@ -187,6 +192,13 @@ app.post("/import", async (c) => {
     }
   });
   tx();
+
+  // 通知当前用户的所有 WebSocket 连接：有新笔记被导入，前端应刷新列表
+  broadcastToUser(userId, {
+    type: "notes:imported" as any,
+    count: imported.length,
+    notebookIds: Array.from(usedNotebookIds),
+  });
 
   return c.json({
     success: true,

@@ -74,6 +74,7 @@
   "sidebar": {
     "newNote": "新建笔记",
     "newSubNotebook": "新建子笔记本",
+    "exportNotebookAsMarkdown": "导出为 Markdown",
     "deleteNotebook": "删除笔记本",
     "moveNotebook": "移动至...",
     "moveNotebookTitle": "移动笔记本",
@@ -130,6 +131,7 @@
     "favorite": "收藏",
     "lock": "锁定笔记",
     "unlock": "解锁笔记",
+    "exportAsMarkdown": "导出为 Markdown",
     "moveToTrash": "移入回收站",
     "allNotes": "所有笔记",
     "notebook": "笔记本",
@@ -212,6 +214,18 @@
       "successToMd": "已切换到 Markdown 编辑器",
       "successToTiptap": "已切换到富文本编辑器",
       "failRollback": "切换失败：保存规范化内容失败，已回滚"
+    },
+    "htmlPreview": {
+      "banner": "此笔记为剪藏 HTML 内容，以只读模式预览完整原始排版",
+      "fullPageBanner": "此笔记为完全克隆的网页，以 iframe 模式 1:1 还原原始页面",
+      "switchToEdit": "切换到编辑模式",
+      "switchToEditTooltip": "切换到富文本编辑（部分 HTML 标签可能丢失）",
+      "switchToPreview": "HTML 预览",
+      "switchToPreviewTooltip": "切换到 HTML 原始预览（保留完整排版）",
+      "editWarningTitle": "切换到编辑模式？",
+      "editWarningMessage": "富文本编辑器不支持所有 HTML 标签，切换后部分排版和样式可能丢失。确定要继续吗？",
+      "editWarningConfirm": "继续编辑",
+      "editWarningCancel": "留在预览"
     }
   },
   "tiptap": {
@@ -603,6 +617,14 @@
     "dark": "深色",
     "system": "跟随系统"
   },
+  "appearance": {
+    "skinTitle": "外观风格",
+    "skinDesc": "选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。",
+    "skinDefault": "默认",
+    "skinDefaultDesc": "现代简约风格，跨平台一致",
+    "skinMacos": "macOS",
+    "skinMacosDesc": "Apple 设计语言，毛玻璃与系统蓝"
+  },
   "export": {
     "fetchingData": "正在获取笔记数据...",
     "noNotesToExport": "没有可导出的笔记",
@@ -611,7 +633,10 @@
     "generatingZip": "正在生成压缩包...",
     "compressing": "压缩中 {{percent}}%...",
     "exportComplete": "导出成功！",
-    "exportFailed": "导出失败: {{error}}"
+    "exportFailed": "导出失败: {{error}}",
+    "exportingNotebook": "正在导出笔记本「{{name}}」...",
+    "exportingNote": "正在导出笔记「{{name}}」...",
+    "someImagesFailed": "有 {{count}} 张图片下载失败，已在 md 中保留原链接"
   },
   "fonts": {
     "interDefault": "Inter (默认)",

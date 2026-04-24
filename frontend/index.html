@@ -13,6 +13,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <!-- 使用系统字体栈，避免依赖 Google Fonts CDN（国内 Android 设备可能加载超时） -->
     <title>nowen-note</title>
+    <!--
+      FOUC 防护：在 React 挂载前同步读取皮肤偏好并写入 <html data-skin="...">。
+      next-themes 已处理明暗模式的首帧闪烁；此脚本只负责 skin 维度。
+      注意：必须是同步内联脚本，不能放到外部文件，否则会被 <link modulepreload> 抢占在前。
+    -->
+    <script>
+      (function () {
+        try {
+          var s = localStorage.getItem("nowen-note-skin");
+          if (s === "macos") {
+            document.documentElement.setAttribute("data-skin", "macos");
+          }
+        } catch (e) { /* 隐私模式 / localStorage 被禁：静默忽略，按默认皮肤渲染 */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root" style="height:100vh;width:100vw;overflow:hidden;"></div>

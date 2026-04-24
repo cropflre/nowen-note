@@ -1,0 +1,30 @@
+{
+  "name": "@nowen/clipper",
+  "version": "0.1.0",
+  "description": "Nowen Note Web Clipper — 浏览器扩展，一键把网页剪藏到 nowen-note",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen-icons": "node scripts/gen-icons.mjs",
+    "copy-public": "node scripts/copy-public.mjs",
+    "flatten-html": "node scripts/flatten-html.mjs",
+    "prebuild": "npm run gen-icons",
+    "dev": "vite build --watch --mode development",
+    "build": "vite build && npm run flatten-html && npm run copy-public",
+    "pack": "npm run build && node scripts/pack.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/turndown": "^5.0.5",
+    "jszip": "^3.10.1",
+    "sharp": "^0.33.5",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

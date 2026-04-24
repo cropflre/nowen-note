@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
+import { exportSingleNote } from "@/lib/exportService";
+import { realtime } from "@/lib/realtime";
 
 function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
   const d = new Date(dateStr + "Z");
@@ -812,6 +814,15 @@ export default function NoteList() {
     // 追加依赖：notesRefreshToken 递增时强制刷新当前视图
   }, [fetchNotes, state.notesRefreshToken]);
 
+  // 监听 WebSocket：外部导入笔记（如剪藏器）后自动刷新列表
+  useEffect(() => {
+    const off = realtime.on("notes:imported", () => {
+      actions.refreshNotes();
+      actions.refreshNotebooks();
+    });
+    return off;
+  }, [actions]);
+
   // viewMode 切换时自动收起日历并清除筛选
   useEffect(() => {
     setDateFilter(null);
@@ -996,6 +1007,14 @@ export default function NoteList() {
         icon: <FolderInput size={14} />,
         disabled: !bulkMode && !!targetNote.isLocked,
       },
+      // 单笔记导出为 Markdown（批量模式暂不提供，避免一次触发 N 个下载弹窗）
+      ...(bulkMode
+        ? []
+        : [{
+            id: "export_md",
+            label: t('noteList.exportAsMarkdown'),
+            icon: <Download size={14} />,
+          } as ContextMenuItem]),
       { id: "sep2", label: "", separator: true },
       {
         id: "trash",
@@ -1039,6 +1058,25 @@ export default function NoteList() {
         actions.updateNoteInList({ id: targetId, isLocked: newVal });
         if (state.activeNote?.id === targetId) {
           actions.setActiveNote({ ...state.activeNote, isLocked: newVal });
+        }
+        break;
+      }
+      case "export_md": {
+        // 单笔记导出：锁定态允许（只读操作，不涉及修改）。
+        // exportSingleNote 内部会按是否含图决定下 .md 还是 .zip。
+        haptic.light();
+        const toastId = toast.info(t('export.exportingNote', { name: targetNote.title }), 0);
+        try {
+          const ok = await exportSingleNote(targetId);
+          toast.dismiss(toastId);
+          if (ok) {
+            toast.success(t('export.exportComplete'));
+          } else {
+            toast.error(t('export.exportFailed', { error: '' }));
+          }
+        } catch (err: any) {
+          toast.dismiss(toastId);
+          toast.error(err?.message || t('export.exportFailed', { error: String(err) }));
         }
         break;
       }

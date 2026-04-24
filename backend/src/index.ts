@@ -31,7 +31,9 @@ import { sharesRouter, sharedRouter } from "./routes/shares";
 import workspacesRouter from "./routes/workspaces";
 import authRouter from "./routes/auth";
 import usersRouter from "./routes/users";
+import tokensRouter from "./routes/tokens";
 import { seedDatabase } from "./db/seed";
+import { initApiTokensTable, looksLikeApiToken, resolveApiToken } from "./lib/api-tokens";
 import { getDb } from "./db/schema";
 import { generateOpenAPISpec } from "./services/openapi";
 import { getBackupManager } from "./services/backup";
@@ -72,6 +74,7 @@ seedDatabase();
 // 在启动时强制建表即可消除这些噪音日志。CREATE TABLE IF NOT EXISTS 幂等，重复调用无害。
 try { initWebhookTables(); } catch (e) { console.warn("[init] initWebhookTables failed:", e); }
 try { initAuditTables(); } catch (e) { console.warn("[init] initAuditTables failed:", e); }
+try { initApiTokensTable(getDb()); } catch (e) { console.warn("[init] initApiTokensTable failed:", e); }
 
 // 认证路由（无需 JWT）
 app.route("/api/auth", authRouter);
@@ -255,6 +258,39 @@ app.use("/api/*", async (c, next) => {
   }
 
   const token = authHeader.slice(7);
+
+  // ===== 分支 1：Personal API Token（长期凭证，浏览器剪藏 / CLI / 自动化脚本用） =====
+  //
+  //   - 以 "nkn_" 前缀区分，避免与 JWT 混淆
+  //   - 走 DB 查询（hash 比对），命中即下发 X-User-Id
+  //   - 不走 user_sessions / tokenVersion 体系（token 有独立的 revokedAt / expiresAt）
+  //   - 仍然要校验用户未禁用、未删除
+  if (looksLikeApiToken(token)) {
+    const ipForAudit =
+      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+      c.req.header("x-real-ip") ||
+      "";
+    const resolved = resolveApiToken(getDb(), token, ipForAudit);
+    if (!resolved) {
+      return c.json({ error: "API Token 无效或已吊销", code: "API_TOKEN_INVALID" }, 401);
+    }
+    const user = lookupUserForAuth(resolved.userId);
+    if (!user) {
+      return c.json({ error: "账号不存在或已被删除", code: "USER_NOT_FOUND" }, 401);
+    }
+    if (user.isDisabled) {
+      return c.json({ error: "该账号已被禁用，请联系管理员", code: "ACCOUNT_DISABLED" }, 403);
+    }
+    c.req.raw.headers.set("X-User-Id", resolved.userId);
+    c.req.raw.headers.set("X-Auth-Mode", "api-token");
+    if (resolved.scopes.length > 0) {
+      c.req.raw.headers.set("X-Api-Scopes", resolved.scopes.join(","));
+    }
+    await next();
+    return;
+  }
+
+  // ===== 分支 2：登录 JWT（原逻辑，不动） =====
   const payload = verifyLoginToken(token);
   if (!payload || !payload.userId) {
     return c.json({ error: "Token 无效或已过期", code: "TOKEN_INVALID" }, 401);
@@ -322,6 +358,7 @@ app.route("/api/backups", backupsRouter);
 app.route("/api/shares", sharesRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/users", usersRouter);
+app.route("/api/tokens", tokensRouter);
 
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
