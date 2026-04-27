@@ -39,12 +39,18 @@ RUN npm ci
 # 原因：package-lock.json 可能来自 Windows/Mac，不包含 Linux 原生可选依赖；
 # 而 vite 4.x+ 用的 rollup 需要对应平台的 N-API 绑定才能启动。
 # 用 $TARGETARCH 而不是写死 x64，确保 arm64 构建也能拿到 @rollup/rollup-linux-arm64-gnu。
-RUN case "$TARGETARCH" in \
-      amd64) ROLLUP_PKG="@rollup/rollup-linux-x64-gnu" ;; \
-      arm64) ROLLUP_PKG="@rollup/rollup-linux-arm64-gnu" ;; \
+# 注意：必须锁定版本号与 package-lock.json 中的 rollup 版本一致（当前 4.59.0），
+# 否则 npm install 可能拉到含 "source phase imports" 等 breaking change 的新版绑定，
+# 导致 vite build 报 "Source phase import ... must be external" 错误。
+RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.packages||{})['node_modules/rollup']||(l.dependencies||{}).rollup||{};console.log(v.version||'')}catch(e){console.log('')}") && \
+    [ -z "$ROLLUP_VER" ] && ROLLUP_VER="4.59.0" ; \
+    case "$TARGETARCH" in \
+      amd64) ROLLUP_PKG="@rollup/rollup-linux-x64-gnu@${ROLLUP_VER}" ;; \
+      arm64) ROLLUP_PKG="@rollup/rollup-linux-arm64-gnu@${ROLLUP_VER}" ;; \
       *)     ROLLUP_PKG="" ;; \
     esac; \
     if [ -n "$ROLLUP_PKG" ]; then \
+      echo "Installing $ROLLUP_PKG ..." && \
       npm install "$ROLLUP_PKG" --save-optional 2>/dev/null || true; \
     fi
 

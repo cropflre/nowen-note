@@ -29,6 +29,11 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
+    // 禁用 modulePreload polyfill 注入，避免某些 rollup 版本将
+    // "vite/modulepreload-polyfill" 误识别为 source phase import 而报错。
+    // 现代浏览器（Chrome 64+、Firefox 115+、Safari 17.5+）已原生支持 modulepreload，
+    // Capacitor WebView 和 Electron 同样无需 polyfill。
+    modulePreload: { polyfill: false },
     // 降低 chunk 大小警告阈值
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
