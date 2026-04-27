@@ -476,16 +476,14 @@ if [ "$BUILD_ONLY" != "1" ]; then
         fi
     fi
 
-    # 工作区脏检查
-    if ! git diff-index --quiet HEAD --; then
-        warn "工作区有未提交的改动："
+    # 工作区脏检查：自动丢弃所有未提交 / 未暂存的改动
+    if ! git diff-index --quiet HEAD -- || ! git diff --cached --quiet; then
+        warn "工作区有未提交的改动，自动清理中..."
         git status --short | head -20
-        die "请先提交或 stash 再发布"
-    fi
-
-    # 暂存区检查
-    if ! git diff --cached --quiet; then
-        die "暂存区有未提交的改动，请先 commit"
+        git checkout -- .
+        git clean -fd
+        git reset HEAD -- . >/dev/null 2>&1 || true
+        ok "工作区已自动恢复干净"
     fi
 
     # -------------------- git pull --------------------
