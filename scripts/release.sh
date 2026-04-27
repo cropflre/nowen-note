@@ -974,11 +974,11 @@ if [ "$HAS_PC" = "1" ]; then
         if [ "$DRY_RUN" = "1" ]; then
             echo "  (dry-run) npx electron-builder --config electron/builder.config.js ${EB_PLATFORM_ARGS[*]}"
         else
-            # 临时关闭 publish（避免无意义尝试推 GitHub；我们自己用 gh release 上传）
-            # -c.publish=never 会覆盖 config.publish
+            # 临时关闭 publish（避免 electron-builder 自动推 GitHub；我们自己用 gh release 上传）
+            # --publish never 是 CLI 标准开关，-c.publish=never 在 25.x 会被当成非法 provider
             ( cd "$REPO_ROOT" && run_argv npx electron-builder \
                 --config electron/builder.config.js \
-                -c.publish=never \
+                --publish never \
                 "${EB_PLATFORM_ARGS[@]}" )
         fi
     else
