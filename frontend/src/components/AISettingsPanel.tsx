@@ -92,6 +92,8 @@ export default function AISettingsPanel() {
     ai_provider: "openai", ai_api_url: "", ai_api_key: "", ai_model: "", ai_api_key_set: false,
   });
   const [localKey, setLocalKey] = useState("");
+  // 缓存每个服务商的 API Key，切换时不丢失
+  const [keyMap, setKeyMap] = useState<Record<string, string>>({});
   const [showKey, setShowKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -106,7 +108,12 @@ export default function AISettingsPanel() {
     try {
       const data = await api.getAISettings();
       setSettings(data);
-      setLocalKey(data.ai_api_key_set ? data.ai_api_key : "");
+      const serverKey = data.ai_api_key_set ? data.ai_api_key : "";
+      setLocalKey(serverKey);
+      // 初始化时将服务端返回的 key 存入缓存
+      if (serverKey) {
+        setKeyMap(prev => ({ ...prev, [data.ai_provider]: serverKey }));
+      }
       setIsConfigured(!!data.ai_api_url && (data.ai_api_key_set || !getPreset(data.ai_provider)?.needsKey));
     } catch { /* ignore */ }
   }, []);
@@ -120,13 +127,20 @@ export default function AISettingsPanel() {
   const handleProviderChange = (provider: string) => {
     const preset = getPreset(provider);
     if (!preset) return;
+    // 先把当前服务商的 key 存入缓存
+    setKeyMap(prev => ({ ...prev, [settings.ai_provider]: localKey }));
     setSettings(prev => ({
       ...prev,
       ai_provider: provider,
       ai_api_url: preset.url,
       ai_model: preset.defaultModel,
     }));
-    if (!preset.needsKey) setLocalKey("");
+    // 恢复目标服务商之前缓存的 key
+    if (preset.needsKey) {
+      setLocalKey(keyMap[provider] || "");
+    } else {
+      setLocalKey("");
+    }
     setTestResult(null);
   };
 
