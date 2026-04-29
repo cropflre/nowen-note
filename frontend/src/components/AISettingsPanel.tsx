@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Bot, Loader2, Check, AlertCircle, RefreshCw, Eye, EyeOff, ChevronDown, Zap, CircleCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -102,6 +102,8 @@ export default function AISettingsPanel() {
   const [models, setModels] = useState<{ id: string; name: string }[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [dropdownDirection, setDropdownDirection] = useState<"down" | "up">("down");
+  const modelInputRef = useRef<HTMLInputElement>(null);
   const [isConfigured, setIsConfigured] = useState(false);
 
   const loadSettings = useCallback(async () => {
@@ -200,9 +202,27 @@ export default function AISettingsPanel() {
       await api.updateAISettings(payload);
       const data = await api.getAIModels();
       setModels(data.models || []);
-      if (data.models?.length) setModelDropdownOpen(true);
+      if (data.models?.length) {
+        computeDropdownDirection();
+        setModelDropdownOpen(true);
+      }
     } catch { /* ignore */ }
     setLoadingModels(false);
+  };
+
+  // 根据输入框位置判断下拉向上还是向下弹出
+  const computeDropdownDirection = () => {
+    const el = modelInputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    // 下拉最大高度预估 240px，如果下方不够且上方更宽敞，则向上弹
+    if (spaceBelow < 240 && spaceAbove > spaceBelow) {
+      setDropdownDirection("up");
+    } else {
+      setDropdownDirection("down");
+    }
   };
 
   const currentPreset = getPreset(settings.ai_provider);
@@ -327,16 +347,28 @@ export default function AISettingsPanel() {
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input
+                ref={modelInputRef}
                 type="text"
                 value={settings.ai_model}
                 onChange={(e) => setSettings(prev => ({ ...prev, ai_model: e.target.value }))}
+                onFocus={() => {
+                  if (models.length > 0) {
+                    computeDropdownDirection();
+                    setModelDropdownOpen(true);
+                  }
+                }}
                 placeholder={currentPreset?.defaultModel || "gpt-4o-mini"}
                 className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400"
               />
               {modelDropdownOpen && models.length > 0 && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
-                  <div className="absolute z-50 top-full left-0 mt-1 w-full max-h-48 overflow-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl">
+                  <div
+                    className={cn(
+                      "absolute z-50 left-0 w-full max-h-60 overflow-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl",
+                      dropdownDirection === "down" ? "top-full mt-1" : "bottom-full mb-1"
+                    )}
+                  >
                     {models.map(m => (
                       <button
                         key={m.id}

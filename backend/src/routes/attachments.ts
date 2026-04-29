@@ -60,6 +60,51 @@ export function getAttachmentsDir(): string {
   return ATTACHMENTS_DIR;
 }
 
+/**
+ * 按 noteId 批量删除磁盘物理附件文件（不动 DB）。
+ * ---------------------------------------------------------------------------
+ * 背景：
+ *   attachments 表虽然与 notes 外键 ON DELETE CASCADE，但 SQLite 只会删 **行**，
+ *   磁盘上的 `data/attachments/<id>.<ext>` 不会被清理，长期使用会积累大量孤儿文件，
+ *   导致清空回收站后"占用的存储不会变小"。
+ *
+ * 调用场景：
+ *   - 永久删除笔记（DELETE /api/notes/:id）
+ *   - 清空回收站（DELETE /api/notes/trash/empty）
+ *
+ * 时序：**必须在 DB 删除笔记之前调用**——删除后 attachments 行就 CASCADE 没了，
+ *   就再也查不到 path。
+ *
+ * 返回：真正 unlink 成功的文件数（日志 / 审计用）。
+ */
+export function deleteAttachmentFilesByNoteIds(noteIds: string[]): number {
+  if (!noteIds || noteIds.length === 0) return 0;
+  const db = getDb();
+  const placeholders = noteIds.map(() => "?").join(",");
+  let rows: { path: string }[] = [];
+  try {
+    rows = db
+      .prepare(`SELECT path FROM attachments WHERE noteId IN (${placeholders})`)
+      .all(...noteIds) as { path: string }[];
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const r of rows) {
+    if (!r?.path) continue;
+    const abs = path.join(ATTACHMENTS_DIR, r.path);
+    try {
+      if (fs.existsSync(abs)) {
+        fs.unlinkSync(abs);
+        removed++;
+      }
+    } catch {
+      /* 单个失败不阻塞批量 */
+    }
+  }
+  return removed;
+}
+
 // 允许的图片 MIME（与 Tiptap Image 默认支持对齐；svg 允许但要注意 XSS）
 const ALLOWED_IMAGE_MIMES = new Set([
   "image/png",

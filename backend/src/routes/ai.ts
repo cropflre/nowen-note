@@ -297,7 +297,8 @@ ai.post("/chat", async (c) => {
               const json = JSON.parse(data);
               const content = json.choices?.[0]?.delta?.content;
               if (content) {
-                await stream.writeSSE({ data: content, event: "message" });
+                // 同 /ask：用 JSON 包裹，避免换行被 SSE 行分隔符吞掉。
+                await stream.writeSSE({ data: JSON.stringify({ t: content }), event: "message" });
               }
             } catch {
               // skip malformed JSON
@@ -314,8 +315,7 @@ ai.post("/chat", async (c) => {
   }
 });
 
-// ===== 知识库问答 RAG =====
-
+// ===== ③ 文档智能解析 =====
 /**
  * 从用户问题中提取检索关键词。
  *
@@ -572,7 +572,11 @@ ai.post("/ask", async (c) => {
               const json = JSON.parse(data);
               const content = json.choices?.[0]?.delta?.content;
               if (content) {
-                await stream.writeSSE({ data: content, event: "message" });
+                // SSE 协议中 `\n` 会被解析为字段分隔符，直接把带换行的 Markdown
+                // 放进 data 字段会丢失换行（或被错误拆成多条消息）。
+                // 用 JSON 包一层，换行在 JSON.stringify 时被转义为 \n，前端
+                // JSON.parse 后再取 .t 字段即可完整还原。
+                await stream.writeSSE({ data: JSON.stringify({ t: content }), event: "message" });
               }
             } catch {
               // skip malformed JSON
@@ -1029,6 +1033,144 @@ ai.get("/knowledge-stats", (c) => {
     recentTopics: recentNotes.map(n => n.title).filter(Boolean),
     indexed: ftsCount > 0,
   });
+});
+
+// ==============================================================
+// AI 聊天记录持久化
+// ==============================================================
+//
+// 设计：按用户维度保存消息列表，单条一行（见 schema.ai_chat_messages）。
+// 不做会话（session）分组，面板就是"一条长滚动记录"，和当前前端行为一致。
+// 前端职责：
+//   - 打开面板时 GET /chat-history 恢复
+//   - 用户发送时先 POST 一条 user 消息
+//   - AI 流式结束后再 POST 一条 assistant 消息（附 references）
+//   - 点"清空"调用 DELETE /chat-history
+// 这样即便流式中途断线，assistant 那一条不会入库，下次刷新不会出现半截回复。
+
+// 最多保留的历史条数；超过时按时间最老的裁掉（每次 POST 后兜底修剪）
+const CHAT_HISTORY_KEEP = 200;
+
+// GET /api/ai/chat-history?limit=100
+// 返回当前用户的聊天记录，按 createdAt 升序（便于前端直接渲染）
+ai.get("/chat-history", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "demo";
+  const limitParam = Number(c.req.query("limit") || "100");
+  // 保护：限制 1~500
+  const limit = Math.min(500, Math.max(1, Number.isFinite(limitParam) ? limitParam : 100));
+
+  // 按时间倒序取最近 N 条，再在内存里反转成升序；SQL 里直接 ORDER BY ASC LIMIT 无法拿"最近 N 条"
+  const rows = db.prepare(`
+    SELECT id, role, content, referencesJson, createdAt
+    FROM ai_chat_messages
+    WHERE userId = ?
+    ORDER BY createdAt DESC, id DESC
+    LIMIT ?
+  `).all(userId, limit) as {
+    id: string;
+    role: string;
+    content: string;
+    referencesJson: string | null;
+    createdAt: string;
+  }[];
+
+  const messages = rows.reverse().map(r => ({
+    id: r.id,
+    role: r.role,
+    content: r.content,
+    references: r.referencesJson ? safeParseRefs(r.referencesJson) : undefined,
+    createdAt: r.createdAt,
+  }));
+
+  return c.json({ messages });
+});
+
+function safeParseRefs(s: string): { id: string; title: string }[] | undefined {
+  try {
+    const v = JSON.parse(s);
+    if (Array.isArray(v)) return v;
+  } catch { /* ignore */ }
+  return undefined;
+}
+
+// POST /api/ai/chat-history
+// body: { id?, role: 'user'|'assistant', content: string, references?: [{id,title}] }
+// 返回：入库的 { id, createdAt }
+ai.post("/chat-history", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "demo";
+
+  let body: {
+    id?: string;
+    role?: string;
+    content?: string;
+    references?: { id: string; title: string }[];
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const role = body.role;
+  if (role !== "user" && role !== "assistant") {
+    return c.json({ error: "role must be 'user' or 'assistant'" }, 400);
+  }
+  const content = typeof body.content === "string" ? body.content : "";
+  // assistant 流式可能结束时 content 为空字符串（比如用户中断），此时不入库以免脏数据
+  if (role === "assistant" && content.trim().length === 0) {
+    return c.json({ ok: true, skipped: true });
+  }
+
+  // id：优先用前端传入（前端在渲染时已生成；保持一致便于幂等），否则后端生成
+  const id = body.id && typeof body.id === "string"
+    ? body.id
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const referencesJson = Array.isArray(body.references) && body.references.length > 0
+    ? JSON.stringify(body.references.map(r => ({ id: String(r.id), title: String(r.title) })))
+    : null;
+
+  // INSERT OR REPLACE：若前端重试用相同 id 再发一次，覆盖而不是重复
+  db.prepare(`
+    INSERT OR REPLACE INTO ai_chat_messages (id, userId, role, content, referencesJson, createdAt)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+  `).run(id, userId, role, content, referencesJson);
+
+  // 超过上限时裁掉最老的（按 createdAt 升序删除多余部分）
+  const count = (db.prepare(
+    "SELECT COUNT(*) as c FROM ai_chat_messages WHERE userId = ?"
+  ).get(userId) as { c: number }).c;
+  if (count > CHAT_HISTORY_KEEP) {
+    const excess = count - CHAT_HISTORY_KEEP;
+    db.prepare(`
+      DELETE FROM ai_chat_messages
+      WHERE id IN (
+        SELECT id FROM ai_chat_messages
+        WHERE userId = ?
+        ORDER BY createdAt ASC, id ASC
+        LIMIT ?
+      )
+    `).run(userId, excess);
+  }
+
+  const row = db.prepare(
+    "SELECT createdAt FROM ai_chat_messages WHERE id = ?"
+  ).get(id) as { createdAt: string } | undefined;
+
+  return c.json({ ok: true, id, createdAt: row?.createdAt });
+});
+
+// DELETE /api/ai/chat-history
+// 清空当前用户的全部 AI 对话记录
+ai.delete("/chat-history", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "demo";
+  const info = db.prepare(
+    "DELETE FROM ai_chat_messages WHERE userId = ?"
+  ).run(userId);
+  return c.json({ ok: true, deleted: info.changes });
 });
 
 export default ai;

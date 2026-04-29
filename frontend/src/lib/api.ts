@@ -866,8 +866,16 @@ export const api = {
         if (!trimmed.startsWith("data:")) continue;
         const data = trimmed.slice(5).trim();
         if (data === "[DONE]") break;
-        result += data;
-        onChunk?.(data);
+        // 后端新格式用 JSON 包裹内容，避免 SSE 把 `\n` 当字段分隔符吃掉换行。
+        let chunk = data;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed && typeof parsed === "object" && typeof parsed.t === "string") {
+            chunk = parsed.t;
+          }
+        } catch { /* 非 JSON，按原样使用（兼容老格式） */ }
+        result += chunk;
+        onChunk?.(chunk);
       }
     }
     return result;
@@ -905,18 +913,26 @@ export const api = {
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed.startsWith("event:")) {
-          const event = trimmed.slice(6).trim();
-          // Read next data line
+          // event 行不携带数据，跳过即可（下一条 data: 行才是负载）
           continue;
         }
         if (!trimmed.startsWith("data:")) continue;
         const data = trimmed.slice(5).trim();
         if (data === "[DONE]") break;
-        // Check if this is a references event by trying to parse as JSON array
+        // 先尝试 JSON 解析：
+        //   - {t: "..."}  → 后端新格式的内容 chunk（包含转义后的 \n，
+        //                   要还原成真实换行再追加，否则 Markdown 不会分段）
+        //   - [{id,title}, ...] → 参考笔记数组
+        //   - 其它 JSON 或解析失败 → 视作纯文本 chunk（老格式兼容）
         try {
           const parsed = JSON.parse(data);
           if (Array.isArray(parsed) && parsed[0]?.id && parsed[0]?.title) {
             onReferences?.(parsed);
+            continue;
+          }
+          if (parsed && typeof parsed === "object" && typeof parsed.t === "string") {
+            result += parsed.t;
+            onChunk?.(parsed.t);
             continue;
           }
         } catch { /* not JSON, treat as content chunk */ }
@@ -942,6 +958,58 @@ export const api = {
       },
     });
     if (!res.ok) throw new Error("获取知识库统计失败");
+    return res.json();
+  },
+
+  // AI 聊天记录：跨会话持久化到后端
+  // 这些方法失败时抛错由调用方决定如何容错（通常面板加载失败就退回空列表即可）。
+  getAiChatHistory: async (limit = 100): Promise<{
+    messages: {
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      references?: { id: string; title: string }[];
+      createdAt: string;
+    }[];
+  }> => {
+    const token = getToken();
+    const res = await fetch(`${getBaseUrl()}/ai/chat-history?limit=${encodeURIComponent(limit)}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!res.ok) throw new Error("加载聊天记录失败");
+    return res.json();
+  },
+
+  appendAiChatHistory: async (msg: {
+    id?: string;
+    role: "user" | "assistant";
+    content: string;
+    references?: { id: string; title: string }[];
+  }): Promise<{ ok: boolean; id?: string; createdAt?: string; skipped?: boolean }> => {
+    const token = getToken();
+    const res = await fetch(`${getBaseUrl()}/ai/chat-history`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(msg),
+    });
+    if (!res.ok) throw new Error("保存聊天记录失败");
+    return res.json();
+  },
+
+  clearAiChatHistory: async (): Promise<{ ok: boolean; deleted: number }> => {
+    const token = getToken();
+    const res = await fetch(`${getBaseUrl()}/ai/chat-history`, {
+      method: "DELETE",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!res.ok) throw new Error("清空聊天记录失败");
     return res.json();
   },
 
@@ -1133,6 +1201,33 @@ export const api = {
       }
       return body as { success: true; requireRestart: boolean; message: string; size: number; preImportBackup: string };
     },
+
+    /**
+     * 清理孤儿附件：
+     *   - 普通用户：仅清自己的 DB 孤儿（noteId 不存在的 attachments 行）
+     *   - 管理员：额外扫描磁盘孤儿（文件系统有、DB 中无登记的文件）
+     */
+    cleanupOrphans: () =>
+      request<{
+        success: true;
+        dbOrphansRemoved: number;
+        dbOrphanFilesRemoved: number;
+        diskOrphansRemoved: number;
+        diskOrphanBytes: number;
+        diskScanSkipped: boolean;
+      }>("/data-file/cleanup-orphans", { method: "POST" }),
+
+    /**
+     * 压缩 SQLite 数据库（VACUUM）——真正把删除后的空闲 page 释放回磁盘。
+     * 仅管理员可执行。
+     */
+    vacuum: () =>
+      request<{
+        success: true;
+        before: { main: number; wal: number; shm: number; total: number };
+        after: { main: number; wal: number; shm: number; total: number };
+        freed: number;
+      }>("/data-file/vacuum", { method: "POST" }),
   },
 
 

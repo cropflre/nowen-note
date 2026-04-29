@@ -582,7 +582,17 @@
       "importTooLarge": "文件过大（>500MB）",
       "importConfirmTitle": "确认覆盖当前数据库？",
       "importConfirmDesc": "该操作将替换整个数据库，所有用户的数据都会被覆盖。为了安全，会先把当前库备份一份。",
-      "adminOnly": "仅管理员可执行"
+      "adminOnly": "仅管理员可执行",
+      "maintenanceSectionTitle": "数据维护",
+      "maintenanceDescription": "清理孤儿附件（物理文件）并压缩数据库，真正释放磁盘空间。建议在清空回收站后执行一次。",
+      "cleanupOrphansButton": "清理孤儿附件",
+      "cleaningOrphans": "清理中...",
+      "cleanupOrphansSuccess": "清理完成：DB 行 {{dbRows}} 条、关联文件 {{dbFiles}} 个；磁盘孤儿文件 {{diskFiles}} 个（{{diskSize}}）",
+      "cleanupOrphansFailed": "清理失败：{{error}}",
+      "vacuumButton": "压缩数据库",
+      "vacuuming": "压缩中...",
+      "vacuumSuccess": "压缩完成：{{before}} → {{after}}，释放 {{freed}}",
+      "vacuumFailed": "压缩失败：{{error}}"
     }
   },
   "tasks": {

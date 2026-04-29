@@ -12,6 +12,7 @@ import {
 } from "../middleware/acl";
 import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastYjsUpdate } from "../services/realtime";
 import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
+import { deleteAttachmentFilesByNoteIds } from "./attachments";
 
 const app = new Hono();
 
@@ -109,6 +110,17 @@ app.delete("/trash/empty", (c) => {
 
   const ids = targets.map((r) => r.id);
   const placeholders = ids.map(() => "?").join(",");
+
+  // ⚠ 必须在 DELETE FROM notes 之前清理磁盘附件文件：
+  // attachments 表的 ON DELETE CASCADE 只会删 DB 行，磁盘 data/attachments/*.png
+  // 不会被自动清理。删完 DB 就再也查不到 path 了。
+  let removedFiles = 0;
+  try {
+    removedFiles = deleteAttachmentFilesByNoteIds(ids);
+  } catch (e) {
+    console.warn("[notes.trash/empty] deleteAttachmentFilesByNoteIds failed:", e);
+  }
+
   const deleteMany = db.transaction((list: string[]) => {
     db.prepare(`DELETE FROM notes WHERE id IN (${placeholders})`).run(...list);
   });
@@ -119,10 +131,10 @@ app.delete("/trash/empty", (c) => {
     try { yDestroyDoc(id); } catch {}
   }
 
-  emitWebhook("note.trash_emptied", userId, { count: ids.length });
-  logAudit(userId, "note", "trash_empty", { count: ids.length, noteIds: ids });
+  emitWebhook("note.trash_emptied", userId, { count: ids.length, removedFiles });
+  logAudit(userId, "note", "trash_empty", { count: ids.length, noteIds: ids, removedFiles });
 
-  return c.json({ success: true, count: ids.length, skipped });
+  return c.json({ success: true, count: ids.length, skipped, removedFiles });
 });
 
 // 批量更新笔记排序（仅对有 write 权限的笔记生效）
@@ -502,13 +514,21 @@ app.delete("/:id", (c) => {
     return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
   }
 
+  // ⚠ 先清理磁盘附件物理文件（必须在 DELETE FROM notes 之前，否则 CASCADE 后查不到 path）
+  let removedFiles = 0;
+  try {
+    removedFiles = deleteAttachmentFilesByNoteIds([id]);
+  } catch (e) {
+    console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
+  }
+
   db.prepare("DELETE FROM notes WHERE id = ?").run(id);
 
   // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
   try { yDestroyDoc(id); } catch {}
 
-  emitWebhook("note.deleted", userId, { noteId: id });
-  logAudit(userId, "note", "delete", { noteId: id }, { targetType: "note", targetId: id });
+  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
+  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
 
   // Phase 2: 广播永久删除
   try {

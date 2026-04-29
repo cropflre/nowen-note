@@ -575,7 +575,17 @@
       "importTooLarge": "File too large (>500MB)",
       "importConfirmTitle": "Overwrite the current database?",
       "importConfirmDesc": "This replaces the entire database — every user's data will be overwritten. A safety backup of the current database will be created first.",
-      "adminOnly": "Admins only"
+      "adminOnly": "Admins only",
+      "maintenanceSectionTitle": "Data Maintenance",
+      "maintenanceDescription": "Clean up orphan attachments (physical files) and compact the database to reclaim disk space. Recommended after emptying the trash.",
+      "cleanupOrphansButton": "Clean orphan attachments",
+      "cleaningOrphans": "Cleaning...",
+      "cleanupOrphansSuccess": "Done: DB rows {{dbRows}}, linked files {{dbFiles}}; disk orphans {{diskFiles}} ({{diskSize}})",
+      "cleanupOrphansFailed": "Cleanup failed: {{error}}",
+      "vacuumButton": "Compact database",
+      "vacuuming": "Compacting...",
+      "vacuumSuccess": "Compacted: {{before}} → {{after}}, freed {{freed}}",
+      "vacuumFailed": "Compact failed: {{error}}"
     }
   },
   "tasks": {

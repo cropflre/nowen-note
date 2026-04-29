@@ -522,4 +522,30 @@ function initSchema(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(userId, revokedAt, lastSeenAt DESC);
   `);
+
+  // ==============================================================
+  // AI 知识问答聊天记录（跨会话持久化）
+  // ==============================================================
+  //
+  // 每条消息一行：user 的提问和 assistant 的回复各存一条，按 createdAt 升序即为对话时间线。
+  //   id              消息 ID（前端生成的也可以，只要全局唯一；本端路由直接用时间戳+随机串）
+  //   userId          所属用户；ON DELETE CASCADE 使账号删除时连带清理
+  //   role            'user' | 'assistant'
+  //   content         纯文本消息内容（Markdown 原文）
+  //   referencesJson  可选，仅 assistant 消息使用，存 [{id,title},...] 的 JSON 字符串；
+  //                   笔记后续可能被删，恢复时前端点击跳转自行容错即可
+  //   createdAt       创建时间，用于排序和按时间窗口裁剪
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_chat_messages (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      referencesJson TEXT,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_user_created ON ai_chat_messages(userId, createdAt);
+  `);
 }

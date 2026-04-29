@@ -28,6 +28,7 @@ import crypto from "crypto";
 import Database from "better-sqlite3";
 import { getDb, getDbPath, closeDb } from "../db/schema.js";
 import { verifySudoFromRequest } from "../lib/auth-security.js";
+import { getAttachmentsDir } from "./attachments.js";
 
 const app = new Hono();
 
@@ -302,6 +303,157 @@ app.post("/import", async (c) => {
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch { /* ignore */ }
     return c.json({ error: `导入失败: ${err.message}` }, 500);
   }
+});
+
+// ============================================================================
+// POST /api/data-file/cleanup-orphans — 清理孤儿附件
+// ----------------------------------------------------------------------------
+// 所有登录用户可用，但只清理"当前用户名下"的孤儿附件。
+//
+// 孤儿两类：
+//   1) DB 孤儿：attachments 行的 noteId 已经不存在（笔记早被永久删除，但历史
+//      版本遗留了行），CASCADE 场景下正常不会出现；为兼容老数据仍然扫一次。
+//   2) 磁盘孤儿：文件系统里存在、但 attachments 表里已经没有对应行的物理文件
+//      （来自之前"清空回收站"未清理物理文件的历史残留）。
+//
+// 为了安全，磁盘扫描只删除**存在于 attachments.path 命名约定**（uuid.扩展名）
+// 的文件，并用"不在 DB 已登记 path 集合内"作为判定标准，不会误删其它用户数据。
+// ============================================================================
+app.post("/cleanup-orphans", (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const db = getDb();
+  const me = db.prepare("SELECT id, role FROM users WHERE id = ?").get(userId) as { id: string; role: string } | undefined;
+  if (!me) return c.json({ error: "未授权" }, 401);
+  const isAdmin = me.role === "admin";
+
+  // 1) DB 孤儿：attachments 行 noteId 对应的 notes 已不存在
+  //    普通用户仅清自己；管理员清全表
+  const dbOrphanRows = (isAdmin
+    ? db.prepare(
+        `SELECT a.id, a.path FROM attachments a
+         LEFT JOIN notes n ON n.id = a.noteId
+         WHERE n.id IS NULL`,
+      ).all()
+    : db.prepare(
+        `SELECT a.id, a.path FROM attachments a
+         LEFT JOIN notes n ON n.id = a.noteId
+         WHERE n.id IS NULL AND a.userId = ?`,
+      ).all(userId)) as { id: string; path: string }[];
+
+  const attachmentsDir = getAttachmentsDir();
+  let dbOrphansRemoved = 0;
+  let dbOrphanFilesRemoved = 0;
+  if (dbOrphanRows.length > 0) {
+    const delStmt = db.prepare("DELETE FROM attachments WHERE id = ?");
+    const tx = db.transaction((list: { id: string; path: string }[]) => {
+      for (const r of list) {
+        // 删文件
+        try {
+          const abs = path.join(attachmentsDir, r.path);
+          if (fs.existsSync(abs)) {
+            fs.unlinkSync(abs);
+            dbOrphanFilesRemoved++;
+          }
+        } catch { /* ignore */ }
+        // 删 DB 行
+        try {
+          delStmt.run(r.id);
+          dbOrphansRemoved++;
+        } catch { /* ignore */ }
+      }
+    });
+    tx(dbOrphanRows);
+  }
+
+  // 2) 磁盘孤儿：仅管理员才能做全量扫描（普通用户拿不到其它人上传的文件列表）
+  let diskOrphansRemoved = 0;
+  let diskOrphanBytes = 0;
+  let diskScanSkipped = false;
+  if (isAdmin) {
+    try {
+      // 收集 DB 中已登记的全部 path
+      const rows = db.prepare("SELECT path FROM attachments").all() as { path: string }[];
+      const knownPaths = new Set<string>();
+      for (const r of rows) {
+        if (r?.path) knownPaths.add(r.path);
+      }
+      // 扫描目录
+      if (fs.existsSync(attachmentsDir)) {
+        const entries = fs.readdirSync(attachmentsDir, { withFileTypes: true });
+        for (const ent of entries) {
+          if (!ent.isFile()) continue;
+          // 仅清理符合 "uuid.ext" 命名约定的文件，避免误删用户自己放进来的东西
+          // uuid v4: 8-4-4-4-12 hex
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i.test(ent.name)) {
+            continue;
+          }
+          if (knownPaths.has(ent.name)) continue;
+          const abs = path.join(attachmentsDir, ent.name);
+          try {
+            const size = fs.statSync(abs).size;
+            fs.unlinkSync(abs);
+            diskOrphansRemoved++;
+            diskOrphanBytes += size;
+          } catch { /* ignore */ }
+        }
+      }
+    } catch {
+      diskScanSkipped = true;
+    }
+  } else {
+    diskScanSkipped = true;
+  }
+
+  return c.json({
+    success: true,
+    dbOrphansRemoved,        // 已清理的孤儿 attachments 行数
+    dbOrphanFilesRemoved,    // 与上面孤儿行关联的、成功 unlink 的磁盘文件数
+    diskOrphansRemoved,      // 磁盘上无 DB 对应的孤儿文件被清理数（管理员才执行）
+    diskOrphanBytes,         // 磁盘孤儿释放的字节数
+    diskScanSkipped,         // 非管理员时跳过磁盘全量扫描
+  });
+});
+
+// ============================================================================
+// POST /api/data-file/vacuum — 压缩 SQLite 数据库，真正回收磁盘空间
+// ----------------------------------------------------------------------------
+// 仅管理员。SQLite 的 VACUUM 会重写整个主文件，把 DELETE 留下的空闲 page
+// 真正释放；同时建议先 wal_checkpoint(TRUNCATE) 把 WAL 并回主文件并截断。
+//
+// 注意：
+//   - VACUUM 会获取 DB 排他锁，执行期间其它写操作会等待
+//   - 大库执行时间较长（几百 MB 可能数秒～数十秒）
+//   - VACUUM 需要临时"约等于原库大小"的磁盘空间
+// ============================================================================
+app.post("/vacuum", (c) => {
+  const denied = requireAdminOrDeny(c);
+  if (denied) return denied;
+
+  const dbPath = getDbPath();
+  const before = computeDbFileSize(dbPath);
+
+  const db = getDb();
+  try {
+    // 1) 将 WAL 并回主文件并截断（否则 VACUUM 后 WAL 仍可能很大）
+    try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
+
+    // 2) 真正执行 VACUUM
+    db.exec("VACUUM");
+
+    // 3) 再做一次 checkpoint，确保新产生的变更也落盘
+    try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
+  } catch (err: any) {
+    return c.json({ error: `VACUUM 失败: ${err.message}` }, 500);
+  }
+
+  const after = computeDbFileSize(dbPath);
+  return c.json({
+    success: true,
+    before: { main: before.main, wal: before.wal, shm: before.shm, total: before.total },
+    after: { main: after.main, wal: after.wal, shm: after.shm, total: after.total },
+    freed: Math.max(0, before.total - after.total),
+  });
 });
 
 export default app;

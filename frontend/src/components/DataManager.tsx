@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Upload, CheckCircle, Loader2, FileText,
   AlertCircle, Trash2, FileUp, FolderDown, AlertTriangle,
-  Database, HardDrive, RefreshCw
+  Database, HardDrive, RefreshCw, Eraser, Minimize2
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
@@ -688,6 +688,11 @@ function DataFileSection() {
   const [importError, setImportError] = useState("");
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
 
+  // 维护：清理孤儿附件 / 压缩数据库
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+  const [isVacuuming, setIsVacuuming] = useState(false);
+  const [maintenanceMsg, setMaintenanceMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   const reload = useCallback(async () => {
     setLoadingInfo(true);
     setInfoError("");
@@ -791,6 +796,57 @@ function DataFileSection() {
       );
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  /** 清理孤儿附件（所有登录用户均可；管理员会顺带做磁盘全量扫描） */
+  const handleCleanupOrphans = async () => {
+    setIsCleaningOrphans(true);
+    setMaintenanceMsg(null);
+    try {
+      const res = await api.dataFile.cleanupOrphans();
+      setMaintenanceMsg({
+        type: "ok",
+        text: t("dataManager.dataFile.cleanupOrphansSuccess", {
+          dbRows: res.dbOrphansRemoved,
+          dbFiles: res.dbOrphanFilesRemoved,
+          diskFiles: res.diskOrphansRemoved,
+          diskSize: fmtBytes(res.diskOrphanBytes),
+        }),
+      });
+      reload();
+    } catch (err: any) {
+      setMaintenanceMsg({
+        type: "err",
+        text: t("dataManager.dataFile.cleanupOrphansFailed", { error: err.message || "error" }),
+      });
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
+
+  /** 压缩数据库（管理员） */
+  const handleVacuum = async () => {
+    setIsVacuuming(true);
+    setMaintenanceMsg(null);
+    try {
+      const res = await api.dataFile.vacuum();
+      setMaintenanceMsg({
+        type: "ok",
+        text: t("dataManager.dataFile.vacuumSuccess", {
+          before: fmtBytes(res.before.total),
+          after: fmtBytes(res.after.total),
+          freed: fmtBytes(res.freed),
+        }),
+      });
+      reload();
+    } catch (err: any) {
+      setMaintenanceMsg({
+        type: "err",
+        text: t("dataManager.dataFile.vacuumFailed", { error: err.message || "error" }),
+      });
+    } finally {
+      setIsVacuuming(false);
     }
   };
 
@@ -1022,6 +1078,74 @@ function DataFileSection() {
             {t("dataManager.dataFile.adminOnly")}
           </div>
         )}
+
+        {/* ===== 维护：清理孤儿附件 / 压缩数据库 ===== */}
+        <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+          <div className="flex items-center gap-2 mb-2">
+            <Eraser size={14} className="text-rose-500" />
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              {t("dataManager.dataFile.maintenanceSectionTitle")}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
+            {t("dataManager.dataFile.maintenanceDescription")}
+          </p>
+
+          {maintenanceMsg && (
+            <div className={`text-xs mb-2 flex items-start gap-1 ${maintenanceMsg.type === "ok" ? "text-green-600" : "text-red-500"}`}>
+              {maintenanceMsg.type === "ok" ? <CheckCircle size={12} className="mt-0.5" /> : <AlertCircle size={12} className="mt-0.5" />}
+              <span>{maintenanceMsg.text}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              onClick={handleCleanupOrphans}
+              disabled={isCleaningOrphans || isVacuuming}
+              className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                isCleaningOrphans || isVacuuming
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                  : "bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+              }`}
+            >
+              {isCleaningOrphans ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {t("dataManager.dataFile.cleaningOrphans")}
+                </>
+              ) : (
+                <>
+                  <Eraser className="w-4 h-4 mr-2" />
+                  {t("dataManager.dataFile.cleanupOrphansButton")}
+                </>
+              )}
+            </button>
+
+            {isAdmin && (
+              <button
+                onClick={handleVacuum}
+                disabled={isVacuuming || isCleaningOrphans}
+                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                  isVacuuming || isCleaningOrphans
+                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                    : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                }`}
+              >
+                {isVacuuming ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {t("dataManager.dataFile.vacuuming")}
+                  </>
+                ) : (
+                  <>
+                    <Minimize2 className="w-4 h-4 mr-2" />
+                    {t("dataManager.dataFile.vacuumButton")}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 导入二次确认弹窗 */}

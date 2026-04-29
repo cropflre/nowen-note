@@ -28,6 +28,11 @@ interface KnowledgeStats {
   indexed: boolean;
 }
 
+// 对话记录持久化：改为后端持久化（见 /api/ai/chat-history），
+// 优势：多端同步、不受浏览器 storage 限制、账号隔离。
+// 本组件仅负责拉取、追加、清空三个动作。
+const HISTORY_LIMIT = 100;
+
 export default function AIChatPanel({ onClose, onNavigateToNote }: {
   onClose: () => void;
   onNavigateToNote?: (noteId: string) => void;
@@ -37,12 +42,37 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
+  // 历史加载中：避免首次渲染闪一下"空状态"然后再跳到历史
+  const [historyLoading, setHistoryLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 加载知识库统计
   useEffect(() => {
     api.getKnowledgeStats().then(setStats).catch(() => {});
+  }, []);
+
+  // 打开面板时从后端拉取上次的聊天记录。
+  // 失败时（未登录 / 网络问题）退回空列表，不影响正常聊天。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.getAiChatHistory(HISTORY_LIMIT);
+        if (cancelled) return;
+        setMessages(res.messages.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          references: m.references,
+        })));
+      } catch {
+        /* ignore: 首次使用或离线状态 */
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -74,16 +104,28 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     setInput("");
     setIsLoading(true);
 
+    // 立即把用户消息持久化到后端，避免流式中途断开时这条提问丢失
+    api.appendAiChatHistory({
+      id: userMsg.id,
+      role: "user",
+      content: userMsg.content,
+    }).catch(() => { /* 持久化失败不影响对话 */ });
+
     // Build history from previous messages
     const history = messages
       .filter(m => !m.isStreaming)
       .map(m => ({ role: m.role, content: m.content }));
+
+    // 收集流式期间累积的最终内容和 references，结束后一次性落库
+    let finalContent = "";
+    let finalRefs: { id: string; title: string }[] | undefined;
 
     try {
       await api.aiAsk(
         question,
         history,
         (chunk) => {
+          finalContent += chunk;
           setMessages(prev => prev.map(m =>
             m.id === assistantMsg.id
               ? { ...m, content: m.content + chunk }
@@ -91,6 +133,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
           ));
         },
         (refs) => {
+          finalRefs = refs;
           setMessages(prev => prev.map(m =>
             m.id === assistantMsg.id
               ? { ...m, references: refs }
@@ -99,9 +142,10 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
         }
       );
     } catch (err: any) {
+      finalContent = err.message || t("ai.requestFailed");
       setMessages(prev => prev.map(m =>
         m.id === assistantMsg.id
-          ? { ...m, content: err.message || t("ai.requestFailed") }
+          ? { ...m, content: finalContent }
           : m
       ));
     } finally {
@@ -111,6 +155,17 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
           : m
       ));
       setIsLoading(false);
+
+      // 流式结束后把完整的 assistant 消息落库（含 references）。
+      // 空内容时后端会跳过入库（见 /chat-history POST 对空内容的处理）。
+      if (finalContent.trim().length > 0) {
+        api.appendAiChatHistory({
+          id: assistantMsg.id,
+          role: "assistant",
+          content: finalContent,
+          references: finalRefs,
+        }).catch(() => { /* 持久化失败不影响对话 */ });
+      }
     }
   }, [input, isLoading, messages, t]);
 
@@ -123,6 +178,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
 
   const clearChat = () => {
     setMessages([]);
+    // 同步清空后端持久化记录，否则下次打开又会把历史恢复回来
+    api.clearAiChatHistory().catch(() => { /* ignore */ });
   };
 
   // ===== ③ 文档解析状态 =====
@@ -257,7 +314,12 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
       {/* Messages */}
       <ScrollArea className="flex-1">
         <div className="px-4 py-4 space-y-4">
-          {messages.length === 0 && (
+          {historyLoading && messages.length === 0 && (
+            <div className="flex items-center justify-center py-8 text-tx-tertiary">
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          )}
+          {!historyLoading && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/10 to-indigo-500/10 flex items-center justify-center mb-4">
                 <Sparkles size={28} className="text-violet-500/60" />
@@ -467,7 +529,18 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content}
                       </ReactMarkdown>
-                      {msg.isStreaming && (
+                      {msg.isStreaming && msg.content.length === 0 && (
+                        // 首个 chunk 到达前气泡是空的，显示"思考中"避免看起来卡死
+                        <div className="flex items-center gap-2 text-tx-tertiary text-xs py-0.5">
+                          <span className="flex gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce" />
+                          </span>
+                          <span>{t("aiChat.thinking")}</span>
+                        </div>
+                      )}
+                      {msg.isStreaming && msg.content.length > 0 && (
                         <span className="inline-block w-1.5 h-4 bg-accent-primary/60 animate-pulse ml-0.5 align-middle rounded-sm" />
                       )}
                     </div>
