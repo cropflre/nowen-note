@@ -28,6 +28,7 @@ A self-hosted private knowledge base, inspired by Synology Note Station.
 - [Docker Compose 架构](#docker-compose-架构)
 - [数据库设计](#数据库设计)
 - [API 路由一览](#api-路由一览)
+- [开源协议](#开源协议)
 
 ### 简介
 
@@ -993,6 +994,17 @@ node scripts/migrate-tiptap-to-md.mjs --apply
 | `/api/icloud` | ✓ | iCloud 备忘录导入 |
 | `/api/me` | ✓ | 当前用户信息 |
 
+### 开源协议
+
+本项目采用 [GNU General Public License v3.0](./LICENSE)（GPL-3.0）开源协议发布。
+
+- 你可以自由地运行、研究、修改和分发本软件。
+- 基于本项目的任何派生作品（源码修改或二次开发）在对外分发时，**必须同样以 GPL-3.0 协议开源**，并保留原作者版权声明与许可证全文。
+- 如果通过网络提供本软件的服务，建议一并公开修改后的源码，以尊重开源社区。
+- 本软件按“原样”提供，不附带任何明示或默示的担保，作者不对使用本软件导致的任何损失负责。
+
+许可证全文见仓库根目录下的 [`LICENSE`](./LICENSE) 文件。
+
 ---
 
 ## English Documentation
@@ -1009,6 +1021,7 @@ node scripts/migrate-tiptap-to-md.mjs --apply
 - [Docker Compose Architecture](#docker-compose-architecture)
 - [Database Design](#database-design)
 - [API Routes](#api-routes)
+- [License](#license)
 
 ### Introduction
 
@@ -1673,3 +1686,14 @@ The script only modifies the `notes.content` field; `contentText` is untouched s
 | `/api/oppocloud` | ✓ | OPPO Cloud notes import |
 | `/api/icloud` | ✓ | iCloud notes import |
 | `/api/me` | ✓ | Current user info |
+
+### License
+
+This project is released under the [GNU General Public License v3.0](./LICENSE) (GPL-3.0).
+
+- You are free to run, study, modify and redistribute this software.
+- Any derivative work (modified source or downstream fork) **must also be distributed under GPL-3.0** when released publicly, and must retain the original copyright notice and the full license text.
+- If you offer this software as a network service, you are encouraged to publish the modified source to respect the open-source community.
+- This software is provided "as is", without warranty of any kind; the authors are not liable for any damages arising from its use.
+
+The full license text is available in the [`LICENSE`](./LICENSE) file at the repository root.
