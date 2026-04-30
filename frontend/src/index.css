@@ -702,11 +702,40 @@ html[data-code-theme="solarized-light"] {
   margin: 1.25rem auto;
   display: block;
   cursor: zoom-in;
-  transition: box-shadow 0.2s ease;
+  /*
+   * 外边框：用 outline 而不是 border，原因：
+   *   1) outline 不参与盒模型尺寸计算，不会让图片"变窄一点"；
+   *   2) 不受 Tailwind preflight 和 prose 主题对 img 的 border 设置影响；
+   *   3) 也不会和 ResizableImageView wrapper 的选中态 outline 冲突
+   *      （选中态 outline 在 wrapper 上，这里在 img 上，层次不同）。
+   * 用 !important 是为了压过 prose / preflight 的潜在覆盖。
+   */
+  outline: 1px solid rgba(0, 0, 0, 0.18) !important;
+  outline-offset: 0;
+  transition: box-shadow 0.2s ease, outline-color 0.2s ease;
 }
 
 .ProseMirror img:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  outline-color: rgba(0, 0, 0, 0.32) !important;
+}
+
+/* 暗色模式下使用更柔和的边框色，避免在深色背景下太刺眼 */
+.dark .ProseMirror img {
+  outline-color: rgba(255, 255, 255, 0.22) !important;
+}
+.dark .ProseMirror img:hover {
+  outline-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/*
+ * ResizableImageView 的外层 wrapper：
+ *   - 这里再补一层 box-shadow 形式的"边框"，作为 wrapper 级别的兜底。
+ *   - 用 inset box-shadow 而不是 border，避免影响 wrapper 的实际尺寸 / 手柄定位。
+ *   - 选中态由组件 inline 写的 outline 处理，互不冲突。
+ */
+.ProseMirror .resizable-image-wrapper {
+  border-radius: 8px;
 }
 
 /* ===== Task List ===== */

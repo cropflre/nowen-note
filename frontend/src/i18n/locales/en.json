@@ -503,7 +503,7 @@
     "exportSuccess": "Export successful",
     "exportAsZip": "Export All as ZIP",
     "exportInlineImages": "Embed images as base64",
-    "exportInlineImagesHint": "Off by default: images are written to an assets/ folder so the .md files stay small and preview correctly in Typora/Obsidian. When on, images are inlined as base64 (self-contained .md, but much larger files).",
+    "exportInlineImagesHint": "Off by default: images are written to an assets/ folder so the .md files stay small and preview correctly in Typora/Obsidian. When on, images are inlined as base64 — the export is larger, but re-importing the archive back into this app is much more reliable. Recommended for backup / migration.",
     "importNotes": "Import Notes",
     "importDescription": "Import Markdown (.md), plain text (.txt), HTML (.html) files or ZIP archives. Compatible with Xiaomi Notes, OPPO/OnePlus Memo, vivo Notes export formats.",
     "dropFilesHere": "Drop files here, or click to select",

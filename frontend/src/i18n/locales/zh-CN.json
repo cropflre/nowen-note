@@ -510,7 +510,7 @@
     "exportSuccess": "导出成功",
     "exportAsZip": "全量导出为 ZIP",
     "exportInlineImages": "图片内嵌为 base64",
-    "exportInlineImagesHint": "默认关闭：图片会单独放到 assets/ 目录，导出文件更小、可被 Typora/Obsidian 等编辑器直接预览。开启后图片以 base64 内嵌在 md 中（单文件自包含，但文件体积更大）。",
+    "exportInlineImagesHint": "默认关闭：图片会单独放到 assets/ 目录，导出文件更小、可被 Typora/Obsidian 等编辑器直接预览。开启后图片以 base64 内嵌在 md 中：导出文件更大，但「导出后重新导入到本应用」时图片更不容易丢失，推荐用于备份/迁移场景。",
     "importNotes": "导入笔记",
     "importDescription": "支持导入 Markdown (.md)、纯文本 (.txt)、HTML (.html) 文件或 ZIP 压缩包。兼容小米笔记、OPPO/一加备忘录、vivo便签等手机导出格式。",
     "dropFilesHere": "拖拽文件到这里，或点击选择",

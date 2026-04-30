@@ -332,6 +332,13 @@ export function ResizableImageView(props: NodeViewProps) {
           width: displayWidth != null ? `${displayWidth}px` : undefined,
           height: "auto",
           maxWidth: "100%",
+          // 外边框：使用 outline 而不是 border，原因：
+          //   1) outline 不参与盒模型，不影响图片的实际宽高 / max-width 计算；
+          //   2) 不会被 Tailwind preflight / prose 的 img 样式覆盖；
+          //   3) 与编辑器内 .ProseMirror img 的 outline 规则保持一致。
+          // 这里的 inline 主要在分享页 / 只读预览等不挂 .ProseMirror 类的场景下兜底。
+          outline: "1px solid rgba(0, 0, 0, 0.18)",
+          outlineOffset: 0,
         }}
         draggable={false}
         onError={() => {

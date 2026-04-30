@@ -228,6 +228,17 @@ function isAttachmentUrl(src: string): boolean {
 }
 
 /**
+ * 把绝对/相对 URL 规范化为相对路径 `/api/attachments/<id>`。
+ * 用于 fetchRemoteImages 下载失败的兜底：剥掉随时会失效的 host:port，让
+ * 写到 zip 里的 src 至少在"相对路径"形态——即便后续这个 attachment id 在
+ * 新实例里查不到，也不会因为带了死 host 而连尝试都失败。
+ */
+function normalizeAttachmentSrc(src: string): string {
+  const m = /\/api\/attachments\/[^"'?#]+/i.exec(src);
+  return m ? m[0] : src;
+}
+
+/**
  * 下载 html 里所有本站附件图片，替换 src 为 zip 内相对路径。
  *
  * 为什么用 ArrayBuffer + FileReader 转 base64：
@@ -330,7 +341,16 @@ async function fetchRemoteImages(
           err
         );
         stats.failed++;
-        // results[myIdx] 保持 null —— 保留原 <img src>，不替换
+        // 下载失败时，至少把 src 规范化为相对路径 `/api/attachments/<id>`，
+        // 剥掉随启动而变的 host:port —— 不要把 `http://localhost:3173/...`
+        // 这种死链原样写进 zip，否则二次导入时前端会把它当成"外链"完全跳过，
+        // 导致新数据库里那张图永远 404。
+        const normalized = normalizeAttachmentSrc(task.originalSrc);
+        if (normalized !== task.originalSrc) {
+          const rebuilt = `<img${task.beforeSrc} src=${task.quote}${normalized}${task.quote}${task.afterSrc}>`;
+          results[myIdx] = { task, rebuilt };
+        }
+        // 否则保持原样（results[myIdx] 仍为 null，不替换）
       }
     }
   }
@@ -352,6 +372,128 @@ async function fetchRemoteImages(
 
 // ============================================================================
 
+// ============================================================================
+// 远程图片"内嵌为 data URI"：与 fetchRemoteImages 类似，但**不**写入 zip 的
+// assets/ 目录，而是把图片字节直接编码成 data:image/...;base64,... 替回 src。
+//
+// 用途：
+//   - 用户勾选 "导出时把图片内嵌为 base64" 时使用。
+//   - 这是"导出 → 重新导入"链路最稳的方案：
+//       * 导入端的 markdown→html 渲染器对 data: 开头的 src 直接放行（importService
+//         的 resolveImageSrc 也会跳过不动），所以 base64 能完整进入 Tiptap JSON；
+//       * 后端 /api/export/import 收到带 data:image 的 content 后，会调用
+//         extractInlineBase64Images 把它落盘并替换为 /api/attachments/<新id>。
+//     全程不依赖"旧 attachment id 在新数据库里依然存在"，从根上避免
+//     "图片加载失败 http://localhost:<旧端口>/api/attachments/<旧id>" 的 404。
+//   - 失败兜底：与 fetchRemoteImages 相同 —— 把死链规范化为相对路径，避免污染。
+// ============================================================================
+async function inlineRemoteImages(
+  html: string,
+  stats: { ok: number; failed: number }
+): Promise<string> {
+  if (!html || !/<img\b[^>]*\bsrc=/i.test(html)) return html;
+
+  const imgRe = /<img\b([^>]*?)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>/gi;
+  type Task = {
+    fullMatch: string;
+    beforeSrc: string;
+    quote: string;
+    originalSrc: string;
+    afterSrc: string;
+  };
+  const tasks: Task[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = imgRe.exec(html)) !== null) {
+    const originalSrc = m[3];
+    // 已是 data:/blob: 或 zip 内 assets 路径不再处理
+    if (/^(data:|blob:)/i.test(originalSrc)) continue;
+    if (/^\.\/?assets\//i.test(originalSrc)) continue;
+    if (!isAttachmentUrl(originalSrc)) continue;
+    tasks.push({
+      fullMatch: m[0],
+      beforeSrc: m[1] || "",
+      quote: m[2],
+      originalSrc,
+      afterSrc: m[4] || "",
+    });
+  }
+  if (tasks.length === 0) return html;
+
+  // 同 attachment id 在多处复用同一个 base64 串，避免重复下载和重复编码
+  const cache = new Map<string, string>();
+  const results: Array<{ task: Task; rebuilt: string } | null> = new Array(tasks.length).fill(null);
+  const concurrency = 6;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < tasks.length) {
+      const myIdx = cursor++;
+      const task = tasks[myIdx];
+      const idMatch = /\/api\/attachments\/([^/?#]+)/i.exec(task.originalSrc);
+      const cacheKey = idMatch ? `att-${idMatch[1]}` : task.originalSrc;
+      try {
+        let dataUri = cache.get(cacheKey);
+        if (!dataUri) {
+          const absUrl = resolveAttachmentUrl(task.originalSrc);
+          const res = await fetch(absUrl, { credentials: "include" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const mime = (res.headers.get("content-type") || "application/octet-stream")
+            .split(";")[0]
+            .trim();
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength === 0) throw new Error("empty body");
+          // ArrayBuffer -> base64（分块避免栈溢出）
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(
+              null,
+              bytes.subarray(i, i + chunk) as unknown as number[]
+            );
+          }
+          const base64 = btoa(binary);
+          // 后端 ALLOWED_IMAGE_MIMES 不接受未知 mime；统一兜底为 image/png 风险更低，
+          // 但这里既然刚刚下载成功就大概率是图片，相信 Content-Type
+          const safeMime = /^image\//i.test(mime) ? mime : "image/png";
+          dataUri = `data:${safeMime};base64,${base64}`;
+          cache.set(cacheKey, dataUri);
+        }
+        const rebuilt = `<img${task.beforeSrc} src=${task.quote}${dataUri}${task.quote}${task.afterSrc}>`;
+        results[myIdx] = { task, rebuilt };
+        stats.ok++;
+      } catch (err) {
+        console.warn(
+          `[exportService] failed to inline image: ${task.originalSrc}`,
+          err
+        );
+        stats.failed++;
+        // 兜底：规范化为相对路径，避免死 host:port 写进导出物
+        const normalized = normalizeAttachmentSrc(task.originalSrc);
+        if (normalized !== task.originalSrc) {
+          const rebuilt = `<img${task.beforeSrc} src=${task.quote}${normalized}${task.quote}${task.afterSrc}>`;
+          results[myIdx] = { task, rebuilt };
+        }
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker())
+  );
+
+  let out = html;
+  for (const r of results) {
+    if (!r) continue;
+    const idx = out.indexOf(r.task.fullMatch);
+    if (idx >= 0) {
+      out = out.slice(0, idx) + r.rebuilt + out.slice(idx + r.task.fullMatch.length);
+    }
+  }
+  return out;
+}
+
+// ============================================================================
+
 // 初始化 Turndown (HTML → Markdown)
 function createTurndown(): TurndownService {
   const td = new TurndownService({
@@ -359,6 +501,38 @@ function createTurndown(): TurndownService {
     codeBlockStyle: "fenced",
     bulletListMarker: "-",
   });
+
+  // ---- 自定义转义：只保留"会真正改变结构"的转义，避免 `JWT_SECRET` 变成
+  // `JWT\_SECRET`、`a*b` 变成 `a\*b` 这种丑陋且对用户有迷惑性的反斜杠。
+  //
+  // Turndown 默认 escape 会无差别给 `_*[]()<>` 等字符前面加 `\`，目的是防止
+  // 行内文本被再次解析为 markdown 语法。但代价是：变量名、路径、shell 命令
+  // 全部被加了一堆反斜杠 —— 对本编辑器场景（往返到 Tiptap）非常碍眼，且
+  // 在第三方 markdown 编辑器里看到也会产生"为什么有 \"的疑惑。
+  //
+  // 这里采用更窄的策略：只转义"出现在行首会被识别为块级语法"的字符
+  //   - 行首数字+`.`/`)`：会被当成有序列表
+  //   - 行首 `-` / `+` / `*`：会被当成无序列表
+  //   - 行首 `#`：会被当成标题
+  //   - 行首 `>`：会被当成引用
+  // 行内的 `_` / `*` / `~` 等一律保留原字符。这对 round-trip 安全性的让步
+  // 是可接受的：Tiptap 用户内容里 99% 的下划线和星号都是字面字符。
+  // 反引号 ` 仍需在行内转义，因为它会立即开启 inline code。
+  (td as unknown as { escape: (str: string) => string }).escape = (str: string) => {
+    if (!str) return str;
+    return str
+      // 反引号：行内 code 起止符，必须转义
+      .replace(/`/g, "\\`")
+      // 行首的有序列表标记：1. / 1)
+      .replace(/^(\s{0,3})(\d+)([.)])(\s)/gm, "$1$2\\$3$4")
+      // 行首的无序列表标记：- + *（注意星号即便行首也常常是字面意义，
+      // 但若不转义会被解析为列表，这里仍转义；用空格区分以保证只匹配真正的行首项）
+      .replace(/^(\s{0,3})([-+*])(\s)/gm, "$1\\$2$3")
+      // 行首 #：标题
+      .replace(/^(\s{0,3})(#{1,6})(\s)/gm, "$1\\$2$3")
+      // 行首 >：引用
+      .replace(/^(\s{0,3})>/gm, "$1\\>");
+  };
 
   // 自定义 task list 转换
   td.addRule("taskListItem", {
@@ -382,6 +556,32 @@ function createTurndown(): TurndownService {
   });
 
   return td;
+}
+
+/**
+ * Markdown 输出后处理：把多余的连续空行折叠为"至多 1 个空行"。
+ *
+ * 背景：Tiptap 用 `<p></p>` 表示用户在两段之间多按的回车，Turndown 会把每个
+ * 块元素之间塞进 `\n\n`，于是 `<p>a</p><p></p><p>b</p>` 会输出 `a\n\n\n\nb`
+ * —— 在 markdown 渲染里就是 2 个空行；导入回 Tiptap 后再次产生 `<p></p>`
+ * 空段，往返几次空行越来越多。
+ *
+ * 本函数把 3 个及以上连续 `\n` 折叠成 2 个 `\n`（=1 个空行），保证段落间
+ * 始终是稳定的"恰好 1 个空行"，让"导出 → 导入"格式幂等。
+ *
+ * 注意：fenced code block (```...```) 内部不应折叠，否则会破坏代码空行；
+ * 这里用 split-by-fence 的方式只对围栏外的部分做替换。
+ */
+function postProcessMarkdown(md: string): string {
+  if (!md) return md;
+  // 用 ``` 行作为分隔，奇数下标段（在围栏内部）原样保留
+  const parts = md.split(/(^```[^\n]*\n[\s\S]*?^```[ \t]*$)/gm);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) continue; // 围栏代码块原样保留
+    // 折叠 3+ 个换行为 2 个；同时去掉行尾多余空格
+    parts[i] = parts[i].replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  }
+  return parts.join("");
 }
 
 export type ExportProgress = {
@@ -454,10 +654,15 @@ export async function exportAllNotes(
         const r2 = await fetchRemoteImages(html, registry, imgStats);
         html = r2.html;
         extractedImages = extractedImages.concat(r2.images);
+      } else if (inlineImages && html) {
+        // inline 模式：把 /api/attachments/<id> 全部抓回来内嵌成 data URI，
+        // 让重新导入时后端 extractInlineBase64Images 自动重建附件，避免
+        // 旧 attachment id 在新数据库找不到导致的 404。
+        html = await inlineRemoteImages(html, imgStats);
       }
 
       // 转换为 Markdown
-      const markdown = html ? td.turndown(html) : "";
+      const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
 
       // 添加 YAML frontmatter
       const frontmatter = [
@@ -637,9 +842,13 @@ export async function exportNotebook(
         const r2 = await fetchRemoteImages(html, registry, imgStats);
         html = r2.html;
         extractedImages = extractedImages.concat(r2.images);
+      } else if (inlineImages && html) {
+        // inline 模式：把 /api/attachments/<id> 全部抓回来内嵌成 data URI，
+        // 见 inlineRemoteImages 注释。
+        html = await inlineRemoteImages(html, imgStats);
       }
 
-      const markdown = html ? td.turndown(html) : "";
+      const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       const frontmatter = [
         "---",
         `title: "${note.title.replace(/"/g, '\\"')}"`,
@@ -747,9 +956,16 @@ export async function exportSingleNote(
       if (stats.failed > 0) {
         console.warn(`[exportSingleNote] ${stats.failed} image(s) failed to download; keeping original <img src>.`);
       }
+    } else if (inlineImages && html) {
+      // inline 模式：把附件内嵌成 data URI，让二次导入时后端自动重建附件
+      const stats = { ok: 0, failed: 0 };
+      html = await inlineRemoteImages(html, stats);
+      if (stats.failed > 0) {
+        console.warn(`[exportSingleNote] ${stats.failed} image(s) failed to inline; src normalized to relative path.`);
+      }
     }
 
-    const markdown = html ? td.turndown(html) : "";
+    const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
 
     const frontmatter = [
       "---",
