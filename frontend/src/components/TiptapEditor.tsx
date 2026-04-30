@@ -1137,22 +1137,57 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   }, []);
 
   // 图片点击预览事件监听
+  //
+  // 行为分流（解决"点图片立即放大、调不出 ResizableImageView 的尺寸手柄"问题）：
+  //   - 只读态（!editable）：保持原行为，单击图片即弹 Lightbox 预览，符合阅读期望。
+  //   - 编辑态：
+  //       * 单击  → 让 ProseMirror 选中图片节点，ResizableImageView 显示四角手柄。
+  //                 这里只需"不打开预览"即可（选中由 ProseMirror 默认行为完成）。
+  //       * 双击  → 打开 Lightbox 预览原图，相当于显式"我要看大图"的意图，
+  //                 不会和拖动手柄改尺寸的操作互相干扰。
+  //
+  // 注意：handle 元素位于图片右下角等四角处，使用 pointer-events:auto 但
+  //   onMouseDown 会 stopPropagation，所以拖手柄时不会冒泡到这里触发预览。
   useEffect(() => {
     if (!editor) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "IMG" && target.closest(".ProseMirror")) {
-        const src = (target as HTMLImageElement).src;
-        if (src) {
-          setPreviewImage(src);
-          setImageZoom(1);
-          setImageDrag({ x: 0, y: 0 });
-        }
-      }
+
+    const isEditorImage = (el: EventTarget | null): el is HTMLImageElement => {
+      const node = el as HTMLElement | null;
+      return !!node && node.tagName === "IMG" && !!node.closest(".ProseMirror");
     };
+
+    const openPreview = (img: HTMLImageElement) => {
+      const src = img.src;
+      if (!src) return;
+      setPreviewImage(src);
+      setImageZoom(1);
+      setImageDrag({ x: 0, y: 0 });
+    };
+
+    // 单击：仅在只读态下打开预览；编辑态保留给 ProseMirror 做节点选择。
+    const handleClick = (e: MouseEvent) => {
+      if (!isEditorImage(e.target)) return;
+      if (editor.isEditable) return; // 编辑态：让出单击给"选中→出手柄"
+      openPreview(e.target as HTMLImageElement);
+    };
+
+    // 双击：编辑态下显式"打开大图预览"。只读态此时已经走 click 了，
+    // 不必重复处理（双击在只读态会被 click 先消费一次但行为一致）。
+    const handleDblClick = (e: MouseEvent) => {
+      if (!isEditorImage(e.target)) return;
+      if (!editor.isEditable) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(e.target as HTMLImageElement);
+    };
+
     const editorDom = editor.view.dom;
     editorDom.addEventListener("click", handleClick);
-    return () => editorDom.removeEventListener("click", handleClick);
+    editorDom.addEventListener("dblclick", handleDblClick);
+    return () => {
+      editorDom.removeEventListener("click", handleClick);
+      editorDom.removeEventListener("dblclick", handleDblClick);
+    };
   }, [editor]);
 
   // 图片预览滚轮缩放

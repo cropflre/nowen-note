@@ -445,6 +445,57 @@ export function ResizableImageView(props: NodeViewProps) {
               {dragStateRef.current?.symmetric ? " · ⌥" : ""}
             </div>
           )}
+
+          {/* 选中态右上角浮一个"查看大图"按钮。
+              说明：
+                - 尺寸调节由 TiptapEditor 顶层的 imageBubble 气泡菜单（25/50/75/100 + 原图）
+                  统一负责，避免和这里重复；
+                - 这里只补"打开 Lightbox"入口，因为：
+                    a) 编辑态默认行为是 dblclick 才打开预览，触屏无双击；
+                    b) 顶层气泡菜单只有尺寸预设，没有"看大图"按钮。
+                - 实现上 dispatch 一个原生 dblclick 到 img 上，复用 TiptapEditor 的
+                  顶层 dblclick 监听器，不需要把 setPreviewImage 透传到子组件。 */}
+          {draftWidth == null && (
+            <button
+              type="button"
+              contentEditable={false}
+              onMouseDown={(e) => {
+                // 阻止冒泡到 ProseMirror，避免点按钮失去图片选中态
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                imgRef.current?.dispatchEvent(
+                  new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+                );
+              }}
+              title="查看大图"
+              style={{
+                position: "absolute",
+                top: 6,
+                right: 6,
+                width: 26,
+                height: 26,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+                borderRadius: 6,
+                background: "rgba(24,24,27,0.78)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 14,
+                lineHeight: 1,
+                pointerEvents: "auto",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+              }}
+            >
+              ⛶
+            </button>
+          )}
         </div>
       )}
     </NodeViewWrapper>
