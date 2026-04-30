@@ -289,6 +289,13 @@ function getFreeSpace(dir: string): number | null {
 
 // ===== 备份管理器 =====
 
+type BackupHealth = {
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureReason: string | null;
+  consecutiveFailures: number;
+};
+
 export class BackupManager {
   private backupDir: string;
   private dataDir: string;
@@ -299,12 +306,7 @@ export class BackupManager {
    * 真实 source-of-truth 是 system_settings 表里的 HEALTH_KV_KEY，
    * 在 createBackup 成功 / 失败时同步更新两边。
    */
-  private health: {
-    lastSuccessAt: string | null;
-    lastFailureAt: string | null;
-    lastFailureReason: string | null;
-    consecutiveFailures: number;
-  } = { lastSuccessAt: null, lastFailureAt: null, lastFailureReason: null, consecutiveFailures: 0 };
+  private health: BackupHealth = { lastSuccessAt: null, lastFailureAt: null, lastFailureReason: null, consecutiveFailures: 0 };
 
   constructor() {
     this.dataDir = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
@@ -549,7 +551,7 @@ export class BackupManager {
         .prepare("SELECT value FROM system_settings WHERE key = ?")
         .get(HEALTH_KV_KEY) as { value: string } | undefined;
       if (row?.value) {
-        const parsed = JSON.parse(row.value) as Partial<typeof this.health>;
+        const parsed = JSON.parse(row.value) as Partial<BackupHealth>;
         this.health = {
           lastSuccessAt: parsed.lastSuccessAt ?? null,
           lastFailureAt: parsed.lastFailureAt ?? null,
