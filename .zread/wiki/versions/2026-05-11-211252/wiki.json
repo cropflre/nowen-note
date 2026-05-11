@@ -1,0 +1,149 @@
+{
+  "id": "2026-05-11-211252",
+  "generated_at": "2026-05-11T13:12:52.091472Z",
+  "language": "zh",
+  "pages": [
+    {
+      "slug": "1-gai-lan-now-noting-kuan-kai-yuan-kua-ping-tai-de-bi-ji-ying-yong",
+      "title": "概览：Now-Noting 一款开源、跨平台的笔记应用",
+      "file": "1-gai-lan-now-noting-kuan-kai-yuan-kua-ping-tai-de-bi-ji-ying-yong.md",
+      "section": "快速上手",
+      "level": "Beginner"
+    },
+    {
+      "slug": "2-kuai-su-kai-shi-ben-di-bu-shu-yu-yun-xing",
+      "title": "快速开始：本地部署与运行",
+      "file": "2-kuai-su-kai-shi-ben-di-bu-shu-yu-yun-xing.md",
+      "section": "快速上手",
+      "level": "Beginner"
+    },
+    {
+      "slug": "3-shi-yong-docker-he-docker-compose-bu-shu",
+      "title": "使用 Docker 和 Docker Compose 部署",
+      "file": "3-shi-yong-docker-he-docker-compose-bu-shu.md",
+      "section": "快速上手",
+      "group": "部署指南",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "4-arm64-jia-gou-xia-de-bu-shu-fang-fa",
+      "title": "ARM64 架构下的部署方法",
+      "file": "4-arm64-jia-gou-xia-de-bu-shu-fang-fa.md",
+      "section": "快速上手",
+      "group": "部署指南",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "5-zhuo-mian-duan-ying-yong-da-bao-yu-gou-jian",
+      "title": "桌面端应用打包与构建",
+      "file": "5-zhuo-mian-duan-ying-yong-da-bao-yu-gou-jian.md",
+      "section": "快速上手",
+      "group": "部署指南",
+      "level": "Advanced"
+    },
+    {
+      "slug": "6-zheng-ti-jia-gou-monorepo-duo-duan-ying-yong-shi-jian",
+      "title": "整体架构：Monorepo 多端应用实践",
+      "file": "6-zheng-ti-jia-gou-monorepo-duo-duan-ying-yong-shi-jian.md",
+      "section": "深度解析",
+      "group": "架构设计",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "7-hou-duan-jia-gou-ji-yu-fastify-de-cha-jian-hua-she-ji",
+      "title": "后端架构：基于 Fastify 的插件化设计",
+      "file": "7-hou-duan-jia-gou-ji-yu-fastify-de-cha-jian-hua-she-ji.md",
+      "section": "深度解析",
+      "group": "架构设计",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "8-qian-duan-jia-gou-ji-yu-react-he-capacitor-de-kua-ping-tai-ui",
+      "title": "前端架构：基于 React 和 Capacitor 的跨平台 UI",
+      "file": "8-qian-duan-jia-gou-ji-yu-react-he-capacitor-de-kua-ping-tai-ui.md",
+      "section": "深度解析",
+      "group": "架构设计",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "9-zhuo-mian-duan-jia-gou-electron-zhu-jin-cheng-yu-xuan-ran-jin-cheng-tong-xin",
+      "title": "桌面端架构：Electron 主进程与渲染进程通信",
+      "file": "9-zhuo-mian-duan-jia-gou-electron-zhu-jin-cheng-yu-xuan-ran-jin-cheng-tong-xin.md",
+      "section": "深度解析",
+      "group": "架构设计",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "10-bian-ji-qi-he-xin-tiptap-kuo-zhan-yu-markdown-zhuan-huan",
+      "title": "编辑器核心：Tiptap 扩展与 Markdown 转换",
+      "file": "10-bian-ji-qi-he-xin-tiptap-kuo-zhan-yu-markdown-zhuan-huan.md",
+      "section": "深度解析",
+      "group": "核心模块",
+      "level": "Advanced"
+    },
+    {
+      "slug": "11-shu-ju-tong-bu-yu-chi-jiu-hua-shu-ju-ku-yu-fu-jian-guan-li",
+      "title": "数据同步与持久化：数据库与附件管理",
+      "file": "11-shu-ju-tong-bu-yu-chi-jiu-hua-shu-ju-ku-yu-fu-jian-guan-li.md",
+      "section": "深度解析",
+      "group": "核心模块",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "12-yong-hu-ren-zheng-jwt-yu-zhong-jian-jian-shi-xian",
+      "title": "用户认证：JWT 与中间件实现",
+      "file": "12-yong-hu-ren-zheng-jwt-yu-zhong-jian-jian-shi-xian.md",
+      "section": "深度解析",
+      "group": "核心模块",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "13-ai-gong-neng-ji-cheng-yu-da-yu-yan-mo-xing-de-jiao-hu",
+      "title": "AI 功能集成：与大语言模型的交互",
+      "file": "13-ai-gong-neng-ji-cheng-yu-da-yu-yan-mo-xing-de-jiao-hu.md",
+      "section": "深度解析",
+      "group": "核心模块",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "14-cha-jian-xi-tong-kuo-zhan-ying-yong-gong-neng",
+      "title": "插件系统：扩展应用功能",
+      "file": "14-cha-jian-xi-tong-kuo-zhan-ying-yong-gong-neng.md",
+      "section": "深度解析",
+      "group": "核心模块",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "15-wang-ye-jian-cang-qi-clipper-kai-fa",
+      "title": "网页剪藏器 (Clipper) 开发",
+      "file": "15-wang-ye-jian-cang-qi-clipper-kai-fa.md",
+      "section": "深度解析",
+      "group": "扩展工具",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "16-ming-ling-xing-gong-ju-cli-she-ji-yu-shi-xian",
+      "title": "命令行工具 (CLI) 设计与实现",
+      "file": "16-ming-ling-xing-gong-ju-cli-she-ji-yu-shi-xian.md",
+      "section": "深度解析",
+      "group": "扩展工具",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "17-pei-zhi-smtp-yong-yu-you-jian-bei-fen",
+      "title": "配置 SMTP 用于邮件备份",
+      "file": "17-pei-zhi-smtp-yong-yu-you-jian-bei-fen.md",
+      "section": "深度解析",
+      "group": "其他",
+      "level": "Beginner"
+    },
+    {
+      "slug": "18-gou-jian-yu-fa-bu-liu-cheng-github-actions-ci-cd",
+      "title": "构建与发布流程：GitHub Actions CI/CD",
+      "file": "18-gou-jian-yu-fa-bu-liu-cheng-github-actions-ci-cd.md",
+      "section": "深度解析",
+      "group": "其他",
+      "level": "Intermediate"
+    }
+  ]
+}
