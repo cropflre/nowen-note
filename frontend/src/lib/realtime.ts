@@ -346,6 +346,11 @@ if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
     realtime.disconnect();
   });
+  // P0-3: 把当前 WebSocket 连接 id 暴露给 api.ts，让所有 REST 请求都能附带
+  // X-Connection-Id 头。后端 broadcastNoteUpdated 据此排除发起者，避免
+  // "自己保存触发 note:updated 又广播回自己"造成的输入回退误判。
+  // 用 window 单向挂载（而非 import）规避潜在的循环依赖风险。
+  (window as any).__nowenGetConnectionId = () => realtime.getConnectionId();
 }
 
 // --------- Phase 3: Base64 <-> Uint8Array（浏览器环境） ---------

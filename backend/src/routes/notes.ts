@@ -670,6 +670,18 @@ app.put("/:id", async (c) => {
   if (hasNoteColumnChange) {
     try {
       const n = note as any;
+      // 自回声排除（P0-3 修复）：
+      //   前端发起 PUT 的同时通过 X-Connection-Id 头声明自己的 WebSocket 连接 id，
+      //   broadcastNoteUpdated 接受 actorConnectionId 并在房间分发时跳过该连接。
+      //   不传该 header 时（如离线队列回放、外部自动化脚本）行为退化为旧逻辑，
+      //   广播给包括发起者在内的所有订阅者，由前端 selfUserId 守卫兜底。
+      //
+      // 没有这一步会发生：
+      //   1) 用户敲字 → debounce 500ms → PUT 200
+      //   2) 服务端广播 note:updated 给当前用户自己的同 tab
+      //   3) useRealtimeNote 虽然按 actorUserId 过滤了横幅，但 selfUserId 在 WS
+      //      建立窗口期可能尚未就绪 → 横幅误弹 / 触发"重新加载"覆盖未派发的输入。
+      const actorConnectionId = c.req.header("X-Connection-Id") || undefined;
       if (body.isTrashed === 1) {
         // 放入回收站，视作"删除"
         broadcastNoteDeleted(id, {
@@ -683,7 +695,7 @@ app.put("/:id", async (c) => {
           title: n.title,
           contentText: n.contentText,
           actorUserId: userId,
-        });
+        }, actorConnectionId);
       }
     } catch (e) {
       console.warn("[notes.put] broadcast failed:", e);

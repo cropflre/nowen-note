@@ -662,12 +662,49 @@ export default function EditorPane() {
     actions.setSyncStatus("saving");
 
     // 封装成小函数以便 409 后用 server 返回的 currentVersion 重放一次。
+    //
+    // P0-4: 409 重放时优先从编辑器拉最新 snapshot 重新构建 payload。
+    //   背景：原实现 sendOnce 永远复用初次进入 handleUpdate 时的 data 闭包，
+    //   而 data 是 500ms 前 debounce 时刻的内容。如果 409 等待 + 重放期间用户
+    //   又敲了字，重放就会用"过时的内容"覆盖服务端最新版本（下一次的 debounce
+    //   PUT 又会再 409，再用同样过时的内容覆盖一次）→ 用户感觉"我刚敲的字
+    //   被吞了 / 编辑器自动回退"。
+    //
+    //   改法：每次 sendOnce 调用时（含首发 + 409 重放），都先尝试从
+    //   editorHandleRef 取一份最新 snapshot；拿到则覆盖 content/contentText。
+    //   首发时 snapshot 与 data 几乎一致（差几毫秒），副作用可忽略；重放时
+    //   则确保发送的是"用户当下真正在编辑器里看到的内容"。
+    //
+    //   仅在 data.content !== undefined（即非 CRDT-only 场景）时才覆盖；
+    //   CRDT 模式 data 不带 content，由 yjs 通道写回，绝不能在这里偷偷塞。
+    let attemptCount = 0;
+    // 实际发送的最后一份 payload（可能因 409 重放被换成最新 snapshot）。
+    // 下方 setActiveNote 回填 content 时按它而不是初始 data，避免 activeNote
+    // 与服务端真实存储内容不一致。
+    let lastSentData: { content?: string; contentText?: string; title: string } = data;
     const sendOnce = (version: number) => {
+      attemptCount++;
+      let effectiveData = data;
+      if (data.content !== undefined && attemptCount > 1) {
+        try {
+          const snap = editorHandleRef.current?.getSnapshot?.();
+          if (snap && typeof snap.content === "string") {
+            effectiveData = {
+              title: data.title,
+              content: snap.content,
+              contentText: snap.contentText,
+            };
+          }
+        } catch {
+          /* getSnapshot 失败时回退到原 data，不阻塞保存 */
+        }
+      }
+      lastSentData = effectiveData;
       // P0-#2 修复：CRDT 模式下 content 未传 → 只同步 meta（title），
       // 避免 REST PUT 与服务端 yjs 回写 notes.content 产生竞态覆盖
-      const payload: any = { title: data.title, version };
-      if (data.content !== undefined) payload.content = data.content;
-      if (data.contentText !== undefined) payload.contentText = data.contentText;
+      const payload: any = { title: effectiveData.title, version };
+      if (effectiveData.content !== undefined) payload.content = effectiveData.content;
+      if (effectiveData.contentText !== undefined) payload.contentText = effectiveData.contentText;
       return api.updateNote(currentNote.id, payload);
     };
 
@@ -712,15 +749,40 @@ export default function EditorPane() {
         // 解决办法：这里必须回填。编辑器侧通过 lastEmittedContentRef 守卫，
         // 比较 note.content 是否等于自己上次派出去的那份，是就跳过 setContent，
         // 避免光标抖动；不是（来自另一个编辑器或版本恢复）就正常同步。
+        //
+        // P1-5: content 字段优先用"实际发送给服务端的那一份"（lastSentData，
+        // 可能是 409 重放时取的最新 snapshot），而不是闭包里的初始 data。
+        // 进一步做"乐观自写守卫"：若 PUT 期间用户又敲了字，编辑器当前 snapshot
+        // 和 lastSentData 不再相等——此时我们**保留 activeNote.content 不变**
+        // （即仍是用户最新内容），只更新元数据；下一次 debounce 自动保存会
+        // 把后续输入推上去。这样可以避免让 activeNote 引用回退到稍旧的版本，
+        // 进而触发 TiptapEditor effect 误重建编辑器 DOM 导致输入回退。
+        let nextContent = activeNoteRef.current.content;
+        let nextContentText = activeNoteRef.current.contentText;
+        if (lastSentData.content !== undefined) {
+          let editorSnap: { content: string; contentText: string } | null = null;
+          try {
+            const snap = editorHandleRef.current?.getSnapshot?.();
+            if (snap && typeof snap.content === "string") editorSnap = snap as any;
+          } catch { /* ignore */ }
+          if (!editorSnap || editorSnap.content === lastSentData.content) {
+            // 编辑器当前内容 == 服务端刚收到的内容 → 安全回填
+            nextContent = lastSentData.content;
+            nextContentText = lastSentData.contentText ?? activeNoteRef.current.contentText;
+          } else {
+            // 编辑器又有新输入：保留前端最新（即 editorSnap），避免 setActiveNote
+            // 让编辑器误判为"外部更改"。下一次 debounce 会自然推送最新内容。
+            nextContent = editorSnap.content;
+            nextContentText = editorSnap.contentText ?? activeNoteRef.current.contentText;
+          }
+        }
         actions.setActiveNote({
           ...activeNoteRef.current,
           version: updated.version,
           updatedAt: updated.updatedAt,
           title: data.title,
-          // CRDT 模式下 data.content 为 undefined → 保留 activeNote 原值（由 yjs 广播更新）
-          content: data.content !== undefined ? data.content : activeNoteRef.current.content,
-          contentText:
-            data.contentText !== undefined ? data.contentText : activeNoteRef.current.contentText,
+          content: nextContent,
+          contentText: nextContentText,
         });
         actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
         actions.setSyncStatus("saved");
@@ -1017,26 +1079,54 @@ export default function EditorPane() {
 
   if (!activeNote) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-app-bg transition-colors">
-        <div className="text-center hidden md:flex flex-col items-center">
-          <div className="relative mb-6">
-            <div className="w-20 h-20 rounded-2xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="text-accent-primary/30">
-                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="8" y1="17" x2="12" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
+      <div className="flex-1 flex flex-col bg-app-bg transition-colors">
+        {/* 移动端：顶部返回按钮 + 提示。
+            背景：原空态用 `hidden md:flex` 把内容藏起来，移动端切到 editor 视图但
+            尚无 activeNote 时屏幕一片空白，用户找不到回到列表的入口（系统返回键
+            虽然能触发 onBackToList，但部分用户/手势导航环境下并不直观），看起来
+            就像"点笔记没反应"。这里补一条移动端可见的返回入口与文案，作为兜底。 */}
+        <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
+          <button
+            onClick={() => actions.setMobileView("list")}
+            className="flex items-center text-accent-primary py-1.5 px-1.5 -ml-1.5 rounded-lg active:bg-app-hover"
+          >
+            <ChevronLeft size={24} />
+            <span className="text-sm font-medium">{t('editor.back')}</span>
+          </button>
+        </header>
+        <div className="flex-1 flex items-center justify-center px-6">
+          {/* 桌面端原有空态（保持视觉不变） */}
+          <div className="text-center hidden md:flex flex-col items-center">
+            <div className="relative mb-6">
+              <div className="w-20 h-20 rounded-2xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="text-accent-primary/30">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1="8" y1="17" x2="12" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent-primary/10 border border-accent-primary/15 flex items-center justify-center">
+                <span className="text-accent-primary/50 text-xs">✦</span>
+              </div>
             </div>
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent-primary/10 border border-accent-primary/15 flex items-center justify-center">
-              <span className="text-accent-primary/50 text-xs">✦</span>
+            <p className="text-tx-secondary text-sm font-medium mb-1">{t('editor.selectNote')}</p>
+            <p className="text-tx-tertiary text-xs max-w-[220px] leading-relaxed">{t('editor.orCreateNew')}</p>
+            <div className="flex items-center gap-3 mt-5">
+              <kbd className="px-2 py-1 rounded-md bg-app-hover border border-app-border text-[10px] text-tx-tertiary font-mono">Alt+N</kbd>
+              <span className="text-[10px] text-tx-tertiary">{t('editor.newNoteShortcut') || '快速新建笔记'}</span>
             </div>
           </div>
-          <p className="text-tx-secondary text-sm font-medium mb-1">{t('editor.selectNote')}</p>
-          <p className="text-tx-tertiary text-xs max-w-[220px] leading-relaxed">{t('editor.orCreateNew')}</p>
-          <div className="flex items-center gap-3 mt-5">
-            <kbd className="px-2 py-1 rounded-md bg-app-hover border border-app-border text-[10px] text-tx-tertiary font-mono">Alt+N</kbd>
-            <span className="text-[10px] text-tx-tertiary">{t('editor.newNoteShortcut') || '快速新建笔记'}</span>
+          {/* 移动端简化空态（与上面 header 配合提供完整可点交互） */}
+          <div className="text-center md:hidden flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center mb-4">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-accent-primary/30">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <p className="text-tx-secondary text-sm font-medium mb-1">{t('editor.selectNote')}</p>
+            <p className="text-tx-tertiary text-xs max-w-[240px] leading-relaxed">{t('editor.orCreateNew')}</p>
           </div>
         </div>
       </div>

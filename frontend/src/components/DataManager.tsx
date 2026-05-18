@@ -234,6 +234,9 @@ export default function DataManager() {
       // P1-2：试图依据 meta.rootNotebookId 预选目标笔记本
       // 仅当 scope 与侧边栏匹配且 rootNotebookId 在当前笔记本列表里仍存在时才预选，
       // 避免传递 "看不见的 id" 到后端造成导入到错误位置。
+      // 注：scopeMatchesGlobal 在 handleImport 里也算了一次（同语义），这里独立局部
+      // 计算一份，避免提升引用 / 闭包绑定问题（TS 也不允许引用还未声明的常量）。
+      const scopeMatchesGlobal = effectiveWorkspaceId === getCurrentWorkspace();
       if (r.meta && r.meta.rootNotebookId && scopeMatchesGlobal) {
         const hit = state.notebooks.find((nb) => nb.id === r.meta!.rootNotebookId);
         if (hit) {

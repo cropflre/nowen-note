@@ -724,6 +724,9 @@ async function fetchRemoteAttachments(
 }
 
 // ============================================================================
+// Turndown 服务工厂：HTML → Markdown 转换器（被多个导出路径复用）
+// ============================================================================
+function createTurndown(): TurndownService {
   const td = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",

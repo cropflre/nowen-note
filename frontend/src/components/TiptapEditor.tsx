@@ -43,8 +43,8 @@ import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
 import { MathExtensions } from "@/components/MathExtensions";
 import { FootnoteExtensions, nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import CodeBlockView from "@/components/CodeBlockView";
-import MobileFloatingToolbar, { MobileToolbarItem } from "@/components/MobileFloatingToolbar";
-import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+
+
 import { useTranslation } from "react-i18next";
 
 const lowlight = createLowlight(common);
@@ -759,6 +759,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 ) {
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  // P0-1: 标题 debounce 独立 timer。
+  //   旧实现 handleTitleChange 复用 debounceTimer，导致：
+  //     1) 用户敲内容 500ms 内改标题 → 内容的 debounce 被 clearTimeout 清掉，
+  //        标题保存 payload 里虽然带了当前 editor.getJSON()，但**没有更新**
+  //        lastEmittedContentRef。
+  //     2) PUT 回包 setActiveNote → useEffect([note.id, note.content]) 触发，
+  //        自写守卫因 lastEmittedContentRef 未同步而**未命中** → 走 setContent
+  //        → 编辑器 DOM 重建 → 用户继续在打的字被截断/回退。
+  //   独立 timer 后内容 debounce 不再被标题修改打断；标题保存只发 { title }，
+  //   内容字段照常由 onUpdate 的 content debounce 保存。
+  const titleDebounceTimer = useRef<NodeJS.Timeout | null>(null);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
@@ -770,9 +781,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [isDragging, setIsDragging] = useState(false);
   // 编辑器是否聚焦 —— 用来控制移动端浮动工具栏是否显示
   // （未聚焦时键盘其实已经收起，这里是双重保险：避免聚焦到标题栏时误显示）
-  const [editorFocused, setEditorFocused] = useState(false);
+
   // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
-  const { visible: keyboardOpen } = useKeyboardVisible();
+
   const dragStart = useRef({ x: 0, y: 0, imgX: 0, imgY: 0 });
   const { t, i18n } = useTranslation();
 
@@ -1714,6 +1725,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
     }
+    if (titleDebounceTimer.current) {
+      clearTimeout(titleDebounceTimer.current);
+      titleDebounceTimer.current = null;
+    }
 
     if (editor && note) {
       // 笔记切换时重置 lastEmitted 守卫（新笔记的 content 肯定要真正 setContent）
@@ -1795,6 +1810,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
+      }
+      if (titleDebounceTimer.current) {
+        clearTimeout(titleDebounceTimer.current);
+        titleDebounceTimer.current = null;
       }
     };
   }, []);
@@ -1889,20 +1908,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     }
   }, [editor, editable]);
 
-  // 跟踪编辑器聚焦状态（给移动端浮动工具栏用）
-  useEffect(() => {
-    if (!editor) return;
-    const onFocus = () => setEditorFocused(true);
-    const onBlur = () => setEditorFocused(false);
-    editor.on("focus", onFocus);
-    editor.on("blur", onBlur);
-    // 初始状态
-    setEditorFocused(editor.isFocused);
-    return () => {
-      editor.off("focus", onFocus);
-      editor.off("blur", onBlur);
-    };
-  }, [editor]);
+
 
   // ---------- 链接编辑：弹项目统一 prompt 弹窗，工具栏 & 链接气泡共用 ----------
   // 抽成共享回调避免两处重复 ~40 行 prompt + 解析 + apply 逻辑。
@@ -1982,8 +1988,51 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   // ---------- 手动选区气泡菜单定位 ----------
   // 监听 selectionUpdate / blur，计算浮动菜单坐标（fixed 定位，视口坐标）
+  //
+  // 触屏避让策略（2026-05-18，按用户反馈"系统复制菜单遮挡选区工具栏"修复）：
+  //   Android / iOS 长按文本时系统会自动弹原生 ActionMode（剪切/复制/全选/朗读），
+  //   默认显示在**选区上方**。我们的自定义气泡也默认放上方，两者会精确重叠。
+  //   - 检测最近一次 pointer 事件 type 是否为 "touch"（350ms 内）；
+  //   - 若是，则气泡放在**选区下方**（top = bottom + 8），错开系统菜单；
+  //   - 若选区已经接近视口底部（再往下放会被键盘吞掉），fallback 回上方；
+  //   - 鼠标 / 桌面端依然按"上方居中"逻辑，不变。
+  const lastTouchAtRef = useRef<number>(0);
+  useEffect(() => {
+    const onPointer = (e: PointerEvent) => {
+      if (e.pointerType === "touch") lastTouchAtRef.current = Date.now();
+    };
+    window.addEventListener("pointerdown", onPointer, { passive: true });
+    window.addEventListener("pointerup", onPointer, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("pointerup", onPointer);
+    };
+  }, []);
+
   useEffect(() => {
     if (!editor) return;
+
+    /**
+     * 根据选区矩形计算气泡位置：
+     *   - desktop / 鼠标：上方居中（top = rect.top - 44）
+     *   - 触屏：下方居中（top = rect.bottom + 8），错开系统 ActionMode
+     *   - 触屏 & 选区贴近视口底部：fallback 上方
+     */
+    const placeBubble = (rect: { top: number; bottom: number; left: number; right: number; width: number }, bubbleHeight = 40, bubbleWidth = 220) => {
+      const isTouch = Date.now() - lastTouchAtRef.current < 800; // 触屏后 800ms 内都算触屏触发
+      const cx = rect.left + rect.width / 2;
+      let top: number;
+      if (isTouch) {
+        const below = rect.bottom + 8;
+        const overflowsBottom = below + bubbleHeight > window.innerHeight - 16;
+        // 距离底部太近就 fallback 到上方（再上偏 4px，给系统菜单一些视觉缓冲）
+        top = overflowsBottom ? Math.max(8, rect.top - bubbleHeight - 8) : below;
+      } else {
+        top = Math.max(8, rect.top - bubbleHeight - 4);
+      }
+      const left = Math.max(8, Math.min(cx - bubbleWidth / 2, window.innerWidth - bubbleWidth - 10));
+      return { top, left };
+    };
 
     const updateBubble = () => {
       const { state, view } = editor;
@@ -2029,14 +2078,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             } else break;
           }
 
-          // 定位策略：
-          //  - 垂直：用整段 link rect 的 top（首行上方），避免链接换行时气泡飘到末行
-          //  - 水平：以"光标位置 x"为锚点居中，而不是整段 rect 的几何中点
-          //    （对长链接独占一行的情况，rect.left+width/2 会跑到行中点，
-          //     用户点行首就会看到气泡飘在右半屏 → 严重脱节）
+          // 链接气泡用整段 link rect + 光标 x（避免长链接换行时居中偏到行中点）
           const linkRect = posToDOMRect(view, start, end);
           const caretRect = posToDOMRect(view, from, from);
-          const top = Math.max(8, linkRect.top - 44);
+          const { top } = placeBubble(linkRect, 40, 280);
           const cx = caretRect.left; // 光标 x（零宽矩形，left===right）
           // 气泡宽度约 280px，居中减半，并夹到视口内
           const left = Math.max(8, Math.min(cx - 140, window.innerWidth - 290));
@@ -2056,9 +2101,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         // 图片选区 → 显示图片尺寸气泡
         setBubble(b => b.open ? { ...b, open: false } : b);
         const rect = posToDOMRect(view, from, to);
-        const top = Math.max(8, rect.top - 44);
-        const cx = rect.left + rect.width / 2;
-        const left = Math.max(8, Math.min(cx - 140, window.innerWidth - 290));
+        const { top, left } = placeBubble(rect, 40, 280);
         setImageBubble({ open: true, top, left });
       } else {
         // 文本选区 → 显示格式化气泡
@@ -2070,9 +2113,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           return;
         }
         const rect = posToDOMRect(view, from, to);
-        const top = Math.max(8, rect.top - 44);
-        const cx = rect.left + rect.width / 2;
-        const left = Math.max(8, Math.min(cx - 110, window.innerWidth - 230));
+        const { top, left } = placeBubble(rect, 40, 220);
         setBubble({ open: true, top, left });
       }
     };
@@ -2244,14 +2285,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   }, [editor]);
 
   const handleTitleChange = useCallback(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
+    // P0-1: 使用独立的 titleDebounceTimer，不再复用 debounceTimer，
+    // 避免清掉内容的 pending debounce，且只发 title 字段，绝不带 content。
+    // 这样无论标题保存何时返回，都不会触碰 lastEmittedContentRef，
+    // 后续主 effect 的自写守卫继续按"上次派出去的内容"判定，不会误重建编辑器。
+    if (titleDebounceTimer.current) clearTimeout(titleDebounceTimer.current);
+    titleDebounceTimer.current = setTimeout(() => {
+      titleDebounceTimer.current = null;
       const title = titleRef.current?.value || "";
-      const json = editor ? JSON.stringify(editor.getJSON()) : note.content;
-      const text = editor ? editor.getText() : note.contentText;
-      onUpdate({ content: json, contentText: text, title });
+      onUpdateRef.current({ title });
     }, 500);
-  }, [editor, note, onUpdate]);
+  }, []);
 
   const handleImageUpload = useCallback(() => {
     if (!editor) return;
@@ -2538,13 +2582,20 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     insertWithMarkdownDetect(text, from, to);
   }, [editor, insertWithMarkdownDetect]);
 
-  // 回到顶部：监听滚动容器的 scrollTop，超过阈值后展示悬浮按钮
+  // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  // 内容不在顶端（>4px）时给 sticky 工具栏加底部阴影，
+  // 让其视觉上「浮」于内容之上——跟 Notion / Bear / Craft 等主流移动端编辑器一致。
+  const [toolbarShadow, setToolbarShadow] = useState(false);
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const onScroll = () => setShowBackToTop(el.scrollTop > 240);
+    const onScroll = () => {
+      const top = el.scrollTop;
+      setShowBackToTop(top > 240);
+      setToolbarShadow(top > 4);
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
@@ -2562,13 +2613,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   return (
     <div className="flex flex-col h-full relative">
       {/* Toolbar
-          键盘弹起时（仅原生）隐藏，改由底部 MobileFloatingToolbar 提供常用命令。
-          CSS 变量 --keyboard-height 由 useKeyboardLayout 维护；此处通过 state 读取，
-          避免纯 CSS 方案下 display:none 切换时 sticky/flex 的尺寸突变导致光标跳动。 */}
+          v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
+          单一顶部工具栏并 sticky 在容器顶端：
+            - 键盘弹起时不再隐藏，避免移动端找不到格式按钮；
+            - sticky top-0 让长内容滚动时也能随时点到工具栏；
+            - z 索引压在选区/链接气泡之下（z-50），保留气泡的覆盖能力。 */}
       <div
         className={cn(
-          "flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/50 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors",
-          keyboardOpen && "hidden",
+          "sticky top-0 z-20 flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/95 backdrop-blur supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-shadow duration-200",
+          // 滚动离顶后加底部阴影，表达「工具栏浮于内容之上」
+          toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
         )}
       >
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
@@ -3069,13 +3123,13 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       )}
 
       {/* Editor content
-          paddingBottom 同时吃掉键盘高度和底部浮动工具栏高度，保证最后一行文字
-          不被键盘或底部浮动工具栏遮挡（`--mobile-toolbar-h` 由 MobileFloatingToolbar
-          按显示状态维护，未显示时为 0）。详见 useKeyboardLayout 注释。 */}
+          paddingBottom 仅吃键盘高度即可（避光标被键盘遮）。
+          v2026-05-18 起移除底部移动浮动工具栏，由顶部 sticky 主工具栏统一承担
+          所有格式化命令。 */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-auto px-4 md:px-8 pb-12"
-        style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--mobile-toolbar-h, 0px))" }}
+        style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px))" }}
       >
         <EditorContent editor={editor} />
       </div>
@@ -3093,7 +3147,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             title={t("tiptap.backToTop", "回到顶部")}
             aria-label={t("tiptap.backToTop", "回到顶部")}
             className="absolute right-4 md:right-6 z-30 w-9 h-9 flex items-center justify-center rounded-full bg-app-elevated border border-app-border text-tx-secondary hover:text-accent-primary hover:border-accent-primary/50 shadow-lg backdrop-blur-sm transition-colors"
-            style={{ bottom: "calc(1rem + var(--keyboard-height, 0px) + var(--mobile-toolbar-h, 0px))" }}
+            style={{ bottom: "calc(1rem + var(--keyboard-height, 0px))" }}
           >
             <ArrowUp size={16} />
           </motion.button>
@@ -3254,88 +3308,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         )}
       </AnimatePresence>
 
-      {/*
-        移动端浮动工具栏（吸附键盘正上方）
-        - 仅在原生 App + 键盘弹起 + 编辑器聚焦时显示
-        - 按钮阻止默认行为避免失焦收键盘
-        - 只放最常用 10 个命令：撤销/H1/H2/加粗/斜体/下划线/无序列表/任务列表/代码块/插图
-      */}
-      {editable && (
-        <MobileFloatingToolbar
-          visible={editorFocused}
-          items={[
-            {
-              key: "undo",
-              icon: <Undo size={18} />,
-              title: t("tiptap.undo"),
-              disabled: !editor.can().undo(),
-              onClick: () => editor.chain().focus().undo().run(),
-            },
-            {
-              key: "h1",
-              icon: <Heading1 size={18} />,
-              title: t("tiptap.heading1"),
-              isActive: editor.isActive("heading", { level: 1 }),
-              onClick: () => toggleHeadingSmart(editor, 1),
-            },
-            {
-              key: "h2",
-              icon: <Heading2 size={18} />,
-              title: t("tiptap.heading2"),
-              isActive: editor.isActive("heading", { level: 2 }),
-              onClick: () => toggleHeadingSmart(editor, 2),
-            },
-            {
-              key: "bold",
-              icon: <Bold size={18} />,
-              title: t("tiptap.bold"),
-              isActive: editor.isActive("bold"),
-              onClick: () => editor.chain().focus().toggleBold().run(),
-            },
-            {
-              key: "italic",
-              icon: <Italic size={18} />,
-              title: t("tiptap.italic"),
-              isActive: editor.isActive("italic"),
-              onClick: () => editor.chain().focus().toggleItalic().run(),
-            },
-            {
-              key: "underline",
-              icon: <UnderlineIcon size={18} />,
-              title: t("tiptap.underline"),
-              isActive: editor.isActive("underline"),
-              onClick: () => editor.chain().focus().toggleUnderline().run(),
-            },
-            {
-              key: "bullet",
-              icon: <List size={18} />,
-              title: t("tiptap.bulletList"),
-              isActive: editor.isActive("bulletList"),
-              onClick: () => editor.chain().focus().toggleBulletList().run(),
-            },
-            {
-              key: "task",
-              icon: <CheckSquare size={18} />,
-              title: t("tiptap.taskList"),
-              isActive: editor.isActive("taskList"),
-              onClick: () => editor.chain().focus().toggleTaskList().run(),
-            },
-            {
-              key: "code",
-              icon: <FileCode size={18} />,
-              title: t("tiptap.codeBlock"),
-              isActive: editor.isActive("codeBlock"),
-              onClick: toggleCodeBlockStrict,
-            },
-            {
-              key: "image",
-              icon: <ImagePlus size={18} />,
-              title: t("tiptap.insertImage"),
-              onClick: handleImageUpload,
-            },
-          ] as MobileToolbarItem[]}
-        />
-      )}
+      {/* 移动端工具栏已迁移到主 Toolbar 之后，参考下方 mobileToolbarItems 渲染处 */}
     </div>
   );
 });

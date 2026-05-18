@@ -1427,17 +1427,32 @@ export default function NoteList() {
 
     // 立即设置 loading 状态，给 EditorPane 显示骨架屏
     actions.setNoteLoading(true);
+    // 关键修复（移动端"点笔记没反应"）：
+    //   把 setMobileView("editor") 提前到 fetch 之前，确保用户点击瞬间就切到
+    //   编辑器视图，由 EditorPane 的 noteLoading overlay 显示加载中。
+    //   原实现把它放在 setActiveNote 之后，导致：
+    //     1) 弱网 / 后端慢响应时，用户点了 1~2 秒"还在列表页"，以为没点到；
+    //     2) 若 fetch 抛错或被 abort，setMobileView 永远不执行，
+    //        用户体感就是"切到笔记本列表后点击不进去编辑器"。
+    //   提前切换视图后即便 fetch 失败，用户也能立刻看到反馈并按返回键回到列表，
+    //   不会被卡在"点了没反应"的死路上。
+    actions.setMobileView("editor");
 
     try {
       const note = await api.getNote(noteId);
       // 如果该请求已被新的点击 abort，则忽略结果
       if (abortCtrl.signal.aborted) return;
       actions.setActiveNote(note);
-      actions.setMobileView("editor");
     } catch (err: any) {
       // 被 abort 的请求不需要处理错误
       if (abortCtrl.signal.aborted || err?.name === "AbortError") return;
       console.error("Failed to load note:", err);
+      // 加载失败：清掉空 activeNote 占位（如有），并提示用户。
+      // 移动端不强制回退到 list —— 让用户自己点返回，避免视图反复跳动。
+      try {
+        const { toast } = await import("@/lib/toast");
+        toast.error(err?.message || t('noteList.createFailed'));
+      } catch { /* toast 加载失败时忽略 */ }
     } finally {
       if (!abortCtrl.signal.aborted) {
         actions.setNoteLoading(false);

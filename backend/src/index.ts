@@ -60,7 +60,12 @@ app.use("*", cors({
   //   - X-Sudo-Token：管理员高危操作（备份配置、删除、恢复、邮件发送等）必带；
   //     之前漏掉会让手机 App / Capacitor webview 跨域调用时直接 "TypeError: Failed to fetch"
   //     —— 因为预检失败连后端都到不了。
-  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token"],
+  //   - X-Connection-Id：P0-3 自回声排除（前端把当前 WebSocket connectionId 透传给 PUT
+  //     /notes/:id，后端据此从广播中跳过发起者连接）。这是个**自定义 header**，会触发
+  //     CORS 预检；如果没列入白名单，OPTIONS 直接 403/被浏览器拦下，所有"WS 连上之后"
+  //     的 fetch 都会报 TypeError: Failed to fetch（典型现象：APK 列表能加载但点笔记
+  //     立刻 Failed to fetch、点同一个笔记没反应）。
+  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id"],
   credentials: true,
 }));
 

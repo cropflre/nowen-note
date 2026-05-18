@@ -408,15 +408,58 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
 
   let res: Response;
   try {
-    res = await fetch(fullUrl, {
-      ...restOptions,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(sudoToken ? { "X-Sudo-Token": sudoToken } : {}),
-        ...restOptions?.headers,
-      },
+    // P0-3: 自动注入 X-Connection-Id（如果 WebSocket 已连接）。
+    // 后端 notes PUT 路由据此从 note:updated 广播中排除发起者连接，
+    // 避免"自写 → 服务端广播回自己 → 误推荐重新加载"的输入回退。
+    // 运行期动态读取 window 上的 helper，避免 import 循环。WS 未连时返回 null，
+    // 此时不设 header，后端行为退化为"广播给所有人含自己"，前端靠
+    // selfUserId 守卫兜底。
+    let connId: string | null = null;
+    try {
+      const fn = (window as any)?.__nowenGetConnectionId;
+      if (typeof fn === "function") connId = fn();
+    } catch {
+      /* SSR / window 不可用时静默 */
+    }
+    const buildHeaders = (includeConnId: boolean): HeadersInit => ({
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(sudoToken ? { "X-Sudo-Token": sudoToken } : {}),
+      ...(includeConnId && connId ? { "X-Connection-Id": connId } : {}),
+      ...restOptions?.headers,
     });
+    try {
+      res = await fetch(fullUrl, { ...restOptions, headers: buildHeaders(true) });
+    } catch (firstErr: any) {
+      // 兜底：当后端 CORS allowHeaders 没把 X-Connection-Id 加进白名单时，
+      //   带它的请求会在 OPTIONS 预检阶段直接被浏览器/WebView 拦下，抛
+      //   TypeError: Failed to fetch。一旦发生，剥离这个自定义 header 重试一次：
+      //     - 如果重试成功 → 说明就是预检拦截，记一条 warn，本会话内停掉再次注入
+      //       该 header（避免每次请求都白白跑两遍）；
+      //     - 如果重试还是失败 → 真正的网络不可达，按原逻辑入队 / 抛错。
+      //   只在 connId 存在时才尝试，否则跳过直接走原错误路径，避免无谓重试。
+      if (connId) {
+        try {
+          res = await fetch(fullUrl, { ...restOptions, headers: buildHeaders(false) });
+          // eslint-disable-next-line no-console
+          console.warn(
+            "[api] retry without X-Connection-Id succeeded — backend CORS likely missing this header in allowHeaders. Disabling injection for this session.",
+          );
+          // 关闭后续注入。注意只关一个会话内的注入，不写 storage（升级后端后下次重启即恢复）。
+          try { (window as any).__nowenGetConnectionId = () => null; } catch { /* ignore */ }
+        } catch (retryErr: any) {
+          if (!_skipOfflineQueue && _shouldEnqueue(url, method, retryErr)) {
+            return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+          }
+          throw retryErr;
+        }
+      } else {
+        if (!_skipOfflineQueue && _shouldEnqueue(url, method, firstErr)) {
+          return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+        }
+        throw firstErr;
+      }
+    }
   } catch (fetchErr: any) {
     // fetch 抛出 = 网络不可达（TypeError: Failed to fetch 等）
     if (!_skipOfflineQueue && _shouldEnqueue(url, method, fetchErr)) {
