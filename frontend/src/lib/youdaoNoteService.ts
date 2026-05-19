@@ -719,9 +719,17 @@ export async function runYoudaoImport(
         ? `<p><img src="${upRes.url}" alt="${e.fileName}" /></p>`
         : buildAttachmentCardHtml(e.fileName, upRes.url, e.size);
       const finalJson = htmlToTiptapJson(finalHtml);
+      // H4 乐观锁：后端对 title/content/contentText 三类内容更新强制要求 version 字段，
+      // 占位笔记是上一行 importNotes 刚 INSERT 出来的，notes.version DEFAULT 1，
+      // 这里直接传 1 即可。漏传会被 400 VERSION_REQUIRED 拒掉，导致整个附件链路失败
+      // （历史 bug：仅含附件的有道云笔记导入永远 0 成功 1 失败）。
+      // 优先用占位笔记返回的 version，没有就兜底 1。
+      const placeholderVersion =
+        typeof createRes.notes[0]?.version === "number" ? createRes.notes[0].version : 1;
       await api.updateNote(noteId, {
         content: finalJson,
         contentText: e.fileName,
+        version: placeholderVersion,
       });
 
       attachmentCount++;
