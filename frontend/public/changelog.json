@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-05-20T03:44:25.135Z",
+  "generatedAt": "2026-05-20T09:17:49.989Z",
   "entries": [
+    {
+      "version": "1.1.4",
+      "date": "2026-05-20",
+      "body": "_本版本无可展示的 commit 变更（可能全部是合并 / 工作流修改）_"
+    },
     {
       "version": "1.1.3",
       "date": "2026-05-20",
@@ -45,11 +50,6 @@
       "version": "1.0.34",
       "date": "2026-05-11",
       "body": "### 🐛 修复\n\n- **db**: 修复老库启动崩溃 SqliteError: no such column: conversationId (984b1c4)\n- **electron**: 修复 Win 安装包启动报 ERR_DLOPEN_FAILED 的根因 (8d2da99)\n- **tasks**: 更新任务后同步刷新左侧分组计数（今天/未来7天/已逾期） (b39a825)\n- **tasks**: 修复待办按日期分组/展示的时区错位（今天/本周/逾期） (edcc285)"
-    },
-    {
-      "version": "1.0.33",
-      "date": "2026-05-11",
-      "body": "### ✨ 新增\n\n- **ai**: 知识问答支持多会话（多聊天并行保存） (d10764c)\n- **ai**: 批量 AI 操作（标签/归类） (a11bdc2)\n- **ai**: 笔记归类建议（AI 自动目录归类） (313b200)\n- **ai**: 自定义指令模板可保存与复用 (2395a93)\n- **ai**: RAG 知识库支持附件内容索引（PDF/文本/docx 等） (afdc482)\n- **backup**: 自动备份支持每日定时/保留数量/邮件通知 (eded447)\n- **users**: 个人空间导出/导入开关下沉为 per-user 字段 (4769c7f)\n- **upload**: 附件上传支持拖拽 (beb74d8)\n- **ios**: 接入 Capacitor iOS 工程骨架与 GitHub Actions TestFlight 发版 (0320ba8)\n\n### 🐛 修复\n\n- **build**: unpdf 加入 esbuild external 名单，修复后端 bundle 失败 (bb46727)\n- **backend**: 修复 backup.ts 重载签名默认参数导致的 TS2371 编译错误 (b69d66a)\n- **security**: RAG 知识库索引按工作区/个人空间隔离 (5e5e899)\n- **ui**: 修复笔记列表长标题挤掉预览行 (2b9d4c9)\n- **ai**: AI 写作助手 markdown 格式化丢失链接和图片 (91e42e4)\n- **electron**: 修复 main.js 第 702 行非法字符串导致主进程启动崩溃 (e851eeb)\n- **release**: 仅上传当前版本产物到 GitHub Release，避免历史包混入 (91edab8)"
     }
   ]
 }

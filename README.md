@@ -123,6 +123,10 @@ QQ 群：`1093473044`
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.1.4 - 2026-05-20
+
+_本版本无可展示的 commit 变更（可能全部是合并 / 工作流修改）_
+
 ### v1.1.3 - 2026-05-20
 
 ### ✨ 新增
@@ -229,35 +233,5 @@ QQ 群：`1093473044`
   - `downloadItem` 用 ref 同步 `downloadingId`，砍掉 useCallback 依赖，避免下载状态变化打穿 memo
   - 附件删除/孤儿清理时连带清缩略图缓存；孤儿扫描跳过 `.thumbs/` 隐藏目录
   - 预期：单页流量 ~200MB → ~2-4MB（100×），交互重渲 60 → 1-2（30×）
-
-### v1.0.38 - 2026-05-14
-
-### ✨ 新增
-
-- **editor**: 顶栏新增 Mermaid / 数学公式 / 脚注 按钮，并让 Mermaid 块可双击编辑 (8970e9c)
-- **editor**: Mermaid 图表 / LaTeX 数学公式 / 脚注 三项块级扩展 (530240c)
-- **editor**: 链接气泡菜单 + 选区气泡补链接按钮 (ad8d8c8)
-- **editor**: markdown 语法与斜杠命令增强 (862047f)
-
-### 🐛 修复
-
-- **release**: frontend 依赖体检白名单补 mermaid/katex/rehype-raw (cbafdc0)
-- **backend**: reclaim disk space on note/notebook deletion (3d8e61b)
-
-### ♻️ 重构
-
-- **ai**: 用项目统一 confirmDialog 替代 window.confirm (5088414)
-
-### 💄 样式
-
-- **editor,share**: 编辑器链接醒目化 + 分享页排版自给自足 (e8d6e06)
-
-### 📦 构建
-
-- **clipper**: 0.1.2 多浏览器构建产物（chrome/edge/firefox） (1902bf7)
-
-### 🔧 其他
-
-- **clipper**: release v0.1.2 (01ebf0c)
 
 <!-- CHANGELOG:END -->
