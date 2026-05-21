@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 文件管理中心（ViewMode=files）
  * ---------------------------------------------------------------------------
  * 定位：
@@ -54,11 +54,9 @@ import {
   Link2,
   ChevronDown,
   Globe,
-  Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { api, resolveAttachmentUrl } from "@/lib/api";
-import { FileItem, FileDetail, FileStats, FileSortKey, FileCategory } from "@/types";
+import { FileItem, FileStats, FileSortKey, FileCategory } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,16 +70,7 @@ import {
   imageHostFormatLabel,
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
-import DocxAttachmentPreview from "@/office/word/DocxAttachmentPreview";
-
-// docx 的 MIME，命中即在抽屉里渲染原生 WordViewer 而不是只显示一个 MIME 图标。
-// 后端可能落 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"，
-// 也可能因老附件没识别出来落 "application/octet-stream"，所以兼容用文件名后缀兜底。
-const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-function isDocxFile(d: { mimeType?: string | null; filename?: string | null }): boolean {
-  if (d.mimeType === DOCX_MIME) return true;
-  return !!d.filename && /\.docx$/i.test(d.filename);
-}
+import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 
 // ---------------------------------------------------------------------------
 // 工具：文件大小可读化 / MIME → 图标 / 时间格式化
@@ -286,9 +275,8 @@ export default function FileManager() {
   const [isImageHostMode, setIsImageHostMode] = useState(false);
 
   // 详情抽屉
+  // detailId 为 null 时抽屉关闭；非 null 由 AttachmentDetailDrawer 自己加载详情。
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<FileDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   // 上传
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -512,29 +500,43 @@ export default function FileManager() {
     if (c === "myUploads") setMyUploadsRef("all");
   }, [isImageHostMode]);
 
-  // ---- 详情加载 ----
-  const openDetail = useCallback(async (id: string) => {
+  // ---- 详情抽屉控制 ----
+  // 加载逻辑下沉到 AttachmentDetailDrawer 内部，这里只负责打开/关闭。
+  const openDetail = useCallback((id: string) => {
     setDetailId(id);
-    setDetail(null);
-    setDetailLoading(true);
-    try {
-      const d = await api.files.get(id);
-      setDetail(d);
-    } catch (err: any) {
-      console.error("[FileManager] detail failed:", err);
-      toast.error(err?.message || "加载文件详情失败");
-      setDetailId(null);
-    } finally {
-      setDetailLoading(false);
-    }
   }, []);
 
   const closeDetail = useCallback(() => {
     setDetailId(null);
-    setDetail(null);
   }, []);
 
-  // ---- 删除 ----
+  // ---- 删除：列表层面同步（剔除 / 翻页 / 缓存 / 统计） ----
+  // 抽屉删除走 onAfterDelete 路径；ListView 行内删除按钮先二次确认 → 调 api.files.remove
+  // → 再走 afterDelete。两条路径共用同一份「列表后处理」。
+  const afterDelete = useCallback(
+    (id: string) => {
+      // 本地列表即时剔除（让 UI 立刻有反馈，不等接口往返）
+      setItems((prev) => prev.filter((it) => it.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      // v12：清缓存，避免 loadList 命中陈旧条目
+      invalidateFileListCache();
+      loadStats();
+      loadReclaimable();
+      // 关键：删除后必须重新拉当前页，把"被删项后面的"那一项从第 N+1 项
+      // 顶上来，否则用户会看到当前页只剩 PAGE_SIZE-1 项，要切页才能看到
+      // 后面被顶上来的文件。当前页若被删空且不在第 1 页 → 回退一页
+      // （page 变化会自动触发 useEffect → loadList，这里不必手动调）。
+      const willBeEmpty = items.length <= 1;
+      if (willBeEmpty && page > 1) {
+        setPage((p) => Math.max(1, p - 1));
+      } else {
+        loadList();
+      }
+    },
+    [loadStats, loadReclaimable, loadList, items.length, page],
+  );
+
+  // ListView 行内删除按钮入口：自带二次确认 + 网络请求 + afterDelete。
   const handleDelete = useCallback(
     async (id: string) => {
       const ok = await confirmDialog({
@@ -544,70 +546,30 @@ export default function FileManager() {
         confirmText: "删除",
         danger: true,
       });
-      if (!ok) {
-        return;
-      }
+      if (!ok) return;
       try {
         await api.files.remove(id);
         toast.success("已删除");
-        closeDetail();
-        // 本地列表即时剔除（让 UI 立刻有反馈，不等接口往返）
-        setItems((prev) => prev.filter((it) => it.id !== id));
-        setTotal((t) => Math.max(0, t - 1));
-        // v12：清缓存，避免 loadList 命中陈旧条目
-        invalidateFileListCache();
-        loadStats();
-        loadReclaimable();
-        // 关键：删除后必须重新拉当前页，把"被删项后面的"那一项从第 N+1 项
-        // 顶上来，否则用户会看到当前页只剩 PAGE_SIZE-1 项，要切页才能看到
-        // 后面被顶上来的文件（issue: 删除文件应该展示剩下的文件）。
-        // 如果删完后当前页变空且不在第 1 页 → 回退一页（page 变化会自动触发
-        // useEffect → loadList，这里就不用再手动调）。
-        const willBeEmpty = items.length <= 1; // 当前页删完
-        if (willBeEmpty && page > 1) {
-          setPage((p) => Math.max(1, p - 1));
-        } else {
-          loadList();
-        }
+        // 如果当前打开的就是这个详情，顺手关掉
+        setDetailId((cur) => (cur === id ? null : cur));
+        afterDelete(id);
       } catch (err: any) {
         console.error("[FileManager] delete failed:", err);
         toast.error(err?.message || "删除失败");
       }
     },
-    [closeDetail, loadStats, loadReclaimable, loadList, items.length, page],
+    [afterDelete],
   );
 
-  // ---- 重命名 ----
-  // 后端只改 attachments.filename 列，磁盘文件名不动（仍是 <uuid>.<ext>），
-  // 因此重命名"零成本"——不需要重新生成 URL，引用过该附件的笔记里 <img src>
-  // 不会失效。
-  const handleRename = useCallback(
-    async (id: string, newName: string): Promise<boolean> => {
-      const trimmed = newName.trim();
-      if (!trimmed) {
-        toast.error("文件名不能为空");
-        return false;
-      }
-      try {
-        const res = await api.files.rename(id, trimmed);
-        const finalName = res.filename;
-        // 同步两个本地状态：列表行 + 当前打开的详情
-        setItems((prev) =>
-          prev.map((it) => (it.id === id ? { ...it, filename: finalName } : it)),
-        );
-        setDetail((prev) => (prev && prev.id === id ? { ...prev, filename: finalName } : prev));
-        // v12：清列表缓存——文件名变了，缓存里仍是老名字会与 UI 不一致
-        invalidateFileListCache();
-        if (!res.unchanged) toast.success("已重命名");
-        return true;
-      } catch (err: any) {
-        console.error("[FileManager] rename failed:", err);
-        toast.error(err?.message || "重命名失败");
-        return false;
-      }
-    },
-    [],
-  );
+  // ---- 重命名：列表层面同步（更新 items 里对应行的 filename） ----
+  // 网络请求 + toast 由 AttachmentDetailDrawer 内部完成，这里只在成功后被通知。
+  const afterRename = useCallback((id: string, newFilename: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, filename: newFilename } : it)),
+    );
+    // v12：清列表缓存——文件名变了，缓存里仍是老名字会与 UI 不一致
+    invalidateFileListCache();
+  }, []);
 
   // ---- 批量选择 ----
   const toggleSelectionMode = useCallback(() => {
@@ -1441,19 +1403,18 @@ export default function FileManager() {
         </AnimatePresence>
       </div>
 
-      {/* 详情抽屉 */}
+      {/* 详情抽屉：复用型 AttachmentDetailDrawer（编辑器场景同款）。
+          - 加载/下载/复制外链/重命名/删除 全部组件内部自管；
+          - 列表层只接 onAfterDelete / onAfterRename 做本地同步。 */}
       <AnimatePresence>
         {detailId && (
-          <DetailDrawer
-            detail={detail}
-            loading={detailLoading}
+          <AttachmentDetailDrawer
+            attachmentId={detailId}
             onClose={closeDetail}
-            onDelete={handleDelete}
-            onRename={handleRename}
             onJumpToNote={jumpToNote}
-            onDownload={downloadItem}
-            downloadingId={downloadingId}
-            onCopySnippet={copySnippet}
+            onAfterDelete={afterDelete}
+            onAfterRename={afterRename}
+            showDelete
             isImageHostMode={isImageHostMode}
           />
         )}
@@ -1955,402 +1916,6 @@ function ListView({
           })}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 子组件：详情抽屉（预览 + 元信息 + 反向引用 + 删除）
-// ---------------------------------------------------------------------------
-function DetailDrawer({
-  detail,
-  loading,
-  onClose,
-  onDelete,
-  onRename,
-  onJumpToNote,
-  onDownload,
-  downloadingId,
-  onCopySnippet,
-  isImageHostMode,
-}: {
-  detail: FileDetail | null;
-  loading: boolean;
-  onClose: () => void;
-  onDelete: (id: string) => void;
-  onRename: (id: string, newName: string) => Promise<boolean>;
-  onJumpToNote: (noteId: string) => void;
-  onDownload: (item: { id: string; filename: string; url: string }) => void;
-  downloadingId: string | null;
-  /** 按指定格式复制（URL/Markdown/HTML）。新增于图床功能。 */
-  onCopySnippet: (item: { id: string; filename: string; url: string }, format: ImageHostFormat) => void;
-  /** 图床模式：显示更醒目的"外链分享"区块；非图床模式仍展示但更紧凑。 */
-  isImageHostMode: boolean;
-}) {
-  // 文件名编辑态：仅在抽屉内本地维护，不上提（保存成功后父组件会刷新 detail.filename）
-  const [renaming, setRenaming] = useState(false);
-  const [renameDraft, setRenameDraft] = useState("");
-  const [renameSubmitting, setRenameSubmitting] = useState(false);
-
-  // 抽屉放大态：默认 520px 适合看图/元信息，docx 这类文档窄了费眼。
-  // 用户点 Maximize 切到 90vw，关闭抽屉时不持久化（下次开新文件回到默认窄态）。
-  const [expanded, setExpanded] = useState(false);
-
-  // 切换不同附件时退出编辑态，避免跨详情残留草稿
-  useEffect(() => {
-    setRenaming(false);
-    setRenameDraft("");
-    setRenameSubmitting(false);
-    // 切附件时也收起放大态：上一份是 docx 放大了，这份是图片就该回到窄态
-    setExpanded(false);
-  }, [detail?.id]);
-
-  const startRename = useCallback(() => {
-    if (!detail) return;
-    setRenameDraft(detail.filename || "");
-    setRenaming(true);
-  }, [detail]);
-
-  const cancelRename = useCallback(() => {
-    setRenaming(false);
-    setRenameDraft("");
-  }, []);
-
-  const submitRename = useCallback(async () => {
-    if (!detail) return;
-    const next = renameDraft.trim();
-    if (!next || next === detail.filename) {
-      cancelRename();
-      return;
-    }
-    setRenameSubmitting(true);
-    const ok = await onRename(detail.id, next);
-    setRenameSubmitting(false);
-    if (ok) {
-      setRenaming(false);
-      setRenameDraft("");
-    }
-  }, [detail, renameDraft, onRename, cancelRename]);
-
-  return (
-    <>
-      {/* 遮罩（移动端全屏；桌面端半透明覆盖） */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-40 bg-zinc-900/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      {/* 抽屉 */}
-      <motion.div
-        initial={{ x: "100%" }}
-        animate={{ x: 0 }}
-        exit={{ x: "100%" }}
-        transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-        className={cn(
-          "fixed right-0 top-0 bottom-0 z-50 bg-app-surface border-l border-app-border shadow-2xl flex flex-col transition-[width] duration-200",
-          expanded
-            ? "w-full sm:w-[90vw] md:w-[90vw]"
-            : "w-full sm:w-[480px] md:w-[520px]",
-        )}
-      >
-        {/* Drawer header */}
-        <div
-          className="flex items-center justify-between px-4 py-3 border-b border-app-border shrink-0"
-          style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}
-        >
-          <h3 className="text-sm font-semibold text-tx-primary">文件详情</h3>
-          <div className="flex items-center gap-1">
-            {/* 放大/还原：仅桌面端意义大（移动端本来就全宽） */}
-            <button
-              className="hidden sm:inline-flex p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
-              onClick={() => setExpanded((v) => !v)}
-              title={expanded ? "还原宽度" : "放大查看（适合 docx 等文档）"}
-            >
-              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-            <button
-              className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
-              onClick={onClose}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* Drawer body */}
-        <ScrollArea className="flex-1 min-h-0">
-          {loading || !detail ? (
-            <div className="flex items-center justify-center py-20 text-tx-tertiary">
-              <Loader2 size={16} className="animate-spin mr-2" />
-              加载中…
-            </div>
-          ) : (
-            <div className="p-4 space-y-5">
-              {/* 预览 */}
-              <div className="rounded-lg border border-app-border bg-app-bg overflow-hidden">
-                {detail.category === "image" ? (
-                  <img
-                    src={resolveAttachmentUrl(detail.url)}
-                    alt={detail.filename}
-                    className="w-full max-h-[360px] object-contain bg-zinc-950/5"
-                  />
-                ) : isDocxFile(detail) ? (
-                  // .docx 走自研 OOXML 预览（W1.5）。
-                  // 放大态给更高的预览区（80vh），窄抽屉里给保守的 500px 起，避免把元信息挤出视口。
-                  <DocxAttachmentPreview
-                    url={resolveAttachmentUrl(detail.url)}
-                    filename={detail.filename}
-                    heightClass={expanded ? "min-h-[80vh]" : "min-h-[500px]"}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-10 text-tx-tertiary">
-                    <div className="text-accent-primary mb-2">{mimeIcon(detail.mimeType)}</div>
-                    <span className="text-xs">{detail.mimeType || "未知类型"}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* 外链分享区块：
-                  对所有附件都展示（不止图片），因为 /api/attachments/<id> 本身就是
-                  无需 JWT 的公开下载/预览端点（鉴权靠 uuid 不可枚举），任何文件都可作直链使用。
-                  - 图床模式：醒目高亮（紫色卡片 + 标题加粗），图片场景的核心 CTA。
-                  - 非图床模式：折叠成一行小字，避免抢戏；点击复制按钮展开同样的功能。
-                  注意：完整 URL 用 readonly input 展示而非纯文本，方便用户手动选中。 */}
-              {(() => {
-                const fullUrl = resolveAttachmentUrl(detail.url);
-                const item = { id: detail.id, filename: detail.filename, url: detail.url };
-                return (
-                  <div
-                    className={cn(
-                      "rounded-lg border p-3 space-y-2",
-                      isImageHostMode
-                        ? "border-indigo-500/30 bg-indigo-500/5"
-                        : "border-app-border bg-app-bg",
-                    )}
-                  >
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <Link2
-                        size={13}
-                        className={isImageHostMode ? "text-indigo-500" : "text-tx-tertiary"}
-                      />
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          isImageHostMode ? "text-indigo-500" : "text-tx-secondary",
-                        )}
-                      >
-                        外链分享
-                      </span>
-                      <span className="text-[10px] text-tx-tertiary ml-auto">
-                        无需登录即可访问
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      readOnly
-                      value={fullUrl}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary"
-                    />
-                    <div className="flex flex-wrap gap-1.5">
-                      {(["url", "markdown", "html"] as ImageHostFormat[]).map((fmt) => (
-                        <button
-                          key={fmt}
-                          onClick={() => onCopySnippet(item, fmt)}
-                          className={cn(
-                            "px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition-colors",
-                            isImageHostMode
-                              ? "bg-indigo-500 hover:bg-indigo-600 text-white"
-                              : "bg-app-surface border border-app-border hover:bg-app-hover text-tx-primary",
-                          )}
-                        >
-                          <Copy size={11} />
-                          复制 {imageHostFormatLabel(fmt)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* 元信息 */}
-              <div className="space-y-2 text-xs">
-                <MetaRow
-                  label="文件名"
-                  value={
-                    renaming ? (
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void submitRename();
-                            } else if (e.key === "Escape") {
-                              e.preventDefault();
-                              cancelRename();
-                            }
-                          }}
-                          disabled={renameSubmitting}
-                          className="h-7 text-xs flex-1 min-w-0"
-                          maxLength={255}
-                        />
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => void submitRename()}
-                          disabled={renameSubmitting || !renameDraft.trim()}
-                        >
-                          {renameSubmitting ? <Loader2 size={12} className="animate-spin" /> : "保存"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={cancelRename}
-                          disabled={renameSubmitting}
-                        >
-                          取消
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 break-words">{detail.filename}</span>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[11px] text-accent-primary hover:underline"
-                          onClick={startRename}
-                        >
-                          重命名
-                        </button>
-                      </div>
-                    )
-                  }
-                />
-                <MetaRow label="类型" value={<code className="text-[11px]">{detail.mimeType || "-"}</code>} />
-                <MetaRow label="大小" value={humanSize(detail.size)} />
-                <MetaRow label="上传时间" value={formatLocalTime(detail.createdAt)} />
-                {detail.hash && (
-                  <MetaRow
-                    label="哈希"
-                    value={
-                      <code
-                        className="text-[10px] text-tx-tertiary break-all select-all cursor-pointer"
-                        title="SHA-256；点击复制"
-                        onClick={async () => {
-                          const ok = await copyText(detail.hash || "");
-                          if (ok) toast.success("已复制 hash");
-                        }}
-                      >
-                        {detail.hash}
-                      </code>
-                    }
-                  />
-                )}
-                <MetaRow
-                  label="下载链接"
-                  value={
-                    <a
-                      href={resolveAttachmentUrl(detail.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent-primary hover:underline inline-flex items-center gap-1 truncate"
-                    >
-                      <Download size={11} />
-                      <span className="truncate">{detail.url}</span>
-                    </a>
-                  }
-                />
-              </div>
-
-              {/* 反向引用 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-semibold text-tx-primary">引用此文件的笔记</h4>
-                  <span className="text-[10px] text-tx-tertiary">{detail.references.length} 条</span>
-                </div>
-                {detail.references.length === 0 ? (
-                  <div className="text-xs text-tx-tertiary py-4 text-center border border-dashed border-app-border rounded-md">
-                    没有笔记引用该文件
-                  </div>
-                ) : (
-                  <ul className="space-y-1">
-                    {detail.references.map((ref) => (
-                      <li key={ref.id}>
-                        <button
-                          className="w-full text-left px-2.5 py-2 rounded-md hover:bg-app-hover flex items-center gap-2 group"
-                          onClick={() => {
-                            onJumpToNote(ref.id);
-                            onClose();
-                          }}
-                        >
-                          <span className="text-sm">{ref.notebookIcon || "📄"}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs text-tx-primary truncate flex items-center gap-1.5">
-                              <span className="truncate">{ref.title || "(无标题)"}</span>
-                              {ref.isPrimary && (
-                                <span className="shrink-0 text-[9px] px-1 py-px rounded bg-accent-primary/15 text-accent-primary">主</span>
-                              )}
-                              {ref.isTrashed === 1 && (
-                                <span className="shrink-0 text-[9px] px-1 py-px rounded bg-orange-500/15 text-orange-500">回收站</span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-tx-tertiary truncate">
-                              {ref.notebookName || "-"} · {formatLocalTime(ref.updatedAt)}
-                            </div>
-                          </div>
-                          <ExternalLink size={11} className="text-tx-tertiary group-hover:text-accent-primary shrink-0" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* 操作按钮区：下载 + 删除 */}
-              <div className="pt-3 border-t border-app-border space-y-2">
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => onDownload({ id: detail.id, filename: detail.filename, url: detail.url })}
-                  disabled={downloadingId === detail.id}
-                >
-                  {downloadingId === detail.id ? (
-                    <Loader2 size={14} className="mr-1 animate-spin" />
-                  ) : (
-                    <Download size={14} className="mr-1" />
-                  )}
-                  下载文件
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-red-500 border-red-500/30 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/50"
-                  onClick={() => onDelete(detail.id)}
-                >
-                  <Trash2 size={14} className="mr-1" />
-                  删除文件
-                </Button>
-              </div>
-            </div>
-          )}
-        </ScrollArea>
-      </motion.div>
-    </>
-  );
-}
-
-function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="shrink-0 w-20 text-tx-tertiary">{label}</span>
-      <div className="flex-1 min-w-0 text-tx-primary break-words">{value}</div>
     </div>
   );
 }

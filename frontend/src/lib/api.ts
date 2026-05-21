@@ -1422,6 +1422,8 @@ export const api = {
       myUploadsRef?: FileMyUploadsRef;
       mime?: string;
       notebookId?: string;
+      /** 仅返回"被该笔记引用过"的附件（走 attachment_references 倒排表）。 */
+      noteId?: string;
       q?: string;
       sort?: FileSortKey;
       order?: "asc" | "desc";
@@ -1441,6 +1443,7 @@ export const api = {
       }
       if (params.mime) qs.set("mime", params.mime);
       if (params.notebookId) qs.set("notebookId", params.notebookId);
+      if (params.noteId) qs.set("noteId", params.noteId);
       if (params.q) qs.set("q", params.q);
       if (params.sort) qs.set("sort", params.sort);
       if (params.order) qs.set("order", params.order);

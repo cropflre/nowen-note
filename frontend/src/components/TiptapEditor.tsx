@@ -5,6 +5,8 @@ import { useEditor, EditorContent, Extension, ReactNodeViewRenderer } from "@tip
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
 // 而绝大多数会话不会点 docx 附件，所以拆出去按需拉。
 const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPreview"));
+// 复用的附件详情抽屉（与 FileManager 同一份实现）
+import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import { posToDOMRect } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -1116,9 +1118,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
-  // 内嵌 docx 预览：点附件链接 → 弹层显示 WordViewer，避免被浏览器当成下载
-  const [docxPreview, setDocxPreview] = useState<{ url: string; filename: string } | null>(null);
-  // 图片预览状态
+  // 内嵌附件预览：点编辑器里 📎 附件链接 → 右侧抽屉显示附件详情。
+  // 采用 attachmentId 走 api.files.get 拿完整详情（包含外链分享 / 重命名 / 引用列表），
+  // 与文件管理抽屉体验一致。
+  // - id：从 /api/attachments/<uuid> 抠出。
+  // - isDocx：docx 走中转渲染（支持上传新版本）；其他走默认 AttachmentPreview。
+  const [attachmentPreview, setAttachmentPreview] = useState<
+    { id: string; isDocx: boolean; filename: string } | null
+  >(null);  // 图片预览状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageZoom, setImageZoom] = useState(1);
   const [imageDrag, setImageDrag] = useState({ x: 0, y: 0 });
@@ -1383,17 +1390,37 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
           if (!anchor) return false;
           const href = anchor.getAttribute("href") || "";
-          // 自研 OOXML 内嵌预览：上传附件链接形如
-          //   <a data-attachment="1" href="/api/attachments/<id>" download="原文件名.docx" ...>
-          // 对 .docx 走自研预览（与 FileManager 抽屉里复用同一组件 DocxAttachmentPreview）。
-          // 用 download 属性判断后缀比从 href 解析更准（href 是 /api/attachments/<id> 没扩展名）。
-          if (anchor.getAttribute("data-attachment") === "1") {
-            const fname = anchor.getAttribute("download") || "";
-            if (/\.docx$/i.test(fname)) {
-              event.preventDefault();
-              setDocxPreview({ url: href, filename: fname });
-              return true;
+          // 编辑器里所有 📎 附件链接 href 形如：/api/attachments/<uuid>
+          // 这里用 href 前缀做识别（而不是 data-attachment 自定义属性）——原因：
+          //   StarterKit 默认 Link mark 只保留 href / target / rel / class，
+          //   data-attachment / data-size / download 等自定义属性会在 parse/serialize
+          //   阶段被丢弃，因此只能依赖 href 模式。
+          // 命中后阻止浏览器默认下载，改为右侧抽屉内联预览：
+          //   - .docx → DocxAttachmentPreview（自研 OOXML 渲染，支持"上传新版本"）
+          //   - 其他  → AttachmentPreview（图片 / 视频 / 文本 / 代码 等）
+          // 不支持的格式由 AttachmentPreview 内部显示"该格式不支持内联预览"占位 + 下载兜底。
+          const attachmentMatch = /^\/api\/attachments\/[0-9a-fA-F-]{36}/.test(href);
+          if (attachmentMatch) {
+            // 文件名优先取 download，没有则尝试从链接文字"📎 文件名 (大小)"里抠
+            let fname = anchor.getAttribute("download") || "";
+            if (!fname) {
+              const txt = anchor.textContent || "";
+              const m = txt.match(/📎\s*(.+?)\s*\([^)]*\)\s*$/);
+              fname = m ? m[1] : txt.replace(/^📎\s*/, "");
             }
+            // 从 /api/attachments/<uuid> 中抠 id；regex 已在 attachmentMatch 处验过。
+            const idMatch = href.match(/\/api\/attachments\/([0-9a-fA-F-]{36})/);
+            const attachmentId = idMatch ? idMatch[1] : "";
+            if (!attachmentId) {
+              return false;
+            }
+            event.preventDefault();
+            setAttachmentPreview({
+              id: attachmentId,
+              filename: fname,
+              isDocx: /\.docx$/i.test(fname),
+            });
+            return true;
           }
           if (/^(mailto:|tel:|sms:)/i.test(href)) {
             event.preventDefault();
@@ -3582,78 +3609,54 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         <EditorContent editor={editor} />
       </div>
 
-      {/* docx 附件内嵌预览弹层：点正文里的 📎 *.docx 链接触发，复用 FileManager 抽屉同款组件 */}
-      {docxPreview && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setDocxPreview(null)}
-          onKeyDown={(e) => { if (e.key === "Escape") setDocxPreview(null); }}
-          tabIndex={-1}
-          ref={(el) => el?.focus()}
-        >
-          <div
-            className="bg-app-bg text-tx-primary rounded-lg shadow-2xl w-[min(1200px,96vw)] h-[min(820px,92vh)] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-2 border-b border-app-border shrink-0">
-              <div className="text-sm font-medium truncate">📎 {docxPreview.filename}</div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={docxPreview.url}
-                  download={docxPreview.filename}
-                  className="text-xs px-2 py-1 rounded border border-app-border hover:bg-app-hover"
-                >
-                  下载
-                </a>
-                <button
-                  type="button"
-                  className="p-1 rounded hover:bg-app-hover"
-                  onClick={() => setDocxPreview(null)}
-                  aria-label="关闭"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-auto">
-              <Suspense fallback={<div className="p-6 text-xs text-tx-tertiary">加载预览组件…</div>}>
-                <DocxAttachmentPreview
-                  url={docxPreview.url}
-                  filename={docxPreview.filename}
-                  heightClass="min-h-[600px]"
-                  onReplace={async (file) => {
-                    // 上传新 .docx 覆盖旧附件 + 更新笔记 content 指向新 url。
-                    // 从 docxPreview.url 末尾解析旧 attachmentId（形如 /api/attachments/<uuid>）。
-                    const m = docxPreview.url.match(/attachments\/([^/?#]+)$/);
-                    const oldId = m ? m[1] : "";
-                    const noteId = noteRef.current?.id || "";
-                    if (!noteId || !oldId) {
-                      toast.error("无法识别当前附件，刷新后重试");
-                      return;
-                    }
-                    try {
-                      const { replaceWordAttachment } = await import("@/lib/wordNoteService");
-                      const res = await replaceWordAttachment({ noteId, oldAttachmentId: oldId, file });
-                      toast.success("已上传新版本");
-                      // 关掉预览：旧 url 已经 404，再渲染会报错；下次点开附件链接会用新的 url。
-                      setDocxPreview(null);
-                      // 触发笔记内容刷新：让外层 EditorPane 拉一次最新 note，编辑器才会拿到带新 link 的 content。
-                      try {
-                        window.dispatchEvent(new CustomEvent("nowen:note-updated", { detail: { noteId: res.note.id } }));
-                      } catch { /* ignore */ }
-                    } catch (err: any) {
-                      console.error("Replace docx failed:", err);
-                      toast.error(err?.message || "上传新版本失败");
-                    }
-                  }}
-                />
-              </Suspense>
-            </div>
-          </div>
-        </div>,
-        document.body,
+      {/* 附件内嵌预览：复用 AttachmentDetailDrawer
+          - 触发：点正文里的 📎 附件链接（任意类型，data-attachment="1"）
+          - 类型分流：
+              .docx → 通过 renderPreview 走 DocxAttachmentPreview（保留"上传新版本"能力）
+              其他  → 组件内置 AttachmentPreview（图片 / 视频 / 音频 / 文本 / 代码 / SVG）
+          - 与文件管理中心同款抽屉：含外链分享 / 重命名 / 元信息 / 反向引用 / 下载。
+          - 不开启 showDelete：编辑器场景里附件可能就是当前笔记自己引用的，删了会破图。 */}
+      {attachmentPreview && (
+        <AttachmentDetailDrawer
+          attachmentId={attachmentPreview.id}
+          onClose={() => setAttachmentPreview(null)}
+          renderPreview={
+            attachmentPreview.isDocx
+              ? (detail, expanded) => (
+                  <Suspense fallback={<div className="p-6 text-xs text-tx-tertiary">加载预览组件…</div>}>
+                    <DocxAttachmentPreview
+                      url={detail.url}
+                      filename={detail.filename}
+                      heightClass={expanded ? "min-h-[80vh]" : "min-h-[600px]"}
+                      onReplace={async (file) => {
+                        // 上传新 .docx 覆盖旧附件 + 更新笔记 content 指向新 url。
+                        const oldId = detail.id;
+                        const noteId = noteRef.current?.id || "";
+                        if (!noteId) {
+                          toast.error("无法识别当前笔记，刷新后重试");
+                          return;
+                        }
+                        try {
+                          const { replaceWordAttachment } = await import("@/lib/wordNoteService");
+                          const res = await replaceWordAttachment({ noteId, oldAttachmentId: oldId, file });
+                          toast.success("已上传新版本");
+                          // 关掉预览：旧 id 已失效，再渲染会报错。
+                          setAttachmentPreview(null);
+                          // 触发笔记内容刷新：让外层 EditorPane 拉一次最新 note。
+                          try {
+                            window.dispatchEvent(new CustomEvent("nowen:note-updated", { detail: { noteId: res.note.id } }));
+                          } catch { /* ignore */ }
+                        } catch (err: any) {
+                          console.error("Replace docx failed:", err);
+                          toast.error(err?.message || "上传新版本失败");
+                        }
+                      }}
+                    />
+                  </Suspense>
+                )
+              : undefined
+          }
+        />
       )}
 
       {/* 回到顶部按钮：滚动超过阈值后显示在编辑区右下角 */}

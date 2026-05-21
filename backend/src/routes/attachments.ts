@@ -242,6 +242,12 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   }
 
   const forceDownload = c.req.query("download") === "1";
+  // ?inline=1 —— 显式声明"用于浏览器内联预览（如 <video>/<audio>/<iframe>）"。
+  // 对于非图片附件，此参数会跳过 Content-Disposition: attachment，让浏览器直接渲染
+  // 而不是触发下载。和 forceDownload 互斥（forceDownload 优先级更高，因为是用户明示）。
+  // 注意：authorization 模型不变（uuid 不可枚举），inline 不会扩大攻击面——HTML/SVG 等
+  // 高危类型由前端预览组件自行 sanitize 处理。
+  const inlinePreview = c.req.query("inline") === "1";
   const requestedWidth = parseThumbnailWidth(c.req.query("w"));
 
   // 缩略图分支：仅在
@@ -277,7 +283,9 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   };
   // 非图片（或显式 ?download=1）：带 Content-Disposition，浏览器点击会按原名下载。
   // 图片默认 inline，由 <img> 直接渲染。
-  if (!isImageMime(row.mimeType) || forceDownload) {
+  // 例外：?inline=1 用于前端预览组件（<video>/<audio>/svg 等），跳过 Content-Disposition，
+  //       让浏览器直接渲染。?download=1 优先级更高（用户明示要下载）。
+  if ((!isImageMime(row.mimeType) || forceDownload) && !(inlinePreview && !forceDownload)) {
     headers["Content-Disposition"] = encodeContentDispositionFilename(row.filename || "");
   }
   // 同上：Buffer → Uint8Array<ArrayBuffer> 视图，绕开 TS 5.7+ ArrayBufferLike 不兼容

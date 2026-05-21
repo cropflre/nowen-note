@@ -17,6 +17,9 @@ interface AppState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   noteListWidth: number;
+  /** 桌面端：笔记列表面板是否折叠（折叠后整列消失，编辑器占满）。
+   *  与 sidebarCollapsed 完全平行的开关，互不影响。 */
+  noteListCollapsed: boolean;
   isLoading: boolean;
   /** 笔记切换时的加载状态：正在从后端获取完整笔记内容 */
   noteLoading: boolean;
@@ -40,6 +43,7 @@ type Action =
   | { type: "TOGGLE_SIDEBAR" }
   | { type: "SET_SIDEBAR_WIDTH"; payload: number }
   | { type: "SET_NOTELIST_WIDTH"; payload: number }
+  | { type: "TOGGLE_NOTELIST_COLLAPSED" }
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "SET_NOTE_LOADING"; payload: boolean }
   | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } }
@@ -81,6 +85,14 @@ function getSavedNoteListWidth(): number {
   return DEFAULT_NOTELIST_WIDTH;
 }
 
+function getSavedNoteListCollapsed(): boolean {
+  try {
+    return localStorage.getItem("nowen-notelist-collapsed") === "1";
+  } catch {
+    return false;
+  }
+}
+
 const initialState: AppState = {
   notebooks: [],
   notes: [],
@@ -93,6 +105,7 @@ const initialState: AppState = {
   sidebarCollapsed: false,
   sidebarWidth: getSavedSidebarWidth(),
   noteListWidth: getSavedNoteListWidth(),
+  noteListCollapsed: getSavedNoteListCollapsed(),
   isLoading: false,
   noteLoading: false,
   syncStatus: "idle",
@@ -133,6 +146,11 @@ function reducer(state: AppState, action: Action): AppState {
       const w = Math.max(MIN_NOTELIST_WIDTH, Math.min(MAX_NOTELIST_WIDTH, action.payload));
       try { localStorage.setItem("nowen-notelist-width", String(w)); } catch {}
       return { ...state, noteListWidth: w };
+    }
+    case "TOGGLE_NOTELIST_COLLAPSED": {
+      const next = !state.noteListCollapsed;
+      try { localStorage.setItem("nowen-notelist-collapsed", next ? "1" : "0"); } catch {}
+      return { ...state, noteListCollapsed: next };
     }
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
@@ -208,6 +226,7 @@ export function useAppActions() {
     toggleSidebar: () => dispatch({ type: "TOGGLE_SIDEBAR" }),
     setSidebarWidth: (v: number) => dispatch({ type: "SET_SIDEBAR_WIDTH", payload: v }),
     setNoteListWidth: (v: number) => dispatch({ type: "SET_NOTELIST_WIDTH", payload: v }),
+    toggleNoteListCollapsed: () => dispatch({ type: "TOGGLE_NOTELIST_COLLAPSED" }),
     setLoading: (v: boolean) => dispatch({ type: "SET_LOADING", payload: v }),
     setNoteLoading: (v: boolean) => dispatch({ type: "SET_NOTE_LOADING", payload: v }),
     updateNoteInList: (v: Partial<NoteListItem> & { id: string }) => dispatch({ type: "UPDATE_NOTE_IN_LIST", payload: v }),

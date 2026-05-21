@@ -5,6 +5,8 @@
     "save": "保存",
     "expand": "展开侧栏",
     "collapse": "收起侧栏",
+    "expandList": "展开笔记列表",
+    "collapseList": "收起笔记列表",
     "saving": "保存中...",
     "delete": "删除",
     "rename": "重命名",

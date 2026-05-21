@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -17,6 +17,7 @@ import { toast } from "@/lib/toast";
 import ShareModal from "@/components/ShareModal";
 import VersionHistoryPanel from "@/components/VersionHistoryPanel";
 import CommentPanel from "@/components/CommentPanel";
+import NoteAttachmentsPanel from "@/components/NoteAttachmentsPanel";
 import {
   PresenceBar,
   EditingLockBanner,
@@ -81,6 +82,7 @@ export default function EditorPane() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
+  const [showAttachmentsPanel, setShowAttachmentsPanel] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -1289,7 +1291,21 @@ export default function EditorPane() {
 
   if (!activeNote) {
     return (
-      <div className="flex-1 flex flex-col bg-app-bg transition-colors">
+      <div className="flex-1 flex flex-col bg-app-bg transition-colors relative">
+        {/* 桌面端空态下也要保留"展开笔记列表"入口；否则一旦折叠+无选中笔记，整个屏幕
+            就只剩 NavRail，用户找不到任何回到列表的方式（图片里就是这个 bug）。
+            做成绝对定位贴左上角，避免破坏原本居中的空态视觉。 */}
+        {state.noteListCollapsed && (
+          <button
+            type="button"
+            onClick={() => actions.toggleNoteListCollapsed()}
+            title={t("common.expandList")}
+            aria-label={t("common.expandList")}
+            className="hidden md:flex absolute top-3 left-3 z-10 p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+          >
+            <PanelLeft size={16} />
+          </button>
+        )}
         {/* 移动端：顶部返回按钮 + 提示。
             背景：原空态用 `hidden md:flex` 把内容藏起来，移动端切到 editor 视图但
             尚无 activeNote 时屏幕一片空白，用户找不到回到列表的入口（系统返回键
@@ -1514,6 +1530,17 @@ export default function EditorPane() {
                     <MessageCircle size={15} className="text-blue-500" />
                     <span>评论批注</span>
                   </button>
+                  {/* 附件目录 */}
+                  <button
+                    onClick={() => {
+                      setShowAttachmentsPanel(true);
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Paperclip size={15} className="text-amber-500" />
+                    <span>附件目录</span>
+                  </button>
                   {/* HTML 预览 / 编辑切换（仅 HTML 片段笔记显示，完全克隆不支持编辑） */}
                   {noteIsHtml && !noteIsFullHtmlDoc && (
                     <>
@@ -1621,7 +1648,21 @@ export default function EditorPane() {
 
       {/* Desktop Editor Header */}
       <div className="hidden md:flex items-center justify-between px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
-        <div className="relative">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {/* 笔记列表被折叠时，在这里提供“展开”按钮；未折叠时隐藏。
+              入口贴着面包屑左侧，才能在“是谁把列表遮住了”这个认知上一眼看到。 */}
+          {state.noteListCollapsed && (
+            <button
+              type="button"
+              onClick={() => actions.toggleNoteListCollapsed()}
+              title={t("common.expandList")}
+              aria-label={t("common.expandList")}
+              className="p-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors shrink-0"
+            >
+              <PanelLeft size={15} />
+            </button>
+          )}
+          <div className="relative">
           <button
             onClick={() => setShowMoveDropdown(!showMoveDropdown)}
             className="flex items-center gap-1 text-xs text-tx-tertiary hover:text-tx-secondary transition-colors rounded-md px-1.5 py-1 hover:bg-app-hover max-w-[520px]"
@@ -1724,6 +1765,7 @@ export default function EditorPane() {
               </div>
             </>
           )}
+          </div>
         </div>
 
         {/* Sync Indicator + Grouped Actions */}
@@ -1823,6 +1865,15 @@ export default function EditorPane() {
             title="评论批注"
           >
             <MessageCircle size={14} className="text-blue-500" />
+          </Button>
+
+          {/* 附件目录 */}
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={() => setShowAttachmentsPanel(true)}
+            title="附件目录"
+          >
+            <Paperclip size={14} className="text-amber-500" />
           </Button>
 
           {/* 编辑器模式切换（MD / Tiptap） */}
@@ -2069,6 +2120,15 @@ export default function EditorPane() {
           noteId={activeNote.id}
           noteTitle={activeNote.title}
           onClose={() => setShowCommentPanel(false)}
+        />
+      )}
+
+      {/* 附件目录面板 */}
+      {showAttachmentsPanel && (
+        <NoteAttachmentsPanel
+          noteId={activeNote.id}
+          noteTitle={activeNote.title}
+          onClose={() => setShowAttachmentsPanel(false)}
         />
       )}
 

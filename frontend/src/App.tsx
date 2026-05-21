@@ -111,6 +111,9 @@ function NoteListResizeHandle() {
     window.addEventListener("mouseup", handleMouseUp);
   }, [state.noteListWidth, actions]);
 
+  // 笔记列表折叠后拖拽条也需同步隐藏，避免留下一根“孤儿拖柄”拖到空列。
+  if (state.noteListCollapsed) return null;
+
   return (
     <div
       onMouseDown={handleMouseDown}
@@ -472,11 +475,14 @@ function AppLayout() {
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
-          {/* 笔记列表 — 桌面端动态宽度，移动端全宽 */}
+          {/* 笔记列表 — 桌面端动态宽度，移动端全宽。
+              桌面端 noteListCollapsed = true 时整列不渲染（让编辑器占满）；
+              移动端不受该状态影响（本来就是 list/editor 单栏切换）。 */}
           <div
             className={`
               flex flex-col shrink-0 h-full
               max-md:!w-full
+              ${state.noteListCollapsed ? "max-md:flex md:hidden" : ""}
               ${state.mobileView === "list" ? "flex" : "hidden md:flex"}
             `}
             style={{ width: `${state.noteListWidth}px` }}

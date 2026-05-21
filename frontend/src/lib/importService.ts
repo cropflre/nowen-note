@@ -877,7 +877,126 @@ export function markdownToSimpleHtml(md: string, imageMap?: Record<string, strin
   // 规范化 marked 输出的 GFM 表格 HTML，使其符合 Tiptap table schema
   // （否则带表格的 md 在下游 generateJSON 时会产出非法 content，触发
   //  ProseMirror 的 "Called contentMatchAt on a node with invalid content"）
-  return normalizeTableHtml(html);
+  // 同时把 GFM 任务列表（- [x] / - [ ]）改写成 Tiptap TaskList 格式，
+  // 否则会被 schema 当成普通 <ul>，checkbox 直接丢失退化成无序列表。
+  return normalizeTaskListHtml(normalizeTableHtml(html));
+}
+
+// 把 marked 输出的 GFM 任务列表 HTML 改写成 Tiptap TaskList/TaskItem 期望的形态。
+//
+// marked@14 输出（GFM 任务列表）：
+//   <ul>
+//     <li><input checked="" disabled="" type="checkbox"> 已完成项</li>
+//     <li><input disabled="" type="checkbox"> 未完成项</li>
+//   </ul>
+// Tiptap TaskList/TaskItem 期望的 parse 形态：
+//   <ul data-type="taskList">
+//     <li data-type="taskItem" data-checked="true"><p>已完成项</p></li>
+//     <li data-type="taskItem" data-checked="false"><p>未完成项</p></li>
+//   </ul>
+//
+// 不用正则是因为 li 内容可能含嵌套 <ul>（子任务）、链接、加粗等结构，
+// DOMParser 处理嵌套天然正确。在浏览器中开销 ~1ms，可接受。
+//
+// 关键规则：
+// - 只改写**直接子级含 <input type="checkbox"> 的 li**；普通 li 维持原样
+// - 包含至少一个 task li 的 ul 才标记为 taskList；纯无序列表不动
+// - data-checked 来源于 input 的 checked 属性
+// - input 节点本身从 li 中移除（Tiptap 渲染时会自己生成 checkbox）
+function normalizeTaskListHtml(html: string): string {
+  if (!html || html.indexOf("type=\"checkbox\"") === -1) return html;
+  // 服务端/测试环境无 DOMParser 时退化（不抛错，原样返回）
+  if (typeof DOMParser === "undefined") return html;
+
+  try {
+    const doc = new DOMParser().parseFromString(
+      `<div>${html}</div>`,
+      "text/html",
+    );
+    const root = doc.body.firstElementChild;
+    if (!root) return html;
+
+    // 自底向上遍历所有 ul：先处理嵌套的子 ul，再处理父 ul
+    // 这样父 li 被改写成 taskItem 时，里面已经处理过的子 taskList 不会被破坏
+    const allUls = Array.from(root.querySelectorAll("ul"));
+    for (const ul of allUls) {
+      const directLis = Array.from(ul.children).filter(
+        (el) => el.tagName === "LI",
+      ) as HTMLLIElement[];
+      let hasTaskItem = false;
+
+      for (const li of directLis) {
+        // li 的首个有效子元素必须是 input[type=checkbox] 才算任务项
+        const firstChild = li.firstElementChild;
+        if (
+          !firstChild ||
+          firstChild.tagName !== "INPUT" ||
+          (firstChild as HTMLInputElement).type !== "checkbox"
+        ) {
+          continue;
+        }
+        hasTaskItem = true;
+        const checked = (firstChild as HTMLInputElement).hasAttribute("checked");
+        // 移除 input，保留余下文本/元素作为 taskItem 的内容
+        firstChild.remove();
+        // marked 输出的 li 文本紧贴 input 后，通常是个空格开头，trim 掉
+        if (li.firstChild && li.firstChild.nodeType === 3) {
+          li.firstChild.nodeValue = (li.firstChild.nodeValue || "").replace(/^\s+/, "");
+        }
+        li.setAttribute("data-type", "taskItem");
+        li.setAttribute("data-checked", checked ? "true" : "false");
+        // Tiptap TaskItem schema 要求内容是 paragraph+。把直接子级的散文本/inline
+        // 节点包到一个 <p> 里；已经是 <p>/<ul>（嵌套子任务）等块级元素的不动。
+        wrapInlineChildrenInParagraph(li);
+      }
+
+      if (hasTaskItem) {
+        ul.setAttribute("data-type", "taskList");
+      }
+    }
+
+    return root.innerHTML;
+  } catch (e) {
+    console.warn("[importService] normalizeTaskListHtml failed:", e);
+    return html;
+  }
+}
+
+// 把元素的直接 inline 子节点（文本、<a>、<strong>、<code> 等）按相邻段聚合到
+// 单个 <p> 里。已经是块级（p/ul/ol/blockquote/pre/h1-h6/div）的子节点维持位置。
+// 用于满足 Tiptap TaskItem 的 "paragraph+ 内容" schema 要求。
+function wrapInlineChildrenInParagraph(el: Element): void {
+  const blockTags = new Set([
+    "P", "UL", "OL", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6",
+    "DIV", "TABLE", "HR",
+  ]);
+  const children = Array.from(el.childNodes);
+  let buffer: Node[] = [];
+  const flush = (insertBefore: Node | null) => {
+    if (buffer.length === 0) return;
+    // 全部为空白文本则不生成 <p>
+    const allWhitespace = buffer.every(
+      (n) => n.nodeType === 3 && !(n.nodeValue || "").trim(),
+    );
+    if (allWhitespace) {
+      buffer.forEach((n) => n.parentNode?.removeChild(n));
+      buffer = [];
+      return;
+    }
+    const p = el.ownerDocument!.createElement("p");
+    buffer.forEach((n) => p.appendChild(n));
+    el.insertBefore(p, insertBefore);
+    buffer = [];
+  };
+
+  for (const node of children) {
+    if (node.nodeType === 1 && blockTags.has((node as Element).tagName)) {
+      flush(node);
+    } else {
+      buffer.push(node);
+    }
+  }
+  flush(null);
 }
 
 // 规范化表格 HTML，让它能被 Tiptap 的 Table schema 接受。

@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -2710,6 +2710,17 @@ export default function NoteList() {
           <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
         </div>
         <div className="flex items-center gap-1 relative">
+          {/* 折叠笔记列表面板（桌面专用；点击后中间整列隐藏，编辑器占满）。
+              与Rail上的 toggleSidebar 互不干扰，均有独立状态。 */}
+          <button
+            type="button"
+            onClick={() => actions.toggleNoteListCollapsed()}
+            title={t("common.collapseList")}
+            aria-label={t("common.collapseList")}
+            className="p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+          >
+            <PanelLeftClose size={15} />
+          </button>
           {/* 桌面端排序按钮 */}
           {state.viewMode !== "trash" && state.viewMode !== "search" && (
             <button

@@ -369,6 +369,13 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
   const filter = (c.req.query("filter") || "").toLowerCase();
   const mime = c.req.query("mime") || "";
   const notebookId = c.req.query("notebookId") || "";
+  // ?noteId=xxx —— 仅返回"被该笔记引用过"的附件。
+  // 实现：EXISTS attachment_references 倒排表（v11 起维护），覆盖以下三种归属：
+  //   1) 该笔记自己上传的（attachments.noteId === noteId）；
+  //   2) 别的笔记上传、被本笔记 paste/import 引用的；
+  //   3) 文件管理直传后又被本笔记引用的。
+  // 与 filter / category / mime / q 全部正交，可叠加（例如"本笔记里的图片"）。
+  const noteIdFilter = c.req.query("noteId") || "";
   const q = (c.req.query("q") || "").trim();
   const sort = c.req.query("sort") || "created_desc";
   const page = Math.max(1, Number(c.req.query("page") || 1));
@@ -411,6 +418,14 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
   if (q) {
     whereParts.push("a.filename LIKE ? COLLATE NOCASE");
     params.push(`%${q}%`);
+  }
+
+  // noteId：本笔记引用过的附件（含自己上传 + 引用别处的）
+  if (noteIdFilter) {
+    whereParts.push(
+      "EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id AND ar.noteId = ?)",
+    );
+    params.push(noteIdFilter);
   }
 
   // filter=unreferenced：把 orphan id 集合注入 WHERE

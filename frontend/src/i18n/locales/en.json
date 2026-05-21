@@ -5,6 +5,8 @@
     "save": "Save",
     "expand": "Expand sidebar",
     "collapse": "Collapse sidebar",
+    "expandList": "Expand note list",
+    "collapseList": "Collapse note list",
     "saving": "Saving...",
     "delete": "Delete",
     "rename": "Rename",
