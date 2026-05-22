@@ -261,13 +261,14 @@ export default function UpdateNotifier() {
     };
   }, [serverInfo, dismissed]);
 
-  if (state.kind === "none") return null;
-
   /**
    * 计算当前这对 (server, client) 版本差异对应的 dismiss key。
    * 规则与 state 计算里保持一致：appVersion 为主、buildId 仅作为 "同版本号不同
    * bundle" 的精细去重维度。抽成函数后 handleReload / handleDismiss 共用，保证
    * 两处行为一致。
+   *
+   * 注意：必须放在所有 early return 之前，否则不同渲染路径下 hook 数量不一致，
+   * React 会抛 "Rendered more hooks than during the previous render"。
    */
   const computeDismissKey = useCallback((): string | null => {
     if (!serverInfo) return null;
@@ -277,6 +278,8 @@ export default function UpdateNotifier() {
         : null;
     return buildKey ?? serverInfo.appVersion ?? null;
   }, [serverInfo]);
+
+  if (state.kind === "none") return null;
 
   const handleReload = () => {
     // 先记 dismiss：刷新后如果版本差异依旧存在（后端没推新 bundle、或本地是
