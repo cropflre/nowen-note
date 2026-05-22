@@ -1,6 +1,6 @@
 {
   "name": "@nowen/clipper",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Nowen Note Web Clipper — 浏览器扩展，一键把网页剪藏到 nowen-note",
   "private": true,
   "type": "module",
