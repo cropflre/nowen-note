@@ -698,9 +698,39 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
         return editor.chain().focus().changeIndent(delta).run();
       };
 
+      // 列表项内 Enter：空项 lift 跳出，非空项 split 出新项。
+      // 显式接管全部分支（不依赖 listItem 内置 keymap fallthrough），
+      // 避免 tiptap 多 keymap plugin 顺序 / IndentExtension 全局属性
+      // 干扰下出现「输入内容也被一次回车跳出列表」的诡异行为。
+      const handleEnterInListItem = () => {
+        const { state } = editor;
+        const { selection } = state;
+        if (!selection.empty) return false;
+        const $from = selection.$from;
+        // 自下往上找最近的 listItem / taskItem
+        for (let depth = $from.depth; depth > 0; depth--) {
+          const node = $from.node(depth);
+          const typeName = node.type.name;
+          if (typeName !== "listItem" && typeName !== "taskItem") continue;
+          // 判定「空 li」：单段落 + 无文本 + 段落内容尺寸为 0
+          const isEmpty =
+            node.childCount === 1 &&
+            node.textContent === "" &&
+            !!node.firstChild &&
+            node.firstChild.content.size === 0;
+          if (isEmpty) {
+            return editor.chain().focus().liftListItem(typeName).run();
+          }
+          // 非空 li：显式 split，并强制 return true 阻止后续 keymap 再触发一次。
+          return editor.chain().focus().splitListItem(typeName).run();
+        }
+        return false;
+      };
+
       return {
         Tab: () => handleTab(1),
         "Shift-Tab": () => handleTab(-1),
+        Enter: () => handleEnterInListItem(),
         "Mod-s": () => {
           flushSaveRef.current?.();
           return true; // 返回 true 阻止浏览器默认的"保存网页"对话框
