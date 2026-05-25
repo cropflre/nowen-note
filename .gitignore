@@ -31,4 +31,9 @@ ugnas-*.html
 docs/samples/
 *.note.attach/
 
-
+# 临时调试/排查输出（不应入库）
+_td_test.js
+bt-detail.json
+bt-pkgs.json
+node-procs.txt
+vs-list.json

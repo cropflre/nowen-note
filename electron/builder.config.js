@@ -82,6 +82,34 @@ function detectNodeFilePlatform(nodeFile) {
   }
 }
 
+// ===== ABI 符号实测：扫描 .node 内 "node_register_module_v<N>" =====
+// 这是最可靠的 ABI 校验：编译器会把 NODE_MODULE_VERSION 直接拼进入口符号名。
+// 历史教训（2026-05-25）：prebuild-install 缓存命中错位，stamp 写 electron=33.0.0、
+// platform/arch 全对，但实际下载的是 Node ABI(115) 而非 Electron ABI(130) 的 .node，
+// 安装到用户机后必爆 "NODE_MODULE_VERSION 115 vs 130"。
+// 这里直接读文件字节串验证，杜绝任何中间环节的"假对齐"。
+const NODE_MODULE_VERSION_BY_ELECTRON_MAJOR = {
+  28: 119,
+  29: 121,
+  30: 123,
+  31: 125,
+  32: 128,
+  33: 130,
+  34: 133,
+  35: 136,
+};
+
+function detectNodeAbiVersion(nodeFile) {
+  // 读全文件然后正则——.node 通常 ~2MB，可以接受
+  const buf = fs.readFileSync(nodeFile);
+  const s = buf.toString("latin1");
+  const re = /node_register_module_v(\d+)/g;
+  const found = new Set();
+  let m;
+  while ((m = re.exec(s))) found.add(parseInt(m[1], 10));
+  return [...found];
+}
+
 function checkNativeModule() {
   const nodeFile = path.resolve(
     __dirname,
@@ -202,6 +230,32 @@ function checkNativeModule() {
     `[builder] ✓ ABI stamp verified (electron=${stamp.electronVersion}, ` +
       `platform=${stampPlatform}-${stampArch}, mode=${stamp.mode || "native-rebuild"}, ` +
       `rebuiltAt=${stamp.rebuiltAt})`
+  );
+
+  // ===== 最终守门：ABI 符号实测 =====
+  const electronMajor = parseInt(expectedElectron.split(".")[0], 10);
+  const expectedAbi = NODE_MODULE_VERSION_BY_ELECTRON_MAJOR[electronMajor];
+  if (!expectedAbi) {
+    console.warn(
+      `[builder] ⚠ 未知 Electron major=${electronMajor}，跳过 ABI 符号实测。\n` +
+        `   请在 NODE_MODULE_VERSION_BY_ELECTRON_MAJOR 中补一行映射。`
+    );
+    return;
+  }
+  const detectedAbi = detectNodeAbiVersion(nodeFile);
+  if (!detectedAbi.includes(expectedAbi)) {
+    throw new Error(
+      `[builder] ✗ better_sqlite3.node ABI 符号实测失败！\n` +
+        `   expected NODE_MODULE_VERSION : ${expectedAbi}（Electron ${electronMajor}）\n` +
+        `   detected in .node            : [${detectedAbi.join(", ") || "none"}]\n` +
+        `   这份 .node 装到用户机会爆 "NODE_MODULE_VERSION X vs ${expectedAbi}"。\n` +
+        `   修复：先删 backend\\node_modules\\better-sqlite3\\build，\n` +
+        `         然后清 ~/.npm/_prebuilds 下的 better-sqlite3 缓存，\n` +
+        `         再执行 npm run rebuild:native。`
+    );
+  }
+  console.log(
+    `[builder] ✓ ABI symbol verified: node_register_module_v${expectedAbi}`
   );
 }
 

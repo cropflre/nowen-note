@@ -111,7 +111,16 @@ async function main() {
     args["target-arch"] || process.env.TARGET_ARCH || process.arch;
   const hostPlatform = process.platform;
   const hostArch = process.arch;
-  const isCross = targetPlatform !== hostPlatform || targetArch !== hostArch;
+  // --prebuild 或 NOWEN_FORCE_PREBUILD=1：即使同平台也强制走 prebuild-install，
+  // 用于本地缺少可用 C++ 工具链（例如 VS 18 还没被 node-gyp 识别）的应急情况。
+  const forcePrebuild =
+    args["prebuild"] === "true" ||
+    args["force-prebuild"] === "true" ||
+    process.env.NOWEN_FORCE_PREBUILD === "1";
+  const isCross =
+    forcePrebuild ||
+    targetPlatform !== hostPlatform ||
+    targetArch !== hostArch;
 
   const rootPkg = JSON.parse(
     fs.readFileSync(path.join(ROOT, "package.json"), "utf8")
@@ -126,7 +135,15 @@ async function main() {
 
   console.log(`[rebuild-native] host:   ${hostPlatform}-${hostArch}`);
   console.log(`[rebuild-native] target: ${targetPlatform}-${targetArch}`);
-  console.log(`[rebuild-native] mode:   ${isCross ? "CROSS (prebuild-install)" : "NATIVE (@electron/rebuild)"}`);
+  console.log(
+    `[rebuild-native] mode:   ${
+      isCross
+        ? forcePrebuild && targetPlatform === hostPlatform && targetArch === hostArch
+          ? "FORCED-PREBUILD (prebuild-install)"
+          : "CROSS (prebuild-install)"
+        : "NATIVE (@electron/rebuild)"
+    }`
+  );
   console.log(`[rebuild-native] electron: ${electronVersion}`);
 
   const backendDir = path.join(ROOT, "backend");
@@ -162,29 +179,39 @@ async function main() {
       `[rebuild-native] cross-platform prepare via prebuild-install ` +
         `(runtime=electron, target=${electronVersion}, platform=${targetPlatform}, arch=${targetArch})`
     );
-    const npmExec = process.platform === "win32" ? "npx.cmd" : "npx";
-    const res = spawnSync(
-      npmExec,
-      [
-        "--yes",
-        "prebuild-install",
-        "--runtime=electron",
-        `--target=${electronVersion}`,
-        `--platform=${targetPlatform}`,
-        `--arch=${targetArch}`,
-        "--tag-prefix=v",
-      ],
-      {
-        cwd: bsRoot,
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          // 禁止 prebuild-install 把它当成"源码构建回退"——跨平台必须拿到预编译，
-          // 拿不到就直接失败而不是尝试在 host 编译出错 ABI 的产物。
-          npm_config_build_from_source: "false",
-        },
-      }
+    // 优先用 backend 内的 prebuild-install shim：直接调 .cmd 比 npx 在 Windows 上稳得多
+    // （npx 在 PowerShell 里可能因 spawn 找不到 npx.cmd 而退出码 null）。
+    const isWin = process.platform === "win32";
+    const binShim = path.join(
+      backendDir,
+      "node_modules",
+      ".bin",
+      isWin ? "prebuild-install.cmd" : "prebuild-install"
     );
+    const useShim = fs.existsSync(binShim);
+    const cmd = useShim ? binShim : isWin ? "npx.cmd" : "npx";
+    const cmdArgs = [
+      ...(useShim ? [] : ["--yes", "prebuild-install"]),
+      "--runtime=electron",
+      `--target=${electronVersion}`,
+      `--platform=${targetPlatform}`,
+      `--arch=${targetArch}`,
+      "--tag-prefix=v",
+      "--verbose",
+    ];
+    console.log(`[rebuild-native] exec: ${cmd} ${cmdArgs.join(" ")}`);
+    const res = spawnSync(cmd, cmdArgs, {
+      cwd: bsRoot,
+      stdio: "inherit",
+      // Windows 上 spawn .cmd 文件必须 shell:true，否则 status=null。
+      shell: isWin,
+      env: {
+        ...process.env,
+        // 禁止 prebuild-install 当成"源码构建回退"——跨平台必须拿到预编译，
+        // 拿不到就直接失败而不是尝试在 host 编译出错 ABI 的产物。
+        npm_config_build_from_source: "false",
+      },
+    });
     if (res.status !== 0) {
       console.error(
         `[rebuild-native] prebuild-install 失败（退出码 ${res.status}）\n` +

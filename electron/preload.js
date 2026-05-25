@@ -207,4 +207,21 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   exportNoteToPDF(payload) {
     return ipcRenderer.invoke("export:note-to-pdf", payload);
   },
+
+  /**
+   * Phase A: 桌面零登录入口。
+   *
+   *   getLocalAuth():   { token, user } | null
+   *     启动后 renderer 第一时间调它；非 null 则直接写入 localStorage("nowen-token")
+   *     并跳过登录页。lite 模式 / 失败时返回 null。
+   *
+   *   clearLocalAuth(): 用户在 App 内切换到云账号时调；仅清掉主进程里的内存缓存，
+   *     不删 userData 下的 secret，下次重启又能自动恢复本地登录。
+   */
+  getLocalAuth() {
+    return ipcRenderer.invoke("desktop:get-local-auth");
+  },
+  clearLocalAuth() {
+    return ipcRenderer.invoke("desktop:clear-local-auth");
+  },
 });

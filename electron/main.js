@@ -34,6 +34,10 @@ let backendPort = 0;
 // 当前运行模式快照（在 ready 时读 settings.json 后赋值）
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
+// Phase A: 桌面零登录所用的本地账号 token / user，在 startBackend 之后由
+// ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
+// 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
+let localAuthCache = null;  // { token: string, user: object } | null
 
 // ---------- 单实例锁（防止多开损坏 SQLite） ----------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -422,6 +426,117 @@ function stopBackend() {
   }
 }
 
+// ---------- Phase A: 桌面零登录的本地账号自动准备 ----------
+//
+// 设计：
+//   - full 模式下，backend 起来后向自身 localhost:port 走一遍 /auth/login；
+//     用户名固定为 "desktop"，密码用 userData/.local_account_secret 持久化的 32B base64。
+//   - 第一次启动找不到用户 → 直接 POST /auth/register 创建（首个用户自动成为 admin）。
+//   - 拿到 token 后缓存在主进程，preload 通过 ipcMain "desktop:get-local-auth" 暴露给前端。
+//   - 失败不抛：renderer 拿不到 localAuth 就走原本的登录页，相当于"零登录"功能未生效。
+//
+// 安全性说明：
+//   - 这个账号只在 127.0.0.1 上可用（backend 默认 listen 127.0.0.1），不暴露公网；
+//   - 密码秘密存在 userData 下，权限 0600；用户磁盘被人物理拿到时本就不再是 trust boundary。
+//   - 用户随时可以从 App 内"账号设置 → 切换账号"绕回手动登录路径。
+function getLocalAccountSecret() {
+  const userDataPath = getUserDataPath();
+  const f = path.join(userDataPath, ".local_account_secret");
+  try {
+    if (fs.existsSync(f)) {
+      const v = fs.readFileSync(f, "utf8").trim();
+      if (v.length >= 16) return v;
+    }
+  } catch (e) {
+    console.warn("[Electron] read .local_account_secret failed:", e?.message || e);
+  }
+  const secret = crypto.randomBytes(32).toString("base64");
+  try {
+    fs.mkdirSync(userDataPath, { recursive: true });
+    fs.writeFileSync(f, secret, { encoding: "utf8", mode: 0o600 });
+  } catch (e) {
+    console.error("[Electron] write .local_account_secret failed:", e?.message || e);
+  }
+  return secret;
+}
+
+// 简易 JSON POST：只在 127.0.0.1:backendPort 上用，5s 超时
+function localApiRequest(pathname, body) {
+  return new Promise((resolve, reject) => {
+    const data = body == null ? "" : JSON.stringify(body);
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port: backendPort,
+        path: `/api${pathname}`,
+        method: "POST",
+        timeout: 5000,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(data),
+        },
+      },
+      (res) => {
+        let chunks = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => (chunks += c));
+        res.on("end", () => {
+          let parsed = null;
+          try { parsed = chunks ? JSON.parse(chunks) : null; } catch { /* ignore */ }
+          resolve({ status: res.statusCode || 0, data: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function ensureLocalAccount() {
+  if (currentMode !== "full") return null;
+  if (!backendPort) return null;
+
+  const password = getLocalAccountSecret();
+  const username = "desktop";
+
+  // 先尝试登录
+  try {
+    const r = await localApiRequest("/auth/login", { username, password });
+    if (r.status === 200 && r.data?.token) {
+      console.log("[Electron] local desktop account login OK");
+      return { token: r.data.token, user: r.data.user };
+    }
+    // 401：密码错或用户存在但密码对不上；404 / 400：用户不存在 → 走注册
+  } catch (e) {
+    console.warn("[Electron] local login failed:", e?.message || e);
+  }
+
+  // 注册（首个用户自动 admin；后续用户也能注册成功 —— 即使关闭注册开关，
+  //   首启路径上注册开关本身就是默认开的，且我们要的就是"开箱即用"）
+  try {
+    const r = await localApiRequest("/auth/register", {
+      username,
+      password,
+      displayName: "本机用户",
+    });
+    if ((r.status === 200 || r.status === 201) && r.data?.token) {
+      console.log("[Electron] local desktop account registered");
+      return { token: r.data.token, user: r.data.user };
+    }
+    // 409：用户名已存在（说明密码被人改了或 secret 文件丢了），
+    //   不去暴力重置，让用户在登录页手动处理
+    console.warn(
+      "[Electron] local register failed: status=" + r.status +
+        " err=" + (r.data?.error || ""),
+    );
+  } catch (e) {
+    console.warn("[Electron] local register error:", e?.message || e);
+  }
+  return null;
+}
+
 // ---------- 启动闪屏 ----------
 function createSplash(message) {
   const hint = message || "正在启动本地服务";
@@ -755,6 +870,21 @@ function registerAppIpc() {
     return { ok: true, path: dir };
   });
 
+  // Phase A: 桌面零登录 —— renderer 启动时拉取本地账号 token，跳过登录页。
+  // 仅 full 模式返回非 null；lite 模式或 ensureLocalAccount 失败时返回 null。
+  ipcMain.removeHandler("desktop:get-local-auth");
+  ipcMain.handle("desktop:get-local-auth", () => {
+    return localAuthCache;
+  });
+
+  // Phase A: 切换到云账号时 renderer 调这个清掉本地缓存，避免下次启动又被自动登录。
+  // 注意只清主进程内存里的缓存；userData 下的 secret 文件保留（用户随时可以切回本地账号）。
+  ipcMain.removeHandler("desktop:clear-local-auth");
+  ipcMain.handle("desktop:clear-local-auth", () => {
+    localAuthCache = null;
+    return { ok: true };
+  });
+
   /**
    * renderer → main：上报格式状态，同步系统菜单栏 checked 标记。
    *
@@ -940,6 +1070,13 @@ app.whenReady().then(async () => {
       await waitForRemoteReady(currentRemoteUrl, 15000);
     } else {
       await startBackend();
+      // Phase A: 后端就绪后立即准备本地零登录账号；失败不阻塞启动
+      try {
+        localAuthCache = await ensureLocalAccount();
+      } catch (e) {
+        console.warn("[Electron] ensureLocalAccount failed:", e?.message || e);
+        localAuthCache = null;
+      }
     }
     createWindow();
   } catch (err) {
