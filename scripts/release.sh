@@ -403,7 +403,15 @@ info "   - 飞牛 .fpk:   ${C_GREEN}是${C_RESET}（在 Docker push 后构建）
         7) TARGETS="fpk" ;;
         8) TARGETS="lite" ;;
         9) TARGETS="clipper" ;;
-        10) TARGETS="upk" ;;
+        10)
+            # 选项 10：单独补一个 .upk，挂到已存在的 GitHub Release 上。
+            # 语义：不打新 tag、不升版本号、复用远端最新版本。
+            TARGETS="upk"
+            _UPK_ONLY_MODE=1
+            DO_GIT_TAG=0
+            DO_GITHUB_RELEASE=1
+            NO_GITHUB_RELEASE_EXPLICIT=1   # 护住 不被 631 行的自动推断洗掉
+            ;;
         *) die "无效选择: $_mode_choice" ;;
     esac
     [ "$_ONE_SHOT" = "0" ] && info "已选择发布目标: ${C_GREEN}${TARGETS}${C_RESET}"
@@ -533,7 +541,8 @@ info "   - 飞牛 .fpk:   ${C_GREEN}是${C_RESET}（在 Docker push 后构建）
     fi
 
     # ======== 第 5 步：GitHub Release ========
-    if [ "$_ONE_SHOT" = "0" ] && { [ "$_W_HAS_PC" = "1" ] || [ "$_W_HAS_ANDROID" = "1" ] || [ "$_W_HAS_FPK" = "1" ] || [ "$_W_HAS_UPK" = "1" ] || [ "$_W_HAS_LITE" = "1" ] || [ "$_W_HAS_CLIPPER" = "1" ]; }; then
+    # _UPK_ONLY_MODE=1 （选项 10）跳过询问，默认上传到已有 Release。
+    if [ "$_ONE_SHOT" = "0" ] && [ "${_UPK_ONLY_MODE:-0}" = "0" ] && { [ "$_W_HAS_PC" = "1" ] || [ "$_W_HAS_ANDROID" = "1" ] || [ "$_W_HAS_FPK" = "1" ] || [ "$_W_HAS_UPK" = "1" ] || [ "$_W_HAS_LITE" = "1" ] || [ "$_W_HAS_CLIPPER" = "1" ]; }; then
         echo
         echo "${C_BOLD}🚀 第 5 步：是否上传产物到 GitHub Releases？${C_RESET}"
         echo
@@ -1142,6 +1151,17 @@ EOF
     info "  GitHub 最新   : ${_GH_MAX:-(无/不可达)}"
     info "  Docker Hub 最新: ${_DH_MAX:-(无/不可达)}"
     info "  建议下一版本   : ${C_GREEN}${SUGGEST}${C_RESET}"
+
+    # 选项 10（补 upk）：复用 GitHub 最新版本号，不升版本不打新 tag。
+    # 这里把"建议值"切换成 GitHub 最新版本，让回车直接复用。
+    if [ "${_UPK_ONLY_MODE:-0}" = "1" ]; then
+        if [ -n "$_GH_MAX" ]; then
+            SUGGEST="$_GH_MAX"
+            info "  ${C_GREEN}补 upk 模式${C_RESET}：将复用 GitHub 最新版本 ${C_GREEN}${_GH_MAX}${C_RESET}（不打新 tag、不升版本）"
+        else
+            die "补 upk 模式需要 GitHub 上已有版本，但当前查不到任何 release tag"
+        fi
+    fi
 
     if [ -z "$VERSION" ]; then
         if [ "$ASSUME_YES" = "1" ]; then
@@ -2569,8 +2589,16 @@ RELEASE_URL=""
 if [ "$DO_GITHUB_RELEASE" = "1" ]; then
     step "发布到 GitHub Releases"
 
+    # 通常 release 必须依附在 git tag 上，所以 --github-release 默认要求 DO_GIT_TAG=1。
+    # 但有一种合法例外：选项 10（补 upk）—— tag 已经在远端 + Release 也已创建，
+    # 这次只是想把 .upk 作为 asset 追加上去。此时 DO_GIT_TAG=0 是正确的，
+    # 但必须先确认远端 tag 真的存在，否则后面 gh release upload 会失败。
     if [ "$DO_GIT_TAG" != "1" ]; then
-        die "--github-release 需要同时打 git tag（不要与 --no-git-tag 一起用）"
+        if git ls-remote --tags origin "refs/tags/${VERSION_TAG}" 2>/dev/null | grep -q "${VERSION_TAG}"; then
+            info "DO_GIT_TAG=0 但远端 tag ${VERSION_TAG} 已存在，将走 'upload-only' 模式（追加 asset 到已有 Release）"
+        else
+            die "--github-release 需要同时打 git tag（远端也找不到 ${VERSION_TAG}，无法挂 Release）"
+        fi
     fi
 
     # ---- 确保 gh CLI 可用（未安装则自动安装） ----
