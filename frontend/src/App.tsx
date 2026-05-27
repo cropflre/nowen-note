@@ -20,6 +20,7 @@ import WhatsNewModal, { useWhatsNew } from "@/components/WhatsNewModal";
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
+import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPreferences";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmProvider } from "@/components/ui/confirm";
 import Toaster from "@/components/Toaster";
@@ -270,6 +271,25 @@ function AppLayout() {
 
   // P2: 状态栏与主题同步
   useStatusBarSync();
+
+  // 标签页/Electron 窗口标题同步：
+  //   关闭"标题跟随笔记标题"开关 → 沿用 useSiteSettings 设置的站点名（默认行为）；
+  //   开启时 → 标题改为 "笔记标题 - 站点名"，没选中笔记则回退站点名。
+  // 之所以放在 AppLayout 而不是 useSiteSettings：noteTitleAsAppTitle 依赖
+  // AppContext.activeNote，而 AppContext 是在 AuthGate → AppProvider 之后才挂的，
+  // useSiteSettings 是分享页/登录页等更外层场景也会用到的更基础 Provider。
+  const { siteConfig } = useSiteSettings();
+  const { prefs: userPrefs } = useUserPreferences();
+  useEffect(() => {
+    const baseTitle = siteConfig.title || "nowen-note";
+    if (userPrefs.noteTitleAsAppTitle) {
+      const noteTitle = (state.activeNote?.title || "").trim();
+      document.title = noteTitle ? `${noteTitle} - ${baseTitle}` : baseTitle;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [siteConfig.title, userPrefs.noteTitleAsAppTitle, state.activeNote?.id, state.activeNote?.title]);
+
 
   // P5: 键盘弹出布局适配
   useKeyboardLayout();
@@ -891,10 +911,12 @@ function App() {
   return (
     <ThemeProvider>
       <SiteSettingsProvider>
-        <ConfirmProvider>
-          <AuthGate />
-          <Toaster />
-        </ConfirmProvider>
+        <UserPreferencesProvider>
+          <ConfirmProvider>
+            <AuthGate />
+            <Toaster />
+          </ConfirmProvider>
+        </UserPreferencesProvider>
       </SiteSettingsProvider>
     </ThemeProvider>
   );

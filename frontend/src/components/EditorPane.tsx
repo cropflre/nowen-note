@@ -48,6 +48,7 @@ import {
   shouldOfferRestore,
   type NoteDraft,
 } from "@/lib/draftStorage";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -72,10 +73,61 @@ export default function EditorPane() {
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [showMoveDropdown, setShowMoveDropdown] = useState(false);
   const moveDropdownRef = useRef<HTMLDivElement | null>(null);
-  const [showOutline, setShowOutline] = useState(false);
+  // 大纲面板默认开/关由用户偏好决定（设置 → 外观 → "默认显示大纲"）。
+  // 切换笔记时若未来想"重新按偏好刷新"，在下方 lockOnOpen 的同一个 effect 里
+  // 一并 reset 即可，目前保留"用户在编辑期间手动切换的状态在切笔记时也保留"，
+  // 因为对常驻使用大纲的用户来说，每次切笔记都收起反而比保持习惯更扰人。
+  const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+  const [showOutline, setShowOutline] = useState<boolean>(() => userPrefs.outlineDefaultOpen);
+  // 视图层只读：与库里的 isLocked 解耦的"本地锁"。
+  // 进入笔记时若开启了 lockOnOpen 偏好，就把当前笔记 id 加入这个集合，
+  // 编辑器视为只读；用户点解锁按钮可移除（从而本会话恢复编辑）。
+  // 切到下一个笔记时再次按偏好应用，互不影响。
+  // 不写库的好处：不会污染笔记的 isLocked 字段，也不会触达协作端 / 共享端。
+  const [viewLockedIds, setViewLockedIds] = useState<Set<string>>(() => new Set());
+  // 镜像到 ref：底下 yDoc/snapshot/flushToLocal 等长期挂载的闭包子函数
+  // 必须能看到最新值，否则在偏好刚开启之后还会向"本应锁的笔记"写盘 / 写 yDoc。
+  const viewLockedIdsRef = useRef(viewLockedIds);
+  viewLockedIdsRef.current = viewLockedIds;
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const scrollToRef = useRef<((pos: number) => void) | null>(null);
   const { t } = useTranslation();
+
+  /**
+   * 视图层有效锁定状态：DB 层 isLocked **或** 用户偏好触发的"会话锁"。
+   *
+   * 它影响所有"只读门禁"判断（编辑器 editable、删除按钮、AI 重写、移动到回收站、
+   * Y.Doc 协作初始化等）。注意 togglePin / 收藏等元操作仍然按库里的 isLocked
+   * 判断——会话锁不应阻止用户给"想保护内容"的笔记打 pin / 改分类。
+   */
+  const isViewLocked = !!activeNote && viewLockedIds.has(activeNote.id);
+  const effectiveLocked = !!activeNote?.isLocked || isViewLocked;
+
+  // 切笔记时按偏好应用"打开即锁定"。
+  // 必须只在 activeNote.id 变化时跑一次，不依赖 prefs.lockOnOpen——否则用户在
+  // 设置面板把开关从开切到关，会立刻把当前笔记的会话锁也撤销，体感是"我刚还在看的
+  // 受保护笔记被偷偷解锁了"，不直观。开关的变化只影响"下次打开新笔记时"的初值。
+  useEffect(() => {
+    const id = activeNote?.id;
+    if (!id) return;
+    if (userPrefs.lockOnOpen) {
+      setViewLockedIds((prev) => {
+        if (prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    }
+    // 大纲默认开关：每次切笔记时按当前偏好重置一次，保证用户在设置面板里
+    // 调整偏好后，下一次打开笔记立即生效。中间的手动开关仍然在当前笔记内
+    // 保持，直到再次切笔记时被偏好覆盖——这是大多数用户期望的语义。
+    setShowOutline(userPrefs.outlineDefaultOpen);
+    // 故意 disable react-hooks/exhaustive-deps：lockOnOpen / outlineDefaultOpen
+    // 故意不进依赖，否则用户在设置面板调整开关时，会立刻反向冲掉 / 强行展开
+    // 当前打开的笔记，体感很奇怪。它们只在「换笔记」这个时机生效。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNote?.id]);
+
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
@@ -292,7 +344,7 @@ export default function EditorPane() {
   function syncActiveNoteFromYDoc() {
     const yDocNow = collabYDocRef.current;
     const note = activeNoteRef.current;
-    if (!yDocNow || !note || note.isLocked) return;
+    if (!yDocNow || !note || note.isLocked || viewLockedIdsRef.current.has(note.id)) return;
     try {
       const latestMd = yDocNow.getText("content").toString();
       if (latestMd && latestMd !== note.content) {
@@ -319,7 +371,7 @@ export default function EditorPane() {
     preSwitchNote: ReturnType<typeof Object.assign> | null,
   ): Promise<boolean> {
     const note = activeNoteRef.current;
-    if (!snapshot || !note || note.isLocked) return true;
+    if (!snapshot || !note || note.isLocked || viewLockedIdsRef.current.has(note.id)) return true;
 
     // snapshot.content 通常是 Tiptap JSON 字符串；兜底识别一下。
     const fmt = detectFormat(snapshot.content);
@@ -440,7 +492,7 @@ export default function EditorPane() {
   useEffect(() => {
     const flushToLocal = () => {
       const note = activeNoteRef.current;
-      if (!note || note.isLocked) return;
+      if (!note || note.isLocked || viewLockedIdsRef.current.has(note.id)) return;
       let snap: { content: string; contentText: string } | null = null;
       try {
         snap = editorHandleRef.current?.getSnapshot?.() ?? null;
@@ -496,6 +548,8 @@ export default function EditorPane() {
   const activeNoteRef = useRef(activeNote);
   activeNoteRef.current = activeNote;
 
+
+
   // ---------------------------------------------------------------------------
   // Phase 2: 实时协作 —— Presence / 软锁 / 远程更新提示
   // ---------------------------------------------------------------------------
@@ -517,7 +571,9 @@ export default function EditorPane() {
   // 切换笔记时检测本地草稿
   useEffect(() => {
     setPendingDraft(null);
-    if (!activeNote || activeNote.isLocked) return;
+    // 锁定笔记（库锁或本会话偏好锁）不弹草稿恢复提示——既然进入即只读，
+    // 没有"恢复未保存内容"的意义，反而会让用户误以为锁失效。
+    if (!activeNote || activeNote.isLocked || viewLockedIdsRef.current.has(activeNote.id)) return;
     let draft: NoteDraft | null = null;
     try { draft = loadDraft(activeNote.id); } catch { draft = null; }
     if (!draft) return;
@@ -773,7 +829,9 @@ export default function EditorPane() {
   // Delete 键删除笔记快捷键（仅在编辑器未聚焦时生效）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Delete" && activeNote && !activeNote.isLocked) {
+      if (e.key === "Delete" && activeNote
+          && !activeNote.isLocked
+          && !viewLockedIdsRef.current.has(activeNote.id)) {
         // 检查焦点是否在编辑器内部（如果在编辑器内，Delete 键应该正常删除文字）
         const activeEl = document.activeElement;
         const isInEditor = activeEl?.closest(".ProseMirror") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
@@ -802,7 +860,7 @@ export default function EditorPane() {
 
   const handleUpdate = useCallback(async (data: { content?: string; contentText?: string; title: string }) => {
     const currentNote = activeNoteRef.current;
-    if (!currentNote || currentNote.isLocked) return;
+    if (!currentNote || currentNote.isLocked || viewLockedIdsRef.current.has(currentNote.id)) return;
 
     // ─── P2-5: 本地草稿双保险 ──────────────
     // 每次 onUpdate fire 都**同步**写一份草稿到 localStorage，只要后面任何环节
@@ -1063,13 +1121,37 @@ export default function EditorPane() {
   const toggleLock = useCallback(async () => {
     if (!activeNote) return;
     haptic.medium();
+    // 优先解除"会话锁"（用户偏好"打开即锁定"造成的临时只读）：
+    //   - 库里本身 isLocked=1：那就走老逻辑切 DB；
+    //   - 库里 isLocked=0 但本会话被偏好锁住：只移除本地集合即可，不写后端，
+    //     避免一次"临时解锁"被永久持久化为该笔记的库状态。
+    if (!activeNote.isLocked && viewLockedIds.has(activeNote.id)) {
+      setViewLockedIds((prev) => {
+        if (!prev.has(activeNote.id)) return prev;
+        const next = new Set(prev);
+        next.delete(activeNote.id);
+        return next;
+      });
+      return;
+    }
     const updated = await api.updateNote(activeNote.id, { isLocked: activeNote.isLocked ? 0 : 1 } as any);
     actions.setActiveNote(updated);
     actions.updateNoteInList({ id: updated.id, isLocked: updated.isLocked });
-  }, [activeNote, actions]);
+    // 若刚把库锁切到 1（加锁），就不必再额外维持本地会话锁——库锁已经覆盖。
+    // 若把库锁切到 0（解锁），同时清掉本会话的会话锁（如果有），保证 UI 一次解锁到位。
+    if (!updated.isLocked) {
+      setViewLockedIds((prev) => {
+        if (!prev.has(activeNote.id)) return prev;
+        const next = new Set(prev);
+        next.delete(activeNote.id);
+        return next;
+      });
+    }
+  }, [activeNote, actions, viewLockedIds]);
 
   const moveToTrash = useCallback(async () => {
-    if (!activeNote || activeNote.isLocked) return;
+    // 锁定（库锁或会话锁）笔记不允许进回收站，避免"被保护笔记"被误删。
+    if (!activeNote || activeNote.isLocked || viewLockedIdsRef.current.has(activeNote.id)) return;
     haptic.heavy();
     const noteId = activeNote.id;
     actions.setActiveNote(null);
@@ -1436,7 +1518,13 @@ export default function EditorPane() {
                 注意：isLocked / isPinned 在 SQLite 里是 0/1，直接 `value && <Icon/>`
                 当 value=0 时短路结果是数字 0，React 会把 0 当文本渲染出来——
                 所以这里必须用显式布尔判断，否则页面会出现裸的 "0"。 */}
-            {activeNote.isLocked ? <Lock size={13} className="text-orange-500 shrink-0" /> : null}
+            {/* 标题前的锁图标：库锁优先用橙色提示「持久锁」；
+                只是会话锁（偏好「打开即锁定」造成）用更浅的灰色，区分两种状态。 */}
+            {activeNote.isLocked
+              ? <Lock size={13} className="text-orange-500 shrink-0" />
+              : isViewLocked
+                ? <Lock size={13} className="text-tx-tertiary shrink-0" />
+                : null}
             {activeNote.isPinned ? <Pin size={13} className="text-accent-primary fill-accent-primary shrink-0" /> : null}
             <span className="truncate text-sm font-semibold text-tx-primary">
               {activeNote.title || t('editor.untitled')}
@@ -1466,10 +1554,10 @@ export default function EditorPane() {
                     onClick={() => { toggleLock(); setShowMobileMenu(false); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
-                    {activeNote.isLocked
+                    {effectiveLocked
                       ? <Lock size={15} className="text-orange-500" />
                       : <Unlock size={15} className="text-tx-tertiary" />}
-                    <span>{activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
+                    <span>{effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
                   </button>
                   {/* 置顶 / 取消置顶 */}
                   <button
@@ -1536,7 +1624,7 @@ export default function EditorPane() {
                       handleAITitle();
                       setShowMobileMenu(false);
                     }}
-                    disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
+                    disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
                   >
                     {aiTitleLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Type size={15} className="text-violet-500" />}
@@ -1548,7 +1636,7 @@ export default function EditorPane() {
                       handleAITags();
                       setShowMobileMenu(false);
                     }}
-                    disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
+                    disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
                   >
                     {aiTagsLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <TagIcon size={15} className="text-violet-500" />}
@@ -1629,7 +1717,7 @@ export default function EditorPane() {
                       moveToTrash();
                       setShowMobileMenu(false);
                     }}
-                    disabled={!!activeNote.isLocked}
+                    disabled={effectiveLocked}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-500 active:bg-red-50 dark:active:bg-red-900/20 transition-colors disabled:opacity-40"
                   >
                     <Trash2 size={15} />
@@ -1868,10 +1956,10 @@ export default function EditorPane() {
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={toggleLock}
-              title={activeNote.isLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
+              title={effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
             >
-              {activeNote.isLocked
-                ? <Lock size={14} className="text-orange-500" />
+              {effectiveLocked
+                ? <Lock size={14} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} />
                 : <Unlock size={14} />}
             </Button>
             <Button
@@ -1892,9 +1980,9 @@ export default function EditorPane() {
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={moveToTrash}
               title={t('editor.trashTooltip')}
-              disabled={!!activeNote.isLocked}
+              disabled={effectiveLocked}
             >
-              <Trash2 size={14} className={cn(activeNote.isLocked && "opacity-30")} />
+              <Trash2 size={14} className={cn(effectiveLocked && "opacity-30")} />
             </Button>
           </div>
 
@@ -2026,7 +2114,7 @@ export default function EditorPane() {
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={handleAITitle}
-              disabled={aiTitleLoading || !activeNote.contentText || !!activeNote.isLocked}
+              disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
               title={t('editor.aiGenerateTitle')}
             >
               {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
@@ -2034,7 +2122,7 @@ export default function EditorPane() {
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={handleAITags}
-              disabled={aiTagsLoading || !activeNote.contentText || !!activeNote.isLocked}
+              disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
               title={t('editor.aiSuggestTags')}
             >
               {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
@@ -2119,7 +2207,7 @@ export default function EditorPane() {
               onEditorReady={(fn) => { scrollToRef.current = fn; }}
               // UX3：模式切换期间冻结编辑（避免用户在 mount→unmount 间隔里敲字，
               // 这段输入进不了任一编辑器的数据流，属于"黑洞输入"）。
-              editable={!activeNote.isLocked && !modeSwitching}
+              editable={!effectiveLocked && !modeSwitching}
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
             />
@@ -2131,7 +2219,7 @@ export default function EditorPane() {
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={(fn) => { scrollToRef.current = fn; }}
-              editable={!activeNote.isLocked && !modeSwitching}
+              editable={!effectiveLocked && !modeSwitching}
             />
           )}
           </EditorErrorBoundary>

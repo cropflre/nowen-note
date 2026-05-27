@@ -19,7 +19,7 @@ import {
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
-import { confirm as confirmDialog } from "@/components/ui/confirm";
+import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import MiCloudImport from "@/components/MiCloudImport";
 import OppoCloudImport from "@/components/OppoCloudImport";
 import ICloudImport from "@/components/iCloudImport";
@@ -1191,6 +1191,7 @@ export default function DataManager() {
 // ============================================================================
 
 type DataFileInfo = Awaited<ReturnType<typeof api.dataFile.getInfo>>;
+type AttachmentHealthReport = Awaited<ReturnType<typeof api.attachmentsAdmin.scanHealth>>;
 
 /** 字节转人类可读 */
 function fmtBytes(n: number | undefined | null): string {
@@ -1231,6 +1232,15 @@ export function DataFileSection() {
   // —— 与 cleanupOrphans 不同：cleanupOrphans 是直接清理，scan 只返回数量+字节，
   //    用来在删除前显示"将释放 X MB"，避免一冲动一键清空。
   const [isScanningOrphans, setIsScanningOrphans] = useState(false);
+
+  // 阶段 C：附件健康检查（裂图/404 定位）。
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [healthReport, setHealthReport] = useState<AttachmentHealthReport | null>(null);
+
+  // 阶段 D：附件修复向导（上传替代文件 / 移除悬空引用）。
+  const repairUploadRef = useRef<HTMLInputElement>(null);
+  const [repairUploadTarget, setRepairUploadTarget] = useState<AttachmentHealthReport["missingPhysicalFiles"][number] | null>(null);
+  const [isRepairingAttachment, setIsRepairingAttachment] = useState(false);
 
   const reload = useCallback(async () => {
     setLoadingInfo(true);
@@ -1401,6 +1411,145 @@ export function DataFileSection() {
       });
     } finally {
       setIsScanningOrphans(false);
+    }
+  };
+
+  /** 阶段 C：附件健康检查 —— 找出 DB 行存在但物理文件缺失、正文悬空引用等问题 */
+  const handleCheckAttachmentHealth = async () => {
+    setIsCheckingHealth(true);
+    setMaintenanceMsg(null);
+    try {
+      const res = await api.attachmentsAdmin.scanHealth(24);
+      setHealthReport(res);
+      const missing = res.missingPhysicalFiles.length;
+      const dangling = res.danglingReferences.length;
+      if (res.ok) {
+        setMaintenanceMsg({
+          type: "ok",
+          text: t("dataManager.dataFile.healthOk", {
+            attachments: res.totalAttachments,
+            files: res.totalPhysicalFiles,
+            total: fmtBytes(res.totalAttachmentBytes),
+          }),
+        });
+      } else {
+        setMaintenanceMsg({
+          type: "err",
+          text: t("dataManager.dataFile.healthIssues", { missing, dangling }),
+        });
+      }
+    } catch (err: any) {
+      setMaintenanceMsg({
+        type: "err",
+        text: t("dataManager.dataFile.healthFailed", { error: err.message || "error" }),
+      });
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
+
+  const requestRepairSudoToken = async (): Promise<string | null> => {
+    const pwd = await promptDialog({
+      title: t("dataManager.dataFile.repairSudoTitle"),
+      description: t("dataManager.dataFile.repairSudoDesc"),
+      type: "password",
+      placeholder: t("dataManager.sudoPasswordPlaceholder"),
+      confirmText: t("common.confirm"),
+      danger: true,
+    });
+    if (!pwd) return null;
+    const { sudoToken } = await api.requestSudoToken(pwd);
+    return sudoToken;
+  };
+
+  const handlePickReplacementFile = (issue: AttachmentHealthReport["missingPhysicalFiles"][number]) => {
+    setRepairUploadTarget(issue);
+    if (repairUploadRef.current) repairUploadRef.current.value = "";
+    repairUploadRef.current?.click();
+  };
+
+  const handleReplacementSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const target = repairUploadTarget;
+    e.target.value = "";
+    if (!file || !target) return;
+
+    const ok = await confirmDialog({
+      title: t("dataManager.dataFile.repairUploadConfirmTitle"),
+      description: t("dataManager.dataFile.repairUploadConfirmDesc", {
+        id: target.id,
+        filename: target.filename,
+        file: file.name,
+        size: fmtBytes(file.size),
+      }),
+      confirmText: t("dataManager.dataFile.repairUploadConfirm"),
+      danger: true,
+    });
+    if (!ok) return;
+
+    setIsRepairingAttachment(true);
+    setMaintenanceMsg(null);
+    try {
+      const sudoToken = await requestRepairSudoToken();
+      if (!sudoToken) return;
+      const res = await api.attachmentsAdmin.uploadMissingReplacement(target.id, file, sudoToken);
+      setHealthReport(res.health);
+      setMaintenanceMsg({
+        type: "ok",
+        text: t("dataManager.dataFile.repairUploadSuccess", {
+          rows: res.repairedRows,
+          size: fmtBytes(res.size),
+        }),
+      });
+      reload();
+    } catch (err: any) {
+      setMaintenanceMsg({
+        type: "err",
+        text: t("dataManager.dataFile.repairUploadFailed", { error: err.message || "error" }),
+      });
+    } finally {
+      setIsRepairingAttachment(false);
+      setRepairUploadTarget(null);
+    }
+  };
+
+  const handleRemoveDanglingReferences = async () => {
+    if (!healthReport || healthReport.danglingReferences.length === 0) return;
+    const ids = Array.from(new Set(healthReport.danglingReferences.map((x) => x.attachmentId)));
+    const noteIds = Array.from(new Set(healthReport.danglingReferences.map((x) => x.noteId)));
+    const ok = await confirmDialog({
+      title: t("dataManager.dataFile.repairDanglingConfirmTitle"),
+      description: t("dataManager.dataFile.repairDanglingConfirmDesc", {
+        refs: healthReport.danglingReferences.length,
+        notes: noteIds.length,
+      }),
+      confirmText: t("dataManager.dataFile.repairDanglingConfirm"),
+      danger: true,
+    });
+    if (!ok) return;
+
+    setIsRepairingAttachment(true);
+    setMaintenanceMsg(null);
+    try {
+      const sudoToken = await requestRepairSudoToken();
+      if (!sudoToken) return;
+      const res = await api.attachmentsAdmin.removeDanglingReferences({ attachmentIds: ids, noteIds }, sudoToken);
+      setHealthReport(res.health);
+      setMaintenanceMsg({
+        type: "ok",
+        text: t("dataManager.dataFile.repairDanglingSuccess", {
+          refs: res.referencesRemoved,
+          notes: res.notesUpdated,
+        }),
+      });
+      reload();
+    } catch (err: any) {
+      setMaintenanceMsg({
+        type: "err",
+        text: t("dataManager.dataFile.repairDanglingFailed", { error: err.message || "error" }),
+      });
+    } finally {
+      setIsRepairingAttachment(false);
     }
   };
 
@@ -1677,13 +1826,44 @@ export function DataFileSection() {
             </div>
           )}
 
+          <input
+            ref={repairUploadRef}
+            type="file"
+            className="hidden"
+            onChange={handleReplacementSelected}
+          />
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {isAdmin && (
               <button
-                onClick={handleScanOrphans}
-                disabled={isScanningOrphans || isCleaningOrphans || isVacuuming}
+                onClick={handleCheckAttachmentHealth}
+                disabled={isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming}
                 className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                  isScanningOrphans || isCleaningOrphans || isVacuuming
+                  isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
+                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                }`}
+              >
+                {isCheckingHealth ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {t("dataManager.dataFile.checkingHealth")}
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert className="w-4 h-4 mr-2" />
+                    {t("dataManager.dataFile.healthCheckButton")}
+                  </>
+                )}
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                onClick={handleScanOrphans}
+                disabled={isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming}
+                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                  isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
                     ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                     : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700"
                 }`}
@@ -1704,9 +1884,9 @@ export function DataFileSection() {
 
             <button
               onClick={handleCleanupOrphans}
-              disabled={isCleaningOrphans || isVacuuming || isScanningOrphans}
+              disabled={isCheckingHealth || isCleaningOrphans || isVacuuming || isScanningOrphans}
               className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                isCleaningOrphans || isVacuuming || isScanningOrphans
+                isCheckingHealth || isCleaningOrphans || isVacuuming || isScanningOrphans
                   ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                   : "bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
               }`}
@@ -1727,9 +1907,9 @@ export function DataFileSection() {
             {isAdmin && (
               <button
                 onClick={handleVacuum}
-                disabled={isVacuuming || isCleaningOrphans || isScanningOrphans}
+                disabled={isRepairingAttachment || isCheckingHealth || isVacuuming || isCleaningOrphans || isScanningOrphans}
                 className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                  isVacuuming || isCleaningOrphans || isScanningOrphans
+                  isRepairingAttachment || isCheckingHealth || isVacuuming || isCleaningOrphans || isScanningOrphans
                     ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                     : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
                 }`}
@@ -1748,6 +1928,113 @@ export function DataFileSection() {
               </button>
             )}
           </div>
+
+          {isAdmin && healthReport && (
+            <div className="mt-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-900/40 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {healthReport.ok ? (
+                    <CheckCircle size={16} className="text-emerald-500" />
+                  ) : (
+                    <AlertTriangle size={16} className="text-amber-500" />
+                  )}
+                  <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+                    {t("dataManager.dataFile.healthReportTitle")}
+                  </span>
+                </div>
+                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {new Date(healthReport.checkedAt).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="rounded-md bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-2">
+                  <div className="text-zinc-500 dark:text-zinc-400">{t("dataManager.dataFile.healthMissingFiles")}</div>
+                  <div className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">{healthReport.missingPhysicalFiles.length}</div>
+                </div>
+                <div className="rounded-md bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-2">
+                  <div className="text-zinc-500 dark:text-zinc-400">{t("dataManager.dataFile.healthDanglingRefs")}</div>
+                  <div className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">{healthReport.danglingReferences.length}</div>
+                </div>
+                <div className="rounded-md bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-2">
+                  <div className="text-zinc-500 dark:text-zinc-400">{t("dataManager.dataFile.healthSharedFiles")}</div>
+                  <div className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">{healthReport.sharedPhysicalFiles.length}</div>
+                </div>
+                <div className="rounded-md bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-2">
+                  <div className="text-zinc-500 dark:text-zinc-400">{t("dataManager.dataFile.healthReclaimable")}</div>
+                  <div className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">{fmtBytes(healthReport.orphans.reclaimableBytes)}</div>
+                </div>
+              </div>
+
+              {healthReport.missingPhysicalFiles.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                    {t("dataManager.dataFile.healthMissingFilesTitle")}
+                  </div>
+                  <div className="max-h-36 overflow-auto rounded-md border border-amber-200/60 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-500/5 divide-y divide-amber-200/50 dark:divide-amber-900/40">
+                    {healthReport.missingPhysicalFiles.slice(0, 8).map((x) => (
+                      <div key={x.id} className="px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono truncate">{x.id}</div>
+                          <div className="truncate opacity-80">
+                            {x.noteTitle || x.noteId} · {x.filename} · {fmtBytes(x.size)} · {t("dataManager.dataFile.healthReferencedBy", { count: x.referencedBy })}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isRepairingAttachment}
+                          onClick={() => handlePickReplacementFile(x)}
+                          className="shrink-0 px-2 py-1 rounded border border-amber-300/70 dark:border-amber-700/60 bg-white/70 dark:bg-zinc-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                        >
+                          {t("dataManager.dataFile.repairUploadButton")}
+                        </button>
+                      </div>
+                    ))}
+                    {healthReport.missingPhysicalFiles.length > 8 && (
+                      <div className="px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        {t("dataManager.dataFile.healthMore", { count: healthReport.missingPhysicalFiles.length - 8 })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {healthReport.danglingReferences.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-red-700 dark:text-red-300">
+                      {t("dataManager.dataFile.healthDanglingRefsTitle")}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isRepairingAttachment}
+                      onClick={handleRemoveDanglingReferences}
+                      className="text-[11px] px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+                    >
+                      {isRepairingAttachment ? t("dataManager.dataFile.repairing") : t("dataManager.dataFile.repairDanglingButton")}
+                    </button>
+                  </div>
+                  <div className="max-h-32 overflow-auto rounded-md border border-red-200/60 dark:border-red-900/50 bg-red-50/40 dark:bg-red-500/5 divide-y divide-red-200/50 dark:divide-red-900/40">
+                    {healthReport.danglingReferences.slice(0, 8).map((x, idx) => (
+                      <div key={`${x.noteId}-${x.attachmentId}-${idx}`} className="px-2 py-1.5 text-[11px] text-red-900 dark:text-red-100">
+                        <div className="font-mono truncate">{x.attachmentId}</div>
+                        <div className="truncate opacity-80">{x.noteTitle || x.noteId}</div>
+                      </div>
+                    ))}
+                    {healthReport.danglingReferences.length > 8 && (
+                      <div className="px-2 py-1.5 text-[11px] text-red-700 dark:text-red-300">
+                        {t("dataManager.dataFile.healthMore", { count: healthReport.danglingReferences.length - 8 })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                {t("dataManager.dataFile.healthHint")}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

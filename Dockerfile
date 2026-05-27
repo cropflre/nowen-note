@@ -64,6 +64,9 @@ WORKDIR /app
 RUN apk add --no-cache tini
 
 # 运行时依赖（production only）：独立编译一次，确保 .node 是 musl 版
+# 根 package.json 是运行时版本号的真相源；/api/version 优先读取它，避免 NAS / 应用市场
+# 更新时复用旧容器 ENV（NOWEN_APP_VERSION）导致服务端版本号停在旧值。
+COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
     && cd backend && npm ci --omit=dev --no-audit --no-fund \

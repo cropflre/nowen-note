@@ -4,7 +4,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { getDb } from "../db/schema";
-import { ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
 
 const app = new Hono();
 
@@ -159,18 +159,28 @@ async function downloadImageToAttachment(
   }
 
   const db = getDb();
-  // 同 user + 同 workspace + 同 hash 命中则复用
+  // 同 user + 同 workspace + 同 hash 命中则复用物理文件，但为当前 note 复制新元数据行。
   const dedup = db
     .prepare(
       workspaceId
-        ? `SELECT id FROM attachments WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id FROM attachments WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
+        ? `SELECT id, path, filename, mimeType, size, hash FROM attachments WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
+        : `SELECT id, path, filename, mimeType, size, hash FROM attachments WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
     )
     .get(...(workspaceId ? [userId, workspaceId, hash] : [userId, hash])) as
-    | { id: string }
+    | { id: string; path: string; filename?: string; mimeType: string; size: number; hash?: string | null }
     | undefined;
 
-  if (dedup) return `/api/attachments/${dedup.id}`;
+  if (dedup) {
+    const clone = createDeduplicatedAttachmentRow({
+      source: dedup,
+      noteId,
+      userId,
+      workspaceId,
+      filename: dedup.filename || `${uuid()}.${ext}`,
+      hash,
+    });
+    return clone.url;
+  }
 
   const id = uuid();
   const filename = `${id}.${ext}`;

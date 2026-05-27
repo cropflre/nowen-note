@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, Wrench, ZoomIn, Key, Building2, BookOpen } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, Wrench, ZoomIn, Key, Building2, BookOpen, ToggleLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
@@ -14,12 +14,13 @@ import WorkspaceManagement from "@/components/WorkspaceManagement";
 import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { api } from "@/lib/api";
 import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
-type TabId = "appearance" | "ai" | "security" | "tokens" | "data" | "users" | "workspaces" | "developer" | "about";
+type TabId = "appearance" | "switches" | "ai" | "security" | "tokens" | "data" | "users" | "workspaces" | "developer" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -682,6 +683,63 @@ function AboutPanel() {
   );
 }
 
+function SwitchesPanel() {
+  const { t } = useTranslation();
+  const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+
+  const switches = [
+    {
+      key: "noteTitleAsAppTitle" as const,
+      label: t('settings.prefNoteTitleAsAppTitle'),
+      hint: t('settings.prefNoteTitleAsAppTitleHint'),
+    },
+    {
+      key: "outlineDefaultOpen" as const,
+      label: t('settings.prefOutlineDefaultOpen'),
+      hint: t('settings.prefOutlineDefaultOpenHint'),
+    },
+    {
+      key: "lockOnOpen" as const,
+      label: t('settings.prefLockOnOpen'),
+      hint: t('settings.prefLockOnOpenHint'),
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
+          {t('settings.switchesTitle')}
+        </h3>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          {t('settings.switchesDesc')}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+        {switches.map((item) => (
+          <label key={item.key} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
+            <input
+              type="checkbox"
+              checked={userPrefs[item.key]}
+              onChange={(e) => setUserPref(item.key, e.target.checked)}
+              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+                {item.label}
+              </div>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+                {item.hint}
+              </p>
+            </div>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AppearancePanel() {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont } = useSiteSettings();
@@ -1105,6 +1163,8 @@ function AppearancePanel() {
           </div>
         </div>
 
+
+
         {/*
          * 个人空间导入/导出的功能开关已下沉为 per-user 字段
          * （users.personalExportEnabled / personalImportEnabled，schema v6 起）。
@@ -1144,6 +1204,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
 
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
+    { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "security" as const, label: t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
@@ -1332,6 +1393,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   }
                 >
             {activeTab === "appearance" && <AppearancePanel />}
+            {activeTab === "switches" && <SwitchesPanel />}
             {activeTab === "ai" && <AISettingsPanel />}
             {activeTab === "security" && <SecuritySettings />}
             {activeTab === "tokens" && <TokenManagement />}

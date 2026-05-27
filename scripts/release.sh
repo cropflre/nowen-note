@@ -1794,7 +1794,11 @@ if [ "$HAS_PC" = "1" ]; then
                 --target-platform="${_target_plat}" --target-arch="${_target_arch}" )
             info "electron-builder ${_eb_flag}"
             set +e
-            ( cd "$REPO_ROOT" && run_argv npx electron-builder \
+            ( cd "$REPO_ROOT" && run_argv env \
+                TARGET_PLATFORM="${_target_plat}" \
+                TARGET_ARCH="${_target_arch}" \
+                npm_config_target_arch="${_target_arch}" \
+                npx electron-builder \
                 --config electron/builder.config.js \
                 --publish never \
                 "${_eb_flag}" )

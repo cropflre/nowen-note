@@ -34,7 +34,7 @@ import {
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
   Code, FileCode, Sparkles, X, ZoomIn, ZoomOut, RotateCcw,
   Table2, Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
-  FileType, FileDown, Check, AlertCircle, Info, ArrowUp, Link as LinkIcon,
+  FileType, Check, AlertCircle, Info, ArrowUp, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download,
   Type, Palette, Eraser, ChevronDown, Search,
 } from "lucide-react";
@@ -3120,29 +3120,6 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     }
   }, [editor, showPasteToast, t]);
 
-  // 导出当前笔记为 .docx：走 Tiptap JSON → DocxIR → docx 链路。
-  // 注意：图片若是相对 URL 会同源 fetch 转 data URL，所以这函数是 async；
-  //      点击后给一个 toast 提示，避免大笔记导出时用户以为按钮没反应。
-  const handleExportDocx = useCallback(async () => {
-    if (!editor) return;
-    const currentNote = noteRef.current;
-    const title = (titleRef.current?.value || currentNote?.title || "未命名文档").trim() || "未命名文档";
-    let toastId: number | undefined;
-    try {
-      toastId = toast.info("正在生成 Word 文档…");
-      const json = JSON.stringify(editor.getJSON());
-      const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
-      const blob = await exportNoteAsDocx(json, title);
-      downloadDocxBlob(blob, title);
-      if (toastId !== undefined) toast.dismiss?.(toastId);
-      toast.success("已导出为 .docx");
-    } catch (err: any) {
-      console.error("[TiptapEditor] export docx failed:", err);
-      if (toastId !== undefined) toast.dismiss?.(toastId);
-      toast.error(err?.message || "导出 Word 文档失败");
-    }
-  }, [editor]);
-
   const handleAIInsert = useCallback((text: string) => {
     if (!editor) return;
     const { to } = editor.state.selection;
@@ -3542,11 +3519,6 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           title={t('searchReplace.toolbarTitle') || '查找替换 (Ctrl+F)'}
         >
           <Search size={iconSize} />
-        </ToolbarButton>
-
-        {/* 导出为 .docx —— 所有笔记都可用，不区分是不是 Word 笔记 */}
-        <ToolbarButton onClick={handleExportDocx} title="导出为 Word 文档">
-          <FileDown size={iconSize} className="text-sky-600" />
         </ToolbarButton>
 
         {!isGuest && (

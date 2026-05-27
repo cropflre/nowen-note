@@ -103,6 +103,66 @@ export default function MigrationModal({
         setError("登录响应缺少 token");
         return;
       }
+
+      // ===== 1.1.7 防呆：拦截"迁移到同一台后端" =====
+      // 1.1.6 用户最常踩的坑：在同一台 NAS 上点"登录云端账号"，迁移引擎以为
+      // 是跨机迁移，结果把本地数据再复制了一份到同一个 attachments 目录里，
+      // 配合 hash 去重让多笔记共享物理文件；用户事后删除副本会触发数据丢失。
+      // 这里在进入 confirm 步之前把同源 / 同账号情况挡掉。
+      try {
+        const [localVerRes, cloudVerRes] = await Promise.all([
+          fetch(`${localBaseUrl}/api/version`).catch(() => null),
+          fetch(`${url}/api/version`).catch(() => null),
+        ]);
+        const localVer = localVerRes && localVerRes.ok ? await localVerRes.json().catch(() => null) : null;
+        const cloudVer = cloudVerRes && cloudVerRes.ok ? await cloudVerRes.json().catch(() => null) : null;
+
+        // 同实例硬阻断：两端 serverInstanceId 都拿到且相等 → 必然是同一台后端
+        if (
+          localVer?.serverInstanceId &&
+          cloudVer?.serverInstanceId &&
+          localVer.serverInstanceId === cloudVer.serverInstanceId
+        ) {
+          setError(
+            "本地服务器和云端服务器是同一台机器，无需迁移。\n" +
+            "如果你想切换账号，请直接退出登录后用新账号登录即可——本地数据不会丢失。",
+          );
+          return;
+        }
+
+        // 同账号软提示：即使是不同实例，把数据迁到一个"已经登录过的同名账号"
+        // 通常也是误操作（用户大概率只是想切换登录态）。给一次二次确认。
+        // 本地用户名直接从 JWT payload 解析（后端没有公开的 /me 路由）；
+        // 不验签——只是用来"提示"，伪造 token 也只是骗自己。
+        let localUsername: string | null = null;
+        if (localToken) {
+          try {
+            const parts = localToken.split(".");
+            if (parts.length >= 2) {
+              const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+              const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+              const payload = JSON.parse(atob(padded)) as { username?: string };
+              localUsername = payload?.username || null;
+            }
+          } catch {
+            /* ignore，无法解析时跳过同账号校验 */
+          }
+        }
+        const cloudUsername: string | null = data.user?.username || username || null;
+        if (localUsername && cloudUsername && localUsername === cloudUsername) {
+          const ok = window.confirm(
+            `检测到本地和云端使用的是同一个账号 "${localUsername}"。\n\n` +
+            `继续迁移会在云端再创建一份完全相同的笔记副本，通常不是你想要的。\n` +
+            `如果你只是想登录到云端账号，请点"取消"后直接退出登录再重新登录即可。\n\n` +
+            `确定仍要继续迁移吗？`,
+          );
+          if (!ok) return;
+        }
+      } catch {
+        // 防呆校验本身失败不应阻塞正常迁移流程；记录到 console 但继续走原逻辑
+        console.warn("[migration] same-instance/same-account precheck skipped");
+      }
+
       setCloudToken(data.token);
       setCloudUrl(url);
       setCloudUserDisplay(data.user?.username || username);
@@ -179,6 +239,7 @@ export default function MigrationModal({
       setTimeout(() => onClose(), wait);
     } catch (e) {
       const stageMap: Record<string, string> = {
+        preflight: "迁移预检查",
         export: "本地导出",
         import: "云端导入",
         attachments: "附件迁移",

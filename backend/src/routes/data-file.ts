@@ -367,27 +367,44 @@ app.post("/cleanup-orphans", (c) => {
     // 只统计将要回收的字节数（不区分 DB 行是否真的有物理文件——多数情况是有的）
     for (const r of dbOrphanRows) dbOrphanBytes += r.size || 0;
   } else if (dbOrphanRows.length > 0) {
+    // 阶段 B 后多条附件行可能共享同一 path。先删 DB 行；只有当本批删除集合以外
+    // 没有任何行继续引用该 path 时，才 unlink 物理文件，避免误删活附件。
+    const orphanIds = new Set(dbOrphanRows.map((r) => r.id));
+    const pathToRows = new Map<string, typeof dbOrphanRows>();
+    for (const r of dbOrphanRows) {
+      const arr = pathToRows.get(r.path) || [];
+      arr.push(r);
+      pathToRows.set(r.path, arr);
+    }
+    const pathsSafeToUnlink = new Set<string>();
+    for (const [p] of pathToRows.entries()) {
+      const rows = db.prepare("SELECT id FROM attachments WHERE path = ?").all(p) as { id: string }[];
+      if (!rows.some((r) => !orphanIds.has(r.id))) pathsSafeToUnlink.add(p);
+    }
+
     const delStmt = db.prepare("DELETE FROM attachments WHERE id = ?");
     const tx = db.transaction((list: { id: string; path: string; size: number }[]) => {
       for (const r of list) {
-        // 删文件
         try {
-          const abs = path.join(attachmentsDir, r.path);
-          if (fs.existsSync(abs)) {
-            const sz = fs.statSync(abs).size;
-            fs.unlinkSync(abs);
-            dbOrphanFilesRemoved++;
-            dbOrphanBytes += sz;
-          }
-        } catch { /* ignore */ }
-        // 删 DB 行
-        try {
-          delStmt.run(r.id);
-          dbOrphansRemoved++;
+          const info = delStmt.run(r.id);
+          if (info.changes > 0) dbOrphansRemoved++;
         } catch { /* ignore */ }
       }
     });
     tx(dbOrphanRows);
+
+    for (const [p, list] of pathToRows.entries()) {
+      if (!pathsSafeToUnlink.has(p)) continue;
+      try {
+        const abs = path.join(attachmentsDir, p);
+        if (fs.existsSync(abs)) {
+          const sz = fs.statSync(abs).size;
+          fs.unlinkSync(abs);
+          dbOrphanFilesRemoved++;
+          dbOrphanBytes += sz || list[0]?.size || 0;
+        }
+      } catch { /* ignore */ }
+    }
   }
 
   // 2) 内容孤儿：DB 行还在、note 还在，但没有任何 notes.content 引用这个 id
@@ -433,29 +450,44 @@ app.post("/cleanup-orphans", (c) => {
   if (dryRun) {
     for (const r of contentOrphanRows) contentOrphanBytes += r.size || 0;
   } else if (contentOrphanRows.length > 0) {
+    const orphanIds = new Set(contentOrphanRows.map((r) => r.id));
+    const pathToRows = new Map<string, typeof contentOrphanRows>();
+    for (const r of contentOrphanRows) {
+      const arr = pathToRows.get(r.path) || [];
+      arr.push(r);
+      pathToRows.set(r.path, arr);
+    }
+    const pathsSafeToUnlink = new Set<string>();
+    for (const [p] of pathToRows.entries()) {
+      const rows = db.prepare("SELECT id FROM attachments WHERE path = ?").all(p) as { id: string }[];
+      if (!rows.some((r) => !orphanIds.has(r.id))) pathsSafeToUnlink.add(p);
+    }
+
     const delStmt = db.prepare("DELETE FROM attachments WHERE id = ?");
     const tx = db.transaction((list: { id: string; path: string; size: number }[]) => {
       for (const r of list) {
-        // 先删 DB 行（失败就跳过，保持一致）
         try {
-          delStmt.run(r.id);
-          contentOrphansRemoved++;
+          const info = delStmt.run(r.id);
+          if (info.changes > 0) contentOrphansRemoved++;
         } catch {
           continue;
         }
-        // 再删磁盘文件
-        try {
-          const abs = path.join(attachmentsDir, r.path);
-          if (fs.existsSync(abs)) {
-            const sz = fs.statSync(abs).size;
-            fs.unlinkSync(abs);
-            contentOrphanFilesRemoved++;
-            contentOrphanBytes += sz;
-          }
-        } catch { /* ignore */ }
       }
     });
     tx(contentOrphanRows);
+
+    for (const [p, list] of pathToRows.entries()) {
+      if (!pathsSafeToUnlink.has(p)) continue;
+      try {
+        const abs = path.join(attachmentsDir, p);
+        if (fs.existsSync(abs)) {
+          const sz = fs.statSync(abs).size;
+          fs.unlinkSync(abs);
+          contentOrphanFilesRemoved++;
+          contentOrphanBytes += sz || list[0]?.size || 0;
+        }
+      } catch { /* ignore */ }
+    }
   }
 
   // 3) 磁盘孤儿：仅管理员才能做全量扫描（普通用户拿不到其它人上传的文件列表）

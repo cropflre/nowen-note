@@ -106,6 +106,7 @@ jobs:
       #   [builder] better-sqlite3 原生模块不存在：.../better_sqlite3.node
       # ---------------------------------------------------------------
       - name: Rebuild native modules for Electron ABI
+        if: matrix.os != 'macos-latest'
         run: npm run rebuild:native
         shell: bash
 
@@ -156,12 +157,30 @@ jobs:
         run: npx electron-builder --config electron/builder.config.js --win --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
         shell: bash
 
-      - name: Build Electron (macOS)
+      - name: Build Electron (macOS x64 / Intel)
         if: matrix.os == 'macos-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
-        run: npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+          NOWEN_MAC_ARCH: x64
+          TARGET_ARCH: x64
+          npm_config_target_arch: x64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        shell: bash
+
+      - name: Build Electron (macOS arm64 / Apple Silicon)
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
+          NOWEN_MAC_ARCH: arm64
+          TARGET_ARCH: arm64
+          npm_config_target_arch: arm64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
         shell: bash
 
       - name: Build Electron (Linux)

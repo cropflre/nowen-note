@@ -20,6 +20,15 @@ function inferTargetPlatformFromArgv() {
   return process.platform;
 }
 
+function inferTargetArch(targetPlatform) {
+  const explicit = process.env.npm_config_target_arch || process.env.TARGET_ARCH;
+  if (explicit) return explicit;
+  if (targetPlatform === "darwin" && process.env.NOWEN_MAC_ARCH) {
+    return process.env.NOWEN_MAC_ARCH === "arm64" ? "arm64" : "x64";
+  }
+  return process.arch;
+}
+
 /**
  * 通过文件魔数识别 .node 目标平台 + 架构，避免 stamp 被错误标注时假通过。
  *   Windows PE:   "MZ"（不解析 arch，Win 我们只发 x64）
@@ -166,7 +175,7 @@ function checkNativeModule() {
   // 这是 2026-05 事故（Linux 上打 Win 包 → 装包后 "not a valid Win32 application"）
   // 的根治修复：只看 electronVersion 不足，必须还要对齐 platform + arch。
   const targetPlatform = inferTargetPlatformFromArgv();
-  const targetArch = process.env.npm_config_target_arch || process.arch;
+  const targetArch = inferTargetArch(targetPlatform);
   const stampPlatform = stamp.platform;
   const stampArch = stamp.arch;
   if (!stampPlatform || !stampArch) {
@@ -175,9 +184,9 @@ function checkNativeModule() {
         `请重新执行 npm run rebuild:native。`
     );
   }
-  if (stampPlatform !== targetPlatform) {
+  if (stampPlatform !== targetPlatform || stampArch !== targetArch) {
     throw new Error(
-      `[builder] ✗ better_sqlite3.node 的 platform 与打包目标不匹配！\n` +
+      `[builder] ✗ better_sqlite3.node 的 platform/arch 与打包目标不匹配！\n` +
         `   stamp  : ${stampPlatform}-${stampArch}\n` +
         `   target : ${targetPlatform}-${targetArch}\n` +
         `   修复：npm run rebuild:native -- --target-platform=${targetPlatform} --target-arch=${targetArch}`
@@ -503,6 +512,9 @@ module.exports = {
         arch: [process.env.NOWEN_MAC_ARCH === "arm64" ? "arm64" : "x64"],
       },
     ],
+    // 两个 mac 架构分两次构建，文件名必须带 ${arch}，否则后一次会覆盖前一次，
+    // Release 资产看似有 Intel/Apple Silicon，实际可能指向同一份错架构包。
+    artifactName: "${productName}-${version}-${arch}.${ext}",
     icon: "electron/icon.png",
     category: "public.app-category.productivity",
     // ==== macOS 代码签名 + 公证 ====

@@ -73,33 +73,34 @@ function parseArgs(argv) {
 }
 
 /**
- * 通过读取文件魔数判断 `.node` 的目标平台，避免 stamp 被手工篡改后仍然放行。
- *   Windows PE:   "MZ"        (0x4D 0x5A)
- *   Linux ELF:    "\x7FELF"   (0x7F 0x45 0x4C 0x46)
- *   macOS Mach-O: 0xCF FA ED FE / 0xCE FA ED FE / 0xCA FE BA BE (fat)
+ * 通过读取文件魔数判断 `.node` 的目标平台和 CPU 架构，避免 stamp 被手工篡改后仍然放行。
+ *   Windows PE:   "MZ"        (0x4D 0x5A)，本项目只发 x64
+ *   Linux ELF:    "\x7FELF"   e_machine 区分 x64/arm64
+ *   macOS Mach-O: 解析 cputype；fat binary 视为 universal
  */
 function detectNodeFilePlatform(nodeFile) {
   try {
     const fd = fs.openSync(nodeFile, "r");
-    const buf = Buffer.alloc(4);
-    fs.readSync(fd, buf, 0, 4, 0);
+    const buf = Buffer.alloc(20);
+    fs.readSync(fd, buf, 0, 20, 0);
     fs.closeSync(fd);
-    if (buf[0] === 0x4d && buf[1] === 0x5a) return "win32";
-    if (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46)
-      return "linux";
-    // Mach-O 32/64-bit, little/big endian, plus fat binary
+    if (buf[0] === 0x4d && buf[1] === 0x5a) return { platform: "win32", arch: "x64" };
+    if (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
+      const eMachine = buf.readUInt16LE(0x12);
+      const arch = eMachine === 0x3e ? "x64" : eMachine === 0xb7 ? "arm64" : "unknown";
+      return { platform: "linux", arch };
+    }
     const m = buf.readUInt32BE(0);
-    if (
-      m === 0xfeedface ||
-      m === 0xcefaedfe ||
-      m === 0xfeedfacf ||
-      m === 0xcffaedfe ||
-      m === 0xcafebabe
-    )
-      return "darwin";
-    return "unknown";
+    if (m === 0xcafebabe) return { platform: "darwin", arch: "universal" };
+    if (m === 0xfeedface || m === 0xcefaedfe || m === 0xfeedfacf || m === 0xcffaedfe) {
+      const isLE = m === 0xcefaedfe || m === 0xcffaedfe;
+      const cputype = isLE ? buf.readUInt32LE(4) : buf.readUInt32BE(4);
+      const arch = cputype === 0x01000007 ? "x64" : cputype === 0x0100000c ? "arm64" : "unknown";
+      return { platform: "darwin", arch };
+    }
+    return { platform: "unknown", arch: "unknown" };
   } catch {
-    return "unknown";
+    return { platform: "unknown", arch: "unknown" };
   }
 }
 
@@ -259,25 +260,34 @@ async function main() {
     process.exit(1);
   }
   const stat = fs.statSync(nodFile);
-  const detectedPlatform = detectNodeFilePlatform(nodFile);
+  const detected = detectNodeFilePlatform(nodFile);
   const expectDetected =
     targetPlatform === "win32"
       ? "win32"
       : targetPlatform === "darwin"
         ? "darwin"
         : "linux";
-  if (detectedPlatform !== expectDetected) {
+  if (detected.platform !== expectDetected) {
     console.error(
       `[rebuild-native] ✗ 产物平台不匹配！\n` +
         `   期望: ${expectDetected}（${targetPlatform}-${targetArch}）\n` +
-        `   实际: ${detectedPlatform}（根据文件魔数识别）\n` +
+        `   实际: ${detected.platform}-${detected.arch}（根据文件魔数识别）\n` +
         `   这份 .node 拷到目标机器一定 dlopen 失败。`
+    );
+    process.exit(1);
+  }
+  if (detected.arch !== "universal" && detected.arch !== "unknown" && detected.arch !== targetArch) {
+    console.error(
+      `[rebuild-native] ✗ 产物 CPU 架构不匹配！\n` +
+        `   期望: ${targetPlatform}-${targetArch}\n` +
+        `   实际: ${detected.platform}-${detected.arch}（根据文件魔数识别）\n` +
+        `   这份 .node 打进 ${targetArch} 安装包后会 ERR_DLOPEN_FAILED。`
     );
     process.exit(1);
   }
   console.log(
     `[rebuild-native] ✓ verified: ${nodFile} ` +
-      `(${(stat.size / 1024 / 1024).toFixed(1)} MB, detected=${detectedPlatform})`
+      `(${(stat.size / 1024 / 1024).toFixed(1)} MB, detected=${detected.platform}-${detected.arch})`
   );
 
   // ===== 写 stamp =====
@@ -289,7 +299,8 @@ async function main() {
         electronVersion,
         platform: targetPlatform,
         arch: targetArch,
-        detectedPlatform,
+        detectedPlatform: detected.platform,
+        detectedArch: detected.arch,
         rebuiltAt: new Date().toISOString(),
         nodeMtime: stat.mtime.toISOString(),
         mode: isCross ? "cross-prebuild" : "native-rebuild",

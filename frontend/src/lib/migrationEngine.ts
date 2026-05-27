@@ -47,7 +47,11 @@ export interface MigrationResult {
 }
 
 export class MigrationError extends Error {
-  constructor(message: string, public stage: "export" | "import" | "attachments" | "rewrite", public cause?: unknown) {
+  constructor(
+    message: string,
+    public stage: "preflight" | "export" | "import" | "attachments" | "rewrite",
+    public cause?: unknown,
+  ) {
     super(message);
     this.name = "MigrationError";
   }
@@ -68,6 +72,37 @@ async function jsonFetch(
   return res;
 }
 
+interface ServerVersionInfo {
+  serverInstanceId?: string;
+}
+
+async function fetchServerVersion(endpoint: MigrationEndpoint): Promise<ServerVersionInfo | null> {
+  try {
+    const headers = new Headers();
+    if (endpoint.token) headers.set("Authorization", `Bearer ${endpoint.token}`);
+    const res = await fetch(`${endpoint.baseUrl}/api/version`, { headers });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => null)) as ServerVersionInfo | null;
+  } catch {
+    return null;
+  }
+}
+
+async function assertDifferentServerInstances(local: MigrationEndpoint, cloud: MigrationEndpoint): Promise<void> {
+  const [localVer, cloudVer] = await Promise.all([
+    fetchServerVersion(local),
+    fetchServerVersion(cloud),
+  ]);
+  const localId = typeof localVer?.serverInstanceId === "string" ? localVer.serverInstanceId.trim() : "";
+  const cloudId = typeof cloudVer?.serverInstanceId === "string" ? cloudVer.serverInstanceId.trim() : "";
+  if (localId && cloudId && localId === cloudId) {
+    throw new MigrationError(
+      "本地服务器和云端服务器是同一台机器，无需迁移。请取消迁移，直接退出登录后用新账号登录即可。",
+      "preflight",
+    );
+  }
+}
+
 /**
  * 执行 D-2 轻量迁移：拉本地 → 推云端。
  *
@@ -83,6 +118,9 @@ export async function runLightMigration(opts: {
 }): Promise<MigrationResult> {
   const { local, cloud, onProgress } = opts;
   const tick = (p: MigrationProgress) => onProgress?.(p);
+
+  tick({ phase: "export", ratio: 0.01, message: "正在检查迁移目标…" });
+  await assertDifferentServerInstances(local, cloud);
 
   // ===== 1. 从本地导出 =====
   tick({ phase: "export", ratio: 0.05, message: "正在从本地读取数据…" });
@@ -172,6 +210,9 @@ export async function runAttachmentMigration(opts: {
 }): Promise<NonNullable<MigrationResult["attachments"]>> {
   const { local, cloud, noteIdMap, onProgress } = opts;
   const tick = (p: MigrationProgress) => onProgress?.(p);
+
+  tick({ phase: "attachments", ratio: 0, message: "确认迁移目标…" });
+  await assertDifferentServerInstances(local, cloud);
 
   // 1) 拉本地附件列表
   tick({ phase: "attachments", ratio: 0, message: "读取本地附件列表…" });

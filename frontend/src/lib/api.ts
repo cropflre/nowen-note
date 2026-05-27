@@ -2731,6 +2731,91 @@ export const api = {
         totalAttachmentBytes: number;
         graceHours: number;
       }>(`/attachments/_orphans/scan?graceHours=${encodeURIComponent(graceHours)}`),
+
+    /** GET /api/attachments/_health/report — 附件健康检查：裂图/悬空引用/共享物理文件 */
+    scanHealth: (graceHours = 24) =>
+      request<{
+        ok: boolean;
+        totalAttachments: number;
+        totalPhysicalFiles: number;
+        totalAttachmentBytes: number;
+        missingPhysicalFiles: Array<{
+          id: string;
+          noteId: string;
+          noteTitle?: string;
+          filename: string;
+          path: string;
+          mimeType?: string;
+          size: number;
+          createdAt: string;
+          referencedBy: number;
+        }>;
+        danglingReferences: Array<{
+          attachmentId: string;
+          noteId: string;
+          noteTitle?: string;
+          isTrashed?: boolean;
+        }>;
+        sharedPhysicalFiles: Array<{
+          path: string;
+          count: number;
+          bytes: number;
+          attachmentIds: string[];
+        }>;
+        orphans: {
+          dbOrphans: Array<{ filename: string; bytes: number }>;
+          contentOrphans: Array<{ id: string; filename: string; bytes: number; noteId: string; createdAt: string }>;
+          reclaimableBytes: number;
+          totalAttachmentBytes: number;
+          graceHours: number;
+        };
+        checkedAt: string;
+      }>(`/attachments/_health/report?graceHours=${encodeURIComponent(graceHours)}`),
+
+    /** POST /api/attachments/_repair/missing/:id/upload — 上传替代文件修复缺失物理文件 */
+    uploadMissingReplacement: async (id: string, file: File, sudoToken: string, opts?: { force?: boolean }) => {
+      const token = getToken();
+      const form = new FormData();
+      form.append("file", file);
+      if (opts?.force) form.append("force", "1");
+      const res = await fetch(`${getBaseUrl()}/attachments/_repair/missing/${encodeURIComponent(id)}/upload`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          "X-Sudo-Token": sudoToken,
+        },
+        body: form,
+      });
+      const body = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        const err = new Error(body?.error || `修复失败: ${res.status}`) as Error & { code?: string; status?: number };
+        err.code = body?.code;
+        err.status = res.status;
+        throw err;
+      }
+      return body as {
+        success: true;
+        repairedRows: number;
+        path: string;
+        size: number;
+        hash: string;
+        health: any;
+      };
+    },
+
+    /** POST /api/attachments/_repair/dangling/remove — 移除正文中的悬空附件引用 */
+    removeDanglingReferences: (body: { attachmentIds: string[]; noteIds?: string[] }, sudoToken: string) =>
+      request<{
+        success: true;
+        notesUpdated: number;
+        referencesRemoved: number;
+        changed: Array<{ noteId: string; removed: number }>;
+        health: any;
+      }>("/attachments/_repair/dangling/remove", {
+        method: "POST",
+        body: JSON.stringify(body),
+        sudoToken,
+      }),
   },
 
   // ============================================================

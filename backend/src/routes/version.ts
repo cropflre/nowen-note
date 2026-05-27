@@ -11,13 +11,13 @@
  * 设计取舍：
  *   - **无需鉴权**：与 /api/health 同级，挂在 JWT 中间件之前。版本号不是机密，
  *     且前端在登录页就需要读取，中间件里放不下这类"匿名访问"。
- *   - **appVersion 取值顺序**：ENV > 根 package.json > backend/package.json。
- *       - ENV：发布流水线可通过 `NOWEN_APP_VERSION` 注入（避免构建产物依赖
- *         运行时读文件）；
- *       - 根 package.json：开发态 & 源码部署场景，与 electron-builder、vite
- *         使用的是同一份版本号，真实可靠；
- *       - backend/package.json：兜底。历史上这个字段长期停在 1.0.0，只作
- *         最后的后备，避免返回空串破坏前端比对逻辑。
+ *   - **appVersion 取值顺序**：显式覆盖 ENV > 镜像/源码内 package.json > 旧 ENV 兜底。
+ *       - `NOWEN_APP_VERSION_OVERRIDE`：仅给高级运维强制覆盖使用；
+ *       - 根 package.json：Docker 镜像 / 源码态 / Vite / Electron 共用的版本真相源；
+ *       - backend/package.json：历史兼容兜底；
+ *       - `NOWEN_APP_VERSION`：只作旧镜像/旧脚本最后兜底，不能优先于包内版本。
+ *         原因：NAS / 应用市场更新时可能保留旧容器 ENV，若 ENV 优先，会出现
+ *         "前端已是新版、服务端版本号仍停在旧版"，用户只能删除重装。
  *   - **Schema 版本**：透传 getDbSchemaVersion / getCodeSchemaVersion，
  *     分别是"库实际应用到的最高迁移版本"与"当前代码已知的最高迁移版本"。
  *     两者相等说明迁移已落地；codeSchemaVersion > schemaVersion 理论上不会
@@ -34,7 +34,8 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { getDbSchemaVersion, getCodeSchemaVersion } from "../db/schema";
+import crypto from "crypto";
+import { getDb, getDbSchemaVersion, getCodeSchemaVersion } from "../db/schema";
 
 const router = new Hono();
 
@@ -152,56 +153,103 @@ function resolveMinClientVersion(): string | null {
  * 读文件抛错时静默降级，用 fallback 字符串；这个接口要"永远能答"。
  */
 let cachedAppVersion: string | null = null;
+
+function readPackageVersion(filePath: string, expectedNames: string[]): string | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const pkg = JSON.parse(fs.readFileSync(filePath, "utf-8")) as { name?: string; version?: string };
+    if (pkg.version && expectedNames.includes(pkg.name || "")) return pkg.version;
+  } catch {
+    // ignore and try next candidate
+  }
+  return null;
+}
+
 function resolveAppVersion(): string {
   if (cachedAppVersion) return cachedAppVersion;
 
-  // 1) 环境变量优先
-  const envVer = process.env.NOWEN_APP_VERSION?.trim();
-  if (envVer) {
-    cachedAppVersion = envVer;
+  // 1) 显式强制覆盖：仅给高级运维使用。普通 NOWEN_APP_VERSION 不再优先，
+  // 避免 NAS / 应用市场复用旧容器 ENV 时把服务端版本钉死在旧值。
+  const forcedEnvVer = process.env.NOWEN_APP_VERSION_OVERRIDE?.trim();
+  if (forcedEnvVer) {
+    cachedAppVersion = forcedEnvVer;
     return cachedAppVersion;
   }
 
-  // 2) 尝试读根 package.json（源码态 & npm start 态）
-  //    运行目录通常是仓库根或 backend/；两种情况都探一次。
-  const candidates = [
-    path.resolve(process.cwd(), "package.json"),
-    path.resolve(process.cwd(), "../package.json"),
-    // bundle 后 dist/index.js 可能在 backend/dist；再往上两级
-    path.resolve(__dirname, "../../package.json"),
-    path.resolve(__dirname, "../../../package.json"),
+  // 2) 优先读镜像 / 源码内 package.json。Dockerfile 会把根 package.json 复制到
+  // /app/package.json；源码态 / Electron / backend/dist 也通过候选路径覆盖。
+  const packageCandidates: Array<{ path: string; names: string[] }> = [
+    { path: path.resolve(process.cwd(), "package.json"), names: ["nowen-note"] },
+    { path: path.resolve(process.cwd(), "../package.json"), names: ["nowen-note"] },
+    { path: path.resolve(__dirname, "../../package.json"), names: ["nowen-note", "nowen-note-backend"] },
+    { path: path.resolve(__dirname, "../../../package.json"), names: ["nowen-note"] },
+    { path: path.resolve(process.cwd(), "backend/package.json"), names: ["nowen-note-backend"] },
+    { path: path.resolve(__dirname, "../package.json"), names: ["nowen-note-backend"] },
   ];
-  for (const p of candidates) {
-    try {
-      if (!fs.existsSync(p)) continue;
-      const raw = fs.readFileSync(p, "utf-8");
-      const pkg = JSON.parse(raw) as { name?: string; version?: string };
-      // 只接受"根仓库"或 backend 自身的 package.json：根的 name == nowen-note
-      if (pkg.name === "nowen-note" && pkg.version) {
-        cachedAppVersion = pkg.version;
-        return cachedAppVersion;
-      }
-    } catch {
-      // 继续尝试下一个候选
+  for (const candidate of packageCandidates) {
+    const v = readPackageVersion(candidate.path, candidate.names);
+    if (v) {
+      cachedAppVersion = v;
+      return cachedAppVersion;
     }
   }
 
-  // 3) backend 自己的 package.json 作为兜底
-  try {
-    const self = path.resolve(__dirname, "../../package.json");
-    if (fs.existsSync(self)) {
-      const pkg = JSON.parse(fs.readFileSync(self, "utf-8")) as { version?: string };
-      if (pkg.version) {
-        cachedAppVersion = pkg.version;
-        return cachedAppVersion;
-      }
-    }
-  } catch {
-    // ignore
+  // 3) 旧构建链路兜底：只有包内版本完全读不到时，才信任 NOWEN_APP_VERSION。
+  const legacyEnvVer = process.env.NOWEN_APP_VERSION?.trim();
+  if (legacyEnvVer) {
+    cachedAppVersion = legacyEnvVer;
+    return cachedAppVersion;
   }
 
   cachedAppVersion = "0.0.0";
   return cachedAppVersion;
+}
+
+/**
+ * 解析"当前后端实例"的稳定唯一标识 `serverInstanceId`。
+ * ---------------------------------------------------------------------------
+ * 背景（v1.1.7 修复）：
+ *   1.1.6 的"登录云端账号迁移向导"在用户**对同一台后端**点击迁移时，会把本地
+ *   笔记本/笔记/附件再上传到同一台机器上，产生一份完全相同的副本。用户随后
+ *   清理副本时，因为 hash 去重让多笔记共享同一物理文件，删除回收站会把还
+ *   活着的笔记引用的图片一起 unlink 掉。
+ *
+ * 修复策略需要前端在迁移前能识别"本地端 == 云端"。最廉价可靠的标识就是给
+ * 每个进程实例分配一个一次性 UUID，落库后跨重启稳定，前端拉两端 /api/version
+ * 比对即可。
+ *
+ * 实现：
+ *   - 落在 system_settings 表（已有的 KV 表），key = `server_instance_id`。
+ *   - 首次访问 lazy 生成 + 落库；之后任何重启都从库里读出来。
+ *   - 进程级缓存避免每次请求都查 DB。
+ *   - 任何异常都返回 null（接口不会因为这一项崩掉）。
+ */
+let cachedServerInstanceId: string | null | undefined = undefined;
+function resolveServerInstanceId(): string | null {
+  if (cachedServerInstanceId !== undefined) return cachedServerInstanceId;
+  try {
+    const db = getDb();
+    const row = db
+      .prepare("SELECT value FROM system_settings WHERE key = ?")
+      .get("server_instance_id") as { value: string } | undefined;
+    if (row?.value) {
+      cachedServerInstanceId = row.value;
+      return cachedServerInstanceId;
+    }
+    const id = crypto.randomUUID();
+    db.prepare(
+      "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
+    ).run("server_instance_id", id);
+    // 极端并发下另一个进程已经写入，再读一次以使用胜出者的值
+    const row2 = db
+      .prepare("SELECT value FROM system_settings WHERE key = ?")
+      .get("server_instance_id") as { value: string } | undefined;
+    cachedServerInstanceId = row2?.value || id;
+    return cachedServerInstanceId;
+  } catch {
+    cachedServerInstanceId = null;
+    return cachedServerInstanceId;
+  }
 }
 
 router.get("/", (c) => {
@@ -218,6 +266,7 @@ router.get("/", (c) => {
   const buildTime = process.env.NOWEN_BUILD_TIME?.trim();
   const frontendBuildId = resolveFrontendBuildId();
   const minClientVersion = resolveMinClientVersion();
+  const serverInstanceId = resolveServerInstanceId();
 
   return c.json({
     appVersion: resolveAppVersion(),
@@ -228,6 +277,9 @@ router.get("/", (c) => {
     // 前端逻辑：frontendBuildId 有值优先用它比对，否则降级到 appVersion。
     ...(frontendBuildId ? { frontendBuildId } : {}),
     ...(minClientVersion ? { minClientVersion } : {}),
+    // serverInstanceId：1.1.7 起用于"登录云端账号"迁移向导识别同源后端，
+    // 阻止用户把数据迁移到同一台机器（会造成双份数据）。
+    ...(serverInstanceId ? { serverInstanceId } : {}),
   });
 });
 
