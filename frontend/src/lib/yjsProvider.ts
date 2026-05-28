@@ -5,7 +5,8 @@
  *   1. 维护一个 Y.Doc + Awareness，供 CodeMirror 的 yCollab 扩展绑定
  *   2. 监听 Y.Doc / Awareness 的本地 update，通过 realtime 单例发出
  *   3. 监听 realtime 的 y:* 事件，applyUpdate 回本地 Doc/Awareness
- *   4. P1-#1 IndexedDB 持久化：断网/刷新不丢字
+ *   4. P1-#1 IndexedDB 持久化：断网/刷新不丢字；按服务器/本地实例 + 用户 + 笔记隔离，
+ *      避免本地、云端 A、云端 B 之间串协作草稿。
  *   5. P1-#5 pending 队列：WS 断开期间产生的 update 缓存，重连后批量发送
  *   6. P2-#6 双向 sync：join 后发 stateVector 给服务端，换取服务端侧的 diff
  *
@@ -34,6 +35,51 @@ type Listener = (payload: any) => void;
 const MAX_UPDATE_BYTES = 1 * 1024 * 1024;
 /** P1-#5 pending 队列最大条数，溢出合并 */
 const MAX_PENDING_UPDATES = 500;
+const YJS_IDB_PREFIX = "nowen-y-v2";
+
+function normalizeScopePart(value: string): string {
+  return (value || "unknown").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
+}
+
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function getServerScope(): string {
+  let server = "";
+  try { server = localStorage.getItem("nowen-server-url") || ""; } catch { /* ignore */ }
+  const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
+    ? window.location.origin
+    : "";
+  const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
+
+  // 桌面 full 本地后端是 loopback + 动态端口；协作文档 IDB 名称必须稳定，
+  // 否则每次重启都会换一套 `nowen-y-*` 缓存。远端/lite 仍按 URL 隔离。
+  if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
+    return "local-desktop";
+  }
+  if (server) return normalizeUrl(server);
+  if (origin) return normalizeUrl(origin);
+  return "same-origin";
+}
+
+function getYjsPersistenceName(noteId: string, userId: string): string {
+  return [
+    YJS_IDB_PREFIX,
+    normalizeScopePart(getServerScope()),
+    normalizeScopePart(userId),
+    normalizeScopePart(noteId),
+  ].join("-");
+}
 
 export class NowenYjsProvider {
   readonly noteId: string;
@@ -142,8 +188,14 @@ export class NowenYjsProvider {
 
   private initIndexedDb() {
     try {
-      // IndexedDB 的 name 不能包含笔记ID之外的太多噪音，用固定前缀 + noteId
-      this.idbPersistence = new IndexeddbPersistence(`nowen-y-${this.noteId}`, this.doc);
+      // IndexedDB persistence name 必须包含 server-scope + userId + noteId：
+      //   - noteId 只在同一个后端内唯一；本地和云端、不同云端之间可能撞；
+      //   - 桌面本地后端端口会变，server-scope 对 loopback 统一折叠为 local-desktop；
+      //   - 用户维度可避免同后端多账号串协作草稿。
+      this.idbPersistence = new IndexeddbPersistence(
+        getYjsPersistenceName(this.noteId, this.user.userId),
+        this.doc,
+      );
       this.idbPersistence.once("synced", () => {
         this.idbSynced = true;
         // IDB 里可能有"本地新增但尚未 push 到服务端"的 update；如果此时 WS 已通，触发一次 sync-step1

@@ -177,8 +177,8 @@ app.get("/api/openapi.json", (c) => c.json(generateOpenAPISpec()));
 // 站点设置（GET 无需 JWT，允许未登录时加载品牌信息）
 app.get("/api/settings", (c) => {
   const db = getDb();
-  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%'").all() as { key: string; value: string }[];
-  const result: Record<string, string> = { site_title: "nowen-note", site_favicon: "", editor_font_family: "" };
+  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'debug_%' OR key = 'web_ui_enabled'").all() as { key: string; value: string }[];
+  const result: Record<string, string> = { site_title: "nowen-note", site_favicon: "", editor_font_family: "", debug_files_query: "false", web_ui_enabled: "false" };
   for (const row of rows) {
     result[row.key] = row.value;
   }
@@ -447,6 +447,28 @@ app.get("/api/yjs/stats", (c) => {
 
 const port = Number(process.env.PORT) || 3001;
 
+function isWebUiEnabled(): boolean {
+  try {
+    const row = getDb()
+      .prepare("SELECT value FROM system_settings WHERE key = 'web_ui_enabled'")
+      .get() as { value?: string } | undefined;
+    const value = row?.value;
+    return value === undefined || value === null || value === "" || value === "true" || value === "1";
+  } catch {
+    return true;
+  }
+}
+
+function webUiDisabledResponse(): Response {
+  return new Response(
+    "<!doctype html><html><head><meta charset=\"utf-8\"><title>Web UI Disabled</title></head>" +
+    "<body style=\"font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;color:#334155\">" +
+    "<main style=\"max-width:520px;padding:32px;text-align:center\"><h1 style=\"font-size:22px;color:#0f172a\">网页端已被管理员关闭</h1>" +
+    "<p style=\"line-height:1.7\">当前服务器仅提供 API 服务。请使用 Nowen Note 桌面客户端连接该服务器。</p></main></body></html>",
+    { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
 // 生产模式：服务前端静态文件
 if (process.env.NODE_ENV === "production") {
   const frontendDist = process.env.FRONTEND_DIST || path.resolve(process.cwd(), "frontend/dist");
@@ -476,6 +498,9 @@ if (process.env.NODE_ENV === "production") {
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api")) {
       return c.json({ error: "Not Found" }, 404);
+    }
+    if (!isWebUiEnabled()) {
+      return webUiDisabledResponse();
     }
     // 尝试提供静态文件
     const reqPath = c.req.path === "/" ? "/index.html" : c.req.path;

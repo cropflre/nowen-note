@@ -13,6 +13,7 @@
     "fetch:node:all": "node scripts/fetch-node.mjs --all",
     "rebuild:native": "node scripts/rebuild-native.mjs",
     "build:icon": "node scripts/build-icon.mjs",
+    "build:mobile-icons": "node scripts/sync-mobile-icons.mjs",
     "electron:dev": "npm run build:all && electron .",
     "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js",
     "electron:build:safe": "node scripts/safe-build.mjs",

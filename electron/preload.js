@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("app:open-log-dir");
   },
 
+  /** 设置 Windows/Linux 原生菜单栏是否隐藏。 */
+  setHideMenuBar(next) {
+    return ipcRenderer.invoke("app:set-hide-menu-bar", Boolean(next));
+  },
+
   /**
    * renderer → 主进程：上报当前编辑器"格式状态"，供主进程同步系统菜单栏的
    * checked 标记（HIG：菜单项应反映当前上下文状态）。

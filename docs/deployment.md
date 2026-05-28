@@ -150,7 +150,7 @@ storeFile=你的keystore路径
 
 移动端首次启动需配置服务器地址（IP:端口 或域名），通过 HTTP 连接到已部署的 nowen-note 后端。
 
-**Android 图标：** 自定义设计的 Nowen Note 品牌图标，深色背景（#0D1117）+ 白色笔记纸 + 蓝色品牌字母 N + 铅笔装饰，支持 Android 自适应图标（Adaptive Icon）。
+**Android 图标：** 移动端 App 图标与桌面端 Electron 图标保持一致，统一由 `electron/icon.png` 生成；如需重新同步，运行 `npm run build:mobile-icons`。支持 Android 自适应图标（Adaptive Icon）。
 
 ---
 

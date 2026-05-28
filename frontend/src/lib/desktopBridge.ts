@@ -81,6 +81,7 @@ export interface AppInfo {
   backendPort: number;
   mode?: "full" | "lite";
   remoteUrl?: string;
+  hideMenuBar?: boolean;
 }
 
 export interface OpenFilePayload {
@@ -96,6 +97,7 @@ interface NowenDesktopAPI {
   quitAndInstall: () => Promise<{ ok: boolean }>;
   getAppInfo: () => Promise<AppInfo>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
+  setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;
   /** 上报格式状态（同步菜单 checked）。preload 中已白名单化，仅 send，无 ack。 */
   sendFormatState?: (state: FormatStateSnapshot | null) => void;
   /** 桌面端模式切换 IPC。旧版本 preload 可能没有，调用方需做兜底。 */
@@ -210,6 +212,12 @@ export async function getAppInfo(): Promise<AppInfo | null> {
   const bridge = getBridge();
   if (!bridge) return null;
   return bridge.getAppInfo();
+}
+
+export async function setDesktopHideMenuBar(next: boolean): Promise<{ ok: boolean; hideMenuBar?: boolean; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.setHideMenuBar) return { ok: false, reason: "not-supported" };
+  return bridge.setHideMenuBar(next);
 }
 
 /** 切换到桌面端本地 full 模式（由主进程确认、清 storage 并重启）。 */

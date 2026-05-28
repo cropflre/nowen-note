@@ -34,6 +34,7 @@ let backendPort = 0;
 // 当前运行模式快照（在 ready 时读 settings.json 后赋值）
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
+let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
 // Phase A: 桌面零登录所用的本地账号 token / user，在 startBackend 之后由
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
@@ -608,8 +609,21 @@ function openAboutWindow() {
 }
 
 // ---------- 主窗口 ----------
+function applyMenuBarPreference() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform === "darwin") return;
+  const hide = !!currentHideMenuBar;
+  try {
+    mainWindow.setAutoHideMenuBar(hide);
+    mainWindow.setMenuBarVisibility(!hide);
+  } catch (e) {
+    console.warn("[menu] apply menu bar preference failed:", e?.message || e);
+  }
+}
+
 function createWindow() {
   const isMac = process.platform === "darwin";
+  const hideMenuBar = !isMac && !!currentHideMenuBar;
 
   // macOS 原生观感：
   //   - hiddenInset 把 Traffic Light 嵌入工具栏，不占独立标题栏；
@@ -635,6 +649,7 @@ function createWindow() {
     icon: path.join(__dirname, "icon.png"),
     backgroundColor: isMac ? "#00000000" : "#0D1117",
     show: false,
+    autoHideMenuBar: hideMenuBar,
     ...macWindowOpts,
     webPreferences: {
       nodeIntegration: false,
@@ -646,14 +661,23 @@ function createWindow() {
     },
   });
 
-  // 根据当前模式决定加载哪个 URL：
+  // 根据当前模式决定 API 目标：
   //   full → 本机后端 http://127.0.0.1:{backendPort}
   //   lite → 用户在 setup 窗里选择并写入 settings.json 的 remoteUrl
+  //
+  // 重要：打包后的 Electron 始终加载本地 frontend/dist，而不是远端服务器页面。
+  // 这样服务端即使开启「API-only / 关闭网页端」也不会影响 PC 客户端。
   const targetUrl =
     currentMode === "lite" && currentRemoteUrl
       ? currentRemoteUrl
       : `http://127.0.0.1:${backendPort}`;
-  mainWindow.loadURL(targetUrl);
+  const frontendIndex = path.join(getFrontendDist(), "index.html");
+  if ((app.isPackaged || currentMode === "lite") && fs.existsSync(frontendIndex)) {
+    mainWindow.loadFile(frontendIndex, { query: { serverUrl: targetUrl } });
+  } else {
+    mainWindow.loadURL(targetUrl);
+  }
+  applyMenuBarPreference();
 
   // ---------- macOS：全屏进出时通知 renderer 调整 Traffic Light 让位 ----------
   // 全屏模式下 Traffic Light 自动隐藏，顶部 72px 左 padding 应回收；离开全屏再恢复。
@@ -861,6 +885,7 @@ function registerAppIpc() {
     backendPort,
     mode: currentMode,
     remoteUrl: currentRemoteUrl,
+    hideMenuBar: currentHideMenuBar,
   }));
 
   ipcMain.removeHandler("app:open-log-dir");
@@ -868,6 +893,14 @@ function registerAppIpc() {
     const dir = getLogDir();
     await shell.openPath(dir);
     return { ok: true, path: dir };
+  });
+
+  ipcMain.removeHandler("app:set-hide-menu-bar");
+  ipcMain.handle("app:set-hide-menu-bar", async (_event, next) => {
+    currentHideMenuBar = !!next;
+    writeSettings({ hideMenuBar: currentHideMenuBar });
+    applyMenuBarPreference();
+    return { ok: true, hideMenuBar: currentHideMenuBar };
   });
 
   // Phase A: 桌面零登录 —— renderer 启动时拉取本地账号 token，跳过登录页。
@@ -1027,6 +1060,7 @@ app.whenReady().then(async () => {
   const settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
+  currentHideMenuBar = !!settings.hideMenuBar;
 
   // Lite-only 包强制使用 lite 模式：哪怕用户手改 settings.json 为 full 也纠正回来
   if (liteOnly && currentMode !== "lite") {
@@ -1102,6 +1136,7 @@ app.whenReady().then(async () => {
     onSwitchToFull: () => switchToFull(),
     onChangeServer: () => changeRemoteServer(),
   });
+  applyMenuBarPreference();
 
   // ---------- macOS Dock Quick Action（HIG：Dock 右键菜单） ----------
   // 用户未启动窗口时右键 Dock 即可快速进入关键操作。app.dock 仅存在于 darwin，

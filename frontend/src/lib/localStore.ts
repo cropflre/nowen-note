@@ -6,8 +6,9 @@
  * 按需正文"完整缓存在本地，使应用在断网时仍能浏览和编辑。
  *
  * 设计要点：
- *   1. **按用户隔离**：DB 名 = `nowen-cache-${userId}`，避免多账号串数据。
- *      切换账号时 close 当前 DB，打开新的；登出时不销毁（保留快照便于下次重登）。
+ *   1. **按服务器/本地实例 + 用户隔离**：DB 名 = `nowen-cache-v2-${scope}-${userId}`，
+ *      避免本地、云端 A、云端 B 之间串缓存。切换账号/服务器时 close 当前 DB，
+ *      打开新的；登出时不销毁（保留快照便于下次重登）。
  *   2. **schema 版本 1**：四张 store
  *        - notebooks         主键 id；索引 parentId、updatedAt
  *        - notes             主键 id；索引 notebookId、updatedAt、isTrashed
@@ -64,17 +65,57 @@ interface NowenCacheSchema extends DBSchema {
   };
 }
 
-const DB_NAME_PREFIX = "nowen-cache-";
+const DB_NAME_PREFIX = "nowen-cache-v2-";
 const DB_VERSION = 1;
 
 // ─── 单例连接管理 ──────────────────────────────────────────────────────────────
 
 let currentUserId: string | null = null;
+let currentCacheIdentity: string | null = null;
 let dbPromise: Promise<IDBPDatabase<NowenCacheSchema>> | null = null;
 
-function getDbName(userId: string): string {
-  // 用户 ID 已是 UUID/纯字符串，但仍做最简单的兜底
-  return `${DB_NAME_PREFIX}${userId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+function normalizeDbPart(value: string): string {
+  return (value || "unknown").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
+}
+
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function getServerScope(): string {
+  let server = "";
+  try { server = localStorage.getItem("nowen-server-url") || ""; } catch { /* ignore */ }
+  const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
+    ? window.location.origin
+    : "";
+  const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
+
+  // 桌面 full 本地后端通常是 127.0.0.1:<动态端口>。端口会变，不能把端口写进
+  // cache identity，否则每次重启都是一套新 IDB。远端/lite 通常不是 loopback，
+  // 仍按 URL 隔离。
+  if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
+    return "local-desktop";
+  }
+  if (server) return normalizeUrl(server);
+  if (origin) return normalizeUrl(origin);
+  return "same-origin";
+}
+
+function getCacheIdentity(userId: string): string {
+  return `${normalizeDbPart(getServerScope())}-${normalizeDbPart(userId)}`;
+}
+
+function getDbName(cacheIdentity: string): string {
+  return `${DB_NAME_PREFIX}${cacheIdentity}`;
 }
 
 /**
@@ -82,7 +123,8 @@ function getDbName(userId: string): string {
  * 同 userId 重复调用是 no-op；不同 userId 会关掉旧连接。
  */
 export function setCurrentUser(userId: string | null): void {
-  if (currentUserId === userId) return;
+  const nextIdentity = userId ? getCacheIdentity(userId) : null;
+  if (currentUserId === userId && currentCacheIdentity === nextIdentity) return;
   // 关旧连接
   if (dbPromise) {
     dbPromise.then((db) => {
@@ -91,12 +133,13 @@ export function setCurrentUser(userId: string | null): void {
     dbPromise = null;
   }
   currentUserId = userId;
+  currentCacheIdentity = nextIdentity;
 }
 
 function getDb(): Promise<IDBPDatabase<NowenCacheSchema>> | null {
-  if (!currentUserId) return null;
+  if (!currentCacheIdentity) return null;
   if (!dbPromise) {
-    dbPromise = openDB<NowenCacheSchema>(getDbName(currentUserId), DB_VERSION, {
+    dbPromise = openDB<NowenCacheSchema>(getDbName(currentCacheIdentity), DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains("notebooks")) {
           const s = db.createObjectStore("notebooks", { keyPath: "id" });
@@ -328,7 +371,7 @@ export async function clearAll(): Promise<void> {
 
 /** 当前是否已绑定用户（用于上层判定是否能用本地缓存） */
 export function isReady(): boolean {
-  return !!currentUserId;
+  return !!currentCacheIdentity;
 }
 
 export function getCurrentUserId(): string | null {

@@ -53,8 +53,24 @@ function isValidServerUrl(url: string): boolean {
   }
 }
 
+function readServerUrlFromQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("serverUrl") || params.get("nowen-server-url") || "";
+    if (!raw || !isValidServerUrl(raw)) return "";
+    const normalized = raw.replace(/\/+$/, "");
+    localStorage.setItem(SERVER_URL_KEY, normalized);
+    return normalized;
+  } catch {
+    return "";
+  }
+}
+
 export function getServerUrl(): string {
-  const raw = localStorage.getItem(SERVER_URL_KEY) || "";
+  // Electron 本地 UI 会通过 query 注入本次运行的 API 地址（本地后端端口可能每次变），
+  // 因此 query 优先于 localStorage，并会写回 storage。
+  const raw = readServerUrlFromQuery() || localStorage.getItem(SERVER_URL_KEY) || "";
   if (!raw) return "";
   if (!isValidServerUrl(raw)) {
     // 自愈：清掉坏值，避免无限触发 `<!DOCTYPE` 报错
@@ -1151,6 +1167,7 @@ export const api = {
       feature_personal_import_enabled?: string;
       // 调试开关："true" / "false"。仅管理员可写，未写过时为 "false"。
       debug_files_query?: string;
+      web_ui_enabled?: string;
     }>("/settings"),
   updateSiteSettings: (data: {
     site_title?: string;
@@ -1161,6 +1178,7 @@ export const api = {
     feature_personal_import_enabled?: boolean | string;
     // 同上：后端归一化为 "true"/"false"
     debug_files_query?: boolean | string;
+    web_ui_enabled?: boolean | string;
   }) =>
     request<{
       site_title: string;
@@ -1169,6 +1187,7 @@ export const api = {
       feature_personal_export_enabled?: string;
       feature_personal_import_enabled?: string;
       debug_files_query?: string;
+      web_ui_enabled?: string;
     }>("/settings", {
       method: "PUT",
       body: JSON.stringify(data),

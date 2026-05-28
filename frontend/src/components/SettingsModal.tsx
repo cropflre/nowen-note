@@ -16,7 +16,7 @@ import AuthorStoryModal from "@/components/AuthorStoryModal";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { api } from "@/lib/api";
-import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, type UpdaterPayload } from "@/lib/desktopBridge";
+import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -686,6 +686,61 @@ function AboutPanel() {
 function SwitchesPanel() {
   const { t } = useTranslation();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [webUiEnabled, setWebUiEnabled] = useState(false);
+  const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(false);
+  const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const desktop = isDesktop();
+  const supportsDesktopMenuBarToggle = desktop && desktopPlatform !== "darwin";
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMe()
+      .then((u) => { if (!cancelled) setIsAdmin((u as any)?.role === "admin"); })
+      .catch(() => { if (!cancelled) setIsAdmin(false); });
+    api.getSiteSettings()
+      .then((s) => { if (!cancelled) setWebUiEnabled(s.web_ui_enabled !== "false"); })
+      .catch(() => {});
+    if (desktop) {
+      getAppInfo()
+        .then((info) => {
+          if (cancelled) return;
+          setDesktopHideMenuBar(!!info?.hideMenuBar);
+          setDesktopPlatform(info?.platform ?? null);
+        })
+        .catch(() => {});
+    }
+    return () => { cancelled = true; };
+  }, [desktop]);
+
+  const handleToggleWebUi = async (next: boolean) => {
+    const prev = webUiEnabled;
+    setWebUiEnabled(next);
+    setSavingKey("webUi");
+    try {
+      const updated = await api.updateSiteSettings({ web_ui_enabled: next });
+      setWebUiEnabled(updated.web_ui_enabled !== "false");
+    } catch {
+      setWebUiEnabled(prev);
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleToggleDesktopMenuBar = async (hide: boolean) => {
+    const prev = desktopHideMenuBar;
+    setDesktopHideMenuBar(hide);
+    setSavingKey("menuBar");
+    try {
+      const res = await setDesktopHideMenuBarPreference(hide);
+      if (typeof res.hideMenuBar === "boolean") setDesktopHideMenuBar(res.hideMenuBar);
+    } catch {
+      setDesktopHideMenuBar(prev);
+    } finally {
+      setSavingKey(null);
+    }
+  };
 
   const switches = [
     {
@@ -735,6 +790,48 @@ function SwitchesPanel() {
             </div>
           </label>
         ))}
+
+        {supportsDesktopMenuBarToggle && (
+          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
+            <input
+              type="checkbox"
+              checked={desktopHideMenuBar}
+              disabled={savingKey === "menuBar"}
+              onChange={(e) => handleToggleDesktopMenuBar(e.target.checked)}
+              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
+                隐藏桌面端菜单栏
+                {savingKey === "menuBar" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
+              </div>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+                仅 Windows/Linux 生效；隐藏后可按 Alt 临时显示菜单栏，快捷键仍然可用。
+              </p>
+            </div>
+          </label>
+        )}
+
+        {isAdmin && (
+          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
+            <input
+              type="checkbox"
+              checked={!webUiEnabled}
+              disabled={savingKey === "webUi"}
+              onChange={(e) => handleToggleWebUi(!e.target.checked)}
+              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
+                关闭网页端页面
+                {savingKey === "webUi" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
+              </div>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+                开启后服务器只保留 API；浏览器访问网页端会显示禁用提示。桌面客户端使用本地界面连接 API，不受影响。
+              </p>
+            </div>
+          </label>
+        )}
       </div>
     </div>
   );

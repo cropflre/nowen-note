@@ -33,6 +33,124 @@ import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 
+const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
+
+function normalizeAuthUrl(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}
+
+function isLoopbackAuthUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function getAuthCacheScope(serverUrl: string): string {
+  const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
+    ? window.location.origin
+    : "";
+  const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
+  if (isDesktop && ((serverUrl && isLoopbackAuthUrl(serverUrl)) || (!serverUrl && origin && isLoopbackAuthUrl(origin)))) {
+    return "local-desktop";
+  }
+  if (serverUrl) return normalizeAuthUrl(serverUrl);
+  if (origin) return normalizeAuthUrl(origin);
+  return "same-origin";
+}
+
+function getAuthUserCacheKey(scope: string): string {
+  return `${AUTH_USER_CACHE_PREFIX}${scope}`;
+}
+
+function decodeUserFromToken(token: string): User | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      Array.from(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")))
+        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)
+        .join("")
+    );
+    const data = JSON.parse(json) as { userId?: string; username?: string };
+    if (!data.userId || !data.username) return null;
+    return {
+      id: data.userId,
+      username: data.username,
+      email: null,
+      avatarUrl: null,
+      displayName: data.username,
+      createdAt: new Date(0).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedAuthUser(scope: string, token: string, user: User): void {
+  try {
+    localStorage.setItem(
+      getAuthUserCacheKey(scope),
+      JSON.stringify({ token, user, cachedAt: Date.now() }),
+    );
+  } catch { /* ignore */ }
+}
+
+function loadCachedAuthUser(scope: string, token: string): User | null {
+  try {
+    const raw = localStorage.getItem(getAuthUserCacheKey(scope));
+    if (raw) {
+      const cached = JSON.parse(raw) as { token?: string; user?: User };
+      const decoded = decodeUserFromToken(token);
+      if (cached.user?.id && (cached.token === token || cached.user.id === decoded?.id)) {
+        return cached.user;
+      }
+    }
+  } catch { /* ignore */ }
+  return decodeUserFromToken(token);
+}
+
+function isVerifyNetworkFailure(err: any): boolean {
+  return err?.networkLike === true
+    || err?.name === "AbortError"
+    || err instanceof TypeError;
+}
+
+function isNativeClientRuntime(): boolean {
+  return !!(window as any).nowenDesktop?.isDesktop
+    || !!(window as any).Capacitor?.isNativePlatform?.()
+    || (!!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web");
+}
+
+async function fetchWebUiEnabled(): Promise<boolean> {
+  try {
+    const baseUrl = getServerUrl() ? `${getServerUrl()}/api` : "/api";
+    const res = await fetch(`${baseUrl}/settings`, { cache: "no-store" });
+    if (!res.ok) return true;
+    const data = await res.json().catch(() => ({}));
+    return data?.web_ui_enabled !== "false";
+  } catch {
+    // 网络/后端异常时不做前端自锁，避免误伤本地开发和临时故障恢复。
+    return true;
+  }
+}
+
+function WebUiDisabledPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50 px-6 text-center text-zinc-600">
+      <main className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <h1 className="text-xl font-semibold text-zinc-900 mb-3">网页端已被管理员关闭</h1>
+        <p className="text-sm leading-7">
+          当前服务器仅提供 API 服务。请使用 Nowen Note 桌面客户端连接该服务器。
+        </p>
+      </main>
+    </div>
+  );
+}
+
 function SidebarResizeHandle() {
   const { state } = useApp();
   const actions = useAppActions();
@@ -596,6 +714,7 @@ function AuthGate() {
     }
 
     const serverUrl = getServerUrl();
+    const authScope = getAuthCacheScope(serverUrl);
     // 原生 APP（Capacitor）里没有 vite proxy，也没有同源后端 ——
     // 如果拿不到 serverUrl，直接回登录页让用户重新输，避免打到 "/api"
     // 后请求挂起导致白屏。
@@ -615,17 +734,61 @@ function AuthGate() {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     })
-      .then((res) => {
+      .then(async (res) => {
         if (res.ok) return res.json();
-        throw new Error("Invalid token");
+        let body: any = {};
+        try { body = await res.clone().json(); } catch { /* ignore */ }
+        // 401 / 会话吊销类 403 才是真正的"登录态失效"，需要清 token。
+        // 网络抖动、远端 5xx、超时不应把用户踢回登录页，否则云端离线缓存无法使用。
+        const code = body?.code as string | undefined;
+        const authInvalid =
+          res.status === 401 ||
+          code === "ACCOUNT_DISABLED" ||
+          code === "TOKEN_REVOKED" ||
+          code === "USER_NOT_FOUND" ||
+          code === "TOKEN_INVALID" ||
+          code === "SESSION_REVOKED" ||
+          code === "UNAUTHENTICATED";
+        if (authInvalid) {
+          const err = new Error(body?.error || "Invalid token") as Error & { authInvalid?: boolean };
+          err.authInvalid = true;
+          throw err;
+        }
+        const err = new Error(body?.error || `Verify failed: ${res.status}`) as Error & { networkLike?: boolean; status?: number };
+        err.status = res.status;
+        err.networkLike = res.status >= 500 || res.status === 408 || res.status === 425 || res.status === 429;
+        throw err;
       })
       .then((data) => {
-        setUser(data.user);
+        const verifiedUser = data.user as User;
+        saveCachedAuthUser(authScope, token, verifiedUser);
+        setUser(verifiedUser);
         setIsAuthenticated(true);
       })
-      .catch(() => {
-        // L10: verify 失败 → 广播给其他 tab 一起下线
-        broadcastLogout("verify_failed");
+      .catch((err) => {
+        if ((err as any)?.authInvalid) {
+          // 只有明确的鉴权失效才广播登出；网络/远端不可达不能清 token。
+          broadcastLogout("verify_failed");
+          setIsAuthenticated(false);
+          return;
+        }
+
+        if (isVerifyNetworkFailure(err)) {
+          const cachedUser = loadCachedAuthUser(authScope, token);
+          if (cachedUser) {
+            // 云端降级：保留 token + serverUrl，使用上次用户信息进入主界面。
+            // 后续读请求会走 offlineRead，本地缓存可用；写请求失败会进 offlineQueue。
+            setUser(cachedUser);
+            setIsAuthenticated(true);
+            try { window.dispatchEvent(new CustomEvent("nowen:cloud-degraded")); } catch { /* ignore */ }
+            return;
+          }
+          // 无缓存时无法绑定 localStore 用户 id，只能展示登录页；但仍不清 token，
+          // 网络恢复后刷新即可重新 verify 进入。
+          setIsAuthenticated(false);
+          return;
+        }
+
         setIsAuthenticated(false);
       })
       .finally(() => clearTimeout(timer));
@@ -665,6 +828,7 @@ function AuthGate() {
               localStorage.setItem("nowen-server-url", window.location.origin);
             }
           } catch { /* ignore */ }
+          saveCachedAuthUser(getAuthCacheScope(getServerUrl()), auth.token, auth.user);
           setUser(auth.user);
           setIsAuthenticated(true);
           return;
@@ -779,6 +943,7 @@ function AuthGate() {
   };
 
   const handleLogin = (token: string, userData: User) => {
+    saveCachedAuthUser(getAuthCacheScope(getServerUrl()), token, userData);
     setUser(userData);
     setActiveToken(token);
     setIsAuthenticated(true);
@@ -886,6 +1051,32 @@ function AuthGate() {
 }
 
 function App() {
+  const [webUiAllowed, setWebUiAllowed] = useState<boolean | null>(() => isNativeClientRuntime() ? true : null);
+
+  useEffect(() => {
+    if (isNativeClientRuntime()) {
+      setWebUiAllowed(true);
+      return;
+    }
+    let cancelled = false;
+    fetchWebUiEnabled().then((enabled) => {
+      if (!cancelled) setWebUiAllowed(enabled);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (webUiAllowed === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!webUiAllowed) {
+    return <WebUiDisabledPage />;
+  }
+
   // 检查是否是分享页面路由 /share/:token
   //
   // 字符集说明：后端 generateShareToken() 用 crypto.randomBytes(9).toString("base64url")

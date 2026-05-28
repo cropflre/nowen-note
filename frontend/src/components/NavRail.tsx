@@ -44,6 +44,7 @@ import SettingsModal from "@/components/SettingsModal";
 import MigrationModal from "@/components/MigrationModal";
 import { useRailMode, nextRailMode, RailMode } from "@/hooks/useRailMode";
 import { getAppInfo, isDesktop as isDesktopApp, switchDesktopToFull } from "@/lib/desktopBridge";
+import { clearLocalIdMap, clearQueue } from "@/lib/offlineQueue";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -190,15 +191,21 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     if (!confirmed) return;
 
     // 从"full + 云端账号"切回"full + 本地零登录"：
-    // 1) 先用当前 server-url/token 尝试吊销云端会话并清快速登录镜像；
-    // 2) 再清 server-url/token/prefer-cloud/offline-queue；
-    // 3) reload 后 App.tsx 会重新走 getLocalAuth()，恢复本地零登录。
+    // 1) 先清当前云端上下文的 scoped offlineQueue / local-id-map（此时 token/serverUrl 还在，
+    //    能定位到正确 key；不能等 broadcastLogout 后再清，否则会切到 anonymous/local key）；
+    // 2) 再用当前 server-url/token 尝试吊销云端会话并清快速登录镜像；
+    // 3) 清 server-url/token/prefer-cloud；
+    // 4) reload 后 App.tsx 会重新走 getLocalAuth()，恢复本地零登录。
+    clearQueue();
+    clearLocalIdMap();
     broadcastLogout("switch_to_local");
     try {
       clearServerUrl();
       localStorage.removeItem("nowen-token");
       localStorage.removeItem("nowen-prefer-cloud");
+      // 清一次旧版全局 key，兼容升级前遗留数据；v2 scoped key 已由 clearQueue 清理。
       localStorage.removeItem("nowen-offline-queue");
+      localStorage.removeItem("nowen-offline-id-map");
     } catch { /* ignore */ }
     window.location.reload();
   }, [canSwitchBackToLocal, t, usingDesktopLiteMode]);
@@ -351,7 +358,8 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       </button>
       {/*
         桌面端底部账号模式入口：
-          - 本地态：显示 Cloud，打开 MigrationModal，登录并迁移到云端；
+          - 本地态：显示 Cloud，打开 MigrationModal；登录后可选择「直接进入云端」
+            或「迁移本地数据到云端」；
           - 云端态：显示 CloudOff，切回本地零登录；
           - lite 运行模式：交给主进程切回 full 并重启。
         Web/移动端保持原本的退出登录行为。
