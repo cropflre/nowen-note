@@ -134,6 +134,12 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.1.8 - 2026-05-28
+
+### 🐛 修复
+
+- 调整访问控制默认开关 (b49534c)
+
 ### v1.1.7 - 2026-05-28
 
 ### ✨ 新增
@@ -264,11 +270,5 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 ### v1.1.4 - 2026-05-20
 
 _本版本无可展示的 commit 变更（可能全部是合并 / 工作流修改）_
-
-### v1.1.3 - 2026-05-20
-
-### ✨ 新增
-
-- **trash**: 笔记本删除改为软删，回收站恢复自动还原祖先笔记本链 (aeba393)
 
 <!-- CHANGELOG:END -->

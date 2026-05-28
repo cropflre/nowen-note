@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-05-28T02:37:52.253Z",
+  "generatedAt": "2026-05-28T03:04:19.431Z",
   "entries": [
+    {
+      "version": "1.1.8",
+      "date": "2026-05-28",
+      "body": "### 🐛 修复\n\n- 调整访问控制默认开关 (b49534c)"
+    },
     {
       "version": "1.1.7",
       "date": "2026-05-28",
@@ -45,11 +50,6 @@
       "version": "1.0.38",
       "date": "2026-05-14",
       "body": "### ✨ 新增\n\n- **editor**: 顶栏新增 Mermaid / 数学公式 / 脚注 按钮，并让 Mermaid 块可双击编辑 (8970e9c)\n- **editor**: Mermaid 图表 / LaTeX 数学公式 / 脚注 三项块级扩展 (530240c)\n- **editor**: 链接气泡菜单 + 选区气泡补链接按钮 (ad8d8c8)\n- **editor**: markdown 语法与斜杠命令增强 (862047f)\n\n### 🐛 修复\n\n- **release**: frontend 依赖体检白名单补 mermaid/katex/rehype-raw (cbafdc0)\n- **backend**: reclaim disk space on note/notebook deletion (3d8e61b)\n\n### ♻️ 重构\n\n- **ai**: 用项目统一 confirmDialog 替代 window.confirm (5088414)\n\n### 💄 样式\n\n- **editor,share**: 编辑器链接醒目化 + 分享页排版自给自足 (e8d6e06)\n\n### 📦 构建\n\n- **clipper**: 0.1.2 多浏览器构建产物（chrome/edge/firefox） (1902bf7)\n\n### 🔧 其他\n\n- **clipper**: release v0.1.2 (01ebf0c)"
-    },
-    {
-      "version": "1.0.37",
-      "date": "2026-05-12",
-      "body": "### ✨ 新增\n\n- AI 批量归类加确认面板；剪藏来源用完整 URL；版本提示按版本号去重 (d6b30bd)\n\n### 🐛 修复\n\n- **android**: 修复键盘弹起后输入框下方一大片白色空白 (35cfb74)"
     }
   ]
 }
