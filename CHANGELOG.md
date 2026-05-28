@@ -12,7 +12,30 @@
 
 <!-- ADD_NEW_HERE -->
 
-## v1.1.7 - 2026-05-27
+## v1.1.7 - 2026-05-28
+
+### ✨ 新增
+
+- 优化桌面端云端本地模式与访问控制 (783cf6a)
+- **release**: 选项 10 改为'补 upk 到现有 Release'模式（不打新 tag、不升版本） (7e4c626)
+
+### 🐛 修复
+
+- 修复后端实时删除广播编译错误 (22fcc3c)
+- improve multi-device note sync (0beb31e)
+- **upk**: 补回被上一个 commit 误删的 const found 行 (0e81338)
+- **upk**: cp/rm 之前按 resolve(src) 去重，避免重复处理同一文件 (9e95e54)
+- **upk**: 递归扫描 .upk 产物，覆盖 ugcli 实际输出路径 build_dir/pkgs/upk/ (49467ff)
+- **upk**: 补 upk 模式支持版本复用 + 修 RepoTag 与 compose 不一致 + ugcli 权限自愈 (00de4d9)
+
+### 📝 文档
+
+- **readme**: 添加在线体验入口（note.nowen.cn） (b626b3e)
+
+### 🔧 其他
+
+- 完善发布流程与编辑器设置 (0ae451d)
+- update release workflow and editor UI (53c2e4d)
 
 > 🚨 **紧急安全修复**：1.1.6 用户请尽快升级。该版本修复"登录云端账号"迁移功能在
 > 同一台后端上误操作导致的**附件物理文件丢失**问题。
