@@ -153,6 +153,25 @@ QQ 群：`1093473044`
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.1.10 - 2026-05-29
+
+### ✨ 新增
+
+- **prefs**: 新增阅读密度偏好（宽松/紧凑） (3d94607)
+- **mobile**: 搜索按钮上提到笔记标题栏 (e0f047c)
+- **editor**: 表格新增行高可拖拽功能 (c5c2461)
+- 新增客户端下载面板 + Gitee Release 镜像同步 (93a6117)
+
+### 🐛 修复
+
+- **download**: 修复 DownloadPanel icon 类型 TS2322 编译错误 (ced169b)
+- **editor**: 收紧图片上下间距 (29ccead)
+- **upk**: use host network for ugreen package (68065b9)
+
+### 🔧 其他
+
+- **upk**: update zh-CN display name (bcd55ee)
+
 ### v1.1.9 - 2026-05-28
 
 ### 🐛 修复
@@ -280,17 +299,5 @@ QQ 群：`1093473044`
 ### 🔧 其他
 
 - **clipper**: release v0.1.3 (5d70c08)
-
-### v1.1.5 - 2026-05-21
-
-### ✨ 新增
-
-- **attachments**: 附件预览抽屉 + 本笔记附件目录面板 (df2e06f)
-- **editor**: 搜索替换面板 / docx 自研解析与导入 / 字号弹层优化等 (3a37905)
-- **about**: 新增'作者感言'板块及阅读弹窗 (82e872d)
-
-### 📝 文档
-
-- **readme**: add Author's Note link in header (6e5d863)
 
 <!-- CHANGELOG:END -->

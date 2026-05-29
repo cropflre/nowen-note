@@ -12,6 +12,26 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.1.10 - 2026-05-29
+
+### ✨ 新增
+
+- **prefs**: 新增阅读密度偏好（宽松/紧凑） (3d94607)
+- **mobile**: 搜索按钮上提到笔记标题栏 (e0f047c)
+- **editor**: 表格新增行高可拖拽功能 (c5c2461)
+- 新增客户端下载面板 + Gitee Release 镜像同步 (93a6117)
+
+### 🐛 修复
+
+- **download**: 修复 DownloadPanel icon 类型 TS2322 编译错误 (ced169b)
+- **editor**: 收紧图片上下间距 (29ccead)
+- **upk**: use host network for ugreen package (68065b9)
+
+### 🔧 其他
+
+- **upk**: update zh-CN display name (bcd55ee)
+
+
 ## v1.1.9 - 2026-05-28
 
 ### 🐛 修复
