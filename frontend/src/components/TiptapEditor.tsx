@@ -3182,6 +3182,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     return () => window.removeEventListener("keydown", onKey);
   }, [searchOpen]);
 
+  // 移动端 header 顶部的搜索按钮通过派发自定义事件触发查找面板。
+  // 用 CustomEvent 而不是把 setSearchOpen 提到外部，是为了避免改 TiptapEditor 的对外接口。
+  useEffect(() => {
+    const onOpen = () => setSearchOpen(true);
+    window.addEventListener("nowen:open-search", onOpen);
+    return () => window.removeEventListener("nowen:open-search", onOpen);
+  }, []);
+
   if (!editor) return null;
 
   const iconSize = 15;
@@ -3517,14 +3525,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         {!isGuest && <ToolbarDivider />}
 
-        {/* 查找替换：Ctrl/Cmd+F 也可唤起；访客只读下面板会隐藏替换输入框 */}
-        <ToolbarButton
-          onClick={() => setSearchOpen((v) => !v)}
-          isActive={searchOpen}
-          title={t('searchReplace.toolbarTitle') || '查找替换 (Ctrl+F)'}
-        >
-          <Search size={iconSize} />
-        </ToolbarButton>
+        {/* 查找替换：Ctrl/Cmd+F 也可唤起；访客只读下面板会隐藏替换输入框
+            移动端 EditorPane header 已提供独立搜索按钮，这里隐藏避免重复（仅桌面端 md+ 显示） */}
+        <span className="hidden md:inline-flex">
+          <ToolbarButton
+            onClick={() => setSearchOpen((v) => !v)}
+            isActive={searchOpen}
+            title={t('searchReplace.toolbarTitle') || '查找替换 (Ctrl+F)'}
+          >
+            <Search size={iconSize} />
+          </ToolbarButton>
+        </span>
 
         {!isGuest && (
           <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>

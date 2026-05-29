@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -1742,6 +1742,16 @@ export default function EditorPane() {
               {activeNote.title || t('editor.untitled')}
             </span>
           </div>
+          {/* 搜索（查找替换）：移动端高频操作上提到顶部，方便点击；
+              通过自定义事件 'nowen:open-search' 触发 TiptapEditor 内部的 SearchReplacePanel，
+              避免把 TiptapEditor 的内部 state 提升到外部、保持组件接口干净。 */}
+          <Button
+            variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+            onClick={() => window.dispatchEvent(new CustomEvent('nowen:open-search'))}
+            aria-label={t('editor.searchInNote')}
+          >
+            <Search size={17} />
+          </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={toggleFavorite}
             aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
             <Star size={17} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
