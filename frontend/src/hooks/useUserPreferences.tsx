@@ -29,6 +29,12 @@ import React, {
 
 const STORAGE_KEY = "nowen.user-prefs.v1";
 
+/** 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高。
+ *   - "cozy"   ：默认宽松（保持历史观感）
+ *   - "compact"：紧凑——减少 ~30% 纵向空间，长笔记翻屏更省力
+ * 仅影响 .ProseMirror 下的 p / li，不动标题/代码块/表格，避免破坏视觉锚点。 */
+export type ReadingDensity = "cozy" | "compact";
+
 export interface UserPreferences {
   /** 标签页/Electron 窗口标题是否跟随当前笔记标题（关闭则用站点名）。默认 false。 */
   noteTitleAsAppTitle: boolean;
@@ -37,12 +43,15 @@ export interface UserPreferences {
   /** 进入任意笔记时是否默认进入"视图层只读"。默认 false。
    *  注意：这不会修改笔记自身的 isLocked 字段，只影响本会话该笔记的编辑权限。 */
   lockOnOpen: boolean;
+  /** 阅读密度（cozy/compact）。默认 cozy，即与历史一致的宽松排版。 */
+  readingDensity: ReadingDensity;
 }
 
 const DEFAULT_PREFS: UserPreferences = {
   noteTitleAsAppTitle: false,
   outlineDefaultOpen: false,
   lockOnOpen: false,
+  readingDensity: "cozy",
 };
 
 function readFromStorage(): UserPreferences {
@@ -61,6 +70,9 @@ function readFromStorage(): UserPreferences {
       lockOnOpen: typeof parsed.lockOnOpen === "boolean"
         ? parsed.lockOnOpen
         : DEFAULT_PREFS.lockOnOpen,
+      readingDensity: parsed.readingDensity === "compact" || parsed.readingDensity === "cozy"
+        ? parsed.readingDensity
+        : DEFAULT_PREFS.readingDensity,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -87,6 +99,17 @@ const UserPreferencesContext = createContext<UserPreferencesContextValue>({
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<UserPreferences>(() => readFromStorage());
+
+  // 阅读密度作用到全局：通过 body class 触发 CSS 变量切换，从而影响 .ProseMirror p/li 的间距。
+  // 放在 Provider 而非具体组件里，是因为编辑器并不一定挂载（设置弹窗也要能预览到效果）。
+  useEffect(() => {
+    const cls = "density-compact";
+    if (prefs.readingDensity === "compact") {
+      document.body.classList.add(cls);
+    } else {
+      document.body.classList.remove(cls);
+    }
+  }, [prefs.readingDensity]);
 
   // 多标签页 / 多窗口同步：监听 storage 事件，让另一个 tab 改了开关后这个 tab 也跟上。
   useEffect(() => {

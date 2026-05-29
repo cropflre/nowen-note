@@ -204,8 +204,8 @@ body {
 }
 
 .ProseMirror p {
-  margin: 0.625rem 0;
-  line-height: 1.8;
+  margin: var(--pm-p-margin, 0.625rem) 0;
+  line-height: var(--pm-p-line-height, 1.8);
   color: var(--pm-text);
 }
 
@@ -237,14 +237,14 @@ body {
 }
 
 .ProseMirror li:not([data-type="taskItem"]) {
-  margin: 0.35rem 0;
+  margin: var(--pm-li-margin, 0.35rem) 0;
   color: var(--pm-text);
   display: list-item;
 }
 
 /* 任务项单独应用样式，不使用 list-item，避免与 flex 布局冲突 */
 .ProseMirror li[data-type="taskItem"] {
-  margin: 0.35rem 0;
+  margin: var(--pm-li-margin, 0.35rem) 0;
   color: var(--pm-text);
 }
 
@@ -734,6 +734,20 @@ html[data-code-theme="solarized-light"] {
 .tiptap-row-resize-handle:hover::before {
   opacity: 1;
   height: 3px;
+}
+
+/* ===== 阅读密度（reading density）=====
+ * 由 useUserPreferences.readingDensity 控制：默认 cozy（不需任何 class，使用上方
+ * 各规则中 var(...) 的 fallback 值，保持历史观感）；用户切到紧凑模式时由
+ * Provider 给 <body> 加 .density-compact，这里用 CSS 变量覆盖段落 / 列表项的
+ * 纵向间距与行高，纵向空间约可省 30-40%。
+ *
+ * 只动 p / li 是有意为之：标题、代码块、表格的边距构成视觉锚点，改了反而显得乱。
+ */
+body.density-compact {
+  --pm-p-margin: 0.3rem;
+  --pm-p-line-height: 1.6;
+  --pm-li-margin: 0.2rem;
 }
 
 /* ===== 缩进级别 =====

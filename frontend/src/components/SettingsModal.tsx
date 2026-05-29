@@ -841,6 +841,7 @@ function SwitchesPanel() {
 function AppearancePanel() {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont } = useSiteSettings();
+  const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
   const [isSaving, setIsSaving] = useState(false);
@@ -1261,7 +1262,36 @@ function AppearancePanel() {
           </div>
         </div>
 
-
+        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（per-device 偏好） */}
+        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+          <div className="min-w-0 pr-3">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('settings.readingDensity', { defaultValue: '阅读密度' })}
+            </span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
+            {([
+              { code: "cozy" as const, label: t('settings.densityCozy', { defaultValue: '宽松' }) },
+              { code: "compact" as const, label: t('settings.densityCompact', { defaultValue: '紧凑' }) },
+            ]).map(opt => (
+              <button
+                key={opt.code}
+                onClick={() => setUserPref("readingDensity", opt.code)}
+                className={cn(
+                  "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                  userPrefs.readingDensity === opt.code
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/*
          * 个人空间导入/导出的功能开关已下沉为 per-user 字段
