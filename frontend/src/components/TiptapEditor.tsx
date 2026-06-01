@@ -759,9 +759,10 @@ interface ToolbarButtonProps {
   disabled?: boolean;
   children: React.ReactNode;
   title?: string;
+  compact?: boolean;
 }
 
-function ToolbarButton({ onClick, isActive, disabled, children, title }: ToolbarButtonProps) {
+function ToolbarButton({ onClick, isActive, disabled, children, title, compact }: ToolbarButtonProps) {
   return (
     <button
       type="button"
@@ -769,7 +770,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title }: Toolbar
       disabled={disabled}
       title={title}
       className={cn(
-        "p-1.5 rounded-md transition-colors",
+        compact ? "p-1 rounded-md transition-colors" : "p-1.5 rounded-md transition-colors",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -2602,8 +2603,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
       // 有选区 → 关闭 caret 链接气泡（hover 的不动），走原有文本/图片气泡逻辑
       setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
-      // 有选区时也关掉表格气泡（避免与文本格式化气泡叠加）
-      setTableBubble(b => b.open ? { ...b, open: false } : b);
+      // Keep table bubble open when cells are selected
+      if (editor.isActive("table")) {
+        const rect = posToDOMRect(view, from, to);
+        const { top } = placeBubble(rect, 40, 360);
+        const cx = rect.left + rect.width / 2;
+        const left = Math.max(8, Math.min(cx - 180, window.innerWidth - 370));
+        setTableBubble({ open: true, top, left });
+      } else {
+        setTableBubble(b => b.open ? { ...b, open: false } : b);
+      }
 
       const isImage = editor.isActive("image");
 
@@ -3856,75 +3865,75 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           合并/拆分依赖 CellSelection——用户必须先按住鼠标拖选多个单元格再点合并。 */}
       {editor && editable && tableBubble.open && (
         <div
-          className="fixed z-50 flex items-center gap-0.5 bg-app-elevated border border-app-border rounded-lg shadow-lg p-1"
+          className="fixed z-50 flex items-center gap-px bg-app-elevated border border-app-border rounded-lg shadow-lg p-0.5"
           style={{ top: tableBubble.top, left: tableBubble.left }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.addRowBefore")}
             onClick={() => editor.chain().focus().addRowBefore().run()}
           >
-            <Rows3 size={16} className="rotate-180" />
+            <Rows3 size={14} className="rotate-180" />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.addRowAfter")}
             onClick={() => editor.chain().focus().addRowAfter().run()}
           >
-            <Rows3 size={16} />
+            <Rows3 size={14} />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.deleteRow")}
             onClick={() => editor.chain().focus().deleteRow().run()}
           >
             <span className="flex items-center">
-              <Rows3 size={16} />
-              <Trash2 size={12} className="-ml-0.5" />
+              <Rows3 size={14} />
+              <Trash2 size={10} className="-ml-0.5" />
             </span>
           </ToolbarButton>
-          <div className="w-px h-4 bg-app-border mx-0.5" />
-          <ToolbarButton
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact
             title={t("tiptap.addColumnBefore")}
             onClick={() => editor.chain().focus().addColumnBefore().run()}
           >
-            <Columns3 size={16} className="-scale-x-100" />
+            <Columns3 size={14} className="-scale-x-100" />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.addColumnAfter")}
             onClick={() => editor.chain().focus().addColumnAfter().run()}
           >
-            <Columns3 size={16} />
+            <Columns3 size={14} />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.deleteColumn")}
             onClick={() => editor.chain().focus().deleteColumn().run()}
           >
             <span className="flex items-center">
-              <Columns3 size={16} />
-              <Trash2 size={12} className="-ml-0.5" />
+              <Columns3 size={14} />
+              <Trash2 size={10} className="-ml-0.5" />
             </span>
           </ToolbarButton>
-          <div className="w-px h-4 bg-app-border mx-0.5" />
-          <ToolbarButton
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact
             title={t("tiptap.mergeCells")}
             disabled={!editor.can().mergeCells()}
             onClick={() => editor.chain().focus().mergeCells().run()}
           >
-            <Merge size={16} />
+            <Merge size={14} />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.splitCell")}
             disabled={!editor.can().splitCell()}
             onClick={() => editor.chain().focus().splitCell().run()}
           >
-            <Split size={16} />
+            <Split size={14} />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.toggleHeaderRow")}
             onClick={() => editor.chain().focus().toggleHeaderRow().run()}
           >
-            <Heading size={16} />
+            <Heading size={14} />
           </ToolbarButton>
-          <ToolbarButton
+          <ToolbarButton compact
             title={t("tiptap.resizeTable")}
             onClick={() => {
               // 读出当前表格的真实行列数：从光标所在 <table> DOM 数 tr / 第一行 td
@@ -3942,14 +3951,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
               setTableBubble(b => ({ ...b, open: false }));
             }}
           >
-            <span className="text-xs px-1 tabular-nums">⊞</span>
+            <span className="text-[10px] px-0.5 tabular-nums">⊞</span>
           </ToolbarButton>
-          <div className="w-px h-4 bg-app-border mx-0.5" />
-          <ToolbarButton
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact
             title={t("tiptap.deleteTable")}
             onClick={() => editor.chain().focus().deleteTable().run()}
           >
-            <Trash2 size={16} className="text-red-500" />
+            <Trash2 size={14} className="text-red-500" />
           </ToolbarButton>
         </div>
       )}
