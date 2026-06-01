@@ -1,6 +1,6 @@
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useEditor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
+import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
 
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
 // 而绝大多数会话不会点 docx 附件，所以拆出去按需拉。
@@ -1302,7 +1302,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     return { chars, charsNoSpace, words: cjk + enWords };
   }, []);
 
-  const editor = useEditor({
+  const editor: Editor | null = useEditor({
     extensions: [
       StarterKit.configure({
         codeBlock: false,
@@ -1522,7 +1522,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       // 在 heading / blockquote 等块级节点行首按 Backspace 时，
       // 统一把当前节点转为普通段落，避免某些导入/InputRule 后的
       // 节点难以通过 Backspace 退出的问题（用户反馈的 # 开头无法删除）。
-      handleKeyDown: (view, event) => {
+      handleKeyDown: (view, event): boolean => {
         if (event.key !== "Backspace" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
           return false;
         }
@@ -2560,7 +2560,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           const $pos = state.doc.resolve(from);
           const linkType = state.schema.marks.link;
           // resolvedPos.marks() 给当前位置的所有 mark；找 link 后用 mark.attrs.href
-          const linkMark = $pos.marks().find((m) => m.type === linkType);
+          const linkMark = $pos.marks().find((m: any) => m.type === linkType);
           const href = (linkMark?.attrs as { href?: string } | undefined)?.href ?? "";
           // ProseMirror 没有 getMarkRange 在 Node 上，但 Tiptap 在选区方法里有；
           // 这里用 textBetween 反查 + 从当前位置向左右扩展找 mark 边界，避免引入新依赖
@@ -2569,14 +2569,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           // 向左扩
           while (start > 0) {
             const prevPos = state.doc.resolve(start - 1);
-            if (prevPos.marks().some((m) => m.type === linkType && m.eq(linkMark!))) {
+            if (prevPos.marks().some((m: any) => m.type === linkType && m.eq(linkMark!))) {
               start -= 1;
             } else break;
           }
           // 向右扩
           while (end < state.doc.content.size) {
             const nextPos = state.doc.resolve(end);
-            if (nextPos.marks().some((m) => m.type === linkType && m.eq(linkMark!))) {
+            if (nextPos.marks().some((m: any) => m.type === linkType && m.eq(linkMark!))) {
               end += 1;
             } else break;
           }
@@ -2691,12 +2691,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           let s = pos, e = pos;
           while (s > 0) {
             const $p = view.state.doc.resolve(s - 1);
-            if ($p.marks().some((m) => m.type === linkType && m.attrs.href === href)) s -= 1;
+            if ($p.marks().some((m: any) => m.type === linkType && m.attrs.href === href)) s -= 1;
             else break;
           }
           while (e < view.state.doc.content.size) {
             const $p = view.state.doc.resolve(e);
-            if ($p.marks().some((m) => m.type === linkType && m.attrs.href === href)) e += 1;
+            if ($p.marks().some((m: any) => m.type === linkType && m.attrs.href === href)) e += 1;
             else break;
           }
           from = s; to = e;
@@ -3060,7 +3060,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
     // 收集范围内所有顶层块的文本，按换行拼接
     const lines: string[] = [];
-    doc.nodesBetween(blockStart, blockEnd, (node, _pos, _parent, _index) => {
+    doc.nodesBetween(blockStart, blockEnd, (node: any, _pos: number, _parent: any, _index: number) => {
       // 只处理 doc 的直接子节点
       if (_parent === doc) {
         if (node.type.name === "codeBlock" || node.isTextblock) {
@@ -3082,7 +3082,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editor
       .chain()
       .focus()
-      .command(({ tr, dispatch }) => {
+      .command(( { tr, dispatch }: { tr: any; dispatch: any }) => {
         if (!dispatch) return true;
         // 先删除覆盖范围，再在原位置插入单一 codeBlock
         tr.delete(blockStart, blockEnd);
