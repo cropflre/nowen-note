@@ -1534,6 +1534,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         if ($from.parentOffset !== 0) return false;
         const parent = $from.parent;
         const parentType = parent.type.name;
+        // 行首 Backspace ：若有 indent > 0 则先减缩进
+        const currentIndent = (parent.attrs as any).indent || 0;
+        if (currentIndent > 0) {
+          return editor.chain().focus().changeIndent(-1).run();
+        }
         // 仅对 heading / blockquote 做行首 backspace 转段落
         if (parentType !== "heading" && parentType !== "blockquote") {
           return false;
