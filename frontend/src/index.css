@@ -24,10 +24,13 @@
   }
 }
 
-/* color-mix 回退：用固定透明度代替 */
+/* color-mix 回退：用固定透明度代替（仅表单元素） */
 @supports not (color-mix(in srgb, red 50%, transparent)) {
-  *:focus-visible {
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5) !important;
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  button:focus-visible {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
   }
 }
 
