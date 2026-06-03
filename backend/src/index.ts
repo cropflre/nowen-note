@@ -494,6 +494,31 @@ if (process.env.NODE_ENV === "production") {
     ".map": "application/json",
   };
 
+  const frontendRoot = path.resolve(frontendDist);
+  const resolveFrontendFilePath = (reqPath: string): string | null => {
+    const normalizedPath = reqPath === "/" ? "/index.html" : reqPath;
+    const candidates = [normalizedPath];
+
+    if (path.extname(normalizedPath) !== "") {
+      const parts = normalizedPath.split("/").filter(Boolean);
+      for (let i = 1; i < parts.length; i++) {
+        candidates.push(`/${parts.slice(i).join("/")}`);
+      }
+    }
+
+    for (const candidate of candidates) {
+      const filePath = path.resolve(frontendRoot, `.${candidate}`);
+      if (filePath !== frontendRoot && !filePath.startsWith(frontendRoot + path.sep)) {
+        continue;
+      }
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        return filePath;
+      }
+    }
+
+    return null;
+  };
+
   // 静态资源 + SPA fallback（排除 /api 路径）
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api")) {
@@ -503,17 +528,16 @@ if (process.env.NODE_ENV === "production") {
       return webUiDisabledResponse();
     }
     // 尝试提供静态文件
-    const reqPath = c.req.path === "/" ? "/index.html" : c.req.path;
-    const filePath = path.join(frontendDist, reqPath);
+    const filePath = resolveFrontendFilePath(c.req.path);
     // 安全检查：防止路径遍历
-    if (!filePath.startsWith(frontendDist)) {
-      return c.json({ error: "Forbidden" }, 403);
-    }
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    if (filePath) {
       const ext = path.extname(filePath).toLowerCase();
       const contentType = mimeTypes[ext] || "application/octet-stream";
       const content = fs.readFileSync(filePath);
       return c.body(content, 200, { "Content-Type": contentType });
+    }
+    if (path.extname(c.req.path) !== "") {
+      return c.json({ error: "Not Found" }, 404);
     }
     // SPA fallback：返回 index.html
     const indexPath = path.join(frontendDist, "index.html");

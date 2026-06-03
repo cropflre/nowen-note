@@ -65,7 +65,7 @@ export function ResizableImageView(props: NodeViewProps) {
   const initialWidth = (node.attrs as { width?: number | string | null }).width ?? null;
 
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLSpanElement | null>(null);
 
   // 拖拽过程中的"临时宽度"。未在拖拽时为 null，渲染走 attribute 的 width。
   const [draftWidth, setDraftWidth] = useState<number | null>(null);
@@ -298,6 +298,7 @@ export function ResizableImageView(props: NodeViewProps) {
 
   return (
     <NodeViewWrapper
+      as="span"
       // data-drag-handle 让 ProseMirror 把整个 wrapper 认作可拖动（保留原生拖拽移动能力）
       data-drag-handle
       className="resizable-image-wrapper"
@@ -353,7 +354,8 @@ export function ResizableImageView(props: NodeViewProps) {
         }}
       />
       {imgError && (
-        <div
+        <span
+          contentEditable={false}
           style={{
             position: "absolute",
             inset: 0,
@@ -372,12 +374,12 @@ export function ResizableImageView(props: NodeViewProps) {
           图片加载失败
           <br />
           <span style={{ fontSize: 10, opacity: 0.7 }}>{resolvedSrc?.slice(0, 80)}</span>
-        </div>
+        </span>
       )}
 
       {/* 四角拖拽手柄：仅在图片被选中 + 可编辑时渲染 */}
       {selected && editable && (
-        <div
+        <span
           // 手柄层不应参与编辑，避免 ProseMirror 把点击解析成位置
           contentEditable={false}
           style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
@@ -429,7 +431,8 @@ export function ResizableImageView(props: NodeViewProps) {
 
           {/* 拖拽时的尺寸提示浮标 */}
           {draftWidth != null && (
-            <div
+            <span
+              contentEditable={false}
               style={{
                 position: "absolute",
                 bottom: 6,
@@ -446,7 +449,7 @@ export function ResizableImageView(props: NodeViewProps) {
             >
               {Math.round(draftWidth)}px
               {dragStateRef.current?.symmetric ? " · ⌥" : ""}
-            </div>
+            </span>
           )}
 
           {/* 选中态右上角浮一个"查看大图"按钮。
@@ -499,7 +502,7 @@ export function ResizableImageView(props: NodeViewProps) {
               ⛶
             </button>
           )}
-        </div>
+        </span>
       )}
     </NodeViewWrapper>
   );

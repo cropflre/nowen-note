@@ -31,6 +31,8 @@ export default defineConfig({
     },
   },
   build: {
+    target: "chrome64",
+    cssTarget: "chrome64",
     sourcemap: false,
     // 禁用 modulePreload polyfill 注入，避免某些 rollup 版本将
     // "vite/modulepreload-polyfill" 误识别为 source phase import 而报错。

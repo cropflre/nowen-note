@@ -28,6 +28,12 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
 import { prompt as appPrompt } from "@/components/ui/confirm";
+import {
+  addNoteToNotebookCache,
+  directNotebookNotes,
+  moveNoteInNotebookCache,
+  upsertNoteInNotebookCache,
+} from "@/lib/notebookNoteCache";
 
 /* ===== Emoji 图标选择器 ===== */
 const EMOJI_GROUPS = [
@@ -1001,7 +1007,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
     setLoadingNotebookIds((prev) => new Set(prev).add(notebookId));
     try {
-      const notes = await api.getNotes({ notebookId }) as NoteListItem[];
+      const notes = directNotebookNotes(await api.getNotes({ notebookId }) as NoteListItem[], notebookId);
       setNotesByNotebookId((prev) => new Map(prev).set(notebookId, notes));
     } catch (err) {
       console.error("Failed to load notebook notes:", err);
@@ -1040,12 +1046,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   useEffect(() => {
     if (!showNotesInNotebookTree || !state.activeNote) return;
     const active = state.activeNote;
+    if (active.isTrashed === 1 || active.isArchived === 1) return;
     setNotesByNotebookId((prev) => {
-      const notes = prev.get(active.notebookId);
-      if (!notes) return prev;
-      const next = new Map(prev);
-      next.set(active.notebookId, notes.map((note) => note.id === active.id ? { ...note, ...noteToListItem(active) } : note));
-      return next;
+      const item = noteToListItem(active);
+      return upsertNoteInNotebookCache(prev, active.notebookId, item);
     });
   }, [showNotesInNotebookTree, state.activeNote]);
 
@@ -1285,16 +1289,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     const fromNotebookId = note.notebookId;
     const movedNote = { ...note, notebookId: targetNotebookId };
     setNotesByNotebookId((prev) => {
-      const next = new Map(prev);
-      const sourceNotes = next.get(fromNotebookId);
-      if (sourceNotes) {
-        next.set(fromNotebookId, sourceNotes.filter((item) => item.id !== noteId));
-      }
-      const targetNotes = next.get(targetNotebookId);
-      if (targetNotes) {
-        next.set(targetNotebookId, [movedNote, ...targetNotes.filter((item) => item.id !== noteId)]);
-      }
-      return next;
+      return moveNoteInNotebookCache(prev, noteId, targetNotebookId, movedNote);
     });
     actions.updateNoteInList({ id: noteId, notebookId: targetNotebookId });
     if (state.activeNote?.id === noteId) {
@@ -1354,6 +1349,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   const handleSelectSidebarNote = useCallback(async (noteId: string) => {
     try {
+      if (state.activeNote?.id !== noteId) {
+        try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
+      }
       const note = await api.getNote(noteId);
       actions.setActiveNote(note);
       actions.setSelectedNotebook(note.notebookId);
@@ -1365,7 +1363,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       console.error("Failed to open note:", err);
       toast.error(err?.message || t("noteList.loadFailed") || "打开笔记失败");
     }
-  }, [actions, t]);
+  }, [actions, state.activeNote?.id, t]);
 
   const updateCachedNote = useCallback((noteId: string, patch: Partial<NoteListItem>) => {
     setNotesByNotebookId((prev) => {
@@ -1474,10 +1472,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       actions.setViewMode("notebook");
       actions.setMobileView("editor");
       setNotesByNotebookId((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(notebookId) || [];
-        next.set(notebookId, [noteToListItem(note), ...existing]);
-        return next;
+        return addNoteToNotebookCache(prev, notebookId, noteToListItem(note));
       });
       actions.refreshNotebooks();
       actions.refreshNotes();
@@ -1509,22 +1504,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         actions.setActiveNote(note);
         actions.setSelectedNotebook(targetId);
         actions.setViewMode("notebook");
-        actions.addNoteToList({
-          id: note.id,
-          userId: note.userId,
-          title: note.title,
-          contentText: note.contentText || "",
-          notebookId: note.notebookId,
-          isPinned: note.isPinned || 0,
-          isFavorite: note.isFavorite || 0,
-          isLocked: note.isLocked || 0,
-          isArchived: note.isArchived || 0,
-          isTrashed: note.isTrashed || 0,
-          version: note.version || 1,
-          sortOrder: note.sortOrder || 0,
-          updatedAt: note.updatedAt,
-          createdAt: note.createdAt,
-        } as any);
+        const item = noteToListItem(note);
+        actions.addNoteToList(item);
+        setNotesByNotebookId((prev) => addNoteToNotebookCache(prev, targetId, item));
         actions.refreshNotebooks();
         break;
       }

@@ -988,6 +988,16 @@ export default function EditorPane() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  // NoteList/Sidebar 在真正切换 activeNote 前发出此事件，避免 Tiptap 收到新 note.id 后
+  // 先清掉旧笔记的 debounce，导致切换前 500ms 内的编辑没有落库。
+  useEffect(() => {
+    const onBeforeNoteSwitch = () => {
+      try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
+    };
+    window.addEventListener("nowen:before-note-switch", onBeforeNoteSwitch);
+    return () => window.removeEventListener("nowen:before-note-switch", onBeforeNoteSwitch);
+  }, []);
+
   // Delete 键删除笔记快捷键（仅在编辑器未聚焦时生效）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -41,11 +41,12 @@ const config: CapacitorConfig = {
   plugins: {
     SplashScreen: {
       // 禁用自动隐藏，由前端 JS 在渲染完成后手动调用 hide()
-      launchAutoHide: false,
+      // Safety net for older Android WebViews: JS still calls hide(), but native must not stay stuck forever.
+      launchAutoHide: true,
       // 奶白底，与 app icon 背景 (#F5F3EE) 一致，开机视觉不跳变
       backgroundColor: "#F5F3EE",
       // 使用现有 splash.png
-      launchShowDuration: 0,
+      launchShowDuration: 2500,
       showSpinner: false,
     },
     StatusBar: {

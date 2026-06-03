@@ -728,6 +728,11 @@ function AuthGate() {
       return;
     }
     const baseUrl = serverUrl ? `${serverUrl}/api` : "/api";
+    const cachedUser = loadCachedAuthUser(authScope, token);
+    if (cachedUser) {
+      setUser(cachedUser);
+      setIsAuthenticated(true);
+    }
 
     // 8s 超时兜底：网络不通 / 服务器未启动时 fetch 会一直挂起，
     // 没有超时的话 UI 会永远停在 loading（splash 已被手动隐藏 → 白屏）。
@@ -778,12 +783,9 @@ function AuthGate() {
         }
 
         if (isVerifyNetworkFailure(err)) {
-          const cachedUser = loadCachedAuthUser(authScope, token);
           if (cachedUser) {
             // 云端降级：保留 token + serverUrl，使用上次用户信息进入主界面。
             // 后续读请求会走 offlineRead，本地缓存可用；写请求失败会进 offlineQueue。
-            setUser(cachedUser);
-            setIsAuthenticated(true);
             try { window.dispatchEvent(new CustomEvent("nowen:cloud-degraded")); } catch { /* ignore */ }
             return;
           }
@@ -1055,29 +1057,25 @@ function AuthGate() {
 }
 
 function App() {
-  const [webUiAllowed, setWebUiAllowed] = useState<boolean | null>(() => isNativeClientRuntime() ? true : null);
+  const [webUiAllowed, setWebUiAllowed] = useState(true);
+  const [webUiChecked, setWebUiChecked] = useState(() => isNativeClientRuntime());
 
   useEffect(() => {
     if (isNativeClientRuntime()) {
       setWebUiAllowed(true);
+      setWebUiChecked(true);
       return;
     }
     let cancelled = false;
     fetchWebUiEnabled().then((enabled) => {
       if (!cancelled) setWebUiAllowed(enabled);
+    }).finally(() => {
+      if (!cancelled) setWebUiChecked(true);
     });
     return () => { cancelled = true; };
   }, []);
 
-  if (webUiAllowed === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!webUiAllowed) {
+  if (webUiChecked && !webUiAllowed) {
     return <WebUiDisabledPage />;
   }
 

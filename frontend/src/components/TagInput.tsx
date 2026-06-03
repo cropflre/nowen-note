@@ -133,9 +133,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
   return (
     <div className="relative w-full tag-input-area">
       <div
-        className={`flex flex-wrap items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 transition-colors ${
-          isFocused ? "border-b border-accent-primary/30" : "border-b border-transparent hover:border-app-border"
-        }`}
+        className="flex flex-wrap items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5"
         onClick={() => inputRef.current?.focus()}
       >
         <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-tx-tertiary shrink-0" />
@@ -198,7 +196,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
           onFocus={handleFocus}
           onBlur={handleBlur}
           disabled={isAdding}
-          className="flex-1 min-w-[60px] sm:min-w-[80px] bg-transparent text-[10px] sm:text-[11px] text-tx-primary outline-none placeholder:text-tx-tertiary"
+          className="flex-1 min-w-[60px] sm:min-w-[80px] bg-transparent text-[10px] sm:text-[11px] text-tx-primary outline-none border-none focus:ring-0 focus:shadow-none placeholder:text-tx-tertiary no-focus-ring"
           placeholder={noteTags.length === 0 ? t('tags.addTagPlaceholder') : ""}
         />
       </div>

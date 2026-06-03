@@ -1617,6 +1617,7 @@ export default function NoteList() {
 
     haptic.selection();
     setLastClickedId(noteId);
+    try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
 
     // 取消之前正在进行的 getNote 请求（快速连续点击时只加载最后一个）
     if (selectNoteAbortRef.current) {
@@ -2474,6 +2475,7 @@ export default function NoteList() {
   const handleDragStart = useCallback((e: React.DragEvent, noteId: string) => {
     setDragNoteId(noteId);
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("application/x-nowen-note", noteId);
     e.dataTransfer.setData("text/plain", noteId);
   }, []);
 

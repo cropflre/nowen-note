@@ -1110,7 +1110,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
           <div className="flex items-center gap-2 mt-2">
             <button
               type="button"
-              onClick={() => { const el = document.querySelector('input[type="color"]'); el?.click(); }}
+              onClick={() => { const el = document.querySelector<HTMLInputElement>('input[type="color"]'); el?.click(); }}
               className="flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-app-border hover:bg-app-hover"
             >
               <input
@@ -2210,11 +2210,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       if (currentJson !== newJson) {
         // 标记正在设置内容，阻止 onUpdate 触发保存
         isSettingContent.current = true;
-        editor.commands.setContent(parsed);
-        // 使用 queueMicrotask 确保在 Tiptap 事务完成后才解锁
-        queueMicrotask(() => {
+        editor.commands.setContent(parsed, { emitUpdate: false });
+        // 等浏览器提交当前帧后再解锁，避免 setContent 的事务被当成用户编辑保存。
+        const unlockSettingContent = () => {
           isSettingContent.current = false;
-        });
+        };
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(unlockSettingContent);
+        } else {
+          setTimeout(unlockSettingContent, 0);
+        }
         // 外部驱动的 setContent 之后，本编辑器当前持有的 content 不再等于
         // 自己之前派出去的值（现在持有的是 parsed 后再重新 serialize 的版本），
         // 把 lastEmitted 清掉，避免后续误判为"自写"。
@@ -4374,6 +4379,41 @@ function looksLikeMarkdown(text: string): boolean {
  *     文档特征才认 tiptap-json，否则一律按 MD 处理（原先兜底只保留纯文本，
  *     是"切到富文本内容丢失"的直接原因）。
  */
+function isEmptyParagraphNode(node: any): boolean {
+  return node?.type === "paragraph" && (!Array.isArray(node.content) || node.content.length === 0);
+}
+
+function isImageParagraphNode(node: any): boolean {
+  if (!node) return false;
+  if (node.type === "image") return true;
+  if (node.type !== "paragraph" || !Array.isArray(node.content)) return false;
+
+  const firstMeaningfulChild = node.content.find((child: any) => {
+    if (child?.type !== "text") return true;
+    return String(child.text ?? "").trim() !== "";
+  });
+
+  return firstMeaningfulChild?.type === "image";
+}
+
+function removeEmptyParagraphsBeforeImages(doc: any): any {
+  if (!doc || doc.type !== "doc" || !Array.isArray(doc.content)) return doc;
+
+  let changed = false;
+  const cleaned: any[] = [];
+  for (const node of doc.content) {
+    if (isImageParagraphNode(node)) {
+      while (cleaned.length > 0 && isEmptyParagraphNode(cleaned[cleaned.length - 1])) {
+        cleaned.pop();
+        changed = true;
+      }
+    }
+    cleaned.push(node);
+  }
+
+  return changed ? { ...doc, content: cleaned.length > 0 ? cleaned : [{ type: "paragraph" }] } : doc;
+}
+
 function parseContent(content: string): any {
   if (!content || content === "{}") {
     return { type: "doc", content: [{ type: "paragraph" }] };
@@ -4398,7 +4438,7 @@ function parseContent(content: string): any {
         // 不会立刻报错，但任何后续 transaction 都会触发 contentMatchAt 崩溃。
         // 这里走一遍 headless Editor 的 schema fixup 兜底，~10-20ms 切笔记
         // 时一次开销，用户无感。详见 tiptapSchemaRepair.ts 顶部注释。
-        return repairTiptapJson(parsed);
+        return removeEmptyParagraphsBeforeImages(repairTiptapJson(parsed));
       }
       // 是合法 JSON 但不是 Tiptap doc → 当 MD / 纯文本继续往下走
     } catch {

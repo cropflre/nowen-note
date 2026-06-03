@@ -1479,9 +1479,8 @@ body.density-compact {
 }
 
 .shared-note-content .shared-code-copy[data-copied="1"] .shared-code-copy-label::after {
-  content: "宸插鍒?;
-}
-.shared-note-content .shared-code-copy[data-copied="1"] .shared-code-copy-label {
+  content: "已复制";
+}.shared-note-content .shared-code-copy[data-copied="1"] .shared-code-copy-label {
   font-size: 0;
 }
 .shared-note-content .shared-code-copy[data-copied="1"] .shared-code-copy-label::after {
