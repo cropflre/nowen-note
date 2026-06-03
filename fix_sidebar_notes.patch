@@ -1,0 +1,6 @@
+﻿*** Begin Patch
+*** Update File: frontend/src/components/Sidebar.tsx
+@@ import { Notebook, ViewMode, WorkspaceFeatures } from "@/types";
+-import { Notebook, ViewMode, WorkspaceFeatures } from "@/types";
++import { Notebook, NoteListItem, ViewMode, WorkspaceFeatures } from "@/types";
+*** End Patch
