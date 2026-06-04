@@ -1224,6 +1224,93 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 16,
+    name: "diaries-add-visibility-and-voice",
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(diaries)").all() as { name: string }[];
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === "visibility")) {
+        db.prepare(
+          "ALTER TABLE diaries ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PRIVATE'",
+        ).run();
+      }
+      if (!cols.some((c) => c.name === "voice")) {
+        db.prepare(
+          "ALTER TABLE diaries ADD COLUMN voice TEXT DEFAULT NULL",
+        ).run();
+      }
+    },
+  },
+  {
+    version: 17,
+    name: "tasks-and-diaries-add-tags-and-reminders",
+    up: (db) => {
+      const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+      if (taskCols.length > 0 && !taskCols.some((c) => c.name === "remindAt")) {
+        db.prepare(
+          "ALTER TABLE tasks ADD COLUMN remindAt TEXT DEFAULT NULL",
+        ).run();
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_tags (
+          taskId TEXT NOT NULL,
+          tagId TEXT NOT NULL,
+          PRIMARY KEY (taskId, tagId),
+          FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+          FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS diary_tags (
+          diaryId TEXT NOT NULL,
+          tagId TEXT NOT NULL,
+          PRIMARY KEY (diaryId, tagId),
+          FOREIGN KEY (diaryId) REFERENCES diaries(id) ON DELETE CASCADE,
+          FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
+        );
+      `);
+    },
+  },
+  {
+    version: 18,
+    name: "mentions-add-type-and-notifications-table",
+    up: (db) => {
+      // 添加 type 字段到 mentions（默认为 'mention'，兼容已有行）
+      const mentionCols = db.prepare("PRAGMA table_info(mentions)").all() as { name: string }[];
+      if (mentionCols.length > 0 && !mentionCols.some((c) => c.name === "type")) {
+        db.prepare("ALTER TABLE mentions ADD COLUMN type TEXT NOT NULL DEFAULT 'mention'").run();
+      }
+      // 创建通用通知表
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'mention',
+          sourceType TEXT,
+          sourceId TEXT,
+          sourceTitle TEXT,
+          actorId TEXT,
+          actorName TEXT,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          readAt TEXT,
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (actorId) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+          ON notifications(userId, createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+          ON notifications(userId, readAt);
+      `);
+      // 迁移已有 mentions 到 notifications（仅一次）
+      const existing = db.prepare("SELECT COUNT(*) as c FROM notifications").get() as { c: number };
+      if (existing.c === 0) {
+        db.exec(`
+          INSERT OR IGNORE INTO notifications (id, userId, type, sourceType, sourceId, sourceTitle, actorId, createdAt, readAt)
+          SELECT id, mentionedUserId, 'mention', sourceType, sourceId, sourceTitle, mentionedByUserId, createdAt, readAt
+          FROM mentions
+        `);
+      }
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

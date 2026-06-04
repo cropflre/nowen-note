@@ -10,9 +10,14 @@ import { format, isToday, isPast, isTomorrow, isThisWeek, parseISO, parse } from
 import { zhCN, enUS } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace } from "@/lib/api";
-import { Task, TaskFilter, TaskPriority, TaskStats } from "@/types";
+import { Task, TaskFilter, TaskPriority, TaskStats, Tag } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { useApp } from "@/store/AppContext";
+import GenericTagInput from "@/components/GenericTagInput";
+import MentionPicker, { useMentionState, replaceMentionText } from "@/components/MentionPicker";
+import TaskCalendar from "@/components/TaskCalendar";
+import { syncTaskNotification, syncAllTaskNotifications } from "@/hooks/useCapacitor";
 
 /* ===========================================================================
  * 任务标题富文本协议
@@ -318,6 +323,24 @@ const TaskRow = React.forwardRef<HTMLDivElement, {
             <span className="truncate">{task.creatorName}</span>
           </span>
         )}
+        {/* 标签 */}
+        {task.tags && task.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {task.tags.map((tag) => (
+              <span
+                key={tag.id}
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border"
+                style={{
+                  backgroundColor: tag.color + "10",
+                  borderColor: tag.color + "25",
+                  color: tag.color,
+                }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Badges —— items-start 之后要用 mt-0.5 对齐到首行
@@ -343,7 +366,7 @@ const TaskRow = React.forwardRef<HTMLDivElement, {
 const TaskDetail = React.forwardRef<HTMLDivElement, {
   task: Task;
   onClose: () => void;
-  onUpdate: (id: string, data: Partial<Task>) => void;
+  onUpdate: (id: string, data: Partial<Task> & { tagIds?: string[] }) => void;
   onDelete: (id: string) => void;
 }>(({ task, onClose, onUpdate, onDelete }, ref) => {
   const { t, i18n } = useTranslation();
@@ -358,20 +381,40 @@ const TaskDetail = React.forwardRef<HTMLDivElement, {
   const [dueDate, setDueDate] = useState(task.dueDate || "");
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
+  // @提及选择器状态
+  const [cursorPos, setCursorPos] = useState(0);
+  const mentionTrigger = useMentionState(title, cursorPos);
+
   const PRIORITY_CONFIG: Record<number, { label: string; color: string; flagClass: string }> = {
     3: { label: t('tasks.high'), color: "text-red-500", flagClass: "text-red-500" },
     2: { label: t('tasks.medium'), color: "text-amber-500", flagClass: "text-amber-500" },
     1: { label: t('tasks.low'), color: "text-blue-400", flagClass: "text-blue-400" },
   };
 
+  const [remindAt, setRemindAt] = useState(task.remindAt || "");
+  const [taskTags, setTaskTags] = useState<Tag[]>(task.tags || []);
+
   useEffect(() => {
     setTitle(task.title);
     setPriority(task.priority);
     setDueDate(task.dueDate || "");
+    setRemindAt(task.remindAt || "");
+    setTaskTags(task.tags || []);
   }, [task.id]);
 
   const handleSave = () => {
-    onUpdate(task.id, { title: title.trim() || task.title, priority, dueDate: dueDate || null });
+    onUpdate(task.id, {
+      title: title.trim() || task.title,
+      priority,
+      dueDate: dueDate || null,
+      remindAt: remindAt || null,
+      tagIds: taskTags.map((t) => t.id),
+    });
+  };
+
+  const handleTagsChange = (newTags: Tag[]) => {
+    setTaskTags(newTags);
+    onUpdate(task.id, { tagIds: newTags.map((t) => t.id) });
   };
 
   const hasRichTokens = parseTaskTitle(task.title).some((tok) => tok.kind !== "text");
@@ -407,11 +450,39 @@ const TaskDetail = React.forwardRef<HTMLDivElement, {
           <textarea
             ref={titleRef}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setCursorPos(e.target.selectionStart);
+            }}
+            onKeyUp={(e: any) => {
+              setCursorPos(e.target.selectionStart);
+            }}
+            onClick={(e: any) => {
+              setCursorPos(e.target.selectionStart);
+            }}
             onBlur={handleSave}
             rows={Math.min(4, Math.max(2, title.split("\n").length))}
             className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors resize-y font-mono"
           />
+
+          {/* @提及选择器 */}
+          {mentionTrigger && (
+            <div className="relative z-50">
+              <MentionPicker
+                search={mentionTrigger.search}
+                onSelect={(user) => {
+                  const newText = replaceMentionText(title, cursorPos, mentionTrigger.startIndex, user.username);
+                  setTitle(newText);
+                  setCursorPos(mentionTrigger.startIndex + user.username.length + 2);
+                  mentionTrigger.clear();
+                  onUpdate(task.id, { title: newText });
+                  titleRef.current?.focus();
+                }}
+                onClose={mentionTrigger.clear}
+              />
+            </div>
+          )}
+
           {/* 富文本预览：仅当含 token 时显示，避免占位 */}
           {hasRichTokens && (
             <div className="mt-2 px-3 py-2 rounded-md bg-app-elevated border border-app-border text-sm text-tx-primary leading-relaxed break-all">
@@ -454,9 +525,41 @@ const TaskDetail = React.forwardRef<HTMLDivElement, {
             onChange={(e) => {
               const val = e.target.value || null;
               setDueDate(val || "");
-              onUpdate(task.id, { dueDate: val });
+              let nextRemindAt = remindAt;
+              if (val && !remindAt) {
+                const date = new Date(val);
+                date.setDate(date.getDate() - 1);
+                nextRemindAt = date.toISOString().split("T")[0];
+                setRemindAt(nextRemindAt);
+              }
+              onUpdate(task.id, { dueDate: val, remindAt: nextRemindAt || null });
             }}
             className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+          />
+        </div>
+
+        {/* 提醒开始日期 */}
+        <div>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.remindAt', '提醒日期')}</label>
+          <input
+            type="date"
+            value={remindAt ? remindAt.split("T")[0] : ""}
+            onChange={(e) => {
+              const val = e.target.value || null;
+              setRemindAt(val || "");
+              onUpdate(task.id, { remindAt: val });
+            }}
+            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+          />
+        </div>
+
+        {/* 标签 */}
+        <div>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.tags', '任务标签')}</label>
+          <GenericTagInput
+            selectedTags={taskTags}
+            onTagsChange={handleTagsChange}
+            placeholder={t('tags.addTagPlaceholder')}
           />
         </div>
 
@@ -518,6 +621,10 @@ function QuickAdd({
   //   1) 在输入框旁渲染缩略图供用户预览/移除；
   //   2) 提交任务后调用 bind 把它们绑回新创建的 task。
   const [orphans, setOrphans] = useState<{ id: string; url: string; filename: string }[]>([]);
+
+  // @提及选择器状态
+  const [cursorPos, setCursorPos] = useState(0);
+  const mentionTrigger = useMentionState(value, cursorPos);
 
   // 把附件 markdown 插入到 input 当前光标处；如果焦点不在 input，就追加到末尾。
   const insertAtCaret = (snippet: string) => {
@@ -652,7 +759,16 @@ function QuickAdd({
         <input
           ref={inputRef}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setCursorPos(e.target.selectionStart || 0);
+          }}
+          onKeyUp={(e: any) => {
+            setCursorPos(e.target.selectionStart || 0);
+          }}
+          onClick={(e: any) => {
+            setCursorPos(e.target.selectionStart || 0);
+          }}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           onPaste={handlePaste}
           placeholder={t('tasks.addTaskPlaceholder')}
@@ -682,6 +798,23 @@ function QuickAdd({
           }}
         />
       </div>
+
+      {/* @提及选择器 */}
+      {mentionTrigger && (
+        <div className="relative z-50">
+          <MentionPicker
+            search={mentionTrigger.search}
+            onSelect={(user) => {
+              const newText = replaceMentionText(value, cursorPos, mentionTrigger.startIndex, user.username);
+              onChange(newText);
+              setCursorPos(mentionTrigger.startIndex + user.username.length + 2);
+              mentionTrigger.clear();
+              inputRef.current?.focus();
+            }}
+            onClose={mentionTrigger.clear}
+          />
+        </div>
+      )}
 
       {/* 已上传图片缩略图条 —— 仅在有孤儿时渲染，不占位 */}
       {orphans.length > 0 && (
@@ -721,9 +854,13 @@ export default function TaskCenter() {
     { key: "completed", label: t('tasks.completed'), icon: <CheckCheck size={16} /> },
   ];
 
+  const { state } = useApp();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -735,17 +872,19 @@ export default function TaskCenter() {
   const loadTasks = useCallback(async () => {
     try {
       const [data, statsData] = await Promise.all([
-        api.getTasks(filter),
+        api.getTasks(filter, undefined, searchQuery || undefined, selectedTagId || undefined),
         api.getTaskStats(),
       ]);
       setTasks(data);
       setStats(statsData);
+      
+      syncAllTaskNotifications(data);
     } catch (err) {
       console.error("Failed to load tasks:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [filter]);
+  }, [filter, searchQuery, selectedTagId]);
 
   useEffect(() => {
     loadTasks();
@@ -767,7 +906,11 @@ export default function TaskCenter() {
       prev.map((t) => (t.id === id ? { ...t, isCompleted: t.isCompleted ? 0 : 1 } : t))
     );
     try {
-      await api.toggleTask(id);
+      const updated = await api.toggleTask(id);
+      
+      syncTaskNotification(updated);
+      window.dispatchEvent(new CustomEvent("nowen:task-stats-changed"));
+
       // Refresh stats
       const s = await api.getTaskStats();
       setStats(s);
@@ -794,6 +937,10 @@ export default function TaskCenter() {
           )
         );
       }
+      
+      syncTaskNotification(task);
+      window.dispatchEvent(new CustomEvent("nowen:task-stats-changed"));
+
       const s = await api.getTaskStats();
       setStats(s);
     } catch (err) {
@@ -803,18 +950,23 @@ export default function TaskCenter() {
     }
   };
 
-  const handleUpdate = async (id: string, data: Partial<Task>) => {
+  const handleUpdate = async (id: string, data: Partial<Task> & { tagIds?: string[] }) => {
     try {
       const updated = await api.updateTask(id, data);
       setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
       if (selectedTask?.id === id) setSelectedTask(updated);
+      
+      syncTaskNotification(updated);
+      window.dispatchEvent(new CustomEvent("nowen:task-stats-changed"));
+
       // 关键字段（dueDate / priority / isCompleted 等）变化会影响左侧
       // 「今天 / 未来 7 天 / 已逾期 / 已完成」分组计数，需要同步刷新统计。
       // 用 affectsStats 判断，避免改个标题/备注也发一次 stats 请求。
       const affectsStats =
         "dueDate" in data ||
         "isCompleted" in data ||
-        "priority" in data;
+        "priority" in data ||
+        "remindAt" in data;
       if (affectsStats) {
         try {
           const s = await api.getTaskStats();
@@ -832,7 +984,11 @@ export default function TaskCenter() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (selectedTask?.id === id) setSelectedTask(null);
     try {
+      syncTaskNotification({ id, isCompleted: 1 } as any);
       await api.deleteTask(id);
+      
+      window.dispatchEvent(new CustomEvent("nowen:task-stats-changed"));
+
       const s = await api.getTaskStats();
       setStats(s);
     } catch {
@@ -868,14 +1024,14 @@ export default function TaskCenter() {
           )}
         </div>
 
-        <nav className="flex-1 p-2 space-y-0.5">
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           {FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => { setFilter(f.key); setSelectedTask(null); }}
+              onClick={() => { setFilter(f.key); setSelectedTagId(null); setSelectedTask(null); }}
               className={cn(
                 "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
-                filter === f.key
+                filter === f.key && !selectedTagId
                   ? "bg-app-active text-accent-primary"
                   : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
               )}
@@ -886,26 +1042,57 @@ export default function TaskCenter() {
               </span>
               <span className={cn(
                 "text-xs min-w-[20px] text-center rounded-full px-1.5 py-0.5",
-                filter === f.key ? "bg-accent-primary/20 text-accent-primary" : "text-tx-tertiary"
+                filter === f.key && !selectedTagId ? "bg-accent-primary/20 text-accent-primary" : "text-tx-tertiary"
               )}>
                 {filterCount(f.key)}
               </span>
             </button>
           ))}
+
+          {state.tags.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-app-border/60">
+              <div className="px-3 mb-1.5 text-xs font-semibold text-tx-tertiary uppercase tracking-wider">
+                {t('tags.title', '标签')}
+              </div>
+              <div className="space-y-0.5">
+                {state.tags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    onClick={() => {
+                      setSelectedTagId(selectedTagId === tag.id ? null : tag.id);
+                      setSelectedTask(null);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors text-left",
+                      selectedTagId === tag.id
+                        ? "bg-app-active text-accent-primary"
+                        : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    )}
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    <span className="flex-1 truncate">{tag.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </nav>
       </div>
 
       {/* Center: Task List */}
       <div className="flex-1 flex flex-col overflow-hidden bg-app-bg transition-colors">
         {/* 移动端：水平筛选标签 */}
-        <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b border-app-border overflow-x-auto no-scrollbar">
+        <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b border-app-border overflow-x-auto no-scrollbar bg-app-surface/20">
           {FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => { setFilter(f.key); setSelectedTask(null); }}
+              onClick={() => { setFilter(f.key); setSelectedTagId(null); setSelectedTask(null); }}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
-                filter === f.key
+                filter === f.key && !selectedTagId
                   ? "bg-accent-primary/15 text-accent-primary"
                   : "text-tx-secondary bg-app-hover/50 active:bg-app-active"
               )}
@@ -914,7 +1101,7 @@ export default function TaskCenter() {
               {f.label}
               <span className={cn(
                 "text-[10px] min-w-[16px] text-center",
-                filter === f.key ? "text-accent-primary" : "text-tx-tertiary"
+                filter === f.key && !selectedTagId ? "text-accent-primary" : "text-tx-tertiary"
               )}>
                 {filterCount(f.key)}
               </span>
@@ -922,55 +1109,124 @@ export default function TaskCenter() {
           ))}
         </div>
 
-        {/* Header — 桌面端显示 */}
-        <div className="hidden md:block px-6 py-4 border-b border-app-border">
-          <h1 className="text-lg font-bold text-tx-primary">
-            {FILTERS.find((f) => f.key === filter)?.label || t('tasks.allTasks')}
-          </h1>
+        {/* 移动端：水平标签筛选 */}
+        {state.tags.length > 0 && (
+          <div className="md:hidden flex items-center gap-1.5 px-3 py-1.5 border-b border-app-border overflow-x-auto no-scrollbar bg-app-surface/5">
+            {state.tags.map((tag) => (
+              <button
+                key={tag.id}
+                onClick={() => {
+                  setSelectedTagId(selectedTagId === tag.id ? null : tag.id);
+                  setSelectedTask(null);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors shrink-0 border",
+                  selectedTagId === tag.id
+                    ? "bg-accent-primary/10 text-accent-primary border-accent-primary/30"
+                    : "text-tx-secondary bg-transparent border-app-border hover:border-tx-tertiary"
+                )}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: tag.color }}
+                />
+                {tag.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Search & Header (Desktop & Mobile) */}
+        <div className="px-4 md:px-6 py-3 border-b border-app-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-app-surface/10">
+          <div className="flex items-center gap-3">
+            <h1 className="text-base md:text-lg font-bold text-tx-primary whitespace-nowrap">
+              {viewMode === "calendar" ? "日历视图" : (FILTERS.find((f) => f.key === filter)?.label || t('tasks.allTasks'))}
+              {selectedTagId && viewMode === "list" && (
+                <span className="text-xs font-normal text-tx-tertiary ml-2">
+                  (#{state.tags.find(t => t.id === selectedTagId)?.name})
+                </span>
+              )}
+            </h1>
+            <button
+              onClick={() => setViewMode((v) => (v === "list" ? "calendar" : "list"))}
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
+                viewMode === "calendar"
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary hover:bg-app-hover",
+              )}
+              title={viewMode === "calendar" ? "列表视图" : "日历视图"}
+            >
+              {viewMode === "calendar" ? <ListTodo size={16} /> : <CalendarDays size={16} />}
+            </button>
+          </div>
+          <div className="relative w-full sm:w-64 shrink-0">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('tasks.searchPlaceholder', '搜索任务...')}
+              className="w-full px-3 py-1.5 text-xs rounded-md bg-app-bg border border-app-border text-tx-primary placeholder:text-tx-tertiary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-tx-tertiary hover:text-tx-primary"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Quick Add —— 注意 min-w-0：input 粘贴超长 URL 时默认会把 flex 容器撑破 */}
-        <div className="px-4 md:px-6 py-3 border-b border-app-border">
-          <QuickAdd
-            value={newTitle}
-            onChange={setNewTitle}
-            onSubmit={handleCreate}
-            onUploaded={(ids) => { pendingOrphansRef.current = ids; }}
-            inputRef={inputRef}
-          />
-        </div>
+        {viewMode === "calendar" ? (
+          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4">
+            <TaskCalendar onDateSelect={() => {
+              setViewMode("list");
+            }} />
+          </div>
+        ) : (
+          <>
+            {/* Quick Add */}
+            <div className="px-4 md:px-6 py-3 border-b border-app-border">
+              <QuickAdd
+                value={newTitle}
+                onChange={setNewTitle}
+                onSubmit={handleCreate}
+                onUploaded={(ids) => { pendingOrphansRef.current = ids; }}
+                inputRef={inputRef}
+              />
+            </div>
 
-        {/* Task List
-            v16 P3 fix：overflow-x-hidden 强制只允许垂直滚动。原来 `overflow-auto`
-            在窄视口 + 长链接胶囊（max-w 120/160px 的 inline-flex）下会触发横向滚动，
-            视觉上表现为 \"列表项右边内容被屏幕吃掉\"。改 hidden 配合 TaskRow 内部的
-            `[overflow-wrap:anywhere]` 软换行，让超长标题/链接强制折到下一行。 */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-3">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-32 text-tx-tertiary text-sm">
-              {t('common.loading')}
+            {/* Task List */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-3">
+              {isLoading ? (
+                <div className="flex items-center justify-center h-32 text-tx-tertiary text-sm">
+                  {t('common.loading')}
+                </div>
+              ) : tasks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 text-tx-tertiary">
+                  <CheckCheck size={36} className="mb-3 opacity-40" />
+                  <span className="text-sm">{t('tasks.noTasks')}</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <AnimatePresence mode="popLayout">
+                    {tasks.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        onToggle={handleToggle}
+                        onSelect={setSelectedTask}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
             </div>
-          ) : tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-tx-tertiary">
-              <CheckCheck size={36} className="mb-3 opacity-40" />
-              <span className="text-sm">{t('tasks.noTasks')}</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <AnimatePresence mode="popLayout">
-                {tasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onToggle={handleToggle}
-                    onSelect={setSelectedTask}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* Right: Detail Drawer */}

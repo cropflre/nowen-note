@@ -1032,28 +1032,38 @@ export const api = {
   //   - getTasks / getTaskStats / createTask 三个"集合"接口注入 workspaceId；
   //   - getTask / updateTask / toggleTask / deleteTask 按 id 操作，后端按行自带的
   //     workspaceId 做 ACL，不需注入。
-  getTasks: (filter?: TaskFilter, noteId?: string) => {
+  getTasks: (filter?: TaskFilter, noteId?: string, search?: string, tagId?: string) => {
     const params = new URLSearchParams();
     if (filter && filter !== "all") params.set("filter", filter);
     if (noteId) params.set("noteId", noteId);
+    if (search) params.set("search", search);
+    if (tagId) params.set("tagId", tagId);
     const ws = getCurrentWorkspace();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     const qs = params.toString() ? `?${params.toString()}` : "";
     return request<Task[]>(`/tasks${qs}`);
   },
   getTask: (id: string) => request<Task>(`/tasks/${id}`),
-  createTask: (data: Partial<Task>) => {
+  createTask: (data: Partial<Task> & { tagIds?: string[] }) => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Task>(`/tasks${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
-  updateTask: (id: string, data: Partial<Task>) => request<Task>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  updateTask: (id: string, data: Partial<Task> & { tagIds?: string[] }) => request<Task>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   toggleTask: (id: string) => request<Task>(`/tasks/${id}/toggle`, { method: "PATCH" }),
   deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
   getTaskStats: () => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<TaskStats>(`/tasks/stats/summary${qs}`);
+  },
+  getTaskCalendar: (year: number, month: number) => {
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    const ws = getCurrentWorkspace();
+    if (ws && ws !== "personal") params.set("workspaceId", ws);
+    return request<{ dates: Array<{ date: string; total: number; pending: number }>; year: number; month: number }>(
+      `/tasks/calendar?${params.toString()}`,
+    );
   },
 
   // Security
@@ -1455,8 +1465,11 @@ export const api = {
   //   - <uuid>            → 指定工作区（要求成员身份 + diaries 功能开关未关闭）
   // 在工作区中：发布权限按"是否成员 + 功能开关"，删除权限按 canManageResource
   //   （创建者本人 / admin / owner）。
-  postDiary: (data: { contentText: string; mood?: string; images?: string[] }) => {
-    const ws = getCurrentWorkspace();
+  postDiary: (
+    data: { contentText: string; mood?: string; images?: string[]; visibility?: string; voice?: { id: string; duration: number } | null; createdAt?: string; tagIds?: string[] },
+    workspaceId?: string,
+  ) => {
+    const ws = workspaceId !== undefined ? workspaceId : getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Diary>(`/diary${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
@@ -1464,6 +1477,9 @@ export const api = {
     cursor?: string,
     limit?: number,
     range?: { from?: string; to?: string },
+    visibility?: string, // 'all' | 'private' | 'public'
+    tagId?: string,
+    search?: string,
   ) => {
     const params = new URLSearchParams();
     if (cursor) params.set("cursor", cursor);
@@ -1471,6 +1487,9 @@ export const api = {
     // from/to 接收 "YYYY-MM-DD" 或完整 ISO 时间；后端会做 normalize
     if (range?.from) params.set("from", range.from);
     if (range?.to) params.set("to", range.to);
+    if (visibility) params.set("visibility", visibility);
+    if (tagId) params.set("tagId", tagId);
+    if (search) params.set("search", search);
     const ws = getCurrentWorkspace();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     const qs = params.toString();
@@ -1484,12 +1503,18 @@ export const api = {
    */
   updateDiary: (
     id: string,
-    data: { contentText?: string; mood?: string; images?: string[] },
+    data: { contentText?: string; mood?: string; images?: string[]; visibility?: string; voice?: { id: string; duration: number; text?: string } | null; tagIds?: string[] },
   ) =>
     request<Diary>(`/diary/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  transcribeDiaryVoice: (diaryId: string, voiceId: string) => {
+    return request<{ text: string }>("/diary/transcribe", {
+      method: "POST",
+      body: JSON.stringify({ diaryId, voiceId }),
+    });
+  },
   getDiaryStats: (range?: { from?: string; to?: string }) => {
     const params = new URLSearchParams();
     if (range?.from) params.set("from", range.from);
@@ -1499,6 +1524,16 @@ export const api = {
     const qs = params.toString();
     return request<DiaryStats>(`/diary/stats${qs ? `?${qs}` : ""}`);
   },
+  getDiaryCalendar: (year: number, month: number, tagId?: string, search?: string) => {
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    const ws = getCurrentWorkspace();
+    if (ws && ws !== "personal") params.set("workspaceId", ws);
+    if (tagId) params.set("tagId", tagId);
+    if (search) params.set("search", search);
+    return request<{ dates: string[]; year: number; month: number }>(
+      `/diary/calendar?${params.toString()}`,
+    );
+  },
 
   // 说说图片：上传 / 删除悬空 / 拼 URL。
   // 上传时机：用户选好图就立即上传（不是发布时再传），体验上能即时看到缩略图、
@@ -1506,12 +1541,13 @@ export const api = {
   diaryImages: {
     upload: async (
       file: File,
+      workspaceId?: string,
     ): Promise<{ id: string; url: string; mimeType: string; size: number }> => {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
       // Y2: 上传时即记录目标工作区，发布时再 attach 一致。
-      const ws = getCurrentWorkspace();
+      const ws = workspaceId !== undefined ? workspaceId : getCurrentWorkspace();
       const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
       const res = await fetch(`${getBaseUrl()}/diary/attachments${qs}`, {
         method: "POST",
@@ -2946,6 +2982,69 @@ export const api = {
         series: Array<{ day: string; count: number }>;
         byToken: Array<{ tokenId: string; name: string; count: number }>;
       }>(`/tokens/usage?days=${days}`),
+  },
+
+  // ======================================================================
+  // @提及消息（mentions）
+  // ======================================================================
+  mentions: {
+    /** GET /api/mentions */
+    list: (cursor?: string, limit = 20) => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      if (cursor) params.set("cursor", cursor);
+      return request<{
+        items: Array<{
+          id: string;
+          sourceType: "note" | "diary" | "task";
+          sourceId: string;
+          sourceTitle: string | null;
+          mentionedBy: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+          createdAt: string;
+          readAt: string | null;
+        }>;
+        hasMore: boolean;
+        nextCursor: string | null;
+      }>(`/mentions?${params.toString()}`);
+    },
+    /** GET /api/mentions/unread-count */
+    unreadCount: () => request<{ count: number }>("/mentions/unread-count"),
+    /** PUT /api/mentions/:id/read */
+    markRead: (id: string) =>
+      request<{ success: boolean }>(`/mentions/${encodeURIComponent(id)}/read`, { method: "PUT" }),
+    /** PUT /api/mentions/read-all */
+    markAllRead: () => request<{ success: boolean }>("/mentions/read-all", { method: "PUT" }),
+  },
+
+  // ======================================================================
+  // 通用通知（notifications）
+  // ======================================================================
+  notifications: {
+    list: (cursor?: string, limit = 20) => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      if (cursor) params.set("cursor", cursor);
+      return request<{
+        items: Array<{
+          id: string;
+          type: string;
+          sourceType: string | null;
+          sourceId: string | null;
+          sourceTitle: string | null;
+          actorId: string | null;
+          actorName: string | null;
+          label: string;
+          createdAt: string;
+          readAt: string | null;
+        }>;
+        hasMore: boolean;
+        nextCursor: string | null;
+      }>(`/notifications?${params.toString()}`);
+    },
+    unreadCount: () => request<{ count: number }>("/notifications/unread-count"),
+    markRead: (id: string) =>
+      request<{ success: boolean }>(`/notifications/${encodeURIComponent(id)}/read`, { method: "PUT" }),
+    markAllRead: () => request<{ success: boolean }>("/notifications/read-all", { method: "PUT" }),
   },
 };
 

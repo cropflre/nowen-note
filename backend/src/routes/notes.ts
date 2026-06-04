@@ -14,6 +14,7 @@ import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastYjsUpdate, broadca
 import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
+import { createMentions } from "../lib/mentions";
 import { reclaimSpace } from "../lib/reclaimSpace";
 
 const app = new Hono();
@@ -406,6 +407,16 @@ app.post("/", async (c) => {
     FROM notes WHERE id = ?
   `).get(userId, id);
   logAudit(userId, "note", "create", { noteId: id, title: body.title }, { targetType: "note", targetId: id });
+
+  // 解析 @提及
+  if (body.contentText) {
+    try {
+      const mentionTitle = (body.title || "").trim() || "无标题笔记";
+      createMentions("note", id, mentionTitle, body.contentText, userId);
+    } catch (e) {
+      console.warn("[notes.post] createMentions failed:", e);
+    }
+  }
 
   return c.json({ ...note as any, tags: [] }, 201);
 });
@@ -807,6 +818,20 @@ app.put("/:id", async (c) => {
       } as any);
     } catch (e) {
       console.warn("[notes.put] broadcast failed:", e);
+    }
+  }
+
+  // 解析 @提及（内容变更时）
+  if (body.contentText) {
+    try {
+      let mentionTitle = body.title;
+      if (mentionTitle === undefined || mentionTitle === null || mentionTitle.trim() === "") {
+        const noteRow = db.prepare("SELECT title FROM notes WHERE id = ?").get(id) as { title: string | null } | undefined;
+        mentionTitle = noteRow?.title || "";
+      }
+      createMentions("note", id, mentionTitle.trim() || "无标题笔记", body.contentText, userId);
+    } catch (e) {
+      console.warn("[notes.put] createMentions failed:", e);
     }
   }
 

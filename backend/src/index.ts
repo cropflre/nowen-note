@@ -23,6 +23,8 @@ import oppoCloudRouter from "./routes/oppocloud";
 import icloudRouter from "./routes/icloud";
 import mindmapsRouter from "./routes/mindmaps";
 import diaryRouter, { handleDownloadDiaryImage } from "./routes/diary";
+import mentionsRouter from "./routes/mentions";
+import notificationsRouter from "./routes/notifications";
 import urlImportRouter from "./routes/url-import";
 
 import aiRouter from "./routes/ai";
@@ -388,6 +390,8 @@ app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/icloud", icloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/diary", diaryRouter);
+app.route("/api/mentions", mentionsRouter);
+app.route("/api/notifications", notificationsRouter);
 app.route("/api/url-import", urlImportRouter);
 app.route("/api/ai", aiRouter);
 app.route("/api/plugins", pluginsRouter);

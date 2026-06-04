@@ -188,6 +188,15 @@ export const MIME_TO_EXT: Record<string, string> = {
   "image/svg+xml": "svg",
   "image/x-icon": "ico",
   "image/vnd.microsoft.icon": "ico",
+  "audio/webm": "webm",
+  "audio/wav": "wav",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/ogg": "ogg",
+  "audio/aac": "aac",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/mp4": "m4a",
 };
 
 // 判断附件是否属于「图片」——供 handleDownloadAttachment / 响应 category 字段共用。
@@ -359,6 +368,16 @@ export function createDeduplicatedAttachmentRow(args: {
  *   - handler 改为 async：sharp 是异步管道。
  */
 export async function handleDownloadAttachment(c: Context): Promise<Response> {
+  // 可选的 Referer 校验（环境变量 ATTACHMENT_REFERER_CHECK=1 时开启）
+  // 仅校验公网部署场景，内网家庭使用不需要。
+  if (process.env.ATTACHMENT_REFERER_CHECK === "1") {
+    const referer = c.req.header("Referer") || "";
+    const host = c.req.header("Host") || "";
+    if (referer && !referer.includes(host) && !referer.includes("localhost")) {
+      return c.json({ error: "拒绝访问：来源不合法" }, 403);
+    }
+  }
+
   const id = c.req.param("id");
   const db = getDb();
   const row = db

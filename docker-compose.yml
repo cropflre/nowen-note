@@ -10,6 +10,11 @@ services:
       platforms:
         - linux/amd64
         - linux/arm64
+      # 构建参数（中国大陆用户取消下方注释以加速构建）：
+      # args:
+      #   DOCKER_REGISTRY: docker.m.daocloud.io/
+      #   APK_MIRROR: mirrors.ustc.edu.cn
+      #   NPM_REGISTRY: https://registry.npmmirror.com
     image: nowen-note:latest
     # 若在 x86 主机上拉起 arm64 镜像做冒烟测试，取消下一行注释（需已启用 binfmt/qemu）：
     # platform: linux/arm64
@@ -19,6 +24,10 @@ services:
       - "3001:3001"
     volumes:
       - nowen-note-data:/app/data
+      # 挂载 Docker 套接字，供按需启停 SenseVoice 容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SenseVoice 构建上下文，按需构建/启动时使用
+      - ./sensevoice:/app/sensevoice:ro
       # ===========================================================================
       # 【强烈建议】把备份目录挂载到与数据卷**不同的物理介质**上！
       #
@@ -51,8 +60,60 @@ services:
       - PORT=3001
       # 启用上面的独立备份卷后，**必须**同步设置以下变量，否则备份仍会写到 data 卷：
       # - BACKUP_DIR=/app/backups
-      # Ollama 地址，如需使用请自行部署 Ollama 并填写正确地址
-      # - OLLAMA_URL=http://host.docker.internal:11434
+      # Ollama 地址（指向 compose 内的 ollama 服务）
+      - OLLAMA_URL=http://ollama:11434
+
+  # ============================================================================
+  # Ollama 本地 LLM 服务 — Qwen2.5:1.5b（7×24 常驻）
+  #
+  # 提供 OpenAI 兼容接口（http://ollama:11434/v1），
+  # 已在 nowen-note 后端通过 OLLAMA_URL 自动对接。
+  # 首次启动会自动下载模型（约 1GB），之后缓存到 ollama-data 卷。
+  # ----------------------------------------------------------------------------
+  ollama:
+    image: docker.m.daocloud.io/ollama/ollama:latest
+    container_name: nowen-note-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 5m
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        /bin/ollama serve &
+        sleep 3
+        echo "Pulling Qwen2.5:1.5b..."
+        # Qwen2.5:1.5b（默认，~1.1GB，适合 4GB 内存设备）
+        /bin/ollama pull qwen2.5:1.5b 2>&1
+        # Qwen2.5:7b（可选，~4.7GB，需要 8GB+ 内存；取消下行注释启用）
+        # /bin/ollama pull qwen2.5:7b 2>&1
+        /bin/ollama pull nomic-embed-text 2>&1 || true
+        echo "Models ready!"
+        wait
+
+  # ============================================================================
+  # SenseVoice 语音转文字服务 — 按需启动，用完即毁
+  #
+  # 不由 compose 管理生命周期，由 nowen-note 后端通过 Docker API 按需启停：
+  #   1. 收到转写请求 → 检查 sensevoice:8000 是否在线
+  #   2. 不在线 → 启动 sensevoice 容器 → 等待就绪 → 调用转写
+  #   3. 空闲超过 5 分钟 → 自动关闭容器，释放约 330MB 内存
+  # 容器名固定为 nowen-note-sensevoice，后端通过容器名精确管理。
+  # ----------------------------------------------------------------------------
+  # 定义保留，供后端按需启动时使用（restart: "no" 防止随 compose 自动拉起）
+  sensevoice:
+    profiles: ["manual"]
+    build:
+      context: ./sensevoice
+      dockerfile: Dockerfile
+    image: nowen-note-sensevoice:latest
+    container_name: nowen-note-sensevoice
+    restart: "no"
+    network_mode: "bridge"
+    volumes:
+      - sensevoice-model-cache:/app/modelscope_cache
 
 volumes:
   nowen-note-data:
@@ -60,3 +121,7 @@ volumes:
   # 启用独立备份卷时取消下方注释（与上面 volumes 段对应）：
   # nowen-note-backup:
   #   driver: local
+  sensevoice-model-cache:
+    driver: local
+  ollama-data:
+    driver: local

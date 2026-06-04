@@ -2422,5 +2422,22 @@ html[data-electron="darwin"][data-fullscreen="1"] main::before {
   margin: 0.4em 0;
 }
 
+/* ===== 说说渲染内容中 iframe (音视频嵌套) 样式 ===== */
+.diary-rendered-content iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  margin-top: 8px;
+  margin-bottom: 8px;
+  background-color: #000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+.dark .diary-rendered-content iframe {
+  border-color: var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+
 
 

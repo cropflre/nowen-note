@@ -43,6 +43,7 @@ import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
+import Mention from "@tiptap/extension-mention";
 
 // ---------- 格式识别 ----------
 
@@ -145,6 +146,7 @@ function getTiptapExtensions() {
     // 视频节点：必须与 TiptapEditor 保持一致，否则 generateHTML 时 video 节点
     // 会被 schema 过滤，导致切换到 MD 后视频丢失。
     VideoExtension,
+    Mention,
   ];
   return _extensions;
 }
@@ -381,6 +383,21 @@ function getTurndown(): TurndownService {
         platform: (el.getAttribute("data-video-platform") as any) || "unknown",
         originalUrl: el.getAttribute("data-original-url") || "",
       });
+    },
+  });
+
+  // @提及 (mention) -> <span data-type="mention" data-id="id" data-label="label">@id</span>
+  td.addRule("mention", {
+    filter: (node) =>
+      node.nodeName === "SPAN" &&
+      (node as Element).getAttribute("data-type") === "mention",
+    replacement: (content, node) => {
+      const el = node as Element;
+      const id = el.getAttribute("data-id") || "";
+      const label = el.getAttribute("data-label") || "";
+      // 用 @${id} 替代 @${label} 作为 textContent，这样 plainText 将会包含 @username 从而与后端逻辑对齐；
+      // 同时保留 data-label 属性供富文本编辑器反解析时呈现显示名称。
+      return `<span data-type="mention" data-id="${escapeAttr(id)}" data-label="${escapeAttr(label)}">@${id}</span>`;
     },
   });
 

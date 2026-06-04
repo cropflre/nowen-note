@@ -7,6 +7,7 @@ import {
   canManageResource,
   requireWorkspaceFeature,
 } from "../middleware/acl";
+import { createMentions, broadcastToWorkspace } from "../lib/mentions";
 
 const tasks = new Hono();
 
@@ -45,23 +46,27 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
   const userId = c.req.header("X-User-Id")!;
   const filter = c.req.query("filter"); // all | today | week | overdue | completed
   const noteId = c.req.query("noteId");
+  const search = c.req.query("search");
+  const tagId = c.req.query("tagId");
 
   const scope = resolveTaskScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
-  // creatorName: LEFT JOIN users 取创建者用户名，便于工作区列表展示"谁建的"。
-  // 仅扩列不改 WHERE/ORDER BY 结构——tasks.* 即历史契约，新加的 creatorName 是
-  // optional 字段；LEFT JOIN 兜底用户被删除场景（虽然 ON DELETE CASCADE 会同步清掉
-  // tasks，但 join 不依赖外键存在，更稳）。
   let sql: string;
   const params: any[] = [];
+  const selectFields = `tasks.*, users.username AS creatorName,
+    (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'color', t.color))
+     FROM tags t
+     JOIN task_tags tt ON t.id = tt.tagId
+     WHERE tt.taskId = tasks.id) AS tagsJson`;
+
   if (scope.scope === "workspace") {
-    sql = `SELECT tasks.*, users.username AS creatorName
+    sql = `SELECT ${selectFields}
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
            WHERE workspaceId = ?`;
     params.push(scope.workspaceId);
   } else {
-    sql = `SELECT tasks.*, users.username AS creatorName
+    sql = `SELECT ${selectFields}
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
            WHERE tasks.userId = ? AND workspaceId IS NULL`;
     params.push(userId);
@@ -70,6 +75,16 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
   if (noteId) {
     sql += ` AND noteId = ?`;
     params.push(noteId);
+  }
+
+  if (search && search.trim()) {
+    sql += ` AND tasks.title LIKE ?`;
+    params.push(`%${search.trim()}%`);
+  }
+
+  if (tagId) {
+    sql += ` AND tasks.id IN (SELECT taskId FROM task_tags WHERE tagId = ?)`;
+    params.push(tagId);
   }
 
   if (filter === "today") {
@@ -84,8 +99,13 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
 
   sql += ` ORDER BY isCompleted ASC, priority DESC, sortOrder ASC, tasks.createdAt DESC`;
 
-  const rows = db.prepare(sql).all(...params);
-  return c.json(rows);
+  const rows = db.prepare(sql).all(...params) as any[];
+  const tasksWithTags = rows.map((row) => ({
+    ...row,
+    tags: row.tagsJson ? JSON.parse(row.tagsJson) : [],
+    tagsJson: undefined,
+  }));
+  return c.json(tasksWithTags);
 });
 
 // 获取任务统计（必须在 /:id 之前注册）
@@ -96,8 +116,6 @@ tasks.get("/stats/summary", requireWorkspaceFeature("tasks"), (c) => {
   const scope = resolveTaskScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
-  // 单条 SQL 聚合所有统计，避免 5 次独立查询
-  // Y3: 按 scope 聚合——工作区模式统计全员任务，个人模式按 userId + workspaceId IS NULL。
   const whereSql = scope.scope === "workspace"
     ? "workspaceId = ?"
     : "userId = ? AND workspaceId IS NULL";
@@ -114,18 +132,21 @@ tasks.get("/stats/summary", requireWorkspaceFeature("tasks"), (c) => {
       SUM(CASE WHEN isCompleted = 0 AND dueDate IS NOT NULL
                AND date(dueDate) BETWEEN date('now', 'localtime')
                                      AND date('now', 'localtime', '+7 days')
-               THEN 1 ELSE 0 END)                                                      AS week
+               THEN 1 ELSE 0 END)                                                      AS week,
+      SUM(CASE WHEN isCompleted = 0 AND remindAt IS NOT NULL
+               AND date(remindAt) <= date('now', 'localtime') THEN 1 ELSE 0 END)       AS activeReminders
     FROM tasks
     WHERE ${whereSql}
   `).get(whereArg) as any;
 
-  const total     = row.total     ?? 0;
-  const completed = row.completed ?? 0;
-  const today     = row.today     ?? 0;
-  const overdue   = row.overdue   ?? 0;
-  const week      = row.week      ?? 0;
+  const total           = row.total           ?? 0;
+  const completed       = row.completed       ?? 0;
+  const today           = row.today           ?? 0;
+  const overdue         = row.overdue         ?? 0;
+  const week            = row.week            ?? 0;
+  const activeReminders = row.activeReminders ?? 0;
 
-  return c.json({ total, completed, pending: total - completed, today, overdue, week });
+  return c.json({ total, completed, pending: total - completed, today, overdue, week, activeReminders });
 });
 
 // ---------------------------------------------------------------------------
@@ -143,43 +164,100 @@ function canReadTask(
   return task.userId === actorId;
 }
 
+/**
+ * 获取日历数据：返回指定月份有待办事项的日期列表
+ *   GET /api/tasks/calendar?year=2026&month=6
+ *   query: workspaceId?
+ */
+tasks.get("/calendar", requireWorkspaceFeature("tasks"), (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const year = parseInt(c.req.query("year") || "0");
+  const month = parseInt(c.req.query("month") || "0");
+
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) {
+    return c.json({ error: "参数错误" }, 400);
+  }
+
+  const scope = resolveTaskScope(c, userId);
+  if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
+
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const fromStr = `${year}-${pad(month)}-01`;
+  const nextM = month === 12 ? 1 : month + 1;
+  const nextY = month === 12 ? year + 1 : year;
+  const toStr = `${nextY}-${pad(nextM)}-01`;
+
+  let whereSql: string;
+  const args: unknown[] = [];
+
+  if (scope.scope === "workspace") {
+    whereSql = "tasks.workspaceId = ?";
+    args.push(scope.workspaceId);
+  } else {
+    whereSql = "tasks.userId = ? AND tasks.workspaceId IS NULL";
+    args.push(userId);
+  }
+
+  whereSql += " AND dueDate IS NOT NULL AND date(dueDate) >= ? AND date(dueDate) < ?";
+  args.push(fromStr, toStr);
+
+  // 每组日期只算未完成的任务数 + 总任务数
+  const rows = db
+    .prepare(
+      `SELECT date(dueDate) as d,
+              COUNT(*) as total,
+              SUM(CASE WHEN isCompleted = 0 THEN 1 ELSE 0 END) as pending
+       FROM tasks WHERE ${whereSql}
+       GROUP BY date(dueDate)
+       ORDER BY d ASC`,
+    )
+    .all(...args) as { d: string; total: number; pending: number }[];
+
+  const dates = rows.map((r) => ({
+    date: r.d,
+    total: r.total,
+    pending: r.pending,
+  }));
+  return c.json({ dates, year, month });
+});
+
 // 获取单个任务（含子任务）
 // Y3: 读权限按 scope——工作区内的任何成员可见，个人任务仅本人可见。
 tasks.get("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as
-    | { userId: string; workspaceId: string | null }
-    | undefined;
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
   if (!task) return c.json({ error: "Task not found" }, 404);
 
   if (!canReadTask(task, userId)) {
     return c.json({ error: "Task not found" }, 404);
   }
 
+  const tags = db.prepare(`
+    SELECT t.* FROM tags t
+    JOIN task_tags tt ON t.id = tt.tagId
+    WHERE tt.taskId = ?
+  `).all(id);
+
   const children = db.prepare(
     "SELECT * FROM tasks WHERE parentId = ? ORDER BY sortOrder ASC, createdAt ASC"
-  ).all(id);
+  ).all(id) as any[];
 
-  return c.json({ ...task, children });
+  const childrenWithTags = children.map(child => {
+    const childTags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN task_tags tt ON t.id = tt.tagId
+      WHERE tt.taskId = ?
+    `).all(child.id);
+    return { ...child, tags: childTags };
+  });
+
+  return c.json({ ...task, tags, children: childrenWithTags });
 });
 
 // 创建任务
-// Y3:
-//   - query: workspaceId? 与其它路由一致
-//   - body.parentId 指定时，自动从父任务继承 workspaceId（保证父子同域）；
-//     若前端同时传了 query workspaceId 但与父任务不一致 → 400，避免跨域挂接。
-//   - body.noteId 指定时，不强制对齐 noteId 的 workspaceId —— 现实中任务绑
-//     定的笔记可能在个人空间而任务本身挂在工作区，反之亦然；由用户自己
-//     掌握语义，后端不越权校验。
-// 实现备注：这里故意用 async 而不是 `() => c.req.json().then(...)` 的链式返回。
-// 旧写法下 TypeScript 会把 handler 的返回类型推断成
-//   JSONRespondReturn<403> | Promise<void | JSONRespondReturn<201|400|403|404>>
-// 这个 union 与 Hono 的 Handler<..., HandlerResponse<any>>（要求 Response | Promise<Response>，
-// Promise 分支内部还必须是 void 才被视作 "无返回"）不兼容，tsc 会在 tasks.post("/", ...)
-// 的这一行报 TS2769 "No overload matches this call"。统一 async/await 后，所有分支都
-// 走同一条 Promise 路径，返回类型收敛为 Promise<Response>，类型校验即通过。
 tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -189,7 +267,7 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
 
   const body: any = await c.req.json();
   const id = crypto.randomUUID();
-  const { title, priority = 2, dueDate = null, noteId = null, parentId = null } = body;
+  const { title, priority = 2, dueDate = null, remindAt = null, noteId = null, parentId = null, tagIds = [] } = body;
 
   if (!title || !title.trim()) {
     return c.json({ error: "Title is required" }, 400);
@@ -214,19 +292,55 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     effectiveWorkspaceId = parent.workspaceId;
   }
 
-  db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, noteId, parentId)
-    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), priority, dueDate, noteId, parentId);
+  let calculatedRemindAt = remindAt;
+  if (dueDate && !calculatedRemindAt) {
+    try {
+      const date = new Date(dueDate);
+      date.setDate(date.getDate() - 1);
+      calculatedRemindAt = date.toISOString().split("T")[0];
+    } catch {}
+  }
 
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-  return c.json(task, 201);
+  const tx = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, remindAt, noteId, parentId)
+      VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+    `).run(id, userId, effectiveWorkspaceId, title.trim(), priority, dueDate, calculatedRemindAt, noteId, parentId);
+
+    if (Array.isArray(tagIds) && tagIds.length > 0) {
+      const insertTag = db.prepare("INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)");
+      for (const tagId of tagIds) {
+        insertTag.run(id, tagId);
+      }
+    }
+  });
+
+  try {
+    tx();
+  } catch (err: any) {
+    return c.json({ error: `创建失败：${err?.message || err}` }, 500);
+  }
+
+  const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+  const tags = db.prepare(`
+    SELECT t.* FROM tags t
+    JOIN task_tags tt ON t.id = tt.tagId
+    WHERE tt.taskId = ?
+  `).all(id);
+
+  // 解析 @提及
+  if (title) {
+    try {
+      createMentions("task", id, title.trim().slice(0, 80), title, userId);
+    } catch (e) {
+      console.warn("[tasks.post] createMentions failed:", e);
+    }
+  }
+
+  return c.json({ ...created, tags }, 201);
 });
 
 // 更新任务
-// Y3: 走 canManageResource —— 创建者本人 + admin/owner 可改；个人任务仅本人。
-//     不允许修改 workspaceId（搬移任务到其它工作区属于高风险操作，留待后续
-//     独立"移动"接口实现）。
 tasks.put("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -244,9 +358,21 @@ tasks.put("/:id", (c) => {
     const isCompleted = body.isCompleted ?? existing.isCompleted;
     const priority = body.priority ?? existing.priority;
     const dueDate = body.dueDate !== undefined ? body.dueDate : existing.dueDate;
+    let remindAt = body.remindAt !== undefined ? body.remindAt : existing.remindAt;
     const noteId = body.noteId !== undefined ? body.noteId : existing.noteId;
     const parentId = body.parentId !== undefined ? body.parentId : existing.parentId;
     const sortOrder = body.sortOrder ?? existing.sortOrder;
+    const tagIds = body.tagIds;
+
+    if (dueDate && !remindAt && body.dueDate !== undefined) {
+      try {
+        const date = new Date(dueDate);
+        date.setDate(date.getDate() - 1);
+        remindAt = date.toISOString().split("T")[0];
+      } catch {}
+    } else if (!dueDate) {
+      remindAt = null;
+    }
 
     // 重新挂接父任务时再次校验同域约束
     if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
@@ -262,19 +388,51 @@ tasks.put("/:id", (c) => {
       }
     }
 
-    db.prepare(`
-      UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?,
-        noteId = ?, parentId = ?, sortOrder = ?, updatedAt = datetime('now')
-      WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, noteId, parentId, sortOrder, id);
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, remindAt = ?,
+          noteId = ?, parentId = ?, sortOrder = ?, updatedAt = datetime('now')
+        WHERE id = ?
+      `).run(title, isCompleted, priority, dueDate, remindAt, noteId, parentId, sortOrder, id);
 
-    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-    return c.json(updated);
+      if (tagIds !== undefined && Array.isArray(tagIds)) {
+        db.prepare("DELETE FROM task_tags WHERE taskId = ?").run(id);
+        if (tagIds.length > 0) {
+          const insertTag = db.prepare("INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)");
+          for (const tagId of tagIds) {
+            insertTag.run(id, tagId);
+          }
+        }
+      }
+    });
+
+    try {
+      tx();
+    } catch (err: any) {
+      return c.json({ error: `更新失败：${err?.message || err}` }, 500);
+    }
+
+    // 解析 @提及（标题变更时）
+    if (body.title) {
+      try {
+        createMentions("task", id, body.title.trim().slice(0, 80), body.title, userId);
+      } catch (e) {
+        console.warn("[tasks.put] createMentions failed:", e);
+      }
+    }
+
+    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN task_tags tt ON t.id = tt.tagId
+      WHERE tt.taskId = ?
+    `).all(id);
+
+    return c.json({ ...updated, tags });
   });
 });
 
 // 切换完成状态（快捷操作）
-// Y3: 切换完成状态视作"编辑"——走 canManageResource。
 tasks.patch("/:id/toggle", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -292,12 +450,29 @@ tasks.patch("/:id/toggle", (c) => {
   const newStatus = task.isCompleted ? 0 : 1;
   db.prepare("UPDATE tasks SET isCompleted = ?, updatedAt = datetime('now') WHERE id = ?").run(newStatus, id);
 
-  const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-  return c.json(updated);
+  // 任务完成时通知工作区成员
+  if (newStatus === 1 && task.workspaceId) {
+    try {
+      broadcastToWorkspace(
+        task.workspaceId, "task_completed", "task", id,
+        null, userId, userId,
+      );
+    } catch (e) {
+      console.warn("[tasks.toggle] broadcastToWorkspace failed:", e);
+    }
+  }
+
+  const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+  const tags = db.prepare(`
+    SELECT t.* FROM tags t
+    JOIN task_tags tt ON t.id = tt.tagId
+    WHERE tt.taskId = ?
+  `).all(id);
+
+  return c.json({ ...updated, tags });
 });
 
 // 删除任务
-// Y3: 删除走 canManageResource；children 靠外键 ON DELETE CASCADE 自动清理。
 tasks.delete("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;

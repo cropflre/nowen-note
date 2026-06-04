@@ -36,6 +36,8 @@ import {
   canManageResource,
   requireWorkspaceFeature,
 } from "../middleware/acl";
+import { createMentions, broadcastToWorkspace } from "../lib/mentions";
+import { ensureRunning, resetIdleTimer } from "../services/sensevoice-manager";
 
 const diary = new Hono();
 
@@ -74,12 +76,21 @@ const MAX_IMAGES_PER_DIARY = 9;
 const MAX_DIARY_IMAGE_SIZE = 10 * 1024 * 1024;
 
 // 允许的图片 MIME（与 attachments 路由对齐，但不收 svg —— 防止 XSS 飘到时间线）
-const ALLOWED_DIARY_IMAGE_MIMES = new Set([
+const ALLOWED_DIARY_MIMES = new Set([
   "image/png",
   "image/jpeg",
   "image/gif",
   "image/webp",
   "image/bmp",
+  "audio/webm",
+  "audio/wav",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/ogg",
+  "audio/aac",
+  "audio/m4a",
+  "audio/x-m4a",
+  "audio/mp4",
 ]);
 
 // 上传超过这么久仍未绑定 diaryId 视为孤儿，会被清理器扫除
@@ -95,13 +106,11 @@ interface DiaryRow {
   contentText: string;
   mood: string;
   images: string;
+  visibility: string;
+  voice: string | null;
   createdAt: string;
-  /**
-   * creatorName：工作区下展示"谁发的说说"。LEFT JOIN 取自 users.username，
-   * 用户被删除时为 null（前端按"未知用户"渲染）。
-   * 仅在 list 接口（/timeline）填充，单条创建/单条返回也会顺手填上保持契约一致。
-   */
   creatorName?: string | null;
+  tagsJson?: string | null;
 }
 
 function rowToDiary(row: DiaryRow) {
@@ -114,6 +123,18 @@ function rowToDiary(row: DiaryRow) {
   } catch {
     /* 旧数据脏 → 当作没图，避免接口 500 */
   }
+
+  let voice = null;
+  if (row.voice) {
+    try {
+      voice = JSON.parse(row.voice);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const tags = row.tagsJson ? JSON.parse(row.tagsJson) : [];
+
   return {
     id: row.id,
     userId: row.userId,
@@ -121,8 +142,11 @@ function rowToDiary(row: DiaryRow) {
     contentText: row.contentText,
     mood: row.mood,
     images,
+    visibility: row.visibility || "PRIVATE",
+    voice,
     createdAt: row.createdAt,
     creatorName: row.creatorName ?? null,
+    tags,
   };
 }
 
@@ -189,32 +213,62 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
-  const { contentText, mood } = body;
+  const { contentText, mood, visibility, voice, createdAt, tagIds = [] } = body;
   const rawImages = Array.isArray(body.images) ? body.images : [];
   const images: string[] = rawImages
     .filter((x: unknown) => typeof x === "string")
     .slice(0, MAX_IMAGES_PER_DIARY);
 
-  // 内容与图片至少一项非空（纯图片说说也允许）
+  // 内容、图片、语音至少一项非空
   const hasText = typeof contentText === "string" && contentText.trim().length > 0;
-  if (!hasText && images.length === 0) {
-    return c.json({ error: "Content or images required" }, 400);
+  const hasVoice = voice && typeof voice.id === "string";
+  if (!hasText && images.length === 0 && !hasVoice) {
+    return c.json({ error: "Content, images, or voice recording is required" }, 400);
   }
 
   const id = crypto.randomUUID();
+  const customCreatedAt = typeof createdAt === "string" ? createdAt : null;
 
-  // 把整批写入放进事务：要么 diary 行 + 图片 attach 一起成功，要么全部回滚
+  // 把整批写入放进事务：要么 diary 行 + 图片/语音 attach 一起成功，要么全部回滚
   const tx = db.transaction(() => {
-    db.prepare(
-      "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(
-      id,
-      userId,
-      scope.workspaceId,
-      hasText ? contentText.trim() : "",
-      typeof mood === "string" ? mood : "",
-      JSON.stringify(images),
-    );
+    if (customCreatedAt) {
+      db.prepare(
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, visibility, voice, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        id,
+        userId,
+        scope.workspaceId,
+        hasText ? contentText.trim() : "",
+        typeof mood === "string" ? mood : "",
+        JSON.stringify(images),
+        typeof visibility === "string" ? visibility : "PRIVATE",
+        hasVoice ? JSON.stringify(voice) : null,
+        customCreatedAt,
+      );
+    } else {
+      db.prepare(
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, visibility, voice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        id,
+        userId,
+        scope.workspaceId,
+        hasText ? contentText.trim() : "",
+        typeof mood === "string" ? mood : "",
+        JSON.stringify(images),
+        typeof visibility === "string" ? visibility : "PRIVATE",
+        hasVoice ? JSON.stringify(voice) : null,
+      );
+    }
+
+    if (hasVoice) {
+      db.prepare(
+        `UPDATE diary_attachments
+            SET diaryId = ?, workspaceId = ?
+          WHERE id = ?
+            AND userId = ?
+            AND diaryId IS NULL`,
+      ).run(id, scope.workspaceId, voice.id, userId);
+    }
 
     if (images.length > 0) {
       // 只 attach 真正"属于本人 + 仍悬空"的图片，杜绝越权 / 重复绑定。
@@ -248,6 +302,13 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
         );
       }
     }
+
+    if (Array.isArray(tagIds) && tagIds.length > 0) {
+      const insertTag = db.prepare("INSERT INTO diary_tags (diaryId, tagId) VALUES (?, ?)");
+      for (const tagId of tagIds) {
+        insertTag.run(id, tagId);
+      }
+    }
   });
 
   try {
@@ -256,7 +317,31 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
     return c.json({ error: `发布失败：${err?.message || err}` }, 500);
   }
 
-  const created = db.prepare("SELECT * FROM diaries WHERE id = ?").get(id) as DiaryRow;
+  // 解析 @提及
+  if (hasText) {
+    try {
+      createMentions("diary", id, contentText.trim().slice(0, 80), contentText.trim(), userId);
+      // 通知工作区成员
+      if (scope.workspaceId && contentText.trim()) {
+        broadcastToWorkspace(
+          scope.workspaceId, "diary_posted", "diary", id,
+          contentText.trim().slice(0, 80), userId, userId,
+        );
+      }
+    } catch (e) {
+      console.warn("[diary.post] createMentions failed:", e);
+    }
+  }
+
+  const created = db.prepare(`
+    SELECT diaries.*, users.username AS creatorName,
+           (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'color', t.color))
+            FROM tags t
+            JOIN diary_tags dt ON t.id = dt.tagId
+            WHERE dt.diaryId = diaries.id) AS tagsJson
+    FROM diaries LEFT JOIN users ON users.id = diaries.userId
+    WHERE diaries.id = ?
+  `).get(id) as DiaryRow;
   return c.json(rowToDiary(created), 201);
 });
 
@@ -298,16 +383,31 @@ function buildTimeRangeWhere(
   userId: string,
   from: string | null,
   to: string | null,
+  visibilityFilter?: string,
+  tagId?: string | null,
+  search?: string | null,
 ): { sql: string; args: unknown[] } {
   let sql: string;
   const args: unknown[] = [];
+  const filter = visibilityFilter || "all";
+
   if (scope.scope === "workspace") {
     sql = "diaries.workspaceId = ?";
     args.push(scope.workspaceId);
   } else {
-    sql = "diaries.userId = ? AND diaries.workspaceId IS NULL";
+    sql = "diaries.workspaceId IS NULL";
+  }
+
+  if (filter === "private") {
+    sql += " AND diaries.userId = ? AND diaries.visibility = 'PRIVATE'";
+    args.push(userId);
+  } else if (filter === "public") {
+    sql += " AND diaries.visibility = 'PUBLIC'";
+  } else {
+    sql += " AND (diaries.userId = ? OR diaries.visibility = 'PUBLIC')";
     args.push(userId);
   }
+
   if (from) {
     sql += " AND diaries.createdAt >= ?";
     args.push(from);
@@ -315,6 +415,14 @@ function buildTimeRangeWhere(
   if (to) {
     sql += " AND diaries.createdAt <= ?";
     args.push(to);
+  }
+  if (tagId) {
+    sql += " AND diaries.id IN (SELECT diaryId FROM diary_tags WHERE tagId = ?)";
+    args.push(tagId);
+  }
+  if (search && search.trim() !== "") {
+    sql += " AND diaries.contentText LIKE ?";
+    args.push(`%${search.trim()}%`);
   }
   return { sql, args };
 }
@@ -327,11 +435,14 @@ diary.get("/timeline", requireWorkspaceFeature("diaries"), (c) => {
   const limit = Math.min(parseInt(c.req.query("limit") || "20"), 50);
   const from = normalizeDateBound(c.req.query("from"), "from");
   const to = normalizeDateBound(c.req.query("to"), "to");
+  const visibilityFilter = c.req.query("visibility"); // 'all' | 'private' | 'public'
+  const tagId = c.req.query("tagId");
+  const search = c.req.query("search");
 
   const scope = resolveDiaryScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
-  const { sql: whereSql, args } = buildTimeRangeWhere(scope, userId, from, to);
+  const { sql: whereSql, args } = buildTimeRangeWhere(scope, userId, from, to, visibilityFilter, tagId, search);
   let finalWhere = whereSql;
   const finalArgs = [...args];
   if (cursor) {
@@ -340,12 +451,15 @@ diary.get("/timeline", requireWorkspaceFeature("diaries"), (c) => {
     finalArgs.push(cursor);
   }
 
+  const selectFields = `diaries.*, users.username AS creatorName,
+    (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'color', t.color))
+     FROM tags t
+     JOIN diary_tags dt ON t.id = dt.tagId
+     WHERE dt.diaryId = diaries.id) AS tagsJson`;
+
   const rows = db
     .prepare(
-      // creatorName: LEFT JOIN users 取创建者用户名（工作区下展示"谁发的"）。
-      // diaries.* 保留原契约；新增 creatorName 字段由 rowToDiary 透传给前端。
-      // ORDER BY 显式带 diaries.createdAt 前缀，避免和 users 表潜在的同名列歧义。
-      `SELECT diaries.*, users.username AS creatorName
+      `SELECT ${selectFields}
        FROM diaries LEFT JOIN users ON users.id = diaries.userId
        WHERE ${finalWhere}
        ORDER BY diaries.createdAt DESC
@@ -415,8 +529,13 @@ diary.put("/:id", (c) => {
           .filter((x: unknown) => typeof x === "string")
           .slice(0, MAX_IMAGES_PER_DIARY)
       : undefined;
+    const newVisibility: string | undefined =
+      typeof body.visibility === "string" ? body.visibility : undefined;
+    const newVoice: any | undefined =
+      body.voice !== undefined ? body.voice : undefined;
+    const newTagIds: string[] | undefined = Array.isArray(body.tagIds) ? body.tagIds : undefined;
 
-    // 计算合并后的最终值（仅用来做"text 和 images 至少一项非空"校验）
+    // 计算合并后的最终值（仅用来做"text, images, voice 至少一项非空"校验）
     const finalText = newContentText !== undefined ? newContentText : row.contentText;
     const finalImagesPreview =
       newImagesRaw !== undefined ? newImagesRaw : (() => {
@@ -427,17 +546,35 @@ diary.put("/:id", (c) => {
           return [];
         }
       })();
-    if (!finalText && finalImagesPreview.length === 0) {
-      return c.json({ error: "Content or images required" }, 400);
+    const finalVoice = newVoice !== undefined ? newVoice : (() => {
+      try {
+        return row.voice ? JSON.parse(row.voice) : null;
+      } catch {
+        return null;
+      }
+    })();
+    const hasFinalVoice = finalVoice && typeof finalVoice.id === "string";
+
+    if (!finalText && finalImagesPreview.length === 0 && !hasFinalVoice) {
+      return c.json({ error: "Content, images, or voice recording is required" }, 400);
     }
 
     // 如果调用方没改任何字段，直接回当前值（幂等）
     if (
       newContentText === undefined &&
       newMood === undefined &&
-      newImagesRaw === undefined
+      newImagesRaw === undefined &&
+      newVisibility === undefined &&
+      newVoice === undefined &&
+      newTagIds === undefined
     ) {
-      return c.json(rowToDiary(row));
+      // 顺手加载已有 tags
+      const currentTags = db.prepare(`
+        SELECT t.* FROM tags t
+        JOIN diary_tags dt ON t.id = dt.tagId
+        WHERE dt.diaryId = ?
+      `).all(id);
+      return c.json({ ...rowToDiary(row), tags: currentTags });
     }
 
     // 准备图片差集（仅当调用方显式传入 images 时才处理）
@@ -489,6 +626,43 @@ diary.put("/:id", (c) => {
         finalImageOrder = newImagesRaw.filter((x) => validSet.has(x));
       }
 
+      // 1.5) 处理语音更新
+      if (newVoice !== undefined) {
+        let oldVoiceId: string | null = null;
+        if (row.voice) {
+          try {
+            const parsed = JSON.parse(row.voice);
+            if (parsed && parsed.id) oldVoiceId = parsed.id;
+          } catch {}
+        }
+        const newVoiceId = newVoice ? newVoice.id : null;
+        if (oldVoiceId && oldVoiceId !== newVoiceId) {
+          deleteDiaryImageFilesByIds([oldVoiceId]);
+          db.prepare(
+            `DELETE FROM diary_attachments WHERE id = ? AND diaryId = ? AND userId = ?`,
+          ).run(oldVoiceId, id, userId);
+        }
+        if (newVoiceId && oldVoiceId !== newVoiceId) {
+          db.prepare(
+            `UPDATE diary_attachments
+                SET diaryId = ?, workspaceId = ?
+              WHERE id = ?
+                AND userId = ?
+                AND diaryId IS NULL`,
+          ).run(id, row.workspaceId, newVoiceId, userId);
+        }
+      }
+
+      if (newTagIds !== undefined) {
+        db.prepare("DELETE FROM diary_tags WHERE diaryId = ?").run(id);
+        if (newTagIds.length > 0) {
+          const insertTag = db.prepare("INSERT INTO diary_tags (diaryId, tagId) VALUES (?, ?)");
+          for (const tagId of newTagIds) {
+            insertTag.run(id, tagId);
+          }
+        }
+      }
+
       // 2) 更新 diary 主行
       const updates: string[] = [];
       const args: unknown[] = [];
@@ -504,6 +678,14 @@ diary.put("/:id", (c) => {
         updates.push("images = ?");
         args.push(JSON.stringify(finalImageOrder));
       }
+      if (newVisibility !== undefined) {
+        updates.push("visibility = ?");
+        args.push(newVisibility);
+      }
+      if (newVoice !== undefined) {
+        updates.push("voice = ?");
+        args.push(newVoice ? JSON.stringify(newVoice) : null);
+      }
       if (updates.length > 0) {
         args.push(id);
         db.prepare(
@@ -518,10 +700,23 @@ diary.put("/:id", (c) => {
       return c.json({ error: `保存失败：${err?.message || err}` }, 500);
     }
 
+    // 解析 @提及（内容变更时）
+    if (newContentText) {
+      try {
+        createMentions("diary", id, newContentText.slice(0, 80), newContentText, userId);
+      } catch (e) {
+        console.warn("[diary.put] createMentions failed:", e);
+      }
+    }
+
     // 返回更新后的整条记录（顺手 LEFT JOIN 取 creatorName 保持契约一致）
     const updated = db
       .prepare(
-        `SELECT diaries.*, users.username AS creatorName
+        `SELECT diaries.*, users.username AS creatorName,
+                (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'color', t.color))
+                 FROM tags t
+                 JOIN diary_tags dt ON t.id = dt.tagId
+                 WHERE dt.diaryId = diaries.id) AS tagsJson
            FROM diaries LEFT JOIN users ON users.id = diaries.userId
           WHERE diaries.id = ?`,
       )
@@ -606,6 +801,73 @@ diary.get("/stats", requireWorkspaceFeature("diaries"), (c) => {
   return c.json({ total, todayCount });
 });
 
+/**
+ * 获取日历数据：返回指定月份有说说的日期列表
+ *   GET /api/diary/calendar?year=2026&month=6
+ *   query: workspaceId?  (personal / <uuid>)
+ */
+diary.get("/calendar", requireWorkspaceFeature("diaries"), (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const year = parseInt(c.req.query("year") || "0");
+  const month = parseInt(c.req.query("month") || "0");
+  const tagId = c.req.query("tagId");
+  const search = c.req.query("search");
+
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) {
+    return c.json({ error: "参数错误" }, 400);
+  }
+
+  const scope = resolveDiaryScope(c, userId);
+  if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
+
+  // 计算该月起止时间
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const fromStr = `${year}-${pad(month)}-01 00:00:00`;
+  // 下个月第一天
+  const nextM = month === 12 ? 1 : month + 1;
+  const nextY = month === 12 ? year + 1 : year;
+  const toStr = `${nextY}-${pad(nextM)}-01 00:00:00`;
+
+  // 复用可见性逻辑：只查时间范围内的日期（不做 page 级 join，轻量）
+  let whereSql: string;
+  const args: unknown[] = [];
+
+  if (scope.scope === "workspace") {
+    whereSql = "diaries.workspaceId = ?";
+    args.push(scope.workspaceId);
+  } else {
+    whereSql = "diaries.workspaceId IS NULL";
+  }
+
+  whereSql += " AND (diaries.userId = ? OR diaries.visibility = 'PUBLIC')";
+  args.push(userId);
+
+  whereSql += " AND diaries.createdAt >= ? AND diaries.createdAt < ?";
+  args.push(fromStr, toStr);
+
+  if (tagId) {
+    whereSql += " AND diaries.id IN (SELECT diaryId FROM diary_tags WHERE tagId = ?)";
+    args.push(tagId);
+  }
+
+  if (search && search.trim() !== "") {
+    whereSql += " AND diaries.contentText LIKE ?";
+    args.push(`%${search.trim()}%`);
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT SUBSTR(diaries.createdAt, 1, 10) as d
+       FROM diaries WHERE ${whereSql}
+       ORDER BY d ASC`,
+    )
+    .all(...args) as { d: string }[];
+
+  const dates = rows.map((r) => r.d);
+  return c.json({ dates, year, month });
+});
+
 // ===========================================================================
 // 说说图片上传（受 JWT 保护）
 //   挂在 /api/diary/attachments，返回的 url 走下面 handleDownloadDiaryImage。
@@ -646,12 +908,12 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
 
   if (file.size > MAX_DIARY_IMAGE_SIZE) {
     return c.json(
-      { error: `图片过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）` },
+      { error: `文件过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）` },
       413,
     );
   }
   const mime = (file.type || "application/octet-stream").toLowerCase();
-  if (!ALLOWED_DIARY_IMAGE_MIMES.has(mime)) {
+  if (!ALLOWED_DIARY_MIMES.has(mime)) {
     return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
   }
 
@@ -825,5 +1087,113 @@ function sweepOrphanDiaryImages(): number {
 // 启动后延后 30 秒跑第一次（避开服务刚起来时的拥塞），之后每 6 小时一次
 setTimeout(sweepOrphanDiaryImages, 30_000);
 setInterval(sweepOrphanDiaryImages, 6 * 60 * 60 * 1000);
+
+/**
+ * 语音消息转文字 (Speech-to-Text)
+ *   POST /api/diary/transcribe
+ *   body: { diaryId: string, voiceId: string }
+ */
+diary.post("/transcribe", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+  const { diaryId, voiceId } = body;
+  if (!diaryId || !voiceId) {
+    return c.json({ error: "diaryId and voiceId required" }, 400);
+  }
+
+  // 1) 校验说说权限
+  const diaryRow = db
+    .prepare("SELECT * FROM diaries WHERE id = ?")
+    .get(diaryId) as DiaryRow | undefined;
+  if (!diaryRow) return c.json({ error: "说说不存在" }, 404);
+
+  if (!canManageResource(diaryRow.userId, diaryRow.workspaceId, userId)) {
+    // 允许同一个工作区的成员读取（转文字）
+    const wsRole = diaryRow.workspaceId ? getUserWorkspaceRole(diaryRow.workspaceId, userId) : null;
+    if (!wsRole && diaryRow.userId !== userId && diaryRow.visibility !== "PUBLIC") {
+      return c.json({ error: "无权访问该说说", code: "FORBIDDEN" }, 403);
+    }
+  }
+
+  // 2) 如果已经转过文字，直接返回
+  if (diaryRow.voice) {
+    try {
+      const parsed = JSON.parse(diaryRow.voice);
+      if (parsed && parsed.text) {
+        return c.json({ text: parsed.text });
+      }
+    } catch {}
+  }
+
+  // 3) 查找语音附件
+  const attachRow = db
+    .prepare("SELECT path FROM diary_attachments WHERE id = ? AND diaryId = ?")
+    .get(voiceId, diaryId) as { path: string } | undefined;
+  if (!attachRow) {
+    return c.json({ error: "语音附件不存在" }, 404);
+  }
+
+  const absPath = path.join(getAttachmentsDir(), attachRow.path);
+  if (!fs.existsSync(absPath)) {
+    return c.json({ error: "语音文件不存在" }, 404);
+  }
+
+  // 4) 确保 SenseVoice 服务在线（按需启动容器，~330MB 用完即释放）
+  try {
+    await ensureRunning();
+  } catch (e: any) {
+    return c.json({ error: `语音服务启动失败: ${e?.message || e}` }, 503);
+  }
+
+  // 5) 请求 SenseVoice FastAPI 接口
+  try {
+    const fileBuffer = fs.readFileSync(absPath);
+    const blob = new Blob([fileBuffer]);
+    const formData = new FormData();
+    formData.append("file", blob, path.basename(attachRow.path));
+    formData.append("model", "whisper-1");
+
+    const response = await fetch("http://sensevoice:8000/v1/audio/transcriptions", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return c.json({ error: `SenseVoice error: ${response.status} ${errText}` }, 502);
+    }
+
+    const resJson = await response.json() as { text: string };
+    const text = resJson.text || "";
+
+    // 5) 更新 diaries 的 voice 字段以缓存转写出的文字
+    let voiceObj: any = {};
+    if (diaryRow.voice) {
+      try {
+        voiceObj = JSON.parse(diaryRow.voice);
+      } catch {}
+    }
+    voiceObj.text = text;
+
+    db.prepare("UPDATE diaries SET voice = ? WHERE id = ?").run(
+      JSON.stringify(voiceObj),
+      diaryId,
+    );
+
+    try { resetIdleTimer(); } catch {}
+
+    return c.json({ text });
+  } catch (err: any) {
+    console.error("Transcription error:", err);
+    return c.json({ error: `转文字失败: ${err?.message || err}` }, 500);
+  }
+});
 
 export default diary;

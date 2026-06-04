@@ -5,6 +5,8 @@ import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { Keyboard } from "@capacitor/keyboard";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { Task } from "@/types";
 
 /** 判断是否运行在原生平台（Android / iOS） */
 export function isNativePlatform(): boolean {
@@ -308,3 +310,127 @@ export const haptic = {
     Haptics.selectionEnd().catch(() => {});
   },
 };
+
+// ─── 待办事项本地通知调度 ──────────────────────────────────────────
+
+function hashStringToInt(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+async function checkAndRequestPermissions() {
+  const status = await LocalNotifications.checkPermissions();
+  if (status.display === "granted") return true;
+  if (status.display === "prompt" || status.display === "prompt-with-rationale") {
+    const requestStatus = await LocalNotifications.requestPermissions();
+    return requestStatus.display === "granted";
+  }
+  return false;
+}
+
+export async function syncTaskNotification(task: Task) {
+  if (!isNativePlatform()) return;
+  try {
+    const notificationId = hashStringToInt(task.id);
+    try {
+      await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+    } catch {}
+
+    if (task.isCompleted || !task.remindAt) {
+      return;
+    }
+
+    const [year, month, day] = task.remindAt.split("-").map(Number);
+    const scheduleDate = new Date(year, month - 1, day, 9, 0, 0);
+
+    if (scheduleDate.getTime() > Date.now()) {
+      const granted = await checkAndRequestPermissions();
+      if (!granted) return;
+
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: "任务提醒",
+            body: task.title,
+            id: notificationId,
+            schedule: { at: scheduleDate },
+            extra: { taskId: task.id }
+          }
+        ]
+      });
+    }
+  } catch (err) {
+    console.error("syncTaskNotification failed:", err);
+  }
+}
+
+export async function syncAllTaskNotifications(tasks: Task[]) {
+  if (!isNativePlatform()) return;
+  try {
+    const granted = await checkAndRequestPermissions();
+    if (!granted) return;
+
+    const pending = await LocalNotifications.getPending();
+    const pendingIds = new Set(pending.notifications.map(n => n.id));
+
+    const notificationsToSchedule: any[] = [];
+    const idsToKeep = new Set<number>();
+
+    for (const task of tasks) {
+      const notificationId = hashStringToInt(task.id);
+      
+      if (task.isCompleted || !task.remindAt) {
+        if (pendingIds.has(notificationId)) {
+          await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+        }
+        continue;
+      }
+
+      const [year, month, day] = task.remindAt.split("-").map(Number);
+      const scheduleDate = new Date(year, month - 1, day, 9, 0, 0);
+
+      if (scheduleDate.getTime() > Date.now()) {
+        idsToKeep.add(notificationId);
+        notificationsToSchedule.push({
+          title: "任务提醒",
+          body: task.title,
+          id: notificationId,
+          schedule: { at: scheduleDate },
+          extra: { taskId: task.id }
+        });
+      } else {
+        if (pendingIds.has(notificationId)) {
+          await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+        }
+      }
+    }
+
+    for (const p of pending.notifications) {
+      if (!idsToKeep.has(p.id)) {
+        await LocalNotifications.cancel({ notifications: [{ id: p.id }] });
+      }
+    }
+
+    if (notificationsToSchedule.length > 0) {
+      await LocalNotifications.schedule({ notifications: notificationsToSchedule });
+    }
+  } catch (err) {
+    console.error("syncAllTaskNotifications failed:", err);
+  }
+}
+
+// 注册通知点击跳转事件
+if (typeof window !== "undefined" && isNativePlatform()) {
+  try {
+    LocalNotifications.addListener("localNotificationActionPerformed", () => {
+      window.dispatchEvent(new CustomEvent("nowen:navigate-to-tasks"));
+    });
+  } catch (err) {
+    console.error("Failed to register localNotificationActionPerformed listener:", err);
+  }
+}

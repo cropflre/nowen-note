@@ -197,7 +197,24 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files";
+export type ViewMode = "home" | "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "mentions";
+
+export type MobileView = "list" | "editor";
+
+export interface MentionItem {
+  id: string;
+  sourceType: "note" | "diary" | "task";
+  sourceId: string;
+  sourceTitle: string | null;
+  mentionedBy: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
+  createdAt: string;
+  readAt: string | null;
+}
 
 // ========== 文件管理（/api/files 聚合视图） ==========
 
@@ -338,11 +355,13 @@ export interface Task {
   isCompleted: number;
   priority: TaskPriority;
   dueDate: string | null;
+  remindAt: string | null;
   noteId: string | null;
   parentId: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  tags?: Tag[];
   children?: Task[];
   /** 创建者用户名；仅 list/single read 时由后端 LEFT JOIN 返回。 */
   creatorName?: string | null;
@@ -355,6 +374,7 @@ export interface TaskStats {
   today: number;
   overdue: number;
   week: number;
+  activeReminders: number;
 }
 
 export interface CustomFont {
@@ -409,9 +429,12 @@ export interface Diary {
   mood: string;
   /** 已绑定的说说图片 id 数组（顺序即展示顺序）。需要 URL 时拼 /api/diary/attachments/<id>。 */
   images: string[];
+  visibility: string;
+  voice?: { id: string; duration: number; text?: string } | null;
   createdAt: string;
   /** 创建者用户名；后端 LEFT JOIN users 返回，工作区视图下用于展示"谁发的"。 */
   creatorName?: string | null;
+  tags?: Tag[];
 }
 
 export interface DiaryTimeline {

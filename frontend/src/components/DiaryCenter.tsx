@@ -10,16 +10,66 @@ import {
   ImagePlus,
   X,
   Calendar,
+  CalendarDays,
   User as UserIcon,
   Edit2,
   Check,
+  Mic,
+  Play,
+  Pause,
+  Volume2,
+  Globe,
+  Lock,
+  Copy,
+  VolumeX,
+  Sparkles,
+  Search,
 } from "lucide-react";
 import { api, getCurrentWorkspace } from "@/lib/api";
-import { Diary, DiaryStats } from "@/types";
+import { Diary, DiaryStats, Tag } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/lib/toast";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+import { useApp } from "@/store/AppContext";
+import GenericTagInput from "@/components/GenericTagInput";
+import DiaryCalendar from "@/components/DiaryCalendar";
+import MentionPicker, { parseMentionTrigger, replaceMentionText } from "@/components/MentionPicker";
+
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
+
+/**
+ * 检测文本是否包含 Markdown 语法
+ */
+function hasMarkdownSyntax(text: string): boolean {
+  return /(\*\*.*\*\*|#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|!\[.*\]\(|\[.*\]\(|`{1,3}|^>\s)/m.test(text);
+}
+
+/**
+ * 渲染说说内容：自动检测 Markdown 语法，有则渲染为 MD，无则显示纯文本。
+ * 说说定位是"朋友圈风格"短内容，纯文本展示比强制 MD 渲染更自然。
+ */
+export function renderDiaryContent(text: string): string {
+  if (!text) return "";
+  if (hasMarkdownSyntax(text)) {
+    const rawHtml = marked.parse(text) as string;
+    return DOMPurify.sanitize(rawHtml, {
+      ADD_TAGS: ["iframe"],
+      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "sandbox", "src", "width", "height", "style"],
+    });
+  }
+  // 纯文本：转义 HTML 后直接显示，保留换行
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return escaped.replace(/\n/g, "<br>");
+}
 
 // 心情选项
 const MOODS = [
@@ -115,6 +165,28 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const pendingImagesRef = useRef<PendingImage[]>([]);
   pendingImagesRef.current = pendingImages;
+
+  // 新增：可见性选择（工作区默认公开，个人空间默认私密）
+  const [visibility, setVisibility] = useState<string>(() => {
+    const ws = getCurrentWorkspace();
+    return (ws && ws !== "personal") ? "PUBLIC" : "PRIVATE";
+  });
+  const [pendingVoice, setPendingVoice] = useState<{ id: string; duration: number } | null>(null);
+  const [voiceUploading, setVoiceUploading] = useState(false);
+  const [composeTags, setComposeTags] = useState<Tag[]>([]);
+
+  // @提及选择器状态
+  const [cursorPos, setCursorPos] = useState(0);
+  const mentionRaw = parseMentionTrigger(text, cursorPos);
+  const mentionTrigger = mentionRaw ? { ...mentionRaw, clear: () => {} } : null;
+
+  // 录音相关状态与 Ref
+  const [recording, setRecording] = useState(false);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<any>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
@@ -313,17 +385,114 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     if (files.length) void addFiles(files);
   };
 
+  // 录音逻辑
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      let duration = 0;
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+        try {
+          setVoiceUploading(true);
+          const uploadRes = await api.diaryImages.upload(file);
+          setPendingVoice({
+            id: uploadRes.id,
+            duration: duration || 1,
+          });
+        } catch (e) {
+          console.error("Voice upload failed:", e);
+          toast.error("语音上传失败");
+        } finally {
+          setVoiceUploading(false);
+        }
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start(200);
+      setRecording(true);
+      setRecordingPaused(false);
+      setRecordDuration(0);
+
+      recordTimerRef.current = setInterval(() => {
+        duration += 1;
+        setRecordDuration(duration);
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+      toast.error("无法启动录音设备");
+    }
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.pause();
+      setRecordingPaused(true);
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
+      mediaRecorderRef.current.resume();
+      setRecordingPaused(false);
+      const currentDur = recordDuration;
+      let duration = currentDur;
+      recordTimerRef.current = setInterval(() => {
+        duration += 1;
+        setRecordDuration(duration);
+      }, 1000);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = () => {
+        if (mediaRecorderRef.current) {
+          const stream = mediaRecorderRef.current.stream;
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      };
+      mediaRecorderRef.current.stop();
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      setRecording(false);
+      setRecordingPaused(false);
+      setRecordDuration(0);
+      audioChunksRef.current = [];
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      setRecording(false);
+      setRecordingPaused(false);
+    }
+  };
+
   const hasPendingUploads = pendingImages.some((p) => p.status === "uploading");
   const hasErrorImages = pendingImages.some((p) => p.status === "error");
   const readyImageIds = pendingImages
     .filter((p) => p.status === "ready" && p.id)
     .map((p) => p.id!) as string[];
 
-  // 提交条件：内容/图片至少一项，且没有上传中
+  // 提交条件：内容、图片、语音至少一项，且没有上传中
   const canSubmit =
     !posting &&
     !hasPendingUploads &&
-    (text.trim().length > 0 || readyImageIds.length > 0);
+    !voiceUploading &&
+    (text.trim().length > 0 || readyImageIds.length > 0 || pendingVoice !== null);
 
   const handlePost = async () => {
     if (!canSubmit) return;
@@ -333,6 +502,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         contentText: text.trim(),
         mood,
         images: readyImageIds,
+        visibility,
+        voice: pendingVoice,
+        tagIds: composeTags.map((t) => t.id),
       });
       // 重置：先 revoke 所有 blob URL（已发布图片由后端持久化，前端不再需要 blob）
       for (const item of pendingImagesRef.current) {
@@ -346,6 +518,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       setMood("");
       setShowMoods(false);
       setPendingImages([]);
+      setVisibility("PRIVATE");
+      setPendingVoice(null);
+      setComposeTags([]);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       onPost();
     } catch (e) {
@@ -379,19 +554,49 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     >
       {/* 输入区域 */}
       <div className="p-4 pb-2">
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            autoResize();
-          }}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={t("diary.placeholder")}
-          rows={2}
-          className="w-full bg-transparent text-tx-primary placeholder:text-tx-tertiary text-sm leading-relaxed resize-none outline-none min-h-[52px]"
-        />
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCursorPos(e.target.selectionStart);
+              autoResize();
+            }}
+            onSelect={(e) => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
+            onClick={(e) => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
+            onKeyUp={(e) => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
+            onKeyDown={(e) => {
+              if (mentionTrigger) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape") {
+                  e.preventDefault();
+                }
+              }
+              handleKeyDown(e);
+            }}
+            onPaste={handlePaste}
+            placeholder={t("diary.placeholder")}
+            rows={2}
+            className="w-full bg-transparent text-tx-primary placeholder:text-tx-tertiary text-sm leading-relaxed resize-none outline-none min-h-[52px]"
+          />
+        </div>
+
+        {/* @提及选择器 */}
+        {mentionTrigger && (
+          <div className="relative z-50">
+            <MentionPicker
+              search={mentionTrigger.search}
+              onSelect={(user) => {
+                const newText = replaceMentionText(text, cursorPos, mentionTrigger.startIndex, user.username);
+                setText(newText);
+                setCursorPos(mentionTrigger.startIndex + user.username.length + 2);
+                mentionTrigger.clear();
+                textareaRef.current?.focus();
+              }}
+              onClose={mentionTrigger.clear}
+            />
+          </div>
+        )}
 
         {/* 待发布图片缩略图区 */}
         {pendingImages.length > 0 && (
@@ -434,6 +639,97 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             ))}
           </div>
         )}
+
+        {/* 语音上传中 */}
+        {voiceUploading && (
+          <div className="mt-2.5 p-3 rounded-xl bg-app-hover/40 border border-app-border flex items-center gap-2">
+            <Loader2 size={16} className="animate-spin text-accent-primary" />
+            <span className="text-xs text-tx-tertiary">语音上传中...</span>
+          </div>
+        )}
+
+        {/* 已录制语音预览 */}
+        {pendingVoice && (
+          <div className="mt-2.5 p-3 rounded-xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-accent-primary/10 flex items-center justify-center text-accent-primary">
+                <Mic size={16} />
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-tx-primary">已录制语音</span>
+                <span className="text-[10px] text-tx-tertiary block mt-0.5 tabular-nums">
+                  {Math.floor(pendingVoice.duration / 60)}分{pendingVoice.duration % 60}秒
+                </span>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setPendingVoice(null)}
+              className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 text-tx-secondary flex items-center justify-center transition-all"
+              aria-label="删除录音"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* 录音控制面板 */}
+        {recording && (
+          <div className="mt-2.5 p-3 rounded-xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "w-2.5 h-2.5 rounded-full bg-red-500",
+                !recordingPaused && "animate-pulse"
+              )} />
+              <span className="text-xs font-semibold text-tx-secondary tabular-nums">
+                {Math.floor(recordDuration / 60).toString().padStart(2, "0")}:
+                {(recordDuration % 60).toString().padStart(2, "0")}
+              </span>
+              <span className="text-[11px] text-tx-tertiary">
+                {recordingPaused ? "录音已暂停" : "正在录音..."}
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {recordingPaused ? (
+                <button
+                  onClick={resumeRecording}
+                  className="px-2.5 py-1 rounded-lg text-[11px] bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 transition-all"
+                >
+                  继续
+                </button>
+              ) : (
+                <button
+                  onClick={pauseRecording}
+                  className="px-2.5 py-1 rounded-lg text-[11px] bg-zinc-500/10 text-zinc-500 hover:bg-zinc-500/20 transition-all"
+                >
+                  暂停
+                </button>
+              )}
+              <button
+                onClick={cancelRecording}
+                className="px-2.5 py-1 rounded-lg text-[11px] bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={stopRecording}
+                className="px-3 py-1 rounded-lg text-[11px] font-medium bg-accent-primary text-white hover:bg-accent-primary/95 transition-all shadow-sm shadow-accent-primary/10"
+              >
+                完成
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 标签选择 */}
+        <div className="mt-3">
+          <GenericTagInput
+            selectedTags={composeTags}
+            onTagsChange={setComposeTags}
+            placeholder={t('tags.addTagPlaceholder')}
+          />
+        </div>
       </div>
 
       {/* 底部操作栏 */}
@@ -521,6 +817,23 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
               </span>
             )}
           </button>
+          
+          {/* 语音按钮 */}
+          <button
+            onClick={startRecording}
+            disabled={recording || pendingVoice !== null}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              (recording || pendingVoice !== null)
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={pendingVoice !== null ? "每条说说只能录制一段语音" : "录制语音"}
+          >
+            <Mic size={15} />
+            <span className="hidden sm:inline">语音</span>
+          </button>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -532,6 +845,15 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 可见性范围选择 */}
+          <select
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value)}
+            className="text-[11px] bg-app-hover/80 border border-app-border text-tx-secondary rounded-full px-2.5 py-1 outline-none cursor-pointer focus:border-accent-primary/50 transition-all font-medium"
+          >
+            <option value="PRIVATE">🔒 自己可见</option>
+            <option value="PUBLIC">🌐 公开</option>
+          </select>
           {/* 字数计数 */}
           <span
             className={cn(
@@ -728,6 +1050,267 @@ function Lightbox({
 }
 
 // ============================================================
+// 语音播放器组件 (VoicePlayer)
+// ============================================================
+function VoicePlayer({
+  item,
+  onUpdate,
+}: {
+  item: Diary;
+  onUpdate: (updated: Diary) => void;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(item.voice?.duration || 0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [transcribing, setTranscribing] = useState(false);
+  const [showVolume, setShowVolume] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pressTimerRef = useRef<any>(null);
+
+  const voice = item.voice!;
+  const audioUrl = api.diaryImages.urlFor(voice.id);
+
+  useEffect(() => {
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+
+    const onTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
+    };
+
+    const onLoadedMetadata = () => {
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+
+    const onEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("ended", onEnded);
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("ended", onEnded);
+    };
+  }, [audioUrl]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [volume, isMuted, playbackRate]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().catch((err) => {
+        console.error("Play failed:", err);
+      });
+      setIsPlaying(true);
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setCurrentTime(val);
+    if (audioRef.current) {
+      audioRef.current.currentTime = val;
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    if (val > 0) {
+      setIsMuted(false);
+    }
+  };
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+  };
+
+  const cycleSpeed = () => {
+    const rates = [1, 1.25, 1.5, 2, 0.5];
+    const nextIdx = (rates.indexOf(playbackRate) + 1) % rates.length;
+    setPlaybackRate(rates[nextIdx]);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleTranscribe = async () => {
+    if (voice.text) return; // Already transcribed
+    setTranscribing(true);
+    try {
+      const res = await api.transcribeDiaryVoice(item.id, voice.id);
+      onUpdate({
+        ...item,
+        voice: {
+          ...voice,
+          text: res.text,
+        },
+      });
+      toast.success("转文字成功");
+    } catch (e: any) {
+      console.error("Transcribe failed:", e);
+      toast.error(e?.message || "语音转文字失败");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const handleStartPress = (e: React.MouseEvent | React.TouchEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("input")) return;
+    pressTimerRef.current = setTimeout(() => {
+      handleTranscribe();
+    }, 800);
+  };
+
+  const handleEndPress = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 w-full mt-3">
+      {/* 播放器面板 */}
+      <div
+        onMouseDown={handleStartPress}
+        onMouseUp={handleEndPress}
+        onMouseLeave={handleEndPress}
+        onTouchStart={handleStartPress}
+        onTouchEnd={handleEndPress}
+        className="flex items-center gap-3 p-3 rounded-2xl bg-accent-primary/5 border border-accent-primary/10 select-none hover:bg-accent-primary/10 transition-colors duration-200"
+        title="长按此区域语音转文字"
+      >
+        {/* 播放/暂停按钮 */}
+        <button
+          onClick={togglePlay}
+          className="w-9 h-9 rounded-full bg-accent-primary text-white flex items-center justify-center shadow-md shadow-accent-primary/20 hover:scale-105 active:scale-95 transition-all shrink-0"
+        >
+          {isPlaying ? (
+            <Pause size={16} fill="white" />
+          ) : (
+            <Play size={16} fill="white" className="ml-0.5" />
+          )}
+        </button>
+
+        {/* 进度条 & 时间 */}
+        <div className="flex-1 flex flex-col gap-1 min-w-0">
+          <input
+            type="range"
+            min="0"
+            max={duration || 100}
+            value={currentTime}
+            onChange={handleSeek}
+            className="w-full h-1 bg-app-border rounded-lg appearance-none cursor-pointer accent-accent-primary"
+          />
+          <div className="flex items-center justify-between text-[10px] text-tx-tertiary tabular-nums">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+
+        {/* 音量控制 */}
+        <div
+          className="relative flex items-center"
+          onMouseEnter={() => setShowVolume(true)}
+          onMouseLeave={() => setShowVolume(false)}
+        >
+          <button
+            onClick={toggleMute}
+            className="w-7 h-7 rounded-lg hover:bg-app-hover text-tx-secondary flex items-center justify-center transition-colors"
+          >
+            {isMuted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          </button>
+          <AnimatePresence>
+            {showVolume && (
+              <motion.div
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 60 }}
+                exit={{ opacity: 0, width: 0 }}
+                className="overflow-hidden flex items-center h-full mr-1"
+              >
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-12 h-1 bg-app-border rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* 倍速播放 */}
+        <button
+          onClick={cycleSpeed}
+          className="px-2 py-0.5 rounded bg-app-hover hover:bg-app-active text-[10px] font-semibold text-tx-secondary transition-all shrink-0"
+        >
+          {playbackRate}x
+        </button>
+      </div>
+
+      {/* 转文字状态 / 结果 */}
+      {transcribing && (
+        <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-app-hover/30 border border-app-border/40 text-xs text-tx-tertiary">
+          <Loader2 size={12} className="animate-spin text-accent-primary" />
+          <span>正在转写文字...</span>
+        </div>
+      )}
+
+      {voice.text && (
+        <div className="p-3 rounded-xl bg-app-hover/30 border border-app-border/40 relative group/trans">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-accent-primary font-medium flex items-center gap-1 bg-accent-primary/5 px-2 py-0.5 rounded-full select-none">
+              <Sparkles size={10} /> SenseVoice 转写文本
+            </span>
+          </div>
+          <p className="text-xs text-tx-secondary leading-relaxed select-text font-normal pr-8 break-words">
+            {voice.text}
+          </p>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(voice.text || "");
+              toast.success("已复制到剪贴板");
+            }}
+            className="absolute top-2.5 right-2.5 w-5 h-5 rounded hover:bg-app-hover text-tx-tertiary hover:text-tx-secondary flex items-center justify-center transition-colors opacity-0 group-hover/trans:opacity-100"
+            title="复制文本"
+          >
+            <Copy size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // 单条说说卡片
 // ============================================================
 function DiaryCard({
@@ -782,11 +1365,17 @@ function DiaryCard({
       >
         <div className="bg-app-surface/40 backdrop-blur-sm rounded-2xl border border-app-border hover:border-app-border/80 transition-all duration-200 hover:shadow-sm">
           <div className="p-4">
-            {/* 内容（纯图说说允许 contentText 为空，此时不渲染 <p>） */}
+            {/* 内容（支持 HTML & Markdown 渲染） */}
             {item.contentText && (
-              <p className="text-sm text-tx-primary leading-relaxed whitespace-pre-wrap break-words">
-                {item.contentText}
-              </p>
+              <div
+                className="diary-rendered-content prose prose-sm dark:prose-invert max-w-none text-sm text-tx-primary leading-relaxed break-words"
+                dangerouslySetInnerHTML={{ __html: renderDiaryContent(item.contentText) }}
+              />
+            )}
+
+            {/* 语音播放器 */}
+            {item.voice && (
+              <VoicePlayer item={item} onUpdate={onUpdate} />
             )}
 
             {/* 图片网格 */}
@@ -794,11 +1383,45 @@ function DiaryCard({
               <ImageGrid ids={item.images} onOpen={setLightboxIdx} />
             )}
 
+            {/* 标签列表 */}
+            {item.tags && item.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {item.tags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                    style={{
+                      backgroundColor: tag.color + "15",
+                      borderColor: tag.color + "30",
+                      color: tag.color,
+                    }}
+                  >
+                    #{tag.name}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* 底部元信息 */}
             <div className="flex items-center justify-between mt-3 pt-2 border-t border-app-border/40">
               <div className="flex items-center gap-2 text-[11px] text-tx-tertiary min-w-0">
                 {moodEmoji && <span className="text-sm">{moodEmoji}</span>}
                 <span className="shrink-0">{timeAgo(item.createdAt, t)}</span>
+                {/* 空间可见性标识 */}
+                <span className="text-tx-tertiary/60 shrink-0">·</span>
+                <span className="flex items-center gap-0.5 shrink-0" title={item.visibility === "PUBLIC" ? "公开的说说" : "仅自己可见的说说"}>
+                  {item.visibility === "PUBLIC" ? (
+                    <>
+                      <Globe size={11} />
+                      <span>公开</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={11} />
+                      <span>仅自己可见</span>
+                    </>
+                  )}
+                </span>
                 {/* 工作区下追加发布者；与时间用「·」分隔，弱化视觉权重 */}
                 {showCreator && (
                   <>
@@ -864,17 +1487,6 @@ function DiaryCard({
 // ============================================================
 // 单条说说编辑器（就地编辑模式）
 // ============================================================
-/**
- * 设计要点：
- *   - 编辑模式直接替换原卡片，避免在小屏空间塞两套 UI；
- *   - 图片复用 ComposeBox 的"先上传后绑定"模型：
- *       原本已发布的图片用 PendingImage 表示（id 取自 server，previewUrl
- *       直接拼远端 URL，status=ready）；新加的走 upload 流程；点 × 仅从
- *       本地队列移除（实际删除在保存时由后端按 images 差集处理）；
- *   - 保存调用 api.updateDiary(id, { contentText, mood, images })，
- *     后端返回更新后的 Diary，由父组件用 onSaved 回写到列表中；
- *   - 内容与图片至少一项非空（与 POST 同口径）。
- */
 function DiaryEditor({
   item,
   onCancel,
@@ -885,14 +1497,16 @@ function DiaryEditor({
   onSaved: (updated: Diary) => void;
 }) {
   const { t } = useTranslation();
+  const { state } = useApp();
   const [text, setText] = useState(item.contentText || "");
   const [mood, setMood] = useState(item.mood || "");
   const [showMoods, setShowMoods] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 复用 PendingImage 结构：原有的图片初始化为 ready 状态（id 已知，预览用远端 URL）
+  const [visibility, setVisibility] = useState<string>(item.visibility || "PRIVATE");
+  const [editorTags, setEditorTags] = useState<Tag[]>(item.tags || []);
   const [images, setImages] = useState<PendingImage[]>(() =>
     (item.images || []).map((id) => ({
-      localKey: id, // 已有 id 直接当 localKey，稳定
+      localKey: id,
       id,
       previewUrl: api.diaryImages.urlFor(id),
       status: "ready" as const,
@@ -904,7 +1518,6 @@ function DiaryEditor({
   const moodRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 自动调整高度
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (el) {
@@ -916,7 +1529,6 @@ function DiaryEditor({
     autoResize();
   }, [autoResize]);
 
-  // 点击外部关闭心情面板
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (moodRef.current && !moodRef.current.contains(e.target as Node)) {
@@ -927,7 +1539,6 @@ function DiaryEditor({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // 卸载时回收"新增图"的 blob URL（已有图的 previewUrl 是 http(s)，不需要 revoke）
   useEffect(() => {
     return () => {
       for (const img of imagesRef.current) {
@@ -942,7 +1553,6 @@ function DiaryEditor({
     };
   }, []);
 
-  // 添加新图（沿用 ComposeBox 的校验 + 并发上传逻辑）
   const addFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
@@ -1016,7 +1626,6 @@ function DiaryEditor({
     [t],
   );
 
-  // 移除图片：仅本地移除；真正删除（连同盘上文件）由后端在 save 时根据差集处理
   const removeImage = useCallback((localKey: string) => {
     const target = imagesRef.current.find((p) => p.localKey === localKey);
     if (!target) return;
@@ -1055,6 +1664,8 @@ function DiaryEditor({
         contentText: text.trim(),
         mood,
         images: readyImageIds,
+        visibility,
+        tagIds: editorTags.map((t) => t.id),
       });
       onSaved(updated);
     } catch (e: any) {
@@ -1073,6 +1684,14 @@ function DiaryEditor({
       e.preventDefault();
       onCancel();
     }
+  };
+
+  const toggleTag = (tag: Tag) => {
+    setEditorTags((prev) =>
+      prev.find((t) => t.id === tag.id)
+        ? prev.filter((t) => t.id !== tag.id)
+        : [...prev, tag]
+    );
   };
 
   const selectedMoodEmoji = getMoodEmoji(mood);
@@ -1104,6 +1723,15 @@ function DiaryEditor({
           className="w-full bg-transparent text-tx-primary placeholder:text-tx-tertiary text-sm leading-relaxed resize-none outline-none min-h-[52px]"
           autoFocus
         />
+
+        {/* 标签选择（支持创建新标签） */}
+        <div className="mt-2">
+          <GenericTagInput
+            selectedTags={editorTags}
+            onTagsChange={setEditorTags}
+            placeholder="添加或创建标签..."
+          />
+        </div>
 
         {/* 图片缩略图 */}
         {images.length > 0 && (
@@ -1240,6 +1868,15 @@ function DiaryEditor({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 可见性范围选择 */}
+          <select
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value)}
+            className="text-[11px] bg-app-hover/80 border border-app-border text-tx-secondary rounded-full px-2.5 py-1 outline-none cursor-pointer focus:border-accent-primary/50 transition-all font-medium"
+          >
+            <option value="PRIVATE">🔒 自己可见</option>
+            <option value="PUBLIC">🌐 公开</option>
+          </select>
           {/* 取消 */}
           <button
             onClick={onCancel}
@@ -1284,17 +1921,6 @@ function DiaryEditor({
 // ============================================================
 // 时间筛选
 // ============================================================
-/**
- * 快捷范围 preset。range = null 表示"全部"（不传 from/to）。
- *   - today / week / month 用本地时间计算 from（本地 00:00:00），不传 to（即到现在）
- *   - custom 由用户在弹层里输入 YYYY-MM-DD（input[type=date]）
- *
- * 后端约定：from/to 直接走字符串比较（createdAt 是 UTC "YYYY-MM-DD HH:MM:SS"）。
- * 这里前端发出的 from 也是不带时区的 "YYYY-MM-DD"，后端会补 00:00:00、23:59:59。
- * 由于 createdAt 是 UTC 而用户输入是本地日期，会有最多 ±1 天的边界偏差；
- * 对"说说时间筛选"这种轻量功能可接受 —— 真要完全准确得在前端把本地日期转成
- * UTC ISO 再传，复杂度上去而收益有限，先按简单方案做。
- */
 type RangePreset = "all" | "today" | "week" | "month" | "custom";
 
 interface DateRange {
@@ -1309,7 +1935,6 @@ function ymd(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
-/** 把 preset 转成实际 from/to。custom 由调用方自己提供 customRange */
 function presetToRange(
   preset: RangePreset,
   customRange?: DateRange,
@@ -1322,25 +1947,20 @@ function presetToRange(
       return { from: ymd(now) };
     case "week": {
       const d = new Date(now);
-      d.setDate(d.getDate() - 6); // 含今天共 7 天
+      d.setDate(d.getDate() - 6);
       return { from: ymd(d) };
     }
     case "month": {
       const d = new Date(now);
-      d.setDate(d.getDate() - 29); // 含今天共 30 天
+      d.setDate(d.getDate() - 29);
       return { from: ymd(d) };
     }
     case "custom":
-      // 没填或都为空时退化为"全部"，避免空查询条件让用户困惑
       if (!customRange?.from && !customRange?.to) return null;
       return { from: customRange.from, to: customRange.to };
   }
 }
 
-/**
- * 紧凑的时间筛选条：4 个快捷 chip + 自定义按钮 + 自定义范围弹层。
- *   - 父组件传入 preset/customRange/onChange，这里只负责呈现与本地交互（弹层开关）
- */
 function FilterBar({
   preset,
   customRange,
@@ -1356,7 +1976,6 @@ function FilterBar({
   const [draftTo, setDraftTo] = useState(customRange.to || "");
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // 点外部关闭弹层
   useEffect(() => {
     if (!showCustom) return;
     const handler = (e: MouseEvent) => {
@@ -1368,7 +1987,6 @@ function FilterBar({
     return () => document.removeEventListener("mousedown", handler);
   }, [showCustom]);
 
-  // 同步外部 customRange → 草稿（比如父组件被重置时）
   useEffect(() => {
     setDraftFrom(customRange.from || "");
     setDraftTo(customRange.to || "");
@@ -1390,7 +2008,6 @@ function FilterBar({
   }, [preset, customRange.from, customRange.to, t]);
 
   const applyCustom = () => {
-    // 校验：开始 > 结束时自动对调，避免空结果
     let f = draftFrom || undefined;
     let to = draftTo || undefined;
     if (f && to && f > to) [f, to] = [to, f];
@@ -1421,7 +2038,6 @@ function FilterBar({
         </button>
       ))}
 
-      {/* 自定义范围 */}
       <div ref={popoverRef} className="relative">
         <button
           onClick={() => setShowCustom((v) => !v)}
@@ -1504,6 +2120,7 @@ function FilterBar({
 // ============================================================
 export default function DiaryCenter() {
   const { t } = useTranslation();
+  const { state } = useApp();
   const [items, setItems] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1512,17 +2129,28 @@ export default function DiaryCenter() {
   const [stats, setStats] = useState<DiaryStats | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 时间筛选状态。preset = 当前激活的快捷范围；customRange 仅在 preset === 'custom' 时
-  // 真正生效。两者分开存是为了：从 custom 切到其他 preset 再切回来，原来填的日期还在。
+  const [visibilityFilter, setVisibilityFilter] = useState<string>("all");
+  const [selectedTagId, setSelectedTagId] = useState<string>("all");
+
   const [preset, setPreset] = useState<RangePreset>("all");
   const [customRange, setCustomRange] = useState<DateRange>({});
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [calendarDate, setCalendarDate] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   const activeRange = useMemo(
     () => presetToRange(preset, customRange),
     [preset, customRange],
   );
 
-  // 加载时间线。注意：cursor 仍来自 state（翻页），但 range 是当前筛选；
-  // 切换筛选时 reset=true 会自动丢弃旧 cursor 重新拉首屏。
   const loadTimeline = useCallback(
     async (reset = false) => {
       if (reset) setLoading(true);
@@ -1534,6 +2162,9 @@ export default function DiaryCenter() {
           cursor,
           20,
           activeRange || undefined,
+          visibilityFilter,
+          selectedTagId === "all" ? undefined : selectedTagId,
+          debouncedSearch || undefined,
         );
         if (reset) {
           setItems(data.items);
@@ -1549,10 +2180,9 @@ export default function DiaryCenter() {
         setLoadingMore(false);
       }
     },
-    [nextCursor, activeRange],
+    [nextCursor, activeRange, visibilityFilter, selectedTagId, debouncedSearch],
   );
 
-  // 加载统计：跟着筛选走，让"共 N 条"反映当前范围
   const loadStats = useCallback(async () => {
     try {
       const s = await api.getDiaryStats(activeRange || undefined);
@@ -1562,14 +2192,12 @@ export default function DiaryCenter() {
     }
   }, [activeRange]);
 
-  // 初始化
   useEffect(() => {
     loadTimeline(true);
     loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 工作区切换：重置游标后重新拉首屏 + 统计，保证跨 scope 切换时数据干净。
   useEffect(() => {
     const onWs = () => {
       setNextCursor(null);
@@ -1580,14 +2208,10 @@ export default function DiaryCenter() {
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
   }, [loadTimeline, loadStats]);
 
-  // 筛选变化 → 重新拉首屏 + 重新算统计。
-  // 用 activeRange 的 from/to 字符串做依赖（而非对象引用），避免 useMemo 引用换了
-  // 但内容没换时多余触发；JSON.stringify 简单可靠且数据量极小。
   const rangeKey = useMemo(() => JSON.stringify(activeRange), [activeRange]);
   const isFirstRender = useRef(true);
   useEffect(() => {
     if (isFirstRender.current) {
-      // 初始化的 effect 已经拉过了，避免重复请求
       isFirstRender.current = false;
       return;
     }
@@ -1595,9 +2219,8 @@ export default function DiaryCenter() {
     loadTimeline(true);
     loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeKey]);
+  }, [rangeKey, visibilityFilter, selectedTagId, debouncedSearch]);
 
-  // 发布后刷新
   const handlePost = useCallback(() => {
     setNextCursor(null);
     loadTimeline(true);
@@ -1605,7 +2228,6 @@ export default function DiaryCenter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 删除
   const handleDelete = useCallback(async (id: string) => {
     try {
       await api.deleteDiary(id);
@@ -1617,15 +2239,12 @@ export default function DiaryCenter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 编辑保存：用后端返回的最新 Diary 替换列表中对应项；
-  // 不重排（保持原 createdAt 顺序），不重拉时间线（避免编辑过程中的视觉跳动）。
   const handleUpdate = useCallback((updated: Diary) => {
     setItems((prev) =>
       prev.map((item) => (item.id === updated.id ? updated : item)),
     );
   }, []);
 
-  // 筛选变化的处理：写到 state，effect 会自动触发刷新
   const handleFilterChange = useCallback(
     (next: RangePreset, range: DateRange) => {
       setPreset(next);
@@ -1634,17 +2253,60 @@ export default function DiaryCenter() {
     [],
   );
 
-  // 当前是否处于"非全部"筛选 —— 用于空状态文案
-  const isFiltering = preset !== "all";
+  const handleCalendarDateSelect = useCallback((dateStr: string) => {
+    setCalendarDate(dateStr);
+    setViewMode("list");
+    // 设置筛选范围为选中当天
+    setPreset("custom");
+    setCustomRange({ from: dateStr, to: dateStr });
+  }, []);
 
-  // 按日期分组
+  const isFiltering = preset !== "all" || visibilityFilter !== "all" || selectedTagId !== "all";
+
   const groupedItems = groupByDate(items, t);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-app-bg">
-      <ScrollArea className="flex-1" ref={scrollRef}>
-        <div className="max-w-[640px] mx-auto px-4 py-6 space-y-6">
-          {/* 顶部标题 + 统计 */}
+    <div className="flex-1 flex h-full overflow-hidden bg-app-bg">
+      {/* 左侧标签筛选栏 */}
+      <div className="hidden md:flex w-[180px] min-w-[180px] shrink-0 flex-col border-r border-app-border bg-app-surface">
+        <div className="p-3 border-b border-app-border">
+          <h3 className="text-[11px] font-semibold text-tx-tertiary uppercase tracking-wider">标签筛选</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          <button
+            onClick={() => setSelectedTagId("all")}
+            className={cn(
+              "w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors",
+              selectedTagId === "all" || !selectedTagId
+                ? "bg-accent-primary/10 text-accent-primary font-medium"
+                : "text-tx-secondary hover:bg-app-hover"
+            )}
+          >
+            全部
+          </button>
+          {state.tags.map((tag) => (
+            <button
+              key={tag.id}
+              onClick={() => setSelectedTagId(selectedTagId === tag.id ? "all" : tag.id)}
+              className={cn(
+                "w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",
+                selectedTagId === tag.id
+                  ? "bg-accent-primary/10 text-accent-primary font-medium"
+                  : "text-tx-secondary hover:bg-app-hover"
+              )}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+              <span className="truncate">{tag.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 主内容区 */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <ScrollArea className="flex-1" ref={scrollRef}>
+          <div className="max-w-[640px] mx-auto px-4 py-6 space-y-6">
+          {/* 顶部标题 + 统计 + 视图切换 */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
@@ -1661,20 +2323,112 @@ export default function DiaryCenter() {
                 )}
               </div>
             </div>
+            {/* 日历/列表切换 */}
+            <button
+              onClick={() => setViewMode((v) => (v === "list" ? "calendar" : "list"))}
+              className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+                viewMode === "calendar"
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary hover:bg-app-hover",
+              )}
+              title={viewMode === "calendar" ? "列表视图" : "日历视图"}
+            >
+              {viewMode === "calendar" ? <Calendar size={18} /> : <CalendarDays size={18} />}
+            </button>
           </div>
 
-          {/* 时间筛选条 */}
-          <FilterBar
-            preset={preset}
-            customRange={customRange}
-            onChange={handleFilterChange}
-          />
+          {/* 筛选时间 + 可见性 + 标签 */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <FilterBar
+              preset={preset}
+              customRange={customRange}
+              onChange={handleFilterChange}
+            />
 
-          {/* 发布框 */}
-          <ComposeBox onPost={handlePost} />
+            <div className="flex flex-wrap items-center gap-3">
+              {/* 搜索框 */}
+              <div className="relative w-full sm:w-[160px]">
+                <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索说说..."
+                  className="w-full text-[11px] pl-8 pr-3 py-1 bg-app-hover/80 border border-app-border text-tx-secondary rounded-full outline-none focus:border-accent-primary/50 transition-all font-medium"
+                />
+              </div>
 
-          {/* 时间线 */}
-          {loading ? (
+              {/* 标签筛选 */}
+              {state.tags.length > 0 && (
+                <select
+                  value={selectedTagId}
+                  onChange={(e) => setSelectedTagId(e.target.value)}
+                  className="text-[11px] bg-app-hover/80 border border-app-border text-tx-secondary rounded-full px-3 py-1 outline-none cursor-pointer focus:border-accent-primary/50 transition-all font-medium"
+                >
+                  <option value="all">🏷️ 所有标签</option>
+                  {state.tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* 可见性筛选 */}
+              <div className="flex items-center gap-1 bg-app-hover/40 p-0.5 rounded-full border border-app-border/40 select-none">
+                <button
+                  onClick={() => setVisibilityFilter("all")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-medium transition-all flex items-center gap-1",
+                    visibilityFilter === "all"
+                      ? "bg-accent-primary text-white shadow-sm"
+                      : "text-tx-tertiary hover:text-tx-secondary"
+                  )}
+                >
+                  全部
+                </button>
+                <button
+                  onClick={() => setVisibilityFilter("private")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-medium transition-all flex items-center gap-1",
+                    visibilityFilter === "private"
+                      ? "bg-accent-primary text-white shadow-sm"
+                      : "text-tx-tertiary hover:text-tx-secondary"
+                  )}
+                >
+                  <Lock size={10} />
+                  自己可见
+                </button>
+                <button
+                  onClick={() => setVisibilityFilter("public")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-medium transition-all flex items-center gap-1",
+                    visibilityFilter === "public"
+                      ? "bg-accent-primary text-white shadow-sm"
+                      : "text-tx-tertiary hover:text-tx-secondary"
+                  )}
+                >
+                  <Globe size={10} />
+                  公开
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 发布框 — 列表模式下显示 */}
+          {viewMode === "list" && <ComposeBox onPost={handlePost} />}
+
+          {/* 日历视图 / 时间线 */}
+          {viewMode === "calendar" ? (
+            <div className="py-4">
+              <DiaryCalendar
+                onDateSelect={handleCalendarDateSelect}
+                tagId={selectedTagId !== "all" ? selectedTagId : undefined}
+                search={debouncedSearch || undefined}
+              />
+            </div>
+          ) : loading ? (
             <div className="flex justify-center py-16">
               <Loader2 size={24} className="animate-spin text-accent-primary" />
             </div>
@@ -1739,6 +2493,7 @@ export default function DiaryCenter() {
           )}
         </div>
       </ScrollArea>
+    </div>
     </div>
   );
 }

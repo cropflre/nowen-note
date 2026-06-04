@@ -1335,9 +1335,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "security" as const, label: t('settings.security'), icon: Shield },
-    // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
-    // 不需要 isAdmin 判定。
-    { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
+    // 【个人访问令牌】家庭场景用不到，仅管理员可见
+    ...(isAdmin ? [{ id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key }] : []),
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     ...(isAdmin ? [{ id: "workspaces" as const, label: t('settings.workspaces'), icon: Building2 }] : []),
     // 「数据管理」面板：

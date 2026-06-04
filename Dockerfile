@@ -1,23 +1,63 @@
 # =============================================================================
 # nowen-note 多架构 Dockerfile（Alpine 精简版）
 # -----------------------------------------------------------------------------
-# 支持 linux/amd64 与 linux/arm64。较旧的 slim 版本镜像约 238MB，
-# 改用 alpine 基座 + 构建工具链 virtual 卸载 + musl 原生编译后约 85–95MB。
+# 支持 linux/amd64 与 linux/arm64，macOS（Apple Silicon + Intel）均可原生构建。
+#
+# 构建方式：
+#   # macOS Apple Silicon → arm64（默认，最快，无需 QEMU）
+#   docker build -t nowen-note .
+#
+#   # macOS Intel / Linux x86 → amd64
+#   docker build -t nowen-note .
+#
+#   # 显式指定架构
+#   docker build --platform linux/amd64 -t nowen-note .
+#   docker build --platform linux/arm64 -t nowen-note .
+#
+#   # 多架构 manifest
+#   docker buildx build --platform linux/amd64,linux/arm64 -t nowen-note --push .
 #
 # 关键设计：
 #   - 基础镜像：node:20-alpine（~42MB），而非 node:20-slim（~150MB）
 #   - better-sqlite3 / sqlite-vec 在 musl 下需要本地编译 → 用 --virtual
 #     安装构建链，npm ci 完立即 `apk del`，不留任何构建产物在运行层
 #   - rollup 的原生绑定根据 TARGETARCH 选 musl 版（linux-*-musl）而不是 gnu
-#   - QEMU 模拟 arm64 编译 better-sqlite3 仍然会慢，属预期
+#   - APK_MIRROR 与 NPM_REGISTRY 可配置，中国大陆用户换成国内镜像加速
 # =============================================================================
 
-ARG TARGETARCH=amd64
+# Docker 镜像源：中国大陆用户可设为 docker.m.daocloud.io/ 加速
+# 通过 docker build --build-arg DOCKER_REGISTRY=docker.m.daocloud.io/ ... 传入
+ARG DOCKER_REGISTRY=""
+ARG TARGETPLATFORM=
+ARG TARGETARCH=
+
+# ---------- 镜像源配置 ----------
+# 中国大陆用户可设置：
+#   docker build --build-arg APK_MIRROR=mirrors.ustc.edu.cn --build-arg NPM_REGISTRY=https://registry.npmmirror.com ...
+# 或通过 docker-compose.yml 的 args 传入。
+# 默认留空 → 使用 Alpine / npm 官方源（全球 CDN，对 macOS 友好）。
+ARG APK_MIRROR=""
+ARG NPM_REGISTRY=""
 
 # ---------- Stage 1: 前端构建 ----------
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM ${DOCKER_REGISTRY}node:20-alpine AS frontend-build
 ARG TARGETARCH
+ARG APK_MIRROR
+ARG NPM_REGISTRY
 WORKDIR /app/frontend
+
+# 配置包管理器镜像源（仅在指定时切换，否则用官方源）
+RUN if [ -n "$APK_MIRROR" ]; then \
+      sed -i 's/https/http/g' /etc/apk/repositories \
+      && sed -i "s/dl-cdn.alpinelinux.org/$APK_MIRROR/g" /etc/apk/repositories; \
+    fi \
+    && if [ -n "$NPM_REGISTRY" ]; then \
+      npm config set registry "$NPM_REGISTRY"; \
+    fi \
+    && npm config set fetch-retry-maxtimeout 180000 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retries 5 \
+    && npm config set fetch-timeout 600000
 
 # 根 package.json 被 vite.config.ts 读取用于注入 __APP_VERSION__
 COPY package.json /app/package.json
@@ -42,8 +82,23 @@ COPY frontend/ .
 RUN npx vite build
 
 # ---------- Stage 2: 后端构建（tsc） ----------
-FROM node:20-alpine AS backend-build
+FROM --platform=$BUILDPLATFORM ${DOCKER_REGISTRY}node:20-alpine AS backend-build
+ARG APK_MIRROR
+ARG NPM_REGISTRY
 WORKDIR /app/backend
+
+# 配置镜像源（同 Stage 1）
+RUN if [ -n "$APK_MIRROR" ]; then \
+      sed -i 's/https/http/g' /etc/apk/repositories \
+      && sed -i "s/dl-cdn.alpinelinux.org/$APK_MIRROR/g" /etc/apk/repositories; \
+    fi \
+    && if [ -n "$NPM_REGISTRY" ]; then \
+      npm config set registry "$NPM_REGISTRY"; \
+    fi \
+    && npm config set fetch-retry-maxtimeout 180000 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retries 5 \
+    && npm config set fetch-timeout 600000
 
 # tsc 纯 JS 架构无关，但 npm ci 会触发 better-sqlite3 / sqlite-vec 编译
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
@@ -57,15 +112,31 @@ RUN npx tsc
 RUN apk del .build-deps
 
 # ---------- Stage 3: 运行时镜像 ----------
-FROM node:20-alpine
+# 默认使用主机架构（`docker build`）；跨架构构建请用 buildx
+FROM ${DOCKER_REGISTRY}node:20-alpine
+ARG APK_MIRROR
+ARG NPM_REGISTRY
 WORKDIR /app
 
-# tini 提供 PID 1 信号转发，15KB，避免容器 kill 时僵尸进程
-RUN apk add --no-cache tini
+# 配置镜像源
+RUN if [ -n "$APK_MIRROR" ]; then \
+      sed -i 's/https/http/g' /etc/apk/repositories \
+      && sed -i "s/dl-cdn.alpinelinux.org/$APK_MIRROR/g" /etc/apk/repositories; \
+    fi \
+    && if [ -n "$NPM_REGISTRY" ]; then \
+      npm config set registry "$NPM_REGISTRY"; \
+    fi \
+    && npm config set fetch-retry-maxtimeout 180000 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retries 5 \
+    && npm config set fetch-timeout 600000
 
-# 运行时依赖（production only）：独立编译一次，确保 .node 是 musl 版
-# 根 package.json 是运行时版本号的真相源；/api/version 优先读取它，避免 NAS / 应用市场
-# 更新时复用旧容器 ENV（NOWEN_APP_VERSION）导致服务端版本号停在旧值。
+# tini 提供 PID 1 信号转发，15KB，避免容器 kill 时僵尸进程
+# docker-cli 用于按需启停 SenseVoice 容器
+RUN apk add --no-cache tini docker-cli
+
+# 运行时依赖（production only）：独立编译一次，确保 .node 是正确架构的 musl 版
+# 根 package.json 是运行时版本号的真相源
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
@@ -80,16 +151,13 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 RUN mkdir -p /app/data
 
-# 数据卷（见原 Dockerfile 注释：便于 NAS 面板自动识别）
+# 数据卷（便于 NAS 面板自动识别）
 VOLUME ["/app/data"]
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# ---- 版本/构建元信息（由 release.sh 通过 --build-arg 注入；本机 docker build 也兼容空值） ----
-# BUILD_DATE   : ISO8601 UTC，如 2026-05-09T10:23:01Z；run-time 通过 NOWEN_BUILD_TIME 暴露给 /api/version
-# APP_VERSION  : 形如 1.0.31，写入 NOWEN_APP_VERSION 兜底（即便镜像里 package.json 与发版号偏差也不会报错）
-# 这两个 ARG 都是可选的——空字符串场景下后端 resolveAppVersion()/resolveBuildTime() 仍会走原有 fallback。
+# ---- 版本/构建元信息 ----
 ARG BUILD_DATE=""
 ARG APP_VERSION=""
 ENV NOWEN_BUILD_TIME=${BUILD_DATE}

@@ -384,6 +384,7 @@ function NotebookItem({
   editingId, editValue, onEditChange, onEditSubmit, onEditCancel,
   onIconChange,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
+  notebookNotes, activeNoteId, onCreateNote, onDeleteNote, onRenameNote, onToggleFavorite, onTogglePin,
 }: {
   notebook: Notebook; depth: number; onSelect: (id: string) => void;
   selectedId: string | null; onToggle: (id: string) => void;
@@ -404,8 +405,16 @@ function NotebookItem({
   onDrop?: (e: React.DragEvent, id: string) => void;
   dragOverId?: string | null;
   dragOverZone?: "before" | "inside" | null;
+  notebookNotes?: Map<string, NoteListItem[]>;
+  activeNoteId?: string | null;
+  onCreateNote?: (notebookId: string) => void;
+  onDeleteNote?: (noteId: string, notebookId: string) => void;
+  onRenameNote?: (noteId: string, notebookId: string, newTitle: string) => void;
+  onToggleFavorite?: (noteId: string, notebookId: string) => void;
+  onTogglePin?: (noteId: string, notebookId: string) => void;
 }) {
   const { t } = useTranslation();
+  const notes = notebookNotes?.get(notebook.id);
   const isSelected = selectedId === notebook.id;
   const hasChildren = notebook.children && notebook.children.length > 0;
   const isExpanded = notebook.isExpanded === 1;
@@ -590,7 +599,7 @@ function NotebookItem({
                 onDrop={onDrop}
                 dragOverId={dragOverId}
                                 dragOverZone={dragOverZone}
-                notes={notes}
+                notebookNotes={notebookNotes}
                 activeNoteId={activeNoteId}
                 onCreateNote={onCreateNote}
                 onDeleteNote={onDeleteNote}
@@ -615,10 +624,10 @@ function NotebookItem({
                         });
                       });
                     }}
-                    onDelete={(noteId) => onDeleteNote?.(noteId)}
-                    onRename={(noteId, newTitle) => onRenameNote?.(noteId, newTitle)}
-                    onToggleFavorite={(noteId) => onToggleFavorite?.(noteId)}
-                    onTogglePin={(noteId) => onTogglePin?.(noteId)}
+                    onDelete={(noteId) => onDeleteNote?.(noteId, notebook.id)}
+                    onRename={(noteId, newTitle) => onRenameNote?.(noteId, notebook.id, newTitle)}
+                    onToggleFavorite={(noteId) => onToggleFavorite?.(noteId, notebook.id)}
+                    onTogglePin={(noteId) => onTogglePin?.(noteId, notebook.id)}
                   />
                 ))}
               </div>
@@ -639,7 +648,6 @@ function NotebookItem({
       </AnimatePresence>
     </>
   );
-}
 }
 
 /** Inline note item - rendered inside expanded notebook tree */
@@ -678,9 +686,9 @@ function NoteNoteItem({
     const d = new Date(note.updatedAt);
     const diff = Date.now() - d.getTime();
     if (diff < 60000) return "\u521a\u521a";
-    if (diff < 3600000) return ${Math.floor(diff / 60000)}\u5206\u949f\u524d;
-    if (diff < 86400000) return ${Math.floor(diff / 3600000)}\u5c0f\u65f6\u524d;
-    if (diff < 604800000) return ${Math.floor(diff / 86400000)}\u5929\u524d;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}\u5206\u949f\u524d`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}\u5c0f\u65f6\u524d`;
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}\u5929\u524d`;
     return d.toLocaleDateString();
   }, [note.updatedAt]);
 
@@ -891,7 +899,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
         const existing = next.get(notebookId) || [];
 
-        next.set(notebookId, [...existing, { id: note.id, userId: note.userId, title: note.title, contentText: note.contentText || "", notebookId: note.notebookId, isPinned: note.isPinned || 0, isFavorite: note.isFavorite || 0, isLocked: note.isLocked || 0, isArchived: note.isArchived || 0, isTrashed: note.isTrashed || 0, version: note.version || 1, sortOrder: note.sortOrder || 0, updatedAt: note.updatedAt, createdAt: note.createdAt } as NoteListItem]);
+        next.set(notebookId, [...existing, { id: note.id, userId: note.userId, title: note.title, contentText: note.contentText || "", notebookId: note.notebookId, isPinned: note.isPinned || 0, isFavorite: note.isFavorite || 0, isLocked: note.isLocked || 0, isArchived: note.isArchived || 0, isTrashed: note.isTrashed || 0, version: note.version || 1, sortOrder: note.sortOrder || 0, updatedAt: note.updatedAt, createdAt: note.createdAt, workspaceId: note.workspaceId ?? null } as NoteListItem]);
 
         return next;
 
@@ -1839,13 +1847,13 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               onDrop={handleNbDrop}
               dragOverId={dragOverNbId}
               dragOverZone={dragOverNbZone}
-              notes={notebookNotes.get(nb.id)}
+              notebookNotes={notebookNotes}
               activeNoteId={state.activeNote?.id}
               onCreateNote={handleCreateNote}
-              onDeleteNote={(noteId) => handleDeleteNote(noteId, nb.id)}
-              onRenameNote={(noteId, newTitle) => handleRenameNote(noteId, nb.id, newTitle)}
-              onToggleFavorite={(noteId) => handleToggleFavorite(noteId, nb.id)}
-              onTogglePin={(noteId) => handleTogglePin(noteId, nb.id)}
+              onDeleteNote={handleDeleteNote}
+              onRenameNote={handleRenameNote}
+              onToggleFavorite={handleToggleFavorite}
+              onTogglePin={handleTogglePin}
             />
           ))}
         </div>

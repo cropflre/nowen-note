@@ -87,6 +87,7 @@
     }
   },
   "sidebar": {
+    "home": "Home",
     "newNote": "New Note",
     "importWordNote": "Import Word Document",
     "importUrlNote": "Import Article from URL",

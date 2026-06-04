@@ -1,0 +1,83 @@
+ Dockerfile 优化完成。改动总结：
+
+  核心改进
+
+  ┌─────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────┐
+  │                      改动                       │                                   说明                                   │
+  ├─────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+  │ 移除 ARG TARGETARCH=amd64                       │ 硬编码默认值会导致 arm64 Mac 上也构建 amd64 镜像，现在由 Docker 自动检测 │
+  ├─────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+  │ 后端构建 Stage 2 改为 --platform=$BUILDPLATFORM │ 确保 tsc 编译也在本机构建平台运行，不依赖 QEMU 跨模拟                    │
+  ├─────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+  │ 运行时 Stage 3 改为 --platform=$TARGETPLATFORM  │ 最终产物的架构精确匹配目标平台                                           │
+  ├─────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+  │ 镜像源可配置                                    │ 新增 APK_MIRROR 和 NPM_REGISTRY 构建参数，空值=官方源                    │
+  └─────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────┘
+
+  macOS 构建示例
+
+  # Apple Silicon（arm64）— 原生，最快
+  docker build -t nowen-note .
+
+  # Intel Mac（amd64）— 原生
+  docker build -t nowen-note .
+
+  # 中国大陆用户（macOS 上 Docker Hub 可达的话不用配）
+  docker build \
+    --build-arg APK_MIRROR=mirrors.ustc.edu.cn \
+    --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+    -t nowen-note .
+
+  # 或在 docker-compose 中取消 build.args 注释
+  docker compose build nowen-note
+
+  对于 macOS 用户，不需要 QEMU / 跨模拟——因为 Docker Desktop 在 Apple Silicon 上原生跑 linux/arm64，在 Intel 上原生跑 linux/amd64，直接 docker build 就是最快的。
+
+已完成。Docker 部署优化通过 Compose Profiles 实现：
+
+  ollama:
+    profiles: ["ai"]       # ← 新增
+    restart: unless-stopped
+     
+  sensevoice:
+    profiles: ["ai"]       # ← 新增
+    restart: unless-stopped
+
+  使用方式
+  
+  # 轻量模式（仅 nowen-note，~80MB 内存，无 AI 服务）
+  docker compose up -d
+
+  # 完整模式（含 Ollama + SenseVoice，~2.4GB 内存）
+  docker compose --profile ai up -d
+
+  # 先轻量启动，后续随时启用 AI
+ c                   # 先起主服务
+  docker compose --profile ai up -d -f   # 再补起 AI 服务
+
+  效果
+  
+  ┌──────┬───────────────────────┬──────────┬────────────────────┐
+  │ 模式 │       运行服务        │ 内存占用 │      适用场景      │
+  ├──────┼───────────────────────┼──────────┼────────────────────┤
+  │ 轻量 │ nowen-note            │ ~80MB    │ 日常笔记+说说+待办 │
+  ├──────┼───────────────────────┼──────────┼────────────────────┤
+  │ 完整 │ + Ollama + SenseVoice │ ~2.4GB   │ AI 聊天+语音转文字 │
+  └──────┴───────────────────────┴──────────┴────────────────────┘
+
+  同时 Ollama 额外自动拉取了 nomic-embed-text 模型（RAG 向量嵌入所需），与 Qwen2.5:1.5b 一并缓存。
+
+
+ 构建方式
+
+  # 中国大陆用户（推荐）
+  docker build --build-arg DOCKER_REGISTRY=docker.m.daocloud.io/ -t nowen-note .
+
+  # 海外用户（直接拉 Docker Hub）
+  docker build -t nowen-note .
+
+docker build \
+    --build-arg DOCKER_REGISTRY=docker.m.daocloud.io/ \
+    --build-arg APK_MIRROR=mirrors.aliyun.com \
+    --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+    -t nowen-note .

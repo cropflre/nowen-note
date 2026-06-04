@@ -101,7 +101,7 @@ export default function EditorPane() {
    * Y.Doc 协作初始化等）。注意 togglePin / 收藏等元操作仍然按库里的 isLocked
    * 判断——会话锁不应阻止用户给"想保护内容"的笔记打 pin / 改分类。
    */
-  const isViewLocked = !!activeNote && viewLockedIds.has(activeNote.id);
+  const isViewLocked = (!!activeNote && viewLockedIds.has(activeNote.id)) || (!!activeNote && activeNote.isTrashed === 1);
   const effectiveLocked = !!activeNote?.isLocked || isViewLocked;
 
   // 切笔记时按偏好应用"打开即锁定"。

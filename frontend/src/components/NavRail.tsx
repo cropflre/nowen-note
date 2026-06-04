@@ -32,7 +32,7 @@ import {
   BookOpen, Star, Trash2, ListTodo, BrainCircuit,
   Sparkles, NotebookPen, FolderOpen,
   Settings, LogOut, PanelLeftClose, PanelLeft, X,
-  Columns2, Columns3, Cloud, CloudOff,
+  Columns2, Columns3, Cloud, CloudOff, Bell, Home,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -62,6 +62,7 @@ const RAIL_ICON_SIZE = 18;
 
 const NAV_CONFIG: NavConfigItem[] = [
   // ─── 工作台 ───
+  { icon: <Home size={RAIL_ICON_SIZE} />,        labelKey: "sidebar.home",       mode: "home",                                 group: "workspace" },
   { icon: <BookOpen size={RAIL_ICON_SIZE} />,    labelKey: "sidebar.allNotes",    mode: "all",        feature: "notes",     group: "workspace" },
   { icon: <Star size={RAIL_ICON_SIZE} />,        labelKey: "sidebar.favorites",   mode: "favorites",  feature: "favorites", group: "workspace" },
   { icon: <FolderOpen size={RAIL_ICON_SIZE} />,  labelKey: "sidebar.fileManager", mode: "files",      feature: "files",     group: "workspace" },
@@ -171,6 +172,15 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const handleClick = useCallback((mode: ViewMode) => {
     actions.setViewMode(mode);
     actions.setSelectedNotebook(null);
+    
+    // 只要是笔记相关视图（所有笔记、收藏、回收站），中间栏默认显示；其他模块（如首页、说说、待办等）默认隐藏中间栏
+    const isNoteView = mode === "all" || mode === "favorites" || mode === "trash" || mode === "notebook" || mode === "tag" || mode === "search";
+    if (isNoteView) {
+      actions.setSidebarCollapsed(false);
+    } else {
+      actions.setSidebarCollapsed(true);
+    }
+
     // mobile 变体：点击导航项后顺手关掉抽屉，符合"我已经选定要去哪"的预期。
     // 与 Sidebar 内笔记本/标签点击关闭抽屉的行为保持一致。
     if (isMobile) actions.setMobileSidebar(false);
@@ -246,6 +256,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
           />
         )}
         {item.icon}
+        {item.mode === "tasks" && state.reminderActiveCount > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent-danger text-[9px] font-bold text-white flex items-center justify-center leading-none z-10">
+            {state.reminderActiveCount}
+          </span>
+        )}
         {showLabel && (
           // 文字限定单行，超长用 ellipsis；leading-none 让两行视觉间距更紧凑
           <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
@@ -315,6 +330,23 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
+      {/* 当前空间名称 — 置于导航最上方，显示完整名称 */}
+      <button
+        onClick={actions.toggleSidebar}
+        title="切换空间"
+        className={cn(
+          itemBaseClass,
+          "text-tx-primary hover:bg-app-hover mb-1",
+        )}
+      >
+        <span className="text-base leading-none">{getCurrentWorkspace() === "personal" ? "🏠" : "🏢"}</span>
+        {showLabel && (
+          <span className="text-[9px] leading-none mt-0.5 max-w-full truncate px-1 font-medium text-tx-primary">
+            {getCurrentWorkspace() === "personal" ? "个人空间" : "家庭空间"}
+          </span>
+        )}
+      </button>
+
       {/* 主导航：3 组，组间细线分隔。
           v16 P3 后续：用 .no-scrollbar 隐藏 native 滚动条——Rail 是极简导航栏，
           滚动条会破坏视觉权重；label 模式下 8+ 项可能溢出窄屏视口，但鼠标滚轮/触摸板
@@ -339,7 +371,30 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
-      {/* 底部：设置 + 登出（label 模式下与导航项视觉对齐——也带文字，因为它们语义上是入口） */}
+      {/* 底部：消息盒子 + 设置 + 登出 */}
+      <button
+        onClick={() => handleClick("mentions")}
+        title={showLabel ? undefined : "消息"}
+        aria-label="消息"
+        className={cn(
+          itemBaseClass,
+          "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary relative",
+        )}
+      >
+        <Bell size={16} />
+        {state.unreadMentionCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center shadow-sm shadow-red-500/30">
+            {state.unreadMentionCount > 99 ? "99+" : state.unreadMentionCount}
+          </span>
+        )}
+        {showLabel && (
+          <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
+            消息
+          </span>
+        )}
+      </button>
+
+      {/* 设置 + 登出 */}
       <button
         onClick={() => setShowSettings(true)}
         title={showLabel ? undefined : t('sidebar.settings')}
@@ -357,14 +412,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         )}
       </button>
       {/*
-        桌面端底部账号模式入口：
-          - 本地态：显示 Cloud，打开 MigrationModal；登录后可选择「直接进入云端」
-            或「迁移本地数据到云端」；
-          - 云端态：显示 CloudOff，切回本地零登录；
-          - lite 运行模式：交给主进程切回 full 并重启。
-        Web/移动端保持原本的退出登录行为。
+        云端/本地模式切换（家庭场景以 Web 为主，隐藏此 Electron 专属功能）
+        如需恢复，取消下方注释并将登出按钮的 onClick 内的 broadcastLogout 和
+        location.reload() 恢复为原有的 isDesktopApp() 三目分支。
       */}
-      {isDesktopApp() ? (
+      {false ? (
         <button
           onClick={handleDesktopCloudButton}
           title={showLabel ? undefined : (canSwitchBackToLocal

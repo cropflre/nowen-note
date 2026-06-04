@@ -1,21 +1,25 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import NavRail from "@/components/NavRail";
 import { useRailMode } from "@/hooks/useRailMode";
-import EditorPane from "@/components/EditorPane";
 import TaskCenter from "@/components/TaskCenter";
-import MindMapCenter from "@/components/MindMapEditor";
-import AIChatPanel from "@/components/AIChatPanel";
+import NoteList from "@/components/NoteList";
+import Dashboard from "@/components/Dashboard";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
+import MentionList from "@/components/MentionList";
 import SharedNoteView from "@/components/SharedNoteView";
 import LoginPage from "@/components/LoginPage";
 import QuickLoginGate from "@/components/QuickLoginGate";
 import QuickLoginEnrollDialog from "@/components/QuickLoginEnrollDialog";
 import WhatsNewModal, { useWhatsNew } from "@/components/WhatsNewModal";
+// 延时加载的重型组件
+const EditorPane = React.lazy(() => import("@/components/EditorPane"));
+const MindMapCenter = React.lazy(() => import("@/components/MindMapEditor"));
+const AIChatPanel = React.lazy(() => import("@/components/AIChatPanel"));
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
@@ -24,13 +28,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmProvider } from "@/components/ui/confirm";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
-import { getServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
+import { api, getServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
 import { bootstrap as syncBootstrap, teardown as syncTeardown } from "@/lib/syncEngine";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
 import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
+import { realtime } from "@/lib/realtime";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -296,8 +301,11 @@ function AppLayout() {
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
+  const isHomeView = state.viewMode === "home";
   const isDiaryView = state.viewMode === "diary";
+  const isNotesView = ["all", "notebook", "favorites", "search", "tag", "trash"].includes(state.viewMode);
   const isFilesView = state.viewMode === "files";
+  const isMentionsView = state.viewMode === "mentions";
 
   /**
    * Cmd-K 全局搜索面板开关
@@ -322,6 +330,61 @@ function AppLayout() {
     };
     window.addEventListener("nowen:offline-queued", onQueued);
     return () => window.removeEventListener("nowen:offline-queued", onQueued);
+  }, [actions]);
+
+  // 获取待办任务提醒统计与消息未读数（红点）
+  useEffect(() => {
+    let timer: any = null;
+    const fetchStats = async () => {
+      try {
+        const stats = await api.getTaskStats();
+        actions.setReminderActiveCount(stats.activeReminders || 0);
+        // 初始与周期性刷新消息未读数
+        actions.refreshMentionCount();
+      } catch (err) {
+        console.error("Fetch task stats for reminder badge failed:", err);
+      }
+    };
+
+    fetchStats();
+
+    // 周期性拉取（60s）
+    timer = setInterval(fetchStats, 60000);
+
+    const onStatsChanged = () => {
+      fetchStats();
+    };
+
+    window.addEventListener("nowen:task-stats-changed", onStatsChanged);
+    window.addEventListener("nowen:workspace-changed", onStatsChanged);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener("nowen:task-stats-changed", onStatsChanged);
+      window.removeEventListener("nowen:workspace-changed", onStatsChanged);
+    };
+  }, [actions]);
+
+  // 监听 WebSocket 的实时通知，收到后立即刷新或更新未读数红点
+  useEffect(() => {
+    const offNotification = realtime.on("notification:received", (msg: any) => {
+      if (msg && typeof msg.unreadCount === "number") {
+        actions.setUnreadMentionCount(msg.unreadCount);
+      }
+    });
+    return () => {
+      offNotification();
+    };
+  }, [actions]);
+
+  // 监听通知点击跳转事件
+  useEffect(() => {
+    const onNavigateToTasks = () => {
+      actions.setViewMode("tasks");
+      actions.setMobileView("list");
+    };
+    window.addEventListener("nowen:navigate-to-tasks", onNavigateToTasks);
+    return () => window.removeEventListener("nowen:navigate-to-tasks", onNavigateToTasks);
   }, [actions]);
 
 
@@ -533,12 +596,15 @@ function AppLayout() {
       ) : isMindMapView ? (
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
-          <MindMapCenter />
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={20} className="animate-spin text-accent-primary" /></div>}>
+            <MindMapCenter />
+          </Suspense>
         </div>
       ) : isAIChatView ? (
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
-          <AIChatPanel
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={20} className="animate-spin text-accent-primary" /></div>}>
+            <AIChatPanel
             onClose={() => actions.setViewMode("all")}
             onNavigateToNote={async (noteId) => {
               try {
@@ -554,6 +620,7 @@ function AppLayout() {
               }
             }}
           />
+          </Suspense>
         </div>
       ) : isDiaryView ? (
         <div className="flex-1 flex flex-col">
@@ -565,15 +632,34 @@ function AppLayout() {
           <MobileTopBar />
           <FileManager />
         </div>
+      ) : isHomeView ? (
+        <Dashboard />
+      ) : isMentionsView ? (
+        <div className="flex-1 flex flex-col">
+          <MobileTopBar />
+          <MentionList />
+        </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
+
+          {/* 笔记列表（仅笔记相关视图展示） */}
+          {isNotesView && (
+            <div
+              className="hidden md:flex shrink-0 border-r border-app-border bg-app-bg"
+              style={{ width: state.noteListWidth + 'px' }}
+            >
+              <NoteList />
+            </div>
+          )}
 
           {/* 编辑器 — 移动端全屏覆盖 */}
           <div className={`
             absolute inset-0 z-20 md:static md:z-auto md:flex-1 flex flex-col min-w-0
             ${state.mobileView === "editor" ? "flex" : "hidden md:flex"}
           `}>
-            <EditorPane />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={20} className="animate-spin text-accent-primary" /></div>}>
+              <EditorPane />
+            </Suspense>
           </div>
         </div>
       )}

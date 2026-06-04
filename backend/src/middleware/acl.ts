@@ -30,10 +30,10 @@ const PERM_LEVEL: Record<Permission, number> = {
   manage: 4,
 };
 
-// 角色 → 最高可执行权限
+// 角色 → 最高可执行权限（家庭空间全员协作：全员皆有写/编辑权限）
 const ROLE_MAX_PERM: Record<WorkspaceRole, Permission> = {
-  viewer: "read",
-  commenter: "comment",
+  viewer: "write",
+  commenter: "write",
   editor: "write",
   admin: "manage",
   owner: "manage",
@@ -392,7 +392,7 @@ export function canManageResource(
   if (creatorId === actorId) return true;
   if (!workspaceId) return false; // 个人空间他人资源：一律不可动
   const role = getUserWorkspaceRole(workspaceId, actorId);
-  return role === "owner" || role === "admin";
+  return role !== null; // 家庭空间全员协作：只要是工作区成员即可编辑/删除共享资源
 }
 
 /**

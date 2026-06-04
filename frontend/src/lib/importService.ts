@@ -14,6 +14,10 @@ import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import { common, createLowlight } from "lowlight";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+import TextAlign from "@tiptap/extension-text-align";
+import { MathInline, MathBlock } from "@/components/MathExtensions";
+import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
+import Mention from "@tiptap/extension-mention";
 
 const lowlight = createLowlight(common);
 
@@ -34,11 +38,17 @@ export const tiptapExtensions = [
   TableRowWithHeight,
   TableHeader,
   TableCell,
+  TextAlign.configure({ types: ["heading", "paragraph"] }),
+  MathInline,
+  MathBlock,
+  FootnoteReference,
+  FootnoteDefinition,
   // TextStyle + Color + FontSize：与编辑器保持一致，否则导入近来的
   // 带颜色/字号的 HTML 会被 generateJSON schema-filter 掉
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导入/修复阶段 video 节点会被吃
   VideoExtension,
+  Mention,
 ];
 
 export interface ImportFileInfo {
@@ -1373,4 +1383,255 @@ export async function importMarkdownAsNote(params: {
   } as Partial<import("@/types").Note>)) as import("@/types").Note;
 
   return { note: updated, previewText };
+}
+
+/**
+ * 导入 Memos 0.18.0 数据
+ */
+export async function importMemos(
+  file: File,
+  targetType: "diaries" | "notes",
+  onProgress: (p: ImportProgress) => void,
+  options?: ImportOptions
+): Promise<{ success: boolean; count: number }> {
+  const isZip = file.name.toLowerCase().endsWith(".zip");
+  let jsonText = "";
+  let zip: any = null;
+
+  try {
+    onProgress({ phase: "reading", current: 0, total: 100, message: "正在读取备份文件..." });
+    if (isZip) {
+      const JSZip = (await import("jszip")).default;
+      zip = await JSZip.loadAsync(file);
+      // 查找 zip 中的 memos.json 或者任何 json 文件
+      let memosJsonEntry = zip.file("memos.json");
+      if (!memosJsonEntry) {
+        const jsonFiles = Object.keys(zip.files).filter(
+          (f) => f.endsWith(".json") && !f.startsWith(".") && !f.includes("__MACOSX") && f !== "metadata.json"
+        );
+        if (jsonFiles.length > 0) {
+          memosJsonEntry = zip.file(jsonFiles[0]);
+        }
+      }
+      if (!memosJsonEntry) {
+        throw new Error("ZIP 压缩包中未找到 memos.json 或其他有效 JSON 数据文件");
+      }
+      jsonText = await memosJsonEntry.async("text");
+    } else {
+      jsonText = await file.text();
+    }
+  } catch (err: any) {
+    onProgress({ phase: "error", current: 0, total: 0, message: `解析备份文件失败: ${err.message || err}` });
+    return { success: false, count: 0 };
+  }
+
+  let memosList: any[] = [];
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (Array.isArray(parsed)) {
+      memosList = parsed;
+    } else if (parsed && typeof parsed === "object") {
+      if (Array.isArray(parsed.memos)) {
+        memosList = parsed.memos;
+      } else if (Array.isArray(parsed.memo)) {
+        memosList = parsed.memo;
+      } else {
+        for (const key of Object.keys(parsed)) {
+          if (Array.isArray(parsed[key])) {
+            memosList = parsed[key];
+            break;
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    onProgress({ phase: "error", current: 0, total: 0, message: `解析 JSON 语法失败: ${e.message || e}` });
+    return { success: false, count: 0 };
+  }
+
+  if (memosList.length === 0) {
+    onProgress({ phase: "error", current: 0, total: 0, message: "备份数据中未找到任何 memo 记录" });
+    return { success: false, count: 0 };
+  }
+
+  let successCount = 0;
+  const workspaceId = options?.workspaceId;
+
+  if (targetType === "diaries") {
+    onProgress({ phase: "uploading", current: 0, total: memosList.length, message: "准备开始导入说说..." });
+
+    for (let i = 0; i < memosList.length; i++) {
+      const memo = memosList[i];
+      const content = memo.content || memo.contentText || "";
+      const visibility = memo.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE";
+      const createdTs = memo.createdTs || Math.floor(Date.now() / 1000);
+      const createdAt = formatSqlDatetime(createdTs);
+
+      // 上传附件
+      const imageIds: string[] = [];
+      const resourceList = memo.resourceList || memo.resources || [];
+      if (isZip && zip && Array.isArray(resourceList) && resourceList.length > 0) {
+        onProgress({
+          phase: "uploading",
+          current: i,
+          total: memosList.length,
+          message: `正在导入第 ${i + 1}/${memosList.length} 条说说，正在上传附件...`
+        });
+
+        for (const resource of resourceList) {
+          const filename = resource.filename || resource.name;
+          const id = resource.id;
+          if (!filename) continue;
+
+          let zipEntry = zip.file(filename);
+          if (!zipEntry) zipEntry = zip.file(`resources/${filename}`);
+          if (!zipEntry) zipEntry = zip.file(`assets/${filename}`);
+          if (!zipEntry && id) {
+            zipEntry = zip.file(`${id}_${filename}`);
+            if (!zipEntry) zipEntry = zip.file(`resources/${id}_${filename}`);
+            if (!zipEntry) zipEntry = zip.file(`assets/${id}_${filename}`);
+          }
+          if (!zipEntry) {
+            const entryKeys = Object.keys(zip.files);
+            const foundKey = entryKeys.find((k) => k.endsWith(filename) || (id && k.includes(String(id))));
+            if (foundKey) {
+              zipEntry = zip.file(foundKey);
+            }
+          }
+
+          if (zipEntry) {
+            try {
+              const blob = await zipEntry.async("blob");
+              const fileObj = new File([blob], filename, { type: resource.type || "application/octet-stream" });
+              const uploadRes = await api.diaryImages.upload(fileObj, workspaceId);
+              if (uploadRes && uploadRes.id) {
+                imageIds.push(uploadRes.id);
+              }
+            } catch (err) {
+              console.warn(`Memos resource upload failed: ${filename}`, err);
+            }
+          }
+        }
+      }
+
+      // 发布说说
+      try {
+        await api.postDiary({
+          contentText: content,
+          images: imageIds,
+          visibility,
+          createdAt,
+        }, workspaceId);
+        successCount++;
+      } catch (err: any) {
+        console.error(`Post imported diary failed at index ${i}:`, err);
+      }
+
+      onProgress({
+        phase: "uploading",
+        current: i + 1,
+        total: memosList.length,
+        message: `正在导入说说...进度: ${i + 1}/${memosList.length}`
+      });
+    }
+
+    onProgress({
+      phase: "done",
+      current: successCount,
+      total: memosList.length,
+      message: `成功导入了 ${successCount} 条说说`
+    });
+
+    return { success: true, count: successCount };
+
+  } else {
+    const imageMap: Record<string, string> = {};
+    if (isZip && zip) {
+      onProgress({ phase: "uploading", current: 0, total: memosList.length, message: "正在解析附件资源..." });
+      for (const [filePath, zipEntryRaw] of Object.entries(zip.files)) {
+        const zipEntry = zipEntryRaw as any;
+        if (zipEntry.dir) continue;
+        if (filePath.includes("__MACOSX") || filePath.startsWith(".")) continue;
+        try {
+          const base64 = await zipEntry.async("base64");
+          const mime = getImageMime(filePath);
+          const dataUri = `data:${mime};base64,${base64}`;
+          imageMap[filePath] = dataUri;
+          const fileName = filePath.split("/").pop();
+          if (fileName && !imageMap[fileName]) {
+            imageMap[fileName] = dataUri;
+          }
+        } catch (err) {
+          console.warn("解析 ZIP 附件失败:", filePath, err);
+        }
+      }
+    }
+
+    const fileInfos: ImportFileInfo[] = memosList.map((memo, idx) => {
+      let content = memo.content || memo.contentText || "";
+      const createdTs = memo.createdTs || Math.floor(Date.now() / 1000);
+      const updatedTs = memo.updatedTs || createdTs;
+      const createdAtStr = formatSqlDatetime(createdTs);
+      const updatedAtStr = formatSqlDatetime(updatedTs);
+
+      const resourceList = memo.resourceList || memo.resources || [];
+      if (Array.isArray(resourceList) && resourceList.length > 0) {
+        let refs = "\n";
+        for (const res of resourceList) {
+          const filename = res.filename || res.name;
+          if (filename) {
+            if (!content.includes(filename)) {
+              refs += `\n![${filename}](${filename})`;
+            }
+          }
+        }
+        if (refs.trim()) {
+          content += refs;
+        }
+      }
+
+      const markdownWithFrontmatter = `---\ncreated: ${createdAtStr}\nupdated: ${updatedAtStr}\n---\n${content}`;
+
+      let title = content.replace(/[#*_~`\[\]()>|-]/g, "").trim().split("\n")[0] || "";
+      if (title.length > 30) {
+        title = title.slice(0, 30) + "...";
+      }
+      if (!title) {
+        title = `Memo ${idx + 1}`;
+      }
+
+      return {
+        name: `memo_${idx + 1}.md`,
+        title,
+        content: markdownWithFrontmatter,
+        size: markdownWithFrontmatter.length,
+        selected: true,
+        source: "md",
+        notebookName: "Memos",
+        notebookPath: ["Memos"],
+        imageMap: Object.keys(imageMap).length > 0 ? imageMap : undefined,
+      };
+    });
+
+    const res = await importNotes(fileInfos, undefined, onProgress, {
+      workspaceId,
+      perFileNotebook: false,
+    });
+    return res;
+  }
+}
+
+/**
+ * 格式化时间戳为 SQLite datetime 字符串 "YYYY-MM-DD HH:MM:SS" (UTC)
+ */
+function formatSqlDatetime(unixTs: number): string {
+  const d = new Date(unixTs * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = d.getUTCFullYear();
+  const month = pad(d.getUTCMonth() + 1);
+  const day = pad(d.getUTCDate());
+  const hours = pad(d.getUTCHours());
+  const minutes = pad(d.getUTCMinutes());
+  const seconds = pad(d.getUTCSeconds());
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }

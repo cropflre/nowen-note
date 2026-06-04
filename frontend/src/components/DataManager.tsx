@@ -25,6 +25,7 @@ import OppoCloudImport from "@/components/OppoCloudImport";
 import ICloudImport from "@/components/iCloudImport";
 import YoudaoImport from "@/components/YoudaoImport";
 import UrlImport from "@/components/UrlImport";
+import { MemosImport } from "@/components/MemosImport";
 import type { Workspace } from "@/types";
 
 // ============================================================================
@@ -1016,6 +1017,9 @@ export default function DataManager() {
           还能用"的绕过漏洞；对普通用户 lock 时直接整体隐藏。 */}
       {!personalImportLocked && (
         <>
+          {/* ===== Memos 0.18.0 导入 ===== */}
+          <MemosImport workspaceId={effectiveWorkspaceId} />
+
           {/* ===== URL 导入（微信公众号文章） ===== */}
           <UrlImport />
 

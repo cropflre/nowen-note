@@ -289,79 +289,23 @@ export default function AIWritingAssistant({
               );
             })}
           </div>
-          {/* 自定义指令入口 */}
+          {/* 自定义指令入口（家庭场景隐藏指令管理功能） */}
           <div className="mt-1.5 pt-1.5 border-t border-zinc-100 dark:border-zinc-800">
             <button
               onClick={() => { setShowCustomInput(true); setTimeout(() => customInputRef.current?.focus(), 50); }}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-zinc-500 dark:text-zinc-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-400 transition-colors text-left"
             >
               <MessageSquarePlus size={13} className="shrink-0" />
-              {t("ai.customAction")}
+              自定义指令
             </button>
           </div>
         </div>
       )}
 
-      {/* 自定义指令输入框 */}
+      {/* 自定义指令输入框（家庭场景简化版：无保存/管理功能） */}
       {showCustomInput && !result && !isLoading && !error && (
         <div className="p-3 max-h-[360px] overflow-y-auto">
-          {/* ── 已保存指令列表 ──
-              优先级高于输入框：第一次打开就能直接点击复用。
-              每行右侧露出 Pencil / Trash 两个轻按钮，不占主视觉。 */}
-          {savedPrompts.length > 0 && (
-            <div className="mb-3">
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-1.5 px-0.5">
-                {t("ai.customSavedTitle")}
-              </p>
-              <div className="flex flex-col gap-0.5 max-h-[140px] overflow-y-auto">
-                {savedPrompts.map((p) => {
-                  const active = editingId === p.id;
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() => handlePickSavedPrompt(p)}
-                      className={cn(
-                        "group flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-colors",
-                        active
-                          ? "bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300"
-                          : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                      )}
-                      title={p.prompt}
-                    >
-                      <BookmarkPlus size={11} className="shrink-0 opacity-70" />
-                      <span className="truncate flex-1">{p.name}</span>
-                      {p.usageCount > 0 && (
-                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0">
-                          ×{p.usageCount}
-                        </span>
-                      )}
-                      <button
-                        onClick={(e) => handleDeleteSavedPrompt(p, e)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-500/20 text-zinc-400 hover:text-red-500 transition-all"
-                        title={t("common.delete")}
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-2">{t("ai.customHint")}</p>
-
-          {/* 名称输入框：保存/更新时必填；不填则保存按钮 disabled。
-              放在 prompt 上方，让"先命名再写 prompt"成为默认动线。 */}
-          <input
-            type="text"
-            value={savedPromptName}
-            onChange={(e) => setSavedPromptName(e.target.value)}
-            placeholder={t("ai.customSaveNamePlaceholder")}
-            maxLength={80}
-            className="w-full px-3 py-1.5 mb-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-accent-primary/50 focus:border-accent-primary/50 placeholder:text-zinc-400"
-          />
-
+          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-2">输入你的自定义指令，按 Ctrl+Enter 执行</p>
           <textarea
             ref={customInputRef}
             value={customPrompt}

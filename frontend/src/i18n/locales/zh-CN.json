@@ -87,6 +87,7 @@
     }
   },
   "sidebar": {
+    "home": "首页",
     "newNote": "新建笔记",
     "importWordNote": "导入 Word 文档",
     "importUrlNote": "导入公众号文章",

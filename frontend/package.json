@@ -28,6 +28,7 @@
     "@capacitor/app": "^8.0.1",
     "@capacitor/haptics": "^8.0.1",
     "@capacitor/keyboard": "^8.0.1",
+    "@capacitor/local-notifications": "^8.2.0",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
     "@codemirror/autocomplete": "^6.18.0",
@@ -45,6 +46,7 @@
     "@tiptap/extension-code-block-lowlight": "^3.19.0",
     "@tiptap/extension-highlight": "^3.19.0",
     "@tiptap/extension-image": "^3.19.0",
+    "@tiptap/extension-mention": "^3.25.0",
     "@tiptap/extension-placeholder": "^3.19.0",
     "@tiptap/extension-table": "^3.20.4",
     "@tiptap/extension-table-cell": "^3.20.4",
@@ -92,7 +94,8 @@
     "y-codemirror.next": "^0.3.5",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30"
+    "yjs": "^13.6.30",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.1",

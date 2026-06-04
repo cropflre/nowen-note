@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useReducer, useMemo } from "react";
-import { Notebook, NoteListItem, Note, Tag, ViewMode } from "@/types";
+import { Notebook, NoteListItem, Note, Tag, ViewMode, MobileView } from "@/types";
 import { api } from "@/lib/api";
 
 export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline" | "queued";
-export type MobileView = "list" | "editor";
 
 interface AppState {
   notebooks: Notebook[];
@@ -29,6 +28,8 @@ interface AppState {
   mobileSidebarOpen: boolean;
   /** 全局"笔记列表刷新"令牌：递增时 NoteList 会重新拉取当前视图的列表 */
   notesRefreshToken: number;
+  reminderActiveCount: number;
+  unreadMentionCount: number;
 }
 
 type Action =
@@ -53,7 +54,10 @@ type Action =
   | { type: "SET_LAST_SYNCED"; payload: string }
   | { type: "SET_MOBILE_VIEW"; payload: MobileView }
   | { type: "SET_MOBILE_SIDEBAR"; payload: boolean }
-  | { type: "TRIGGER_REFRESH_NOTES" };
+  | { type: "TRIGGER_REFRESH_NOTES" }
+  | { type: "SET_REMINDER_ACTIVE_COUNT"; payload: number }
+  | { type: "SET_UNREAD_MENTION_COUNT"; payload: number }
+  | { type: "SET_SIDEBAR_COLLAPSED"; payload: boolean };
 
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 200;
@@ -100,7 +104,7 @@ const initialState: AppState = {
   tags: [],
   selectedNotebookId: null,
   selectedTagId: null,
-  viewMode: "all",
+  viewMode: "home",
   searchQuery: "",
   sidebarCollapsed: false,
   sidebarWidth: getSavedSidebarWidth(),
@@ -113,6 +117,8 @@ const initialState: AppState = {
   mobileView: "list",
   mobileSidebarOpen: false,
   notesRefreshToken: 0,
+  reminderActiveCount: 0,
+  unreadMentionCount: 0,
 };
 
 export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH };
@@ -137,6 +143,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, searchQuery: action.payload };
     case "TOGGLE_SIDEBAR":
       return { ...state, sidebarCollapsed: !state.sidebarCollapsed };
+    case "SET_SIDEBAR_COLLAPSED":
+      return { ...state, sidebarCollapsed: action.payload };
     case "SET_SIDEBAR_WIDTH": {
       const w = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, action.payload));
       try { localStorage.setItem("nowen-sidebar-width", String(w)); } catch {}
@@ -183,6 +191,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, mobileSidebarOpen: action.payload };
     case "TRIGGER_REFRESH_NOTES":
       return { ...state, notesRefreshToken: state.notesRefreshToken + 1 };
+    case "SET_REMINDER_ACTIVE_COUNT":
+      return { ...state, reminderActiveCount: action.payload };
+    case "SET_UNREAD_MENTION_COUNT":
+      return { ...state, unreadMentionCount: action.payload };
     default:
       return state;
   }
@@ -224,6 +236,7 @@ export function useAppActions() {
     setViewMode: (v: ViewMode) => dispatch({ type: "SET_VIEW_MODE", payload: v }),
     setSearchQuery: (v: string) => dispatch({ type: "SET_SEARCH_QUERY", payload: v }),
     toggleSidebar: () => dispatch({ type: "TOGGLE_SIDEBAR" }),
+    setSidebarCollapsed: (v: boolean) => dispatch({ type: "SET_SIDEBAR_COLLAPSED", payload: v }),
     setSidebarWidth: (v: number) => dispatch({ type: "SET_SIDEBAR_WIDTH", payload: v }),
     setNoteListWidth: (v: number) => dispatch({ type: "SET_NOTELIST_WIDTH", payload: v }),
     toggleNoteListCollapsed: () => dispatch({ type: "TOGGLE_NOTELIST_COLLAPSED" }),
@@ -236,6 +249,12 @@ export function useAppActions() {
     setLastSynced: (v: string) => dispatch({ type: "SET_LAST_SYNCED", payload: v }),
     setMobileView: (v: MobileView) => dispatch({ type: "SET_MOBILE_VIEW", payload: v }),
     setMobileSidebar: (v: boolean) => dispatch({ type: "SET_MOBILE_SIDEBAR", payload: v }),
+    setReminderActiveCount: (v: number) => dispatch({ type: "SET_REMINDER_ACTIVE_COUNT", payload: v }),
+    setUnreadMentionCount: (v: number) => dispatch({ type: "SET_UNREAD_MENTION_COUNT", payload: v }),
+    /** 刷新 @消息未读数 */
+    refreshMentionCount: () => {
+      api.mentions!.unreadCount().then((r) => dispatch({ type: "SET_UNREAD_MENTION_COUNT", payload: r.count })).catch(console.error);
+    },
     refreshNotebooks: () => {
       api.getNotebooks().then((v) => dispatch({ type: "SET_NOTEBOOKS", payload: v })).catch(console.error);
     },

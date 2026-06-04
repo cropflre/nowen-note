@@ -60,6 +60,8 @@ export function getDb(): Database.Database {
     // synchronous = NORMAL：WAL 模式下 NORMAL 已经能在断电时保证持久化，
     // 性能比 FULL 好得多；这是 SQLite 官方对 WAL 的推荐值。
     db.pragma("synchronous = NORMAL");
+    // cache_size：限定 20MB（-20000 单位为 KB），避免缓存暴涨占用主机内存
+    db.pragma("cache_size = -20000");
     // auto_vacuum = INCREMENTAL：让 DELETE 产生的 free page 可以通过
     //   PRAGMA incremental_vacuum(...) 真正归还给操作系统，用户看到的
     //   .db 文件大小会随删除动作缩小。
@@ -108,6 +110,12 @@ export function getDb(): Database.Database {
       db = undefined;
       throw e;
     }
+    // WAL 自动检查点：每小时执行一次，防止 WAL 日志无限增长
+    const WAL_CHECKPOINT_INTERVAL = 60 * 60 * 1000;
+    const walTimer = setInterval(() => {
+      try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
+    }, WAL_CHECKPOINT_INTERVAL);
+    walTimer.unref();
   }
   return db;
 }
@@ -221,6 +229,24 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
     );
 
+    -- 任务-标签 多对多关联表
+    CREATE TABLE IF NOT EXISTS task_tags (
+      taskId TEXT NOT NULL,
+      tagId TEXT NOT NULL,
+      PRIMARY KEY (taskId, tagId),
+      FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
+    );
+
+    -- 说说-标签 多对多关联表
+    CREATE TABLE IF NOT EXISTS diary_tags (
+      diaryId TEXT NOT NULL,
+      tagId TEXT NOT NULL,
+      PRIMARY KEY (diaryId, tagId),
+      FOREIGN KEY (diaryId) REFERENCES diaries(id) ON DELETE CASCADE,
+      FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
+    );
+
     -- 附件表
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
@@ -250,6 +276,7 @@ function initSchema(db: Database.Database) {
       isCompleted INTEGER DEFAULT 0,
       priority INTEGER DEFAULT 2,
       dueDate TEXT,
+      remindAt TEXT,
       noteId TEXT,
       parentId TEXT,
       sortOrder INTEGER DEFAULT 0,
@@ -279,6 +306,8 @@ function initSchema(db: Database.Database) {
       -- 图片：JSON 数组字符串，元素是 diary_attachments.id（uuid）。
       -- 默认 '[]' 而不是 NULL，方便 SQL/前端无脑 JSON.parse。
       images TEXT NOT NULL DEFAULT '[]',
+      visibility TEXT NOT NULL DEFAULT 'PRIVATE',
+      voice TEXT DEFAULT NULL,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -627,6 +656,8 @@ function initSchema(db: Database.Database) {
         contentText TEXT DEFAULT '',
         mood TEXT DEFAULT '',
         images TEXT NOT NULL DEFAULT '[]',
+        visibility TEXT NOT NULL DEFAULT 'PRIVATE',
+        voice TEXT DEFAULT NULL,
         createdAt TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
@@ -988,4 +1019,29 @@ function initSchema(db: Database.Database) {
     // 回填失败不影响主流程
     console.warn("[schema] backfill embedding_queue failed:", e);
   }
+
+  // ==============================================================
+  // 用户 @ 提及通知（mentions）
+  // ==============================================================
+  //
+  // 当用户在笔记/说说/任务中 @ 另一用户时创建一条 mention 记录。
+  // readAt 为 NULL 表示未读；权限在校验时决定。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mentions (
+      id TEXT PRIMARY KEY,
+      sourceType TEXT NOT NULL CHECK(sourceType IN ('note','diary','task')),
+      sourceId TEXT NOT NULL,
+      sourceTitle TEXT,
+      mentionedUserId TEXT NOT NULL,
+      mentionedByUserId TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      readAt TEXT,
+      FOREIGN KEY (mentionedUserId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (mentionedByUserId) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mentions_user_read
+      ON mentions(mentionedUserId, readAt);
+    CREATE INDEX IF NOT EXISTS idx_mentions_source
+      ON mentions(sourceType, sourceId);
+  `);
 }

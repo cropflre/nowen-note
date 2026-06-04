@@ -61,7 +61,7 @@ export default function SecuritySettings() {
         </div>
       )}
       {!isDemo && <PasswordSection />}
-      {!isDemo && <TwoFactorSection />}
+      {/* 2FA 已隐藏（家庭场景不需要） */}
       <SessionsSection />
     </div>
   );
