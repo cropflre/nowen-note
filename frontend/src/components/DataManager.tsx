@@ -18,7 +18,9 @@ import {
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
-import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
+import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
+import { getAppInfo, isDesktop as isDesktopApp, openDataDir, resetDesktopLocalAuth, type AppInfo } from "@/lib/desktopBridge";
+import { getSyncSummary, getLastSyncAt, subscribeSyncSummary, syncNow, type SyncSummary } from "@/lib/syncEngine";
 import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import MiCloudImport from "@/components/MiCloudImport";
 import OppoCloudImport from "@/components/OppoCloudImport";
@@ -51,6 +53,156 @@ const SUBTABS_BY_SCOPE: Record<Scope, ReadonlyArray<SubTab>> = {
   workspace: ["export", "import"],
   system: ["database", "backup", "danger"],
 };
+
+function formatSyncTime(ts: number | null): string {
+  if (!ts) return "尚未同步";
+  try { return new Date(ts).toLocaleString(); } catch { return String(ts); }
+}
+
+function SyncCenterCard() {
+  const [summary, setSummary] = useState<SyncSummary>(() => getSyncSummary());
+  const [syncing, setSyncing] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void getLastSyncAt();
+    return subscribeSyncSummary(setSummary);
+  }, []);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setMessage("");
+    const res = await syncNow();
+    setSyncing(false);
+    setMessage(res.ok ? "同步完成" : `同步失败：${res.error || "unknown"}`);
+  };
+
+  return (
+    <section className="rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-500/5 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
+            <RefreshCw className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">本地优先同步</h4>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              编辑先保存到本地，网络恢复后后台同步到服务器。
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleSyncNow}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
+        >
+          {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          立即同步
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs">
+        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
+          <div className="text-zinc-400 dark:text-zinc-500">待同步</div>
+          <div className="font-semibold text-zinc-800 dark:text-zinc-100">{summary.pending} 条</div>
+        </div>
+        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
+          <div className="text-zinc-400 dark:text-zinc-500">上次同步</div>
+          <div className="font-semibold text-zinc-800 dark:text-zinc-100">{formatSyncTime(summary.lastSyncAt)}</div>
+        </div>
+        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
+          <div className="text-zinc-400 dark:text-zinc-500">服务器</div>
+          <div className="font-semibold text-zinc-800 dark:text-zinc-100 truncate" title={getBaseUrl()}>
+            {getBaseUrl().replace(/\/api$/, "")}
+          </div>
+        </div>
+      </div>
+
+      {(summary.lastError || message) && (
+        <p className={`mt-2 text-xs ${summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
+          {summary.lastError ? `最近错误：${summary.lastError}` : message}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DesktopDataSafetyCard() {
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    getAppInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  if (!isDesktopApp() || !info) return null;
+
+  const isFullLocal = info.mode !== "lite";
+
+  const handleOpenDataDir = async () => {
+    const res = await openDataDir();
+    if (!res.ok) setMessage("打开数据目录失败");
+  };
+
+  const handleResetLocalAuth = async () => {
+    if (!isFullLocal) return;
+    setResetting(true);
+    setMessage("");
+    const res = await resetDesktopLocalAuth();
+    setResetting(false);
+    if (res.ok && res.token) {
+      localStorage.setItem("nowen-token", res.token);
+      setMessage("本地自动登录已恢复，正在刷新。");
+      window.setTimeout(() => window.location.reload(), 400);
+    } else {
+      setMessage(`恢复失败：${res.error || res.reason || "unknown"}`);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/30 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
+            <HardDrive className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">本地数据位置</h4>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 break-all">{info.userData}</p>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+              数据库文件：nowen-note.db · 日志目录：{info.logDir}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleOpenDataDir}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-900 transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            打开数据目录
+          </button>
+          {isFullLocal && (
+            <button
+              type="button"
+              onClick={handleResetLocalAuth}
+              disabled={resetting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-60 transition-colors"
+            >
+              {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+              恢复本地自动登录
+            </button>
+          )}
+        </div>
+      </div>
+      {message && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{message}</p>}
+    </section>
+  );
+}
 
 export default function DataManager() {
   const { t } = useTranslation();
@@ -457,6 +609,11 @@ export default function DataManager() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
           {t('dataManager.description')}
         </p>
+
+        <div className="space-y-3 mb-4">
+          <SyncCenterCard />
+          <DesktopDataSafetyCard />
+        </div>
 
         {/* ===== 一级 Tab：scope（个人空间 / 工作区 / 系统） =====
             把"导出/导入/数据库/备份/危险区"按数据范围拆开：
@@ -1192,6 +1349,9 @@ export default function DataManager() {
 
 type DataFileInfo = Awaited<ReturnType<typeof api.dataFile.getInfo>>;
 type AttachmentHealthReport = Awaited<ReturnType<typeof api.attachmentsAdmin.scanHealth>>;
+type AttachmentStorageStatus = Awaited<ReturnType<typeof api.attachmentsAdmin.getStorageStatus>>;
+type AttachmentRemoteCheck = Awaited<ReturnType<typeof api.attachmentsAdmin.checkRemoteStorage>>;
+type AttachmentStorageConfig = Awaited<ReturnType<typeof api.attachmentsAdmin.getStorageConfig>>;
 
 /** 字节转人类可读 */
 function fmtBytes(n: number | undefined | null): string {
@@ -1209,6 +1369,16 @@ export function DataFileSection() {
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [infoError, setInfoError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<AttachmentStorageStatus | null>(null);
+  const [storageStatusLoading, setStorageStatusLoading] = useState(false);
+  const [storageConfig, setStorageConfig] = useState<AttachmentStorageConfig | null>(null);
+  const [storageSecret, setStorageSecret] = useState("");
+  const [storageSudoToken, setStorageSudoToken] = useState<string | null>(null);
+  const [storageConfigBusy, setStorageConfigBusy] = useState(false);
+  const [storageConfigMsg, setStorageConfigMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [remoteCheck, setRemoteCheck] = useState<AttachmentRemoteCheck | null>(null);
+  const [remoteCheckLoading, setRemoteCheckLoading] = useState(false);
+  const [remoteCheckError, setRemoteCheckError] = useState("");
 
   // 导出
   const [isExporting, setIsExporting] = useState(false);
@@ -1255,13 +1425,111 @@ export function DataFileSection() {
     }
   }, []);
 
+  const loadStorageStatus = useCallback(async () => {
+    setStorageStatusLoading(true);
+    try {
+      const [status, config] = await Promise.all([
+        api.attachmentsAdmin.getStorageStatus(),
+        api.attachmentsAdmin.getStorageConfig(),
+      ]);
+      setStorageStatus(status);
+      setStorageConfig(config);
+      setStorageSecret("");
+    } catch {
+      setStorageStatus(null);
+      setStorageConfig(null);
+    } finally {
+      setStorageStatusLoading(false);
+    }
+  }, []);
+
+  const askStorageSudoPassword = useCallback(
+    () => promptDialog({
+      title: "管理员验证",
+      description: "保存或测试对象存储配置需要输入当前管理员密码。",
+      type: "password",
+      confirmText: "继续",
+      cancelText: "取消",
+      placeholder: "当前密码",
+    }),
+    [],
+  );
+
+  const handleSaveStorageConfig = async (testAfterSave = false) => {
+    if (!storageConfig) return;
+    setStorageConfigBusy(true);
+    setStorageConfigMsg(null);
+    try {
+      const input = {
+        enabled: storageConfig.enabled,
+        endpoint: storageConfig.endpoint,
+        region: storageConfig.region || "auto",
+        bucket: storageConfig.bucket,
+        accessKeyId: storageConfig.accessKeyId,
+        secretAccessKey: storageSecret || undefined,
+        prefix: storageConfig.prefix,
+      };
+      const saved = await withSudo(
+        (sudoToken) => api.attachmentsAdmin.putStorageConfig(input, sudoToken),
+        askStorageSudoPassword,
+        storageSudoToken,
+      );
+      if (!saved) return;
+      setStorageSudoToken(saved.sudoToken);
+      setStorageConfig(saved.result);
+      setStorageSecret("");
+      await loadStorageStatus();
+      if (testAfterSave) {
+        const tested = await withSudo(
+          (sudoToken) => api.attachmentsAdmin.testStorageConfig(sudoToken),
+          askStorageSudoPassword,
+          saved.sudoToken,
+        );
+        if (tested?.result.ok) {
+          setStorageSudoToken(tested.sudoToken);
+          setStorageConfigMsg({ type: "ok", text: "配置已保存，连接测试通过。" });
+        } else if (tested) {
+          setStorageSudoToken(tested.sudoToken);
+          setStorageConfigMsg({ type: "err", text: tested.result.error || "连接测试失败" });
+        }
+      } else {
+        setStorageConfigMsg({ type: "ok", text: "配置已保存。" });
+      }
+    } catch (err: any) {
+      setStorageConfigMsg({ type: "err", text: err?.message || "保存失败" });
+    } finally {
+      setStorageConfigBusy(false);
+    }
+  };
+
+  const handleRemoteStorageCheck = async () => {
+    setRemoteCheckLoading(true);
+    setRemoteCheckError("");
+    try {
+      setRemoteCheck(await api.attachmentsAdmin.checkRemoteStorage(50));
+    } catch (err: any) {
+      setRemoteCheckError(err?.message || "远端检查失败");
+    } finally {
+      setRemoteCheckLoading(false);
+    }
+  };
+
   useEffect(() => {
     // 拉取当前用户角色 —— 管理员才显示导出/导入
     api.getMe()
-      .then((u) => setIsAdmin((u as any)?.role === "admin"))
-      .catch(() => setIsAdmin(false));
+      .then((u) => {
+        const admin = (u as any)?.role === "admin";
+        setIsAdmin(admin);
+        if (admin) void loadStorageStatus();
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setStorageStatus(null);
+        setRemoteCheck(null);
+        setRemoteCheckError("");
+      });
     reload();
-  }, [reload]);
+  }, [reload, loadStorageStatus]);
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -1602,7 +1870,10 @@ export function DataFileSection() {
               </span>
             </div>
             <button
-              onClick={reload}
+              onClick={() => {
+                void reload();
+                if (isAdmin) void loadStorageStatus();
+              }}
               disabled={loadingInfo}
               className="flex items-center gap-1 text-xs text-zinc-500 hover:text-indigo-500 disabled:opacity-50"
             >
@@ -1689,6 +1960,210 @@ export function DataFileSection() {
         </div>
 
         {/* ===== 导出 ===== */}
+        {isAdmin && (storageStatus || storageStatusLoading) && (
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <ServerCog size={14} className="text-sky-500" />
+                <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  附件存储
+                </span>
+              </div>
+              <button
+                onClick={loadStorageStatus}
+                disabled={storageStatusLoading}
+                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-sky-500 disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={storageStatusLoading ? "animate-spin" : ""} />
+                刷新
+              </button>
+            </div>
+
+            {storageStatus ? (
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900/60 p-3 space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <div className="flex justify-between gap-3">
+                  <span>当前模式</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {storageStatus.storage.driver === "s3" ? "对象存储" : "本地存储"}
+                  </span>
+                </div>
+                {storageStatus.storage.driver === "s3" && (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span>Bucket</span>
+                      <span className="font-mono text-right break-all">{storageStatus.storage.bucket || "-"}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span>Endpoint</span>
+                      <span className="font-mono text-right break-all">{storageStatus.storage.endpoint || "-"}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span>Prefix</span>
+                      <span className="font-mono text-right break-all">{storageStatus.storage.prefix || "-"}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between gap-3">
+                  <span>数据库附件</span>
+                  <span className="font-mono">{storageStatus.db.rows} 个 · {fmtBytes(storageStatus.db.bytes)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span>本地文件</span>
+                  <span className="font-mono">{storageStatus.local.files} 个 · {fmtBytes(storageStatus.local.bytes)}</span>
+                </div>
+                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <div className="text-zinc-500 dark:text-zinc-400 mb-1">本地目录</div>
+                  <div className="font-mono break-all text-zinc-700 dark:text-zinc-300">{storageStatus.local.dir}</div>
+                </div>
+                {storageConfig && (
+                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-zinc-500 dark:text-zinc-400">对象存储配置</div>
+                        <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                          来源：{storageConfig.source === "settings" ? "系统设置" : storageConfig.source === "env" ? "环境变量" : "默认本地"}
+                        </div>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={storageConfig.enabled}
+                          onChange={(e) => setStorageConfig((s) => s ? { ...s, enabled: e.target.checked } : s)}
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        value={storageConfig.endpoint}
+                        onChange={(e) => setStorageConfig((s) => s ? { ...s, endpoint: e.target.value } : s)}
+                        placeholder="https://account.r2.cloudflarestorage.com"
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={storageConfig.bucket}
+                        onChange={(e) => setStorageConfig((s) => s ? { ...s, bucket: e.target.value } : s)}
+                        placeholder="bucket"
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={storageConfig.region}
+                        onChange={(e) => setStorageConfig((s) => s ? { ...s, region: e.target.value } : s)}
+                        placeholder="auto"
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={storageConfig.prefix}
+                        onChange={(e) => setStorageConfig((s) => s ? { ...s, prefix: e.target.value } : s)}
+                        placeholder="prefix"
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={storageConfig.accessKeyId}
+                        onChange={(e) => setStorageConfig((s) => s ? { ...s, accessKeyId: e.target.value } : s)}
+                        placeholder="Access Key ID"
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={storageSecret}
+                        onChange={(e) => setStorageSecret(e.target.value)}
+                        type="password"
+                        placeholder={storageConfig.secretAccessKeySet ? "Secret 已保存，留空不修改" : "Secret Access Key"}
+                        className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs"
+                      />
+                    </div>
+                    {storageConfigMsg && (
+                      <div className={`rounded-md px-2 py-1 text-[11px] ${
+                        storageConfigMsg.type === "ok"
+                          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300"
+                      }`}>
+                        {storageConfigMsg.text}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => void handleSaveStorageConfig(false)}
+                        disabled={storageConfigBusy}
+                        className="inline-flex items-center gap-1 rounded-md bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 text-[11px] font-medium disabled:opacity-50"
+                      >
+                        {storageConfigBusy ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                        保存配置
+                      </button>
+                      <button
+                        onClick={() => void handleSaveStorageConfig(true)}
+                        disabled={storageConfigBusy}
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-200 dark:border-sky-900/50 px-2 py-1 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10 disabled:opacity-50"
+                      >
+                        {storageConfigBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        保存并测试
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {storageStatus.migrationCommand && (
+                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                    <div className="text-zinc-500 dark:text-zinc-400 mb-1">迁移检查</div>
+                    <code className="block rounded-md bg-zinc-100 dark:bg-zinc-950 px-2 py-1 text-[11px] text-zinc-700 dark:text-zinc-300 overflow-x-auto">
+                      {storageStatus.migrationCommand}
+                    </code>
+                  </div>
+                )}
+                {storageStatus.storage.driver === "s3" && (
+                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-zinc-500 dark:text-zinc-400">远端对象检查</div>
+                        <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                          默认抽样检查 50 个数据库附件路径
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleRemoteStorageCheck}
+                        disabled={remoteCheckLoading}
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-200 dark:border-sky-900/50 px-2 py-1 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10 disabled:opacity-50"
+                      >
+                        {remoteCheckLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        检查远端
+                      </button>
+                    </div>
+                    {remoteCheckError && (
+                      <div className="rounded-md bg-red-50 dark:bg-red-500/10 px-2 py-1 text-[11px] text-red-600 dark:text-red-300">
+                        {remoteCheckError}
+                      </div>
+                    )}
+                    {remoteCheck && (
+                      <div className={`rounded-md px-2 py-1 text-[11px] ${
+                        remoteCheck.ok
+                          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      }`}>
+                        <div>
+                          已检查 {remoteCheck.checked}/{remoteCheck.total} 个，存在 {remoteCheck.exists} 个，缺失 {remoteCheck.missing.length} 个，错误 {remoteCheck.errors.length} 个
+                        </div>
+                        {remoteCheck.missing.slice(0, 5).map((x) => (
+                          <div key={`missing-${x.path}`} className="mt-1 font-mono break-all">
+                            缺失: {x.path}
+                          </div>
+                        ))}
+                        {remoteCheck.errors.slice(0, 5).map((x) => (
+                          <div key={`error-${x.path}`} className="mt-1 font-mono break-all">
+                            错误: {x.path} {x.status ? `(${x.status})` : ""} {x.error}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900/60 p-3 text-xs text-zinc-500">
+                正在读取附件存储状态...
+              </div>
+            )}
+          </div>
+        )}
+
         {isAdmin && (
           <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
             <div className="flex items-center gap-2 mb-2">

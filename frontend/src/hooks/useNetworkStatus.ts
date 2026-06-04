@@ -19,8 +19,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getBaseUrl } from "@/lib/api";
-import { flushQueue, getQueueLength, subscribe } from "@/lib/offlineQueue";
-import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
+import { getQueueLength, subscribe } from "@/lib/offlineQueue";
+import { syncNow } from "@/lib/syncEngine";
 
 const PROBE_INTERVAL = 30_000; // 30s
 
@@ -48,12 +48,12 @@ export function useNetworkStatus() {
   }, []);
 
   // flush 队列
-  const doFlush = useCallback(async () => {
+  const doFlush = useCallback(async (force = false) => {
     if (flushingRef.current) return;
-    if (getQueueLength() === 0) return;
+    if (!force && getQueueLength() === 0) return;
     flushingRef.current = true;
     try {
-      await flushQueue(offlineQueueFetch);
+      await syncNow();
     } finally {
       flushingRef.current = false;
       setPendingCount(getQueueLength());
@@ -68,7 +68,7 @@ export function useNetworkStatus() {
         setIsOnline(true);
         setWasOffline(true);
         // 恢复后自动 flush
-        doFlush();
+        doFlush(true);
         // 5s 后清除 wasOffline 提示
         setTimeout(() => setWasOffline(false), 5000);
       }
@@ -92,7 +92,7 @@ export function useNetworkStatus() {
       const alive = await probe();
       setIsOnline(alive);
       if (alive && getQueueLength() > 0) {
-        doFlush();
+        doFlush(true);
       }
     }, PROBE_INTERVAL);
 
@@ -100,7 +100,7 @@ export function useNetworkStatus() {
     probe().then((alive) => {
       setIsOnline(alive);
       if (alive && getQueueLength() > 0) {
-        doFlush();
+        doFlush(true);
       }
     });
 

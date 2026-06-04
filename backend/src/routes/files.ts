@@ -46,6 +46,10 @@ import {
   MIME_TO_EXT,
 } from "./attachments";
 import {
+  deleteAttachmentObject,
+  writeAttachmentObject,
+} from "../services/attachment-storage";
+import {
   resolveNotePermission,
   hasPermission,
   getUserWorkspaceRole,
@@ -790,7 +794,7 @@ app.get("/:id", (c) => {
 //   - 物理文件删不掉不阻塞（权限 / 已不存在），DB 行一定删掉——保持与
 //     attachments.ts 的语义一致。
 // ---------------------------------------------------------------------------
-app.delete("/:id", (c) => {
+app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "未授权" }, 401);
   const id = c.req.param("id");
@@ -816,7 +820,6 @@ app.delete("/:id", (c) => {
     return c.json({ error: "无权删除该文件", code: "FORBIDDEN" }, 403);
   }
 
-  const absPath = path.join(getAttachmentsDir(), row.path);
   // v11 引用计数：若同一物理文件还有别的 attachments 行指向，仅删本行不动磁盘
   // （理论上 hash dedup 后不会产生这种共享，但老数据 / 并发竞态可能出现）
   const sameFileCount = db
@@ -824,7 +827,7 @@ app.delete("/:id", (c) => {
     .get(row.path, id) as { c: number };
   if (sameFileCount.c === 0) {
     try {
-      if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+      await deleteAttachmentObject(row.path);
     } catch {
       /* 文件删不掉不阻塞，DB 记录一致性优先 */
     }
@@ -1013,16 +1016,14 @@ app.post("/batch-delete", async (c) => {
     // v11 引用计数：本批 DELETE 之后再查一次同 path 是否还有其它 attachments
     // 行存在（来自本批之外的笔记/用户）。只有 0 引用才真正 unlink；否则
     // 只删 DB 行不动磁盘，避免误清掉别处仍在用的文件。
-    const dir = getAttachmentsDir();
     const stillReferencedStmt = db.prepare(
       "SELECT 1 FROM attachments WHERE path = ? LIMIT 1",
     );
     for (const row of deletable) {
       const stillReferenced = stillReferencedStmt.get(row.path);
       if (stillReferenced) continue;
-      const absPath = path.join(dir, row.path);
       try {
-        if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+        await deleteAttachmentObject(row.path);
       } catch (err) {
         failed.push({
           id: row.id,
@@ -1183,7 +1184,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   ensureAttachmentsDir();
   const id = uuid();
   const ext = pickExt(file.name, mime);
-  const savePath = path.join(getAttachmentsDir(), `${id}.${ext}`);
+  const storagePath = `${id}.${ext}`;
 
   let buffer: Buffer;
   try {
@@ -1239,7 +1240,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   }
 
   try {
-    fs.writeFileSync(savePath, buffer);
+    await writeAttachmentObject(storagePath, buffer, mime);
   } catch (err) {
     return c.json(
       { error: `写入文件失败: ${err instanceof Error ? err.message : String(err)}` },
@@ -1258,7 +1259,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       file.name || `${id}.${ext}`,
       mime,
       file.size,
-      `${id}.${ext}`,
+      storagePath,
       scope.workspaceId,
       sha256,
       // v12：标记此附件来自"文件管理"直传入口，"我的上传"筛选据此判定。
@@ -1267,7 +1268,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     );
   } catch (err) {
     // DB 写失败时把已落盘文件清掉，避免孤儿
-    try { fs.unlinkSync(savePath); } catch { /* ignore */ }
+    try { await deleteAttachmentObject(storagePath); } catch { /* ignore */ }
     return c.json(
       { error: `写入数据库失败: ${err instanceof Error ? err.message : String(err)}` },
       500,

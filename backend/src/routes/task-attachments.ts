@@ -28,9 +28,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
-import fs from "fs";
-import path from "path";
-import { ensureAttachmentsDir, getAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import { ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import {
+  deleteAttachmentObject,
+  readAttachmentObject,
+  writeAttachmentObject,
+} from "../services/attachment-storage";
 import { getUserWorkspaceRole, canManageResource } from "../middleware/acl";
 
 // 与 attachments 一致的 MIME 白名单（图片类）。
@@ -57,7 +60,7 @@ const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
  * 任务列表是用户私有的，附件 id 仅在用户自己的 task.title 里存在，泄露面
  * 与笔记附件等同。
  */
-export function handleDownloadTaskAttachment(c: Context): Response {
+export async function handleDownloadTaskAttachment(c: Context): Promise<Response> {
   const id = c.req.param("id");
   const db = getDb();
   const row = db
@@ -65,12 +68,10 @@ export function handleDownloadTaskAttachment(c: Context): Response {
     .get(id) as { id: string; mimeType: string; path: string } | undefined;
   if (!row) return c.json({ error: "附件不存在" }, 404);
 
-  const absPath = path.join(getAttachmentsDir(), row.path);
-  if (!fs.existsSync(absPath)) {
-    return c.json({ error: "附件文件丢失" }, 404);
+  const buffer = await readAttachmentObject(row.path);
+  if (!buffer) {
+    return c.json({ error: "attachment file missing" }, 404);
   }
-
-  const buffer = fs.readFileSync(absPath);
   return new Response(buffer, {
     headers: {
       "Content-Type": row.mimeType || "application/octet-stream",
@@ -155,11 +156,10 @@ app.post("/", async (c) => {
   const id = uuid();
   const ext = MIME_TO_EXT[mime] || "bin";
   const filename = `${id}.${ext}`;
-  const savePath = path.join(getAttachmentsDir(), filename);
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(savePath, buffer);
+    await writeAttachmentObject(filename, buffer, mime);
   } catch (err: any) {
     return c.json({ error: `写入文件失败: ${err?.message || err}` }, 500);
   }
@@ -170,7 +170,7 @@ app.post("/", async (c) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, taskId, userId, effectiveWorkspaceId, file.name || filename, mime, file.size, filename);
   } catch (err: any) {
-    try { fs.unlinkSync(savePath); } catch { /* ignore */ }
+    try { await deleteAttachmentObject(filename); } catch { /* ignore */ }
     return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
   }
 
@@ -233,7 +233,7 @@ app.patch("/:id/bind", async (c) => {
  *   - 已绑定 task 的附件：按 canManageResource —— 创建者本人 + admin/owner 可删；
  *   - 悬空附件（无 taskId）：仍仅限上传者本人可删（未归属任何工作区语义层）。
  */
-app.delete("/:id", (c) => {
+app.delete("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
@@ -265,9 +265,8 @@ app.delete("/:id", (c) => {
     }
   }
 
-  const absPath = path.join(getAttachmentsDir(), row.path);
   try {
-    if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+    await deleteAttachmentObject(row.path);
   } catch {
     /* 文件删不掉不阻塞，DB 记录仍然要清掉 */
   }

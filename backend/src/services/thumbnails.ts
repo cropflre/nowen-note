@@ -126,10 +126,10 @@ interface ThumbnailResult {
  * @returns 成功返回 { buffer, mimeType: "image/webp", fromCache }；
  *          sharp 不可用 / 处理失败 / MIME 不支持 → 返回 null（调用方回退原图）。
  */
-export async function getOrCreateThumbnailAsync(
+async function getOrCreateThumbnailFromInputAsync(
   attachmentsDir: string,
   attachmentId: string,
-  sourcePath: string,
+  input: string | Buffer,
   sourceMime: string,
   width: number,
 ): Promise<ThumbnailResult | null> {
@@ -151,7 +151,7 @@ export async function getOrCreateThumbnailAsync(
   // 未命中：生成
   try {
     ensureThumbsDir(attachmentsDir);
-    const buffer: Buffer = await sharp(sourcePath, {
+    const buffer: Buffer = await sharp(input, {
       animated: false, // GIF 只取首帧（列表页用静态首帧足矣）
       limitInputPixels: 268_402_689, // sharp 默认值，显式声明：防 50000×50000 撑爆内存
     })
@@ -182,6 +182,26 @@ export async function getOrCreateThumbnailAsync(
     );
     return null;
   }
+}
+
+export async function getOrCreateThumbnailAsync(
+  attachmentsDir: string,
+  attachmentId: string,
+  sourcePath: string,
+  sourceMime: string,
+  width: number,
+): Promise<ThumbnailResult | null> {
+  return getOrCreateThumbnailFromInputAsync(attachmentsDir, attachmentId, sourcePath, sourceMime, width);
+}
+
+export async function getOrCreateThumbnailFromBufferAsync(
+  attachmentsDir: string,
+  attachmentId: string,
+  sourceBuffer: Buffer,
+  sourceMime: string,
+  width: number,
+): Promise<ThumbnailResult | null> {
+  return getOrCreateThumbnailFromInputAsync(attachmentsDir, attachmentId, sourceBuffer, sourceMime, width);
 }
 
 /**

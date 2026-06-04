@@ -361,12 +361,14 @@ async function startBackend() {
   console.log("[Electron] Backend port:", backendPort);
   console.log("[Electron] DB path:", dbPath);
 
+  const localAccountSecret = getLocalAccountSecret();
   const spawnEnv = {
     ...process.env,
     NODE_ENV: "production",
     PORT: String(backendPort),
     DB_PATH: dbPath,
     ELECTRON_USER_DATA: userDataPath,
+    ELECTRON_LOCAL_ACCOUNT_SECRET: localAccountSecret,
     FRONTEND_DIST: getFrontendDist(),
     JWT_SECRET: ensureJwtSecret(),
   };
@@ -462,7 +464,7 @@ function getLocalAccountSecret() {
 }
 
 // 简易 JSON POST：只在 127.0.0.1:backendPort 上用，5s 超时
-function localApiRequest(pathname, body) {
+function localApiRequest(pathname, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const data = body == null ? "" : JSON.stringify(body);
     const req = http.request(
@@ -475,6 +477,7 @@ function localApiRequest(pathname, body) {
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(data),
+          ...extraHeaders,
         },
       },
       (res) => {
@@ -536,6 +539,26 @@ async function ensureLocalAccount() {
     console.warn("[Electron] local register error:", e?.message || e);
   }
   return null;
+}
+
+async function resetLocalAccountAuth() {
+  if (currentMode !== "full") return { ok: false, error: "not-full-mode" };
+  if (!backendPort) return { ok: false, error: "backend-not-ready" };
+  const password = getLocalAccountSecret();
+  try {
+    const r = await localApiRequest(
+      "/auth/desktop/reset-local",
+      { username: "desktop", password },
+      { "X-Nowen-Desktop-Secret": password },
+    );
+    if (r.status === 200 && r.data?.token) {
+      localAuthCache = { token: r.data.token, user: r.data.user };
+      return { ok: true, token: r.data.token, user: r.data.user };
+    }
+    return { ok: false, error: r.data?.error || `status=${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
 
 // ---------- 启动闪屏 ----------
@@ -895,6 +918,13 @@ function registerAppIpc() {
     return { ok: true, path: dir };
   });
 
+  ipcMain.removeHandler("app:open-data-dir");
+  ipcMain.handle("app:open-data-dir", async () => {
+    const dir = getUserDataPath();
+    await shell.openPath(dir);
+    return { ok: true, path: dir };
+  });
+
   ipcMain.removeHandler("app:set-hide-menu-bar");
   ipcMain.handle("app:set-hide-menu-bar", async (_event, next) => {
     currentHideMenuBar = !!next;
@@ -917,6 +947,9 @@ function registerAppIpc() {
     localAuthCache = null;
     return { ok: true };
   });
+
+  ipcMain.removeHandler("desktop:reset-local-auth");
+  ipcMain.handle("desktop:reset-local-auth", () => resetLocalAccountAuth());
 
   /**
    * renderer → main：上报格式状态，同步系统菜单栏 checked 标记。

@@ -52,27 +52,34 @@ import { enqueueAttachment } from "../services/embedding-worker";
 import { verifySudoFromRequest } from "../lib/auth-security";
 import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs";
 import {
+  checkAttachmentObjectExists,
+  deleteAttachmentObject,
+  ensureAttachmentsDir as ensureStorageAttachmentsDir,
+  getAttachmentStorageInfo,
+  getAttachmentsDir as getStorageAttachmentsDir,
+  readObjectStorageConfigPublic,
+  readAttachmentObject,
+  testObjectStorageConfig,
+  writeObjectStorageConfig,
+  writeAttachmentObject,
+} from "../services/attachment-storage";
+import {
   parseThumbnailWidth,
   getOrCreateThumbnailAsync,
+  getOrCreateThumbnailFromBufferAsync,
   isThumbnailable,
   deleteThumbnailsFor,
 } from "../services/thumbnails";
 
-const ATTACHMENTS_DIR = path.join(
-  process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"),
-  "attachments",
-);
+const ATTACHMENTS_DIR = getStorageAttachmentsDir();
 
 /** 确保目录存在。上传 / 迁移脚本都复用它。 */
 export function ensureAttachmentsDir(): string {
-  if (!fs.existsSync(ATTACHMENTS_DIR)) {
-    fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
-  }
-  return ATTACHMENTS_DIR;
+  return ensureStorageAttachmentsDir();
 }
 
 export function getAttachmentsDir(): string {
-  return ATTACHMENTS_DIR;
+  return getStorageAttachmentsDir();
 }
 
 /**
@@ -367,8 +374,10 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   if (!row) return c.json({ error: "附件不存在" }, 404);
 
   const absPath = path.join(ATTACHMENTS_DIR, row.path);
-  if (!fs.existsSync(absPath)) {
-    return c.json({ error: "附件文件丢失" }, 404);
+  const localExists = fs.existsSync(absPath);
+  const buffer = await readAttachmentObject(row.path);
+  if (!buffer) {
+    return c.json({ error: "attachment file missing" }, 404);
   }
 
   const forceDownload = c.req.query("download") === "1";
@@ -386,13 +395,21 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   //   3) 原图是可缩略的 raster 图片
   // 三者同时满足时尝试。任何一步失败就回退到原图。
   if (requestedWidth && !forceDownload && isThumbnailable(row.mimeType)) {
-    const thumb = await getOrCreateThumbnailAsync(
-      ATTACHMENTS_DIR,
-      row.id,
-      absPath,
-      row.mimeType,
-      requestedWidth,
-    );
+    const thumb = localExists
+      ? await getOrCreateThumbnailAsync(
+          ATTACHMENTS_DIR,
+          row.id,
+          absPath,
+          row.mimeType,
+          requestedWidth,
+        )
+      : await getOrCreateThumbnailFromBufferAsync(
+          ATTACHMENTS_DIR,
+          row.id,
+          buffer,
+          row.mimeType,
+          requestedWidth,
+        );
     if (thumb) {
       return c.body(toResponseBody(thumb.buffer), 200, {
         "Content-Type": thumb.mimeType,
@@ -405,7 +422,6 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     // thumb 为 null（sharp 失败 / 不可用）→ fall through 返回原图
   }
 
-  const buffer = fs.readFileSync(absPath);
   const headers: Record<string, string> = {
     "Content-Type": row.mimeType || "application/octet-stream",
     // uuid 文件名不可变，可以长缓存
@@ -494,7 +510,7 @@ app.post("/", async (c) => {
   ensureAttachmentsDir();
   const id = uuid();
   const ext = pickExt(file.name, mime);
-  const savePath = path.join(ATTACHMENTS_DIR, `${id}.${ext}`);
+  const storagePath = `${id}.${ext}`;
 
   let buffer: Buffer;
   try {
@@ -562,7 +578,7 @@ app.post("/", async (c) => {
   }
 
   try {
-    fs.writeFileSync(savePath, buffer);
+    await writeAttachmentObject(storagePath, buffer, mime);
   } catch (err: any) {
     return c.json({ error: `写入文件失败: ${err?.message || err}` }, 500);
   }
@@ -586,13 +602,13 @@ app.post("/", async (c) => {
       file.name || `${id}.${ext}`,
       mime,
       file.size,
-      `${id}.${ext}`,
+      storagePath,
       noteWorkspaceId,
       sha256,
     );
   } catch (err: any) {
     // DB 写失败时把已落盘文件清掉，避免孤儿
-    try { fs.unlinkSync(savePath); } catch { /* ignore */ }
+    try { await deleteAttachmentObject(storagePath); } catch { /* ignore */ }
     return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
   }
 
@@ -611,7 +627,7 @@ app.post("/", async (c) => {
       url: `/api/attachments/${id}`,
       mimeType: mime,
       size: file.size,
-      filename: file.name || `${id}.${ext}`,
+      filename: file.name || storagePath,
       // category 供前端决定「作为图片 <img> 还是附件链接 <a>」插入编辑器
       category: isImageMime(mime) ? "image" : "file",
     },
@@ -623,7 +639,7 @@ app.post("/", async (c) => {
  * 删除附件。一般不直接由前端调用（清理靠笔记删除级联 + 定期扫描孤儿）。
  * 保留作为管理端点：笔记 owner 可以删自己的附件。
  */
-app.delete("/:id", (c) => {
+app.delete("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
@@ -638,8 +654,6 @@ app.delete("/:id", (c) => {
     return c.json({ error: "无权删除该附件", code: "FORBIDDEN" }, 403);
   }
 
-  const absPath = path.join(ATTACHMENTS_DIR, row.path);
-
   // v11 引用计数：dedup 启用后理论上同一 path 不会重复，但极小概率下（迁移
   // 之前的老数据、并发上传竞态）可能多行共享同一物理文件。删除前确认：
   // 若还有其它 attachments 行指向同一 path，仅删本行不动磁盘文件，避免造成
@@ -651,7 +665,7 @@ app.delete("/:id", (c) => {
 
   if (shouldUnlink) {
     try {
-      if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+      await deleteAttachmentObject(row.path);
     } catch {
       /* 文件删不掉不阻塞，DB 记录仍然要清掉 */
     }
@@ -1218,6 +1232,212 @@ function requireAdminSudoOrDeny(c: Context): Response | null {
   if (!sudo.ok) return c.json({ error: sudo.message, code: sudo.code }, sudo.status as 401 | 403);
   return null;
 }
+
+function getAttachmentTableStats(table: "attachments" | "diary_attachments" | "task_attachments") {
+  try {
+    return getDb()
+      .prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM ${table}`)
+      .get() as { count: number; bytes: number };
+  } catch {
+    return { count: 0, bytes: 0 };
+  }
+}
+
+function getLocalAttachmentFileStats(dir: string) {
+  let files = 0;
+  let bytes = 0;
+  const walk = (current: string) => {
+    if (!fs.existsSync(current)) return;
+    for (const name of fs.readdirSync(current)) {
+      if (name === ".thumbs") continue;
+      const full = path.join(current, name);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        walk(full);
+      } else if (stat.isFile()) {
+        files += 1;
+        bytes += stat.size;
+      }
+    }
+  };
+  try {
+    walk(dir);
+  } catch {
+    // 状态页不因为单个异常文件阻断数据管理入口。
+  }
+  return { files, bytes };
+}
+
+function getUniqueAttachmentPaths(limit: number) {
+  return getDb()
+    .prepare(`
+      WITH all_paths AS (
+        SELECT path, size FROM attachments
+        UNION ALL
+        SELECT path, size FROM diary_attachments
+        UNION ALL
+        SELECT path, size FROM task_attachments
+      )
+      SELECT path, MAX(size) AS size, COUNT(*) AS refs
+      FROM all_paths
+      WHERE path IS NOT NULL AND path <> ''
+      GROUP BY path
+      ORDER BY path
+      LIMIT ?
+    `)
+    .all(limit) as Array<{ path: string; size: number; refs: number }>;
+}
+
+function countUniqueAttachmentPaths() {
+  const row = getDb()
+    .prepare(`
+      WITH all_paths AS (
+        SELECT path FROM attachments
+        UNION ALL
+        SELECT path FROM diary_attachments
+        UNION ALL
+        SELECT path FROM task_attachments
+      )
+      SELECT COUNT(DISTINCT path) AS count
+      FROM all_paths
+      WHERE path IS NOT NULL AND path <> ''
+    `)
+    .get() as { count: number } | undefined;
+  return row?.count || 0;
+}
+
+/** GET /api/attachments/_storage/status */
+app.get("/_storage/status", (c) => {
+  const denied = requireAdminOrDeny(c);
+  if (denied) return denied;
+
+  const storage = getAttachmentStorageInfo();
+  const notes = getAttachmentTableStats("attachments");
+  const diary = getAttachmentTableStats("diary_attachments");
+  const tasks = getAttachmentTableStats("task_attachments");
+  const local = getLocalAttachmentFileStats(ATTACHMENTS_DIR);
+
+  return c.json({
+    storage,
+    db: {
+      rows: notes.count + diary.count + tasks.count,
+      bytes: notes.bytes + diary.bytes + tasks.bytes,
+      attachments: notes,
+      diaryAttachments: diary,
+      taskAttachments: tasks,
+    },
+    local: {
+      dir: ATTACHMENTS_DIR,
+      ...local,
+    },
+    migrationCommand: storage.migrationCommand || null,
+    checkedAt: new Date().toISOString(),
+  });
+});
+
+/** GET /api/attachments/_storage/config */
+app.get("/_storage/config", (c) => {
+  const denied = requireAdminOrDeny(c);
+  if (denied) return denied;
+  return c.json(readObjectStorageConfigPublic());
+});
+
+/** PUT /api/attachments/_storage/config */
+app.put("/_storage/config", async (c) => {
+  const denied = requireAdminSudoOrDeny(c);
+  if (denied) return denied;
+
+  const body = (await c.req.json().catch(() => ({}))) as {
+    enabled?: boolean;
+    endpoint?: string;
+    region?: string;
+    bucket?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    prefix?: string;
+  };
+
+  if (body.enabled) {
+    if (!String(body.endpoint || "").trim()) return c.json({ error: "endpoint is required" }, 400);
+    if (!String(body.bucket || "").trim()) return c.json({ error: "bucket is required" }, 400);
+    if (!String(body.accessKeyId || "").trim()) return c.json({ error: "accessKeyId is required" }, 400);
+  }
+
+  const saved = writeObjectStorageConfig({
+    enabled: body.enabled === true,
+    endpoint: body.endpoint || "",
+    region: body.region || "auto",
+    bucket: body.bucket || "",
+    accessKeyId: body.accessKeyId || "",
+    secretAccessKey: body.secretAccessKey,
+    prefix: body.prefix || "",
+  });
+  return c.json(saved);
+});
+
+/** POST /api/attachments/_storage/test */
+app.post("/_storage/test", async (c) => {
+  const denied = requireAdminSudoOrDeny(c);
+  if (denied) return denied;
+  const result = await testObjectStorageConfig();
+  return c.json(result, result.ok ? 200 : 502);
+});
+
+/** GET /api/attachments/_storage/remote-check?limit=50 */
+app.get("/_storage/remote-check", async (c) => {
+  const denied = requireAdminOrDeny(c);
+  if (denied) return denied;
+
+  const storage = getAttachmentStorageInfo();
+  const rawLimit = Number(c.req.query("limit") || 50);
+  const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
+  const total = countUniqueAttachmentPaths();
+
+  if (storage.driver !== "s3") {
+    return c.json({
+      ok: true,
+      skipped: true,
+      reason: "local-storage",
+      storage,
+      total,
+      limit,
+      checked: 0,
+      exists: 0,
+      missing: [],
+      errors: [],
+      checkedAt: new Date().toISOString(),
+    });
+  }
+
+  const rows = getUniqueAttachmentPaths(limit);
+  const missing: Array<{ path: string; size: number; refs: number; status?: number }> = [];
+  const errors: Array<{ path: string; size: number; refs: number; status?: number; error: string }> = [];
+  let exists = 0;
+
+  for (const row of rows) {
+    const res = await checkAttachmentObjectExists(row.path);
+    if (res.exists) {
+      exists += 1;
+    } else if (res.error && res.status !== 404) {
+      errors.push({ ...row, status: res.status, error: res.error });
+    } else {
+      missing.push({ ...row, status: res.status });
+    }
+  }
+
+  return c.json({
+    ok: missing.length === 0 && errors.length === 0,
+    skipped: false,
+    storage,
+    total,
+    limit,
+    checked: rows.length,
+    exists,
+    missing,
+    errors,
+    checkedAt: new Date().toISOString(),
+  });
+});
 
 /** GET /api/attachments/_orphans/scan?graceHours=24 */
 app.get("/_orphans/scan", (c) => {

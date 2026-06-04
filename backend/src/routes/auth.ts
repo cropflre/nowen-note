@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import bcrypt from "bcryptjs";
@@ -30,6 +30,13 @@ import jwt from "jsonwebtoken";
 import { disconnectUser } from "../services/realtime";
 
 const auth = new Hono();
+
+function verifyDesktopLocalResetSecret(c: Context): boolean {
+  const expected = process.env.ELECTRON_LOCAL_ACCOUNT_SECRET;
+  if (!expected || expected.length < 16) return false;
+  const got = c.req.header("X-Nowen-Desktop-Secret") || "";
+  return got === expected;
+}
 
 // ========== 会话管理辅助 ==========
 //
@@ -239,6 +246,76 @@ auth.post("/register", async (c) => {
     .get(id);
 
   return c.json({ token, user }, 201);
+});
+
+auth.post("/desktop/reset-local", async (c) => {
+  if (!verifyDesktopLocalResetSecret(c)) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const username = String((body as any)?.username || "desktop").trim();
+  const password = String((body as any)?.password || "");
+  if (username !== "desktop" || password.length < 16) {
+    return c.json({ error: "invalid local account payload" }, 400);
+  }
+
+  const db = getDb();
+  const passwordHash = await bcrypt.hash(password, 10);
+  const existing = db
+    .prepare("SELECT id FROM users WHERE username = ?")
+    .get(username) as { id: string } | undefined;
+
+  let userId = existing?.id;
+  if (userId) {
+    db.prepare(`
+      UPDATE users
+         SET passwordHash = ?,
+             role = 'admin',
+             isDisabled = 0,
+             mustChangePassword = 0,
+             tokenVersion = tokenVersion + 1
+       WHERE id = ?
+    `).run(passwordHash, userId);
+  } else {
+    userId = uuid();
+    db.prepare(`
+      INSERT INTO users (id, username, email, passwordHash, role, displayName)
+      VALUES (?, ?, ?, ?, 'admin', ?)
+    `).run(userId, username, "desktop@nowen-note.local", passwordHash, "Local Desktop User");
+  }
+
+  resetLoginFailure(db, userId);
+  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+
+  const user = db
+    .prepare(
+      `SELECT id, username, email, avatarUrl, displayName, role, isDemo,
+              personalExportEnabled, personalImportEnabled, tokenVersion, createdAt
+       FROM users WHERE id = ?`,
+    )
+    .get(userId) as any;
+
+  const sessionId = createSession({
+    userId,
+    ip: extractClientIp(c),
+    userAgent: c.req.header("user-agent") || "Nowen Desktop",
+  });
+  const token = signLoginToken({
+    userId,
+    username,
+    tokenVersion: user.tokenVersion ?? 0,
+    jti: sessionId,
+  });
+
+  user.personalExportEnabled = user.personalExportEnabled === undefined
+    ? true
+    : user.personalExportEnabled !== 0;
+  user.personalImportEnabled = user.personalImportEnabled === undefined
+    ? true
+    : user.personalImportEnabled !== 0;
+
+  return c.json({ token, user });
 });
 
 // ========== 登录 ==========

@@ -53,6 +53,15 @@ services:
       # - BACKUP_DIR=/app/backups
       # Ollama 地址，如需使用请自行部署 Ollama 并填写正确地址
       # - OLLAMA_URL=http://host.docker.internal:11434
+      # Optional attachment object storage (S3 / Cloudflare R2 / MinIO).
+      # Keep commented to use /app/data/attachments on the local volume.
+      # - ATTACHMENT_STORAGE=s3
+      # - S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+      # - S3_REGION=auto
+      # - S3_BUCKET=nowen-note
+      # - S3_ACCESS_KEY_ID=
+      # - S3_SECRET_ACCESS_KEY=
+      # - S3_PREFIX=attachments
 
 volumes:
   nowen-note-data:

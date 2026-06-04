@@ -1,10 +1,9 @@
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import { getDb } from "../db/schema";
 import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import { deleteAttachmentObject, writeAttachmentObject } from "../services/attachment-storage";
 
 const app = new Hono();
 
@@ -93,7 +92,7 @@ function extractWeixinContent(html: string): string {
 
 // ---------- 图片下载到附件库 ----------
 
-const ATTACHMENTS_DIR = ensureAttachmentsDir();
+ensureAttachmentsDir();
 
 const EXT_BY_BUFFER_MAGIC: Array<[RegExp, string, string]> = [
   // [前缀魔数（hex）, mime, ext]
@@ -184,8 +183,7 @@ async function downloadImageToAttachment(
 
   const id = uuid();
   const filename = `${id}.${ext}`;
-  const savePath = path.join(ATTACHMENTS_DIR, filename);
-  fs.writeFileSync(savePath, buf);
+  await writeAttachmentObject(filename, buf, mime);
 
   try {
     db.prepare(
@@ -194,7 +192,7 @@ async function downloadImageToAttachment(
     ).run(id, noteId, userId, filename, mime, buf.length, filename, workspaceId, hash);
   } catch (err) {
     // DB 失败回滚磁盘
-    try { fs.unlinkSync(savePath); } catch { /* ignore */ }
+    try { await deleteAttachmentObject(filename); } catch { /* ignore */ }
     throw err;
   }
 

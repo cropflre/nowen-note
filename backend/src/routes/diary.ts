@@ -32,6 +32,11 @@ import {
   MIME_TO_EXT,
 } from "./attachments";
 import {
+  deleteAttachmentObject,
+  readAttachmentObject,
+  writeAttachmentObject,
+} from "../services/attachment-storage";
+import {
   getUserWorkspaceRole,
   canManageResource,
   requireWorkspaceFeature,
@@ -681,11 +686,10 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
   const id = crypto.randomUUID();
   const ext = MIME_TO_EXT[mime] || "bin";
   const filename = `${id}.${ext}`;
-  const savePath = path.join(getAttachmentsDir(), filename);
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(savePath, buffer);
+    await writeAttachmentObject(filename, buffer, mime);
   } catch (err: any) {
     return c.json({ error: `写入文件失败: ${err?.message || err}` }, 500);
   }
@@ -697,7 +701,7 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
     ).run(id, userId, scope.workspaceId, mime, file.size, filename);
   } catch (err: any) {
     try {
-      fs.unlinkSync(savePath);
+      await deleteAttachmentObject(filename);
     } catch {
       /* ignore */
     }
@@ -762,7 +766,7 @@ diary.delete("/attachments/:id", (c) => {
  *   - <img> 标签拿不到 Authorization header 所以不能走 JWT；
  *   - 浏览器可以走长缓存（uuid 文件名不可变）。
  */
-export function handleDownloadDiaryImage(c: Context): Response {
+export async function handleDownloadDiaryImage(c: Context): Promise<Response> {
   const id = c.req.param("id");
   const db = getDb();
   const row = db
@@ -770,12 +774,10 @@ export function handleDownloadDiaryImage(c: Context): Response {
     .get(id) as { id: string; mimeType: string; path: string } | undefined;
   if (!row) return c.json({ error: "图片不存在" }, 404);
 
-  const absPath = path.join(getAttachmentsDir(), row.path);
-  if (!fs.existsSync(absPath)) {
-    return c.json({ error: "图片文件丢失" }, 404);
+  const buffer = await readAttachmentObject(row.path);
+  if (!buffer) {
+    return c.json({ error: "image file missing" }, 404);
   }
-
-  const buffer = fs.readFileSync(absPath);
   return new Response(buffer, {
     headers: {
       "Content-Type": row.mimeType || "application/octet-stream",

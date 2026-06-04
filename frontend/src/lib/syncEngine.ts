@@ -33,7 +33,7 @@ import {
   deleteTag,
   isReady as localStoreReady,
 } from "@/lib/localStore";
-import { flushQueue, getQueue as getOfflineQueue } from "@/lib/offlineQueue";
+import { flushQueue, getQueue as getOfflineQueue, getQueueLength, subscribe as subscribeOfflineQueue } from "@/lib/offlineQueue";
 import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
 import type { Note, User } from "@/types";
 
@@ -44,12 +44,40 @@ let state: SyncState = "idle";
 let lastError: string | null = null;
 const stateListeners = new Set<(s: SyncState) => void>();
 
+export interface SyncSummary {
+  state: SyncState;
+  lastError: string | null;
+  pending: number;
+  lastSyncAt: number | null;
+}
+
+const summaryListeners = new Set<(s: SyncSummary) => void>();
+let lastSyncAtCache: number | null = null;
+let queueSubscribed = false;
+
+function buildSummary(): SyncSummary {
+  return {
+    state,
+    lastError,
+    pending: getQueueLength(),
+    lastSyncAt: lastSyncAtCache,
+  };
+}
+
+function notifySummary() {
+  const summary = buildSummary();
+  summaryListeners.forEach((fn) => {
+    try { fn(summary); } catch { /* ignore */ }
+  });
+}
+
 function setState(s: SyncState, err?: string) {
   state = s;
   lastError = err || null;
   stateListeners.forEach((fn) => {
     try { fn(s); } catch { /* ignore */ }
   });
+  notifySummary();
 }
 
 export function getSyncState(): { state: SyncState; lastError: string | null } {
@@ -59,6 +87,68 @@ export function getSyncState(): { state: SyncState; lastError: string | null } {
 export function subscribeSyncState(fn: (s: SyncState) => void): () => void {
   stateListeners.add(fn);
   return () => { stateListeners.delete(fn); };
+}
+
+export function getSyncSummary(): SyncSummary {
+  return buildSummary();
+}
+
+export function subscribeSyncSummary(fn: (s: SyncSummary) => void): () => void {
+  if (!queueSubscribed) {
+    queueSubscribed = true;
+    subscribeOfflineQueue(() => notifySummary());
+  }
+  summaryListeners.add(fn);
+  fn(buildSummary());
+  return () => { summaryListeners.delete(fn); };
+}
+
+async function pullServerSnapshot(): Promise<void> {
+  const [notebooksRes, notesRes, tagsRes] = await Promise.allSettled([
+    api.getNotebooks(),
+    api.getNotes(),
+    api.getTags(),
+  ]);
+
+  if (notebooksRes.status === "fulfilled") {
+    const localNotebooks = await getAllNotebooks();
+    const remoteIds = new Set(notebooksRes.value.map((n) => n.id));
+    for (const nb of localNotebooks) {
+      if (!remoteIds.has(nb.id)) await deleteNotebook(nb.id);
+    }
+    await putNotebooks(notebooksRes.value);
+  } else {
+    console.warn("[syncEngine] pull notebooks failed:", notebooksRes.reason);
+  }
+
+  if (notesRes.status === "fulfilled") {
+    const localNotes = await getAllNotes();
+    const remoteIds = new Set(notesRes.value.map((n) => n.id));
+    const queueIds = await getQueuedNoteIds();
+    for (const note of localNotes) {
+      if (!remoteIds.has(note.id) && !queueIds.has(note.id)) {
+        await deleteNote(note.id);
+      }
+    }
+    await putNoteListItems(notesRes.value);
+  } else {
+    console.warn("[syncEngine] pull notes list failed:", notesRes.reason);
+  }
+
+  if (tagsRes.status === "fulfilled") {
+    const localTags = await getAllTags();
+    const remoteIds = new Set(tagsRes.value.map((t) => t.id));
+    for (const t of localTags) {
+      if (!remoteIds.has(t.id)) await deleteTag(t.id);
+    }
+    await putTags(tagsRes.value);
+  } else {
+    console.warn("[syncEngine] pull tags failed:", tagsRes.reason);
+  }
+
+  lastSyncAtCache = Date.now();
+  await setMeta("lastSyncAt", lastSyncAtCache);
+  notifySummary();
 }
 
 // ─── Bootstrap：登录后调一次 ───────────────────────────────────────────────────
@@ -92,58 +182,34 @@ export async function bootstrap(user: User): Promise<void> {
       });
     }
 
-    // 并行拉三类元数据；任一失败时单独捕获 —— 比如标签接口暂时挂了
-    // 不应该拖累笔记本/笔记列表的缓存
-    const [notebooksRes, notesRes, tagsRes] = await Promise.allSettled([
-      api.getNotebooks(),
-      api.getNotes(),
-      api.getTags(),
-    ]);
-
-    if (notebooksRes.status === "fulfilled") {
-      // Phase E: 服务端已删除的笔记本 → 从本地清掉
-      const localNotebooks = await getAllNotebooks();
-      const remoteIds = new Set(notebooksRes.value.map((n) => n.id));
-      for (const nb of localNotebooks) {
-        if (!remoteIds.has(nb.id)) await deleteNotebook(nb.id);
-      }
-      await putNotebooks(notebooksRes.value);
-    } else {
-      console.warn("[syncEngine] pull notebooks failed:", notebooksRes.reason);
-    }
-    if (notesRes.status === "fulfilled") {
-      // 同上：服务端不返回的笔记 → 本地删除。
-      // 但要注意：offline queue 里还有 createNote 未 flush 的本地新增笔记，
-      //   它们服务端暂不知道，不能误删。为简化逻辑：
-      //   只删 "本地有、服务端没、且不在调度队列里" 的。
-      const localNotes = await getAllNotes();
-      const remoteIds = new Set(notesRes.value.map((n) => n.id));
-      const queueIds = await getQueuedNoteIds();
-      for (const note of localNotes) {
-        if (!remoteIds.has(note.id) && !queueIds.has(note.id)) {
-          await deleteNote(note.id);
-        }
-      }
-      await putNoteListItems(notesRes.value);
-    } else {
-      console.warn("[syncEngine] pull notes list failed:", notesRes.reason);
-    }
-    if (tagsRes.status === "fulfilled") {
-      const localTags = await getAllTags();
-      const remoteIds = new Set(tagsRes.value.map((t) => t.id));
-      for (const t of localTags) {
-        if (!remoteIds.has(t.id)) await deleteTag(t.id);
-      }
-      await putTags(tagsRes.value);
-    } else {
-      console.warn("[syncEngine] pull tags failed:", tagsRes.reason);
-    }
-
-    await setMeta("lastSyncAt", Date.now());
+    await pullServerSnapshot();
     setState("ready");
   } catch (e: unknown) {
     console.warn("[syncEngine] bootstrap failed:", e);
     setState("error", e instanceof Error ? e.message : String(e));
+  }
+}
+
+export async function syncNow(): Promise<{ ok: boolean; pending: number; lastSyncAt?: number; error?: string }> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    const err = "offline";
+    setState("error", err);
+    return { ok: false, pending: getQueueLength(), lastSyncAt: lastSyncAtCache ?? undefined, error: err };
+  }
+
+  setState("bootstrapping");
+  try {
+    if (getQueueLength() > 0) {
+      await flushQueue(offlineQueueFetch);
+    }
+    await pullServerSnapshot();
+    setState("ready");
+    return { ok: true, pending: getQueueLength(), lastSyncAt: lastSyncAtCache ?? undefined };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[syncEngine] syncNow failed:", e);
+    setState("error", msg);
+    return { ok: false, pending: getQueueLength(), lastSyncAt: lastSyncAtCache ?? undefined, error: msg };
   }
 }
 
@@ -175,7 +241,9 @@ export function teardown(): void {
 export async function getLastSyncAt(): Promise<number | null> {
   if (!localStoreReady()) return null;
   const v = await getMeta<number>("lastSyncAt");
-  return typeof v === "number" ? v : null;
+  lastSyncAtCache = typeof v === "number" ? v : null;
+  notifySummary();
+  return lastSyncAtCache;
 }
 
 /**

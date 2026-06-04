@@ -97,6 +97,7 @@ interface NowenDesktopAPI {
   quitAndInstall: () => Promise<{ ok: boolean }>;
   getAppInfo: () => Promise<AppInfo>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
+  openDataDir?: () => Promise<{ ok: boolean; path: string }>;
   setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;
   /** 上报格式状态（同步菜单 checked）。preload 中已白名单化，仅 send，无 ack。 */
   sendFormatState?: (state: FormatStateSnapshot | null) => void;
@@ -108,6 +109,7 @@ interface NowenDesktopAPI {
   };
   getLocalAuth?: () => Promise<{ token: string; user: unknown } | null>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
+  resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; user?: unknown; error?: string }>;
   isDesktop: true;
   platform: string;
   /**
@@ -255,6 +257,18 @@ export async function openLogDir(): Promise<void> {
   const bridge = getBridge();
   if (!bridge) return;
   await bridge.openLogDir();
+}
+
+export async function openDataDir(): Promise<{ ok: boolean; path?: string; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.openDataDir) return { ok: false, reason: "not-supported" };
+  return bridge.openDataDir();
+}
+
+export async function resetDesktopLocalAuth(): Promise<{ ok: boolean; token?: string; user?: unknown; error?: string; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.resetLocalAuth) return { ok: false, reason: "not-supported" };
+  return bridge.resetLocalAuth();
 }
 
 /**

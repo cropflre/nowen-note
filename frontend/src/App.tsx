@@ -26,7 +26,8 @@ import { ConfirmProvider } from "@/components/ui/confirm";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
 import { getServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
-import { bootstrap as syncBootstrap, teardown as syncTeardown } from "@/lib/syncEngine";
+import { bootstrap as syncBootstrap, teardown as syncTeardown, syncNow } from "@/lib/syncEngine";
+import { realtime } from "@/lib/realtime";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
 import CommandPalette from "@/components/common/CommandPalette";
@@ -373,6 +374,13 @@ function AppLayout() {
     window.addEventListener("nowen:offline-queued", onQueued);
     return () => window.removeEventListener("nowen:offline-queued", onQueued);
   }, [actions]);
+
+  useEffect(() => {
+    const off = realtime.on("open", () => {
+      void syncNow().catch((e) => console.warn("[App] sync after realtime open failed:", e));
+    });
+    return off;
+  }, []);
 
 
   // P0: Android 返回键处理

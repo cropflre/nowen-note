@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("app:open-log-dir");
   },
 
+  /** 打开本地数据目录，便于用户备份/定位 SQLite 与附件数据。 */
+  openDataDir() {
+    return ipcRenderer.invoke("app:open-data-dir");
+  },
+
   /** 设置 Windows/Linux 原生菜单栏是否隐藏。 */
   setHideMenuBar(next) {
     return ipcRenderer.invoke("app:set-hide-menu-bar", Boolean(next));
@@ -228,5 +233,8 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   },
   clearLocalAuth() {
     return ipcRenderer.invoke("desktop:clear-local-auth");
+  },
+  resetLocalAuth() {
+    return ipcRenderer.invoke("desktop:reset-local-auth");
   },
 });

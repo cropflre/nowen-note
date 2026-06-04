@@ -2776,6 +2776,90 @@ export const api = {
   //   - scanOrphans 是\"只扫不删\"的预览，仅管理员，可在删除前展示\"将释放 X MB\"
   // ============================================================
   attachmentsAdmin: {
+    getStorageStatus: () =>
+      request<{
+        storage: {
+          driver: "local" | "s3";
+          localDir: string;
+          bucket?: string;
+          endpoint?: string;
+          prefix?: string;
+          migrationCommand?: string;
+        };
+        db: {
+          rows: number;
+          bytes: number;
+          attachments: { count: number; bytes: number };
+          diaryAttachments: { count: number; bytes: number };
+          taskAttachments: { count: number; bytes: number };
+        };
+        local: { dir: string; files: number; bytes: number };
+        migrationCommand?: string | null;
+        checkedAt: string;
+      }>("/attachments/_storage/status"),
+
+    getStorageConfig: () =>
+      request<{
+        enabled: boolean;
+        endpoint: string;
+        region: string;
+        bucket: string;
+        accessKeyId: string;
+        prefix: string;
+        secretAccessKeySet: boolean;
+        source: "settings" | "env" | "default";
+        updatedAt: string | null;
+      }>("/attachments/_storage/config"),
+
+    putStorageConfig: (
+      input: {
+        enabled: boolean;
+        endpoint: string;
+        region?: string;
+        bucket: string;
+        accessKeyId: string;
+        secretAccessKey?: string;
+        prefix?: string;
+      },
+      sudoToken?: string,
+    ) =>
+      request<{
+        enabled: boolean;
+        endpoint: string;
+        region: string;
+        bucket: string;
+        accessKeyId: string;
+        prefix: string;
+        secretAccessKeySet: boolean;
+        source: "settings" | "env" | "default";
+        updatedAt: string | null;
+      }>("/attachments/_storage/config", { method: "PUT", body: JSON.stringify(input), sudoToken }),
+
+    testStorageConfig: (sudoToken?: string) =>
+      request<{ ok: boolean; error?: string }>("/attachments/_storage/test", { method: "POST", sudoToken }),
+
+    checkRemoteStorage: (limit = 50) =>
+      request<{
+        ok: boolean;
+        skipped: boolean;
+        reason?: string;
+        storage: {
+          driver: "local" | "s3";
+          localDir: string;
+          bucket?: string;
+          endpoint?: string;
+          prefix?: string;
+          migrationCommand?: string;
+        };
+        total: number;
+        limit: number;
+        checked: number;
+        exists: number;
+        missing: Array<{ path: string; size: number; refs: number; status?: number }>;
+        errors: Array<{ path: string; size: number; refs: number; status?: number; error: string }>;
+        checkedAt: string;
+      }>(`/attachments/_storage/remote-check?limit=${encodeURIComponent(limit)}`),
+
     /** GET /api/attachments/_orphans/scan — 仅扫描，不删除 */
     scanOrphans: (graceHours = 24) =>
       request<{

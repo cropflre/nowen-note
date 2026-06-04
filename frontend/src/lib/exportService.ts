@@ -860,7 +860,17 @@ export async function exportAllNotes(
     const notes = await api.getExportNotes(options?.workspaceId) as ExportNote[];
 
     if (!notes || notes.length === 0) {
-      onProgress?.({ phase: "error", current: 0, total: 0, message: i18n.t('export.noNotesToExport') });
+      const scopeLabel = options?.workspaceId === "personal"
+        ? "个人空间"
+        : options?.workspaceId
+        ? "所选工作区"
+        : "当前空间";
+      onProgress?.({
+        phase: "error",
+        current: 0,
+        total: 0,
+        message: `${i18n.t('export.noNotesToExport')}（范围：${scopeLabel}）`,
+      });
       return false;
     }
 
