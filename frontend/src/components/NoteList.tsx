@@ -15,7 +15,7 @@ import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
-import DOMPurify from "dompurify";
+import { highlightText, stripSearchMarks } from "@/lib/searchHighlight";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -995,18 +995,6 @@ function PullToRefresh({
 }
 
 
-/** 搜索高亮：将文本中的搜索关键词用 <mark> 包裹 */
-function highlightText(text: string, query: string): string {
-  if (!query || !text) return text;
-  const keywords = query.split(/\s+/).filter(Boolean);
-  let result = DOMPurify.sanitize(text);
-  for (const kw of keywords) {
-    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`(${escaped})`, "gi");
-    result = result.replace(re, '<mark class="search-result-highlight">$1</mark>');
-  }
-  return result;
-}
 // 这里刻意不用 React.forwardRef：framer-motion v12 的 <AnimatePresence> 内部
 // PopChild 会通过 `child.ref` 读取子元素 ref 转交给自己的 wrapper，而 React 18.3
 // 起把 `ref` 视为非普通 prop，访问会触发
@@ -1137,7 +1125,7 @@ const NoteCard = React.memo(function NoteCard({
             - overflow-wrap-anywhere 避免极长 URL 撑破容器。 */}
         {preview && (
           searchQuery ? (
-            <p className="note-card-preview text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(preview, { ADD_TAGS: ["mark"], ADD_ATTR: ["class"] }) }} />
+            <p className="note-card-preview text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: highlightText(preview, searchQuery) }} />
           ) : (
             <p className="text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
           )
@@ -1194,6 +1182,7 @@ function VirtualNoteList({
   onTouchMove,
   onTouchEnd,
   noteCardRefs,
+  searchQuery,
 }: {
   notes: NoteListItem[];
   activeNoteId: string | undefined;
@@ -1212,6 +1201,7 @@ function VirtualNoteList({
   onTouchMove?: (e: React.TouchEvent) => void;
   onTouchEnd?: () => void;
   noteCardRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
+  searchQuery?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1284,6 +1274,7 @@ function VirtualNoteList({
               onTouchStart={(e) => onTouchStart?.(note.id, e)}
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
@@ -1396,7 +1387,7 @@ export default function NoteList() {
         notebookId: r.notebookId,
         workspaceId: null,
         title: r.title,
-        contentText: r.snippet,
+        contentText: stripSearchMarks(r.snippet),
         isPinned: r.isPinned,
         isFavorite: r.isFavorite,
         isArchived: 0,
@@ -3093,6 +3084,7 @@ export default function NoteList() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             noteCardRefs={noteCardRefs}
+            searchQuery={state.searchQuery || undefined}
           />
         ) : (
         <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
@@ -3121,6 +3113,7 @@ export default function NoteList() {
                 onTouchStart={(e) => handleTouchStart(note.id, e)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
+                searchQuery={state.searchQuery || undefined}
               />
             ))}
           </AnimatePresence>

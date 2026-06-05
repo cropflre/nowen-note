@@ -15,6 +15,7 @@ import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { reclaimSpace } from "../lib/reclaimSpace";
+import { buildFtsSearchTerm } from "../lib/searchQuery";
 
 const app = new Hono();
 
@@ -84,9 +85,11 @@ app.get("/", (c) => {
   }
 
   if (search) {
+    const searchTerm = buildFtsSearchTerm(search);
+    if (!searchTerm) return c.json([]);
     const ftsResults = db.prepare(`
       SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?
-    `).all(search) as { rowid: number }[];
+    `).all(searchTerm) as { rowid: number }[];
     if (ftsResults.length === 0) return c.json([]);
     const rowids = ftsResults.map((r) => r.rowid).join(",");
     query += ` AND notes.rowid IN (${rowids})`;

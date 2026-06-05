@@ -34,6 +34,7 @@ import {
   moveNoteInNotebookCache,
   upsertNoteInNotebookCache,
 } from "@/lib/notebookNoteCache";
+import { SIDEBAR_TREE_INDENT, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
 
 /* ===== Emoji 图标选择器 ===== */
 const EMOJI_GROUPS = [
@@ -407,6 +408,13 @@ function noteToListItem(note: Note): NoteListItem {
   } as NoteListItem;
 }
 
+function getMaxNotebookDepth(notebooks: Notebook[], depth = 0): number {
+  return notebooks.reduce((maxDepth, notebook) => {
+    const childDepth = notebook.children?.length ? getMaxNotebookDepth(notebook.children, depth + 1) : depth;
+    return Math.max(maxDepth, childDepth);
+  }, depth);
+}
+
 function noteTimeLabel(updatedAt: string): string {
   const d = new Date(updatedAt);
   const diff = Date.now() - d.getTime();
@@ -443,17 +451,17 @@ function SidebarNoteItem({
       onDragStart={(e) => onDragStart?.(e, note.id)}
       onDragEnd={() => onDragEnd?.()}
       className={cn(
-        "relative w-full flex items-center gap-2 pr-2 py-1 rounded-md text-left text-xs transition-colors min-w-0 cursor-grab active:cursor-grabbing",
+        "relative flex items-center gap-2 pr-2 py-1 rounded-md text-left text-xs transition-colors w-max min-w-full cursor-grab active:cursor-grabbing",
         active
           ? "bg-app-active text-tx-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
       )}
-      style={{ paddingLeft: `${depth * 28 + 42}px` }}
+      style={{ paddingLeft: `${depth * SIDEBAR_TREE_INDENT + 42}px`, minWidth: `${sidebarTreeRowMinWidth(depth)}px` }}
     >
       {depth > 0 && (
         <span
           className="absolute top-1/2 h-0.5 bg-tx-tertiary/35 pointer-events-none"
-          style={{ left: `${(depth - 1) * 28 + 35}px`, width: "22px" }}
+          style={{ left: `${(depth - 1) * SIDEBAR_TREE_INDENT + 35}px`, width: "22px" }}
         />
       )}
       <span
@@ -461,7 +469,7 @@ function SidebarNoteItem({
           "absolute top-2 bottom-2 w-0.5 rounded-full pointer-events-none",
           active ? "bg-accent-primary" : "bg-tx-tertiary/35"
         )}
-        style={{ left: `${depth * 28 + 31}px` }}
+        style={{ left: `${depth * SIDEBAR_TREE_INDENT + 31}px` }}
       />
       <FileText size={13} className={cn("shrink-0", active ? "text-accent-primary" : "text-tx-tertiary")} />
       <span className="flex-1 min-w-0">
@@ -567,20 +575,23 @@ function NotebookItem({
       {showBeforeIndicator && (
         <div
           className="h-0.5 bg-accent-primary rounded-full mx-2 my-0.5 pointer-events-none"
-          style={{ marginLeft: `${depth * 28 + 16}px` }}
+          style={{ marginLeft: `${depth * SIDEBAR_TREE_INDENT + 16}px` }}
         />
       )}
       <motion.div
         initial={{ opacity: 0, x: -8 }}
         animate={{ opacity: 1, x: 0 }}
         className={cn(
-          "relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors min-w-0",
+          "relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors w-max min-w-full",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
           showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15",
           isNoteDragOver && "outline outline-2 outline-accent-primary bg-accent-primary/10"
         )}
-        style={{ paddingLeft: `${depth === 0 ? 8 : depth * 28 + 20}px` }}
+        style={{
+          paddingLeft: `${depth === 0 ? 8 : depth * SIDEBAR_TREE_INDENT + 20}px`,
+          minWidth: `${sidebarTreeRowMinWidth(depth)}px`,
+        }}
         onClick={() => onSelect(notebook.id)}
         onContextMenu={(e) => onContextMenu(e, notebook.id)}
         onTouchStart={(e) => {
@@ -639,7 +650,7 @@ function NotebookItem({
         {depth > 0 && (
           <span
             className="absolute top-1/2 h-0.5 bg-tx-tertiary/35 pointer-events-none"
-            style={{ left: `${(depth - 1) * 28 + 35}px`, width: "14px" }}
+            style={{ left: `${(depth - 1) * SIDEBAR_TREE_INDENT + 35}px`, width: "14px" }}
           />
         )}
         {draggable && (
@@ -719,7 +730,7 @@ function NotebookItem({
           >
             <span
               className="absolute top-1 bottom-1 w-0.5 rounded-full bg-tx-tertiary/35 pointer-events-none"
-              style={{ left: `${depth * 28 + 35}px` }}
+              style={{ left: `${depth * SIDEBAR_TREE_INDENT + 35}px` }}
             />
             {notebook.children!.map((child) => (
               <NotebookItem
@@ -991,6 +1002,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const tagLongPressFired = useRef(false);
 
   const tree = useMemo(() => buildTree(state.notebooks), [state.notebooks]);
+  const notebookTreeMinWidth = useMemo(
+    () => sidebarTreeContentMinWidth(getMaxNotebookDepth(tree)),
+    [tree]
+  );
 
   useEffect(() => {
     notesByNotebookIdRef.current = notesByNotebookId;
@@ -2000,47 +2015,47 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             transition={{ duration: 0.2 }}
             className="flex-1 min-h-0 flex flex-col"
           >
-      <ScrollArea className="flex-1 min-h-0 px-1">
-        <div className="space-y-0.5 pb-2">
-          {tree.map((nb) => (
-            <NotebookItem
-              key={nb.id}
-              notebook={nb}
-              depth={0}
-              onSelect={handleNotebookSelect}
-              selectedId={state.selectedNotebookId}
-              onToggle={handleToggle}
-              onContextMenu={(e, id) => openMenu(e, id, "notebook")}
-              onLongPress={(x, y, id) => openMenuAt(x, y, id, "notebook")}
-              editingId={editingId}
-              editValue={editValue}
-              onEditChange={setEditValue}
-              onEditSubmit={handleEditSubmit}
-              onEditCancel={handleEditCancel}
-              onIconChange={handleIconChange}
-              draggable={true}
-              onDragStart={handleNbDragStart}
-              onDragOver={handleNbDragOver}
-              onDragEnd={handleNbDragEnd}
-              onDrop={handleNbDrop}
-              dragOverId={dragOverNbId}
-              dragOverZone={dragOverNbZone}
-              noteDragOverId={dragOverNoteNotebookId}
-              showNotes={showNotesInNotebookTree}
-              notesByNotebookId={notesByNotebookId}
-              loadingNotebookIds={loadingNotebookIds}
-              activeNoteId={state.activeNote?.id ?? null}
-              onSelectNote={handleSelectSidebarNote}
-              onNoteContextMenu={(e, id) => openMenu(e, id, "note")}
-              onNoteDragStart={handleSidebarNoteDragStart}
-              onNoteDragOver={handleSidebarNoteDragOver}
-              onNoteDragEnd={handleSidebarNoteDragEnd}
-              onNoteDrop={handleSidebarNoteDrop}
-              onCreateNote={handleCreateSidebarNote}
-            />
-          ))}
-        </div>
-      </ScrollArea>
+            <ScrollArea className="flex-1 min-h-0 px-1" scrollbars="both" type="always">
+              <div className="space-y-0.5 pb-3 w-max min-w-full pr-2" style={{ minWidth: `${notebookTreeMinWidth}px` }}>
+                {tree.map((nb) => (
+                  <NotebookItem
+                    key={nb.id}
+                    notebook={nb}
+                    depth={0}
+                    onSelect={handleNotebookSelect}
+                    selectedId={state.selectedNotebookId}
+                    onToggle={handleToggle}
+                    onContextMenu={(e, id) => openMenu(e, id, "notebook")}
+                    onLongPress={(x, y, id) => openMenuAt(x, y, id, "notebook")}
+                    editingId={editingId}
+                    editValue={editValue}
+                    onEditChange={setEditValue}
+                    onEditSubmit={handleEditSubmit}
+                    onEditCancel={handleEditCancel}
+                    onIconChange={handleIconChange}
+                    draggable={true}
+                    onDragStart={handleNbDragStart}
+                    onDragOver={handleNbDragOver}
+                    onDragEnd={handleNbDragEnd}
+                    onDrop={handleNbDrop}
+                    dragOverId={dragOverNbId}
+                    dragOverZone={dragOverNbZone}
+                    noteDragOverId={dragOverNoteNotebookId}
+                    showNotes={showNotesInNotebookTree}
+                    notesByNotebookId={notesByNotebookId}
+                    loadingNotebookIds={loadingNotebookIds}
+                    activeNoteId={state.activeNote?.id ?? null}
+                    onSelectNote={handleSelectSidebarNote}
+                    onNoteContextMenu={(e, id) => openMenu(e, id, "note")}
+                    onNoteDragStart={handleSidebarNoteDragStart}
+                    onNoteDragOver={handleSidebarNoteDragOver}
+                    onNoteDragEnd={handleSidebarNoteDragEnd}
+                    onNoteDrop={handleSidebarNoteDrop}
+                    onCreateNote={handleCreateSidebarNote}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
           </motion.div>
         )}
       </AnimatePresence>
