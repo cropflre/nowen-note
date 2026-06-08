@@ -1,0 +1,13 @@
+{
+  "modelVersion": "6.1.1",
+  "name": "nowen-harmony",
+  "version": "1.0.0",
+  "description": "Nowen Note HarmonyOS App",
+  "main": "",
+  "author": "Nowen",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}

@@ -1,0 +1,10 @@
+﻿# HarmonyOS
+/node_modules
+/oh_modules
+/.hvigor
+/.idea
+/build
+*.har
+*.hap
+/local.properties
+/.cxx

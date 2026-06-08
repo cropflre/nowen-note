@@ -37,3 +37,17 @@ bt-detail.json
 bt-pkgs.json
 node-procs.txt
 vs-list.json
+
+# 鸿蒙构建产物
+nowen-harmony/.hvigor/
+nowen-harmony/.idea/
+nowen-harmony/build/
+nowen-harmony/oh_modules/
+nowen-harmony/*.har
+nowen-harmony/*.hap
+nowen-harmony/local.properties
+nowen-harmony/.cxx/
+nowen-harmony/cache/
+nowen-harmony/outputs/
+nowen-harmony/report/
+nowen-harmony/.deveco/
