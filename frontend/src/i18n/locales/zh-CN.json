@@ -1298,7 +1298,14 @@
     "dragToMove": "拖拽画布移动 · 滚轮缩放",
     "downloadPNG": "下载为 PNG",
     "downloadSVG": "下载为 SVG",
-    "downloadXmind": "下载为 .xmind"
+    "downloadXmind": "下载为 .xmind",
+    "addChild": "添加子节点",
+    "addSibling": "添加同级节点",
+    "editNode": "编辑",
+    "deleteNode": "删除",
+    "cannotAddSiblingToRoot": "根节点不能添加同级节点",
+    "fullscreen": "全屏编辑",
+    "exitFullscreen": "退出全屏"
   },
   "ai": {
     "title": "AI 智能配置",

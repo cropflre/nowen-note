@@ -1284,7 +1284,14 @@
     "dragToMove": "Drag to pan · Scroll to zoom",
     "downloadPNG": "Download as PNG",
     "downloadSVG": "Download as SVG",
-    "downloadXmind": "Download as .xmind"
+    "downloadXmind": "Download as .xmind",
+    "addChild": "Add Child",
+    "addSibling": "Add Sibling",
+    "editNode": "Edit",
+    "deleteNode": "Delete",
+    "cannotAddSiblingToRoot": "Cannot add sibling to root node",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit Fullscreen"
   },
   "ai": {
     "title": "AI Configuration",
