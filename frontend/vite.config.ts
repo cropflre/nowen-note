@@ -57,12 +57,10 @@ export default defineConfig({
             '@tiptap/extension-task-list',
             '@tiptap/extension-underline',
           ],
-          'vendor-ui': [
+          'vendor-lib': [
             'framer-motion',
             'lucide-react',
             'react-icons',
-          ],
-          'vendor-utils': [
             'jszip',
             'react-markdown',
             'remark-gfm',
