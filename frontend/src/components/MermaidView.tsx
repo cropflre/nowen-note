@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Mermaid 预览 React 组件
  *
  * 用途：
@@ -19,9 +19,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { renderMermaid, resetMermaidTheme } from "@/lib/mermaidRenderer";
-import { AlertTriangle, Loader2, Maximize2, Minus, Plus, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Loader2, Maximize2, Minus, Plus, RotateCcw, X, Copy, Download, Code } from "lucide-react";
 
+import { toast } from "@/lib/toast";
 interface MermaidViewProps {
+  /** Mermaid 源码 */
   source: string;
   /** debounce 毫秒；编辑器场景需要稍长，渲染场景给 0 */
   debounceMs?: number;
@@ -276,12 +278,24 @@ export const MermaidView: React.FC<MermaidViewProps> = ({
           </div>
         </div>
         {showSourceOnError && (
-          <details className="mt-2">
-            <summary className="text-[11px] cursor-pointer text-tx-tertiary">查看源码</summary>
-            <pre className="mt-1 text-[11px] font-mono whitespace-pre-wrap break-words text-tx-secondary opacity-90">
-              {source}
-            </pre>
-          </details>
+          <>
+            <details className="mt-2">
+              <summary className="text-[11px] cursor-pointer text-tx-tertiary">查看源码</summary>
+              <pre className="mt-1 text-[11px] font-mono whitespace-pre-wrap break-words text-tx-secondary opacity-90">
+                {source}
+              </pre>
+            </details>
+            <button
+              type="button"
+              className="mt-2 flex items-center gap-1 px-2 py-1 rounded text-[11px] text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover transition-colors"
+              onClick={() => {
+                navigator.clipboard.writeText(source).then(() => toast.success("已复制源码")).catch(() => {});
+              }}
+            >
+              <Copy size={11} />
+              复制源码
+            </button>
+          </>
         )}
       </div>
     );
@@ -292,24 +306,65 @@ export const MermaidView: React.FC<MermaidViewProps> = ({
       <div
         className={`mermaid-view group relative flex justify-center py-2 overflow-auto ${className ?? ""}`}
       >
-        {/* 右上角"放大"按钮：hover 显示，点击进入 Lightbox。
-            stopPropagation 防止冒泡到外层（CodeBlockView 的 mermaid-preview-host
-            会把 click 视作"切到源码态"，那边处理逻辑必须避开本按钮）。 */}
-        <button
-          type="button"
-          className="absolute top-1.5 right-1.5 z-10 p-1.5 rounded-md bg-app-surface/85 border border-app-border text-tx-secondary hover:text-tx-primary hover:bg-app-hover opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shadow-sm"
-          title="放大预览"
-          aria-label="放大预览"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setPreviewOpen(true);
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <Maximize2 size={13} />
-        </button>
+        {/* 右上角工具组：hover 显示 */}
+        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <button
+            type="button"
+            className="p-1.5 rounded-md bg-app-surface/85 border border-app-border text-tx-secondary hover:text-tx-primary hover:bg-app-hover shadow-sm"
+            title="复制源码"
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              navigator.clipboard.writeText(source).then(() => toast.success("已复制源码")).catch(() => {});
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Code size={13} />
+          </button>
+          <button
+            type="button"
+            className="p-1.5 rounded-md bg-app-surface/85 border border-app-border text-tx-secondary hover:text-tx-primary hover:bg-app-hover shadow-sm"
+            title="复制 SVG"
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              navigator.clipboard.writeText(svg).then(() => toast.success("已复制 SVG")).catch(() => {});
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Copy size={13} />
+          </button>
+          <button
+            type="button"
+            className="p-1.5 rounded-md bg-app-surface/85 border border-app-border text-tx-secondary hover:text-tx-primary hover:bg-app-hover shadow-sm"
+            title="下载 SVG"
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              const blob = new Blob([svg], { type: "image/svg+xml" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = "mermaid.svg"; a.click();
+              URL.revokeObjectURL(url);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Download size={13} />
+          </button>
+          <button
+            type="button"
+            className="p-1.5 rounded-md bg-app-surface/85 border border-app-border text-tx-secondary hover:text-tx-primary hover:bg-app-hover shadow-sm"
+            title="放大预览"
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setPreviewOpen(true);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Maximize2 size={13} />
+          </button>
+        </div>
         <div
           className="mermaid-view-svg w-full flex justify-center"
           // mermaid 出的 svg 已是受控来源，且 securityLevel:'strict' 不会执行任意脚本

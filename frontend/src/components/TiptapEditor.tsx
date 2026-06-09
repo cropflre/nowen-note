@@ -1,4 +1,4 @@
-import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+﻿import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
 
@@ -43,7 +43,7 @@ import {
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download,
   Type, Palette, Eraser, ChevronDown, Search,
   // 表格气泡菜单图标
-  Rows3, Columns3, Merge, Split, Heading,
+  Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { cn } from "@/lib/utils";
@@ -2179,6 +2179,15 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         };
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      appendMarkdown: (md: string) => {
+        if (!editor || editor.isDestroyed) return false;
+        try {
+          const html = mdToFullHtml(md);
+          const docEnd = editor.state.doc.content.size;
+          editor.chain().insertContentAt(docEnd, html).run();
+          return true;
+        } catch { return false; }
+      },
     }),
     [editor],
   );
@@ -3487,6 +3496,23 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           title={t('tiptap.insertMermaid')}
         >
           <Workflow size={iconSize} />
+        </ToolbarButton>
+        {/* 思维导图：插入 mermaid mindmap 代码块 */}
+        <ToolbarButton
+          onClick={() => {
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "codeBlock",
+                attrs: { language: "mermaid" },
+                content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
+              })
+              .run();
+          }}
+          title={t('tiptap.insertMindMap')}
+        >
+          <Network size={iconSize} />
         </ToolbarButton>
         {/* LaTeX 数学公式：块级 mathBlock，空 latex 让 NodeView 自动进入编辑态 */}
         <ToolbarButton

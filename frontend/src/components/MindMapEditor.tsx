@@ -480,6 +480,18 @@ export default function MindMapCenter() {
     }
   }, []);
 
+  // 监听来自笔记编辑器的“保存为思维导图”事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent).detail?.id;
+      if (id) {
+        loadMaps().then(() => handleSelect(id));
+      }
+    };
+    window.addEventListener("nowen:open-mindmap", handler);
+    return () => window.removeEventListener("nowen:open-mindmap", handler);
+  }, [loadMaps, handleSelect]);
+
   // 自动保存
   const triggerSave = useCallback((data: MindMapData, title?: string) => {
     if (!activeMap) return;
