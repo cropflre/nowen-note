@@ -1350,7 +1350,8 @@
     "templateAnalysis": "问题分析",
     "chooseTemplate": "选择模板",
     "renameFolder": "重命名文件夹",
-    "deleteFolder": "删除文件夹"
+    "deleteFolder": "删除文件夹",
+    "starred": "收藏"
   },
   "ai": {
     "title": "AI 智能配置",

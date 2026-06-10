@@ -777,6 +777,7 @@ export default function MindMapCenter() {
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [searchIndex, setSearchIndex] = useState(0);
   const [listSearch, setListSearch] = useState("");
+  const [showStarredOnly, setShowStarredOnly] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
@@ -1979,6 +1980,9 @@ export default function MindMapCenter() {
               placeholder={t("mindMap.searchNodes")}
               className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none"
             />
+            <button onClick={() => setShowStarredOnly(v => !v)} className={cn("p-0.5 rounded transition-colors", showStarredOnly ? "text-amber-400" : "text-tx-tertiary hover:text-amber-400")} title={t("mindMap.starred")}>
+              <Star size={13} className={showStarredOnly ? "fill-amber-400" : ""} />
+            </button>
             {listSearch && (
               <button onClick={() => setListSearch("")} className="text-tx-tertiary hover:text-tx-secondary">
                 <span className="text-[10px]">✕</span>
@@ -1994,7 +1998,7 @@ export default function MindMapCenter() {
             </div>
           ) : (() => {
             const q = listSearch.trim().toLowerCase();
-            const filteredMaps = maps.filter(m => !q || m.title.toLowerCase().includes(q));
+            const filteredMaps = maps.filter(m => (!q || m.title.toLowerCase().includes(q)) && (!showStarredOnly || m.starred));
             const filteredFolders = folders.filter(f => !q || f.name.toLowerCase().includes(q));
             const topFolders = filteredFolders.filter((f: any) => !f.parentId);
             const childFolders = (parentId: string) => filteredFolders.filter((f: any) => f.parentId === parentId);

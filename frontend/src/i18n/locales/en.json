@@ -1336,7 +1336,8 @@
     "templateAnalysis": "Problem Analysis",
     "chooseTemplate": "Choose Template",
     "renameFolder": "Rename folder",
-    "deleteFolder": "Delete folder"
+    "deleteFolder": "Delete folder",
+    "starred": "Starred"
   },
   "ai": {
     "title": "AI Configuration",
