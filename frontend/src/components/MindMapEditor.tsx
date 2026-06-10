@@ -2047,7 +2047,7 @@ export default function MindMapCenter() {
                     ) : (
                       <span className="flex-1 truncate text-tx-primary">{folder.name}</span>
                     )}
-                    <span className="text-[10px] text-tx-tertiary">{folder.mindmapCount ?? 0}</span>
+                    <span className="text-[10px] text-tx-tertiary">{filteredMaps.filter(m => m.folderId === folder.id).length}</span>
                     <button onClick={(e) => { e.stopPropagation(); if (confirm(t("mindMap.confirmDeleteFolder"))) { api.deleteMindMapFolder(folder.id).then(() => { loadFolders(); loadMaps(); }); } }} className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all"><Trash2 size={12} /></button>
                   </div>
                   {isExpanded && (
