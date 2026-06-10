@@ -1304,6 +1304,8 @@
     "importFailed": "Import failed",
     "exportFailed": "Export failed",
     "clipboardEmpty": "Clipboard is empty",
+    "searchNodes": "Search nodes",
+    "noResults": "No results",
     "layoutRight": "Right layout",
     "layoutBoth": "Left-right layout",
     "themes": "Theme Templates",

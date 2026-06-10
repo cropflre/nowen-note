@@ -1318,6 +1318,8 @@
     "importFailed": "导入失败",
     "exportFailed": "导出失败",
     "clipboardEmpty": "剪贴板为空",
+    "searchNodes": "搜索节点",
+    "noResults": "无匹配结果",
     "layoutRight": "右向布局",
     "layoutBoth": "左右平衡布局",
     "themes": "主题模板",

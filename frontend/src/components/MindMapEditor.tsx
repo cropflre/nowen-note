@@ -3,7 +3,7 @@ import {
   BrainCircuit, Plus, Trash2, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
   Loader2, Check, Map, Menu, PanelLeftClose, Image, FileImage, FileDown, MoreHorizontal,
-  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette
+  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace } from "@/lib/api";
@@ -272,13 +272,13 @@ function NodeBox({
   node, isSelected, isEditing, editValue,
   onSelect, onDoubleClick, onEditChange, onEditSubmit,
   onToggleCollapse, isMobile, onContextMenu, nodeData,
-  markerIcons,
+  markerIcons, isSearchMatch, isSearchActive,
 }: {
   node: LayoutNode;
   isSelected: boolean;
   isEditing: boolean;
   editValue: string;
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onEditChange: (v: string) => void;
   onEditSubmit: () => void;
@@ -287,6 +287,8 @@ function NodeBox({
   onContextMenu: (e: React.MouseEvent) => void;
   nodeData?: MindMapNode;
   markerIcons?: React.ReactNode;
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const color = getNodeColor(node.depth);
@@ -307,7 +309,7 @@ function NodeBox({
         <div
           className={cn(
             "flex items-center h-full px-3 rounded-lg cursor-pointer select-none transition-shadow text-sm font-medium whitespace-nowrap overflow-hidden",
-            isSelected && "ring-2 ring-indigo-400/60 ring-offset-1 dark:ring-offset-zinc-900 shadow-sm"
+            isSelected && "ring-2 ring-indigo-400/60 ring-offset-1 dark:ring-offset-zinc-900 shadow-sm", isSearchMatch && "ring-2 ring-amber-400/70", isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20"
           )}
           style={{
             background: nodeData?.style?.bg || color.bg,
@@ -698,8 +700,73 @@ export default function MindMapCenter() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<string[]>([]);
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [listSearch, setListSearch] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+
+  // 节点搜索
+  useEffect(() => {
+    if (!searchQuery.trim() || !mapData) { setSearchResults([]); setSearchIndex(0); return; }
+    const q = searchQuery.trim().toLowerCase();
+    const results: string[] = [];
+    const walk = (n: MindMapNode) => {
+      if (n.text.toLowerCase().includes(q) || n.note?.toLowerCase().includes(q) || n.link?.toLowerCase().includes(q)) {
+        results.push(n.id);
+      }
+      n.children?.forEach(walk);
+    };
+    walk(mapData.root);
+    setSearchResults(results);
+    setSearchIndex(results.length > 0 ? 0 : -1);
+  }, [searchQuery, mapData]);
+
+  // 自动展开匹配节点的父级 + 居中
+  useEffect(() => {
+    if (searchResults.length === 0 || searchIndex < 0 || !mapData) return;
+    const targetId = searchResults[searchIndex];
+    const expandParents = (node: MindMapNode, path: MindMapNode[]): boolean => {
+      if (node.id === targetId) {
+        path.forEach(p => { if (p.collapsed) p.collapsed = false; });
+        return true;
+      }
+      return node.children?.some(c => expandParents(c, [...path, node])) ?? false;
+    };
+    const newRoot = JSON.parse(JSON.stringify(mapData.root));
+    expandParents(newRoot, []);
+    if (JSON.stringify(newRoot) !== JSON.stringify(mapData.root)) {
+      setMapData({ ...mapData, root: newRoot });
+    }
+    const targetNode = layoutNodes.find(n => n.id === targetId);
+    if (targetNode && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const cx = targetNode.x + targetNode.width / 2;
+      const cy = targetNode.y + targetNode.height / 2;
+      setPan({ x: rect.width / 2 - cx * zoom, y: rect.height / 2 - cy * zoom });
+    }
+    setSelectedNodeId(targetId);
+  }, [searchIndex, searchResults]);
+
+  // Ctrl+F 打开搜索
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && activeMap) {
+        e.preventDefault();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false);
+        setSearchQuery("");
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showSearch, activeMap]);
 
   // 加载列表
   const loadMaps = useCallback(async () => {
@@ -1191,7 +1258,22 @@ export default function MindMapCenter() {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.08 : 0.08;
-      setZoom((z) => Math.max(0.3, Math.min(2.5, z + delta)));
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        setZoom((z) => {
+          const newZoom = Math.max(0.3, Math.min(2.5, z + delta));
+          const scale = newZoom / z;
+          setPan((p) => ({
+            x: mouseX - (mouseX - p.x) * scale,
+            y: mouseY - (mouseY - p.y) * scale,
+          }));
+          return newZoom;
+        });
+      } else {
+        setZoom((z) => Math.max(0.3, Math.min(2.5, z + delta)));
+      }
     } else {
       setPan((p) => ({ x: p.x - e.deltaX * 0.5, y: p.y - e.deltaY * 0.5 }));
     }
@@ -1669,13 +1751,30 @@ export default function MindMapCenter() {
             {t("mindMap.totalCount", { count: maps.length })}
           </div>
         </div>
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-app-bg border border-app-border">
+            <SearchIcon size={13} className="text-tx-tertiary flex-shrink-0" />
+            <input
+              type="text"
+              value={listSearch}
+              onChange={(e) => setListSearch(e.target.value)}
+              placeholder={t("mindMap.searchNodes")}
+              className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none"
+            />
+            {listSearch && (
+              <button onClick={() => setListSearch("")} className="text-tx-tertiary hover:text-tx-secondary">
+                <span className="text-[10px]">✕</span>
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="flex-1 overflow-auto p-3 space-y-2">
           {isLoading ? (
             <div className="flex items-center justify-center h-20 text-tx-tertiary text-sm">
               {t("common.loading")}
             </div>
-          ) : maps.length === 0 ? (
+          ) : maps.filter(m => !listSearch.trim() || m.title.toLowerCase().includes(listSearch.trim().toLowerCase())).length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-tx-tertiary">
               <BrainCircuit size={32} className="mb-2 opacity-30" />
               <span className="text-xs">{t("mindMap.empty")}</span>
@@ -1687,7 +1786,7 @@ export default function MindMapCenter() {
               </button>
             </div>
           ) : (
-            maps.map((m) => (
+            maps.filter(m => !listSearch.trim() || m.title.toLowerCase().includes(listSearch.trim().toLowerCase())).map((m) => (
               <MindMapListRow
                 key={m.id}
                 item={m}
@@ -1828,8 +1927,40 @@ export default function MindMapCenter() {
                 >
                   <ArrowDownToLine size={16} />
                 </button>
+                <button
+                  onClick={() => { setShowSearch(v => !v); setTimeout(() => searchInputRef.current?.focus(), 50); }}
+                  className={cn("p-1.5 rounded-md transition-colors", showSearch ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-500" : "hover:bg-app-hover text-tx-secondary")}
+                >
+                  <SearchIcon size={16} />
+                </button>
               </div>
             </div>
+            {showSearch && (
+              <div className="px-2 sm:px-4 py-1.5 border-b border-app-border bg-app-surface/30 flex items-center gap-2">
+                <SearchIcon size={14} className="text-tx-tertiary flex-shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (e.shiftKey) setSearchIndex(i => searchResults.length > 0 ? (i - 1 + searchResults.length) % searchResults.length : -1);
+                      else setSearchIndex(i => searchResults.length > 0 ? (i + 1) % searchResults.length : -1);
+                    }
+                    if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(""); }
+                  }}
+                  placeholder={t("mindMap.searchNodes")}
+                  className="flex-1 bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary outline-none"
+                />
+                <span className="text-xs text-tx-tertiary whitespace-nowrap">
+                  {searchResults.length > 0 ? `${searchIndex + 1} / ${searchResults.length}` : searchQuery ? t("mindMap.noResults") : ""}
+                </span>
+                <button onClick={() => setSearchIndex(i => searchResults.length > 0 ? (i - 1 + searchResults.length) % searchResults.length : -1)} className="p-1 rounded hover:bg-app-hover text-tx-secondary disabled:opacity-30" disabled={searchResults.length === 0}><ChevronUp size={14} /></button>
+                <button onClick={() => setSearchIndex(i => searchResults.length > 0 ? (i + 1) % searchResults.length : -1)} className="p-1 rounded hover:bg-app-hover text-tx-secondary disabled:opacity-30" disabled={searchResults.length === 0}><ChevronDown size={14} /></button>
+                <button onClick={() => { setShowSearch(false); setSearchQuery(""); }} className="p-1 rounded hover:bg-app-hover text-tx-secondary"><span className="text-xs">✕</span></button>
+              </div>
+            )}
 
             <div className="flex-1 flex overflow-hidden">
               {showOutline && (
@@ -1950,6 +2081,8 @@ export default function MindMapCenter() {
                     key={n.id}
                     node={n}
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
+                    isSearchMatch={searchResults.includes(n.id)}
+                    isSearchActive={searchResults.length > 0 && searchIndex >= 0 && searchResults[searchIndex] === n.id}
                     isEditing={editingNodeId === n.id}
                     editValue={editValue}
                     onSelect={(e?: React.MouseEvent) => { if (drawingRelation) { handleRelationClick(n.id); return; } if (e && (e.ctrlKey || e.metaKey)) { setSelectedNodeIds((ids) => ids.includes(n.id) ? ids.filter((id) => id !== n.id) : [...ids, n.id]); setSelectedNodeId(n.id); } else { setSelectedNodeIds([n.id]); setSelectedNodeId(n.id); }}}
