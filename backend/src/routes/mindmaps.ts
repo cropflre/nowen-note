@@ -16,7 +16,6 @@
  */
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
-import { canManageResource } from "../middleware/acl";
 import { v4 as uuidv4 } from "uuid";
 import {
   canManageResource,

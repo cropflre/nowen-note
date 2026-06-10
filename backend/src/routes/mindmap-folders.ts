@@ -57,7 +57,7 @@ app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
       ? "SELECT * FROM mindmap_folders WHERE workspaceId = ? ORDER BY sortOrder, name"
       : "SELECT * FROM mindmap_folders WHERE userId = ? AND workspaceId IS NULL ORDER BY sortOrder, name";
   const param = scope.scope === "workspace" ? scope.workspaceId : userId;
-  const rows = db.prepare(sql).all(param);
+  const rows = db.prepare(sql).all(param) as FolderRow[];
 
   // 附加每个文件夹内的导图数量
   const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM mindmaps WHERE folderId = ?");
