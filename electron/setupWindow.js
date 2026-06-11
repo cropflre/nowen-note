@@ -1,4 +1,4 @@
-// electron/setupWindow.js
+﻿// electron/setupWindow.js
 //
 // "选择服务器"窗口（首启 Lite / 菜单"切换到轻量模式…" / "更换服务器…"时弹出）。
 //
@@ -163,7 +163,7 @@ const HTML = String.raw`
 
   <div class="section-title">服务器地址</div>
   <div class="field">
-    <input id="url" type="text" placeholder="http://192.168.1.10:3000" autocomplete="off" spellcheck="false" />
+    <input id="url" type="text" placeholder="https://fnos.net/user:3001 或 http://192.168.1.10:3001" autocomplete="off" spellcheck="false" />
     <button id="probe">测试连接</button>
   </div>
 
