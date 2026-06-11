@@ -468,25 +468,25 @@ function FloatingToolbar({
   return (
     <div className="absolute z-40 flex items-center gap-1.5"
       style={{ left: position.x, top: position.y, transform: "translateX(-50%)" }}>
-      <button className={cn("flex items-center gap-1 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ease-out shadow-md shadow-blue-500/20", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
+      <button className={cn("flex items-center gap-1 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ease-out shadow-md shadow-blue-500/20 border border-blue-400/50", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
         onClick={(e) => { e.stopPropagation(); onAddChild(); }}>
         <Plus size={isMobile ? 14 : 10} />
         <span className="hidden sm:inline">{t("mindMap.addChild")}</span>
       </button>
       {!isRoot && (
-        <button className={cn("flex items-center gap-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
+        <button className={cn("flex items-center gap-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm border border-gray-200/80 dark:border-white/[0.08]", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
           onClick={(e) => { e.stopPropagation(); onAddSibling(); }}>
           <MoreHorizontal size={isMobile ? 14 : 10} />
           <span className="hidden sm:inline">{t("mindMap.addSibling")}</span>
         </button>
       )}
-      <button className={cn("flex items-center gap-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
+      <button className={cn("flex items-center gap-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm border border-gray-200/80 dark:border-white/[0.08]", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
         onClick={(e) => { e.stopPropagation(); onEdit(); }}>
         <Edit2 size={isMobile ? 14 : 10} />
         <span className="hidden sm:inline">{t("mindMap.editNode")}</span>
       </button>
       <div className="relative" ref={moreRef}>
-        <button className={cn("rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm", isMobile ? "p-2" : "p-1.5")}
+        <button className={cn("rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/[0.12] active:bg-gray-300 dark:active:bg-white/[0.16] transition-colors duration-150 ease-out shadow-sm border border-gray-200/80 dark:border-white/[0.08]", isMobile ? "p-2" : "p-1.5")}
           onClick={(e) => { e.stopPropagation(); setShowMore(!showMore); }}>
           <MoreHorizontal size={isMobile ? 14 : 10} />
         </button>
