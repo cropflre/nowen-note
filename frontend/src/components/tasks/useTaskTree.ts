@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { Task, TaskFilter } from "@/types";
 import { buildTaskTree, type TaskTreeNode } from "./taskProgress";
 

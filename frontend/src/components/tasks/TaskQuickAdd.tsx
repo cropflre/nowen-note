@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Plus, X, ImagePlus, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -34,13 +34,11 @@ export function TaskQuickAdd({
   value,
   onChange,
   onSubmit,
-  onUploaded,
   inputRef,
 }: {
   value: string;
   onChange: (v: string) => void;
-  onSubmit: () => void;
-  onUploaded: (orphanIds: string[]) => void;
+  onSubmit: (orphanIds: string[]) => Promise<boolean>;
   inputRef: React.RefObject<HTMLInputElement>;
 }) {
   const { t } = useTranslation();
@@ -100,13 +98,13 @@ export function TaskQuickAdd({
     }
   }, [t, value]);
 
-  // 提交：交还给父组件创建任务；父组件创建成功后会把 orphans 列表 bind 回去
+  // 提交：交还给父组件创建任务（附带 orphan ids），父组件创建成功后绑定附件
   const handleSubmit = () => {
     if (!value.trim()) return;
-    onSubmit();
-    // 把孤儿列表交给父组件处理 bind，本地清除
-    onUploaded(orphans.map((o) => o.id));
-    setOrphans([]);
+    const orphanIds = orphans.map((o) => o.id);
+    onSubmit(orphanIds);
+    // 注意：不要在这里清空 orphans，等父组件创建成功后通过回调清除
+    // 创建失败时保留预览，避免用户上传的图片丢失
   };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {

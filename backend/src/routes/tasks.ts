@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+﻿import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import crypto from "crypto";
@@ -249,6 +249,33 @@ tasks.put("/:id", (c) => {
     const sortOrder = body.sortOrder ?? existing.sortOrder;
 
     // 重新挂接父任务时再次校验同域约束
+
+    // 禁止 parentId 指向自己
+    if (parentId === id) {
+      return c.json({ error: "不能将任务设为自己的子任务", code: "INVALID_PARENT_TASK" }, 400);
+    }
+
+    // 禁止移动到自己的子孙节点下面（防止循环引用）
+    if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
+      const isDescendant = (db: any, candidateId: string, taskId: string): boolean => {
+        const visited = new Set<string>();
+        const queue = [taskId];
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (visited.has(current)) continue;
+          visited.add(current);
+          const children = db.prepare("SELECT id FROM tasks WHERE parentId = ?").all(current) as { id: string }[];
+          for (const child of children) {
+            if (child.id === candidateId) return true;
+            queue.push(child.id);
+          }
+        }
+        return false;
+      };
+      if (isDescendant(db, body.parentId, id)) {
+        return c.json({ error: "不能将任务移动到其子孙节点下面", code: "INVALID_PARENT_TASK" }, 400);
+      }
+    }
     if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
       const parent = db
         .prepare("SELECT workspaceId FROM tasks WHERE id = ?")

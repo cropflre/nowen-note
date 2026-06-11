@@ -1,4 +1,4 @@
-﻿import type { Task } from "@/types";
+import type { Task } from "@/types";
 
 /**
  * 树形任务节点：在 Task 基础上扩展 children 数组。

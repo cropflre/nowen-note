@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Flag, Trash2, X, Bell } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Task, TaskPriority } from "@/types";
 import type { TaskTreeNode } from "./taskProgress";
 import { calculateTaskProgress } from "./taskProgress";
-import { parseTaskTitle, TitleView } from "../TaskCenter";
+import { parseTaskTitle, TitleView } from "./taskTitleTokens";
 
 /* ===== 任务详情面板 ===== */
 export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {

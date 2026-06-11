@@ -1,10 +1,11 @@
-﻿import React from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
-import { format, parseISO, isPast } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { zhCN, enUS } from "date-fns/locale";
 import { BarChart3, CalendarDays, Clock } from "lucide-react";
 import type { Task, TaskStats } from "@/types";
 import { cn } from "@/lib/utils";
+import { isTaskDateOverdue } from "./DateBadge";
 
 /* ===== SVG 圆环进度 ===== */
 function ProgressRing({ value, size = 52, strokeWidth = 5 }: {
@@ -103,12 +104,12 @@ export function TaskOverview({
       <div className="flex items-center gap-4 p-4 rounded-xl bg-app-surface shadow-sm border border-app-border transition-colors">
         <div className={cn(
           "flex items-center justify-center w-12 h-12 rounded-full",
-          nearestDue && isPast(parseISO(nearestDue.dueDate!))
+          nearestDue && isTaskDateOverdue(nearestDue.dueDate!)
             ? "bg-red-500/10"
             : "bg-amber-500/10"
         )}>
           <Clock size={22} className={cn(
-            nearestDue && isPast(parseISO(nearestDue.dueDate!))
+            nearestDue && isTaskDateOverdue(nearestDue.dueDate!)
               ? "text-red-500"
               : "text-amber-500"
           )} />
@@ -124,12 +125,12 @@ export function TaskOverview({
               </div>
               <div className={cn(
                 "text-xs",
-                isPast(parseISO(nearestDue.dueDate!))
+                isTaskDateOverdue(nearestDue.dueDate!)
                   ? "text-red-500 font-medium"
                   : "text-tx-tertiary"
               )}>
                 {format(parseISO(nearestDue.dueDate!), "M月d日", { locale: dateLocale })}
-                {isPast(parseISO(nearestDue.dueDate!)) && ` (${t('tasks.overview.overdue')})`}
+                {isTaskDateOverdue(nearestDue.dueDate!) && ` (${t('tasks.overview.overdue')})`}
               </div>
             </>
           ) : (
