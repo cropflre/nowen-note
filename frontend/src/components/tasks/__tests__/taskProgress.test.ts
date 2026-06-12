@@ -13,6 +13,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     dueDate: overrides.dueDate ?? null,
     dueAt: overrides.dueAt ?? null,
     noteId: null,
+    projectId: null,
+    status: "todo",
     parentId: overrides.parentId ?? null,
     sortOrder: overrides.sortOrder ?? 0,
     createdAt: "2026-01-01T00:00:00",

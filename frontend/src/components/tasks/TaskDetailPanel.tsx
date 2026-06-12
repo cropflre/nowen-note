@@ -67,7 +67,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate || "");
   const [dueAt, setDueAt] = useState(task.dueAt || "");
-  const [repeatRule, setRepeatRule] = useState(task.repeatRule || "none");
+  const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
   const [repeatEndDate, setRepeatEndDate] = useState(task.repeatEndDate || "");
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -361,7 +361,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           <select
             value={repeatRule}
             onChange={(e) => {
-              const rule = e.target.value;
+              const rule = e.target.value as "none" | "daily" | "weekly" | "monthly" | "yearly";
               setRepeatRule(rule);
               if (rule === "none") {
                 onUpdate(task.id, { repeatRule: "none", repeatInterval: 1, repeatEndDate: null });

@@ -1,4 +1,4 @@
-ï»¿import React, { useState } from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2, Circle, Flag, ChevronRight, ChevronDown,
@@ -15,7 +15,7 @@ import { TitleView } from "./taskTitleTokens";
 import { DateBadge } from "./DateBadge";
 import { SubtaskInput } from "./SubtaskInput";
 
-/* ===== æ ‘å½¢ä»»åŠ¡è¡Œ ===== */
+/* ===== Ê÷ĞÎÈÎÎñĞĞ ===== */
 export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
   task: TaskTreeNode;
   depth: number;
@@ -71,7 +71,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         )}
         onClick={() => onSelect(task)}
       >
-        {/* å±•å¼€/æŠ˜å ç®­å¤´ */}
+        {/* Õ¹¿ª/ÕÛµş¼ıÍ· */}
         {hasChildren ? (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleExpand(task.id); }}
@@ -98,7 +98,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           )}
         </button>
 
-        {/* Title + å…ƒä¿¡æ¯ */}
+        {/* Title + ÔªĞÅÏ¢ */}
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
           <span
             className={cn(
@@ -134,9 +134,9 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           )}
         </div>
 
-        {/* å³ä¾§ badges */}
+        {/* ÓÒ²à badges */}
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-          {/* æ·»åŠ å­ä»»åŠ¡æŒ‰é’® â€” hover æ—¶æ˜¾ç¤º */}
+          {/* Ìí¼Ó×ÓÈÎÎñ°´Å¥ ¡ª hover Ê±ÏÔÊ¾ */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -164,7 +164,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           <span className="hidden md:inline-flex">
             <DateBadge dateStr={task.dueDate} dueAt={task.dueAt} />
           </span>
-          {isRepeatingTask(task) && <Repeat size={12} className="text-accent-primary/60" title={t(`tasks.repeat.${task.repeatRule}`)} />}
+          {isRepeatingTask(task) && <span title={t(`tasks.repeat.${task.repeatRule}`)}><Repeat size={12} className="text-accent-primary/60" /></span>}
           <Flag size={14} className={pri.flagClass} />
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
@@ -175,7 +175,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         </div>
       </motion.div>
 
-      {/* Inline å­ä»»åŠ¡è¾“å…¥æ¡† */}
+      {/* Inline ×ÓÈÎÎñÊäÈë¿ò */}
       <AnimatePresence>
         {showSubtaskInput && (
           <motion.div

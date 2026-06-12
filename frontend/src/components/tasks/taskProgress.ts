@@ -34,7 +34,7 @@ export function buildTaskTree(tasks: Task[]): TaskTreeNode[] {
       if (current === childId) return true;
       if (visited.has(current)) break; // 已有其他循环，终止
       visited.add(current);
-      const node = map.get(current)!;
+      const node: TaskTreeNode = map.get(current)!;
       current = node.parentId;
     }
     return false;
