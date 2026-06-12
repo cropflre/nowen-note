@@ -8,21 +8,20 @@ export function MobileProjectPicker({
   selectedProjectId,
   onSelect,
   onCreate,
+  onClose,
   t,
 }: {
   projects: TaskProject[];
   selectedProjectId: string | null;
   onSelect: (id: string | null) => void;
   onCreate: (name: string) => void;
+  onClose: () => void;
   t: (key: string) => string;
 }) {
-  const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
-  if (!open) return null;
-
   return (
-    <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setOpen(false)}>
+    <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={onClose}>
       <div
         className="absolute bottom-0 left-0 right-0 bg-app-surface rounded-t-2xl border-t border-app-border max-h-[60vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -30,12 +29,12 @@ export function MobileProjectPicker({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
           <span className="text-sm font-semibold text-tx-primary">{t("tasks.projects")}</span>
-          <button onClick={() => setOpen(false)} className="p-1"><X size={16} className="text-tx-secondary" /></button>
+          <button onClick={onClose} className="p-1"><X size={16} className="text-tx-secondary" /></button>
         </div>
 
         <div className="p-2 space-y-0.5">
           <button
-            onClick={() => { onSelect(null); setOpen(false); }}
+            onClick={() => { onSelect(null); onClose(); }}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm",
               !selectedProjectId ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary"
@@ -47,7 +46,7 @@ export function MobileProjectPicker({
           {projects.map((p) => (
             <button
               key={p.id}
-              onClick={() => { onSelect(p.id); setOpen(false); }}
+              onClick={() => { onSelect(p.id); onClose(); }}
               className={cn(
                 "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm",
                 selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary"
@@ -65,12 +64,12 @@ export function MobileProjectPicker({
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreate(newName.trim()); setNewName(""); setOpen(false); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreate(newName.trim()); setNewName(""); onClose(); } }}
               placeholder={t("tasks.newProject")}
               className="flex-1 px-2 py-1.5 text-xs rounded-md bg-app-bg border border-app-border text-tx-primary focus:outline-none focus:border-accent-primary"
             />
             <button
-              onClick={() => { if (newName.trim()) { onCreate(newName.trim()); setNewName(""); setOpen(false); } }}
+              onClick={() => { if (newName.trim()) { onCreate(newName.trim()); setNewName(""); onClose(); } }}
               className="p-1.5 rounded-md bg-accent-primary/10 text-accent-primary"
             >
               <Plus size={14} />
@@ -82,7 +81,6 @@ export function MobileProjectPicker({
   );
 }
 
-/** Trigger button for mobile project picker - rendered inline in mobile filter bar */
 export function MobileProjectTrigger({
   selectedProjectId,
   projects,

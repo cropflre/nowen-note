@@ -145,7 +145,7 @@ export function TaskBoardView({
                     className={cn(
                       "p-3 rounded-lg bg-app-surface border hover:shadow-md hover:border-accent-primary/30 cursor-pointer transition-all",
                       dragOverCol && dragId === task.id ? "opacity-50" : "",
-                      (task.isCompleted === 0 && task.dueDate && isTaskDateOverdue(task.dueDate, task.dueAt)) ? "border-red-300 dark:border-red-800" : "border-app-border"
+                      (task.isCompleted === 0 && (task.dueDate || task.dueAt) && isTaskDateOverdue(task.dueDate || (task.dueAt ? task.dueAt.split("T")[0] : ""), task.dueAt)) ? "border-red-300 dark:border-red-800" : "border-app-border"
                     )}
                     onClick={() => onSelect(task)}
                   >

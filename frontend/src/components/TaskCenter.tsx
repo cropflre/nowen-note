@@ -290,9 +290,10 @@ export default function TaskCenter() {
   };
 
   // === Create project ===
-  const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
-    const p = await createProject(newProjectName.trim());
+  const handleCreateProject = async (nameOverride?: string) => {
+    const name = nameOverride || newProjectName.trim();
+    if (!name) return;
+    const p = await createProject(name);
     if (p) {
       setSelectedProjectId(p.id);
       setNewProjectName("");
@@ -811,8 +812,9 @@ export default function TaskCenter() {
         <MobileProjectPicker
           projects={projects}
           selectedProjectId={selectedProjectId}
+          onClose={() => setMobileProjectOpen(false)}
           onSelect={(id) => { setSelectedProjectId(id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); setMobileProjectOpen(false); }}
-          onCreate={(name) => { setNewProjectName(name); handleCreateProject(); setMobileProjectOpen(false); }}
+          onCreate={async (name) => { await handleCreateProject(name); setMobileProjectOpen(false); }}
           t={t}
         />
       )}
