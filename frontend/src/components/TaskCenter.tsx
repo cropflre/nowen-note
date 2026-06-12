@@ -204,9 +204,13 @@ export default function TaskCenter() {
       prev.map((t) => (t.id === id ? { ...t, isCompleted: t.isCompleted ? 0 : 1, status: t.isCompleted ? "todo" : "done" } : t))
     );
     try {
-      const updated = await api.toggleTask(id);
+      const res = await api.toggleTask(id);
       // Use backend response for accurate state
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
+      setTasks((prev) => {
+        let updated = prev.map((t) => (t.id === id ? { ...t, ...res.task } : t));
+        if (res.generatedTask) updated = [...updated, res.generatedTask];
+        return updated;
+      });
       const s = await api.getTaskStats();
       setStats(s);
       refreshCounts();

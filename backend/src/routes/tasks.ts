@@ -386,13 +386,78 @@ tasks.put("/:id", (c) => {
       WHERE id = ?
     `).run(title, isCompleted, priority, dueDate, dueAt, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, id);
 
+    let generatedTask = null;
+    // Generate next repeated task when marking as done via PUT
+    if (isCompleted === 1 && existing.isCompleted === 0) {
+      generatedTask = generateNextRepeatedTask(db, existing);
+    }
+
     const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-    return c.json(updated);
+    return c.json({ task: updated, generatedTask });
   });
 });
 
 // 切换完成状态（快捷操作）
 // Y3: 切换完成状态视作"编辑"——走 canManageResource。
+/** Generate next repeated task. Returns the new task or null. */
+function generateNextRepeatedTask(db: any, task: any): any {
+  if (!task.repeatRule || task.repeatRule === "none" || task.repeatNextGeneratedId) return null;
+  const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
+  if (!baseDateStr) return null;
+
+  const interval = task.repeatInterval || 1;
+  const parts = baseDateStr.split("-").map(Number);
+  const base = new Date(parts[0], parts[1] - 1, parts[2]);
+  let next: Date;
+  switch (task.repeatRule) {
+    case "daily": next = new Date(base); next.setDate(next.getDate() + interval); break;
+    case "weekly": next = new Date(base); next.setDate(next.getDate() + 7 * interval); break;
+    case "monthly":
+      next = new Date(base); next.setMonth(next.getMonth() + interval);
+      if (next.getDate() !== base.getDate()) next.setDate(0);
+      break;
+    case "yearly":
+      next = new Date(base); next.setFullYear(next.getFullYear() + interval);
+      if (next.getDate() !== base.getDate()) next.setDate(0);
+      break;
+    default: return null;
+  }
+
+  if (task.repeatEndDate) {
+    const endParts = task.repeatEndDate.split("-").map(Number);
+    const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+    if (next > endDate) return null;
+  }
+
+  const yyyy = next.getFullYear();
+  const mm = String(next.getMonth() + 1).padStart(2, "0");
+  const dd = String(next.getDate()).padStart(2, "0");
+  const nextDateStr = `${yyyy}-${mm}-${dd}`;
+  let nextDueAt: string | null = null;
+  let nextDueDate = nextDateStr;
+  if (task.dueAt) {
+    const timePart = task.dueAt.split("T")[1] || "00:00:00";
+    nextDueAt = `${nextDateStr}T${timePart}`;
+  }
+
+  const newId = crypto.randomUUID();
+  const groupId = task.repeatGroupId || task.id;
+  db.prepare(`
+    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?)
+  `).run(newId, task.userId, task.workspaceId, task.title, task.priority, nextDueDate, nextDueAt, task.noteId, task.parentId, task.projectId, task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id);
+
+  db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run(newId, task.id);
+
+  const reminders = db.prepare("SELECT * FROM task_reminders WHERE taskId = ?").all(task.id) as any[];
+  for (const r of reminders) {
+    const rId = crypto.randomUUID();
+    db.prepare("INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))").run(rId, newId, r.userId, r.offsetMinutes, r.enabled);
+  }
+
+  return db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId);
+}
+
 tasks.patch("/:id/toggle", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -409,63 +474,9 @@ tasks.patch("/:id/toggle", (c) => {
   const newTaskStatus = newStatus === 1 ? "done" : "todo";
   db.prepare("UPDATE tasks SET isCompleted = ?, status = ?, updatedAt = datetime('now') WHERE id = ?").run(newStatus, newTaskStatus, id);
 
-  let generatedTask = null;
+  const generatedTask = newStatus === 1 ? generateNextRepeatedTask(db, task) : null;
 
-  if (newStatus === 1 && task.repeatRule && task.repeatRule !== "none" && !task.repeatNextGeneratedId) {
-    const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
-    if (baseDateStr) {
-      const interval = task.repeatInterval || 1;
-      const parts = baseDateStr.split("-").map(Number);
-      const base = new Date(parts[0], parts[1] - 1, parts[2]);
-      let next;
-      switch (task.repeatRule) {
-        case "daily": next = new Date(base); next.setDate(next.getDate() + interval); break;
-        case "weekly": next = new Date(base); next.setDate(next.getDate() + 7 * interval); break;
-        case "monthly":
-          next = new Date(base); next.setMonth(next.getMonth() + interval);
-          if (next.getDate() !== base.getDate()) next.setDate(0);
-          break;
-        case "yearly":
-          next = new Date(base); next.setFullYear(next.getFullYear() + interval);
-          if (next.getDate() !== base.getDate()) next.setDate(0);
-          break;
-        default: next = new Date(base);
-      }
-      let shouldGenerate = true;
-      if (task.repeatEndDate) {
-        const endParts = task.repeatEndDate.split("-").map(Number);
-        const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
-        if (next > endDate) shouldGenerate = false;
-      }
-      if (shouldGenerate) {
-        const yyyy = next.getFullYear();
-        const mm = String(next.getMonth() + 1).padStart(2, "0");
-        const dd = String(next.getDate()).padStart(2, "0");
-        const nextDateStr = `${yyyy}-${mm}-${dd}`;
-        let nextDueAt = null;
-        let nextDueDate = nextDateStr;
-        if (task.dueAt) {
-          const timePart = task.dueAt.split("T")[1] || "00:00:00";
-          nextDueAt = `${nextDateStr}T${timePart}`;
-        }
-        const newId = crypto.randomUUID();
-        const groupId = task.repeatGroupId || task.id;
-        db.prepare(`
-          INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
-          VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?)
-        `).run(newId, task.userId, task.workspaceId, task.title, task.priority, nextDueAt, nextDueAt || nextDueDate, task.noteId, task.parentId, task.projectId, task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id);
-        db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run(newId, id);
-        const reminders = db.prepare("SELECT * FROM task_reminders WHERE taskId = ?").all(id) as any[];
-        for (const r of reminders) {
-          const rId = crypto.randomUUID();
-          db.prepare("INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))").run(rId, newId, r.userId, r.offsetMinutes, r.enabled);
-        }
-        generatedTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId);
-      }
-    }
-  }
-
-  const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   return c.json({ task: updated, generatedTask });
 });
 
@@ -524,11 +535,19 @@ tasks.post("/batch", async (c) => {
   if (action === "complete") {
     db.prepare("UPDATE tasks SET isCompleted = 1, status = 'done', updatedAt = datetime(\"now\") WHERE id IN (" + ph + ")")
       .run(...allowedIds);
+
+    // Generate next repeated tasks
+    let generatedCount = 0;
+    for (const id of allowedIds) {
+      const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+      if (task && generateNextRepeatedTask(db, task)) generatedCount++;
+    }
+
+    return c.json({ success: true, affected: allowedIds.length, generatedCount });
   } else {
     db.prepare("DELETE FROM tasks WHERE id IN (" + ph + ")").run(...allowedIds);
+    return c.json({ success: true, affected: allowedIds.length });
   }
-
-  return c.json({ success: true, affected: allowedIds.length });
 });
 
 export default tasks;

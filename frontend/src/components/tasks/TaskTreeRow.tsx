@@ -164,7 +164,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           <span className="hidden md:inline-flex">
             <DateBadge dateStr={task.dueDate} dueAt={task.dueAt} />
           </span>
-          {isRepeatingTask(task) && <Repeat size={12} className="text-accent-primary/60" title={task.repeatRule} />}
+          {isRepeatingTask(task) && <Repeat size={12} className="text-accent-primary/60" title={t(`tasks.repeat.${task.repeatRule}`)} />}
           <Flag size={14} className={pri.flagClass} />
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
