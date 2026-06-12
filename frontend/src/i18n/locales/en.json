@@ -1121,7 +1121,9 @@
       "addReminder": "Add reminder",
       "noReminders": "No reminders",
       "enableReminder": "Enable reminder",
-      "disableReminder": "Disable reminder"
+      "disableReminder": "Disable reminder",
+      "noPermission": "No notification support",
+      "permissionDenied": "Notifications blocked"
     },
     "search": "Search tasks",
     "searchPlaceholder": "Search by title...",

@@ -1134,6 +1134,10 @@ export const api = {
   batchTasks: (ids: string[], action: "complete" | "delete") =>
     request<{ success: boolean; affected: number }>("/tasks/batch", { method: "POST", body: JSON.stringify({ ids, action }) }),
   // Task reminders
+  getRecentReminders: (since: number) =>
+    request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number }> }>(
+      `/task-reminders/recent?since=${since}`
+    ),
   getTaskReminders: (taskId: string) =>
     request<import("@/types").TaskReminder[]>(`/task-reminders/${taskId}`),
   createTaskReminder: (taskId: string, offsetMinutes: number) =>

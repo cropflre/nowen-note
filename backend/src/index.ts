@@ -1,4 +1,4 @@
-﻿import { serve } from "@hono/node-server";
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -411,23 +411,47 @@ app.route("/api/task-attachments", taskAttachmentsRouter);
 app.route("/api/task-reminders", taskRemindersRouter);
 app.route("/api/files", filesRouter);
 
-// 提醒扫描器：每 30 秒检查一次到期的提醒
-import { scanDueReminders, markReminderNotified } from "./routes/task-reminders";
+
+// Reminder scanner: check due reminders every 30s
+import { scanDueReminders, markReminderNotified, type PendingReminder } from "./routes/task-reminders";
+
+// In-memory ring buffer of recently triggered reminders (last 5 min)
+const recentReminders: (PendingReminder & { _triggeredAt: number })[] = [];
+const RECENT_TTL = 5 * 60 * 1000;
+
 let lastReminderScan = 0;
 setInterval(() => {
   const now = Date.now();
   if (now - lastReminderScan < 30000) return;
   lastReminderScan = now;
   try {
+    // Purge expired entries
+    for (let i = recentReminders.length - 1; i >= 0; i--) {
+      if (now - recentReminders[i]._triggeredAt > RECENT_TTL) recentReminders.splice(i, 1);
+    }
     const pending = scanDueReminders();
     for (const r of pending) {
       console.log(`[reminder] Task "${r.taskTitle}" (${r.taskId}) reminder due for user ${r.userId}`);
+      recentReminders.push({ ...r, _triggeredAt: now });
       markReminderNotified(r.reminderId);
     }
   } catch (e) {
     console.error("[reminder] scan failed:", e);
   }
 }, 30000);
+
+// Endpoint for frontend polling of recently triggered reminders
+app.get("/api/task-reminders/recent", (c) => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const since = c.req.query("since");
+  const sinceMs = since ? Number(since) : 0;
+  const mine = recentReminders
+    .filter((r) => r.userId === userId && r._triggeredAt > sinceMs)
+    .map((r) => ({ reminderId: r.reminderId, taskId: r.taskId, taskTitle: r.taskTitle, triggeredAt: r._triggeredAt }));
+  return c.json({ reminders: mine });
+});
+
 
 // 获取当前登录用户信息
 app.get("/api/me", (c) => {

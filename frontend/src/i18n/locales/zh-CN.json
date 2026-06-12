@@ -1133,7 +1133,9 @@
       "addReminder": "添加提醒",
       "noReminders": "暂无提醒",
       "enableReminder": "启用提醒",
-      "disableReminder": "禁用提醒"
+      "disableReminder": "禁用提醒",
+      "noPermission": "浏览器不支持通知",
+      "permissionDenied": "通知已被禁止"
     },
     "search": "搜索任务",
     "searchPlaceholder": "输入关键词搜索...",

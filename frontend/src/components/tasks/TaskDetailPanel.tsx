@@ -11,6 +11,30 @@ import type { TaskTreeNode } from "./taskProgress";
 import { calculateTaskProgress } from "./taskProgress";
 import { parseTaskTitle, TitleView } from "./taskTitleTokens";
 
+/** Shows a warning badge if notifications are not available */
+function NotificationStatusBadge({ t }: { t: (key: string) => string }) {
+  const desktop = (typeof window !== "undefined") ? (window as any).nowenDesktop : null;
+  if (desktop?.taskNotify) {
+    // Electron: native notifications always available
+    return null;
+  }
+  if (typeof Notification === "undefined") {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-500">
+        {t("tasks.reminder.noPermission") || "No notification support"}
+      </span>
+    );
+  }
+  if (Notification.permission === "denied") {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500">
+        {t("tasks.reminder.permissionDenied") || "Notifications blocked"}
+      </span>
+    );
+  }
+  return null;
+}
+
 /* preset offset options (minutes) */
 const PRESET_OFFSETS = [
   { minutes: 0, key: "atDue" },
@@ -316,6 +340,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               {t("tasks.reminder.title")}
             </span>
             {/* test notification button */}
+            <NotificationStatusBadge t={t} />
             <button
               onClick={handleTestNotification}
               className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-app-border text-tx-tertiary hover:text-accent-primary hover:border-accent-primary/30 transition-colors"
@@ -333,7 +358,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               {remindersLoading ? (
                 <div className="text-xs text-tx-tertiary">{t("common.loading")}</div>
               ) : reminders.length === 0 && !showAddReminder ? (
-                <p className="text-xs text-tx-tertiary">{t("tasks.noSubtasks") /* reuse or just say no reminders */}</p>
+                <p className="text-xs text-tx-tertiary">{t("tasks.reminder.noReminders")}</p>
               ) : (
                 <div className="space-y-1.5">
                   {reminders.map((r) => (
