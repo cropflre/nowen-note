@@ -30,7 +30,8 @@ import { FlatTaskRow } from "./tasks/FlatTaskRow";
 import { useReminderNotifier } from "./tasks/useReminderNotifier";
 import { useTaskProjects } from "./tasks/useTaskProjects";
 import { TaskBoardView } from "./tasks/TaskBoardView";
-import { TaskCalendarView, moveTaskToDate } from "./tasks/TaskCalendarView";
+import { TaskCalendarView } from "./tasks/TaskCalendarView";
+import { moveTaskToDate } from "./tasks/taskDateUtils";
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 
 /* ===== Main Component ===== */
@@ -869,5 +870,8 @@ export default function TaskCenter() {
     </div>
   );
 }
+
+
+
 
 

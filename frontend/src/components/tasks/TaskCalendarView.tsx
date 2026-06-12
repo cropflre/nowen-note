@@ -9,14 +9,11 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types";
 import { isTaskDateOverdue } from "./DateBadge";
+import { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
 import { TitleView } from "./taskTitleTokens";
 
-/** Get the effective date key for a task (dueAt > dueDate) */
-export function getTaskDateKey(task: Task): string | null {
-  if (task.dueAt) return task.dueAt.split("T")[0];
-  if (task.dueDate) return task.dueDate;
-  return null;
-}
+// Re-export for backward compat
+export { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
 
 /** Unified overdue check: supports dueAt-only tasks */
 function isCalendarTaskOverdue(task: Task): boolean {
@@ -37,22 +34,6 @@ function groupTasksByDate(tasks: Task[]): Map<string, Task[]> {
   return map;
 }
 
-/** Compute the update fields when moving a task to a target date. Returns null if no-op. */
-export function moveTaskToDate(task: Task, targetDateKey: string): Partial<Task> | null {
-  const currentKey = getTaskDateKey(task);
-  if (currentKey === targetDateKey) return null;
-
-  const patch: Partial<Task> = {};
-  if (task.dueAt) {
-    const timePart = task.dueAt.split("T")[1] || "00:00:00";
-    patch.dueAt = `${targetDateKey}T${timePart}`;
-    patch.dueDate = targetDateKey;
-  } else {
-    patch.dueDate = targetDateKey;
-  }
-  return patch;
-}
-
 export function TaskCalendarView({
   tasks,
   onSelect,
@@ -69,6 +50,7 @@ export function TaskCalendarView({
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const dragTaskRef = useRef<string | null>(null);
+  const isMobile = typeof navigator !== "undefined" && /Mobi|Android/i.test(navigator.userAgent);
 
   const taskMap = useMemo(() => groupTasksByDate(tasks), [tasks]);
 
@@ -110,7 +92,7 @@ export function TaskCalendarView({
 
   const MAX_VISIBLE = 2;
 
-  // --- Drag handlers ---
+  // --- Drag handlers (desktop only) ---
   const handleDragStart = useCallback((e: React.DragEvent, taskId: string) => {
     dragTaskRef.current = taskId;
     setDraggingTaskId(taskId);
@@ -192,9 +174,9 @@ export function TaskCalendarView({
                 <div
                   key={idx}
                   onClick={() => setSelectedDate(day)}
-                  onDragOver={(e) => handleDragOver(e, dateKey)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, dateKey)}
+                  onDragOver={isMobile ? undefined : (e) => handleDragOver(e, dateKey)}
+                  onDragLeave={isMobile ? undefined : handleDragLeave}
+                  onDrop={isMobile ? undefined : (e) => handleDrop(e, dateKey)}
                   className={cn(
                     "flex flex-col border-b border-r border-app-border/50 p-1 md:p-1.5 min-h-[60px] md:min-h-[80px] cursor-pointer transition-colors",
                     !inMonth && "opacity-30",
@@ -219,9 +201,9 @@ export function TaskCalendarView({
                         <div
                           key={task.id}
                           onClick={(e) => { e.stopPropagation(); onSelect(task); }}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, task.id)}
-                          onDragEnd={handleDragEnd}
+                          draggable={!isMobile}
+                          onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
+                          onDragEnd={isMobile ? undefined : handleDragEnd}
                           className={cn(
                             "text-[9px] md:text-[10px] leading-tight px-1 py-0.5 rounded truncate cursor-pointer transition-colors",
                             draggingTaskId === task.id && "opacity-40",
@@ -265,9 +247,9 @@ export function TaskCalendarView({
                   <div
                     key={task.id}
                     onClick={() => onSelect(task)}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, task.id)}
-                    onDragEnd={handleDragEnd}
+                    draggable={!isMobile}
+                    onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
+                    onDragEnd={isMobile ? undefined : handleDragEnd}
                     className={cn(
                       "px-3 py-2 rounded-lg border cursor-pointer transition-all hover:shadow-sm",
                       draggingTaskId === task.id && "opacity-40",
