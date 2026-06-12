@@ -12,6 +12,59 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.1.20 - 2026-06-12
+
+### ✨ 新增
+
+- Phase 4.7 - 任务模板 V1 (84c92c4)
+- Phase 4.6 - AI 拆任务 (f4bee48)
+- Phase 4.5 - 重复任务 (f161c89)
+- Phase 4.4 - 日历拖拽改截止日期 (7bd2ea5)
+- Phase 4.3 — 任务日历视图 (a153357)
+- Phase 4.2 — 项目编辑弹窗、移动端项目选择、看板拖拽、卡片增强 (bd9defe)
+- 补充 v22 迁移 — task_projects 表 + tasks 新增 projectId/status 字段（Phase 4 数据层遗漏修复） (c6cb7a3)
+- Phase 4 - task projects, kanban board view, status field, project sidebar (7d740bb)
+- frontend reminder system (b6fe42b)
+- **编辑器**: 选区气泡菜单增强——复制、全选、手机号拨号、URL 识别、横向滚动 (84b6f76)
+- **textActions**: 新增文本动作识别工具库，支持手机号拨号和 URL 检测 (4b3fbdb)
+- Phase 4 — 搜索、快捷键、批量操作、拖拽排序 (c2db189)
+- 任务中心 Phase 3 — 提醒系统 (1ffc575)
+- 任务中心 Phase 2 — 截止时间精确到分钟 + 倒计时 (813ba68)
+- 任务中心 Phase 1.5 — 子任务快捷新增、删除确认、详情子任务列表、父任务路径 (cd16252)
+- 任务中心 Phase 1 — 顶部概览、树形任务、进度条、详情进度 (45b44d7)
+
+### 🐛 修复
+
+- 修复 FlatTaskRow.tsx 编码损坏导致构建失败 (da530a0)
+- 修复 6 个 TypeScript 编译错误 (860f44f)
+- Phase 4.6.1 - AI 拆任务稳定化 (fa6a362)
+- **AI思维导图**: 修复 AI 返回思考过程导致 Mermaid 解析失败的问题 (5acd442)
+- Phase 4.5.2 - 重复任务收口 (4b0c008)
+- Phase 4.5.1 - 重复任务 hotfix (e1c6fd5)
+- 任务中心多语言修复 (f125cee)
+- Phase 4.4.3 - 拖拽成功后 loadTasks 刷新筛选视图 (aec282f)
+- Phase 4.4.2 - 拖拽后筛选刷新、BOM清理、注释修正 (4e59ac9)
+- Phase 4.4.1 - 日历拖拽稳定化 (515904a)
+- Phase 4.4 hotfix - 修复嵌套函数和缺失 prop (bcddcc8)
+- Phase 4.3.1 - 日历逾期统一、英文日期格式、空日期状态 (c442575)
+- Phase 4.2.2 — MobileProjectPicker 打不开、移动端新建项目旧 state、看板 dueAt-only 逾期 (1b3eb19)
+- Phase 4.2.1 — 移动端项目入口接入、工作区切换刷新、看板逾期判断、拖拽保护 (96ea808)
+- Phase 4.1.1 — status 枚举校验、批量完成同步、批量删除 descendants、工作区切换刷新项目 (5cd94cf)
+- Phase 4.1 — 项目绑定/权限/状态同步/计数刷新全面修复 (6c4ac43)
+- overdue filter and stats use datetime precision for dueAt (7ab46b0)
+- Phase 3.5 stability audit - reminder auth, overdue precision, notification status (3e006d8)
+- **EditorPane**: 修复移动端按钮 title 乱码和乱序问题 (44b6746)
+- tasks INSERT VALUES 缺少 dueAt 占位符（9 values for 10 columns） (2f3f37d)
+- migration v20 dueAt 列探测失败 — 改用 PRAGMA table_info 安全检测 (0cf18d3)
+- migrations.ts 模板字符串丢失反引号导致后端构建失败 (4ddb9e2)
+- 任务中心 Phase 1 全面修复 — 删除子任务、orphan 绑定、循环依赖、逾期判断、后端防护 (d7a916b)
+- 任务中心 Phase 1 审查修复 — 删除子任务残留、状态同步、循环防护 (f74a9f0)
+
+### ✅ 测试
+
+- Phase 3.5 - taskProgress, DateBadge, reminder scanner unit tests (8b4e0b9)
+
+
 ## v1.1.19 - 2026-06-11
 
 ### ✨ 新增
