@@ -8,10 +8,8 @@ import { api } from "@/lib/api";
  *   1. Frontend polls GET /api/task-reminders/recent?since=<ms> every 30s
  *   2. Backend scanner (30s interval) detects due reminders and stores them
  *      in a 5-min ring buffer, keyed by userId
- *   3. Frontend also scans via POST /api/task-reminders/test-now as fallback
- *      (only returns current user's reminders)
- *   4. Uses session-local notifiedSet to deduplicate
- *   5. Stops polling when tab is hidden
+ *   3. Uses session-local notifiedSet to deduplicate
+ *   4. Stops polling when tab is hidden
  */
 
 interface RecentReminder {
@@ -71,7 +69,7 @@ export function useReminderNotifier() {
 
     const scan = async () => {
       try {
-        // Method 1: Poll backend recent reminders endpoint
+        // Poll backend recent reminders endpoint
         try {
           const res = await fetch(
             `/api/task-reminders/recent?since=${lastScanRef.current}`,
@@ -91,30 +89,6 @@ export function useReminderNotifier() {
           }
         } catch {
           // fallback to test-now
-        }
-
-        // Method 2: Fallback scan via test-now endpoint
-        try {
-          const res2 = await fetch("/api/task-reminders/test-now", {
-            method: "POST",
-            headers: getAuthHeaders(),
-          });
-          if (res2.ok) {
-            const data2 = await res2.json();
-            const pending = data2.reminders || [];
-            for (const r of pending) {
-              if (notifiedSet.has(r.reminderId)) continue;
-              notifiedSet.add(r.reminderId);
-              const body = r.dueAt
-                ? `Due: ${r.dueAt}`
-                : r.dueDate
-                  ? `Due: ${r.dueDate}`
-                  : "";
-              sendNotification(`\u23F0 ${r.taskTitle}`, body);
-            }
-          }
-        } catch {
-          // ignore
         }
 
         lastScanRef.current = Date.now();
