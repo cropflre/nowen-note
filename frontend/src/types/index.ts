@@ -414,6 +414,7 @@ export interface TaskReminder {
   offsetMinutes: number;
   enabled: number;
   lastNotifiedAt: string | null;
+  snoozedUntil: string | null;
   createdAt: string;
   updatedAt: string;
 }
