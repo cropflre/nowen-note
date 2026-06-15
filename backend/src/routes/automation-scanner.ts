@@ -19,53 +19,45 @@ export interface SystemReminder {
 const dependencyReadySent = new Set<string>();
 const overdueDailySent = new Set<string>();
 
-function makeDepKey(userId: string, successorId: string, predecessorId: string) {
-  return `${userId}:${successorId}:${predecessorId}`;
-}
-
-function makeOverdueKey(userId: string, taskId: string, day: string) {
-  return `${userId}:${taskId}:${day}`;
-}
-
 /**
- * Scan for dependencies where predecessor just completed and successor is still pending.
- * Returns notifications for successors that can now start.
+ * Scan for dependencies where ALL predecessors of a successor are completed.
+ * Only then notify that the successor can start.
  *
- * Dedup: per user+successor+predecessor, in-memory. Restart re-notifies (acceptable).
+ * Dedup: per userId+successorId, in-memory. Restart re-notifies (acceptable).
  */
 export function scanDependencyReadyNotifications(): SystemReminder[] {
   const db = getDb();
 
-  // Find unfinished successors whose predecessor is completed
+  // Find unfinished successors that have at least one finish_to_start dependency,
+  // and ALL of their finish_to_start predecessors are completed.
   const rows = db.prepare(`
-    SELECT
-      d.id AS depId,
-      d.predecessorTaskId,
-      d.successorTaskId,
-      d.userId,
-      d.type AS depType,
-      pred.isCompleted AS predCompleted,
-      pred.title AS predTitle,
-      succ.isCompleted AS succCompleted,
-      succ.title AS succTitle
+    SELECT DISTINCT
+      succ.id AS successorTaskId,
+      succ.title AS succTitle,
+      succ.userId AS userId
     FROM task_dependencies d
-    JOIN tasks pred ON pred.id = d.predecessorTaskId
     JOIN tasks succ ON succ.id = d.successorTaskId
     WHERE d.type = 'finish_to_start'
-      AND pred.isCompleted = 1
       AND succ.isCompleted = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM task_dependencies d2
+        JOIN tasks pred2 ON pred2.id = d2.predecessorTaskId
+        WHERE d2.successorTaskId = d.successorTaskId
+          AND d2.type = 'finish_to_start'
+          AND pred2.isCompleted != 1
+      )
   `).all() as any[];
 
   const results: SystemReminder[] = [];
 
   for (const row of rows) {
-    const key = makeDepKey(row.userId, row.successorTaskId, row.predecessorTaskId);
+    const key = `dep-ready:${row.userId}:${row.successorTaskId}`;
     if (dependencyReadySent.has(key)) continue;
-
     dependencyReadySent.add(key);
 
     results.push({
-      reminderId: `dep-ready:${row.depId}`,
+      reminderId: `dep-ready:${row.successorTaskId}`,
       taskId: row.successorTaskId,
       taskTitle: row.succTitle,
       userId: row.userId,
@@ -79,41 +71,44 @@ export function scanDependencyReadyNotifications(): SystemReminder[] {
 /**
  * Scan for overdue tasks and produce a daily reminder.
  *
- * Uses the task's own userId (from tasks table, not from task_reminders).
- * Each task gets at most one overdue reminder per calendar day (UTC-based).
+ * Uses JS-side time comparison for dueAt (ISO string comparison is unreliable
+ * for same-day checks). Each task gets at most one overdue reminder per
+ * calendar day (local timezone).
  *
- * Dedup: per user+task+day, in-memory. Restart may re-notify for today (acceptable).
+ * Dedup: per userId+taskId+day, in-memory. Restart may re-notify for today (acceptable).
  */
 export function scanOverdueDailyNotifications(): SystemReminder[] {
   const db = getDb();
 
   const now = new Date();
-  const todayUtc = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const nowMs = now.getTime();
+  // Local date for daily dedup
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  // Find all incomplete tasks that have a due date in the past
-  // dueAt: if present, check < now
-  // dueDate: if present (and no dueAt), check < today (i.e., the whole day is past)
+  // Broad SQL: fetch candidates that have any due info, check in JS
   const rows = db.prepare(`
     SELECT id, title, userId, dueAt, dueDate
     FROM tasks
     WHERE isCompleted = 0
-      AND (
-        (dueAt IS NOT NULL AND dueAt < datetime('now'))
-        OR
-        (dueAt IS NULL AND dueDate IS NOT NULL AND dueDate < ?)
-      )
-  `).all(todayUtc) as any[];
+      AND (dueAt IS NOT NULL OR dueDate IS NOT NULL)
+  `).all() as any[];
 
   const results: SystemReminder[] = [];
 
   for (const row of rows) {
-    const key = makeOverdueKey(row.userId, row.id, todayUtc);
-    if (overdueDailySent.has(key)) continue;
+    const dueStr = row.dueAt || (row.dueDate ? row.dueDate + "T23:59:59" : null);
+    if (!dueStr) continue;
 
+    const dueMs = new Date(dueStr).getTime();
+    if (!Number.isFinite(dueMs)) continue;
+    if (dueMs >= nowMs) continue; // not overdue yet
+
+    const key = `${row.userId}:${row.id}:${todayLocal}`;
+    if (overdueDailySent.has(key)) continue;
     overdueDailySent.add(key);
 
     results.push({
-      reminderId: `overdue-daily:${row.id}:${todayUtc}`,
+      reminderId: `overdue-daily:${row.id}:${todayLocal}`,
       taskId: row.id,
       taskTitle: row.title,
       userId: row.userId,
