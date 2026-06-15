@@ -9,6 +9,23 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 
+
+/** Collect a task id and all its descendant ids (recursive via parentId). */
+function collectDescendantIds(db: any, rootIds: string[]): string[] {
+  const result = new Set<string>();
+  const queue = [...rootIds];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (result.has(current)) continue;
+    result.add(current);
+    const children = db.prepare("SELECT id FROM tasks WHERE parentId = ?").all(current) as { id: string }[];
+    for (const c of children) {
+      if (!result.has(c.id)) queue.push(c.id);
+    }
+  }
+  return [...result];
+}
+
 const tasks = new Hono();
 
 // ---------------------------------------------------------------------------
@@ -506,8 +523,14 @@ tasks.delete("/:id", (c) => {
     return c.json({ error: "无权删除该任务", code: "FORBIDDEN" }, 403);
   }
 
-  // Clean up dependencies referencing this task
-  db.prepare("DELETE FROM task_dependencies WHERE predecessorTaskId = ? OR successorTaskId = ?").run(id, id);
+  // Collect all descendants (children, grandchildren, etc.)
+  const idsToDelete = collectDescendantIds(db, [id]);
+  const ph = idsToDelete.map(() => "?").join(",");
+
+  // Clean up all dependencies referencing deleted tasks (including descendants)
+  db.prepare(`DELETE FROM task_dependencies WHERE predecessorTaskId IN (${ph}) OR successorTaskId IN (${ph})`).run(...idsToDelete, ...idsToDelete);
+
+  // Delete root task (children cascade via ON DELETE CASCADE)
   db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
   return c.json({ success: true });
 });
@@ -563,10 +586,14 @@ tasks.post("/batch", async (c) => {
 
     return c.json({ success: true, affected: toComplete.length, generatedCount });
   } else {
-    // Clean up dependencies referencing deleted tasks
-    for (const taskId of allowedIds) {
-      db.prepare("DELETE FROM task_dependencies WHERE predecessorTaskId = ? OR successorTaskId = ?").run(taskId, taskId);
-    }
+    // Collect all descendants of tasks being deleted
+    const idsToDelete = collectDescendantIds(db, allowedIds);
+    const dph = idsToDelete.map(() => "?").join(",");
+
+    // Clean up all dependencies referencing deleted tasks (including descendants)
+    db.prepare(`DELETE FROM task_dependencies WHERE predecessorTaskId IN (${dph}) OR successorTaskId IN (${dph})`).run(...idsToDelete, ...idsToDelete);
+
+    // Delete root tasks (children cascade via ON DELETE CASCADE)
     db.prepare("DELETE FROM tasks WHERE id IN (" + ph + ")").run(...allowedIds);
     return c.json({ success: true, affected: allowedIds.length });
   }
