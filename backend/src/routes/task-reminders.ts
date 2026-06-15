@@ -190,11 +190,13 @@ taskReminders.put("/:reminderId", async (c) => {
   const body = await c.req.json();
   const offsetMinutes = body.offsetMinutes ?? existing.offsetMinutes;
   const enabled = body.enabled ?? existing.enabled;
+  const hasSnoozedUntil = Object.prototype.hasOwnProperty.call(body, "snoozedUntil");
+  const snoozedUntil = hasSnoozedUntil ? body.snoozedUntil : existing.snoozedUntil;
 
   db.prepare(`
-    UPDATE task_reminders SET offsetMinutes = ?, enabled = ?, updatedAt = datetime('now')
+    UPDATE task_reminders SET offsetMinutes = ?, enabled = ?, snoozedUntil = ?, updatedAt = datetime('now')
     WHERE id = ?
-  `).run(offsetMinutes, enabled ? 1 : 0, reminderId);
+  `).run(offsetMinutes, enabled ? 1 : 0, snoozedUntil, reminderId);
 
   const updated = db.prepare("SELECT * FROM task_reminders WHERE id = ?").get(reminderId);
   return c.json(updated);
@@ -255,6 +257,7 @@ export function scanDueReminders(): PendingReminder[] {
       r.userId,
       r.offsetMinutes,
       r.lastNotifiedAt,
+      r.snoozedUntil,
       t.title AS taskTitle,
       t.dueAt,
       t.dueDate,

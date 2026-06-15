@@ -324,3 +324,95 @@ describe("reminderOverview grouping", () => {
     expect(result3.upcoming).toHaveLength(0);
   });
 });
+
+
+// Simulated scanDueReminders logic matching the updated backend
+interface ScanRow {
+  reminderId: string;
+  taskId: string;
+  taskTitle: string;
+  dueAt: string | null;
+  dueDate: string | null;
+  isCompleted: number;
+  enabled: number;
+  offsetMinutes: number;
+  lastNotifiedAt: string | null;
+  snoozedUntil: string | null;
+}
+
+function simulateScan(rows: ScanRow[], nowMs: number): ScanRow[] {
+  const pending: ScanRow[] = [];
+  for (const row of rows) {
+    if (row.isCompleted !== 0) continue;
+    if (row.enabled !== 1) continue;
+    const dueStr = row.dueAt || (row.dueDate ? row.dueDate + "T23:59:59" : null);
+    if (!dueStr) continue;
+    const dueMs = new Date(dueStr).getTime();
+    const reminderMs = dueMs - row.offsetMinutes * 60000;
+
+    // snooze override
+    if (row.snoozedUntil) {
+      const snoozeMs = new Date(row.snoozedUntil).getTime();
+      if (snoozeMs > nowMs) continue;
+      pending.push(row);
+      continue;
+    }
+
+    // Normal path
+    if (reminderMs > nowMs) continue;
+    if (row.lastNotifiedAt) {
+      const lastNotifiedMs = new Date(row.lastNotifiedAt).getTime();
+      if (lastNotifiedMs >= reminderMs) continue;
+    }
+    pending.push(row);
+  }
+  return pending;
+}
+
+describe("scanDueReminders snooze logic", () => {
+  it("snoozedUntil in future does not trigger", () => {
+    const rows: ScanRow[] = [{
+      reminderId: "sr1", taskId: "st1", taskTitle: "Snoozed",
+      dueAt: "2026-06-15T09:00:00Z", dueDate: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 0,
+      lastNotifiedAt: "2026-06-15T08:55:00Z",
+      snoozedUntil: new Date(NOW + 3600000).toISOString(),
+    }];
+    expect(simulateScan(rows, NOW)).toHaveLength(0);
+  });
+
+  it("snoozedUntil expired triggers regardless of lastNotifiedAt", () => {
+    const rows: ScanRow[] = [{
+      reminderId: "sr2", taskId: "st2", taskTitle: "Expired snooze",
+      dueAt: "2026-06-15T09:00:00Z", dueDate: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 0,
+      lastNotifiedAt: "2026-06-15T08:55:00Z",
+      snoozedUntil: new Date(NOW - 60000).toISOString(),
+    }];
+    const result = simulateScan(rows, NOW);
+    expect(result).toHaveLength(1);
+  });
+
+  it("snoozedUntil null falls through to normal scan", () => {
+    const rows: ScanRow[] = [{
+      reminderId: "sr3", taskId: "st3", taskTitle: "No snooze, past due",
+      dueAt: "2026-06-15T09:30:00Z", dueDate: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 0,
+      lastNotifiedAt: null,
+      snoozedUntil: null,
+    }];
+    const result = simulateScan(rows, NOW);
+    expect(result).toHaveLength(1);
+  });
+
+  it("no snooze, already notified, does not trigger", () => {
+    const rows: ScanRow[] = [{
+      reminderId: "sr4", taskId: "st4", taskTitle: "Already notified",
+      dueAt: "2026-06-15T09:30:00Z", dueDate: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 0,
+      lastNotifiedAt: "2026-06-15T09:30:00Z",
+      snoozedUntil: null,
+    }];
+    expect(simulateScan(rows, NOW)).toHaveLength(0);
+  });
+});
