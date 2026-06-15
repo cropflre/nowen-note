@@ -88,7 +88,7 @@ export function useReminderNotifier() {
             }
           }
         } catch {
-          // fallback to test-now
+          // ignore recent reminders polling failure
         }
 
         lastScanRef.current = Date.now();

@@ -13,6 +13,7 @@ interface ReminderRow {
   dueAt: string | null;
   dueDate: string | null;
   isCompleted: number;
+  enabled: number;
   offsetMinutes: number;
   lastNotifiedAt: string | null;
 }
@@ -21,6 +22,7 @@ function simulateScanDueReminders(rows: ReminderRow[], nowMs: number): ReminderR
   const pending: ReminderRow[] = [];
   for (const row of rows) {
     if (row.isCompleted !== 0) continue;
+    if (row.enabled !== 1) continue;
     const dueStr = row.dueAt || (row.dueDate ? row.dueDate + "T23:59:59" : null);
     if (!dueStr) continue;
     const dueMs = new Date(dueStr).getTime();
@@ -41,7 +43,7 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: "2026-06-15T10:30:00Z", dueDate: null,
-      isCompleted: 0, offsetMinutes: 60, lastNotifiedAt: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
     }];
     // Reminder time = 10:30 - 60min = 09:30, which is before now (10:00)
     expect(simulateScanDueReminders(rows, now).length).toBe(1);
@@ -52,20 +54,40 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: "2026-06-15T10:30:00Z", dueDate: null,
-      isCompleted: 0, offsetMinutes: 60, lastNotifiedAt: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
     }];
     // Reminder time = 10:30 - 60min = 09:30, which is after now (08:00)
     expect(simulateScanDueReminders(rows, now).length).toBe(0);
   });
 
-  it("does not trigger when enabled = 0 (isCompleted = 1 used here as proxy)", () => {
+  it("does not trigger when isCompleted = 1", () => {
     const now = new Date("2026-06-15T10:00:00Z").getTime();
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: "2026-06-15T10:30:00Z", dueDate: null,
-      isCompleted: 1, offsetMinutes: 60, lastNotifiedAt: null,
+      isCompleted: 1, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
     }];
     expect(simulateScanDueReminders(rows, now).length).toBe(0);
+  });
+
+  it("does not trigger when enabled = 0", () => {
+    const now = new Date("2026-06-15T10:00:00Z").getTime();
+    const rows: ReminderRow[] = [{
+      reminderId: "r1", taskId: "t1", taskTitle: "Test",
+      dueAt: "2026-06-15T10:30:00Z", dueDate: null,
+      isCompleted: 0, enabled: 0, offsetMinutes: 60, lastNotifiedAt: null,
+    }];
+    expect(simulateScanDueReminders(rows, now).length).toBe(0);
+  });
+
+  it("triggers when enabled = 1 and due", () => {
+    const now = new Date("2026-06-15T10:00:00Z").getTime();
+    const rows: ReminderRow[] = [{
+      reminderId: "r1", taskId: "t1", taskTitle: "Test",
+      dueAt: "2026-06-15T10:30:00Z", dueDate: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
+    }];
+    expect(simulateScanDueReminders(rows, now).length).toBe(1);
   });
 
   it("does not trigger when lastNotifiedAt is already set (already notified)", () => {
@@ -73,7 +95,7 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: "2026-06-15T10:30:00Z", dueDate: null,
-      isCompleted: 0, offsetMinutes: 60,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60,
       lastNotifiedAt: "2026-06-15T09:30:00Z",
     }];
     // lastNotifiedAt (09:30) >= reminderMs (09:30), so skip
@@ -85,7 +107,7 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: "2026-06-15T10:30:00Z", dueDate: "2026-06-20",
-      isCompleted: 0, offsetMinutes: 60, lastNotifiedAt: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
     }];
     // Uses dueAt: 10:30 - 60min = 09:30 < 10:00 -> triggers
     expect(simulateScanDueReminders(rows, now).length).toBe(1);
@@ -96,7 +118,7 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: null, dueDate: "2026-06-15",
-      isCompleted: 0, offsetMinutes: 60, lastNotifiedAt: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 60, lastNotifiedAt: null,
     }];
     // due = 2026-06-15T23:59:59, reminder = 23:59:59 - 60min = 22:59:59 < 23:00 -> triggers
     expect(simulateScanDueReminders(rows, now).length).toBe(1);
@@ -107,13 +129,13 @@ describe("scanDueReminders logic", () => {
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: null, dueDate: null,
-      isCompleted: 0, offsetMinutes: 30, lastNotifiedAt: null,
+      isCompleted: 0, enabled: 1, offsetMinutes: 30, lastNotifiedAt: null,
     }];
     expect(simulateScanDueReminders(rows, now).length).toBe(0);
   });
 });
 
-describe("repeat task reminder copy logic", () => {
+describe("repeat task reminder copy logic (simulated generateNextRepeatedTask)", () => {
   // Simulates what generateNextRepeatedTask does for reminders
   interface CopiedReminder {
     taskId: string;
