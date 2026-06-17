@@ -74,14 +74,20 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
   let sql: string;
   const params: any[] = [];
   if (scope.scope === "workspace") {
-    sql = `SELECT tasks.*, users.username AS creatorName
+    sql = `SELECT tasks.*, users.username AS creatorName,
+                  (SELECT COUNT(*) FROM task_reminders tr
+                   WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
            WHERE workspaceId = ?`;
+    params.push(userId);
     params.push(scope.workspaceId);
   } else {
-    sql = `SELECT tasks.*, users.username AS creatorName
+    sql = `SELECT tasks.*, users.username AS creatorName,
+                  (SELECT COUNT(*) FROM task_reminders tr
+                   WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
            WHERE tasks.userId = ? AND workspaceId IS NULL`;
+    params.push(userId);
     params.push(userId);
   }
 
@@ -172,6 +178,57 @@ function canReadTask(
 
 // 获取单个任务（含子任务）
 // Y3: 读权限按 scope——工作区内的任何成员可见，个人任务仅本人可见。
+tasks.put("/reorder/batch", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+
+  return c.req.json().then((body: any) => {
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (items.length === 0 || items.length > 200) {
+      return c.json({ error: "items must contain 1-200 tasks", code: "BAD_REQUEST" }, 400);
+    }
+
+    const normalized = items.map((item: any, index: number) => ({
+      id: String(item?.id || ""),
+      sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Number(item.sortOrder) : index,
+    }));
+    if (normalized.some((item) => !item.id)) {
+      return c.json({ error: "Invalid task id", code: "BAD_REQUEST" }, 400);
+    }
+
+    const ids = normalized.map((item) => item.id);
+    if (new Set(ids).size !== ids.length) {
+      return c.json({ error: "Duplicate task id", code: "DUPLICATE_TASK" }, 400);
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = db.prepare(
+      `SELECT id, userId, workspaceId, parentId FROM tasks WHERE id IN (${placeholders})`,
+    ).all(...ids) as Array<{ id: string; userId: string; workspaceId: string | null; parentId: string | null }>;
+
+    if (rows.length !== ids.length) {
+      return c.json({ error: "Task not found", code: "TASK_NOT_FOUND" }, 404);
+    }
+    if (rows.some((row) => !canManageResource(row.userId, row.workspaceId, userId))) {
+      return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
+    }
+
+    const parentKey = rows[0].parentId ?? "";
+    const workspaceKey = rows[0].workspaceId ?? "";
+    if (rows.some((row) => (row.parentId ?? "") !== parentKey || (row.workspaceId ?? "") !== workspaceKey)) {
+      return c.json({ error: "Tasks must share the same parent", code: "MIXED_PARENT_TASKS" }, 400);
+    }
+
+    const update = db.transaction(() => {
+      const stmt = db.prepare("UPDATE tasks SET sortOrder = ?, updatedAt = datetime('now') WHERE id = ?");
+      for (const item of normalized) stmt.run(item.sortOrder, item.id);
+    });
+    update();
+
+    return c.json({ success: true, affected: normalized.length });
+  });
+});
+
 tasks.get("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;

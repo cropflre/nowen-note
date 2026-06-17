@@ -16,6 +16,8 @@ import { isTaskBlockedByDependency, getDependencyScheduleWarnings } from "./task
 import type { TaskTreeNode } from "./taskProgress";
 import { calculateTaskProgress } from "./taskProgress";
 import { insertTaskTitleSnippet, parseTaskTitle, TitleView } from "./taskTitleTokens";
+import { buildDueAtFromDateAndTime, buildDueDatePatch, getDueTimeValue } from "./taskDateUtils";
+import { buildCustomReminderOffset, sortRemindersByOffset } from "./taskReminderUtils";
 
 /** Shows a warning badge if notifications are not available */
 function NotificationStatusBadge({ t }: { t: (key: string) => string }) {
@@ -61,10 +63,11 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   onToggle?: (id: string) => void;
   onSelectTask?: (taskId: string) => void;
   onCreated?: () => void;
+  onReminderCountChange?: (taskId: string, activeCount: number) => void;
   dependencies?: TaskDependency[];
   onCreateDependency?: (predecessorTaskId: string, successorTaskId: string) => Promise<void>;
   onDeleteDependency?: (id: string) => Promise<void>;
-}>(({ task, treeNode, allTasks, onClose, onUpdate, onDelete, onToggle, onSelectTask, onCreated, dependencies = [], onCreateDependency, onDeleteDependency }, ref) => {
+}>(({ task, treeNode, allTasks, onClose, onUpdate, onDelete, onToggle, onSelectTask, onCreated, onReminderCountChange, dependencies = [], onCreateDependency, onDeleteDependency }, ref) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.resolvedLanguage || i18n.language;
   const isZh = lang.toLowerCase().startsWith("zh");
@@ -73,7 +76,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate || "");
-  const [dueAt, setDueAt] = useState(task.dueAt || "");
+  const [dueAt, setDueAt] = useState(getDueTimeValue(task.dueAt));
   const [startDate, setStartDate] = useState(task.startDate || "");
   const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
@@ -88,6 +91,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
   const [remindersLoading, setRemindersLoading] = useState(false);
   const [showAddReminder, setShowAddReminder] = useState(false);
+  const [customReminder, setCustomReminder] = useState({ days: 0, hours: 0, minutes: 10 });
 
   const PRIORITY_CONFIG: Record<number, { label: string; color: string; flagClass: string }> = {
     3: { label: t("tasks.high"), color: "text-red-500", flagClass: "text-red-500" },
@@ -100,7 +104,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setDescription(task.description ?? "");
     setPriority(task.priority);
     setDueDate(task.dueDate || "");
-    setDueAt(task.dueAt || "");
+    setDueAt(getDueTimeValue(task.dueAt));
     setStartDate(task.startDate || "");
     setRepeatRule(task.repeatRule || "none");
     setRepeatInterval(task.repeatInterval || 1);
@@ -113,17 +117,24 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     try {
       const data = await api.getTaskReminders(task.id);
       setReminders(data);
+      onReminderCountChange?.(task.id, data.filter((r) => r.enabled === 1).length);
     } catch {
       // ignore
     } finally {
       setRemindersLoading(false);
     }
-  }, [task.id]);
+  }, [task.id, onReminderCountChange]);
 
   useEffect(() => { loadReminders(); }, [loadReminders]);
 
   const handleSave = () => {
-    onUpdate(task.id, { title: title.trim() || task.title, priority, dueDate: dueDate || null, dueAt: dueAt || null, startDate: startDate || null });
+    onUpdate(task.id, {
+      title: title.trim() || task.title,
+      priority,
+      dueDate: dueDate || null,
+      dueAt: buildDueAtFromDateAndTime(dueDate, dueAt),
+      startDate: startDate || null,
+    });
   };
 
   const handleDescriptionSave = () => {
@@ -177,26 +188,45 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
   const hasDeadline = !!(task.dueDate || task.dueAt);
 
+  const emitReminderCount = useCallback((nextReminders: TaskReminder[]) => {
+    onReminderCountChange?.(task.id, nextReminders.filter((r) => r.enabled === 1).length);
+  }, [onReminderCountChange, task.id]);
+
   // reminder handlers
   const handleAddReminder = async (offsetMinutes: number) => {
     try {
       const r = await api.createTaskReminder(task.id, offsetMinutes);
-      setReminders((prev) => [...prev, r].sort((a, b) => a.offsetMinutes - b.offsetMinutes));
+      setReminders((prev) => {
+        const next = sortRemindersByOffset([...prev, r]);
+        emitReminderCount(next);
+        return next;
+      });
       setShowAddReminder(false);
     } catch (err) {
       console.error("Failed to create reminder:", err);
     }
   };
 
+  const customOffset = buildCustomReminderOffset(customReminder);
+  const customReminderExists = customOffset !== null && reminders.some((r) => r.offsetMinutes === customOffset);
+
   const handleToggleReminder = async (reminderId: string, enabled: boolean) => {
-    setReminders((prev) => prev.map((r) => r.id === reminderId ? { ...r, enabled: enabled ? 1 : 0 } : r));
+    setReminders((prev) => {
+      const next = prev.map((r) => r.id === reminderId ? { ...r, enabled: enabled ? 1 : 0 } : r);
+      emitReminderCount(next);
+      return next;
+    });
     try {
       await api.updateTaskReminder(reminderId, { enabled });
     } catch { loadReminders(); }
   };
 
   const handleDeleteReminder = async (reminderId: string) => {
-    setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+    setReminders((prev) => {
+      const next = prev.filter((r) => r.id !== reminderId);
+      emitReminderCount(next);
+      return next;
+    });
     try {
       await api.deleteTaskReminder(reminderId);
     } catch { loadReminders(); }
@@ -333,12 +363,23 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
             onChange={(e) => {
               const newVal = e.target.value;
               setDueDate(newVal);
+              if (!newVal) {
+                setDueAt("");
+                if (repeatRule !== "none") {
+                  setRepeatRule("none");
+                  setRepeatInterval(1);
+                  setRepeatEndDate("");
+                }
+                setDateError(null);
+                onUpdate(task.id, buildDueDatePatch(task, newVal));
+                return;
+              }
               if (startDate && newVal && startDate > newVal) {
                 setDateError(t("tasks.gantt.invalidDateRange"));
                 return;
               }
               setDateError(null);
-              onUpdate(task.id, { dueDate: newVal || null });
+              onUpdate(task.id, buildDueDatePatch({ ...task, dueAt: buildDueAtFromDateAndTime(dueDate, dueAt) }, newVal));
             }}
             className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
           />
@@ -352,10 +393,15 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         <div>
           <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.dueAt")}</label>
           <input
-            type="datetime-local"
+            type="time"
             value={dueAt}
-            onChange={(e) => { setDueAt(e.target.value); onUpdate(task.id, { dueAt: e.target.value || null }); }}
-            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+            disabled={!dueDate}
+            onChange={(e) => {
+              const nextTime = e.target.value;
+              setDueAt(nextTime);
+              onUpdate(task.id, { dueAt: buildDueAtFromDateAndTime(dueDate, nextTime) });
+            }}
+            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -650,6 +696,46 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                       );
                     })}
                   </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      value={customReminder.days}
+                      onChange={(e) => setCustomReminder((prev) => ({ ...prev, days: Math.max(0, parseInt(e.target.value) || 0) }))}
+                      className="w-12 px-2 py-1 rounded-md bg-app-bg border border-app-border text-xs text-tx-primary text-center focus:outline-none focus:border-accent-primary"
+                    />
+                    <span className="text-[11px] text-tx-tertiary">{t("tasks.reminder.daysUnit")}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={customReminder.hours}
+                      onChange={(e) => setCustomReminder((prev) => ({ ...prev, hours: Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) }))}
+                      className="w-12 px-2 py-1 rounded-md bg-app-bg border border-app-border text-xs text-tx-primary text-center focus:outline-none focus:border-accent-primary"
+                    />
+                    <span className="text-[11px] text-tx-tertiary">{t("tasks.reminder.hoursUnit")}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={customReminder.minutes}
+                      onChange={(e) => setCustomReminder((prev) => ({ ...prev, minutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) }))}
+                      className="w-12 px-2 py-1 rounded-md bg-app-bg border border-app-border text-xs text-tx-primary text-center focus:outline-none focus:border-accent-primary"
+                    />
+                    <span className="text-[11px] text-tx-tertiary">{t("tasks.reminder.minutesUnit")}</span>
+                  </div>
+                  <button
+                    onClick={() => customOffset !== null && handleAddReminder(customOffset)}
+                    disabled={customOffset === null || customReminderExists}
+                    className={cn(
+                      "text-[11px] px-2.5 py-1 rounded-full border transition-colors w-fit",
+                      customOffset === null || customReminderExists
+                        ? "opacity-40 cursor-not-allowed border-app-border text-tx-tertiary"
+                        : "border-accent-primary/30 text-accent-primary hover:bg-accent-primary/10"
+                    )}
+                  >
+                    {customReminderExists ? t("tasks.reminder.alreadyExists") : t("tasks.reminder.addCustom")}
+                  </button>
                   <button
                     onClick={() => setShowAddReminder(false)}
                     className="text-[11px] text-tx-tertiary hover:text-tx-secondary"

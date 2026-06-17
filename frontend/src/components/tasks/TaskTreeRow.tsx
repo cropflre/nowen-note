@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2, Circle, Flag, ChevronRight, ChevronDown,
-  Trash2, User as UserIcon, Plus, Repeat, Link2,
+  Trash2, User as UserIcon, Plus, Repeat, Link2, Bell,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import { calculateTaskProgress } from "./taskProgress";
 import { TitleView } from "./taskTitleTokens";
 import { DateBadge } from "./DateBadge";
 import { SubtaskInput } from "./SubtaskInput";
+import { hasEnabledReminder } from "./taskReminderUtils";
 
 /* ===== Tree task row ===== */
 export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
@@ -172,6 +173,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           <span className="hidden md:inline-flex">
             <DateBadge dateStr={task.dueDate} dueAt={task.dueAt} />
           </span>
+          {hasEnabledReminder(task) && <span title={t("tasks.reminder.title")}><Bell size={12} className="text-accent-primary/70" /></span>}
           {isRepeatingTask(task) && <span title={t(`tasks.repeat.${task.repeatRule}`)}><Repeat size={12} className="text-accent-primary/60" /></span>}
           {blockedByDependency && !task.isCompleted && <span title={t("tasks.dependencies.blockedByIncomplete")}><Link2 size={12} className="text-amber-500" /></span>}
           <Flag size={14} className={pri.flagClass} />

@@ -1097,6 +1097,7 @@
     "priority": "优先级",
     "dueDate": "截止日期",
     "dueAt": "截止时间",
+    "sortByDueTime": "按截止时间排序",
     "createdAt": "创建时间",
     "deleteTask": "删除任务",
     "pendingCount": "{{pending}} 待完成 · {{completed}} 已完成",
@@ -1165,7 +1166,12 @@
       "enableReminder": "启用提醒",
       "disableReminder": "禁用提醒",
       "noPermission": "浏览器不支持通知",
-      "permissionDenied": "通知已被禁止"
+      "permissionDenied": "通知已被禁止",
+      "daysUnit": "天",
+      "hoursUnit": "时",
+      "minutesUnit": "分",
+      "addCustom": "添加自定义",
+      "alreadyExists": "已添加"
     },
     "search": "搜索任务",
     "searchPlaceholder": "输入关键词搜索...",

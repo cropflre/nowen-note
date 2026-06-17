@@ -1132,6 +1132,8 @@ export const api = {
     return request<Task>(`/tasks${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
   updateTask: (id: string, data: Partial<Task>) => request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  reorderTasks: (items: { id: string; sortOrder: number }[]) =>
+    request<{ success: boolean; affected: number }>("/tasks/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
   toggleTask: (id: string) => request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" }),
   aiBreakdownTask: (id: string, lang?: string) => request<{ subtasks: { title: string; priority: number; dueDate: string | null; reason: string }[] }>(`/tasks/${id}/ai-breakdown`, { method: "POST", body: JSON.stringify({ lang }) }),
   deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),

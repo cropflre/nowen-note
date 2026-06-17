@@ -1086,6 +1086,7 @@
     "priority": "Priority",
     "dueDate": "Due Date",
     "dueAt": "Due Time",
+    "sortByDueTime": "Sort by due time",
     "createdAt": "Created",
     "deleteTask": "Delete Task",
     "pendingCount": "{{pending}} pending �� {{completed}} completed",
@@ -1154,7 +1155,12 @@
       "enableReminder": "Enable reminder",
       "disableReminder": "Disable reminder",
       "noPermission": "No notification support",
-      "permissionDenied": "Notifications blocked"
+      "permissionDenied": "Notifications blocked",
+      "daysUnit": "d",
+      "hoursUnit": "h",
+      "minutesUnit": "m",
+      "addCustom": "Add custom",
+      "alreadyExists": "Already added"
     },
     "search": "Search tasks",
     "searchPlaceholder": "Search by title...",

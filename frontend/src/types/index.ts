@@ -388,6 +388,7 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   children?: Task[];
+  activeReminderCount?: number;
   /** 创建者用户名；仅 list/single read 时由后端 LEFT JOIN 返回。 */
   creatorName?: string | null;
   repeatRule?: "none" | "daily" | "weekly" | "monthly" | "yearly";

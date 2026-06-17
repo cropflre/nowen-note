@@ -35,7 +35,7 @@ import { useTaskProjects } from "./tasks/useTaskProjects";
 import { TaskBoardView } from "./tasks/TaskBoardView";
 import { TaskCalendarView } from "./tasks/TaskCalendarView";
 import TaskGanttView from "./tasks/TaskGanttView";
-import { moveTaskToDate } from "./tasks/taskDateUtils";
+import { compareTasksByDueTime, moveTaskToDate } from "./tasks/taskDateUtils";
 import { TaskTemplatePicker } from "./tasks/TaskTemplatePicker";
 import { ReminderCenter } from "./tasks/ReminderCenter";
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
@@ -97,6 +97,7 @@ export default function TaskCenter() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showReminderCenter, setShowReminderCenter] = useState(false);
   const [reminderBadgeCount, setReminderBadgeCount] = useState(0);
+  const [sortByDueTime, setSortByDueTime] = useState(false);
 
   // Phase 4: batch select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -106,13 +107,20 @@ export default function TaskCenter() {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
+  const treeSourceTasks = useMemo(() => {
+    if (!sortByDueTime) return tasks;
+    const roots = tasks.filter((task) => !task.parentId).sort(compareTasksByDueTime);
+    const children = tasks.filter((task) => task.parentId);
+    return [...roots, ...children];
+  }, [tasks, sortByDueTime]);
+
   // tree hook
   const {
     flatOrderedTasks,
     expandedTaskIds,
     toggleExpand,
     isTreeMode,
-  } = useTaskTree(tasks, filter);
+  } = useTaskTree(treeSourceTasks, filter);
 
   // background reminder notifier
   useReminderNotifier();
@@ -150,9 +158,9 @@ export default function TaskCenter() {
 
   // filtered tasks by search query
   const displayTasks = useMemo(() => {
-    if (!searchQuery.trim()) return tasks;
-    return tasks.filter((t) => taskMatchesSearch(t, searchQuery));
-  }, [tasks, searchQuery]);
+    const source = searchQuery.trim() ? tasks.filter((t) => taskMatchesSearch(t, searchQuery)) : tasks;
+    return sortByDueTime ? [...source].sort(compareTasksByDueTime) : source;
+  }, [tasks, searchQuery, sortByDueTime]);
 
   // recompute flatOrdered for display (search-filtered)
   const displayFlatOrdered = useMemo(() => {
@@ -189,6 +197,12 @@ export default function TaskCenter() {
     } catch { /* ignore */ }
   }, []);
 
+  const handleReminderCountChange = useCallback((taskId: string, activeCount: number) => {
+    setTasks((prev) => prev.map((task) => (
+      task.id === taskId ? { ...task, activeReminderCount: activeCount } : task
+    )));
+    loadReminderBadge();
+  }, [loadReminderBadge]);
 
   useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); }, [loadTasks, loadDependencies, loadReminderBadge]);
 
@@ -460,28 +474,51 @@ export default function TaskCenter() {
 
   const handleDrop = useCallback(async (targetId: string) => {
     if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
+    if (sortByDueTime) { setDragId(null); setDragOverId(null); return; }
 
+    const dragTask = tasks.find((t) => t.id === dragId);
     const targetTask = tasks.find((t) => t.id === targetId);
-    if (!targetTask) { setDragId(null); setDragOverId(null); return; }
+    if (!dragTask || !targetTask) { setDragId(null); setDragOverId(null); return; }
+    if ((dragTask.parentId ?? null) !== (targetTask.parentId ?? null)) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+
+    const siblings = tasks
+      .filter((t) => (t.parentId ?? null) === (dragTask.parentId ?? null))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+    const without = siblings.filter((t) => t.id !== dragId);
+    const targetIdx = without.findIndex((t) => t.id === targetId);
+    if (targetIdx < 0) { setDragId(null); setDragOverId(null); return; }
+    const reordered = [...without];
+    reordered.splice(targetIdx, 0, dragTask);
+    const items = reordered.map((task, index) => ({ id: task.id, sortOrder: index }));
+    const orderMap = new Map(items.map((item) => [item.id, item.sortOrder]));
 
     setTasks((prev) => {
-      const without = prev.filter((t) => t.id !== dragId);
-      const dragTask = prev.find((t) => t.id === dragId);
-      if (!dragTask) return prev;
-      const targetIdx = without.findIndex((t) => t.id === targetId);
-      if (targetIdx < 0) return prev;
-      const result = [...without];
-      result.splice(targetIdx, 0, { ...dragTask, sortOrder: targetTask.sortOrder });
+      const updated = prev.map((task) =>
+        orderMap.has(task.id) ? { ...task, sortOrder: orderMap.get(task.id)! } : task
+      );
+      const siblingIds = new Set(items.map((item) => item.id));
+      const firstSiblingIndex = updated.findIndex((task) => siblingIds.has(task.id));
+      if (firstSiblingIndex < 0) return updated;
+      const nonSiblings = updated.filter((task) => !siblingIds.has(task.id));
+      const reorderedSiblings = items
+        .map((item) => updated.find((task) => task.id === item.id))
+        .filter((task): task is Task => !!task);
+      const result = [...nonSiblings];
+      result.splice(firstSiblingIndex, 0, ...reorderedSiblings);
       return result;
     });
 
     try {
-      await api.updateTask(dragId, { sortOrder: targetTask.sortOrder });
+      await api.reorderTasks(items);
     } catch { loadTasks(); }
 
     setDragId(null);
     setDragOverId(null);
-  }, [dragId, tasks]);
+  }, [dragId, tasks, sortByDueTime, loadTasks]);
 
   const handleDragEnd = useCallback(() => {
     setDragId(null);
@@ -684,6 +721,16 @@ export default function TaskCenter() {
                 <BarChart3 size={14} />
               </button>
             </div>
+            <button
+              onClick={() => setSortByDueTime((v) => !v)}
+              className={cn(
+                "p-1.5 rounded-md transition-colors",
+                sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+              )}
+              title={t("tasks.sortByDueTime")}
+            >
+              <CalendarDays size={14} />
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {selectMode ? (
@@ -819,7 +866,7 @@ export default function TaskCenter() {
                         "relative",
                         dragOverId === item.node.id && dragId !== item.node.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                       )}
-                      draggable={!selectMode}
+                      draggable={!selectMode && !sortByDueTime}
                       onDragStart={(e) => handleDragStart(item.node.id, e)}
                       onDragOver={(e) => handleDragOver(item.node.id, e)}
                       onDrop={() => handleDrop(item.node.id)}
@@ -857,7 +904,7 @@ export default function TaskCenter() {
                         "relative",
                         dragOverId === task.id && dragId !== task.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                       )}
-                      draggable={!selectMode}
+                      draggable={!selectMode && !sortByDueTime}
                       onDragStart={(e) => handleDragStart(task.id, e)}
                       onDragOver={(e) => handleDragOver(task.id, e)}
                       onDrop={() => handleDrop(task.id)}
@@ -965,6 +1012,7 @@ export default function TaskCenter() {
             onToggle={handleToggle}
             onSelectTask={(taskId) => setSelectedTaskId(taskId)}
             onCreated={async () => { await loadTasks(); const s = await api.getTaskStats(); setStats(s); refreshCounts(); }}
+            onReminderCountChange={handleReminderCountChange}
             dependencies={dependencies}
             onCreateDependency={async (predId, succId) => { try { await api.createTaskDependency({ predecessorTaskId: predId, successorTaskId: succId }); await loadDependencies(); toast.success(t("tasks.toast.dependencyCreated")); } catch { toast.error(t("tasks.toast.dependencyCreateFailed")); } }}
             onDeleteDependency={async (id) => { try { await api.deleteTaskDependency(id); await loadDependencies(); toast.success(t("tasks.toast.dependencyDeleted")); } catch { toast.error(t("tasks.toast.dependencyDeleteFailed")); } }}
