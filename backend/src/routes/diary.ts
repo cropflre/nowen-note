@@ -24,11 +24,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import {
   ensureAttachmentsDir,
-  getAttachmentsDir,
   MIME_TO_EXT,
 } from "./attachments";
 import {
@@ -74,9 +71,11 @@ function resolveDiaryScope(
 
 // 单条说说最多 9 张图（朋友圈风格；前端也应该卡同样的上限做"快速失败"）
 const MAX_IMAGES_PER_DIARY = 9;
+const MAX_VIDEOS_PER_DIARY = 1;
 
 // 单张图片大小上限（字节）。比 notes 的 50MB 更保守，因为说说量大、不应被截图怼爆磁盘
 const MAX_DIARY_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_DIARY_VIDEO_SIZE = 100 * 1024 * 1024;
 
 // 允许的图片 MIME（与 attachments 路由对齐，但不收 svg —— 防止 XSS 飘到时间线）
 const ALLOWED_DIARY_IMAGE_MIMES = new Set([
@@ -86,6 +85,25 @@ const ALLOWED_DIARY_IMAGE_MIMES = new Set([
   "image/webp",
   "image/bmp",
 ]);
+
+const ALLOWED_DIARY_VIDEO_MIMES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+]);
+
+const DIARY_VIDEO_MIME_TO_EXT: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+};
+
+type DiaryMediaType = "image" | "video";
+
+interface DiaryMediaItem {
+  id: string;
+  type: DiaryMediaType;
+}
 
 // 上传超过这么久仍未绑定 diaryId 视为孤儿，会被清理器扫除
 const ORPHAN_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -100,6 +118,7 @@ interface DiaryRow {
   contentText: string;
   mood: string;
   images: string;
+  media?: string;
   createdAt: string;
   /**
    * creatorName：工作区下展示"谁发的说说"。LEFT JOIN 取自 users.username，
@@ -109,15 +128,48 @@ interface DiaryRow {
   creatorName?: string | null;
 }
 
-function rowToDiary(row: DiaryRow) {
+function mediaTypeFromMime(mime: string | null | undefined): DiaryMediaType | null {
+  const m = (mime || "").toLowerCase();
+  if (ALLOWED_DIARY_IMAGE_MIMES.has(m)) return "image";
+  if (ALLOWED_DIARY_VIDEO_MIMES.has(m)) return "video";
+  return null;
+}
+
+function parseDiaryImages(raw: string | null | undefined): string[] {
   let images: string[] = [];
   try {
-    const parsed = JSON.parse(row.images || "[]");
+    const parsed = JSON.parse(raw || "[]");
     if (Array.isArray(parsed)) {
       images = parsed.filter((x): x is string => typeof x === "string");
     }
   } catch {
     /* 旧数据脏 → 当作没图，避免接口 500 */
+  }
+  return images;
+}
+
+function parseDiaryMedia(raw: string | null | undefined): DiaryMediaItem[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x): DiaryMediaItem | null => {
+        if (!x || typeof x !== "object") return null;
+        const id = typeof (x as any).id === "string" ? (x as any).id : "";
+        const type = (x as any).type === "video" ? "video" : (x as any).type === "image" ? "image" : null;
+        return id && type ? { id, type } : null;
+      })
+      .filter((x): x is DiaryMediaItem => !!x);
+  } catch {
+    return [];
+  }
+}
+
+function rowToDiary(row: DiaryRow) {
+  const images = parseDiaryImages(row.images);
+  let media = parseDiaryMedia(row.media);
+  if (media.length === 0 && images.length > 0) {
+    media = images.map((id) => ({ id, type: "image" as const }));
   }
   return {
     id: row.id,
@@ -126,9 +178,88 @@ function rowToDiary(row: DiaryRow) {
     contentText: row.contentText,
     mood: row.mood,
     images,
+    media,
     createdAt: row.createdAt,
     creatorName: row.creatorName ?? null,
   };
+}
+
+function normalizeRequestedMedia(body: any): { media: DiaryMediaItem[]; usedMedia: boolean; error?: string; status?: 400 } {
+  if (Array.isArray(body?.media)) {
+    const media = body.media
+      .map((x: unknown): DiaryMediaItem | null => {
+        if (!x || typeof x !== "object") return null;
+        const id = typeof (x as any).id === "string" ? (x as any).id : "";
+        const type = (x as any).type === "video" ? "video" : (x as any).type === "image" ? "image" : null;
+        return id && type ? { id, type } : null;
+      })
+      .filter((x: DiaryMediaItem | null): x is DiaryMediaItem => !!x);
+    return validateDiaryMedia(media, true);
+  }
+
+  const images = Array.isArray(body?.images)
+    ? body.images.filter((x: unknown): x is string => typeof x === "string")
+    : [];
+  return validateDiaryMedia(images.map((id: string) => ({ id, type: "image" as const })), false);
+}
+
+function validateDiaryMedia(media: DiaryMediaItem[], usedMedia: boolean): { media: DiaryMediaItem[]; usedMedia: boolean; error?: string; status?: 400 } {
+  const deduped: DiaryMediaItem[] = [];
+  const seen = new Set<string>();
+  for (const item of media) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    deduped.push(item);
+  }
+  const imageCount = deduped.filter((x) => x.type === "image").length;
+  const videoCount = deduped.filter((x) => x.type === "video").length;
+  if (imageCount > 0 && videoCount > 0) {
+    return { media: [], usedMedia, error: "暂不支持图片和视频混发", status: 400 };
+  }
+  if (imageCount > MAX_IMAGES_PER_DIARY) {
+    return { media: [], usedMedia, error: `最多上传 ${MAX_IMAGES_PER_DIARY} 张图片`, status: 400 };
+  }
+  if (videoCount > MAX_VIDEOS_PER_DIARY) {
+    return { media: [], usedMedia, error: `最多上传 ${MAX_VIDEOS_PER_DIARY} 个视频`, status: 400 };
+  }
+  return { media: deduped, usedMedia };
+}
+
+function mediaImages(media: DiaryMediaItem[]): string[] {
+  return media.filter((x) => x.type === "image").map((x) => x.id);
+}
+
+function getValidDiaryMedia(
+  ids: string[],
+  userId: string,
+  diaryId: string | null,
+): DiaryMediaItem[] {
+  if (!ids.length) return [];
+  const db = getDb();
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = diaryId
+    ? db
+        .prepare(
+          `SELECT id, mimeType FROM diary_attachments
+            WHERE id IN (${placeholders})
+              AND (diaryId = ? OR (userId = ? AND diaryId IS NULL))`,
+        )
+        .all(...ids, diaryId, userId) as { id: string; mimeType: string }[]
+    : db
+        .prepare(
+          `SELECT id, mimeType FROM diary_attachments
+            WHERE id IN (${placeholders})
+              AND userId = ?
+              AND diaryId IS NULL`,
+        )
+        .all(...ids, userId) as { id: string; mimeType: string }[];
+  const byId = new Map(rows.map((r) => [r.id, mediaTypeFromMime(r.mimeType)]));
+  return ids
+    .map((id) => {
+      const type = byId.get(id);
+      return type ? { id, type } : null;
+    })
+    .filter((x): x is DiaryMediaItem => !!x);
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +267,7 @@ function rowToDiary(row: DiaryRow) {
 //   外键 ON DELETE CASCADE 只清 DB 行，磁盘文件需要手动收拾，否则积累孤儿。
 //   返回真正 unlink 成功的文件数（仅用于日志）。
 // ---------------------------------------------------------------------------
-function deleteDiaryImageFilesByIds(ids: string[]): number {
+async function deleteDiaryMediaFilesByIds(ids: string[]): Promise<number> {
   if (!ids.length) return 0;
   const db = getDb();
   const placeholders = ids.map(() => "?").join(",");
@@ -149,15 +280,11 @@ function deleteDiaryImageFilesByIds(ids: string[]): number {
     return 0;
   }
   let removed = 0;
-  const dir = getAttachmentsDir();
   for (const r of rows) {
     if (!r?.path) continue;
-    const abs = path.join(dir, r.path);
     try {
-      if (fs.existsSync(abs)) {
-        fs.unlinkSync(abs);
-        removed++;
-      }
+      await deleteAttachmentObject(r.path);
+      removed++;
     } catch {
       /* 单个失败不阻塞批量 */
     }
@@ -171,7 +298,7 @@ function deleteDiaryImageFilesByIds(ids: string[]): number {
 
 /**
  * 发布一条说说
- *   body: { contentText: string, mood?: string, images?: string[] }
+ *   body: { contentText: string, mood?: string, images?: string[], media?: DiaryMediaItem[] }
  *   query: workspaceId?  (personal / <uuid>，省略即个人空间)
  *   - images 是先通过 POST /api/diary/attachments 上传得到的 uuid 数组；
  *     这里把它们的 diaryId 字段 UPDATE 为新 diary.id，完成"绑定"；同时
@@ -195,23 +322,34 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
     return c.json({ error: "Invalid JSON" }, 400);
   }
   const { contentText, mood } = body;
-  const rawImages = Array.isArray(body.images) ? body.images : [];
-  const images: string[] = rawImages
-    .filter((x: unknown) => typeof x === "string")
-    .slice(0, MAX_IMAGES_PER_DIARY);
+  const requested = normalizeRequestedMedia(body);
+  if (requested.error) return c.json({ error: requested.error }, requested.status || 400);
+  const requestedMedia = requested.media;
 
-  // 内容与图片至少一项非空（纯图片说说也允许）
+  // 内容与媒体至少一项非空（纯图片 / 纯视频说说也允许）
   const hasText = typeof contentText === "string" && contentText.trim().length > 0;
-  if (!hasText && images.length === 0) {
-    return c.json({ error: "Content or images required" }, 400);
+  if (!hasText && requestedMedia.length === 0) {
+    return c.json({ error: "Content or media required" }, 400);
   }
 
   const id = crypto.randomUUID();
+  const orderedValidMedia = getValidDiaryMedia(
+    requestedMedia.map((x) => x.id),
+    userId,
+    null,
+  );
+  if (orderedValidMedia.length !== requestedMedia.length) {
+    return c.json({ error: "媒体附件不存在或已被使用" }, 400);
+  }
+  const checked = validateDiaryMedia(orderedValidMedia, requested.usedMedia);
+  if (checked.error) return c.json({ error: checked.error }, checked.status || 400);
+  const media = checked.media;
+  const images = mediaImages(media);
 
   // 把整批写入放进事务：要么 diary 行 + 图片 attach 一起成功，要么全部回滚
   const tx = db.transaction(() => {
     db.prepare(
-      "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).run(
       id,
       userId,
@@ -219,15 +357,15 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
       hasText ? contentText.trim() : "",
       typeof mood === "string" ? mood : "",
       JSON.stringify(images),
+      JSON.stringify(media),
     );
 
-    if (images.length > 0) {
-      // 只 attach 真正"属于本人 + 仍悬空"的图片，杜绝越权 / 重复绑定。
-      // 然后再读回真实更新成功的 id 列表覆写 images 字段，防止前端塞进无效 uuid
-      // 后展示时拉到 404。
+    if (media.length > 0) {
+      // 只 attach 真正"属于本人 + 仍悬空"的媒体，杜绝越权 / 重复绑定。
       // Y2: 同时把 diary_attachments.workspaceId 对齐到目标 scope，保持附件
       //     与说说的工作区归属一致（便于按工作区统计磁盘占用、清理）。
-      const placeholders = images.map(() => "?").join(",");
+      const mediaIds = media.map((x) => x.id);
+      const placeholders = mediaIds.map(() => "?").join(",");
       const upd = db.prepare(
         `UPDATE diary_attachments
             SET diaryId = ?, workspaceId = ?
@@ -235,23 +373,7 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
             AND userId = ?
             AND diaryId IS NULL`,
       );
-      upd.run(id, scope.workspaceId, ...images, userId);
-
-      const validRows = db
-        .prepare(
-          `SELECT id FROM diary_attachments
-            WHERE id IN (${placeholders}) AND userId = ? AND diaryId = ?`,
-        )
-        .all(...images, userId, id) as { id: string }[];
-      const validIds = validRows.map((r) => r.id);
-      // 保留前端传入的顺序（朋友圈宫格的视觉顺序由用户决定）
-      const orderedValid = images.filter((i) => validIds.includes(i));
-      if (orderedValid.length !== images.length) {
-        db.prepare("UPDATE diaries SET images = ? WHERE id = ?").run(
-          JSON.stringify(orderedValid),
-          id,
-        );
-      }
+      upd.run(id, scope.workspaceId, ...mediaIds, userId);
     }
   });
 
@@ -415,65 +537,70 @@ diary.put("/:id", (c) => {
       typeof body.contentText === "string" ? body.contentText.trim() : undefined;
     const newMood: string | undefined =
       typeof body.mood === "string" ? body.mood : undefined;
-    const newImagesRaw: string[] | undefined = Array.isArray(body.images)
-      ? body.images
-          .filter((x: unknown) => typeof x === "string")
-          .slice(0, MAX_IMAGES_PER_DIARY)
-      : undefined;
+    const mediaProvided = Array.isArray(body.media) || Array.isArray(body.images);
+    const requested = mediaProvided ? normalizeRequestedMedia(body) : null;
+    if (requested?.error) return c.json({ error: requested.error }, requested.status || 400);
 
-    // 计算合并后的最终值（仅用来做"text 和 images 至少一项非空"校验）
+    const currentMedia = (() => {
+      const parsed = parseDiaryMedia(row.media);
+      if (parsed.length > 0) return parsed;
+      return parseDiaryImages(row.images).map((mediaId) => ({ id: mediaId, type: "image" as const }));
+    })();
+
+    // 计算合并后的最终值（仅用来做"text 和 media 至少一项非空"校验）
     const finalText = newContentText !== undefined ? newContentText : row.contentText;
-    const finalImagesPreview =
-      newImagesRaw !== undefined ? newImagesRaw : (() => {
-        try {
-          const parsed = JSON.parse(row.images || "[]");
-          return Array.isArray(parsed) ? parsed.filter((x: unknown) => typeof x === "string") : [];
-        } catch {
-          return [];
-        }
-      })();
-    if (!finalText && finalImagesPreview.length === 0) {
-      return c.json({ error: "Content or images required" }, 400);
+    const finalMediaPreview = requested ? requested.media : currentMedia;
+    if (!finalText && finalMediaPreview.length === 0) {
+      return c.json({ error: "Content or media required" }, 400);
     }
 
     // 如果调用方没改任何字段，直接回当前值（幂等）
     if (
       newContentText === undefined &&
       newMood === undefined &&
-      newImagesRaw === undefined
+      !mediaProvided
     ) {
       return c.json(rowToDiary(row));
     }
 
-    // 准备图片差集（仅当调用方显式传入 images 时才处理）
+    // 准备媒体差集（仅当调用方显式传入 media/images 时才处理）
     let toUnlinkIds: string[] = [];
-    let finalImageOrder: string[] = [];
-    if (newImagesRaw !== undefined) {
-      // 当前已绑定的图片
+    let finalMediaOrder: DiaryMediaItem[] = [];
+    if (requested) {
+      const requestedIds = requested.media.map((x) => x.id);
+      finalMediaOrder = getValidDiaryMedia(requestedIds, userId, id);
+      if (finalMediaOrder.length !== requested.media.length) {
+        return c.json({ error: "媒体附件不存在或已被使用" }, 400);
+      }
+      const checked = validateDiaryMedia(finalMediaOrder, requested.usedMedia);
+      if (checked.error) return c.json({ error: checked.error }, checked.status || 400);
+      finalMediaOrder = checked.media;
+
       const currentRows = db
-        .prepare(
-          "SELECT id FROM diary_attachments WHERE diaryId = ? AND userId = ?",
-        )
-        .all(id, userId) as { id: string }[];
+        .prepare("SELECT id FROM diary_attachments WHERE diaryId = ?")
+        .all(id) as { id: string }[];
       const currentIds = new Set(currentRows.map((r) => r.id));
-      const targetIds = new Set(newImagesRaw);
+      const targetIds = new Set(finalMediaOrder.map((x) => x.id));
       toUnlinkIds = [...currentIds].filter((x) => !targetIds.has(x));
-      finalImageOrder = newImagesRaw; // 顺序由调用方指定，但下面会被"实际仍存在"过滤
+    }
+
+    if (toUnlinkIds.length > 0) {
+      await deleteDiaryMediaFilesByIds(toUnlinkIds);
     }
 
     const tx = db.transaction(() => {
-      // 1) 处理图片：先 unlink + 删除文件，再 attach 新图
-      if (newImagesRaw !== undefined) {
+      // 1) 处理媒体：删除被移除项的 DB 行，再 attach 新媒体
+      if (requested) {
         if (toUnlinkIds.length > 0) {
-          // 先删盘（DB 行还在的时候才能查到 path），再删 DB 行
-          deleteDiaryImageFilesByIds(toUnlinkIds);
           const ph = toUnlinkIds.map(() => "?").join(",");
           db.prepare(
-            `DELETE FROM diary_attachments WHERE id IN (${ph}) AND diaryId = ? AND userId = ?`,
-          ).run(...toUnlinkIds, id, userId);
+            `DELETE FROM diary_attachments WHERE id IN (${ph}) AND diaryId = ?`,
+          ).run(...toUnlinkIds, id);
         }
-        // attach 新增的悬空图片到该 diary（顺序保留交给最后一步覆写 images 字段）
-        const newOnes = newImagesRaw.filter((x) => !toUnlinkIds.includes(x));
+        // attach 新增的悬空媒体到该 diary（顺序保留交给最后一步覆写 media 字段）
+        const newOnes = finalMediaOrder
+          .map((x) => x.id)
+          .filter((x) => !currentMedia.some((m) => m.id === x));
         if (newOnes.length > 0) {
           const ph = newOnes.map(() => "?").join(",");
           db.prepare(
@@ -484,14 +611,6 @@ diary.put("/:id", (c) => {
                 AND (diaryId IS NULL OR diaryId = ?)`,
           ).run(id, row.workspaceId, ...newOnes, userId, id);
         }
-        // 取真正属于本 diary 的图片，按调用方传入顺序排序覆写
-        const validRows = db
-          .prepare(
-            `SELECT id FROM diary_attachments WHERE diaryId = ? AND userId = ?`,
-          )
-          .all(id, userId) as { id: string }[];
-        const validSet = new Set(validRows.map((r) => r.id));
-        finalImageOrder = newImagesRaw.filter((x) => validSet.has(x));
       }
 
       // 2) 更新 diary 主行
@@ -505,9 +624,11 @@ diary.put("/:id", (c) => {
         updates.push("mood = ?");
         args.push(newMood);
       }
-      if (newImagesRaw !== undefined) {
+      if (requested) {
         updates.push("images = ?");
-        args.push(JSON.stringify(finalImageOrder));
+        args.push(JSON.stringify(mediaImages(finalMediaOrder)));
+        updates.push("media = ?");
+        args.push(JSON.stringify(finalMediaOrder));
       }
       if (updates.length > 0) {
         args.push(id);
@@ -538,7 +659,7 @@ diary.put("/:id", (c) => {
 // 删除一条说说（同时清理它名下所有图片：磁盘 + DB 行）
 // Y2: 工作区说说走 canManageResource —— 创建者本人 + admin/owner 可删；
 //      个人说说仍只有创建者本人可删。
-diary.delete("/:id", (c) => {
+diary.delete("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
@@ -558,9 +679,7 @@ diary.delete("/:id", (c) => {
     .all(id) as { id: string }[];
   const imgIds = imgRows.map((r) => r.id);
 
-  // 必须**先**删磁盘文件，再删 DB（删 DB 后 path 就查不到了）
-  deleteDiaryImageFilesByIds(imgIds);
-
+  await deleteDiaryMediaFilesByIds(imgIds);
   // diary_attachments 通过 ON DELETE CASCADE 自动清理
   db.prepare("DELETE FROM diaries WHERE id = ?").run(id);
   return c.json({ success: true });
@@ -612,12 +731,12 @@ diary.get("/stats", requireWorkspaceFeature("diaries"), (c) => {
 });
 
 // ===========================================================================
-// 说说图片上传（受 JWT 保护）
+// 说说媒体上传（受 JWT 保护）
 //   挂在 /api/diary/attachments，返回的 url 走下面 handleDownloadDiaryImage。
 // ===========================================================================
 
 /**
- * 上传一张说说图片。
+ * 上传一个说说媒体附件。
  *   POST /api/diary/attachments
  *   query: workspaceId?  (personal / <uuid>)
  *   multipart: file
@@ -649,15 +768,23 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
     return c.json({ error: "file 字段缺失或非文件" }, 400);
   }
 
-  if (file.size > MAX_DIARY_IMAGE_SIZE) {
+  const mime = (file.type || "application/octet-stream").toLowerCase();
+  const mediaType = mediaTypeFromMime(mime);
+  if (!mediaType) {
+    return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
+  }
+
+  const sizeLimit = mediaType === "video" ? MAX_DIARY_VIDEO_SIZE : MAX_DIARY_IMAGE_SIZE;
+  if (file.size > sizeLimit) {
     return c.json(
-      { error: `图片过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）` },
+      {
+        error:
+          mediaType === "video"
+            ? `视频过大（最大 ${MAX_DIARY_VIDEO_SIZE / 1024 / 1024}MB）`
+            : `图片过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）`,
+      },
       413,
     );
-  }
-  const mime = (file.type || "application/octet-stream").toLowerCase();
-  if (!ALLOWED_DIARY_IMAGE_MIMES.has(mime)) {
-    return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
   }
 
   // 单用户当前悬空附件数限制：防止恶意客户端只上传不发布把磁盘怼爆。
@@ -684,7 +811,7 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
 
   ensureAttachmentsDir();
   const id = crypto.randomUUID();
-  const ext = MIME_TO_EXT[mime] || "bin";
+  const ext = MIME_TO_EXT[mime] || DIARY_VIDEO_MIME_TO_EXT[mime] || "bin";
   const filename = `${id}.${ext}`;
 
   try {
@@ -714,6 +841,8 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
       url: `/api/diary/attachments/${id}`,
       mimeType: mime,
       size: file.size,
+      filename: file.name || filename,
+      type: mediaType,
     },
     201,
   );
@@ -723,7 +852,7 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
  * 删除一张悬空（未绑定 diary）的图片。前端在用户预览时点 × 会调用此接口。
  * 已绑定 diary 的图片不允许通过这里删除（要走 DELETE /api/diary/:id 整条删）。
  */
-diary.delete("/attachments/:id", (c) => {
+diary.delete("/attachments/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
@@ -746,9 +875,8 @@ diary.delete("/attachments/:id", (c) => {
     );
   }
 
-  const abs = path.join(getAttachmentsDir(), row.path);
   try {
-    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+    await deleteAttachmentObject(row.path);
   } catch {
     /* 磁盘删失败不阻塞 DB 删 */
   }
@@ -761,7 +889,7 @@ diary.delete("/attachments/:id", (c) => {
 // ===========================================================================
 
 /**
- * 下载一张说说图片。授权模型同 attachments.handleDownloadAttachment：
+ * 下载一个说说媒体附件。授权模型同 attachments.handleDownloadAttachment：
  *   - id 是 uuid，不可枚举即天然权限；
  *   - <img> 标签拿不到 Authorization header 所以不能走 JWT；
  *   - 浏览器可以走长缓存（uuid 文件名不可变）。
@@ -772,11 +900,11 @@ export async function handleDownloadDiaryImage(c: Context): Promise<Response> {
   const row = db
     .prepare("SELECT id, mimeType, path FROM diary_attachments WHERE id = ?")
     .get(id) as { id: string; mimeType: string; path: string } | undefined;
-  if (!row) return c.json({ error: "图片不存在" }, 404);
+  if (!row) return c.json({ error: "媒体不存在" }, 404);
 
   const buffer = await readAttachmentObject(row.path);
   if (!buffer) {
-    return c.json({ error: "image file missing" }, 404);
+    return c.json({ error: "media file missing" }, 404);
   }
   return new Response(new Uint8Array(buffer), {
     headers: {
@@ -792,7 +920,7 @@ export async function handleDownloadDiaryImage(c: Context): Promise<Response> {
 //   这里用 setInterval 而不是 cron，单进程部署够用；多进程部署只会有一个把活干掉，
 //   重复执行也是幂等的（已删的找不到行就跳过），无副作用。
 // ===========================================================================
-function sweepOrphanDiaryImages(): number {
+async function sweepOrphanDiaryImages(): Promise<number> {
   try {
     const db = getDb();
     const cutoffIso = new Date(Date.now() - ORPHAN_TTL_MS)
@@ -807,7 +935,7 @@ function sweepOrphanDiaryImages(): number {
       .all(cutoffIso) as { id: string }[];
     if (!orphans.length) return 0;
     const ids = orphans.map((o) => o.id);
-    const removed = deleteDiaryImageFilesByIds(ids);
+    const removed = await deleteDiaryMediaFilesByIds(ids);
     const placeholders = ids.map(() => "?").join(",");
     db.prepare(
       `DELETE FROM diary_attachments WHERE id IN (${placeholders})`,
@@ -825,7 +953,7 @@ function sweepOrphanDiaryImages(): number {
 }
 
 // 启动后延后 30 秒跑第一次（避开服务刚起来时的拥塞），之后每 6 小时一次
-setTimeout(sweepOrphanDiaryImages, 30_000);
-setInterval(sweepOrphanDiaryImages, 6 * 60 * 60 * 1000);
+setTimeout(() => void sweepOrphanDiaryImages(), 30_000);
+setInterval(() => void sweepOrphanDiaryImages(), 6 * 60 * 60 * 1000);
 
 export default diary;

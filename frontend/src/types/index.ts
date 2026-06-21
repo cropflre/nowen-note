@@ -593,6 +593,14 @@ export interface MindMapFolder {
   createdAt: string;
   updatedAt: string;
 }
+export interface DiaryMediaItem {
+  id: string;
+  type: "image" | "video";
+  url?: string;
+  mimeType?: string;
+  size?: number;
+}
+
 export interface Diary {
   id: string;
   userId: string;
@@ -602,6 +610,8 @@ export interface Diary {
   mood: string;
   /** 已绑定的说说图片 id 数组（顺序即展示顺序）。需要 URL 时拼 /api/diary/attachments/<id>。 */
   images: string[];
+  /** 已绑定的说说媒体。旧数据可能为空，此时前端用 images 兜底。 */
+  media: DiaryMediaItem[];
   createdAt: string;
   /** 创建者用户名；后端 LEFT JOIN users 返回，工作区视图下用于展示"谁发的"。 */
   creatorName?: string | null;

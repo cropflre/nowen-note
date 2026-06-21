@@ -279,6 +279,8 @@ function initSchema(db: Database.Database) {
       -- 图片：JSON 数组字符串，元素是 diary_attachments.id（uuid）。
       -- 默认 '[]' 而不是 NULL，方便 SQL/前端无脑 JSON.parse。
       images TEXT NOT NULL DEFAULT '[]',
+      -- 媒体：JSON 数组字符串，元素形如 { id, type: 'image' | 'video' }。
+      media TEXT NOT NULL DEFAULT '[]',
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -661,6 +663,7 @@ function initSchema(db: Database.Database) {
         contentText TEXT DEFAULT '',
         mood TEXT DEFAULT '',
         images TEXT NOT NULL DEFAULT '[]',
+        media TEXT NOT NULL DEFAULT '[]',
         createdAt TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
@@ -676,6 +679,11 @@ function initSchema(db: Database.Database) {
     db.prepare("SELECT images FROM diaries LIMIT 1").get();
   } catch {
     db.prepare("ALTER TABLE diaries ADD COLUMN images TEXT NOT NULL DEFAULT '[]'").run();
+  }
+  try {
+    db.prepare("SELECT media FROM diaries LIMIT 1").get();
+  } catch {
+    db.prepare("ALTER TABLE diaries ADD COLUMN media TEXT NOT NULL DEFAULT '[]'").run();
   }
 
   // 迁移：补建 diary_attachments 表（旧库初始化时这张表还不存在）。

@@ -8,6 +8,8 @@ import {
   Smile,
   MessageCircle,
   ImagePlus,
+  Camera,
+  Video,
   X,
   Calendar,
   User as UserIcon,
@@ -15,7 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import { api, getCurrentWorkspace } from "@/lib/api";
-import { Diary, DiaryStats } from "@/types";
+import { Diary, DiaryMediaItem, DiaryStats } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -46,8 +48,10 @@ function getMoodEmoji(mood: string): string {
 // ---------------------------------------------------------------------------
 // 单条说说图片数量上限。前端硬限制 + 后端 diary.ts 也限制，双保险。
 const MAX_IMAGES_PER_DIARY = 9;
+const MAX_VIDEOS_PER_DIARY = 1;
 // 单张图大小上限，与后端 MAX_DIARY_IMAGE_SIZE 保持一致 → 不一致会出现"前端选过、后端拒"的尴尬
 const MAX_DIARY_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_DIARY_VIDEO_SIZE = 100 * 1024 * 1024;
 // 与后端 ALLOWED_DIARY_IMAGE_MIMES 对齐（不收 svg 防 XSS）
 const ALLOWED_IMAGE_MIMES = new Set([
   "image/png",
@@ -55,6 +59,11 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/gif",
   "image/webp",
   "image/bmp",
+]);
+const ALLOWED_VIDEO_MIMES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
 ]);
 
 // 相对时间显示
@@ -88,15 +97,33 @@ function timeAgo(dateStr: string, t: (key: string) => string): string {
 //   - previewUrl 用 URL.createObjectURL 生成；卸载时 revoke 防内存泄漏
 //   - status: 控制缩略图上的 spinner / 错误覆盖层
 // ---------------------------------------------------------------------------
-interface PendingImage {
+interface PendingMedia {
   /** 本地随机 key，用于 React 列表渲染 + 删除定位 */
   localKey: string;
   /** 上传成功后的服务端 id；上传中 / 失败为 null */
   id: string | null;
+  type: "image" | "video";
   /** 本地预览（blob:），上传成功后保留此预览（无需重新拉远端图） */
   previewUrl: string;
+  mimeType?: string;
   status: "uploading" | "ready" | "error";
   errorMessage?: string;
+}
+
+function diaryMediaFromItem(item: Diary): DiaryMediaItem[] {
+  if (Array.isArray(item.media) && item.media.length > 0) return item.media;
+  return (item.images || []).map((id) => ({ id, type: "image" as const }));
+}
+
+function mediaUrl(id: string): string {
+  return api.diaryImages.urlFor(id);
+}
+
+function mediaTypeForFile(file: File): "image" | "video" | null {
+  const mime = (file.type || "").toLowerCase();
+  if (ALLOWED_IMAGE_MIMES.has(mime)) return "image";
+  if (ALLOWED_VIDEO_MIMES.has(mime)) return "video";
+  return null;
 }
 
 // ============================================================
@@ -110,15 +137,18 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const [posting, setPosting] = useState(false);
   // 拖拽视觉反馈（dragOver 时高亮整个卡片）
   const [isDragging, setIsDragging] = useState(false);
-  // 待发布图片队列。用 ref 留一份镜像，因为粘贴 / 拖拽回调里要拿到最新值再
+  // 待发布媒体队列。用 ref 留一份镜像，因为粘贴 / 拖拽回调里要拿到最新值再
   // setState，避免函数式更新里反复读旧 state 计数错误。
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
-  const pendingImagesRef = useRef<PendingImage[]>([]);
-  pendingImagesRef.current = pendingImages;
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
+  const pendingMediaRef = useRef<PendingMedia[]>([]);
+  pendingMediaRef.current = pendingMedia;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const recordInputRef = useRef<HTMLInputElement>(null);
   // dragOver/Leave 计数：浏览器会在子元素切换时狂抛 enter/leave 事件，
   // 直接 setState 会闪烁。用计数器保证只有真正离开容器才隐藏高亮。
   const dragCounterRef = useRef(0);
@@ -146,7 +176,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   // 卸载时回收所有 blob URL
   useEffect(() => {
     return () => {
-      for (const item of pendingImagesRef.current) {
+      for (const item of pendingMediaRef.current) {
         try {
           URL.revokeObjectURL(item.previewUrl);
         } catch {
@@ -165,62 +195,85 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const addFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      const current = pendingImagesRef.current;
-      const remaining = MAX_IMAGES_PER_DIARY - current.length;
-      if (remaining <= 0) return;
-
-      const accepted: File[] = [];
+      const current = pendingMediaRef.current;
+      const currentType = current[0]?.type;
+      const accepted: Array<{ file: File; type: "image" | "video" }> = [];
       const rejected: { name: string; reason: string }[] = [];
       for (const f of files) {
-        if (accepted.length >= remaining) break;
         const mime = (f.type || "").toLowerCase();
-        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        const type = mediaTypeForFile(f);
+        if (!type) {
           rejected.push({ name: f.name || "image", reason: "type" });
           continue;
         }
-        if (f.size > MAX_DIARY_IMAGE_SIZE) {
+        if (currentType && currentType !== type) {
+          rejected.push({ name: f.name || "media", reason: "mix" });
+          continue;
+        }
+        if (type === "image" && f.size > MAX_DIARY_IMAGE_SIZE) {
           rejected.push({ name: f.name || "image", reason: "size" });
           continue;
         }
-        accepted.push(f);
+        if (type === "video" && f.size > MAX_DIARY_VIDEO_SIZE) {
+          rejected.push({ name: f.name || "video", reason: "video-size" });
+          continue;
+        }
+        const currentImageCount = current.filter((x) => x.type === "image").length;
+        const acceptedImageCount = accepted.filter((x) => x.type === "image").length;
+        const currentVideoCount = current.filter((x) => x.type === "video").length;
+        const acceptedVideoCount = accepted.filter((x) => x.type === "video").length;
+        if (type === "image" && currentImageCount + acceptedImageCount >= MAX_IMAGES_PER_DIARY) {
+          rejected.push({ name: f.name || "image", reason: "max-images" });
+          continue;
+        }
+        if (type === "video" && currentVideoCount + acceptedVideoCount >= MAX_VIDEOS_PER_DIARY) {
+          rejected.push({ name: f.name || "video", reason: "max-videos" });
+          continue;
+        }
+        accepted.push({ file: f, type });
       }
       if (rejected.length) {
-        // 多条拒绝原因逐条 toast：保持视觉一致，避免原生 alert 的尴尬抬头
-        const lines = rejected.map((r) =>
-          r.reason === "size"
-            ? t("diary.imageTooLarge").replace("{{name}}", r.name)
-            : t("diary.imageTypeUnsupported").replace("{{name}}", r.name),
-        );
+        const lines = rejected.map((r) => {
+          if (r.reason === "size") return t("diary.imageTooLarge").replace("{{name}}", r.name);
+          if (r.reason === "video-size") return t("diary.media.videoTooLarge").replace("{{name}}", r.name);
+          if (r.reason === "mix") return t("diary.media.noMixImageVideo");
+          if (r.reason === "max-images") return t("diary.media.maxImages").replace("{{n}}", String(MAX_IMAGES_PER_DIARY));
+          if (r.reason === "max-videos") return t("diary.media.maxVideos").replace("{{n}}", String(MAX_VIDEOS_PER_DIARY));
+          return t("diary.media.unsupportedType").replace("{{name}}", r.name);
+        });
         for (const line of lines) toast.error(line);
       }
       if (!accepted.length) return;
 
       // 先把"上传中"占位丢进 state，UI 立刻有反馈；逐个并发上传更新各自状态。
-      const newItems: PendingImage[] = accepted.map((f) => ({
+      const newItems: PendingMedia[] = accepted.map(({ file, type }) => ({
         localKey: crypto.randomUUID(),
         id: null,
-        previewUrl: URL.createObjectURL(f),
+        type,
+        previewUrl: URL.createObjectURL(file),
+        mimeType: file.type,
         status: "uploading",
       }));
-      setPendingImages((prev) => [...prev, ...newItems]);
+      setPendingMedia((prev) => [...prev, ...newItems]);
 
-      // 并发上传；每张图独立处理结果（部分失败不影响其他图）
+      // 并发上传；每个媒体独立处理结果（部分失败不影响其他项）
       newItems.forEach((item, idx) => {
-        const file = accepted[idx];
+        const { file } = accepted[idx];
         api.diaryImages
           .upload(file)
           .then((res) => {
-            setPendingImages((prev) =>
+            setPendingMedia((prev) =>
               prev.map((p) =>
                 p.localKey === item.localKey
-                  ? { ...p, id: res.id, status: "ready" as const }
+                  ? { ...p, id: res.id, type: res.type, mimeType: res.mimeType, status: "ready" as const }
                   : p,
               ),
             );
           })
           .catch((err) => {
-            console.error("Diary image upload failed:", err);
-            setPendingImages((prev) =>
+            console.error("Diary media upload failed:", err);
+            toast.error(err?.message || t("diary.media.uploadFailed"));
+            setPendingMedia((prev) =>
               prev.map((p) =>
                 p.localKey === item.localKey
                   ? {
@@ -237,11 +290,11 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     [t],
   );
 
-  // 移除一张图：未上传成功的直接丢；已上传成功的同时调后端 DELETE 释放服务端文件
-  const removeImage = useCallback((localKey: string) => {
-    const target = pendingImagesRef.current.find((p) => p.localKey === localKey);
+  // 移除一个媒体：未上传成功的直接丢；已上传成功的同时调后端 DELETE 释放服务端文件
+  const removeMedia = useCallback((localKey: string) => {
+    const target = pendingMediaRef.current.find((p) => p.localKey === localKey);
     if (!target) return;
-    setPendingImages((prev) => prev.filter((p) => p.localKey !== localKey));
+    setPendingMedia((prev) => prev.filter((p) => p.localKey !== localKey));
     try {
       URL.revokeObjectURL(target.previewUrl);
     } catch {
@@ -308,22 +361,23 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     dragCounterRef.current = 0;
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files || []).filter((f) =>
-      f.type.startsWith("image/"),
+      f.type.startsWith("image/") || f.type.startsWith("video/"),
     );
     if (files.length) void addFiles(files);
   };
 
-  const hasPendingUploads = pendingImages.some((p) => p.status === "uploading");
-  const hasErrorImages = pendingImages.some((p) => p.status === "error");
-  const readyImageIds = pendingImages
+  const hasPendingUploads = pendingMedia.some((p) => p.status === "uploading");
+  const hasErrorMedia = pendingMedia.some((p) => p.status === "error");
+  const readyMedia = pendingMedia
     .filter((p) => p.status === "ready" && p.id)
-    .map((p) => p.id!) as string[];
+    .map((p) => ({ id: p.id!, type: p.type }));
+  const readyImageIds = readyMedia.filter((p) => p.type === "image").map((p) => p.id);
 
-  // 提交条件：内容/图片至少一项，且没有上传中
+  // 提交条件：内容/媒体至少一项，且没有上传中
   const canSubmit =
     !posting &&
     !hasPendingUploads &&
-    (text.trim().length > 0 || readyImageIds.length > 0);
+    (text.trim().length > 0 || readyMedia.length > 0);
 
   const handlePost = async () => {
     if (!canSubmit) return;
@@ -332,10 +386,11 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       await api.postDiary({
         contentText: text.trim(),
         mood,
+        media: readyMedia,
         images: readyImageIds,
       });
       // 重置：先 revoke 所有 blob URL（已发布图片由后端持久化，前端不再需要 blob）
-      for (const item of pendingImagesRef.current) {
+      for (const item of pendingMediaRef.current) {
         try {
           URL.revokeObjectURL(item.previewUrl);
         } catch {
@@ -345,7 +400,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       setText("");
       setMood("");
       setShowMoods(false);
-      setPendingImages([]);
+      setPendingMedia([]);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       onPost();
     } catch (e) {
@@ -364,7 +419,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   };
 
   const selectedMoodEmoji = getMoodEmoji(mood);
-  const remainingSlots = MAX_IMAGES_PER_DIARY - pendingImages.length;
+  const hasVideo = pendingMedia.some((p) => p.type === "video");
+  const hasImages = pendingMedia.some((p) => p.type === "image");
+  const remainingImageSlots = hasVideo ? 0 : MAX_IMAGES_PER_DIARY - pendingMedia.filter((p) => p.type === "image").length;
+  const remainingVideoSlots = hasImages ? 0 : MAX_VIDEOS_PER_DIARY - pendingMedia.filter((p) => p.type === "video").length;
 
   return (
     <div
@@ -393,40 +451,53 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           className="w-full bg-transparent text-tx-primary placeholder:text-tx-tertiary text-sm leading-relaxed resize-none outline-none min-h-[52px]"
         />
 
-        {/* 待发布图片缩略图区 */}
-        {pendingImages.length > 0 && (
+        {/* 待发布媒体预览区 */}
+        {pendingMedia.length > 0 && (
           <div className="mt-2 grid grid-cols-4 sm:grid-cols-5 gap-2">
-            {pendingImages.map((img) => (
+            {pendingMedia.map((media) => (
               <div
-                key={img.localKey}
-                className="relative aspect-square rounded-lg overflow-hidden border border-app-border bg-app-hover/40 group/img"
+                key={media.localKey}
+                className={cn(
+                  "relative rounded-lg overflow-hidden border border-app-border bg-app-hover/40 group/img",
+                  media.type === "video" ? "col-span-4 sm:col-span-3 aspect-video" : "aspect-square",
+                )}
               >
-                <img
-                  src={img.previewUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
+                {media.type === "video" ? (
+                  <video
+                    src={media.previewUrl}
+                    className="w-full h-full object-cover bg-black"
+                    controls
+                    preload="metadata"
+                    playsInline
+                  />
+                ) : (
+                  <img
+                    src={media.previewUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
+                )}
                 {/* 上传中遮罩 */}
-                {img.status === "uploading" && (
+                {media.status === "uploading" && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                     <Loader2 size={18} className="animate-spin text-white" />
                   </div>
                 )}
                 {/* 上传失败遮罩 */}
-                {img.status === "error" && (
+                {media.status === "error" && (
                   <div
                     className="absolute inset-0 bg-red-500/60 flex items-center justify-center text-[10px] text-white text-center px-1"
-                    title={img.errorMessage}
+                    title={media.errorMessage}
                   >
                     {t("diary.uploadFailed")}
                   </div>
                 )}
                 {/* 删除按钮 */}
                 <button
-                  onClick={() => removeImage(img.localKey)}
+                  onClick={() => removeMedia(media.localKey)}
                   className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                  aria-label={t("diary.removeImage")}
+                  aria-label={t("diary.media.remove")}
                 >
                   <X size={12} />
                 </button>
@@ -497,15 +568,15 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           {/* 图片按钮：达到上限就禁用 */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={remainingSlots <= 0}
+            disabled={remainingImageSlots <= 0}
             className={cn(
               "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingSlots <= 0
+              remainingImageSlots <= 0
                 ? "text-tx-tertiary/50 cursor-not-allowed"
                 : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
             )}
             title={
-              remainingSlots <= 0
+              remainingImageSlots <= 0
                 ? t("diary.imageLimitReached").replace(
                     "{{n}}",
                     String(MAX_IMAGES_PER_DIARY),
@@ -514,18 +585,83 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             }
           >
             <ImagePlus size={15} />
-            <span className="hidden sm:inline">{t("diary.image")}</span>
-            {pendingImages.length > 0 && (
+            <span className="hidden sm:inline">{t("diary.media.image")}</span>
+            {hasImages && (
               <span className="text-[10px] text-tx-tertiary tabular-nums">
-                {pendingImages.length}/{MAX_IMAGES_PER_DIARY}
+                {pendingMedia.filter((p) => p.type === "image").length}/{MAX_IMAGES_PER_DIARY}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={remainingImageSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingImageSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.camera")}
+          >
+            <Camera size={15} />
+            <span className="hidden sm:inline">{t("diary.media.camera")}</span>
+          </button>
+          <button
+            onClick={() => videoInputRef.current?.click()}
+            disabled={remainingVideoSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingVideoSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.video")}
+          >
+            <Video size={15} />
+            <span className="hidden sm:inline">{t("diary.media.video")}</span>
+          </button>
+          <button
+            onClick={() => recordInputRef.current?.click()}
+            disabled={remainingVideoSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingVideoSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.record")}
+          >
+            <Video size={15} />
+            <span className="hidden sm:inline">{t("diary.media.record")}</span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
             accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
             multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={recordInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -555,7 +691,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             title={
               hasPendingUploads
                 ? t("diary.waitingUpload")
-                : hasErrorImages
+                : hasErrorMedia
                 ? t("diary.errorImagesHint")
                 : undefined
             }
@@ -624,6 +760,20 @@ function ImageGrid({
           />
         </button>
       ))}
+    </div>
+  );
+}
+
+function VideoBlock({ id }: { id: string }) {
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-app-border bg-black">
+      <video
+        src={mediaUrl(id)}
+        className="block w-full max-h-[420px] bg-black object-contain"
+        controls
+        preload="metadata"
+        playsInline
+      />
     </div>
   );
 }
@@ -744,6 +894,9 @@ function DiaryCard({
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const moodEmoji = getMoodEmoji(item.mood);
+  const media = diaryMediaFromItem(item);
+  const imageIds = media.filter((x) => x.type === "image").map((x) => x.id);
+  const videoItem = media.find((x) => x.type === "video");
   // 工作区下展示发布者；个人空间下省略（一定是自己）。
   const showCreator =
     !!item.creatorName && getCurrentWorkspace() !== "personal";
@@ -789,10 +942,11 @@ function DiaryCard({
               </p>
             )}
 
-            {/* 图片网格 */}
-            {item.images && item.images.length > 0 && (
-              <ImageGrid ids={item.images} onOpen={setLightboxIdx} />
+            {/* 媒体预览：图片九宫格 / 视频播放器 */}
+            {imageIds.length > 0 && (
+              <ImageGrid ids={imageIds} onOpen={setLightboxIdx} />
             )}
+            {videoItem && <VideoBlock id={videoItem.id} />}
 
             {/* 底部元信息 */}
             <div className="flex items-center justify-between mt-3 pt-2 border-t border-app-border/40">
@@ -850,7 +1004,7 @@ function DiaryCard({
       <AnimatePresence>
         {lightboxIdx !== null && (
           <Lightbox
-            ids={item.images}
+            ids={imageIds}
             index={lightboxIdx}
             onClose={() => setLightboxIdx(null)}
             onIndexChange={setLightboxIdx}
@@ -868,7 +1022,7 @@ function DiaryCard({
  * 设计要点：
  *   - 编辑模式直接替换原卡片，避免在小屏空间塞两套 UI；
  *   - 图片复用 ComposeBox 的"先上传后绑定"模型：
- *       原本已发布的图片用 PendingImage 表示（id 取自 server，previewUrl
+ *       原本已发布的媒体用 PendingMedia 表示（id 取自 server，previewUrl
  *       直接拼远端 URL，status=ready）；新加的走 upload 流程；点 × 仅从
  *       本地队列移除（实际删除在保存时由后端按 images 差集处理）；
  *   - 保存调用 api.updateDiary(id, { contentText, mood, images })，
@@ -889,16 +1043,17 @@ function DiaryEditor({
   const [mood, setMood] = useState(item.mood || "");
   const [showMoods, setShowMoods] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 复用 PendingImage 结构：原有的图片初始化为 ready 状态（id 已知，预览用远端 URL）
-  const [images, setImages] = useState<PendingImage[]>(() =>
-    (item.images || []).map((id) => ({
-      localKey: id, // 已有 id 直接当 localKey，稳定
-      id,
-      previewUrl: api.diaryImages.urlFor(id),
+  // 复用 PendingMedia 结构：原有媒体初始化为 ready 状态（id 已知，预览用远端 URL）
+  const [images, setImages] = useState<PendingMedia[]>(() =>
+    diaryMediaFromItem(item).map((media) => ({
+      localKey: media.id, // 已有 id 直接当 localKey，稳定
+      id: media.id,
+      type: media.type,
+      previewUrl: mediaUrl(media.id),
       status: "ready" as const,
     })),
   );
-  const imagesRef = useRef<PendingImage[]>([]);
+  const imagesRef = useRef<PendingMedia[]>([]);
   imagesRef.current = images;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
@@ -947,7 +1102,11 @@ function DiaryEditor({
     async (files: File[]) => {
       if (!files.length) return;
       const current = imagesRef.current;
-      const remaining = MAX_IMAGES_PER_DIARY - current.length;
+      if (current.some((x) => x.type === "video")) {
+        toast.error(t("diary.media.noMixImageVideo"));
+        return;
+      }
+      const remaining = MAX_IMAGES_PER_DIARY - current.filter((x) => x.type === "image").length;
       if (remaining <= 0) return;
 
       const accepted: File[] = [];
@@ -976,10 +1135,12 @@ function DiaryEditor({
       }
       if (!accepted.length) return;
 
-      const newItems: PendingImage[] = accepted.map((f) => ({
+      const newItems: PendingMedia[] = accepted.map((f) => ({
         localKey: crypto.randomUUID(),
         id: null,
+        type: "image",
         previewUrl: URL.createObjectURL(f),
+        mimeType: f.type,
         status: "uploading",
       }));
       setImages((prev) => [...prev, ...newItems]);
@@ -992,7 +1153,7 @@ function DiaryEditor({
             setImages((prev) =>
               prev.map((p) =>
                 p.localKey === it.localKey
-                  ? { ...p, id: res.id, status: "ready" as const }
+                  ? { ...p, id: res.id, type: res.type, mimeType: res.mimeType, status: "ready" as const }
                   : p,
               ),
             );
@@ -1038,14 +1199,15 @@ function DiaryEditor({
 
   const hasPendingUploads = images.some((p) => p.status === "uploading");
   const hasErrorImages = images.some((p) => p.status === "error");
-  const readyImageIds = images
+  const readyMedia = images
     .filter((p) => p.status === "ready" && p.id)
-    .map((p) => p.id!) as string[];
+    .map((p) => ({ id: p.id!, type: p.type }));
+  const readyImageIds = readyMedia.filter((p) => p.type === "image").map((p) => p.id);
 
   const canSave =
     !saving &&
     !hasPendingUploads &&
-    (text.trim().length > 0 || readyImageIds.length > 0);
+    (text.trim().length > 0 || readyMedia.length > 0);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -1054,6 +1216,7 @@ function DiaryEditor({
       const updated = await api.updateDiary(item.id, {
         contentText: text.trim(),
         mood,
+        media: readyMedia,
         images: readyImageIds,
       });
       onSaved(updated);
@@ -1076,7 +1239,8 @@ function DiaryEditor({
   };
 
   const selectedMoodEmoji = getMoodEmoji(mood);
-  const remainingSlots = MAX_IMAGES_PER_DIARY - images.length;
+  const editorHasVideo = images.some((p) => p.type === "video");
+  const remainingSlots = editorHasVideo ? 0 : MAX_IMAGES_PER_DIARY - images.filter((p) => p.type === "image").length;
 
   return (
     <motion.div
@@ -1105,20 +1269,33 @@ function DiaryEditor({
           autoFocus
         />
 
-        {/* 图片缩略图 */}
+        {/* 媒体预览 */}
         {images.length > 0 && (
           <div className="mt-2 grid grid-cols-4 sm:grid-cols-5 gap-2">
             {images.map((img) => (
               <div
                 key={img.localKey}
-                className="relative aspect-square rounded-lg overflow-hidden border border-app-border bg-app-hover/40 group/img"
+                className={cn(
+                  "relative rounded-lg overflow-hidden border border-app-border bg-app-hover/40 group/img",
+                  img.type === "video" ? "col-span-4 sm:col-span-3 aspect-video" : "aspect-square",
+                )}
               >
-                <img
-                  src={img.previewUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
+                {img.type === "video" ? (
+                  <video
+                    src={img.previewUrl}
+                    className="w-full h-full object-cover bg-black"
+                    controls
+                    preload="metadata"
+                    playsInline
+                  />
+                ) : (
+                  <img
+                    src={img.previewUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
+                )}
                 {img.status === "uploading" && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                     <Loader2 size={18} className="animate-spin text-white" />
@@ -1135,7 +1312,7 @@ function DiaryEditor({
                 <button
                   onClick={() => removeImage(img.localKey)}
                   className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                  aria-label={t("diary.removeImage")}
+                  aria-label={t("diary.media.remove")}
                 >
                   <X size={12} />
                 </button>
@@ -1222,10 +1399,10 @@ function DiaryEditor({
             }
           >
             <ImagePlus size={15} />
-            <span className="hidden sm:inline">{t("diary.image")}</span>
+            <span className="hidden sm:inline">{t("diary.media.image")}</span>
             {images.length > 0 && (
               <span className="text-[10px] text-tx-tertiary tabular-nums">
-                {images.length}/{MAX_IMAGES_PER_DIARY}
+                {images.filter((p) => p.type === "image").length}/{MAX_IMAGES_PER_DIARY}
               </span>
             )}
           </button>

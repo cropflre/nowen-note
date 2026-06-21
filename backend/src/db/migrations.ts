@@ -1450,6 +1450,17 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 25,
+    name: "diaries-add-media",
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(diaries)").all() as { name: string }[];
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === "media")) {
+        db.exec("ALTER TABLE diaries ADD COLUMN media TEXT NOT NULL DEFAULT '[]'");
+      }
+    },
+  },
+  {
+    version: 26,
     name: "tasks-add-startDate",
     up: (db) => {
       const cols = db.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
@@ -1460,7 +1471,7 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   {
-    version: 26,
+    version: 27,
     name: "task-dependencies",
     up: (db) => {
       db.exec(`CREATE TABLE IF NOT EXISTS task_dependencies (
@@ -1480,16 +1491,15 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_task_dependencies_unique ON task_dependencies(predecessorTaskId, successorTaskId, type)`);
     },
   },
-
   {
-    version: 27,
+    version: 28,
     name: "task-reminders-snoozedUntil",
     up: (db) => {
       db.exec(`ALTER TABLE task_reminders ADD COLUMN snoozedUntil TEXT`);
     },
   },
   {
-    version: 28,
+    version: 29,
     name: "tasks-add-description",
     up: (db) => {
       const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];

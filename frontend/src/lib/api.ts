@@ -1,4 +1,4 @@
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
 import {
@@ -1631,7 +1631,7 @@ export const api = {
   //   - <uuid>            → 指定工作区（要求成员身份 + diaries 功能开关未关闭）
   // 在工作区中：发布权限按"是否成员 + 功能开关"，删除权限按 canManageResource
   //   （创建者本人 / admin / owner）。
-  postDiary: (data: { contentText: string; mood?: string; images?: string[] }) => {
+  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[] }) => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Diary>(`/diary${qs}`, { method: "POST", body: JSON.stringify(data) });
@@ -1660,7 +1660,7 @@ export const api = {
    */
   updateDiary: (
     id: string,
-    data: { contentText?: string; mood?: string; images?: string[] },
+    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[] },
   ) =>
     request<Diary>(`/diary/${id}`, {
       method: "PUT",
@@ -1682,7 +1682,7 @@ export const api = {
   diaryImages: {
     upload: async (
       file: File,
-    ): Promise<{ id: string; url: string; mimeType: string; size: number }> => {
+    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename?: string; type: "image" | "video" }> => {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
