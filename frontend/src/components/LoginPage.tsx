@@ -136,6 +136,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const [diagResults, setDiagResults] = useState<DiagnosisResult[] | null>(null);
   const [diagRunning, setDiagRunning] = useState(false);
   const [allowRegistration, setAllowRegistration] = useState<boolean>(true);
+  const [hasUsers, setHasUsers] = useState(false);
   // Phase 6: 2FA 两阶段登录 state —— 第一步（密码）成功后若后端返回 requires2FA,
   // 就暂存 ticket + 当前 baseUrl，切到 2FA 面板让用户输入 6 位动态码或恢复码。
   const [twoFactor, setTwoFactor] = useState<{
@@ -184,6 +185,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     const baseUrl = isClientMode ? (getServerUrl() || "") : "";
     fetchRegisterConfig(baseUrl || undefined).then((cfg) => {
       if (!cancelled) setAllowRegistration(cfg.allowRegistration);
+        setHasUsers(!!(cfg as any).hasUsers || Number((cfg as any).userCount || 0) > 0);
     });
     return () => {
       cancelled = true;
@@ -932,7 +934,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
 
           {/* 底部提示 */}
           <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
-            {isRegister ? t("auth.registerHint") : t("auth.defaultCredentials")}
+            {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}
           </p>
 
           {!allowRegistration && !isRegister && (

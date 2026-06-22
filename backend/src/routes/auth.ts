@@ -149,7 +149,14 @@ function extractUserId(c: any): string | null {
 // ========== 注册配置（公开读取，管理员写入） ==========
 
 auth.get("/register/config", (c) => {
-  return c.json({ allowRegistration: getRegistrationOpen() });
+  const db = getDb();
+  const row = db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
+  const userCount = Number(row?.c || 0);
+  return c.json({
+    allowRegistration: getRegistrationOpen(),
+    userCount,
+    hasUsers: userCount > 0,
+  });
 });
 
 auth.put("/register/config", async (c) => {
