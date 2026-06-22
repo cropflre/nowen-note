@@ -208,6 +208,26 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, mood, pendingMedia]);
 
+  // 清空草稿并释放已上传未发布媒体
+  const clearDraftAndMedia = useCallback(() => {
+    const readyIds = pendingMediaRef.current
+      .filter((p) => p.status === "ready" && p.id)
+      .map((p) => p.id!);
+    for (const id of readyIds) {
+      api.diaryImages.remove(id).catch(() => {});
+    }
+    for (const item of pendingMediaRef.current) {
+      if (item.previewUrl.startsWith("blob:")) {
+        try { URL.revokeObjectURL(item.previewUrl); } catch {}
+      }
+    }
+    clearDiaryDraft();
+    setText("");
+    setMood("");
+    setPendingMedia([]);
+    setDraftRestored(false);
+  }, []);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -509,13 +529,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-lg bg-accent-primary/5 border border-accent-primary/20 text-[11px] text-accent-primary">
             <span>{t("diary.draftRestored")}</span>
             <button
-              onClick={() => {
-                clearDiaryDraft();
-                setText("");
-                setMood("");
-                setPendingMedia([]);
-                setDraftRestored(false);
-              }}
+              onClick={() => clearDraftAndMedia()}
               className="ml-auto px-2 py-0.5 rounded text-[10px] hover:bg-accent-primary/10"
             >
               {t("diary.draftClear")}
