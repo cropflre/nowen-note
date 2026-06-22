@@ -1134,12 +1134,14 @@ function DiaryEditor({
           rejected.push({ name: f.name || "video", reason: "video-size" });
           continue;
         }
-        // 混发校验
-        if (mediaType === "video" && currentHasImages) {
+        // 混发校验（当前已有的 + 本次已接受的）
+        const acceptedHasImages = accepted.some((x) => x.type === "image");
+        const acceptedHasVideo = accepted.some((x) => x.type === "video");
+        if (mediaType === "video" && (currentHasImages || acceptedHasImages)) {
           rejected.push({ name: f.name || "video", reason: "mix" });
           continue;
         }
-        if (mediaType === "image" && currentHasVideo) {
+        if (mediaType === "image" && (currentHasVideo || acceptedHasVideo)) {
           rejected.push({ name: f.name || "image", reason: "mix" });
           continue;
         }
