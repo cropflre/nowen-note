@@ -90,3 +90,4 @@ jobs:
           git add frontend/src/App.tsx frontend/src/components/DiaryCenter.tsx .github/workflows/auto-fix-mobile-layer-stack.yml
           git commit -m "fix: 优化移动端抽屉与弹窗层级 (MOBILE-LAYER-STACK-01)"
           git push
+# trigger: 2
