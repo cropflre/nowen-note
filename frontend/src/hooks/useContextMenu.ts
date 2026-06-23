@@ -11,14 +11,22 @@ export interface ContextMenuState {
 const MENU_WIDTH = 192;
 const MENU_HEIGHT = 240;
 
+const CLOSED_MENU_STATE: ContextMenuState = {
+  isOpen: false,
+  x: 0,
+  y: 0,
+  targetId: null,
+  targetType: null,
+};
+
+let latestContextMenuState: ContextMenuState = CLOSED_MENU_STATE;
+
+export function getLatestContextMenuState() {
+  return latestContextMenuState;
+}
+
 export function useContextMenu() {
-  const [menu, setMenu] = useState<ContextMenuState>({
-    isOpen: false,
-    x: 0,
-    y: 0,
-    targetId: null,
-    targetType: null,
-  });
+  const [menu, setMenu] = useState<ContextMenuState>(CLOSED_MENU_STATE);
   const menuRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -36,7 +44,9 @@ export function useContextMenu() {
       if (x < 0) x = 4;
       if (y < 0) y = 4;
 
-      setMenu({ isOpen: true, x, y, targetId, targetType: targetType || null });
+      const next = { isOpen: true, x, y, targetId, targetType: targetType || null };
+      latestContextMenuState = next;
+      setMenu(next);
     },
     []
   );
@@ -51,6 +61,7 @@ export function useContextMenu() {
   );
 
   const closeMenu = useCallback(() => {
+    latestContextMenuState = CLOSED_MENU_STATE;
     setMenu((prev) =>
       prev.isOpen ? { ...prev, isOpen: false, targetId: null, targetType: null } : prev
     );
