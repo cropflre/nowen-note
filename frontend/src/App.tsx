@@ -950,6 +950,11 @@ function AuthGate() {
         try { localStorage.removeItem("nowen-token"); } catch {}
         setIsAuthenticated(false);
         setUser(null);
+      } else if (ev.key === "nowen-auth-changed") {
+        // 其他 tab 改密/改用户名成功 → 本 tab 也清 token 回登录页重新验证
+        try { localStorage.removeItem("nowen-token"); } catch {}
+        setIsAuthenticated(false);
+        setUser(null);
       } else if (ev.key === "nowen-server-url") {
         // 服务器地址改了，接下来的 API 调用需要刷新页面才能命中新 base URL
         // 只有已登录（或正在展示列表）才需要 reload，未登录状态本身就在输服务器地址那一步，不用动

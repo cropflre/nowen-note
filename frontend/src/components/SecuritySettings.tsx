@@ -17,7 +17,7 @@ import {
   Lock,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, broadcastLogout, withSudo } from "@/lib/api";
+import { api, broadcastAuthChanged, withSudo } from "@/lib/api";
 import {
   confirm as confirmDialog,
   prompt as promptDialog,
@@ -117,8 +117,8 @@ function PasswordSection() {
       });
       setSuccess(true);
       setTimeout(() => {
-        // L10: 改密成功 → 广播其他 tab 一起下线
-        broadcastLogout("password_changed");
+        // 改密成功 → 通知其他 tab 重新登录，当前 tab 保持登录态 reload
+        broadcastAuthChanged("password_changed");
         window.location.reload();
       }, 2000);
     } catch (err: any) {

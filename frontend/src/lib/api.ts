@@ -465,6 +465,22 @@ export function broadcastLogout(reason?: string) {
 }
 
 /**
+ * 通知其他 tab 认证信息已变更（改密/改用户名），但不登出当前 tab。
+ * 与 broadcastLogout 的区别：当前 tab 保持登录态，只通知其他 tab 重新验证。
+ */
+/**
+ * ???? tab ??????????/???????????? tab?
+ * ? broadcastLogout ?????? tab ??????????? tab ?????
+ */
+export function broadcastAuthChanged(reason?: string) {
+  try {
+    localStorage.setItem("nowen-auth-changed", `${Date.now()}|${reason || ""}`);
+    localStorage.removeItem("nowen-auth-changed");
+  } catch {
+    /* ignore */
+  }
+}
+/**
  * H2: sudo 二次验证辅助工具。
  *
  * 敏感操作（删除用户 / 重置他人密码 / 改角色 / 禁用 / 恢复出厂设置 / 创建管理员）
