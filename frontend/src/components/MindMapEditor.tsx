@@ -1392,29 +1392,35 @@ export default function MindMapCenter() {
 
   const handleMouseUp = useCallback(() => setIsPanning(false), []);
 
-  // ?? wheel ?????passive: false ?? preventDefault ????????
+  // 滚轮缩放：在画布区域滚轮直接缩放，以鼠标位置为中心
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.08 : 0.08;
-        const rect = el.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        setZoom((z) => {
-          const newZoom = Math.max(0.3, Math.min(2.5, z + delta));
-          const scale = newZoom / z;
-          setPan((p) => ({
-            x: mouseX - (mouseX - p.x) * scale,
-            y: mouseY - (mouseY - p.y) * scale,
-          }));
-          return newZoom;
-        });
-      } else {
-        setPan((p) => ({ x: p.x - e.deltaX * 0.5, y: p.y - e.deltaY * 0.5 }));
-      }
+      // 输入框 / 编辑态内不拦截
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea, [contenteditable='true']")) return;
+
+      e.preventDefault();
+
+      // 步进：取 deltaY 方向，幅度用 min 限制避免触控板一次跳太多
+      const raw = e.deltaY > 0 ? -1 : 1;
+      const magnitude = Math.min(Math.abs(e.deltaY), 100);
+      const delta = raw * magnitude * 0.003;
+
+      const rect = el.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      setZoom((z) => {
+        const newZoom = Math.max(0.3, Math.min(2.5, z + delta));
+        const scale = newZoom / z;
+        setPan((p) => ({
+          x: mouseX - (mouseX - p.x) * scale,
+          y: mouseY - (mouseY - p.y) * scale,
+        }));
+        return newZoom;
+      });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
