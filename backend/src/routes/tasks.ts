@@ -192,11 +192,11 @@ tasks.put("/reorder/batch", (c) => {
       id: String(item?.id || ""),
       sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Number(item.sortOrder) : index,
     }));
-    if (normalized.some((item) => !item.id)) {
+    if (normalized.some((item: { id: string; sortOrder: number }) => !item.id)) {
       return c.json({ error: "Invalid task id", code: "BAD_REQUEST" }, 400);
     }
 
-    const ids = normalized.map((item) => item.id);
+    const ids = normalized.map((item: { id: string; sortOrder: number }) => item.id);
     if (new Set(ids).size !== ids.length) {
       return c.json({ error: "Duplicate task id", code: "DUPLICATE_TASK" }, 400);
     }
