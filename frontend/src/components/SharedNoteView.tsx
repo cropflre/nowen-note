@@ -1672,11 +1672,17 @@ function renderNode(node: any): string {
     case "image": {
       const src = resolveAttachmentUrl(node.attrs?.src || "");
       const alt = node.attrs?.alt || "";
-      const imgWidth = node.attrs?.width;
-      const imgHeight = node.attrs?.height;
-      const wAttr = imgWidth ? ` width="${imgWidth}"` : "";
-      const hAttr = imgHeight ? ` height="${imgHeight}"` : "";
-      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${wAttr}${hAttr} />`;
+      const raw = node.attrs?.width;
+      const w = typeof raw === "number" && Number.isFinite(raw) && raw > 0
+        ? Math.round(raw)
+        : typeof raw === "string" && /^\d+(?:\.\d+)?$/.test(raw.trim())
+          ? Math.round(Number(raw))
+          : null;
+      const wAttr = w ? ` width="${w}"` : "";
+      const style = w
+        ? ` style="width:${w}px;max-width:100%;height:auto"`
+        : ` style="max-width:100%;height:auto"`;
+      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${wAttr}${style} />`;
     }
     case "table":
       return `<table>${renderChildren(node)}</table>`;
