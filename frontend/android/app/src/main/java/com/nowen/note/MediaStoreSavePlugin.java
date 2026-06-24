@@ -29,7 +29,7 @@ public class MediaStoreSavePlugin extends Plugin {
         String base64Data = call.getString("base64Data");
         String fileName = call.getString("fileName", "image.png");
         String mimeType = call.getString("mimeType", "image/png");
-        String relativePath = call.getString("relativePath", "Pictures/Nowen Note");
+        String relativePath = call.getString("relativePath", Environment.DIRECTORY_PICTURES + "/Nowen Note");
 
         if (base64Data == null || base64Data.isEmpty()) {
             call.reject("base64Data is required");
