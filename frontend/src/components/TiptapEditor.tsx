@@ -2132,12 +2132,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       const text = getEditorPlainText(editor);
       setWordStats(computeStats(text));
       onHeadingsChange?.(extractHeadings(editor));
+      // P0: 调度时快照 noteId，防止 debounce 期间切换笔记导致写错目标
+      const scheduledNoteId = noteRef.current.id;
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => {
+        // 再次校验 noteId 未变化（切换笔记时 debounce 会被清理，这里是双重保险）
+        if (noteRef.current.id !== scheduledNoteId) return;
         const json = JSON.stringify(editor.getJSON());
         const title = titleRef.current?.value || noteRef.current.title;
         lastEmittedContentRef.current = json;
-        onUpdateRef.current({ content: json, contentText: text, title });
+        onUpdateRef.current({ content: json, contentText: text, title, _noteId: scheduledNoteId });
       }, 500);
     },
   });
@@ -2168,7 +2172,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     const text = getEditorPlainText(editor);
     const title = titleRef.current?.value || noteRef.current.title;
     lastEmittedContentRef.current = json;
-    onUpdateRef.current({ content: json, contentText: text, title });
+    onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
     try {
       toast.success(t('tiptap.saved') || 'Saved');
     } catch {}
@@ -2198,7 +2202,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         const text = getEditorPlainText(editor);
         const title = titleRef.current?.value || noteRef.current.title;
         lastEmittedContentRef.current = json;
-        onUpdateRef.current({ content: json, contentText: text, title });
+        onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
       },
       discardPending: () => {
         // 切换编辑器时调用方已经自己 PUT 规范化内容，清掉 debounce 避免竞态
@@ -2969,7 +2973,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     titleDebounceTimer.current = setTimeout(() => {
       titleDebounceTimer.current = null;
       const title = titleRef.current?.value || "";
-      onUpdateRef.current({ title });
+      onUpdateRef.current({ title, _noteId: noteRef.current.id });
     }, 500);
   }, []);
 

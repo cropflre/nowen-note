@@ -614,9 +614,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
     if (collabEnabledRef.current) {
-      onUpdateRef.current({ title });
+      onUpdateRef.current({ title, _noteId: noteRef.current.id });
     } else {
-      onUpdateRef.current({ content: md, contentText: plain, title });
+      onUpdateRef.current({ content: md, contentText: plain, title, _noteId: noteRef.current.id });
     }
   }, []);
 
