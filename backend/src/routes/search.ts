@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
-import { buildFtsSearchTerm, hasHanText } from "../lib/searchQuery";
+import { buildFtsSearchTerm, hasHanText, splitSearchTerms } from "../lib/searchQuery";
 
 const app = new Hono();
 
@@ -18,6 +18,7 @@ type SearchRow = {
   titleHtml: string;
   snippetHtml: string;
   score: number;
+  matchedField?: string; // 命中的字段：title, content, title+content
 };
 
 function escapeHtml(text: string): string {
@@ -38,14 +39,29 @@ function markPlainText(text: string, query: string): string {
 }
 
 function buildPlainSnippet(title: string, contentText: string, query: string): string {
+  // 优先从正文中查找命中片段
+  if (contentText) {
+    const index = contentText.indexOf(query);
+    if (index >= 0) {
+      const start = Math.max(0, index - 40);
+      const end = Math.min(contentText.length, index + query.length + 80);
+      const prefix = start > 0 ? "..." : "";
+      const suffix = end < contentText.length ? "..." : "";
+      return `${prefix}${markPlainText(contentText.slice(start, end), query)}${suffix}`;
+    }
+  }
+
+  // 如果正文没有命中，从标题中查找
+  if (title) {
+    const index = title.indexOf(query);
+    if (index >= 0) {
+      return markPlainText(title, query);
+    }
+  }
+
+  // 如果都没有命中，返回正文前120个字符
   const source = contentText || title || "";
-  const index = source.indexOf(query);
-  if (index < 0) return markPlainText(source.slice(0, 120), query);
-  const start = Math.max(0, index - 40);
-  const end = Math.min(source.length, index + query.length + 80);
-  const prefix = start > 0 ? "..." : "";
-  const suffix = end < source.length ? "..." : "";
-  return `${prefix}${markPlainText(source.slice(start, end), query)}${suffix}`;
+  return markPlainText(source.slice(0, 120), query);
 }
 
 app.get("/", (c) => {
@@ -100,38 +116,58 @@ app.get("/", (c) => {
       LIMIT 100
     `).all(userId, searchTerm, ...scopeParams) as SearchRow[];
 
-    for (const row of ftsRows) rows.set(row.id, row);
+    for (const row of ftsRows) {
+      // FTS 搜索默认命中标题和内容
+      rows.set(row.id, { ...row, matchedField: "title+content" });
+    }
   }
 
   if (hasHanText(q)) {
-    const likeRows = db.prepare(`
-      SELECT n.id, n.userId, n.notebookId, n.workspaceId, n.title, n.contentText, n.updatedAt,
-        CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-        n.isPinned
-      FROM notes n
-      WHERE ${scopeSql} AND n.isTrashed = 0
-        AND (n.title LIKE '%' || ? || '%' OR n.contentText LIKE '%' || ? || '%')
-      ORDER BY n.updatedAt DESC
-      LIMIT 100
-    `).all(userId, ...scopeParams, q, q) as Array<SearchRow & { contentText: string }>;
+    // 拆分搜索词，使用 AND 逻辑确保所有词都必须出现
+    const terms = splitSearchTerms(q).filter(Boolean);
+    if (terms.length > 0) {
+      // 构建 AND 条件：每个词都必须在标题或正文中出现
+      const andConditions = terms.map(() => `(n.title LIKE '%' || ? || '%' OR n.contentText LIKE '%' || ? || '%')`).join(' AND ');
+      const likeParams = terms.flatMap(t => [t, t]);
 
-    for (const row of likeRows) {
-      if (rows.has(row.id)) continue;
-      const snippetHtml = buildPlainSnippet(row.title, row.contentText || "", q);
-      rows.set(row.id, {
-        id: row.id,
-        userId: row.userId,
-        notebookId: row.notebookId,
-        workspaceId: row.workspaceId,
-        title: row.title,
-        updatedAt: row.updatedAt,
-        isFavorite: row.isFavorite,
-        isPinned: row.isPinned,
-        snippet: snippetHtml,
-        titleHtml: markPlainText(row.title, q),
-        snippetHtml,
-        score: 10,
-      });
+      const likeRows = db.prepare(`
+        SELECT n.id, n.userId, n.notebookId, n.workspaceId, n.title, n.contentText, n.updatedAt,
+          CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
+          n.isPinned
+        FROM notes n
+        WHERE ${scopeSql} AND n.isTrashed = 0
+          AND (${andConditions})
+        ORDER BY n.updatedAt DESC
+        LIMIT 100
+      `).all(userId, ...scopeParams, ...likeParams) as Array<SearchRow & { contentText: string }>;
+
+      for (const row of likeRows) {
+        if (rows.has(row.id)) continue;
+        const snippetHtml = buildPlainSnippet(row.title, row.contentText || "", q);
+
+        // 确定命中字段
+        let matchedField = "title+content";
+        const titleMatch = terms.some(t => row.title?.includes(t));
+        const contentMatch = terms.some(t => row.contentText?.includes(t));
+        if (titleMatch && !contentMatch) matchedField = "title";
+        else if (!titleMatch && contentMatch) matchedField = "content";
+
+        rows.set(row.id, {
+          id: row.id,
+          userId: row.userId,
+          notebookId: row.notebookId,
+          workspaceId: row.workspaceId,
+          title: row.title,
+          updatedAt: row.updatedAt,
+          isFavorite: row.isFavorite,
+          isPinned: row.isPinned,
+          snippet: snippetHtml,
+          titleHtml: markPlainText(row.title, q),
+          snippetHtml,
+          score: 10,
+          matchedField,
+        });
+      }
     }
   }
 
@@ -139,7 +175,11 @@ app.get("/", (c) => {
     Array.from(rows.values())
       .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 100)
-      .map(({ score, ...row }) => row),
+      .map(({ score, ...row }) => ({
+        ...row,
+        // 确保 matchedField 字段被返回
+        matchedField: row.matchedField || "title+content"
+      })),
   );
 });
 

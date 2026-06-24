@@ -17,7 +17,7 @@ import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
 import { syncNow } from "@/lib/syncEngine"
-import { deleteNote as deleteLocalNote } from "@/lib/localStore"
+import { deleteNote as deleteLocalNote, getNote as getLocalNote, putNote as putLocalNote } from "@/lib/localStore"
 import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
@@ -1179,7 +1179,17 @@ const NoteCard = React.memo(function NoteCard({
             - overflow-wrap-anywhere 避免极长 URL 撑破容器。 */}
         {preview && (
           searchQuery ? (
-            <p className="note-card-preview text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+            <div className="mt-1.5">
+              {/* 命中字段提示 */}
+              {note.matchedField && note.matchedField !== "title+content" && (
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary">
+                    {note.matchedField === "title" ? t('noteList.matchedTitle') : t('noteList.matchedContent')}
+                  </span>
+                </div>
+              )}
+              <p className="note-card-preview text-xs text-tx-tertiary line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+            </div>
           ) : (
             <p className="text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
           )
@@ -1484,6 +1494,7 @@ export default function NoteList() {
           version: 0,
           createdAt: r.updatedAt,
           updatedAt: r.updatedAt,
+          matchedField: r.matchedField,
         }));
       } else if (state.viewMode === "tag" && state.selectedTagId) {
         const params: Record<string, string> = { ...sortParams };
@@ -1631,10 +1642,19 @@ export default function NoteList() {
       // 排除自己触发的回声
       const myConnectionId = realtime.getConnectionId();
       if (myConnectionId && msg.actorConnectionId === myConnectionId) return;
+      console.log("[NoteList] note:deleted received", { noteId, trashed: msg.trashed, myConnectionId });
       // 立即从列表移除
       actions.removeNoteFromList(noteId);
-      // 永久删除时同步清理 IndexedDB 本地缓存，防止旧缓存把已删笔记 put 回去
-      if (msg.trashed !== true) {
+      if (msg.trashed === true) {
+        // 移入回收站：同步更新 IndexedDB 中的 isTrashed 字段，
+        // 防止关闭/重启后旧缓存把笔记"复活"到普通列表
+        void getLocalNote(noteId).then((existing) => {
+          if (existing) {
+            void putLocalNote({ ...existing, isTrashed: 1, trashedAt: new Date().toISOString() }).catch(() => {});
+          }
+        }).catch(() => {});
+      } else {
+        // 永久删除：直接从 IndexedDB 移除
         void deleteLocalNote(noteId).catch(() => {});
       }
       // 异步 syncNow 兜底：确保 IndexedDB 中的 isTrashed / 删除状态与服务端一致

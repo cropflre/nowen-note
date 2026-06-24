@@ -177,6 +177,8 @@
     "allNotes": "所有笔记",
     "notebook": "笔记本",
     "search": "搜索: {{query}}",
+    "matchedTitle": "命中标题",
+    "matchedContent": "命中正文",
     "tag": "标签",
     "note": "笔记",
     "dateFilter": "日期筛选",

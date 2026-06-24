@@ -172,6 +172,8 @@
     "allNotes": "All Notes",
     "notebook": "Notebook",
     "search": "Search: {{query}}",
+    "matchedTitle": "Title matched",
+    "matchedContent": "Content matched",
     "tag": "Tag",
     "note": "Note",
     "dateFilter": "Date Filter",

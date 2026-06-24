@@ -210,6 +210,8 @@ export interface NoteListItem {
   creatorName?: string | null;
   titleHtml?: string;
   snippetHtml?: string;
+  /** 搜索结果中命中的字段：title, content, title+content */
+  matchedField?: string;
 }
 
 export interface Tag {
@@ -233,6 +235,8 @@ export interface SearchResult {
   snippetHtml?: string;
   userId?: string;
   workspaceId?: string | null;
+  /** 搜索结果中命中的字段：title, content, title+content */
+  matchedField?: string;
 }
 
 export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files";
