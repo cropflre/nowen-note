@@ -191,6 +191,22 @@ function getTurndown(): TurndownService {
     },
   });
 
+  // 图片宽度保留：Tiptap image node 有 width 属性时，generateHTML 输出的 <img> 含
+  // width="xxx"；Turndown 默认会把 img 转成 ![alt](src) 丢失 width。这里当 img
+  // 有 width 属性时，保留为 HTML <img> 标签，让 ReactMarkdown + rehype-raw 透传，
+  // 分享页 DOM 后处理再补 inline style。
+  td.addRule("imageWithWidth", {
+    filter: (node) => node.nodeName === "IMG" && !!node.getAttribute("width"),
+    replacement: (_content, node) => {
+      const el = node as Element;
+      const src = el.getAttribute("src") || "";
+      const alt = el.getAttribute("alt") || "";
+      const w = el.getAttribute("width") || "";
+      const wAttr = w ? ` width="${w}"` : "";
+      return `<img src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}"${wAttr} />`;
+    },
+  });
+
   // 下划线保持 HTML（MD 原生不支持，且 Turndown 默认会丢 <u>）
   td.addRule("underline", {
     filter: ["u"] as any,

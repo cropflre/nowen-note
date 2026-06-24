@@ -102,6 +102,38 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [lightboxImage]);
 
+  // DOM 后处理：统一给分享页正文图片补 width style，覆盖所有渲染路径
+  // （ReactMarkdown / dangerouslySetInnerHTML / 原始 HTML 透传）
+  useEffect(() => {
+    const root = pmRenderRef.current;
+    if (!root) return;
+    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+    for (const img of imgs) {
+      // 已处理过则跳过
+      if (img.dataset.wNorm) continue;
+      const raw =
+        img.style.width ||
+        img.getAttribute("width") ||
+        img.getAttribute("data-width") ||
+        img.getAttribute("data-image-width") ||
+        "";
+      const num = typeof raw === "number"
+        ? raw
+        : typeof raw === "string"
+          ? parseFloat(raw.replace(/px$/i, ""))
+          : NaN;
+      const w = Number.isFinite(num) && num > 0 ? Math.round(num) : null;
+      img.style.maxWidth = "100%";
+      img.style.height = "auto";
+      img.style.cursor = "zoom-in";
+      if (w) {
+        img.style.width = `${w}px`;
+        img.setAttribute("width", String(w));
+      }
+      img.dataset.wNorm = "1";
+    }
+  });
+
   useEffect(() => { guestNameRef.current = guestName; }, [guestName]);
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
   useEffect(() => { latestVersionRef.current = currentVersion; }, [currentVersion]);
@@ -1110,6 +1142,30 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       <code className={className} {...props}>
                         {children}
                       </code>
+                    );
+                  },
+                  // 图片：有 width 时输出 inline style 控制缩放宽度
+                  img({ src, alt, ...imgProps }: any) {
+                    const resolvedSrc = resolveAttachmentUrl(String(src || ""));
+                    const rawW = imgProps?.width || imgProps?.["data-width"];
+                    const w = typeof rawW === "number" && rawW > 0
+                      ? Math.round(rawW)
+                      : typeof rawW === "string" && /^\d+(?:\.\d+)?$/.test(rawW.trim())
+                        ? Math.round(Number(rawW))
+                        : null;
+                    return (
+                      <img
+                        {...imgProps}
+                        src={resolvedSrc}
+                        alt={String(alt || "")}
+                        width={w || undefined}
+                        style={{
+                          width: w ? `${w}px` : undefined,
+                          maxWidth: "100%",
+                          height: "auto",
+                          cursor: "zoom-in",
+                        }}
+                      />
                     );
                   },
                 }}
