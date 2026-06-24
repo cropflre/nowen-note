@@ -1,3 +1,9 @@
+              showNoteTime={showNoteTime}
+  showNoteTime,
+  showNoteTime?: boolean;
+  onToggleShowTime,
+  showNoteTime: boolean;
+  onToggleShowTime: () => void;
 ﻿import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
