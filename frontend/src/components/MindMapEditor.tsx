@@ -2523,10 +2523,12 @@ export default function MindMapCenter() {
                   );
                 })()}
 
-              {/* MiniMap 小地图 */}
+            </div>
+
+              {/* MiniMap 小地图：放在 canvasRef 外面，固定在视口右下角，不随 pan 移动 */}
               {showMiniMap && layoutNodes.length > 0 && (
                 <div
-                  className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3 bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md border border-black/[0.08] dark:border-white/[0.1] rounded-[10px] shadow-lg shadow-black/[0.06] overflow-hidden"
+                  className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3 z-20 bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md border border-black/[0.08] dark:border-white/[0.1] rounded-[10px] shadow-lg shadow-black/[0.06] overflow-hidden"
                   style={{ width: isMobile ? 140 : 180, height: isMobile ? 90 : 120 }}
                 >
                   <svg
@@ -2601,7 +2603,6 @@ export default function MindMapCenter() {
                   </svg>
                 </div>
               )}
-            </div>
             </div>
             </div>
             {!isMobile && (
