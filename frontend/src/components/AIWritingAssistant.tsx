@@ -449,7 +449,8 @@ export default function AIWritingAssistant({
             </div>
           )}
           <div className="text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
-            {result}
+            {/* 流式输出完成时清洗 <think>...</think> 推理内容 */}
+            {isLoading ? result : extractFinalAnswer(result)}
             {isLoading && result && (
               <span className="inline-block w-1.5 h-4 bg-accent-primary/60 animate-pulse ml-0.5 align-middle rounded-sm" />
             )}

@@ -29,7 +29,7 @@ export interface CallAIOptions {
 }
 
 const FINAL_MARKER_RE = /(?:^|\n)\s*(最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]\s*/gi;
-const QUOTE_RE = /^[\s"'“”‘’「」『』《》#*`\-:：]+|[\s"'“”‘’「」『』《》#*`\-:：。.!！?？]+$/g;
+const QUOTE_RE = /^[\s"'"'"''''「」『』《》#*`\-\:：]+|[\s"'"'"''''「」『』《》#*`\-\:：。.!！?？]+$/g;
 
 function isLikelyReasoningLine(line: string): boolean {
   const s = line.trim();
@@ -50,23 +50,40 @@ function isLikelyReasoningLine(line: string): boolean {
   ].some((re) => re.test(s));
 }
 
-/** 删除推理模型常见的思考块和推理段落。 */
+/**
+ * 核心清洗函数：移除 AI 推理内容
+ *
+ * 处理顺序：
+ * 1. 移除 BOM、统一换行符
+ * 2. 移除 <think>...</think> 和 <reasoning>...</reasoning> 标签（支持多行、大小写混合）
+ * 3. 移除未闭合的 think/reasoning 标签到末尾或最终答案标记
+ * 4. 移除残留的闭合标签
+ * 5. 移除 Markdown 代码围栏包裹的 reasoning/think
+ * 6. 移除中文显式推理段（思考过程/推理过程/分析过程）
+ * 7. 按行过滤推理内容
+ * 8. 清理多余空行
+ */
 export function stripAiReasoning(raw: string): string {
   if (!raw) return "";
-  let text = String(raw).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  let text = String(raw).replace(/^﻿/, "").replace(/\r\n/g, "\n");
 
-  // XML/类 XML 思考块：<think>...</think>、<reasoning>...</reasoning>
-  text = text.replace(/<\s*(think|reasoning)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
-  // 没有闭合标签时，先移除到最终答案标记前；如果没有标记，则移除到结尾。
-  text = text.replace(/<\s*(think|reasoning)[^>]*>[\s\S]*?(?=(?:最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]|$)/gi, "");
-  text = text.replace(/<\s*\/\s*(think|reasoning)\s*>/gi, "");
+  // 1. XML/类 XML 思考块：<think>...</think>、<reasoning>...</reasoning>
+  //    支持大小写混合、标签前后有空格、多行内容
+  text = text.replace(/<\s*(think|reasoning|思考|推理)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
 
-  // Markdown 代码围栏里的 reasoning / think。
-  text = text.replace(/```\s*(think|reasoning)[\s\S]*?```/gi, "");
+  // 2. 没有闭合标签时，先移除到最终答案标记前；如果没有标记，则移除到结尾
+  text = text.replace(/<\s*(think|reasoning|思考|推理)[^>]*>[\s\S]*?(?=(?:最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]|$)/gi, "");
 
-  // 中文显式推理段：有最终标记时只删除标记前的推理段。
+  // 3. 移除残留的闭合标签
+  text = text.replace(/<\s*\/\s*(think|reasoning|思考|推理)\s*>/gi, "");
+
+  // 4. Markdown 代码围栏里的 reasoning / think
+  text = text.replace(/```\s*(think|reasoning|思考|推理)[\s\S]*?```/gi, "");
+
+  // 5. 中文显式推理段：有最终标记时只删除标记前的推理段
   text = text.replace(/(?:^|\n)\s*(思考过程|推理过程|分析过程)\s*[:：][\s\S]*?(?=(?:\n\s*)?(最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：])/gi, "\n");
 
+  // 6. 按行过滤推理内容
   return text
     .split("\n")
     .filter((line) => !isLikelyReasoningLine(line))
