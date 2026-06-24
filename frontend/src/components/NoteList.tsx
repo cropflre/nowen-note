@@ -44,6 +44,22 @@ function saveSortPref(pref: { by: SortBy; dir: SortDir }) {
   try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(pref)); } catch {}
 }
 
+const TIME_VISIBILITY_STORAGE_KEY = "nowen.noteList.showTime";
+
+function loadShowTimePref(): boolean {
+  try {
+    const raw = localStorage.getItem(TIME_VISIBILITY_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function saveShowTimePref(value: boolean) {
+  try { localStorage.setItem(TIME_VISIBILITY_STORAGE_KEY, String(value)); } catch {}
+}
+
 /* ===== 排序下拉菜单 =====
  * 设计要点（针对历史踩坑）：
  *   1) 用 createPortal 挂到 document.body，绕过任何祖先的 stacking context / overflow 限制；
@@ -58,11 +74,15 @@ function SortMenu({
   onChange,
   onClose,
   anchorRef,
+  showNoteTime,
+  onToggleShowTime,
 }: {
   value: { by: SortBy; dir: SortDir };
   onChange: (next: { by: SortBy; dir: SortDir }) => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
+  showNoteTime: boolean;
+  onToggleShowTime: () => void;
 }) {
   const { t } = useTranslation();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -193,6 +213,27 @@ function SortMenu({
             );
           })}
         </div>
+
+          {/* 分割线 */}
+          <div className="my-1 border-t border-app-border" />
+
+          {/* 显示更新时间开关 */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleShowTime(); }}
+            className={cn(
+              "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs transition-colors text-left",
+              showNoteTime
+                ? "text-accent-primary bg-accent-primary/10"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+            )}
+          >
+            <span className="flex items-center gap-2">
+              {showNoteTime ? <Check size={12} className="shrink-0" /> : <span className="w-3 shrink-0" />}
+              <span>{t("noteList.showUpdatedTime")}</span>
+            </span>
+          </button>
       </div>
     </>,
     document.body
@@ -1006,6 +1047,7 @@ const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
+  showNoteTime,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1023,6 +1065,7 @@ const NoteCard = React.memo(function NoteCard({
   onTouchEnd?: () => void;
   cardRef?: (el: HTMLDivElement | null) => void;
   searchQuery?: string;
+  showNoteTime?: boolean;
 }) {
   // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
   // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
@@ -1144,10 +1187,12 @@ const NoteCard = React.memo(function NoteCard({
             - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
             两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
         <div className="flex items-center justify-between mt-2 text-tx-tertiary gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Clock size={10} />
-            <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
-          </div>
+          {showNoteTime && (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Clock size={10} />
+              <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
+            </div>
+          )}
           {showCreator ? (
             <span
               className="flex items-center gap-1 text-[10px] text-tx-secondary/80 truncate max-w-[40%]"
@@ -1191,6 +1236,7 @@ function VirtualNoteList({
   onTouchEnd,
   noteCardRefs,
   searchQuery,
+  showNoteTime,
 }: {
   notes: NoteListItem[];
   activeNoteId: string | undefined;
@@ -1210,6 +1256,7 @@ function VirtualNoteList({
   onTouchEnd?: () => void;
   noteCardRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
   searchQuery?: string;
+  showNoteTime?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1283,6 +1330,7 @@ function VirtualNoteList({
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
               searchQuery={searchQuery}
+              showNoteTime={showNoteTime}
             />
           ))}
         </div>
@@ -1322,6 +1370,7 @@ export default function NoteList() {
   const notesQueryKeyRef = useRef("");
   // 排序偏好（持久化到 localStorage，不入 store；用户在不同设备/浏览器下可独立设置）
   const [sortPref, setSortPref] = useState<{ by: SortBy; dir: SortDir }>(() => loadSortPref());
+  const [showNoteTime, setShowNoteTime] = useState(() => loadShowTimePref());
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortBtnRef = useRef<HTMLButtonElement>(null);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
@@ -2822,6 +2871,14 @@ export default function NoteList() {
                 saveSortPref(next);
               }}
               onClose={() => setShowSortMenu(false)}
+              showNoteTime={showNoteTime}
+              onToggleShowTime={() => {
+                setShowNoteTime(prev => {
+                  const next = !prev;
+                  saveShowTimePref(next);
+                  return next;
+                });
+              }}
             />
           )}
         </div>
@@ -2922,6 +2979,14 @@ export default function NoteList() {
                 saveSortPref(next);
               }}
               onClose={() => setShowSortMenu(false)}
+              showNoteTime={showNoteTime}
+              onToggleShowTime={() => {
+                setShowNoteTime(prev => {
+                  const next = !prev;
+                  saveShowTimePref(next);
+                  return next;
+                });
+              }}
             />
           )}
         </div>
@@ -3190,6 +3255,7 @@ export default function NoteList() {
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 searchQuery={state.searchQuery || undefined}
+                showNoteTime={showNoteTime}
               />
             ))}
           </AnimatePresence>

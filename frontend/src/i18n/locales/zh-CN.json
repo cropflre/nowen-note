@@ -182,6 +182,7 @@
     "filterDate": "筛选日期",
     "clearFilter": "清除",
     "sortBy": "排序方式",
+    "showUpdatedTime": "显示更新时间",
     "sortManual": "手动排序",
     "sortUpdatedAt": "按修改时间",
     "sortCreatedAt": "按创建时间",

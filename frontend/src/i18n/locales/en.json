@@ -177,6 +177,7 @@
     "filterDate": "Filtered",
     "clearFilter": "Clear",
     "sortBy": "Sort By",
+    "showUpdatedTime": "Show updated time",
     "sortManual": "Manual",
     "sortUpdatedAt": "Updated",
     "sortCreatedAt": "Created",
