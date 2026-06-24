@@ -256,7 +256,7 @@ function CreateMenu({
   onClose,
   anchorRef,
 }: {
-  onPick: (type: "normal" | "word") => void;
+  onPick: (type: "normal" | "markdown" | "word") => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
 }) {
