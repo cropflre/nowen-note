@@ -16,6 +16,7 @@ import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
+import { syncNow } from "@/lib/syncEngine"
 import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
@@ -1621,9 +1622,24 @@ export default function NoteList() {
         actions.refreshNotes();
       }
     });
+    // 全局监听笔记删除/回收站事件（SYNC-DELETE-01-B）
+    // 服务端通过 broadcastToUser 推送，列表页也能收到
+    const offNoteDeleted = realtime.on("note:deleted", (msg: any) => {
+      const noteId = msg?.noteId || msg?.id;
+      if (!noteId) return;
+      // 排除自己触发的回声
+      const myConnectionId = realtime.getConnectionId();
+      if (myConnectionId && msg.actorConnectionId === myConnectionId) return;
+      // 立即从列表移除
+      actions.removeNoteFromList(noteId);
+      // 异步 syncNow 兜底：确保 IndexedDB 中的 isTrashed / 删除状态与服务端一致
+      void syncNow().catch(() => {});
+    });
+
     return () => {
       offImported();
       offListUpdated();
+      offNoteDeleted();
     };
   }, [actions]);
 

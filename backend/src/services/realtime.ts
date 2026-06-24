@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 2: 实时协作（WebSocket Hub）
  *
  * 设计要点：
@@ -591,16 +591,18 @@ export function broadcastNoteDeleted(
   payload: { actorUserId?: string; actorUsername?: string; trashed?: boolean } = {},
   actorConnectionId?: string,
 ) {
-  broadcastRoom(
-    `note:${noteId}`,
-    {
-      type: "note:deleted",
-      noteId,
-      actorConnectionId: actorConnectionId || null,
-      ...payload,
-    },
-    actorConnectionId,
-  );
+  const deleteMsg = {
+    type: "note:deleted" as const,
+    noteId,
+    actorConnectionId: actorConnectionId || null,
+    ...payload,
+  };
+  // 广播到 note:{noteId} 房间（正在打开该笔记的客户端）
+  broadcastRoom(`note:${noteId}`, deleteMsg, actorConnectionId);
+  // 同时广播到发起用户的所有连接（停留在列表页/其它笔记的客户端也能收到）
+  if (payload.actorUserId) {
+    broadcastToUser(payload.actorUserId, deleteMsg);
+  }
 }
 
 /**

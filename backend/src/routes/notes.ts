@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+﻿import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
@@ -241,6 +241,11 @@ app.delete("/trash/empty", (c) => {
     freedBytesEstimate,
     tag: "notes.trash/empty",
   });
+
+  // SYNC-DELETE-01-B: 向该用户广播每条被永久删除的笔记，让列表页实时移除
+  for (const noteId of ids) {
+    try { broadcastNoteDeleted(noteId, { actorUserId: userId, trashed: false }); } catch {}
+  }
 
   emitWebhook("note.trash_emptied", userId, { count: ids.length, removedFiles, vacuumed });
   logAudit(userId, "note", "trash_empty", { count: ids.length, noteIds: ids, removedFiles, vacuumed });

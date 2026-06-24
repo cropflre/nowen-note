@@ -417,6 +417,18 @@ function AppLayout() {
     return off;
   }, []);
 
+  // SYNC-DELETE-01-B: 当前打开的笔记被其它端删除/回收时，关闭编辑器
+  useEffect(() => {
+    const off = realtime.on("note:deleted", (msg: any) => {
+      const noteId = msg?.noteId || msg?.id;
+      if (!noteId) return;
+      if (state.activeNote?.id === noteId) {
+        actions.setActiveNote(null);
+      }
+    });
+    return off;
+  }, [actions, state.activeNote]);
+
   useEffect(() => {
     if (state.editorFullscreen && !state.activeNote) {
       actions.setEditorFullscreen(false);
