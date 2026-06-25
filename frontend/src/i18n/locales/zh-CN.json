@@ -2163,5 +2163,26 @@
       "imageLoadFailed": "图片加载失败",
       "empty": "暂无内容"
     }
+  },
+  "folderSync": {
+    "title": "文件夹同步",
+    "description": "将本地文件夹中的文件同步到 Nowen 知识库。选择文件夹后，新增或修改的文件将自动导入为笔记。",
+    "selectFolder": "选择文件夹",
+    "noDesktop": "文件夹同步仅桌面端可用",
+    "saveConfig": "保存配置",
+    "runNow": "立即同步",
+    "notImplemented": "文件扫描同步将在下一阶段实现",
+    "removeConfig": "移除同步",
+    "removeConfirm": "确定移除此文件夹同步配置吗？已同步的笔记不会被删除。",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "noConfigs": "暂无同步配置",
+    "folderPath": "文件夹路径",
+    "targetNotebook": "目标笔记本",
+    "includeSubfolders": "包含子文件夹",
+    "fileTypes": "同步文件类型",
+    "lastSynced": "上次同步",
+    "never": "从未同步",
+    "status": "状态"
   }
 }

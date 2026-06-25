@@ -237,4 +237,28 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   resetLocalAuth() {
     return ipcRenderer.invoke("desktop:reset-local-auth");
   },
+
+  /**
+   * 文件夹同步配置（Phase B：仅配置 CRUD，不做扫描/上传）。
+   */
+  folderSync: {
+    selectFolder() {
+      return ipcRenderer.invoke("folder-sync:select-folder");
+    },
+    getConfigs() {
+      return ipcRenderer.invoke("folder-sync:get-configs");
+    },
+    saveConfig(config) {
+      return ipcRenderer.invoke("folder-sync:save-config", config);
+    },
+    removeConfig(folderId) {
+      return ipcRenderer.invoke("folder-sync:remove-config", folderId);
+    },
+    getLogs(folderId) {
+      return ipcRenderer.invoke("folder-sync:get-logs", folderId);
+    },
+    runNow(folderId) {
+      return ipcRenderer.invoke("folder-sync:run-now", folderId);
+    },
+  },
 });

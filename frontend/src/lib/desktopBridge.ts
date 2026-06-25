@@ -91,6 +91,28 @@ export interface OpenFilePayload {
   content: string;
 }
 
+/** 文件夹同步配置（Phase B） */
+export interface FolderSyncConfig {
+  folderId: string;
+  folderPath: string;
+  targetNotebookId: string | null;
+  includeSubfolders: boolean;
+  fileTypes: string[];
+  enabled: boolean;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FolderSyncAPI {
+  selectFolder(): Promise<{ cancelled: boolean; path?: string }>;
+  getConfigs(): Promise<FolderSyncConfig[]>;
+  saveConfig(config: Partial<FolderSyncConfig>): Promise<{ ok: boolean; config: FolderSyncConfig }>;
+  removeConfig(folderId: string): Promise<{ ok: boolean }>;
+  getLogs(folderId: string): Promise<unknown[]>;
+  runNow(folderId: string): Promise<{ ok: boolean; code?: string; message?: string }>;
+}
+
 interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
@@ -126,6 +148,8 @@ interface NowenDesktopAPI {
    * 旧版本 preload 不暴露此字段 → undefined（按 false 处理）。
    */
   isPortable?: boolean;
+  /** 文件夹同步（Phase B：配置 CRUD；后续扩展扫描/导入）。旧版本 preload 无此字段。 */
+  folderSync?: FolderSyncAPI;
 }
 
 function getBridge(): NowenDesktopAPI | null {

@@ -1994,5 +1994,26 @@
       "imageLoadFailed": "Image failed to load",
       "empty": "No content"
     }
+  },
+  "folderSync": {
+    "title": "Folder Sync",
+    "description": "Sync files from a local folder to your Nowen knowledge base. New or modified files will be imported as notes.",
+    "selectFolder": "Select Folder",
+    "noDesktop": "Folder sync is only available in the desktop app",
+    "saveConfig": "Save Config",
+    "runNow": "Sync Now",
+    "notImplemented": "Folder scanning will be implemented in the next phase",
+    "removeConfig": "Remove Sync",
+    "removeConfirm": "Remove this folder sync config? Already synced notes will not be deleted.",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "noConfigs": "No sync configs yet",
+    "folderPath": "Folder Path",
+    "targetNotebook": "Target Notebook",
+    "includeSubfolders": "Include Subfolders",
+    "fileTypes": "Sync File Types",
+    "lastSynced": "Last Synced",
+    "never": "Never",
+    "status": "Status"
   }
 }

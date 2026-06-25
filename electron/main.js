@@ -19,6 +19,7 @@ const {
   registerCredentialsIpc,
   clear: clearCredentials,
 } = require("./credentials");
+const folderSync = require("./folder-sync");
 
 // 日志 & 崩溃上报需尽早初始化（crashReporter.start 建议在 ready 之前）
 initLogger({
@@ -1108,6 +1109,7 @@ app.whenReady().then(async () => {
   // 先把 settings 路径定下来（依赖 app.getPath("userData")，必须 ready 后调）
   setSettingsPath(getUserDataPath());
   setCredentialsPath(getUserDataPath());
+  folderSync.setDataDir(getUserDataPath());
   const liteOnly = isLiteOnlyBuild();
   const settings = readSettings();
   currentMode = settings.mode;
@@ -1245,6 +1247,23 @@ app.whenReady().then(async () => {
   // IPC
   registerAppIpc();
   registerCredentialsIpc();
+
+  // 文件夹同步 IPC
+  ipcMain.handle("folder-sync:select-folder", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { cancelled: true };
+    }
+    return { cancelled: false, path: result.filePaths[0] };
+  });
+  ipcMain.handle("folder-sync:get-configs", () => folderSync.readConfigs());
+  ipcMain.handle("folder-sync:save-config", (_e, config) => folderSync.saveConfig(config));
+  ipcMain.handle("folder-sync:remove-config", (_e, folderId) => folderSync.removeConfig(folderId));
+  ipcMain.handle("folder-sync:get-logs", (_e, folderId) => folderSync.getLogs(folderId));
+  ipcMain.handle("folder-sync:run-now", (_e, folderId) => folderSync.runNow(folderId));
+
   // 局域网服务发现的 IPC 已在更早处注册（setup 窗口依赖它）；这里不重复注册
 
   // 自动更新（生产环境生效）
