@@ -1236,6 +1236,30 @@ export const api = {
     rotateToken: () => request<{ success: boolean }>(`/task-calendar/feed/rotate-token`, { method: "POST" }),
   },
 
+  // Folder sync (desktop only)
+  folderSync: {
+    importFile: (data: {
+      filename: string;
+      relativePath: string;
+      sha256: string;
+      targetNotebookId: string;
+      contentText?: string;
+      sourcePathHash: string;
+      existingNoteId?: string;
+    }) => request<{
+      success: boolean;
+      created: boolean;
+      updated: boolean;
+      skipped: boolean;
+      noteId: string;
+      sha256: string;
+      reason?: string;
+    }>(`/folder-sync/import-file`, { method: "POST", body: JSON.stringify(data) }),
+
+    checkDedup: (sourcePathHashes: string[]) =>
+      request<Record<string, string>>(`/folder-sync/check-dedup`, { method: "POST", body: JSON.stringify({ sourcePathHashes }) }),
+  },
+
   // Security
   // 注意：后端在修改密码成功后会 bump tokenVersion，让其它端旧 token 立即失效，
   //      同时下发一张新 token 给当前请求方。前端必须把新 token 写回 localStorage，
