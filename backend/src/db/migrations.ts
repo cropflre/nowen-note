@@ -1547,6 +1547,32 @@ export const MIGRATIONS: Migration[] = [
       db.prepare("ALTER TABLE notes ADD COLUMN contentFormat TEXT NOT NULL DEFAULT 'tiptap-json'").run();
     },
   },
+  // v32: folder_sync_files 映射表，跟踪"本地文件 → Nowen 笔记"的同步关系。
+  //   sourcePathHash = sha256(relativePath)，用于去重和增量更新。
+  //   sha256 = 文件内容 hash，用于判断内容是否变化。
+  {
+    version: 32,
+    name: "folder-sync-files",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS folder_sync_files (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          sourcePathHash TEXT NOT NULL,
+          relativePath TEXT NOT NULL,
+          filename TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          noteId TEXT NOT NULL,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_folder_sync_files_user_hash
+          ON folder_sync_files(userId, sourcePathHash);
+        CREATE INDEX IF NOT EXISTS idx_folder_sync_files_note
+          ON folder_sync_files(noteId);
+      `);
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */
