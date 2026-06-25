@@ -2042,6 +2042,8 @@
     "statDeleted": "deleted",
     "statSkipped": "skipped",
     "statUnchanged": "unchanged",
-    "statTotal": "total"
+    "statTotal": "total",
+    "syncDone": "Sync done: +{{imported}} ~{{updated}} skip{{skipped}} fail{{failed}}",
+    "syncDoneNoUpload": "Scan done: +{{added}} ~{{changed}}. No target notebook set, skipping upload."
   }
 }

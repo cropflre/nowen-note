@@ -147,6 +147,27 @@ export interface FolderSyncLogItem {
   detail?: unknown;
 }
 
+export interface FolderSyncUploadCandidate {
+  relativePath: string;
+  filename: string;
+  sha256: string;
+  sourcePathHash: string;
+  size: number;
+  mtimeMs: number;
+  ext: string;
+  contentText: string | null;
+  existingNoteId: string | null;
+  skipReason: string | null;
+}
+
+export interface FolderSyncPendingUploads {
+  ok: boolean;
+  folderId: string;
+  config: { targetNotebookId: string | null };
+  pending: FolderSyncUploadCandidate[];
+  error?: string;
+}
+
 export interface FolderSyncAPI {
   selectFolder(): Promise<{ cancelled: boolean; path?: string }>;
   getConfigs(): Promise<FolderSyncConfig[]>;
@@ -155,6 +176,8 @@ export interface FolderSyncAPI {
   getLogs(folderId: string): Promise<FolderSyncLogItem[]>;
   runNow(folderId: string): Promise<FolderSyncScanResult>;
   getIndex(folderId: string): Promise<FolderSyncIndexItem[]>;
+  getPendingUploads(folderId: string): Promise<FolderSyncPendingUploads>;
+  markUploadResult(folderId: string, relativePath: string, result: { success: boolean; noteId?: string; skipped?: boolean; error?: string }): Promise<{ ok: boolean }>;
 }
 
 interface NowenDesktopAPI {

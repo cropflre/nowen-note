@@ -263,5 +263,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     getIndex(folderId) {
       return ipcRenderer.invoke("folder-sync:get-index", folderId);
     },
+    getPendingUploads(folderId) {
+      return ipcRenderer.invoke("folder-sync:get-pending-uploads", folderId);
+    },
+    markUploadResult(folderId, relativePath, result) {
+      return ipcRenderer.invoke("folder-sync:mark-upload-result", folderId, relativePath, result);
+    },
   },
 });

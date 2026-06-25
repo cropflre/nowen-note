@@ -2211,6 +2211,8 @@
     "statDeleted": "已删除",
     "statSkipped": "跳过",
     "statUnchanged": "未变",
-    "statTotal": "总数"
+    "statTotal": "总数",
+    "syncDone": "同步完成：新增 {{imported}}，更新 {{updated}}，跳过 {{skipped}}，失败 {{failed}}",
+    "syncDoneNoUpload": "扫描完成：新增 {{added}}，更新 {{changed}}。未设置目标笔记本，跳过上传。"
   }
 }

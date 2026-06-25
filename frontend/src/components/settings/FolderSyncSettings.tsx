@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
-import type { FolderSyncConfig, FolderSyncScanResult, FolderSyncLogItem, FolderSyncIndexItem } from "@/lib/desktopBridge";
+import type { FolderSyncConfig, FolderSyncScanResult, FolderSyncLogItem, FolderSyncIndexItem, FolderSyncPendingUploads } from "@/lib/desktopBridge";
 import type { Notebook } from "@/types";
 import { confirm } from "@/components/ui/confirm";
 
@@ -343,18 +343,93 @@ export default function FolderSyncSettings() {
     if (!fs) return;
     try {
       setActionLoading(`run-${folderId}`);
-      const result = await fs.runNow(folderId);
-      if (result.ok) {
-        setLastScanResults((prev) => ({ ...prev, [folderId]: result }));
-        toast.success(
-          t("folderSync.scanDone", { added: result.added, changed: result.changed, skipped: result.skipped })
-          || `Scan done: +${result.added} ~${result.changed} skip${result.skipped}`
-        );
-        await loadConfigs();
-      } else {
-        toast.error(result.message || "Scan failed");
+
+      // Step 1: 本地扫描
+      const scanResult = await fs.runNow(folderId);
+      if (!scanResult.ok) {
+        toast.error(scanResult.message || "Scan failed");
+        return;
       }
-    } catch (e: any) { toast.error(e?.message || "Scan failed"); }
+      setLastScanResults((prev) => ({ ...prev, [folderId]: scanResult }));
+
+      // Step 2: 获取待上传文件
+      const pendingResult = await fs.getPendingUploads(folderId);
+      if (!pendingResult.ok) {
+        toast.error(pendingResult.error || "Failed to get pending uploads");
+        return;
+      }
+
+      const targetNotebookId = pendingResult.config.targetNotebookId;
+      if (!targetNotebookId) {
+        toast.info(t("folderSync.syncDoneNoUpload", { added: scanResult.added, changed: scanResult.changed })
+          || `Scan done: +${scanResult.added} ~${scanResult.changed}. No target notebook set, skipping upload.`);
+        await loadConfigs();
+        return;
+      }
+
+      // Step 3: 逐个上传文本文件
+      let imported = 0;
+      let updated = 0;
+      let uploadSkipped = 0;
+      let uploadFailed = 0;
+
+      for (const candidate of pendingResult.pending) {
+        // 跳过大文件或读取失败的
+        if (candidate.skipReason) {
+          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: candidate.skipReason });
+          uploadSkipped++;
+          continue;
+        }
+
+        if (!candidate.contentText) {
+          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: "No content" });
+          uploadSkipped++;
+          continue;
+        }
+
+        try {
+          const res = await api.folderSync.importFile({
+            filename: candidate.filename,
+            relativePath: candidate.relativePath,
+            sha256: candidate.sha256,
+            targetNotebookId,
+            contentText: candidate.contentText,
+            sourcePathHash: candidate.sourcePathHash,
+            existingNoteId: candidate.existingNoteId || undefined,
+          });
+
+          if (res.skipped) {
+            await fs.markUploadResult(folderId, candidate.relativePath, { success: true, noteId: res.noteId, skipped: true });
+            uploadSkipped++;
+          } else if (res.success) {
+            await fs.markUploadResult(folderId, candidate.relativePath, { success: true, noteId: res.noteId });
+            if (res.created) imported++;
+            else if (res.updated) updated++;
+          } else {
+            await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: "Import failed" });
+            uploadFailed++;
+          }
+        } catch (e: any) {
+          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: e?.message || "Upload error" });
+          uploadFailed++;
+        }
+      }
+
+      // Step 4: 显示结果
+      const total = imported + updated + uploadSkipped + uploadFailed;
+      if (total === 0) {
+        toast.success(
+          t("folderSync.scanDone", { added: scanResult.added, changed: scanResult.changed, skipped: scanResult.skipped })
+          || `Scan done: +${scanResult.added} ~${scanResult.changed} skip${scanResult.skipped}`
+        );
+      } else {
+        toast.success(
+          t("folderSync.syncDone", { imported, updated, skipped: uploadSkipped, failed: uploadFailed })
+          || `Sync done: +${imported} ~${updated} skip${uploadSkipped} fail${uploadFailed}`
+        );
+      }
+      await loadConfigs();
+    } catch (e: any) { toast.error(e?.message || "Sync failed"); }
     finally { setActionLoading(null); }
   }, [loadConfigs, t]);
 
