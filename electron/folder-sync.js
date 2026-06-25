@@ -424,8 +424,8 @@ function getIndex(folderId) {
 const TEXT_EXTS = new Set([".md", ".txt", ".markdown", ".html", ".htm"]);
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024; // 2MB
 
-function computeSourcePathHash(relativePath) {
-  return crypto.createHash("sha256").update(relativePath).digest("hex");
+function computeSourcePathHash(folderId, relativePath) {
+  return crypto.createHash("sha256").update(`${folderId}:${relativePath}`).digest("hex");
 }
 
 /**
@@ -456,7 +456,7 @@ function getPendingUploads(folderId) {
           relativePath: item.relativePath,
           filename: path.basename(item.relativePath),
           sha256: item.sha256,
-          sourcePathHash: computeSourcePathHash(item.relativePath),
+          sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
           size: item.size,
           mtimeMs: item.mtimeMs,
           ext,
@@ -502,6 +502,10 @@ function getPendingUploads(folderId) {
 
 /**
  * renderer 上传成功后回调，写回 noteId / lastSyncedAt / status。
+ *
+ * result.skipped === true  → status="skipped"（超限/文件不可读等，非网络错误）
+ * result.success === true  → status="synced"
+ * 否则                     → status="error"（接口失败/网络失败）
  */
 function markUploadResult(folderId, relativePath, result) {
   const index = readIndex(folderId);
@@ -510,9 +514,10 @@ function markUploadResult(folderId, relativePath, result) {
 
   const now = new Date().toISOString();
   if (result.skipped) {
-    item.status = "synced";
+    item.status = "skipped";
     item.noteId = result.noteId || item.noteId;
     item.lastSyncedAt = now;
+    item.error = result.error || "Skipped";
   } else if (result.success) {
     item.status = "synced";
     item.noteId = result.noteId;

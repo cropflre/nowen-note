@@ -376,13 +376,13 @@ export default function FolderSyncSettings() {
       for (const candidate of pendingResult.pending) {
         // 跳过大文件或读取失败的
         if (candidate.skipReason) {
-          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: candidate.skipReason });
+          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, skipped: true, error: candidate.skipReason });
           uploadSkipped++;
           continue;
         }
 
         if (!candidate.contentText) {
-          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: "No content" });
+          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, skipped: true, error: "No content" });
           uploadSkipped++;
           continue;
         }
