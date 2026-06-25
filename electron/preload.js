@@ -260,5 +260,8 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     runNow(folderId) {
       return ipcRenderer.invoke("folder-sync:run-now", folderId);
     },
+    getIndex(folderId) {
+      return ipcRenderer.invoke("folder-sync:get-index", folderId);
+    },
   },
 });

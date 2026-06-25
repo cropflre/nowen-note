@@ -1263,6 +1263,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("folder-sync:remove-config", (_e, folderId) => folderSync.removeConfig(folderId));
   ipcMain.handle("folder-sync:get-logs", (_e, folderId) => folderSync.getLogs(folderId));
   ipcMain.handle("folder-sync:run-now", (_e, folderId) => folderSync.runNow(folderId));
+  ipcMain.handle("folder-sync:get-index", (_e, folderId) => folderSync.getIndex(folderId));
 
   // 局域网服务发现的 IPC 已在更早处注册（setup 窗口依赖它）；这里不重复注册
 

@@ -91,7 +91,7 @@ export interface OpenFilePayload {
   content: string;
 }
 
-/** 文件夹同步配置（Phase B） */
+/** 文件夹同步配置 */
 export interface FolderSyncConfig {
   folderId: string;
   folderPath: string;
@@ -100,8 +100,51 @@ export interface FolderSyncConfig {
   fileTypes: string[];
   enabled: boolean;
   lastSyncedAt: string | null;
+  lastScanAt?: string | null;
+  lastScanStats?: FolderSyncScanStats | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FolderSyncScanStats {
+  total: number;
+  added: number;
+  changed: number;
+  unchanged: number;
+  deleted: number;
+  skipped: number;
+  errors: number;
+  durationMs?: number;
+}
+
+export interface FolderSyncScanResult extends FolderSyncScanStats {
+  ok: boolean;
+  folderId: string;
+  scannedAt: string;
+  code?: string;
+  message?: string;
+}
+
+export interface FolderSyncIndexItem {
+  relativePath: string;
+  size: number;
+  mtimeMs: number;
+  sha256: string;
+  status: "new" | "unchanged" | "changed" | "deleted" | "skipped" | "error";
+  lastScannedAt: string;
+  lastSyncedAt: string | null;
+  noteId?: string | null;
+  attachmentId?: string | null;
+  error?: string;
+}
+
+export interface FolderSyncLogItem {
+  id: string;
+  folderId: string;
+  type: string;
+  message: string;
+  createdAt: string;
+  detail?: unknown;
 }
 
 export interface FolderSyncAPI {
@@ -109,8 +152,9 @@ export interface FolderSyncAPI {
   getConfigs(): Promise<FolderSyncConfig[]>;
   saveConfig(config: Partial<FolderSyncConfig>): Promise<{ ok: boolean; config: FolderSyncConfig }>;
   removeConfig(folderId: string): Promise<{ ok: boolean }>;
-  getLogs(folderId: string): Promise<unknown[]>;
-  runNow(folderId: string): Promise<{ ok: boolean; code?: string; message?: string }>;
+  getLogs(folderId: string): Promise<FolderSyncLogItem[]>;
+  runNow(folderId: string): Promise<FolderSyncScanResult>;
+  getIndex(folderId: string): Promise<FolderSyncIndexItem[]>;
 }
 
 interface NowenDesktopAPI {

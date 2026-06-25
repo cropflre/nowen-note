@@ -2151,7 +2151,14 @@
     "nowenPackageDesc": "用于导入到另一个 nowen-note，保留 Markdown / 富文本原始格式、笔记本、标签和附件。",
     "nowenPackageExporting": "正在导出 Nowen 数据包…",
     "nowenPackageSuccess": "Nowen 数据包导出成功",
-    "nowenPackageFailed": "Nowen 数据包导出失败"
+    "nowenPackageFailed": "Nowen 数据包导出失败",
+    "nowenPackageImport": "导入 Nowen 数据包",
+    "nowenPackageImportDesc": "从 .nowen.zip 导入笔记本、笔记、标签和附件。",
+    "nowenPackageImportDryRun": "正在检查数据包…",
+    "nowenPackageImportConfirmTitle": "确认导入 Nowen 数据包",
+    "nowenPackageImportConfirmDesc": "将导入 {{notes}} 篇笔记、{{attachments}} 个附件。不会覆盖现有数据。",
+    "nowenPackageImportSuccess": "Nowen 数据包导入成功",
+    "nowenPackageImportFailed": "Nowen 数据包导入失败"
   },
   "markdown": {
     "view": {
@@ -2191,6 +2198,19 @@
     "noNotebooks": "暂无可用笔记本，请先创建一个笔记本",
     "duplicatePath": "该文件夹已添加过",
     "configCreated": "配置已创建，请选择目标笔记本后启用",
-    "configUpdated": "配置已更新"
+    "configUpdated": "配置已更新",
+    "lastScan": "上次扫描",
+    "scanDone": "扫描完成：新增 {{added}}，更新 {{changed}}，跳过 {{skipped}}",
+    "showLogs": "查看日志",
+    "hideLogs": "隐藏日志",
+    "recentLogs": "最近日志",
+    "noLogs": "暂无日志",
+    "indexedFiles": "已索引文件",
+    "statAdded": "新增",
+    "statChanged": "变更",
+    "statDeleted": "已删除",
+    "statSkipped": "跳过",
+    "statUnchanged": "未变",
+    "statTotal": "总数"
   }
 }

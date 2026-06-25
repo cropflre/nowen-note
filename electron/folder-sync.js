@@ -1,11 +1,12 @@
 // electron/folder-sync.js
 //
-// 桌面端文件夹同步配置管理（Phase B）。
+// 桌面端文件夹同步：配置 CRUD + 本地扫描 + SHA-256 索引 + 日志。
 //
-// 配置文件位置：{userData}/nowen-data/folder-sync.json
-// 索引文件位置：{userData}/nowen-data/folder-sync-index-{folderId}.json
+// 配置：{userData}/folder-sync.json
+// 索引：{userData}/folder-sync-index-{folderId}.json
+// 日志：{userData}/folder-sync-logs.json
 //
-// 本阶段只做配置的 CRUD，不做文件扫描、不做上传、不做 fs.watch。
+// Phase C.1：只做本地扫描，不上传、不创建笔记、不改后端。
 
 const fs = require("fs");
 const path = require("path");
@@ -13,6 +14,22 @@ const crypto = require("crypto");
 
 let configFilePath = null;
 let dataDir = null;
+
+// 忽略的目录名
+const IGNORED_DIRS = new Set([
+  "node_modules", ".git", ".svn", ".hg", "dist", "build",
+  ".next", ".vite", "__pycache__", ".cache", ".turbo",
+]);
+// 忽略的文件名
+const IGNORED_FILES = new Set([
+  ".DS_Store", "Thumbs.db", "desktop.ini",
+]);
+// 忽略的文件名前缀/后缀
+const IGNORED_PREFIXES = ["~$"];
+const IGNORED_EXTS = [".tmp", ".temp", ".swp", ".swo"];
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_LOG_ENTRIES = 200;
 
 function setDataDir(dir) {
   dataDir = dir;
@@ -56,20 +73,14 @@ function saveConfig(input) {
   const now = new Date().toISOString();
 
   if (input.folderId) {
-    // 更新已有配置
     const idx = configs.findIndex((c) => c.folderId === input.folderId);
     if (idx >= 0) {
-      configs[idx] = {
-        ...configs[idx],
-        ...input,
-        updatedAt: now,
-      };
+      configs[idx] = { ...configs[idx], ...input, updatedAt: now };
       writeConfigs(configs);
       return { ok: true, config: configs[idx] };
     }
   }
 
-  // 新增配置
   const config = {
     folderId: input.folderId || genId(),
     folderPath: input.folderPath || "",
@@ -78,6 +89,8 @@ function saveConfig(input) {
     fileTypes: input.fileTypes || [".md", ".txt", ".html", ".pdf", ".docx"],
     enabled: input.enabled !== false,
     lastSyncedAt: null,
+    lastScanAt: null,
+    lastScanStats: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -89,25 +102,121 @@ function saveConfig(input) {
 function removeConfig(folderId) {
   const configs = readConfigs();
   const filtered = configs.filter((c) => c.folderId !== folderId);
-  if (filtered.length === configs.length) {
-    return { ok: false, error: "Config not found" };
-  }
+  if (filtered.length === configs.length) return { ok: false, error: "Config not found" };
   writeConfigs(filtered);
-
-  // 清理索引文件
   if (dataDir) {
-    const indexFile = path.join(dataDir, `folder-sync-index-${folderId}.json`);
     try {
-      if (fs.existsSync(indexFile)) fs.unlinkSync(indexFile);
+      const idx = path.join(dataDir, `folder-sync-index-${folderId}.json`);
+      if (fs.existsSync(idx)) fs.unlinkSync(idx);
     } catch { /* ignore */ }
   }
-
   return { ok: true };
 }
 
-// ---------- 索引占位 ----------
+// ---------- 安全校验 ----------
 
-function getIndex(folderId) {
+function isDangerousRoot(p) {
+  const normalized = path.resolve(p);
+  // Windows: C:\ or D:\
+  if (/^[A-Z]:\\?$/.test(normalized)) return true;
+  // macOS/Linux: /
+  if (normalized === "/") return true;
+  // Home 目录本身
+  const home = require("os").homedir();
+  if (normalized === home || normalized === home.replace(/\/$/, "")) return true;
+  return false;
+}
+
+function shouldIgnoreDir(name) {
+  return IGNORED_DIRS.has(name) || name.startsWith(".");
+}
+
+function shouldIgnoreFile(name) {
+  if (IGNORED_FILES.has(name)) return true;
+  if (name.startsWith(".")) return true;
+  for (const prefix of IGNORED_PREFIXES) {
+    if (name.startsWith(prefix)) return true;
+  }
+  const ext = path.extname(name).toLowerCase();
+  if (IGNORED_EXTS.includes(ext)) return true;
+  return false;
+}
+
+// ---------- 扫描 ----------
+
+function scanFolder(folderPath, fileTypes, includeSubfolders) {
+  const results = [];
+  const typeSet = new Set(fileTypes.map((e) => e.toLowerCase()));
+
+  function walk(dir, relBase) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      results.push({ relativePath: relBase, error: `Cannot read directory: ${e.message}`, status: "error" });
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        if (shouldIgnoreDir(entry.name)) continue;
+        if (includeSubfolders) {
+          walk(fullPath, relPath);
+        }
+      } else if (entry.isFile()) {
+        if (shouldIgnoreFile(entry.name)) continue;
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!typeSet.has(ext)) continue;
+
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.size > MAX_FILE_SIZE) {
+            results.push({
+              relativePath: relPath,
+              size: stat.size,
+              mtimeMs: stat.mtimeMs,
+              status: "skipped",
+              error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`,
+            });
+            continue;
+          }
+
+          const sha256 = computeHash(fullPath);
+          results.push({
+            relativePath: relPath,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            sha256,
+            status: "new", // 会在 mergeIndex 里更新
+          });
+        } catch (e) {
+          results.push({
+            relativePath: relPath,
+            status: "error",
+            error: e.message,
+          });
+        }
+      }
+    }
+  }
+
+  walk(folderPath, "");
+  return results;
+}
+
+function computeHash(filePath) {
+  const hash = crypto.createHash("sha256");
+  const buf = fs.readFileSync(filePath);
+  hash.update(buf);
+  return hash.digest("hex");
+}
+
+// ---------- 索引合并 ----------
+
+function readIndex(folderId) {
   if (!dataDir) return [];
   const indexFile = path.join(dataDir, `folder-sync-index-${folderId}.json`);
   try {
@@ -119,28 +228,196 @@ function getIndex(folderId) {
   return [];
 }
 
-// ---------- 日志占位 ----------
+function writeIndex(folderId, index) {
+  if (!dataDir) return;
+  const indexFile = path.join(dataDir, `folder-sync-index-${folderId}.json`);
+  try {
+    fs.mkdirSync(path.dirname(indexFile), { recursive: true });
+    const tmp = indexFile + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(index, null, 2), "utf8");
+    fs.renameSync(tmp, indexFile);
+  } catch (e) {
+    console.error("[folder-sync] write index failed:", e?.message || e);
+  }
+}
 
-function getLogs(folderId) {
-  // Phase B: 返回空日志，后续实现扫描时再写入
-  void folderId;
+function mergeIndex(oldIndex, scanResults) {
+  const oldMap = new Map(oldIndex.map((item) => [item.relativePath, item]));
+  const scannedPaths = new Set(scanResults.map((r) => r.relativePath));
+  const merged = [];
+  const now = new Date().toISOString();
+
+  // 处理扫描到的文件
+  for (const scan of scanResults) {
+    const old = oldMap.get(scan.relativePath);
+
+    if (scan.status === "skipped" || scan.status === "error") {
+      merged.push({ ...scan, lastScannedAt: now, lastSyncedAt: old?.lastSyncedAt || null, noteId: old?.noteId || null, attachmentId: old?.attachmentId || null });
+      continue;
+    }
+
+    if (!old) {
+      // 新文件
+      merged.push({
+        relativePath: scan.relativePath,
+        size: scan.size,
+        mtimeMs: scan.mtimeMs,
+        sha256: scan.sha256,
+        status: "new",
+        lastScannedAt: now,
+        lastSyncedAt: null,
+        noteId: null,
+        attachmentId: null,
+      });
+    } else if (old.sha256 === scan.sha256) {
+      // 未变化
+      merged.push({ ...old, status: "unchanged", lastScannedAt: now });
+    } else {
+      // 内容变化
+      merged.push({
+        ...old,
+        size: scan.size,
+        mtimeMs: scan.mtimeMs,
+        sha256: scan.sha256,
+        status: "changed",
+        lastScannedAt: now,
+      });
+    }
+  }
+
+  // 标记已删除的文件（索引中有但扫描不到）
+  for (const old of oldIndex) {
+    if (!scannedPaths.has(old.relativePath)) {
+      merged.push({ ...old, status: "deleted", lastScannedAt: now });
+    }
+  }
+
+  return merged;
+}
+
+// ---------- 日志 ----------
+
+function readLogs() {
+  if (!dataDir) return [];
+  const logFile = path.join(dataDir, "folder-sync-logs.json");
+  try {
+    if (fs.existsSync(logFile)) {
+      const raw = JSON.parse(fs.readFileSync(logFile, "utf8"));
+      return Array.isArray(raw) ? raw : [];
+    }
+  } catch { /* ignore */ }
   return [];
 }
 
-// ---------- runNow 占位 ----------
-
-function runNow(folderId) {
-  void folderId;
-  return {
-    ok: false,
-    code: "NOT_IMPLEMENTED",
-    message: "Folder sync scan is not implemented yet",
-  };
+function writeLogs(logs) {
+  if (!dataDir) return;
+  const logFile = path.join(dataDir, "folder-sync-logs.json");
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    const trimmed = logs.slice(-MAX_LOG_ENTRIES);
+    const tmp = logFile + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2), "utf8");
+    fs.renameSync(tmp, logFile);
+  } catch (e) {
+    console.error("[folder-sync] write logs failed:", e?.message || e);
+  }
 }
 
-// ---------- 选择文件夹（由 main.js 调用 dialog 后传入） ----------
+function appendLog(folderId, type, message, detail) {
+  const logs = readLogs();
+  logs.push({
+    id: genId(),
+    folderId,
+    type,
+    message,
+    createdAt: new Date().toISOString(),
+    detail: detail || undefined,
+  });
+  writeLogs(logs);
+}
 
-// selectFolder 本身需要 dialog，在 main.js 中实现，这里只导出配置逻辑。
+function getLogs(folderId) {
+  const all = readLogs();
+  if (!folderId) return all.slice(-50);
+  return all.filter((l) => l.folderId === folderId).slice(-50);
+}
+
+// ---------- runNow ----------
+
+function runNow(folderId) {
+  const configs = readConfigs();
+  const config = configs.find((c) => c.folderId === folderId);
+  if (!config) return { ok: false, code: "CONFIG_NOT_FOUND", message: "Sync config not found" };
+
+  const folderPath = config.folderPath;
+  if (!folderPath || !fs.existsSync(folderPath)) {
+    return { ok: false, code: "FOLDER_NOT_FOUND", message: "Folder does not exist: " + folderPath };
+  }
+
+  if (isDangerousRoot(folderPath)) {
+    return { ok: false, code: "DANGEROUS_PATH", message: "Cannot scan system root or home directory" };
+  }
+
+  const startTime = Date.now();
+  appendLog(folderId, "scan_started", `Scanning ${folderPath}`);
+
+  try {
+    const scanResults = scanFolder(folderPath, config.fileTypes, config.includeSubfolders);
+    const oldIndex = readIndex(folderId);
+    const merged = mergeIndex(oldIndex, scanResults);
+    writeIndex(folderId, merged);
+
+    const stats = {
+      total: merged.length,
+      added: merged.filter((i) => i.status === "new").length,
+      changed: merged.filter((i) => i.status === "changed").length,
+      unchanged: merged.filter((i) => i.status === "unchanged").length,
+      deleted: merged.filter((i) => i.status === "deleted").length,
+      skipped: merged.filter((i) => i.status === "skipped").length,
+      errors: merged.filter((i) => i.status === "error").length,
+    };
+    const durationMs = Date.now() - startTime;
+
+    // 更新配置的 lastScanAt 和 stats
+    const cfgIdx = configs.findIndex((c) => c.folderId === folderId);
+    if (cfgIdx >= 0) {
+      configs[cfgIdx].lastScanAt = new Date().toISOString();
+      configs[cfgIdx].lastScanStats = { ...stats, durationMs };
+      writeConfigs(configs);
+    }
+
+    appendLog(folderId, "scan_completed",
+      `Scan complete: +${stats.added} ~${stats.changed} =${stats.unchanged} -${stats.deleted} skip${stats.skipped} err${stats.errors} (${durationMs}ms)`,
+      stats
+    );
+
+    // 记录 skipped 和 error 详情
+    for (const item of merged) {
+      if (item.status === "skipped") {
+        appendLog(folderId, "file_skipped", `${item.relativePath}: ${item.error}`);
+      } else if (item.status === "error") {
+        appendLog(folderId, "file_error", `${item.relativePath}: ${item.error}`);
+      }
+    }
+
+    return {
+      ok: true,
+      folderId,
+      scannedAt: new Date().toISOString(),
+      ...stats,
+      durationMs,
+    };
+  } catch (e) {
+    appendLog(folderId, "scan_failed", `Scan failed: ${e.message}`);
+    return { ok: false, code: "SCAN_FAILED", message: e.message };
+  }
+}
+
+// ---------- 索引读取（给 renderer 用） ----------
+
+function getIndex(folderId) {
+  return readIndex(folderId);
+}
 
 module.exports = {
   setDataDir,

@@ -2022,6 +2022,19 @@
     "noNotebooks": "No notebooks available. Please create one first.",
     "duplicatePath": "This folder has already been added",
     "configCreated": "Config created. Select a target notebook to enable sync.",
-    "configUpdated": "Config updated"
+    "configUpdated": "Config updated",
+    "lastScan": "Last Scan",
+    "scanDone": "Scan done: +{{added}} changed {{changed}}, skipped {{skipped}}",
+    "showLogs": "Show Logs",
+    "hideLogs": "Hide Logs",
+    "recentLogs": "Recent Logs",
+    "noLogs": "No logs yet",
+    "indexedFiles": "Indexed Files",
+    "statAdded": "added",
+    "statChanged": "changed",
+    "statDeleted": "deleted",
+    "statSkipped": "skipped",
+    "statUnchanged": "unchanged",
+    "statTotal": "total"
   }
 }
