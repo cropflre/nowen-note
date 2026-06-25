@@ -70,8 +70,11 @@ export interface ImageUploadResult {
 // ====== 加密工具 ======
 
 function deriveCipherKey(): Buffer {
-  const secret = process.env.JWT_SECRET || "nowen-note-default-secret";
-  return crypto.scryptSync(secret, "nowen-image-hosting-v1", 32);
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    console.warn("[image-hosting] JWT_SECRET not set, using default key (NOT safe for production)");
+  }
+  return crypto.scryptSync(secret || "nowen-note-default-secret", "nowen-image-hosting-v1", 32);
 }
 
 function encryptSecret(plain: string): string {

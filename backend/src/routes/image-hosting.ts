@@ -19,7 +19,7 @@ import { isSystemAdmin } from "../middleware/acl";
 const app = new Hono();
 
 const ALLOWED_MIMES = new Set([
-  "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
+  "image/png", "image/jpeg", "image/gif", "image/webp",
 ]);
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
