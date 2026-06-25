@@ -1367,9 +1367,10 @@ export const api = {
     if (opts?.includeSubNotebooks !== undefined) params.set("includeSubNotebooks", String(opts.includeSubNotebooks));
     if (opts?.includeTrashed) params.set("includeTrashed", "true");
     const qs = params.toString() ? `?${params.toString()}` : "";
+    const token = getToken();
     const res = await fetch(`${getBaseUrl()}/export/nowen-package${qs}`, {
       credentials: "include",
-      headers: buildHeaders(),
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Export failed" }));

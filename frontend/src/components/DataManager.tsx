@@ -19,6 +19,7 @@ import {
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { getAppInfo, isDesktop as isDesktopApp, openDataDir, resetDesktopLocalAuth, type AppInfo } from "@/lib/desktopBridge";
 import { getSyncSummary, getLastSyncAt, subscribeSyncSummary, syncNow, type SyncSummary } from "@/lib/syncEngine";
 import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
