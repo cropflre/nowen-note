@@ -80,6 +80,8 @@ interface ExportNote {
   notebookName: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 笔记内容格式：markdown | tiptap-json | html */
+  contentFormat?: string;
 }
 
 // 清理文件名中的非法字符
@@ -893,48 +895,68 @@ export async function exportAllNotes(
       const note = notes[i];
       onProgress?.({ phase: "converting", current: i + 1, total, message: i18n.t('export.converting', { title: note.title }) });
 
-      // 解析 content → HTML（Tiptap JSON 会被渲染成真正的 <pre><code>，避免代码块内 # 被误判为标题）
-      let html = noteContentToHtml(note.content, note.contentText);
-
       // 先定下该笔记的所在笔记本目录（图片抽取需要按目录注册）
       const folder = note.notebookName ? sanitizeFilename(note.notebookName) : i18n.t('export.uncategorized');
 
-      // —— 图片抽取：默认把 data:image 拆到 <folder>/assets/ ——
-      let extractedImages: ExtractedImage[] = [];
-      if (!inlineImages && html) {
-        let registry = perFolderRegistry.get(folder);
-        if (!registry) {
-          registry = new Map();
-          perFolderRegistry.set(folder, registry);
+      let markdown: string;
+
+      // P0: Markdown 原生笔记直接导出 content 原文，不走 HTML → Markdown 转换
+      if (note.contentFormat === "markdown") {
+        markdown = note.content || note.contentText || "";
+
+        // Markdown 笔记中的图片引用也需要处理
+        if (!inlineImages && markdown) {
+          let registry = perFolderRegistry.get(folder);
+          if (!registry) {
+            registry = new Map();
+            perFolderRegistry.set(folder, registry);
+          }
+          // 下载 /api/attachments/<id> 图片并替换为 ./assets/ 相对路径
+          const r = await fetchRemoteImages(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          markdown = r.html; // fetchRemoteImages 返回的 html 字段实际是处理后的内容
+          const r3 = await fetchRemoteAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          markdown = r3.html;
+        } else if (inlineImages && markdown) {
+          markdown = await inlineRemoteImages(markdown, imgStats, { noteId: note.id, noteTitle: note.title });
         }
-        const r = await extractDataImages(html, registry);
-        html = r.html;
-        extractedImages = r.images;
+      } else {
+        // 富文本笔记：Tiptap JSON → HTML → Markdown
+        let html = noteContentToHtml(note.content, note.contentText);
 
-        // 再把指向 /api/attachments/<id> 的图片下载下来并替换 src
-        const r2 = await fetchRemoteImages(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-        html = r2.html;
-        extractedImages = extractedImages.concat(r2.images);
+        // —— 图片抽取：默认把 data:image 拆到 <folder>/assets/ ——
+        let extractedImages: ExtractedImage[] = [];
+        if (!inlineImages && html) {
+          let registry = perFolderRegistry.get(folder);
+          if (!registry) {
+            registry = new Map();
+            perFolderRegistry.set(folder, registry);
+          }
+          const r = await extractDataImages(html, registry);
+          html = r.html;
+          extractedImages = r.images;
 
-        // P1-1：同步拉取本笔记中的非图附件（PDF / docx / 音视频等）
-        // 复用同一个 registry 与 imgStats：与图片共享去重与失败明细。
-        const r3 = await fetchRemoteAttachments(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-        html = r3.html;
-        extractedImages = extractedImages.concat(r3.assets);
-      } else if (inlineImages && html) {
-        // inline 模式：把 /api/attachments/<id> 全部抓回来内嵌成 data URI，
-        // 让重新导入时后端 extractInlineBase64Images 自动重建附件，避免
-        // 旧 attachment id 在新数据库找不到导致的 404。
-        html = await inlineRemoteImages(html, imgStats, { noteId: note.id, noteTitle: note.title });
+          // 再把指向 /api/attachments/<id> 的图片下载下来并替换 src
+          const r2 = await fetchRemoteImages(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          html = r2.html;
+          extractedImages = extractedImages.concat(r2.images);
+
+          // P1-1：同步拉取本笔记中的非图附件（PDF / docx / 音视频等）
+          const r3 = await fetchRemoteAttachments(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          html = r3.html;
+          extractedImages = extractedImages.concat(r3.assets);
+        } else if (inlineImages && html) {
+          html = await inlineRemoteImages(html, imgStats, { noteId: note.id, noteTitle: note.title });
+        }
+
+        // 转换为 Markdown
+        markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       }
-
-      // 转换为 Markdown
-      const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
 
       // 添加 YAML frontmatter
       const frontmatter = [
         "---",
         `title: "${note.title.replace(/"/g, '\\"')}"`,
+        `contentFormat: "${note.contentFormat || 'tiptap-json'}"`,
         `created: ${note.createdAt}`,
         `updated: ${note.updatedAt}`,
         "---",

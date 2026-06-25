@@ -103,7 +103,8 @@ app.get("/notes", (c) => {
   const stmt = db.prepare(`
     SELECT n.id, n.title, n.content, n.contentText, n.createdAt, n.updatedAt,
            n.notebookId as notebookId,
-           nb.name as notebookName
+           nb.name as notebookName,
+           n.contentFormat
     FROM notes n
     LEFT JOIN notebooks nb ON n.notebookId = nb.id
     WHERE n.userId = ? AND n.isTrashed = 0

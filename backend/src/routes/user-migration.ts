@@ -61,6 +61,7 @@ interface ExportNote {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  contentFormat?: string;
 }
 
 interface ExportTag {
@@ -120,7 +121,8 @@ app.get("/export-light", (c) => {
     .prepare(
       `SELECT id, notebookId, title, content, contentText,
               isPinned, isFavorite, isLocked, isArchived, isTrashed,
-              trashedAt, version, sortOrder, createdAt, updatedAt
+              trashedAt, version, sortOrder, createdAt, updatedAt,
+              contentFormat
        FROM notes
        WHERE userId = ? AND (workspaceId IS NULL)`,
     )
