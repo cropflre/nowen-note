@@ -405,6 +405,7 @@ function noteToListItem(note: Note): NoteListItem {
     sortOrder: note.sortOrder || 0,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
+    contentFormat: note.contentFormat,
   } as NoteListItem;
 }
 

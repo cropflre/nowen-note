@@ -1957,6 +1957,7 @@ export default function NoteList() {
         sortOrder: note.sortOrder || 0,
         updatedAt: note.updatedAt,
         createdAt: note.createdAt,
+        contentFormat: note.contentFormat,
       } as NoteListItem);
       actions.setMobileView("editor");
       actions.refreshNotebooks();
@@ -2676,6 +2677,7 @@ export default function NoteList() {
           sortOrder: note.sortOrder || 0,
           updatedAt: note.updatedAt,
           createdAt: note.createdAt,
+          contentFormat: note.contentFormat,
         } as NoteListItem);
         okCount++;
       } catch (err: any) {
