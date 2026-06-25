@@ -2133,6 +2133,13 @@
     "exportImageExporting": "正在导出图片…",
     "exportImageSuccess": "图片导出成功",
     "exportImageFailed": "图片导出失败",
-    "exportImageLongConfirm": "当前笔记较长，导出图片可能较慢或失败，是否继续？"
+    "exportImageLongConfirm": "当前笔记较长，导出图片可能较慢或失败，是否继续？",
+    "format": {
+      "markdown": "Markdown 笔记",
+      "markdownShort": "MD",
+      "richText": "富文本笔记",
+      "richTextShort": "RT",
+      "html": "HTML 笔记"
+    }
   }
 }

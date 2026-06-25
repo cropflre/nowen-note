@@ -479,10 +479,22 @@ function SidebarNoteItem({
         )}
         style={{ left: `${depth * SIDEBAR_TREE_INDENT + 31}px` }}
       />
-      <FileText size={13} className={cn("shrink-0", active ? "text-accent-primary" : "text-tx-tertiary")} />
+      {note.contentFormat === "markdown" ? (
+        <FileCode size={13} className={cn("shrink-0", active ? "text-emerald-500" : "text-emerald-400/70")} />
+      ) : (
+        <FileText size={13} className={cn("shrink-0", active ? "text-accent-primary" : "text-tx-tertiary")} />
+      )}
       <span className="flex-1 min-w-0">
         <span className="block truncate leading-tight">{note.title || "无标题笔记"}</span>
         {showNoteTime && <span className="block text-[10px] text-tx-tertiary truncate leading-tight mt-0.5">{noteTimeLabel(note.updatedAt)}</span>}
+      </span>
+      <span className={cn(
+        "text-[9px] px-1 py-0.5 rounded shrink-0 leading-none",
+        note.contentFormat === "markdown"
+          ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+          : "border border-app-border bg-app-hover text-tx-tertiary"
+      )} title={note.contentFormat === "markdown" ? t('note.format.markdown') : t('note.format.richText')}>
+        {note.contentFormat === "markdown" ? t('note.format.markdownShort') : t('note.format.richTextShort')}
       </span>
     </button>
   );

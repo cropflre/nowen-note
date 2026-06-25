@@ -1964,6 +1964,13 @@
     "exportImageExporting": "Exporting image…",
     "exportImageSuccess": "Image exported",
     "exportImageFailed": "Failed to export image",
-    "exportImageLongConfirm": "This note is long. Image export may be slow or fail. Continue?"
+    "exportImageLongConfirm": "This note is long. Image export may be slow or fail. Continue?",
+    "format": {
+      "markdown": "Markdown note",
+      "markdownShort": "MD",
+      "richText": "Rich text note",
+      "richTextShort": "RT",
+      "html": "HTML note"
+    }
   }
 }

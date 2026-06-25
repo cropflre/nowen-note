@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -2517,11 +2517,16 @@ const moveToTrash = useCallback(async () => {
             </button>
           )}
 
-          {/* 原生 Markdown 笔记标识 */}
-          {activeNote.contentFormat === "markdown" && (
-            <span className="flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
+          {/* 笔记格式标识 */}
+          {activeNote.contentFormat === "markdown" ? (
+            <span className="flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/30" title={t('note.format.markdown')}>
               <FileCode size={12} />
-              <span>Markdown</span>
+              <span>{t('note.format.markdownShort')}</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono bg-app-hover text-tx-tertiary border border-app-border" title={t('note.format.richText')}>
+              <FileText size={12} />
+              <span>{t('note.format.richTextShort')}</span>
             </span>
           )}
 

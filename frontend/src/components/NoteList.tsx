@@ -1170,7 +1170,15 @@ const NoteCard = React.memo(function NoteCard({
             )}
           </h3>
           <div className="flex items-center gap-1 shrink-0">
-            {note.contentFormat === "markdown" && <FileCode size={11} className="text-emerald-500" />}
+            {note.contentFormat === "markdown" ? (
+              <span className="text-[10px] px-1 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 leading-none" title={t('note.format.markdown')}>
+                {t('note.format.markdownShort')}
+              </span>
+            ) : (
+              <span className="text-[10px] px-1 py-0.5 rounded border border-app-border bg-app-hover text-tx-tertiary leading-none" title={t('note.format.richText')}>
+                {t('note.format.richTextShort')}
+              </span>
+            )}
             {isShared && <Share2 size={11} className="text-emerald-500" />}
             {note.isLocked === 1 && <Lock size={11} className="text-orange-500" />}
             {note.isPinned === 1 && <Pin size={11} className="text-accent-primary" />}
