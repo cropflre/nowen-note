@@ -243,6 +243,206 @@ QQ 群：`1093473044`
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.2.2 - 2026-06-25
+
+### ✨ 新增
+
+- integrate image hosting into editor paste/drag/insert flows (IMAGE-HOSTING-INTEGRATE-01) (7865550)
+- extraction status and logging for PDF/DOCX sync (DESKTOP-FOLDER-KB-SYNC-02-E.3) (eecb94e)
+- extract PDF/DOCX text into contentText for search (DESKTOP-FOLDER-KB-SYNC-02-E.2) (35fb01c)
+- third-party image hosting with S3-compatible storage (IMAGE-HOSTING-ENHANCE-01) (c5ed326)
+- PDF/DOCX attachment sync UI and docs (DESKTOP-FOLDER-KB-SYNC-02-D) (67d0d85)
+- support PDF/DOCX attachment upload in folder sync (DESKTOP-FOLDER-KB-SYNC-02-B) (d59f258)
+- auto sync observability and safety (DESKTOP-FOLDER-KB-SYNC-01-E.2.1) (d46340d)
+- folder sync file import with attachment support (DESKTOP-FOLDER-KB-SYNC-01-C.2) (19114c1)
+- auto folder sync during app runtime (DESKTOP-FOLDER-KB-SYNC-01-E.2) (a5b1ab1)
+- add folder sync interval config UI (DESKTOP-FOLDER-KB-SYNC-01-E.1) (0809ba5)
+- enhance folder sync status display and logs (DESKTOP-FOLDER-KB-SYNC-01-D) (f702777)
+- desktop folder sync upload for text files (DESKTOP-FOLDER-KB-SYNC-01-C.3) (ffe6661)
+- add folder sync backend import endpoint (DESKTOP-FOLDER-KB-SYNC-01-C.2) (7f2822a)
+- Nowen package import with ID remapping (NOWEN-PACKAGE-IMPORT-01) (7a6c2af)
+- local folder scan, sha256 index, sync logs (DESKTOP-FOLDER-KB-SYNC-01-C.1) (edd218d)
+- add notebook selection and config editing for folder sync (DESKTOP-FOLDER-KB-SYNC-01-B.1) (ba855fe)
+- desktop folder selection and local sync config (DESKTOP-FOLDER-KB-SYNC-01-B) (f9f5a51)
+- Markdown source/preview/split view modes (MARKDOWN-PREVIEW-MODE-01) (46a4fb7)
+- Nowen package export for lossless migration (NOWEN-PACKAGE-EXPORT-01) (10effe8)
+- show note format badge in list, sidebar and editor (NOTE-FORMAT-BADGE-01) (3f7a470)
+- 原生 Markdown 笔记创建入口 + 回收站锁定 + 文档更新 (e339e17)
+- **v1.2.2**: contentFormat 原生 Markdown 笔记 + 回收站锁定 + 文档扩充 (1207194)
+- 增加笔记列表更新时间显示开关 (NOTE-LIST-TIME-VISIBILITY-01) (8b4b043)
+- 附件按上传年月分目录存储 (ATTACHMENT-STORAGE-DATE-PATH-01) (2baa097)
+- 移动端编辑器支持保存单张图片到相册 (NOTE-EDITOR-IMAGE-SAVE-01) (7c2a440)
+- 安卓端导出图片保存到相册 (NOTE-IMAGE-EXPORT-02) (b8ab9af)
+- 分享页 Lightbox 支持图片缩放 (SHARE-IMAGE-LIGHTBOX-01.4) (9a1ad5b)
+- 分享页图片支持 Ctrl+滚轮缩放 (SHARE-IMAGE-LIGHTBOX-01) (8b2f154)
+- Sidebar ?????????? PNG/JPG (NOTE-IMAGE-EXPORT-01.1 ??) (6d83bbe)
+- ?????? PNG/JPG ?? (NOTE-IMAGE-EXPORT-01) (9bca066)
+- ?????????? (TASK-FULLSCREEN-01) (39de523)
+- ???????????? (TASK-CALENDAR-SUBSCRIBE-01-C) (891e4fd)
+- ?????????? ICS Feed (TASK-CALENDAR-SUBSCRIBE-01-B) (b62538a)
+- 说说模块增加日历记事视图 (SAY-CALENDAR-01) (40ce3e3)
+- 待办模块移动端交互适配 (TASK-MOBILE-UX-01) (eab94bd)
+- 沉浸式视频浏览模式 (DIARY-FEED-01) (5c51055)
+- 说说草稿自动保存 (DIARY-DRAFT-01) (0d32e58)
+- 说说时间线筛选增强 (DIARY-TIMELINE-FILTER-01) (4337fc3)
+- 说说编辑器支持完整媒体编辑 (DIARY-EDITOR-MEDIA-01) (8d3ab2d)
+- 说说视频 Range 请求支持 (DIARY-VIDEO-RANGE-01) (a13e2a8)
+- 编辑器页面内全屏 + 分享页大纲清理 (0d4a649)
+- show attachment storage mode in file manager (d382e59)
+- add shared note outline (8dc5150)
+
+### 🐛 修复
+
+- pre-existing TypeScript errors across multiple components (7d1e9d8)
+- add extracted/extractionError fields to importAttachment return type (4bd5b8a)
+- remove remaining orphaned folderSync checkDedup code (dfdcb62)
+- remove orphaned importAttachment code from api.ts merge (dc71eaa)
+- merge duplicate folderSync API, add missing exports, fix imageUploadService (676705f)
+- TypeScript errors for Docker build (Buffer, broadcastToUser, ImageHostingConfig) (e2e1b6b)
+- check note read permission for attachment download (BUG-SHARED-ATTACHMENT-DOWNLOAD-01) (eee27ac)
+- image hosting encryption key production validation (IMAGE-HOSTING-ENHANCE-01.2) (ee93827)
+- image hosting security audit fixes (IMAGE-HOSTING-ENHANCE-01.1) (7dd2c2e)
+- rename Image import to avoid DOM constructor conflict (1bb6d4f)
+- add workspaceId/hash/uploadSource to folder sync attachment import (DESKTOP-FOLDER-KB-SYNC-02-C) (89fb580)
+- folder sync attachment import, HTML format, security (DESKTOP-FOLDER-KB-SYNC-01-C.2.1) (0789358)
+- folder sync scan bugs and security (DESKTOP-FOLDER-KB-SYNC-01-C.1) (6b9fac2)
+- move rootNotebookId declaration outside try block (8093160)
+- folder sync skipped status and sourcePathHash namespace (DESKTOP-FOLDER-KB-SYNC-01-C.3.1) (4cfdecd)
+- import order, effective attachment map, workspace passthrough (NOWEN-PACKAGE-IMPORT-01.1) (f96a285)
+- store sync notes as plain Markdown, add folder_sync_files table (DESKTOP-FOLDER-KB-SYNC-01-C.2.1) (edadd9a)
+- add explicit Markdown preview styles without typography plugin (MARKDOWN-PREVIEW-MODE-01.2) (bbc2b07)
+- render MarkdownPreview in editor area for source/preview/split modes (MARKDOWN-PREVIEW-MODE-01.1) (592a3dc)
+- **i18n**: clean up garbled zh-CN calendarFeed and remove hardcoded bilingual dict (a1b8301)
+- add toast import and fix buildHeaders in Nowen package export (d854cad)
+- Nowen package attachment refs, schemaVersion, unknown format warning (NOWEN-PACKAGE-EXPORT-01.1) (b031a74)
+- **auth**: clear remembered credentials after password change (3a1dbdf)
+- use existing helpers in processMarkdownAttachments (EXPORT-CONTENT-FORMAT-01.2) (38e6e11)
+- Markdown export scope, image processing and notebook export (EXPORT-CONTENT-FORMAT-01.1) (7bc32cb)
+- export pipeline supports contentFormat (EXPORT-CONTENT-FORMAT-01) (dac4b28)
+- **editor**: replace ? text with Sparkles icon for AI classify button (bf2d4e1)
+- add contentFormat to GET notes list and search results (ce742a8)
+- propagate contentFormat in noteToListItem and addNoteToList (NOTE-FORMAT-BADGE-01.1) (44cc79a)
+- **sidebar**: add useTranslation to SidebarNoteItem for format badge (bb2333a)
+- **mindmap**: remove read-only ref assignment for React 19 compat (3fade3d)
+- **NoteList**: update CreateMenu onPick type to accept markdown (c78634c)
+- **types**: add _noteId to NoteEditorUpdatePayload (a44bf5d)
+- **tasks**: add explicit type annotations to fix Docker tsc build (b7d307f)
+- **mindmap**: use non-passive wheel listener for zoom (4d4ea94)
+- **notes**: allow user to clear document content, monitor only (6c8558c)
+- **mindmap**: keep minimap fixed during pan and zoom (9c11174)
+- **mindmap**: bind wheel zoom via onWheel prop after canvas mounts (b847188)
+- **notes**: refine empty content guard to allow manual clear (ad62254)
+- **notes**: add noteId snapshot to editor onUpdate callbacks (0a64965)
+- **mindmap**: enable wheel zoom on canvas (061d907)
+- **notes**: create favorite note from favorites view (73364a0)
+- **notes**: prevent accidental empty content overwrite (d414eb2)
+- **notebook**: allow revoking share links (566fbcf)
+- **ai**: add missing toast import in AIWritingAssistant (72170be)
+- **ai**: use parseAiTags for proper JSON array parsing in tag generation (bc98bbd)
+- **sync**: broadcast note:deleted when deleting notebook + add diagnostic logs (b180a22)
+- **todo**: remove blank gap beside task detail panel (2a75aaa)
+- **ai**: sanitize reasoning content from generated outputs (507c365)
+- **search**: prevent false positive note results (f0628f7)
+- **sync**: handle note deletion events globally (e111ab7)
+- **todo**: refine task workspace layout (6bdb14c)
+- **sync**: 全局监听 note:deleted 触发列表刷新 (SYNC-DELETE-01-B) (298a135)
+- **context-menu**: add export image formats to note list submenu (90a3f43)
+- zh-CN 补齐 noteList.export 导出子菜单文案 (bb5cda6)
+- 导出子菜单真正生效 — 替换 displayItems 中旧平铺结构 (BUG-CONTEXT-MENU-EXPORT-SUBMENU-01) (47e1770)
+- 修复树形目录右键 PNG/JPG 导出无响应 (NOTE-IMAGE-EXPORT-01.2) (bc692fc)
+- 防止孤儿清理误删待办图片附件 (TASK-ATTACHMENT-ORPHAN-CLEANUP-01) (b8f6ec5)
+- 树形笔记目录联动更新时间显示开关 (NOTE-LIST-TIME-VISIBILITY-01.2) (8d5a8a4)
+- 设置页联动笔记列表更新时间开关 (NOTE-LIST-TIME-VISIBILITY-01.1) (63d79d9)
+- 附件路径校验拒绝反斜杠并支持两层月份递归扫描 (ATTACHMENT-STORAGE-DATE-PATH-01.1) (fd85706)
+- 加强附件路径校验并跳过 .thumbs 扫描 (ATTACHMENT-STORAGE-DATE-PATH-01) (7b7f39a)
+- 优化移动端图片预览工具栏布局 (EDITOR-IMAGE-PREVIEW-MOBILE-01) (44bfaf6)
+- 安卓相册保存路径使用 Environment.DIRECTORY_PICTURES (13a07eb)
+- 修复编辑器图片间距与换行兼容 (EDITOR-IMAGE-LAYOUT-01) (1c60ac3)
+- 分享页图片缩放调试日志 (d86804b)
+- 增强分享页图片 width 链路排查日志 (SHARE-IMAGE-LIGHTBOX-01.4) (db258f9)
+- 添加分享页图片缩放排查日志 (SHARE-IMAGE-LIGHTBOX-01.4) (0f615f8)
+- 修复分享页图片缩放源数据丢失问题 (SHARE-IMAGE-LIGHTBOX-01.3) (e61d484)
+- 修复分享页 Markdown 图片缩放未生效 (SHARE-IMAGE-LIGHTBOX-01.2) (90b7325)
+- 修复分享页图片缩放尺寸未生效 (SHARE-IMAGE-LIGHTBOX-01.1) (f735be1)
+- 分享页图片按缩放尺寸显示并支持预览 (SHARE-IMAGE-LIGHTBOX-01) (c85aa9c)
+- ???????????? (TASK-CALENDAR-FEED-UX-01) (b35453d)
+- ???????????????? (AUTH-FIRST-CHANGE-LOOP-01) (c2a58e3)
+- ????????????????? (TASK-QUICKADD-IMAGE-01) (249b73b)
+- ????????? i18n hotfix (NOTE-IMAGE-EXPORT-01.1) (c8af5ff)
+- 修复待办日历订阅多语言显示 (I18N-CALENDAR-FEED-01) (3425f60)
+- ???????????????????? (BUG-TALK-FILTER-UI-01) (1076cdf)
+- DiaryEditor 补回 cameraInputRef + DiaryCard forwardRef 修复 (dce654d)
+- 补回 DiaryCenter 缺失的 calendarOpen state 声明 (181642b)
+- 补回 EditorPane 缺失的 buildAiContext/extractFinalAnswer 导入 (6de024a)
+- complete inline note context menu actions (d579df8)
+- expose latest context menu target (91f9c20)
+- 移动端抽屉导航后自动关闭 (MOBILE-DRAWER-CLOSE-01) (1a87d8c)
+- 待办移动端遗漏交互补丁 (TASK-MOBILE-UX-01.1) (d3201e8)
+- 已初始化实例隐藏默认账号提示 (AUTH-LOGIN-DEFAULT-CREDS-01) (0fd885d)
+- 草稿清空时释放已上传媒体 + 移除 BOM (DIARY-DRAFT-01.1) (32db2c3)
+- 筛选空状态与心情筛选交互优化 (DIARY-TIMELINE-FILTER-01.1) (8b51ed3)
+- 编辑器多文件选择时混发漏检 (DIARY-EDITOR-MEDIA-01.2) (3701679)
+- DiaryEditor addFiles 编译错误 + 逻辑修正 (DIARY-EDITOR-MEDIA-01.1) (2fb843d)
+- 移除 DiaryEditor 中重复的 input refs 声明 (3a52540)
+- VideoBlock 错误占位 React 化 + i18n (DIARY-VIDEO-RANGE-01.1) (ebd88f7)
+- 文件存储国际化与Diary路由修复 (5abe992)
+- normalize English locale encoding (afec86b)
+- ignore stale notebook note fetches (92a3ce9)
+- **tasks**: V1.2.1 待办功能修正——截止时间拆分、自定义提醒、子任务拖拽排序、按截止时间排序 (8d0e6d8)
+
+### ♻️ 重构
+
+- 折叠笔记右键菜单导出项 (CONTEXT-MENU-COMPACT-01) (395951f)
+
+### 📝 文档
+
+- finalize PDF/DOCX folder sync documentation (DESKTOP-FOLDER-KB-SYNC-02-Z) (855d7bb)
+- desktop folder sync documentation and MVP sign-off (DESKTOP-FOLDER-KB-SYNC-01-Z) (582357a)
+
+### 💄 样式
+
+- 表格单元格默认水平垂直居中 (EDITOR-TABLE-CELL-CENTER-01) (d8b9cdb)
+
+### 🔧 其他
+
+- clean up MarkdownEditor header comment encoding (MARKDOWN-EDITOR-CLEANUP-01) (b9987d6)
+- 移除最近提交中的 UTF-8 BOM (ca97d74)
+- 清理分享页图片调试日志 (6f57cab)
+- remove temporary mobile layer stack workflow (9848048)
+- trigger mobile layer stack auto fix (05cb80a)
+- add temporary workflow for mobile layer stack fix (955f2f4)
+- remove temporary auto fix workflow (afbc17b)
+- trigger notebook tree note menu auto fix (be3fabc)
+- add temporary auto fix workflow for notebook tree note menu (410f1fd)
+- remove duplicate comment in DiaryCenter (fe0c809)
+
+### 📌 杂项
+
+- 优化：接入长笔记AI上下文预算与分块处理 (AI-LONG-NOTE-CONTEXT-01) (96d7e10)
+- 优化：新增长笔记AI上下文构建工具 (ebad1d4)
+- 新增：AI推理输出清洗工具 (176e11b)
+- 修复：清洗AI推理输出并忽略reasoning流 (43e6a14)
+
+### ✨ 新增
+
+- Android 导出图片保存到相册，导出的 PNG/JPG 文件会自动写入系统相册方便查看和分享 (NOTE-IMAGE-EXPORT-02)
+- 移动端编辑器支持单张图片保存到相册，长按或点击图片即可一键保存 (NOTE-EDITOR-IMAGE-SAVE-01)
+- 笔记列表支持隐藏更新时间显示，在设置中可切换是否展示每条笔记的最后更新时间 (NOTE-LIST-TIME-VISIBILITY-01)
+- 表格单元格默认水平和垂直居中对齐，新插入的单元格内容自动居中显示 (EDITOR-TABLE-CELL-CENTER-01)
+- 附件按上传年月自动分目录存储，新增的附件会存入 `年/月` 子目录，便于管理和备份 (ATTACHMENT-STORAGE-DATE-PATH-01)
+
+### 🐛 修复
+
+- 修复孤儿清理机制可能误删待办任务中图片附件的问题，清理前增加引用检查 (TASK-ATTACHMENT-ORPHAN-CLEANUP-01)
+- 修复删除笔记或清空回收站后其他设备不同步的问题，跨端删除操作现在能实时同步 (SYNC-DELETE-01-B)
+- 修复树形目录右键菜单点击 PNG/JPG 导出时无响应的问题 (NOTE-IMAGE-EXPORT-01.2)
+- 修复搜索结果偶尔误报无关内容的问题，提高搜索结果准确性 (f0628f7)
+- 过滤 AI 回复中的思考过程内容，避免用户看到模型内部推理细节 (507c365)
+- 笔记本分享链接支持撤销，分享者可随时取消已生成的分享链接 (566fbcf)
+- 修复思维导图使用滚轮缩放时缩放方向和灵敏度异常的问题 (4d4ea94)
+- 回收站中的笔记自动锁定，禁止编辑、收藏和加锁操作，防止误操作恢复被删内容
+- 修复偶发的笔记内容被意外清空问题，增强编辑器内容保护机制 (d414eb2)
+
 ### v1.2.1 - 2026-06-16
 
 ### ✨ 新增
@@ -418,11 +618,5 @@ QQ 群：`1093473044`
 - 移除NavRail点击导航项后自动关闭移动端侧边栏的逻辑 (a429f1a)
 - 移动端侧边栏遮罩区分点击/滑动，禁用手势关闭侧边栏，添加overflow-hidden防溢出 (948e447)
 - 优化Android WebView选择菜单处理，使用委托模式替代直接返回null (fa20e06)
-
-### v1.1.17 - 2026-06-08
-
-### ♻️ 重构
-
-- 大规模代码精简和架构优化 (60f051b)
 
 <!-- CHANGELOG:END -->
