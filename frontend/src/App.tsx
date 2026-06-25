@@ -36,6 +36,7 @@ import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
 import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
+import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -727,6 +728,9 @@ function AppLayout() {
 
       {/* 服务端版本升级提示（前端 bundle 与服务端不一致时） */}
       <UpdateNotifier />
+
+      {/* 桌面端文件夹自动同步调度器（仅 Electron，无 UI） */}
+      <FolderSyncScheduler />
     </div>
   );
 }

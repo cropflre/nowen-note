@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
+import { runFolderSyncOnce } from "@/lib/folderSyncRunner";
 import type { FolderSyncConfig, FolderSyncScanResult, FolderSyncLogItem, FolderSyncIndexItem } from "@/lib/desktopBridge";
 import type { Notebook } from "@/types";
 import { confirm } from "@/components/ui/confirm";
@@ -447,62 +448,31 @@ export default function FolderSyncSettings() {
   }, [loadConfigs, t]);
 
   const handleRunNow = useCallback(async (folderId: string) => {
-    const fs = getFolderSync();
-    if (!fs) return;
     try {
       setActionLoading(`run-${folderId}`);
-      const scanResult = await fs.runNow(folderId);
-      if (!scanResult.ok) { toast.error(scanResult.message || "Scan failed"); return; }
-      setLastScanResults((prev) => ({ ...prev, [folderId]: scanResult }));
+      const result = await runFolderSyncOnce(folderId);
 
-      const pendingResult = await fs.getPendingUploads(folderId);
-      if (!pendingResult.ok) { toast.error(pendingResult.error || "Failed to get pending uploads"); return; }
+      if (result.scanResult?.ok) {
+        setLastScanResults((prev) => ({ ...prev, [folderId]: result.scanResult! }));
+      }
 
-      const targetNotebookId = pendingResult.config.targetNotebookId;
-      if (!targetNotebookId) {
-        toast.info(t("folderSync.syncDoneNoUpload", { added: scanResult.added, changed: scanResult.changed })
-          || `Scan done: +${scanResult.added} ~${scanResult.changed}. No target notebook, skipping upload.`);
-        await loadConfigs();
+      if (!result.ok) {
+        toast.error(result.error || "Sync failed");
         return;
       }
 
-      let imported = 0, updated = 0, uploadSkipped = 0, uploadFailed = 0;
-
-      for (const candidate of pendingResult.pending) {
-        if (candidate.skipReason || !candidate.contentText) {
-          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, skipped: true, error: candidate.skipReason || "No content" });
-          uploadSkipped++;
-          continue;
-        }
-        try {
-          const res = await api.folderSync.importFile({
-            filename: candidate.filename, relativePath: candidate.relativePath,
-            sha256: candidate.sha256, targetNotebookId, contentText: candidate.contentText,
-            sourcePathHash: candidate.sourcePathHash, existingNoteId: candidate.existingNoteId || undefined,
-          });
-          if (res.skipped) {
-            await fs.markUploadResult(folderId, candidate.relativePath, { success: true, noteId: res.noteId, skipped: true });
-            uploadSkipped++;
-          } else if (res.success) {
-            await fs.markUploadResult(folderId, candidate.relativePath, { success: true, noteId: res.noteId });
-            if (res.created) imported++; else if (res.updated) updated++;
-          } else {
-            await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: "Import failed" });
-            uploadFailed++;
-          }
-        } catch (e: any) {
-          await fs.markUploadResult(folderId, candidate.relativePath, { success: false, error: e?.message || "Upload error" });
-          uploadFailed++;
-        }
-      }
-
-      const total = imported + updated + uploadSkipped + uploadFailed;
-      if (total === 0) {
-        toast.success(t("folderSync.scanDone", { added: scanResult.added, changed: scanResult.changed, skipped: scanResult.skipped })
-          || `Scan done: +${scanResult.added} ~${scanResult.changed} skip${scanResult.skipped}`);
+      const { scanResult: sr, imported, updated, skipped, failed } = result;
+      const total = imported + updated + skipped + failed;
+      if (total === 0 && sr) {
+        toast.success(
+          t("folderSync.scanDone", { added: sr.added, changed: sr.changed, skipped: sr.skipped })
+          || `Scan done: +${sr.added} ~${sr.changed} skip${sr.skipped}`
+        );
       } else {
-        toast.success(t("folderSync.syncDone", { imported, updated, skipped: uploadSkipped, failed: uploadFailed })
-          || `Sync done: +${imported} ~${updated} skip${uploadSkipped} fail${uploadFailed}`);
+        toast.success(
+          t("folderSync.syncDone", { imported, updated, skipped, failed })
+          || `Sync done: +${imported} ~${updated} skip${skipped} fail${failed}`
+        );
       }
       await loadConfigs();
     } catch (e: any) { toast.error(e?.message || "Sync failed"); }
