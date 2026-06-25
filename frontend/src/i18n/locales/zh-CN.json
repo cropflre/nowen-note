@@ -2213,6 +2213,13 @@
     "statUnchanged": "未变",
     "statTotal": "总数",
     "syncDone": "同步完成：新增 {{imported}}，更新 {{updated}}，跳过 {{skipped}}，失败 {{failed}}",
-    "syncDoneNoUpload": "扫描完成：新增 {{added}}，更新 {{changed}}。未设置目标笔记本，跳过上传。"
+    "syncDoneNoUpload": "扫描完成：新增 {{added}}，更新 {{changed}}。未设置目标笔记本，跳过上传。",
+    "showDetails": "查看详情",
+    "hideDetails": "隐藏详情",
+    "hintTextOnly": "当前仅同步文本文件（md/txt/html）。PDF/DOCX 暂未上传为附件，本地删除不会删除 Nowen 笔记。",
+    "filterAll": "全部",
+    "noFiles": "暂无索引文件",
+    "openNote": "打开笔记",
+    "statErrors": "失败"
   }
 }

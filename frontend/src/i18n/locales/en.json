@@ -2044,6 +2044,13 @@
     "statUnchanged": "unchanged",
     "statTotal": "total",
     "syncDone": "Sync done: +{{imported}} ~{{updated}} skip{{skipped}} fail{{failed}}",
-    "syncDoneNoUpload": "Scan done: +{{added}} ~{{changed}}. No target notebook set, skipping upload."
+    "syncDoneNoUpload": "Scan done: +{{added}} ~{{changed}}. No target notebook set, skipping upload.",
+    "showDetails": "Show Details",
+    "hideDetails": "Hide Details",
+    "hintTextOnly": "Currently only text files (md/txt/html) are synced. PDF/DOCX attachments are not uploaded yet. Deleting local files will not delete Nowen notes.",
+    "filterAll": "All",
+    "noFiles": "No indexed files",
+    "openNote": "Open note",
+    "statErrors": "errors"
   }
 }
