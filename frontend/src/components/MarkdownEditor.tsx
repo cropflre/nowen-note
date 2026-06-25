@@ -1437,7 +1437,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <div className={cn(
             viewMode === "split" ? "w-1/2 min-h-0 overflow-auto px-4 md:px-8" : "h-full"
           )}>
-            <MarkdownPreview markdown={previewMarkdown} className="h-full" />
+            <MarkdownPreview markdown={previewMarkdown} className="h-full" compact={viewMode === "split"} />
           </div>
         )}
       </div>
