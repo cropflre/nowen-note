@@ -69,12 +69,39 @@ export interface ImageUploadResult {
 
 // ====== 加密工具 ======
 
-function deriveCipherKey(): Buffer {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    console.warn("[image-hosting] JWT_SECRET not set, using default key (NOT safe for production)");
+function getEncryptionKeySource(): { key: string; source: string } {
+  // 优先使用独立的图床加密密钥
+  const dedicatedKey = process.env.IMAGE_HOSTING_ENCRYPTION_KEY;
+  if (dedicatedKey) {
+    return { key: dedicatedKey, source: "IMAGE_HOSTING_ENCRYPTION_KEY" };
   }
-  return crypto.scryptSync(secret || "nowen-note-default-secret", "nowen-image-hosting-v1", 32);
+
+  // 兼容使用 JWT_SECRET
+  const jwtSecret = process.env.JWT_SECRET;
+  if (jwtSecret) {
+    return { key: jwtSecret, source: "JWT_SECRET" };
+  }
+
+  // 两者都未设置
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction) {
+    throw new Error(
+      "[image-hosting] Production environment requires IMAGE_HOSTING_ENCRYPTION_KEY or JWT_SECRET. " +
+      "Please set one of these environment variables before using image hosting."
+    );
+  }
+
+  // 开发环境允许 fallback
+  console.warn(
+    "[image-hosting] Neither IMAGE_HOSTING_ENCRYPTION_KEY nor JWT_SECRET is set. " +
+    "Using development fallback key. This is NOT safe for production."
+  );
+  return { key: "nowen-note-dev-fallback-key-not-for-production", source: "development-fallback" };
+}
+
+function deriveCipherKey(): Buffer {
+  const { key } = getEncryptionKeySource();
+  return crypto.scryptSync(key, "nowen-image-hosting-v1", 32);
 }
 
 function encryptSecret(plain: string): string {
@@ -168,6 +195,13 @@ export function readImageHostingConfigPublic(): ImageHostingConfigPublic {
 }
 
 export function writeImageHostingConfig(input: WriteImageHostingConfigInput): ImageHostingConfigPublic {
+  // 验证加密密钥可用性（生产环境会抛出错误）
+  try {
+    getEncryptionKeySource();
+  } catch (err: any) {
+    throw new Error(`Cannot save image hosting config: ${err.message}`);
+  }
+
   const existing = readPersistedConfig();
   const secretAccessKey = input.secretAccessKey
     ? encryptSecret(input.secretAccessKey)
@@ -283,6 +317,13 @@ export async function uploadImageToHosting(
   filename: string,
   mimeType: string,
 ): Promise<ImageUploadResult> {
+  // 验证加密密钥可用性（生产环境会抛出错误）
+  try {
+    getEncryptionKeySource();
+  } catch (err: any) {
+    return { success: false, error: err.message, code: "ENCRYPTION_KEY_MISSING" };
+  }
+
   const cfg = readPersistedConfig();
   if (!cfg || !cfg.enabled) {
     return { success: false, error: "Image hosting not enabled", code: "NOT_ENABLED" };
@@ -338,6 +379,13 @@ export async function uploadImageToHosting(
 // ====== 测试连接 ======
 
 export async function testImageHostingConfig(): Promise<{ ok: boolean; url?: string; error?: string }> {
+  // 验证加密密钥可用性（生产环境会抛出错误）
+  try {
+    getEncryptionKeySource();
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+
   const cfg = readPersistedConfig();
   if (!cfg || !cfg.enabled) {
     return { ok: false, error: "Image hosting not enabled" };
