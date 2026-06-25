@@ -413,11 +413,13 @@ export async function importNowenPackage(zipBuffer: Buffer, params: ImportParams
   // 文件回滚列表
   const importedFiles: string[] = [];
 
+  // rootNotebookId 需要在 try 块外声明，以便返回时使用
+  let rootNotebookId: string;
+
   try {
     db.exec("BEGIN TRANSACTION");
 
     // 9.1 创建导入根笔记本
-    let rootNotebookId: string;
     const dateStr = new Date().toISOString().slice(0, 10);
 
     if (importMode === "into-target" && targetNotebookId) {
