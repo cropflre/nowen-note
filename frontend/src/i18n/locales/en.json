@@ -1982,7 +1982,14 @@
     "nowenPackageDesc": "For importing into another nowen-note instance. Preserves Markdown/rich-text formats, notebooks, tags, and attachments.",
     "nowenPackageExporting": "Exporting Nowen package…",
     "nowenPackageSuccess": "Nowen package exported",
-    "nowenPackageFailed": "Failed to export Nowen package"
+    "nowenPackageFailed": "Failed to export Nowen package",
+    "nowenPackageImport": "Import Nowen Package",
+    "nowenPackageImportDesc": "Import notebooks, notes, tags, and attachments from a .nowen.zip package.",
+    "nowenPackageImportDryRun": "Checking package…",
+    "nowenPackageImportConfirmTitle": "Confirm Nowen Package Import",
+    "nowenPackageImportConfirmDesc": "This will import {{notes}} notes and {{attachments}} attachments. Existing data will not be overwritten.",
+    "nowenPackageImportSuccess": "Nowen package imported successfully",
+    "nowenPackageImportFailed": "Failed to import Nowen package"
   },
   "markdown": {
     "view": {

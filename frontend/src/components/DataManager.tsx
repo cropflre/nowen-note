@@ -1226,6 +1226,81 @@ export default function DataManager() {
         </div>
       </section>
 
+      {/* Nowen 数据包导入 */}
+      {!personalImportLocked && (
+        <section>
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package size={16} className="text-violet-500" />
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t('note.nowenPackageImport')}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+              {t('note.nowenPackageImportDesc')}
+            </p>
+            <input
+              type="file"
+              accept=".nowen.zip,.zip"
+              className="hidden"
+              id="nowen-package-import-input"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = "";
+
+                try {
+                  toast.info(t('note.nowenPackageImportDryRun'));
+                  const dryResult = await api.dryRunNowenPackage(file);
+
+                  if (!dryResult.success) {
+                    toast.error(dryResult.errors?.[0] || t('note.nowenPackageImportFailed'));
+                    return;
+                  }
+
+                  const pkg = dryResult.package;
+                  const confirmed = window.confirm(
+                    t('note.nowenPackageImportConfirmTitle') + "\n\n" +
+                    t('note.nowenPackageImportConfirmDesc', {
+                      notes: pkg?.counts?.notes || 0,
+                      attachments: pkg?.counts?.attachments || 0,
+                    })
+                  );
+
+                  if (!confirmed) return;
+
+                  toast.info(t('note.nowenPackageImportDryRun'));
+                  const result = await api.importNowenPackage(file);
+
+                  if (result.success) {
+                    const counts = result.counts;
+                    toast.success(
+                      t('note.nowenPackageImportSuccess') +
+                      (counts ? ` (${counts.notes} notes, ${counts.attachments} attachments)` : "")
+                    );
+                    // 刷新数据
+                    actions.refreshNotebooks();
+                    actions.refreshNotes();
+                  } else {
+                    toast.error(result.errors?.[0] || t('note.nowenPackageImportFailed'));
+                  }
+                } catch (err: any) {
+                  console.error("[NowenPackageImport] Failed:", err);
+                  toast.error(err.message || t('note.nowenPackageImportFailed'));
+                }
+              }}
+            />
+            <button
+              onClick={() => document.getElementById('nowen-package-import-input')?.click()}
+              className="flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg transition-all"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {t('note.nowenPackageImport')}
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* 第三方云/备忘录导入：同样受 personalImport 开关约束。
           管理员关闭开关时，不应存在"主入口禁用但 MiCloud / OPPO / iCloud / 有道
           还能用"的绕过漏洞；对普通用户 lock 时直接整体隐藏。 */}

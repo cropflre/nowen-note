@@ -1395,6 +1395,40 @@ export const api = {
       body: JSON.stringify({ notes, notebookId, notebookName }),
     });
   },
+  /** Nowen 数据包 dry-run 预检 */
+  dryRunNowenPackage: async (file: File) => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package?dryRun=1`, {
+      method: "POST",
+      credentials: "include",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  },
+  /** Nowen 数据包正式导入 */
+  importNowenPackage: async (file: File, opts?: { importMode?: "new-root" | "into-target"; targetNotebookId?: string }) => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("file", file);
+    const params = new URLSearchParams();
+    if (opts?.importMode) params.set("importMode", opts.importMode);
+    if (opts?.targetNotebookId) params.set("targetNotebookId", opts.targetNotebookId);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package${qs}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  },
 
   // Site Settings
   getSiteSettings: () =>

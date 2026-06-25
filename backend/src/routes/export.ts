@@ -387,4 +387,61 @@ app.get("/nowen-package", async (c) => {
   }
 });
 
+// ====== Nowen 数据包导入 ======
+
+app.post("/import/nowen-package", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const dryRun = c.req.query("dryRun") === "1" || c.req.query("dryRun") === "true";
+  const importMode = (c.req.query("importMode") as "new-root" | "into-target") || "new-root";
+  const targetNotebookId = c.req.query("targetNotebookId") || undefined;
+
+  // 闸门检查
+  const isPersonalScope = !c.req.query("workspaceId");
+  const denied = denyIfPersonalFeatureDisabled(userId, isPersonalScope, "personalImportEnabled");
+  if (denied) return c.json(denied, 403);
+
+  try {
+    // 解析 multipart form data
+    const body = await c.req.parseBody();
+    const file = body["file"];
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "No file uploaded", code: "NO_FILE" }, 400);
+    }
+
+    // 读取文件内容
+    const arrayBuffer = await file.arrayBuffer();
+    const zipBuffer = Buffer.from(arrayBuffer);
+
+    // 调用导入服务
+    const { importNowenPackage } = await import("../services/nowenPackageImport");
+    const result = await importNowenPackage(zipBuffer, {
+      userId,
+      targetNotebookId,
+      importMode,
+      dryRun,
+    });
+
+    if (!result.success) {
+      return c.json(result, 400);
+    }
+
+    // 广播刷新事件
+    if (!dryRun && result.success) {
+      try {
+        broadcastToUser(userId, "notes:imported", {
+          rootNotebookId: result.rootNotebookId,
+          counts: result.counts,
+        });
+        broadcastToUser(userId, "notebooks:changed", {});
+      } catch {}
+    }
+
+    return c.json(result, 200);
+  } catch (err: any) {
+    console.error("[import/nowen-package] Error:", err);
+    return c.json({ error: err.message || "Import failed", code: "IMPORT_FAILED" }, 500);
+  }
+});
+
 export default app;
