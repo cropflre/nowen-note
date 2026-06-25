@@ -446,6 +446,7 @@ function SidebarNoteItem({
   constrainWidth?: boolean;
   showNoteTime?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
