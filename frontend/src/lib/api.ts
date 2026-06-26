@@ -1126,8 +1126,10 @@ export const api = {
   },
   // TAG-FILTER-MULTI-01: 多标签联合筛选
   getNotesWithTags: (tagIds: string[], params?: Record<string, string>) => {
+    // RV1: 排序确保相同组合产生相同请求
+    const sorted = [...tagIds].sort();
     const finalParams: Record<string, string> = {
-      tagIds: tagIds.join(","),
+      tagIds: sorted.join(","),
       tagMode: "and",
       ...(params || {}),
     };

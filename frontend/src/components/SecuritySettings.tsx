@@ -739,7 +739,15 @@ function SessionsSection() {
   };
 
   const formatUa = (ua: string) => {
-    if (!ua) return t("securitySettings.sessions.unknownUa");
+    if (!ua) return t("securitySettings.sessions.unknownUa", { defaultValue: "来源未知" });
+    // 桌面客户端特殊处理
+    if (/Nowen.*Desktop/i.test(ua)) {
+      const os = /Windows/.test(ua) ? "Windows"
+        : /Mac OS/.test(ua) ? "macOS"
+        : /Linux/.test(ua) ? "Linux"
+        : "";
+      return os ? `Nowen Note · ${os}` : "Nowen Note";
+    }
     // 粗略提取浏览器+OS，足够识别场景
     const os = /Windows/.test(ua) ? "Windows"
       : /Mac OS/.test(ua) ? "macOS"
@@ -793,7 +801,7 @@ function SessionsSection() {
                     )}
                   </div>
                   <div className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
-                    {t("securitySettings.sessions.from", { ip: s.ip || "-" })}
+                    {t("securitySettings.sessions.from", { ip: s.ip || t("securitySettings.sessions.unknownIp", { defaultValue: "来源未知" }) })}
                     {" · "}
                     {t("securitySettings.sessions.lastSeen", {
                       time: new Date(s.lastSeenAt).toLocaleString(),

@@ -43,21 +43,56 @@ function verifyDesktopLocalResetSecret(c: Context): boolean {
 // Phase 6: 登录即落一条 user_sessions，JWT 中间件根据 jti 校验 revokedAt。
 // 下面的 helper 让 auth/users 路由无须自己拼 SQL。
 
-/** 新建一条会话记录并返回 sessionId（= JWT 的 jti） */
+/** 新建或复用会话记录并返回 sessionId（= JWT 的 jti）
+ *
+ *  Phase 6+：引入 deviceId 去重。同一 userId + deviceId 只保留一条活跃 session，
+ *  再次登录时 UPDATE lastSeenAt 而非 INSERT，避免会话列表无限膨胀。
+ *  若无 deviceId（旧客户端 / 旧 token），退化为每次 INSERT（向后兼容）。
+ */
 function createSession(params: {
   userId: string;
   ip: string;
   userAgent: string;
+  deviceId?: string;
   expiresInDays?: number;
 }): string {
-  const id = uuid();
-  const days = params.expiresInDays ?? 30; // 与 JWT_EXPIRES_IN 对齐
-  const expiresAt = new Date(Date.now() + days * 86400_000).toISOString();
   const db = getDb();
+  const days = params.expiresInDays ?? 30;
+  const expiresAt = new Date(Date.now() + days * 86400_000).toISOString();
+
+  // 若有 deviceId，尝试复用已有活跃 session
+  if (params.deviceId) {
+    const existing = db.prepare(
+      `SELECT id FROM user_sessions
+       WHERE userId = ? AND deviceLabel = ? AND revokedAt IS NULL
+         AND (expiresAt IS NULL OR datetime(expiresAt) > datetime('now'))
+       ORDER BY lastSeenAt DESC LIMIT 1`,
+    ).get(params.userId, `device:${params.deviceId}`) as { id: string } | undefined;
+
+    if (existing) {
+      // 复用：更新 lastSeenAt、IP、expiresAt
+      db.prepare(
+        `UPDATE user_sessions
+         SET lastSeenAt = datetime('now'), ip = ?, expiresAt = ?
+         WHERE id = ?`,
+      ).run(params.ip || "", expiresAt, existing.id);
+      return existing.id;
+    }
+  }
+
+  // 新建 session
+  const id = uuid();
   db.prepare(
-    `INSERT INTO user_sessions (id, userId, ip, userAgent, expiresAt)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(id, params.userId, params.ip || "", params.userAgent || "", expiresAt);
+    `INSERT INTO user_sessions (id, userId, ip, userAgent, deviceLabel, expiresAt)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    params.userId,
+    params.ip || "",
+    params.userAgent || "",
+    params.deviceId ? `device:${params.deviceId}` : null,
+    expiresAt,
+  );
   return id;
 }
 
@@ -329,7 +364,7 @@ auth.post("/desktop/reset-local", async (c) => {
 
 auth.post("/login", async (c) => {
   const body = await c.req.json();
-  const { username, password } = body as { username: string; password: string };
+  const { username, password, deviceId } = body as { username: string; password: string; deviceId?: string };
 
   if (!username || !password) {
     return c.json({ error: "用户名和密码不能为空" }, 400);
@@ -432,11 +467,12 @@ auth.post("/login", async (c) => {
     });
   }
 
-  // Phase 6: 登录成功即建立 session
+  // Phase 6: 登录成功即建立 session（带 deviceId 去重）
   const sessionId = createSession({
     userId: user.id,
     ip,
     userAgent: c.req.header("user-agent") || "",
+    deviceId,
   });
   const token = signLoginToken({
     userId: user.id,
@@ -1061,6 +1097,16 @@ auth.get("/sessions", (c) => {
   const currentSessionId = payload?.jti || null;
 
   const db = getDb();
+
+  // 清理过期和已撤销的 session（每次查询时顺带清理，避免无限膨胀）
+  db.prepare(
+    `DELETE FROM user_sessions
+     WHERE userId = ? AND (
+       revokedAt IS NOT NULL
+       OR (expiresAt IS NOT NULL AND datetime(expiresAt) <= datetime('now'))
+     )`,
+  ).run(userId);
+
   const rows = db
     .prepare(
       `SELECT id, createdAt, lastSeenAt, expiresAt, ip, userAgent, deviceLabel

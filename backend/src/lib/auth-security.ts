@@ -260,9 +260,10 @@ const ipBuckets = new Map<string, IpBucket>();
 /** 从 Hono Context 中提取客户端 IP */
 export function extractClientIp(c: Context): string {
   return (
+    c.req.header("cf-connecting-ip") ||
     c.req.header("x-forwarded-for")?.split(",")[0].trim() ||
     c.req.header("x-real-ip") ||
-    "unknown"
+    ""
   );
 }
 

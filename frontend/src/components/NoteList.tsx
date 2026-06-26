@@ -1339,7 +1339,8 @@ export default function NoteList() {
   const notesQueryKey = useMemo(() => JSON.stringify({
     viewMode: state.viewMode,
     selectedNotebookId: state.selectedNotebookId,
-    selectedTagIds: state.selectedTagIds,
+    // RV1: 排序确保 A+B 和 B+A 产生相同 queryKey
+    selectedTagIds: [...state.selectedTagIds].sort(),
     searchQuery: state.searchQuery,
     dateFilter,
     sortBy: sortPref.by,
@@ -2989,9 +2990,13 @@ export default function NoteList() {
                   <button
                     onClick={() => {
                       actions.toggleSelectedTag(tag.id);
-                      // 如果移除后没有标签了，回到全部笔记
+                      // 如果移除后没有标签了，回到之前的视图（笔记本 or 全部）
                       if (state.selectedTagIds.length <= 1) {
-                        actions.setViewMode("all");
+                        if (state.selectedNotebookId) {
+                          actions.setViewMode("notebook");
+                        } else {
+                          actions.setViewMode("all");
+                        }
                       }
                     }}
                     className="ml-0.5 hover:text-accent-primary/70 transition-colors shrink-0"
@@ -3006,7 +3011,13 @@ export default function NoteList() {
             <button
               onClick={() => {
                 actions.clearSelectedTags();
-                actions.setViewMode("all");
+                // RV1 修复：清空标签不改变 viewMode 上下文
+                // 回到笔记本视图或全部笔记，不误伤笔记本筛选
+                if (state.selectedNotebookId) {
+                  actions.setViewMode("notebook");
+                } else {
+                  actions.setViewMode("all");
+                }
               }}
               className="text-[10px] text-tx-tertiary hover:text-accent-primary transition-colors shrink-0"
             >

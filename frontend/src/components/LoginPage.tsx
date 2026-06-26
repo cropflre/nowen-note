@@ -314,10 +314,12 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     if (baseUrl === null) return;
 
     const loginUrl = baseUrl ? `${baseUrl}/api/auth/login` : "/api/auth/login";
+    // 带上 deviceId 用于会话去重，避免同一设备反复登录产生大量重复 session
+    const { getDeviceId } = await import("@/lib/deviceId");
     const res = await fetch(loginUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, deviceId: getDeviceId() }),
     });
     const data = await res.json();
     if (!res.ok) {
