@@ -1256,6 +1256,20 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [tableBubble, setTableBubble] = useState<{ open: boolean; top: number; left: number; cellText: string }>({
     open: false, top: 0, left: 0, cellText: "",
   });
+  // MOBILE-TABLE-EDITING-UX-01: 移动端底部 Sheet 二级菜单
+  const [tableSheet, setTableSheet] = useState<"row" | "col" | "more" | null>(null);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    setIsMobile(mq.matches);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  // MOBILE-TABLE-EDITING-UX-01: 移动端表格底部 Sheet 展开状态
+  const [tableSheetExpanded, setTableSheetExpanded] = useState(false);
   // 调整表格尺寸对话框：按行列差值调用 addRow/deleteRow + addColumn/deleteColumn
   // initialRows/Cols 是打开对话框时的当前表格尺寸
   const [resizeDialog, setResizeDialog] = useState<{ open: boolean; rows: number; cols: number }>({
@@ -4038,129 +4052,209 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           光标停在表格内（空选区）时浮出，按钮直接调 Tiptap 内置命令。
           合并/拆分依赖 CellSelection——用户必须先按住鼠标拖选多个单元格再点合并。 */}
       {editor && editable && tableBubble.open && (() => {
-        // TABLE-CELL-SMART-ACTIONS-01: 检测单元格中的手机号
         const phoneMatch = tableBubble.cellText.match(/(?:\+86[\s-]?)?1[3-9]\d{9}/);
         const phone = phoneMatch ? phoneMatch[0].replace(/[\s-]/g, "").replace(/^\+86/, "") : null;
 
+        // ── 移动端：底部 Sheet 工具栏 ──
+        if (isMobile) {
+          return (
+            <>
+              {/* 一级操作条：固定底部 */}
+              <div
+                className="fixed bottom-0 left-0 right-0 z-50 bg-app-elevated border-t border-app-border px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {/* 内容操作行 */}
+                <div className="flex items-center gap-1.5 mb-2">
+                  {phone ? (
+                    <>
+                      <button onClick={() => { navigator.clipboard.writeText(phone); toast.success(t("tiptap.cellCopied", { defaultValue: "已复制" })); }}
+                        className="flex-1 h-10 rounded-lg bg-accent-primary/10 text-accent-primary text-xs font-medium active:bg-accent-primary/20 transition-colors">
+                        📋 {t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })}
+                      </button>
+                      <button onClick={() => window.open(`tel:${phone}`, "_self")}
+                        className="flex-1 h-10 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-medium active:bg-green-500/20 transition-colors">
+                        📞 {t("tiptap.cellCallPhone", { defaultValue: "拨打" })}
+                      </button>
+                      <button onClick={() => window.open(`sms:${phone}`, "_self")}
+                        className="flex-1 h-10 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium active:bg-blue-500/20 transition-colors">
+                        💬 {t("tiptap.cellSmsPhone", { defaultValue: "短信" })}
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => {
+                      const text = tableBubble.cellText || "";
+                      navigator.clipboard.writeText(text);
+                      toast.success(t("tiptap.cellCopied", { defaultValue: "已复制" }));
+                    }}
+                      className="flex-1 h-10 rounded-lg bg-accent-primary/10 text-accent-primary text-xs font-medium active:bg-accent-primary/20 transition-colors">
+                      📋 {t("tiptap.cellCopyText", { defaultValue: "复制文本" })}
+                    </button>
+                  )}
+                </div>
+                {/* 结构操作行：行 / 列 / 更多 */}
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setTableSheet(tableSheet === "row" ? null : "row")}
+                    className={cn("flex-1 h-10 rounded-lg text-xs font-medium transition-colors",
+                      tableSheet === "row" ? "bg-accent-primary text-white" : "bg-app-hover text-tx-secondary active:bg-app-hover/80")}>
+                    <Rows3 size={14} className="inline mr-1 -mt-0.5" />
+                    {t("tiptap.sheetRow", { defaultValue: "行" })}
+                  </button>
+                  <button onClick={() => setTableSheet(tableSheet === "col" ? null : "col")}
+                    className={cn("flex-1 h-10 rounded-lg text-xs font-medium transition-colors",
+                      tableSheet === "col" ? "bg-accent-primary text-white" : "bg-app-hover text-tx-secondary active:bg-app-hover/80")}>
+                    <Columns3 size={14} className="inline mr-1 -mt-0.5" />
+                    {t("tiptap.sheetCol", { defaultValue: "列" })}
+                  </button>
+                  <button onClick={() => setTableSheet(tableSheet === "more" ? null : "more")}
+                    className={cn("flex-1 h-10 rounded-lg text-xs font-medium transition-colors",
+                      tableSheet === "more" ? "bg-accent-primary text-white" : "bg-app-hover text-tx-secondary active:bg-app-hover/80")}>
+                    ⋯ {t("tiptap.sheetMore", { defaultValue: "更多" })}
+                  </button>
+                </div>
+              </div>
+
+              {/* 二级 Sheet */}
+              {tableSheet && (
+                <div className="fixed bottom-[max(5.5rem,calc(5.5rem+env(safe-area-inset-bottom)))] left-0 right-0 z-50 px-2"
+                  onMouseDown={(e) => e.preventDefault()}>
+                  <div className="bg-app-elevated border border-app-border rounded-xl shadow-xl p-1.5 max-w-md mx-auto">
+                    {tableSheet === "row" && (<>
+                      <button onClick={() => { editor.chain().focus().addRowBefore().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover active:bg-app-hover/80 transition-colors">
+                        ↑ {t("tiptap.addRowBefore", { defaultValue: "上方插入行" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().addRowAfter().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover active:bg-app-hover/80 transition-colors">
+                        ↓ {t("tiptap.addRowAfter", { defaultValue: "下方插入行" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().deleteRow().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-red-500 hover:bg-red-500/10 active:bg-red-500/20 transition-colors">
+                        🗑 {t("tiptap.deleteRow", { defaultValue: "删除当前行" })}
+                      </button>
+                    </>)}
+                    {tableSheet === "col" && (<>
+                      <button onClick={() => { editor.chain().focus().addColumnBefore().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover active:bg-app-hover/80 transition-colors">
+                        ← {t("tiptap.addColumnBefore", { defaultValue: "左侧插入列" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().addColumnAfter().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover active:bg-app-hover/80 transition-colors">
+                        → {t("tiptap.addColumnAfter", { defaultValue: "右侧插入列" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().deleteColumn().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-red-500 hover:bg-red-500/10 active:bg-red-500/20 transition-colors">
+                        🗑 {t("tiptap.deleteColumn", { defaultValue: "删除当前列" })}
+                      </button>
+                    </>)}
+                    {tableSheet === "more" && (<>
+                      <button onClick={() => { editor.chain().focus().mergeCells().run(); setTableSheet(null); }}
+                        disabled={!editor.can().mergeCells()}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover disabled:opacity-40 transition-colors">
+                        <Merge size={14} className="inline mr-2 -mt-0.5" />
+                        {t("tiptap.mergeCells", { defaultValue: "合并单元格" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().splitCell().run(); setTableSheet(null); }}
+                        disabled={!editor.can().splitCell()}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover disabled:opacity-40 transition-colors">
+                        <Split size={14} className="inline mr-2 -mt-0.5" />
+                        {t("tiptap.splitCell", { defaultValue: "拆分单元格" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().toggleHeaderRow().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover transition-colors">
+                        <Heading size={14} className="inline mr-2 -mt-0.5" />
+                        {t("tiptap.toggleHeaderRow", { defaultValue: "切换表头行" })}
+                      </button>
+                      <button onClick={() => {
+                        const view = editor.view;
+                        const { from } = view.state.selection;
+                        let tableEl: HTMLTableElement | null = null;
+                        try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch {}
+                        const rows = tableEl?.querySelectorAll("tr").length ?? 3;
+                        const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
+                        setResizeDialog({ open: true, rows, cols });
+                        setTableSheet(null);
+                        setTableBubble(b => ({ ...b, open: false }));
+                      }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover transition-colors">
+                        ⊞ {t("tiptap.resizeTable", { defaultValue: "调整尺寸" })}
+                      </button>
+                      <div className="h-px bg-app-border my-1" />
+                      <button onClick={() => { editor.chain().focus().deleteTable().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-red-500 hover:bg-red-500/10 active:bg-red-500/20 transition-colors">
+                        <Trash2 size={14} className="inline mr-2 -mt-0.5" />
+                        {t("tiptap.deleteTable", { defaultValue: "删除表格" })}
+                      </button>
+                    </>)}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        }
+
+        // ── 桌面端：浮动工具条（保持原样）──
         return (
         <div
           className="fixed z-50 flex items-center gap-px bg-app-elevated border border-app-border rounded-lg shadow-lg p-0.5"
           style={{ top: tableBubble.top, left: tableBubble.left }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          {/* 智能操作：手机号 → 复制 / 拨打 / 短信 */}
-          {phone && (
-            <>
-              <ToolbarButton compact
-                title={t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })}
-                onClick={() => { navigator.clipboard.writeText(phone); }}
-              >
-                <span className="text-[11px] px-0.5">📋</span>
-              </ToolbarButton>
-              <ToolbarButton compact
-                title={t("tiptap.cellCallPhone", { defaultValue: "拨打电话" })}
-                onClick={() => { window.open(`tel:${phone}`, "_self"); }}
-              >
-                <span className="text-[11px] px-0.5">📞</span>
-              </ToolbarButton>
-              <ToolbarButton compact
-                title={t("tiptap.cellSmsPhone", { defaultValue: "发短信" })}
-                onClick={() => { window.open(`sms:${phone}`, "_self"); }}
-              >
-                <span className="text-[11px] px-0.5">💬</span>
-              </ToolbarButton>
-              <div className="w-px h-3 bg-app-border mx-0.5" />
-            </>
-          )}
-          <ToolbarButton compact
-            title={t("tiptap.addRowBefore")}
-            onClick={() => editor.chain().focus().addRowBefore().run()}
-          >
+          {phone && (<>
+            <ToolbarButton compact title={t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })} onClick={() => { navigator.clipboard.writeText(phone); }}>
+              <span className="text-[11px] px-0.5">📋</span>
+            </ToolbarButton>
+            <ToolbarButton compact title={t("tiptap.cellCallPhone", { defaultValue: "拨打电话" })} onClick={() => window.open(`tel:${phone}`, "_self")}>
+              <span className="text-[11px] px-0.5">📞</span>
+            </ToolbarButton>
+            <ToolbarButton compact title={t("tiptap.cellSmsPhone", { defaultValue: "发短信" })} onClick={() => window.open(`sms:${phone}`, "_self")}>
+              <span className="text-[11px] px-0.5">💬</span>
+            </ToolbarButton>
+            <div className="w-px h-3 bg-app-border mx-0.5" />
+          </>)}
+          <ToolbarButton compact title={t("tiptap.addRowBefore")} onClick={() => editor.chain().focus().addRowBefore().run()}>
             <Rows3 size={14} className="rotate-180" />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.addRowAfter")}
-            onClick={() => editor.chain().focus().addRowAfter().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.addRowAfter")} onClick={() => editor.chain().focus().addRowAfter().run()}>
             <Rows3 size={14} />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.deleteRow")}
-            onClick={() => editor.chain().focus().deleteRow().run()}
-          >
-            <span className="flex items-center">
-              <Rows3 size={14} />
-              <Trash2 size={10} className="-ml-0.5" />
-            </span>
+          <ToolbarButton compact title={t("tiptap.deleteRow")} onClick={() => editor.chain().focus().deleteRow().run()}>
+            <span className="flex items-center"><Rows3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
           </ToolbarButton>
           <div className="w-px h-3 bg-app-border mx-0.5" />
-          <ToolbarButton compact
-            title={t("tiptap.addColumnBefore")}
-            onClick={() => editor.chain().focus().addColumnBefore().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.addColumnBefore")} onClick={() => editor.chain().focus().addColumnBefore().run()}>
             <Columns3 size={14} className="-scale-x-100" />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.addColumnAfter")}
-            onClick={() => editor.chain().focus().addColumnAfter().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.addColumnAfter")} onClick={() => editor.chain().focus().addColumnAfter().run()}>
             <Columns3 size={14} />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.deleteColumn")}
-            onClick={() => editor.chain().focus().deleteColumn().run()}
-          >
-            <span className="flex items-center">
-              <Columns3 size={14} />
-              <Trash2 size={10} className="-ml-0.5" />
-            </span>
+          <ToolbarButton compact title={t("tiptap.deleteColumn")} onClick={() => editor.chain().focus().deleteColumn().run()}>
+            <span className="flex items-center"><Columns3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
           </ToolbarButton>
           <div className="w-px h-3 bg-app-border mx-0.5" />
-          <ToolbarButton compact
-            title={t("tiptap.mergeCells")}
-            disabled={!editor.can().mergeCells()}
-            onClick={() => editor.chain().focus().mergeCells().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.mergeCells")} disabled={!editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()}>
             <Merge size={14} />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.splitCell")}
-            disabled={!editor.can().splitCell()}
-            onClick={() => editor.chain().focus().splitCell().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.splitCell")} disabled={!editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()}>
             <Split size={14} />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.toggleHeaderRow")}
-            onClick={() => editor.chain().focus().toggleHeaderRow().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.toggleHeaderRow")} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>
             <Heading size={14} />
           </ToolbarButton>
-          <ToolbarButton compact
-            title={t("tiptap.resizeTable")}
-            onClick={() => {
-              // 读出当前表格的真实行列数：从光标所在 <table> DOM 数 tr / 第一行 td
-              const view = editor.view;
-              const { from } = view.state.selection;
-              let tableEl: HTMLTableElement | null = null;
-              try {
-                const dom = view.domAtPos(from).node as Node | null;
-                const el = dom instanceof Element ? dom : dom?.parentElement ?? null;
-                tableEl = el?.closest?.("table") as HTMLTableElement | null;
-              } catch { /* ignore */ }
-              const rows = tableEl?.querySelectorAll("tr").length ?? 3;
-              const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
-              setResizeDialog({ open: true, rows, cols });
-              setTableBubble(b => ({ ...b, open: false }));
-            }}
-          >
+          <ToolbarButton compact title={t("tiptap.resizeTable")} onClick={() => {
+            const view = editor.view;
+            const { from } = view.state.selection;
+            let tableEl: HTMLTableElement | null = null;
+            try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch {}
+            const rows = tableEl?.querySelectorAll("tr").length ?? 3;
+            const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
+            setResizeDialog({ open: true, rows, cols });
+            setTableBubble(b => ({ ...b, open: false }));
+          }}>
             <span className="text-[10px] px-0.5 tabular-nums">⊞</span>
           </ToolbarButton>
           <div className="w-px h-3 bg-app-border mx-0.5" />
-          <ToolbarButton compact
-            title={t("tiptap.deleteTable")}
-            onClick={() => editor.chain().focus().deleteTable().run()}
-          >
+          <ToolbarButton compact title={t("tiptap.deleteTable")} onClick={() => editor.chain().focus().deleteTable().run()}>
             <Trash2 size={14} className="text-red-500" />
           </ToolbarButton>
         </div>
