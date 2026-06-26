@@ -1339,7 +1339,7 @@ export default function NoteList() {
   const notesQueryKey = useMemo(() => JSON.stringify({
     viewMode: state.viewMode,
     selectedNotebookId: state.selectedNotebookId,
-    selectedTagId: state.selectedTagId,
+    selectedTagIds: state.selectedTagIds,
     searchQuery: state.searchQuery,
     dateFilter,
     sortBy: sortPref.by,
@@ -1347,7 +1347,7 @@ export default function NoteList() {
   }), [
     state.viewMode,
     state.selectedNotebookId,
-    state.selectedTagId,
+    state.selectedTagIds,
     state.searchQuery,
     dateFilter,
     sortPref.by,
@@ -1401,10 +1401,15 @@ export default function NoteList() {
           updatedAt: r.updatedAt,
           matchedField: r.matchedField,
         }));
-      } else if (state.viewMode === "tag" && state.selectedTagId) {
+      } else if (state.viewMode === "tag" && state.selectedTagIds.length > 0) {
+        // TAG-FILTER-MULTI-01: 多标签联合筛选
         const params: Record<string, string> = { ...sortParams };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
-        notes = await api.getNotesWithTag(state.selectedTagId, params);
+        if (state.selectedTagIds.length === 1) {
+          notes = await api.getNotesWithTag(state.selectedTagIds[0], params);
+        } else {
+          notes = await api.getNotesWithTags(state.selectedTagIds, params);
+        }
       } else {
         const params: Record<string, string> = { ...sortParams };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
@@ -1417,7 +1422,7 @@ export default function NoteList() {
         actions.setLoading(false);
       }
     }
-  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagId, dateFilter, sortPref.by, sortPref.dir]);
+  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir]);
 
   useEffect(() => {
     fetchNotes().catch(console.error);
@@ -1447,8 +1452,12 @@ export default function NoteList() {
       if (state.viewMode === "favorites") {
         return api.getNotes({ isFavorite: "1", ...sortParams });
       }
-      if (state.viewMode === "tag" && state.selectedTagId) {
-        return api.getNotesWithTag(state.selectedTagId, sortParams);
+      // TAG-FILTER-MULTI-01: 多标签联合筛选
+      if (state.viewMode === "tag" && state.selectedTagIds.length > 0) {
+        if (state.selectedTagIds.length === 1) {
+          return api.getNotesWithTag(state.selectedTagIds[0], sortParams);
+        }
+        return api.getNotesWithTags(state.selectedTagIds, sortParams);
       }
       // 默认 / "所有笔记"
       return api.getNotes(sortParams);
@@ -1461,7 +1470,7 @@ export default function NoteList() {
     showCalendar,
     state.viewMode,
     state.selectedNotebookId,
-    state.selectedTagId,
+    state.selectedTagIds,
     sortPref.by,
     sortPref.dir,
     state.notesRefreshToken,
@@ -1583,7 +1592,7 @@ export default function NoteList() {
   useEffect(() => {
     setSelectedIds(new Set());
     setLastClickedId(null);
-  }, [state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagId, dateFilter]);
+  }, [state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter]);
 
   // 切换笔记本/视图/搜索/标签/日期/排序 时把非虚拟列表的 ScrollArea 滚动复位到顶。
   // 否则 Radix ScrollArea 会保留前一组列表的 scrollTop，新列表立刻渲染时整组卡片
@@ -1597,7 +1606,7 @@ export default function NoteList() {
     state.viewMode,
     state.selectedNotebookId,
     state.searchQuery,
-    state.selectedTagId,
+    state.selectedTagIds,
     dateFilter,
     sortPref.by,
     sortPref.dir,
@@ -2754,7 +2763,12 @@ export default function NoteList() {
     favorites: t('noteList.favorite'),
     trash: t('sidebar.trash'),
     search: t('noteList.search', { query: state.searchQuery }),
-    tag: `# ${state.tags.find((tg) => tg.id === state.selectedTagId)?.name || t('noteList.tag')}`,
+    // TAG-FILTER-MULTI-01: 多标签标题
+    tag: state.selectedTagIds.length === 0
+      ? t('noteList.tag')
+      : state.selectedTagIds.length === 1
+        ? `# ${state.tags.find((tg) => tg.id === state.selectedTagIds[0])?.name || t('noteList.tag')}`
+        : state.selectedTagIds.map((id) => `#${state.tags.find((tg) => tg.id === id)?.name || "?"}`).join(" + "),
   };
 
   return (
@@ -2951,6 +2965,54 @@ export default function NoteList() {
             onClear={() => setDateFilter(null)}
             dateCounts={dateCounts}
           />
+        </div>
+      )}
+
+      {/* TAG-FILTER-MULTI-01: 已选标签 chip 区域 */}
+      {state.selectedTagIds.length > 0 && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50 overflow-x-auto">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            {state.selectedTagIds.map((tagId) => {
+              const tag = state.tags.find((t) => t.id === tagId);
+              if (!tag) return null;
+              return (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-accent-primary/10 text-accent-primary shrink-0 max-w-[120px]"
+                  title={tag.name}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  <span className="truncate">{tag.name}</span>
+                  <button
+                    onClick={() => {
+                      actions.toggleSelectedTag(tag.id);
+                      // 如果移除后没有标签了，回到全部笔记
+                      if (state.selectedTagIds.length <= 1) {
+                        actions.setViewMode("all");
+                      }
+                    }}
+                    className="ml-0.5 hover:text-accent-primary/70 transition-colors shrink-0"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+          {state.selectedTagIds.length > 1 && (
+            <button
+              onClick={() => {
+                actions.clearSelectedTags();
+                actions.setViewMode("all");
+              }}
+              className="text-[10px] text-tx-tertiary hover:text-accent-primary transition-colors shrink-0"
+            >
+              {t('noteList.clearFilter') || "清空"}
+            </button>
+          )}
         </div>
       )}
 
@@ -3214,9 +3276,15 @@ export default function NoteList() {
               <div className="w-16 h-16 rounded-2xl bg-accent-primary/10 flex items-center justify-center mb-4">
                 <FileText size={28} className="text-accent-primary/40" />
               </div>
-              <p className="text-sm font-medium text-tx-secondary mb-1">{t('common.noNotes')}</p>
+              <p className="text-sm font-medium text-tx-secondary mb-1">
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
+                  ? (t('noteList.noNotesForTagCombo') || "当前标签组合下没有笔记")
+                  : t('common.noNotes')}
+              </p>
               <p className="text-xs text-tx-tertiary mb-5 max-w-[200px] leading-relaxed">
-                {t('common.noNotesHint')}
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
+                  ? (t('noteList.noNotesForTagComboHint') || "尝试减少标签筛选条件")
+                  : t('common.noNotesHint')}
               </p>
               <button
                 onClick={() => handleCreateNote("normal")}

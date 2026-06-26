@@ -1160,6 +1160,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     const onWorkspaceChange = () => {
       // 清空选中状态避免跨空间残留
       actions.setSelectedNotebook(null);
+      actions.clearSelectedTags(); // TAG-FILTER-MULTI-01
       actions.setViewMode("all");
       setNotesByNotebookId(new Map());
       setLoadingNotebookIds(new Set());
@@ -2325,7 +2326,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                   <p className="text-[10px] text-tx-tertiary px-2 py-1">{t('sidebar.noTags')}</p>
                 ) : (
                   state.tags.map((tag) => {
-                    const isActive = state.viewMode === "tag" && state.selectedTagId === tag.id;
+                    const isActive = state.selectedTagIds.includes(tag.id);
                     return (
                       <div
                         key={tag.id}
@@ -2341,9 +2342,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                             tagLongPressFired.current = false;
                             return;
                           }
-                          actions.setSelectedTag(tag.id);
+                          // TAG-FILTER-MULTI-01: toggle 标签（多选 AND 筛选）
+                          const isCurrentlyActive = state.selectedTagIds.includes(tag.id);
+                          actions.toggleSelectedTag(tag.id);
                           actions.setSelectedNotebook(null);
-                          actions.setViewMode("tag");
+                          // 计算 toggle 后是否还有选中标签
+                          const willHaveTags = isCurrentlyActive
+                            ? state.selectedTagIds.length > 1  // 取消后还剩别的
+                            : true;                             // 新增，一定有
+                          actions.setViewMode(willHaveTags ? "tag" : "all");
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -2592,9 +2599,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                       await api.deleteTag(target.id);
                       const allTags = await api.getTags();
                       actions.setTags(allTags);
-                      if (state.selectedTagId === target.id) {
-                        actions.setSelectedTag(null);
-                        actions.setViewMode("all");
+                      // TAG-FILTER-MULTI-01: 从多选中移除被删标签
+                      if (state.selectedTagIds.includes(target.id)) {
+                        const remaining = state.selectedTagIds.filter((id) => id !== target.id);
+                        if (remaining.length > 0) {
+                          actions.setSelectedTags(remaining);
+                        } else {
+                          actions.clearSelectedTags();
+                          actions.setViewMode("all");
+                        }
                       }
                     } catch (err) {
                       console.error("Failed to delete tag:", err);

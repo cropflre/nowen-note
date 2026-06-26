@@ -36,6 +36,15 @@ app.get("/", (c) => {
   const isTrashed = c.req.query("isTrashed");
   const search = c.req.query("search");
   const tagId = c.req.query("tagId");
+  // TAG-FILTER-MULTI-01: 支持多标签联合筛选
+  // 优先使用 tagIds（逗号分隔），回退到单个 tagId
+  const tagIdsRaw = c.req.query("tagIds");
+  const tagIds: string[] = tagIdsRaw
+    ? tagIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : tagId
+    ? [tagId]
+    : [];
+  const tagMode = c.req.query("tagMode") || "and"; // "and"（默认）或 "or"
   const dateFrom = c.req.query("dateFrom"); // YYYY-MM-DD
   const dateTo = c.req.query("dateTo");     // YYYY-MM-DD
   // 排序：sortBy ∈ {manual, updatedAt, createdAt, title}；sortOrder ∈ {asc, desc}
@@ -72,7 +81,7 @@ app.get("/", (c) => {
     WHERE 1=1`;
   const params: any[] = [userId];
   const useNotebookScope =
-    Boolean(notebookId) && !search && isTrashed !== "1" && isFavorite !== "1" && !tagId;
+    Boolean(notebookId) && !search && isTrashed !== "1" && isFavorite !== "1" && tagIds.length === 0;
 
   // Scope 过滤
   if (useNotebookScope && notebookId) {
@@ -108,9 +117,25 @@ app.get("/", (c) => {
     query += ` AND notes.isTrashed = 0
       AND EXISTS(SELECT 1 FROM favorites f2 WHERE f2.noteId = notes.id AND f2.userId = ?)`;
     params.push(userId);
-  } else if (tagId) {
-    query += " AND notes.isTrashed = 0 AND notes.id IN (SELECT noteId FROM note_tags WHERE tagId = ?)";
-    params.push(tagId);
+  } else if (tagIds.length > 0) {
+    query += " AND notes.isTrashed = 0";
+    if (tagMode === "and" && tagIds.length > 1) {
+      // AND 逻辑：笔记必须同时拥有所有已选标签
+      // 使用 GROUP BY + HAVING COUNT 确保每个 tagId 都命中
+      const placeholders = tagIds.map(() => "?").join(",");
+      query += ` AND notes.id IN (
+        SELECT noteId FROM note_tags
+        WHERE tagId IN (${placeholders})
+        GROUP BY noteId
+        HAVING COUNT(DISTINCT tagId) >= ?
+      )`;
+      params.push(...tagIds, tagIds.length);
+    } else {
+      // OR 逻辑 或 单标签：只要命中任一标签即可
+      const placeholders = tagIds.map(() => "?").join(",");
+      query += ` AND notes.id IN (SELECT noteId FROM note_tags WHERE tagId IN (${placeholders}))`;
+      params.push(...tagIds);
+    }
   } else if (notebookId) {
     // 递归收集 notebookId 自身 + 全部后代笔记本，使笔记列表能展示子笔记本下的笔记
     // 用 SQLite 的递归 CTE：从给定 id 出发沿 parentId 反向向下展开

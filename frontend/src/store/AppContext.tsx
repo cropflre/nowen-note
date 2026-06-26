@@ -11,7 +11,8 @@ interface AppState {
   activeNote: Note | null;
   tags: Tag[];
   selectedNotebookId: string | null;
-  selectedTagId: string | null;
+  selectedTagId: string | null;          // 已废弃，保留兼容；优先使用 selectedTagIds
+  selectedTagIds: string[];              // TAG-FILTER-MULTI-01: 多标签联合筛选
   viewMode: ViewMode;
   searchQuery: string;
   sidebarCollapsed: boolean;
@@ -40,6 +41,9 @@ type Action =
   | { type: "SET_TAGS"; payload: Tag[] }
   | { type: "SET_SELECTED_NOTEBOOK"; payload: string | null }
   | { type: "SET_SELECTED_TAG"; payload: string | null }
+  | { type: "SET_SELECTED_TAGS"; payload: string[] }        // TAG-FILTER-MULTI-01
+  | { type: "TOGGLE_SELECTED_TAG"; payload: string }        // TAG-FILTER-MULTI-01
+  | { type: "CLEAR_SELECTED_TAGS" }                         // TAG-FILTER-MULTI-01
   | { type: "SET_VIEW_MODE"; payload: ViewMode }
   | { type: "SET_SEARCH_QUERY"; payload: string }
   | { type: "TOGGLE_SIDEBAR" }
@@ -104,6 +108,7 @@ const initialState: AppState = {
   tags: [],
   selectedNotebookId: null,
   selectedTagId: null,
+  selectedTagIds: [],
   viewMode: "all",
   searchQuery: "",
   sidebarCollapsed: false,
@@ -134,8 +139,41 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, tags: action.payload };
     case "SET_SELECTED_NOTEBOOK":
       return { ...state, selectedNotebookId: action.payload };
-    case "SET_SELECTED_TAG":
-      return { ...state, selectedTagId: action.payload };
+    case "SET_SELECTED_TAG": {
+      // 兼容旧调用：同步更新 selectedTagId + selectedTagIds
+      const id = action.payload;
+      return {
+        ...state,
+        selectedTagId: id,
+        selectedTagIds: id ? [id] : [],
+      };
+    }
+    case "SET_SELECTED_TAGS": {
+      const ids = action.payload;
+      return {
+        ...state,
+        selectedTagIds: ids,
+        selectedTagId: ids.length === 1 ? ids[0] : null,
+      };
+    }
+    case "TOGGLE_SELECTED_TAG": {
+      const tagId = action.payload;
+      const exists = state.selectedTagIds.includes(tagId);
+      const next = exists
+        ? state.selectedTagIds.filter((id) => id !== tagId)
+        : [...state.selectedTagIds, tagId];
+      return {
+        ...state,
+        selectedTagIds: next,
+        selectedTagId: next.length === 1 ? next[0] : null,
+      };
+    }
+    case "CLEAR_SELECTED_TAGS":
+      return {
+        ...state,
+        selectedTagIds: [],
+        selectedTagId: null,
+      };
     case "SET_VIEW_MODE":
       return { ...state, viewMode: action.payload };
     case "SET_SEARCH_QUERY":
@@ -230,6 +268,9 @@ export function useAppActions() {
     setTags: (v: Tag[]) => dispatch({ type: "SET_TAGS", payload: v }),
     setSelectedNotebook: (v: string | null) => dispatch({ type: "SET_SELECTED_NOTEBOOK", payload: v }),
     setSelectedTag: (v: string | null) => dispatch({ type: "SET_SELECTED_TAG", payload: v }),
+    setSelectedTags: (v: string[]) => dispatch({ type: "SET_SELECTED_TAGS", payload: v }),
+    toggleSelectedTag: (v: string) => dispatch({ type: "TOGGLE_SELECTED_TAG", payload: v }),
+    clearSelectedTags: () => dispatch({ type: "CLEAR_SELECTED_TAGS" }),
     setViewMode: (v: ViewMode) => dispatch({ type: "SET_VIEW_MODE", payload: v }),
     setSearchQuery: (v: string) => dispatch({ type: "SET_SEARCH_QUERY", payload: v }),
     toggleSidebar: () => dispatch({ type: "TOGGLE_SIDEBAR" }),

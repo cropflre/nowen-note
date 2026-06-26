@@ -1124,6 +1124,19 @@ export const api = {
     const qs = "?" + new URLSearchParams(finalParams).toString();
     return request<NoteListItem[]>(`/notes${qs}`);
   },
+  // TAG-FILTER-MULTI-01: 多标签联合筛选
+  getNotesWithTags: (tagIds: string[], params?: Record<string, string>) => {
+    const finalParams: Record<string, string> = {
+      tagIds: tagIds.join(","),
+      tagMode: "and",
+      ...(params || {}),
+    };
+    if (!("workspaceId" in finalParams)) {
+      finalParams.workspaceId = getCurrentWorkspace();
+    }
+    const qs = "?" + new URLSearchParams(finalParams).toString();
+    return request<NoteListItem[]>(`/notes${qs}`);
+  },
 
   // Search
   search: (q: string) => {
