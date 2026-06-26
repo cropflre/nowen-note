@@ -412,12 +412,13 @@ export interface Task {
   activeReminderCount?: number;
   /** 创建者用户名；仅 list/single read 时由后端 LEFT JOIN 返回。 */
   creatorName?: string | null;
-  repeatRule?: "none" | "daily" | "weekly" | "monthly" | "yearly";
+  repeatRule?: "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
   repeatInterval?: number;
   repeatEndDate?: string | null;
   repeatGroupId?: string | null;
   repeatGeneratedFromId?: string | null;
   repeatNextGeneratedId?: string | null;
+  repeatRuleJson?: string | null;
 }
 
 export interface TaskStats {

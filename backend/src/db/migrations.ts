@@ -1643,6 +1643,19 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 35,
+    name: "task-repeat-rule-json",
+    up: (db) => {
+      // TASK-RECURRENCE-CUSTOM-01: 扩展循环规则字段
+      const colNames = new Set(
+        db.prepare("PRAGMA table_info(tasks)").all().map((r: any) => r.name),
+      );
+      if (!colNames.has("repeatRuleJson")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN repeatRuleJson TEXT");
+      }
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

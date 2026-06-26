@@ -77,9 +77,17 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [dueDate, setDueDate] = useState(task.dueDate || "");
   const [dueAt, setDueAt] = useState(getDueTimeValue(task.dueAt));
   const [startDate, setStartDate] = useState(task.startDate || "");
-  const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly">(task.repeatRule || "none");
+  const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly" | "custom">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
   const [repeatEndDate, setRepeatEndDate] = useState(task.repeatEndDate || "");
+  // TASK-RECURRENCE-CUSTOM-01: 自定义循环规则
+  const existingRuleJson = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
+  const [customFrequency, setCustomFrequency] = useState<string>(existingRuleJson.frequency || "day");
+  const [customInterval, setCustomInterval] = useState<number>(existingRuleJson.interval || 2);
+  const [customWeekdays, setCustomWeekdays] = useState<number[]>(existingRuleJson.weekdays || []);
+  const [customMonthDay, setCustomMonthDay] = useState<number>(existingRuleJson.monthDay || new Date().getDate());
+  const [customYearMonth, setCustomYearMonth] = useState<number>(existingRuleJson.yearMonth || (new Date().getMonth() + 1));
+  const [customYearDay, setCustomYearDay] = useState<number>(existingRuleJson.yearDay || new Date().getDate());
   const [uploadingTitleAttachment, setUploadingTitleAttachment] = useState(false);
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
@@ -108,6 +116,14 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setRepeatRule(task.repeatRule || "none");
     setRepeatInterval(task.repeatInterval || 1);
     setRepeatEndDate(task.repeatEndDate || "");
+    // TASK-RECURRENCE-CUSTOM-01
+    const rj = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
+    setCustomFrequency(rj.frequency || "day");
+    setCustomInterval(rj.interval || 2);
+    setCustomWeekdays(rj.weekdays || []);
+    setCustomMonthDay(rj.monthDay || new Date().getDate());
+    setCustomYearMonth(rj.yearMonth || (new Date().getMonth() + 1));
+    setCustomYearDay(rj.yearDay || new Date().getDate());
   }, [task.id]);
 
   // load reminders for this task
@@ -552,12 +568,15 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           <select
             value={repeatRule}
             onChange={(e) => {
-              const rule = e.target.value as "none" | "daily" | "weekly" | "monthly" | "yearly";
+              const rule = e.target.value as "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
               setRepeatRule(rule);
               if (rule === "none") {
-                onUpdate(task.id, { repeatRule: "none", repeatInterval: 1, repeatEndDate: null });
+                onUpdate(task.id, { repeatRule: "none", repeatInterval: 1, repeatEndDate: null, repeatRuleJson: null });
+              } else if (rule === "custom") {
+                const ruleObj = { frequency: customFrequency, interval: customInterval, weekdays: customFrequency === "week" ? customWeekdays : undefined, monthDay: customFrequency === "month" ? customMonthDay : undefined, yearMonth: customFrequency === "year" ? customYearMonth : undefined, yearDay: customFrequency === "year" ? customYearDay : undefined };
+                onUpdate(task.id, { repeatRule: "custom", repeatRuleJson: JSON.stringify(ruleObj), repeatEndDate: repeatEndDate || null });
               } else {
-                onUpdate(task.id, { repeatRule: rule, repeatInterval, repeatEndDate: repeatEndDate || null });
+                onUpdate(task.id, { repeatRule: rule, repeatInterval, repeatEndDate: repeatEndDate || null, repeatRuleJson: null });
               }
             }}
             disabled={!hasDeadline}
@@ -568,11 +587,13 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
             <option value="weekly">{t("tasks.repeat.weekly")}</option>
             <option value="monthly">{t("tasks.repeat.monthly")}</option>
             <option value="yearly">{t("tasks.repeat.yearly")}</option>
+            <option value="custom">{t("tasks.repeat.custom", { defaultValue: "自定义" })}</option>
           </select>
           {!hasDeadline && repeatRule === "none" && (
             <p className="text-[10px] text-tx-tertiary">{t("tasks.repeat.needDueDate")}</p>
           )}
-          {repeatRule !== "none" && (
+          {/* 简单循环：间隔 */}
+          {repeatRule !== "none" && repeatRule !== "custom" && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-tx-secondary">{t("tasks.repeat.every")}</span>
               <input
@@ -592,6 +613,87 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                  repeatRule === "monthly" ? t("tasks.repeat.months") :
                  t("tasks.repeat.years")}
               </span>
+            </div>
+          )}
+          {/* TASK-RECURRENCE-CUSTOM-01: 自定义循环表单 */}
+          {repeatRule === "custom" && (
+            <div className="space-y-2 p-2 rounded-lg bg-app-bg/50 border border-app-border/50">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-tx-secondary">{t("tasks.repeat.every", { defaultValue: "每" })}</span>
+                <input type="number" min={1} value={customInterval}
+                  onChange={(e) => {
+                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                    setCustomInterval(val);
+                    onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: customFrequency, interval: val, weekdays: customFrequency === "week" ? customWeekdays : undefined, monthDay: customFrequency === "month" ? customMonthDay : undefined, yearMonth: customFrequency === "year" ? customYearMonth : undefined, yearDay: customFrequency === "year" ? customYearDay : undefined }) });
+                  }}
+                  className="w-16 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
+                <select value={customFrequency}
+                  onChange={(e) => {
+                    const f = e.target.value;
+                    setCustomFrequency(f);
+                    onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: f, interval: customInterval, weekdays: f === "week" ? customWeekdays : undefined, monthDay: f === "month" ? customMonthDay : undefined, yearMonth: f === "year" ? customYearMonth : undefined, yearDay: f === "year" ? customYearDay : undefined }) });
+                  }}
+                  className="px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary">
+                  <option value="day">{t("tasks.repeat.days", { defaultValue: "天" })}</option>
+                  <option value="week">{t("tasks.repeat.weeks", { defaultValue: "周" })}</option>
+                  <option value="month">{t("tasks.repeat.months", { defaultValue: "月" })}</option>
+                  <option value="year">{t("tasks.repeat.years", { defaultValue: "年" })}</option>
+                </select>
+              </div>
+              {/* 周几选择 */}
+              {customFrequency === "week" && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[11px] text-tx-tertiary mr-1">{t("tasks.repeat.onDays", { defaultValue: "重复于" })}:</span>
+                  {["日", "一", "二", "三", "四", "五", "六"].map((label, i) => (
+                    <button key={i} type="button"
+                      onClick={() => {
+                        const next = customWeekdays.includes(i) ? customWeekdays.filter((d) => d !== i) : [...customWeekdays, i].sort();
+                        setCustomWeekdays(next);
+                        onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: "week", interval: customInterval, weekdays: next.length > 0 ? next : undefined }) });
+                      }}
+                      className={cn("w-7 h-7 rounded-full text-[11px] font-medium transition-colors",
+                        customWeekdays.includes(i) ? "bg-accent-primary text-white" : "bg-app-surface border border-app-border text-tx-secondary hover:bg-app-hover")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* 月日选择 */}
+              {customFrequency === "month" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-tx-secondary">{t("tasks.repeat.monthlyDay", { defaultValue: "每月第" })}</span>
+                  <input type="number" min={1} max={31} value={customMonthDay}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                      setCustomMonthDay(val);
+                      onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: "month", interval: customInterval, monthDay: val }) });
+                    }}
+                    className="w-16 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
+                  <span className="text-xs text-tx-secondary">{t("tasks.repeat.day", { defaultValue: "日" })}</span>
+                </div>
+              )}
+              {/* 年月日选择 */}
+              {customFrequency === "year" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-tx-secondary">{t("tasks.repeat.yearlyDate", { defaultValue: "每年" })}</span>
+                  <input type="number" min={1} max={12} value={customYearMonth}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(12, parseInt(e.target.value) || 1));
+                      setCustomYearMonth(val);
+                      onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: "year", interval: customInterval, yearMonth: val, yearDay: customYearDay }) });
+                    }}
+                    className="w-14 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
+                  <span className="text-xs text-tx-secondary">{t("tasks.repeat.month", { defaultValue: "月" })}</span>
+                  <input type="number" min={1} max={31} value={customYearDay}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                      setCustomYearDay(val);
+                      onUpdate(task.id, { repeatRuleJson: JSON.stringify({ frequency: "year", interval: customInterval, yearMonth: customYearMonth, yearDay: val }) });
+                    }}
+                    className="w-14 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
+                  <span className="text-xs text-tx-secondary">{t("tasks.repeat.day", { defaultValue: "日" })}</span>
+                </div>
+              )}
             </div>
           )}
           {repeatRule !== "none" && (

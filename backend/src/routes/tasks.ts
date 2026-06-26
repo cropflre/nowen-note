@@ -281,12 +281,21 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const repeatGroupId = body.repeatGroupId ?? null;
   const repeatGeneratedFromId = body.repeatGeneratedFromId ?? null;
 
-  const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly"];
+  const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
   if (!VALID_REPEAT.includes(repeatRule)) {
     return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
   }
-  if (repeatRule !== "none" && repeatInterval < 1) {
+  if (repeatRule !== "none" && repeatRule !== "custom" && repeatInterval < 1) {
     return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
+  }
+  // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
+  let repeatRuleJson: string | null = null;
+  if (repeatRule === "custom") {
+    const rj = body.repeatRuleJson;
+    if (!rj || typeof rj !== "object" || !rj.frequency || !rj.interval) {
+      return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
+    }
+    repeatRuleJson = JSON.stringify(rj);
   }
   if (repeatRule !== "none" && !dueDate && !dueAt) {
     return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
@@ -341,9 +350,9 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const effectiveIsCompleted = status === "done" ? 1 : 0;
 
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId);
+    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson);
 
   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   return c.json(task, 201);
@@ -384,12 +393,26 @@ tasks.put("/:id", (c) => {
     const repeatInterval = body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeatInterval ?? 1);
     const repeatEndDate = body.repeatEndDate !== undefined ? body.repeatEndDate : (existing.repeatEndDate ?? null);
 
-    const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly"];
+    const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
     if (!VALID_REPEAT.includes(repeatRule)) {
       return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
     }
-    if (repeatRule !== "none" && (repeatInterval ?? 0) < 1) {
+    if (repeatRule !== "none" && repeatRule !== "custom" && (repeatInterval ?? 0) < 1) {
       return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
+    }
+    // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
+    let repeatRuleJson: string | null = existing.repeatRuleJson || null;
+    if (body.repeatRuleJson !== undefined) {
+      if (body.repeatRuleJson === null) {
+        repeatRuleJson = null;
+      } else if (typeof body.repeatRuleJson === "object" && body.repeatRuleJson.frequency && body.repeatRuleJson.interval) {
+        repeatRuleJson = JSON.stringify(body.repeatRuleJson);
+      } else {
+        return c.json({ error: "Invalid repeatRuleJson", code: "INVALID_REPEAT_RULE" }, 400);
+      }
+    }
+    if (repeatRule === "custom" && !repeatRuleJson) {
+      return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
     }
     if (repeatRule !== "none" && !dueDate && !dueAt) {
       return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
@@ -470,9 +493,9 @@ tasks.put("/:id", (c) => {
 
     db.prepare(`
       UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
-        description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, updatedAt = datetime('now')
+        description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatRuleJson = ?, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, id);
+    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatRuleJson, id);
 
     let generatedTask = null;
     // Generate next repeated task when marking as done via PUT
@@ -487,29 +510,99 @@ tasks.put("/:id", (c) => {
 
 // 切换完成状态（快捷操作）
 // Y3: 切换完成状态视作"编辑"——走 canManageResource。
+/** TASK-RECURRENCE-CUSTOM-01: 从自定义规则计算下一次日期 */
+function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
+  const freq = rule.frequency;
+  const interval = Math.max(1, Number(rule.interval) || 1);
+
+  if (freq === "day") {
+    const next = new Date(baseDate);
+    next.setDate(next.getDate() + interval);
+    return next;
+  }
+
+  if (freq === "week") {
+    const weekdays: number[] = rule.weekdays || []; // 0=Sun, 1=Mon, ..., 6=Sat
+    if (weekdays.length === 0) {
+      // 无指定星期 → 简单加 N 周
+      const next = new Date(baseDate);
+      next.setDate(next.getDate() + 7 * interval);
+      return next;
+    }
+    // 找下一个匹配的星期几
+    const sorted = [...weekdays].sort((a, b) => a - b);
+    const curDay = baseDate.getDay();
+    // 先找本周内下一个
+    for (const d of sorted) {
+      if (d > curDay) {
+        const next = new Date(baseDate);
+        next.setDate(next.getDate() + (d - curDay));
+        return next;
+      }
+    }
+    // 没找到 → 下一周的第 一个
+    const next = new Date(baseDate);
+    next.setDate(next.getDate() + (7 * interval) - curDay + sorted[0]);
+    return next;
+  }
+
+  if (freq === "month") {
+    const monthDay = Number(rule.monthDay) || baseDate.getDate();
+    const next = new Date(baseDate);
+    next.setMonth(next.getMonth() + interval);
+    // 目标日期不存在时落到月末
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(monthDay, lastDay));
+    return next;
+  }
+
+  if (freq === "year") {
+    const yearMonth = Number(rule.yearMonth) || (baseDate.getMonth() + 1);
+    const yearDay = Number(rule.yearDay) || baseDate.getDate();
+    const next = new Date(baseDate);
+    next.setFullYear(next.getFullYear() + interval);
+    next.setMonth(yearMonth - 1);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(yearDay, lastDay));
+    return next;
+  }
+
+  return null;
+}
+
 /** Generate next repeated task. Returns the new task or null. */
 function generateNextRepeatedTask(db: any, task: any): any {
   if (!task.repeatRule || task.repeatRule === "none" || task.repeatNextGeneratedId) return null;
   const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
   if (!baseDateStr) return null;
 
-  const interval = task.repeatInterval || 1;
   const parts = baseDateStr.split("-").map(Number);
   const base = new Date(parts[0], parts[1] - 1, parts[2]);
-  let next: Date;
-  switch (task.repeatRule) {
-    case "daily": next = new Date(base); next.setDate(next.getDate() + interval); break;
-    case "weekly": next = new Date(base); next.setDate(next.getDate() + 7 * interval); break;
-    case "monthly":
-      next = new Date(base); next.setMonth(next.getMonth() + interval);
-      if (next.getDate() !== base.getDate()) next.setDate(0);
-      break;
-    case "yearly":
-      next = new Date(base); next.setFullYear(next.getFullYear() + interval);
-      if (next.getDate() !== base.getDate()) next.setDate(0);
-      break;
-    default: return null;
+  let next: Date | null = null;
+
+  if (task.repeatRule === "custom") {
+    let rule: any = null;
+    try { rule = JSON.parse(task.repeatRuleJson || "{}"); } catch {}
+    if (!rule || !rule.frequency) return null;
+    next = nextDateFromCustomRule(base, rule);
+  } else {
+    const interval = task.repeatInterval || 1;
+    switch (task.repeatRule) {
+      case "daily": next = new Date(base); next.setDate(next.getDate() + interval); break;
+      case "weekly": next = new Date(base); next.setDate(next.getDate() + 7 * interval); break;
+      case "monthly":
+        next = new Date(base); next.setMonth(next.getMonth() + interval);
+        if (next.getDate() !== base.getDate()) next.setDate(0);
+        break;
+      case "yearly":
+        next = new Date(base); next.setFullYear(next.getFullYear() + interval);
+        if (next.getDate() !== base.getDate()) next.setDate(0);
+        break;
+      default: return null;
+    }
   }
+
+  if (!next) return null;
 
   if (task.repeatEndDate) {
     const endParts = task.repeatEndDate.split("-").map(Number);
@@ -531,9 +624,9 @@ function generateNextRepeatedTask(db: any, task: any): any {
   const newId = crypto.randomUUID();
   const groupId = task.repeatGroupId || task.id;
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
-    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(newId, task.userId, task.workspaceId, task.title, task.description || "", task.priority, nextDueDate, nextDueAt, null, task.noteId, task.parentId, task.projectId, 'todo', task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id);
+    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson)
+    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(newId, task.userId, task.workspaceId, task.title, task.description || "", task.priority, nextDueDate, nextDueAt, null, task.noteId, task.parentId, task.projectId, 'todo', task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id, task.repeatRuleJson);
 
   db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run(newId, task.id);
 

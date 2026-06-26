@@ -1,12 +1,65 @@
 import type { Task } from "@/types";
 
-export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly";
+export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
 
-export const VALID_REPEAT_RULES: RepeatRule[] = ["none", "daily", "weekly", "monthly", "yearly"];
+export const VALID_REPEAT_RULES: RepeatRule[] = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
 
 /** Check if a task has an active repeat rule */
 export function isRepeatingTask(task: Task): boolean {
-  return !!task.repeatRule && task.repeatRule !== "none" && (task.repeatInterval ?? 0) > 0;
+  return !!task.repeatRule && task.repeatRule !== "none" && (
+    task.repeatRule === "custom" || (task.repeatInterval ?? 0) > 0
+  );
+}
+
+/** TASK-RECURRENCE-CUSTOM-01: 从自定义规则计算下一次日期 */
+function nextDateFromCustomRule(base: Date, rule: any): Date | null {
+  const freq = rule.frequency;
+  const interval = Math.max(1, Number(rule.interval) || 1);
+
+  if (freq === "day") {
+    const next = new Date(base);
+    next.setDate(next.getDate() + interval);
+    return next;
+  }
+  if (freq === "week") {
+    const weekdays: number[] = rule.weekdays || [];
+    if (weekdays.length === 0) {
+      const next = new Date(base);
+      next.setDate(next.getDate() + 7 * interval);
+      return next;
+    }
+    const sorted = [...weekdays].sort((a, b) => a - b);
+    const curDay = base.getDay();
+    for (const d of sorted) {
+      if (d > curDay) {
+        const next = new Date(base);
+        next.setDate(next.getDate() + (d - curDay));
+        return next;
+      }
+    }
+    const next = new Date(base);
+    next.setDate(next.getDate() + (7 * interval) - curDay + sorted[0]);
+    return next;
+  }
+  if (freq === "month") {
+    const monthDay = Number(rule.monthDay) || base.getDate();
+    const next = new Date(base);
+    next.setMonth(next.getMonth() + interval);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(monthDay, lastDay));
+    return next;
+  }
+  if (freq === "year") {
+    const yearMonth = Number(rule.yearMonth) || (base.getMonth() + 1);
+    const yearDay = Number(rule.yearDay) || base.getDate();
+    const next = new Date(base);
+    next.setFullYear(next.getFullYear() + interval);
+    next.setMonth(yearMonth - 1);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(yearDay, lastDay));
+    return next;
+  }
+  return null;
 }
 
 /**
@@ -19,42 +72,43 @@ export function getNextRepeatDate(task: Task): string | null {
   const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
   if (!baseDateStr) return null;
 
-  const interval = task.repeatInterval ?? 1;
   const parts = baseDateStr.split("-").map(Number);
   const base = new Date(parts[0], parts[1] - 1, parts[2]);
+  let next: Date | null = null;
 
-  let next: Date;
-
-  switch (task.repeatRule) {
-    case "daily":
-      next = new Date(base);
-      next.setDate(next.getDate() + interval);
-      break;
-    case "weekly":
-      next = new Date(base);
-      next.setDate(next.getDate() + 7 * interval);
-      break;
-    case "monthly":
-      next = new Date(base);
-      next.setMonth(next.getMonth() + interval);
-      // Handle month-end overflow: e.g. Jan 31 + 1 month -> Feb 28
-      if (next.getDate() !== base.getDate()) {
-        next.setDate(0); // last day of previous month
-      }
-      break;
-    case "yearly":
-      next = new Date(base);
-      next.setFullYear(next.getFullYear() + interval);
-      // Handle Feb 29 -> Feb 28 in non-leap year
-      if (next.getDate() !== base.getDate()) {
-        next.setDate(0);
-      }
-      break;
-    default:
-      return null;
+  if (task.repeatRule === "custom") {
+    let rule: any = null;
+    try { rule = JSON.parse(task.repeatRuleJson || "{}"); } catch {}
+    if (!rule || !rule.frequency) return null;
+    next = nextDateFromCustomRule(base, rule);
+  } else {
+    const interval = task.repeatInterval ?? 1;
+    switch (task.repeatRule) {
+      case "daily":
+        next = new Date(base);
+        next.setDate(next.getDate() + interval);
+        break;
+      case "weekly":
+        next = new Date(base);
+        next.setDate(next.getDate() + 7 * interval);
+        break;
+      case "monthly":
+        next = new Date(base);
+        next.setMonth(next.getMonth() + interval);
+        if (next.getDate() !== base.getDate()) next.setDate(0);
+        break;
+      case "yearly":
+        next = new Date(base);
+        next.setFullYear(next.getFullYear() + interval);
+        if (next.getDate() !== base.getDate()) next.setDate(0);
+        break;
+      default:
+        return null;
+    }
   }
 
-  // Check repeatEndDate
+  if (!next) return null;
+
   if (task.repeatEndDate) {
     const endParts = task.repeatEndDate.split("-").map(Number);
     const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
@@ -87,6 +141,7 @@ export function buildNextRepeatedTaskPatch(task: Task): Partial<Task> | null {
     repeatEndDate: task.repeatEndDate ?? null,
     repeatGroupId: task.repeatGroupId ?? task.id,
     repeatGeneratedFromId: task.id,
+    repeatRuleJson: task.repeatRuleJson ?? null,
   };
 
   if (task.dueAt) {
