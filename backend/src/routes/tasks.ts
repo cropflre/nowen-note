@@ -289,12 +289,17 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
   }
   // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
+  // TASK-RECURRENCE-CUSTOM-01-RV1: 增强校验
   let repeatRuleJson: string | null = null;
   if (repeatRule === "custom") {
     const rj = body.repeatRuleJson;
     if (!rj || typeof rj !== "object" || !rj.frequency || !rj.interval) {
       return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
     }
+    const vErr = validateRepeatRuleJson(rj);
+    if (vErr) return c.json({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
+    // 去重 weekdays
+    if (rj.weekdays) rj.weekdays = [...new Set(rj.weekdays)].sort((a: number, b: number) => a - b);
     repeatRuleJson = JSON.stringify(rj);
   }
   if (repeatRule !== "none" && !dueDate && !dueAt) {
@@ -401,12 +406,17 @@ tasks.put("/:id", (c) => {
       return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
     }
     // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
+    // TASK-RECURRENCE-CUSTOM-01-RV1: 增强校验
     let repeatRuleJson: string | null = existing.repeatRuleJson || null;
     if (body.repeatRuleJson !== undefined) {
       if (body.repeatRuleJson === null) {
         repeatRuleJson = null;
       } else if (typeof body.repeatRuleJson === "object" && body.repeatRuleJson.frequency && body.repeatRuleJson.interval) {
-        repeatRuleJson = JSON.stringify(body.repeatRuleJson);
+        const vErr = validateRepeatRuleJson(body.repeatRuleJson);
+        if (vErr) return c.json({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
+        const rj = { ...body.repeatRuleJson };
+        if (rj.weekdays) rj.weekdays = [...new Set(rj.weekdays)].sort((a: number, b: number) => a - b);
+        repeatRuleJson = JSON.stringify(rj);
       } else {
         return c.json({ error: "Invalid repeatRuleJson", code: "INVALID_REPEAT_RULE" }, 400);
       }
@@ -546,11 +556,13 @@ function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
     return next;
   }
 
+  // TASK-RECURRENCE-CUSTOM-01-RV1: 修复月末/闰年溢出
+  // 先 setDate(1) 防止 setMonth 溢出到下下月
   if (freq === "month") {
     const monthDay = Number(rule.monthDay) || baseDate.getDate();
     const next = new Date(baseDate);
+    next.setDate(1); // 防止溢出：31 日 setMonth 会跳过短月
     next.setMonth(next.getMonth() + interval);
-    // 目标日期不存在时落到月末
     const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
     next.setDate(Math.min(monthDay, lastDay));
     return next;
@@ -560,6 +572,7 @@ function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
     const yearMonth = Number(rule.yearMonth) || (baseDate.getMonth() + 1);
     const yearDay = Number(rule.yearDay) || baseDate.getDate();
     const next = new Date(baseDate);
+    next.setDate(1); // 防止溢出：2 月 29 日 setFullYear 到非闰年会跳月
     next.setFullYear(next.getFullYear() + interval);
     next.setMonth(yearMonth - 1);
     const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
@@ -567,6 +580,33 @@ function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
     return next;
   }
 
+  return null;
+}
+
+// TASK-RECURRENCE-CUSTOM-01-RV1: 校验自定义循环规则字段
+const VALID_FREQS = ["day", "week", "month", "year"];
+function validateRepeatRuleJson(rj: any): string | null {
+  if (!rj || typeof rj !== "object") return "repeatRuleJson must be an object";
+  if (!VALID_FREQS.includes(rj.frequency)) return "frequency must be day/week/month/year";
+  if (!rj.interval || Number(rj.interval) < 1) return "interval must be >= 1";
+  if (rj.weekdays !== undefined) {
+    if (!Array.isArray(rj.weekdays)) return "weekdays must be an array";
+    for (const w of rj.weekdays) {
+      if (!Number.isInteger(w) || w < 0 || w > 6) return "weekdays values must be 0-6";
+    }
+  }
+  if (rj.monthDay !== undefined) {
+    const md = Number(rj.monthDay);
+    if (!Number.isInteger(md) || md < 1 || md > 31) return "monthDay must be 1-31";
+  }
+  if (rj.yearMonth !== undefined) {
+    const ym = Number(rj.yearMonth);
+    if (!Number.isInteger(ym) || ym < 1 || ym > 12) return "yearMonth must be 1-12";
+  }
+  if (rj.yearDay !== undefined) {
+    const yd = Number(rj.yearDay);
+    if (!Number.isInteger(yd) || yd < 1 || yd > 31) return "yearDay must be 1-31";
+  }
   return null;
 }
 

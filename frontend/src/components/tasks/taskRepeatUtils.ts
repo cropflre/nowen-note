@@ -41,9 +41,11 @@ function nextDateFromCustomRule(base: Date, rule: any): Date | null {
     next.setDate(next.getDate() + (7 * interval) - curDay + sorted[0]);
     return next;
   }
+  // TASK-RECURRENCE-CUSTOM-01-RV1: 修复月末/闰年溢出
   if (freq === "month") {
     const monthDay = Number(rule.monthDay) || base.getDate();
     const next = new Date(base);
+    next.setDate(1); // 防止溢出：31 日 setMonth 会跳过短月
     next.setMonth(next.getMonth() + interval);
     const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
     next.setDate(Math.min(monthDay, lastDay));
@@ -53,6 +55,7 @@ function nextDateFromCustomRule(base: Date, rule: any): Date | null {
     const yearMonth = Number(rule.yearMonth) || (base.getMonth() + 1);
     const yearDay = Number(rule.yearDay) || base.getDate();
     const next = new Date(base);
+    next.setDate(1); // 防止溢出：2 月 29 日 setFullYear 到非闰年会跳月
     next.setFullYear(next.getFullYear() + interval);
     next.setMonth(yearMonth - 1);
     const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
