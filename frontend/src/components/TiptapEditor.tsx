@@ -2324,18 +2324,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const handleNoteLinkSelect = useCallback((note: NoteSearchResult, heading?: HeadingItem) => {
     if (!editor) return;
 
-    // 计算需要替换的范围：从 [[ 到当前光标位置
+    // 使用保存的 triggerFrom 位置，而不是重新计算
+    // 这样即使用户在菜单打开后移动了光标，也能正确替换 [[ 到菜单打开时的位置
+    const replaceFrom = noteLinkMenu.triggerFrom;
+
+    // 验证 replaceFrom 是否有效
+    if (replaceFrom < 0) return;
+
+    // 获取当前光标位置作为替换结束位置
     const { state } = editor;
     const { selection } = state;
-    const { $from } = selection;
-    const textBefore = $from.parent.textContent.slice(0, $from.parentOffset);
-    const triggerIndex = textBefore.lastIndexOf("[[");
-
-    if (triggerIndex === -1) return;
-
-    // 计算替换范围
-    const replaceFrom = $from.pos - ($from.parentOffset - triggerIndex);
-    const replaceTo = $from.pos;
+    const replaceTo = selection.$from.pos;
 
     // 构建 href 和显示文本
     let href: string;
@@ -2372,7 +2371,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
     // 关闭菜单
     setNoteLinkMenu(prev => ({ ...prev, open: false }));
-  }, [editor]);
+  }, [editor, noteLinkMenu.triggerFrom]);
 
   const copySelectionText = useCallback(async () => {
     if (!editor) return;
