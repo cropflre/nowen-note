@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { NodeViewWrapper, NodeViewContent, NodeViewProps } from "@tiptap/react";
-import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText } from "lucide-react";
+import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText, Minimize2, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   CODE_BLOCK_THEMES,
@@ -52,6 +52,7 @@ export function CodeBlockView(props: NodeViewProps) {
   const [langFilter, setLangFilter] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [activeTheme, setActiveTheme] = useState<CodeBlockThemeId>(getSavedCodeBlockTheme);
+  const [collapsed, setCollapsed] = useState(false);
   // mermaid 块的"源码 / 预览"切换：
   //  - 已有内容（从文档加载、或用户已经输完）默认进入预览态，方便阅读
   //  - 空内容（刚通过工具栏/slash 插入）默认进入源码态，让用户立刻能输入
@@ -358,8 +359,19 @@ export function CodeBlockView(props: NodeViewProps) {
           </div>
         </div>
 
-        {/* 右侧：mermaid 切换 + 主题切换 + 复制按钮 */}
+        {/* 右侧：折叠/展开 + mermaid 切换 + 主题切换 + 复制按钮 */}
         <div className="flex items-center gap-1">
+          {!isMermaid && (
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
+              title={collapsed ? "展开代码" : "折叠代码"}
+            >
+              {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+              <span className="hidden sm:inline">{collapsed ? "展开" : "折叠"}</span>
+            </button>
+          )}
           {/* 仅 mermaid 语言显示：源码 / 预览 切换。预览时按钮显示"代码"图标
               （提示点击会切回源码视图），源码时显示"眼睛"图标（提示切回预览） */}
           {isMermaid && (
@@ -499,18 +511,31 @@ export function CodeBlockView(props: NodeViewProps) {
           </pre>
         </>
       ) : (
-        <pre className="code-block-pre">
-          <NodeViewContent
-            // NodeViewContent 的类型声明把 as 限制为 "div"，但 Tiptap 运行时实际支持任意 tag；
-            // 这里我们就是要 <code> 以便让 highlight.js / 复制按钮的语义正确。断言绕过类型窄化。
-            as={"code" as "div"}
-            className={cn(
-              "code-block-content hljs",
-              currentLang && currentLang !== "auto" && `language-${currentLang}`,
-            )}
-            style={{ whiteSpace: "pre" }}
-          />
-        </pre>
+        <div className="relative">
+          <pre
+            className="code-block-pre"
+            style={collapsed ? { maxHeight: "120px", overflow: "hidden" } : undefined}
+          >
+            <NodeViewContent
+              // NodeViewContent 的类型声明把 as 限制为 "div"，但 Tiptap 运行时实际支持任意 tag；
+              // 这里我们就是要 <code> 以便让 highlight.js / 复制按钮的语义正确。断言绕过类型窄化。
+              as={"code" as "div"}
+              className={cn(
+                "code-block-content hljs",
+                currentLang && currentLang !== "auto" && `language-${currentLang}`,
+              )}
+              style={{ whiteSpace: "pre" }}
+            />
+          </pre>
+          {collapsed && (
+            <div
+              className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none"
+              style={{
+                background: "linear-gradient(transparent, var(--code-bg, #1e1e2e))",
+              }}
+            />
+          )}
+        </div>
       )}
     </NodeViewWrapper>
   );
