@@ -1531,12 +1531,15 @@ export default function FileManager() {
                           <ListView
                             items={group.items}
                             onOpen={openDetail}
-                            onDelete={afterDelete}
+                            onCopyUrl={copyUrl}
                             onJumpToNote={jumpToNote}
+                            onDownload={downloadItem}
+                            onDelete={afterDelete}
+                            copiedId={copiedId}
+                            downloadingId={downloadingId}
                             selectionMode={selectionMode}
                             selectedIds={selectedIds}
                             onToggleSelect={toggleSelect}
-                            isImageHostMode={isImageHostMode}
                           />
                         )
                       )}
