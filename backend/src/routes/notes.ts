@@ -248,6 +248,23 @@ app.delete("/trash/empty", (c) => {
   });
   deleteMany(ids);
 
+  // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 清空回收站后清理未使用的标签
+  try {
+    db.prepare(`
+      DELETE FROM tags
+      WHERE userId = ?
+        AND workspaceId IS NULL
+        AND id NOT IN (
+          SELECT DISTINCT nt.tagId
+          FROM note_tags nt
+          JOIN notes n ON n.id = nt.noteId
+          WHERE n.userId = ? AND n.isTrashed = 0
+        )
+    `).run(userId, userId);
+  } catch (e) {
+    console.warn("[notes.trash/empty] prune unused tags failed:", e);
+  }
+
   // Phase 3: 释放所有被删笔记的内存 Y.Doc（外键 CASCADE 已清数据，这里只清内存）
   for (const id of ids) {
     try { yDestroyDoc(id); } catch {}
@@ -981,6 +998,24 @@ app.delete("/:id", (c) => {
   } catch { /* ignore */ }
 
   db.prepare("DELETE FROM notes WHERE id = ?").run(id);
+
+  // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 永久删除笔记后清理未使用的标签
+  // 删除该用户下没有任何笔记引用的标签（只删除个人空间标签，不删除工作区标签）
+  try {
+    db.prepare(`
+      DELETE FROM tags
+      WHERE userId = ?
+        AND workspaceId IS NULL
+        AND id NOT IN (
+          SELECT DISTINCT nt.tagId
+          FROM note_tags nt
+          JOIN notes n ON n.id = nt.noteId
+          WHERE n.userId = ? AND n.isTrashed = 0
+        )
+    `).run(userId, userId);
+  } catch (e) {
+    console.warn("[notes.delete] prune unused tags failed:", e);
+  }
 
   // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
   try { yDestroyDoc(id); } catch {}

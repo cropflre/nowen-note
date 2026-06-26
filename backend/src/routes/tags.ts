@@ -57,11 +57,16 @@ function canWriteTag(
  * GET /tags
  * 列出当前空间的标签 + 笔记数。
  * 笔记数采用空间内口径：只统计与该 tag 关联、且笔记同样落在该空间的笔记。
+ *
+ * TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01:
+ *   默认只返回 noteCount > 0 的标签（隐藏未使用的标签）。
+ *   传 includeEmpty=true 可返回所有标签（用于标签管理页）。
  */
 app.get("/", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "demo";
   const ws = normalizeWorkspaceId(c.req.query("workspaceId"));
+  const includeEmpty = c.req.query("includeEmpty") === "true";
 
   let rows: any[];
   if (ws) {
@@ -69,6 +74,7 @@ app.get("/", (c) => {
     const role = getUserWorkspaceRole(ws, userId);
     if (!role) return c.json({ error: "无权访问该工作区" }, 403);
 
+    const havingClause = includeEmpty ? "" : "HAVING COUNT(nt.noteId) > 0";
     rows = db
       .prepare(
         `
@@ -78,12 +84,14 @@ app.get("/", (c) => {
         LEFT JOIN notes n ON n.id = nt.noteId AND n.workspaceId = ? AND n.isTrashed = 0
         WHERE t.workspaceId = ?
         GROUP BY t.id
+        ${havingClause}
         ORDER BY t.name ASC
       `,
       )
       .all(ws, ws);
   } else {
     // 个人空间：仅看自己的、且 workspaceId IS NULL 的标签
+    const havingClause = includeEmpty ? "" : "HAVING COUNT(nt.noteId) > 0";
     rows = db
       .prepare(
         `
@@ -96,6 +104,7 @@ app.get("/", (c) => {
                           AND n.isTrashed = 0
         WHERE t.userId = ? AND t.workspaceId IS NULL
         GROUP BY t.id
+        ${havingClause}
         ORDER BY t.name ASC
       `,
       )
