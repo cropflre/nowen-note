@@ -13,6 +13,7 @@ import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
+import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
@@ -240,117 +241,6 @@ function SortMenu({
       </div>
     </>,
     document.body
-  );
-}
-
-/* ===== 新建按钮的下拉菜单 =====
- * 用法：split-button 旁的小箭头 ▾ 点开后弹出，让用户在
- *   - 新建普通笔记
- *   - 新建 Word 文档
- * 之间选择。+ 主按钮的单击行为不变（继续走 normal），保留肌肉记忆。
- *
- * 复用 SortMenu 的 portal + backdrop 模式（同一份"踩坑笔记"已写在 SortMenu 注释里）。
- */
-function CreateMenu({
-  onPick,
-  onClose,
-  anchorRef,
-}: {
-  onPick: (type: "normal" | "markdown" | "word") => void;
-  onClose: () => void;
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
-}) {
-  const { t } = useTranslation();
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    const compute = () => {
-      const el = anchorRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const left = Math.max(4, Math.min(window.innerWidth - 220, rect.right - 200));
-      const top = Math.min(window.innerHeight - 8, rect.bottom + 4);
-      setPos({ top, left });
-    };
-    compute();
-    window.addEventListener("resize", compute);
-    window.addEventListener("scroll", compute, true);
-    return () => {
-      window.removeEventListener("resize", compute);
-      window.removeEventListener("scroll", compute, true);
-    };
-  }, [anchorRef]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  if (!pos) return null;
-
-  // 文案直接硬编码：项目当前 i18n 资源是空的（src/i18n 目录里没条目），
-  // 走 t() 会拿到 key 本身（如 "noteList.createNormalNote"），
-  // 由于 key 本身是 truthy 字符串，`||` 兜底永远不生效，UI 就会显示原始 key。
-  const items = [
-    {
-      id: "normal" as const,
-      label: "新建笔记",
-      desc: "富文本 / Markdown",
-      icon: <FileText size={14} />,
-    },
-    {
-      id: "markdown" as const,
-      label: "新建 Markdown 笔记",
-      desc: "原生 Markdown 编辑器",
-      icon: <FileCode size={14} />,
-    },
-    {
-      id: "word" as const,
-      label: "导入 Word 文档",
-      desc: "选择 .docx 转为可编辑笔记",
-      icon: <FileType2 size={14} />,
-    },
-  ];
-
-  return createPortal(
-    <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); onClose(); } }}
-      onContextMenu={(e) => { e.preventDefault(); onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent" }}
-    >
-      <div
-        role="menu"
-        className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
-        style={{
-          position: "fixed", top: pos.top, left: pos.left, width: 200, zIndex: 9999,
-          animation: "contextMenuIn 0.12s ease-out",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {items.map((it) => (
-          <button
-            key={it.id}
-            type="button"
-            role="menuitem"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onPick(it.id);
-              onClose();
-            }}
-            className="w-full flex items-start gap-2 px-3 py-2 text-left text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <span className="mt-0.5 shrink-0 text-tx-tertiary">{it.icon}</span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-xs font-medium truncate">{it.label}</span>
-              <span className="block text-[10px] text-tx-tertiary truncate">{it.desc}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -1385,8 +1275,8 @@ export default function NoteList() {
   // 默认行为是单击 + 按钮直接走 normal；下拉箭头点开后才能选 word。
   // 三个 + 按钮各自一个 ref（桌面顶部 / 移动顶部 / 移动 FAB）；
   // openSource 记录是哪一个触发了下拉，避免共用一个 ref 导致的菜单错位。
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [createMenuSource, setCreateMenuSource] = useState<"desktop" | "mobile" | "fab" | null>(null);
+  const [createMenuOpen, setCreateNoteMenuOpen] = useState(false);
+  const [createMenuSource, setCreateNoteMenuSource] = useState<"desktop" | "mobile" | "fab" | null>(null);
   const createMenuAnchorDesktopRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorMobileRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorFabRef = useRef<HTMLButtonElement>(null);
@@ -2936,8 +2826,8 @@ export default function NoteList() {
                 type="button"
                 aria-label="选择新建类型"
                 onClick={() => {
-                  setCreateMenuSource("desktop");
-                  setCreateMenuOpen((v) => !v);
+                  setCreateNoteMenuSource("desktop");
+                  setCreateNoteMenuOpen((v) => !v);
                 }}
                 className="h-8 w-5 flex items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
               >
@@ -3038,8 +2928,8 @@ export default function NoteList() {
                 type="button"
                 aria-label="选择新建类型"
                 onClick={() => {
-                  setCreateMenuSource("mobile");
-                  setCreateMenuOpen((v) => !v);
+                  setCreateNoteMenuSource("mobile");
+                  setCreateNoteMenuOpen((v) => !v);
                 }}
                 className="h-7 w-4 flex items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
               >
@@ -3380,8 +3270,8 @@ export default function NoteList() {
         onClick={() => handleCreateNote("normal")}
         onContextMenu={(e) => {
           e.preventDefault();
-          setCreateMenuSource("fab");
-          setCreateMenuOpen(true);
+          setCreateNoteMenuSource("fab");
+          setCreateNoteMenuOpen(true);
         }}
         className="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-accent-primary rounded-2xl shadow-lg shadow-accent-primary/30 flex items-center justify-center text-white active:scale-95 transition-transform z-10"
       >
@@ -3428,7 +3318,7 @@ export default function NoteList() {
 
       {/* 新建按钮的下拉（普通笔记 / Word 文档），在 split-button 的 ▾ 旁边 portal 弹出 */}
       {createMenuOpen && createMenuSource && (
-        <CreateMenu
+        <CreateNoteMenu
           anchorRef={
             createMenuSource === "desktop"
               ? createMenuAnchorDesktopRef
@@ -3440,8 +3330,8 @@ export default function NoteList() {
             void handleCreateNote(type);
           }}
           onClose={() => {
-            setCreateMenuOpen(false);
-            setCreateMenuSource(null);
+            setCreateNoteMenuOpen(false);
+            setCreateNoteMenuSource(null);
           }}
         />
       )}

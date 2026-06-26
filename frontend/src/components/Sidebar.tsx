@@ -17,6 +17,7 @@ import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -509,7 +510,7 @@ function NotebookItem({
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
   noteDragOverId,
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
-  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onCreateNote, onCreateMarkdownNote,
+  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onCreateNote, onCreateMarkdownNote, onCreateWordNote,
   constrainWidth = false,
   showNoteTime = true,
 }: {
@@ -545,6 +546,7 @@ function NotebookItem({
   onNoteDrop?: (e: React.DragEvent, notebookId: string) => void;
   onCreateNote?: (notebookId: string) => void;
   onCreateMarkdownNote?: (notebookId: string) => void;
+  onCreateWordNote?: (notebookId: string) => void;
   constrainWidth?: boolean;
   showNoteTime?: boolean;
 }) {
@@ -565,19 +567,18 @@ function NotebookItem({
   const iconRef = useRef<HTMLButtonElement>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const createMenuRef = useRef<HTMLDivElement>(null);
+  const createMenuBtnRef = useRef<HTMLButtonElement>(null);
 
-  // 点击外部关闭创建菜单
-  useEffect(() => {
-    if (!showCreateMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) {
-        setShowCreateMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showCreateMenu]);
+  // 处理创建笔记类型选择
+  const handleCreateNoteType = useCallback((type: NoteType) => {
+    if (type === "normal" && onCreateNote) {
+      onCreateNote(notebook.id);
+    } else if (type === "markdown" && onCreateMarkdownNote) {
+      onCreateMarkdownNote(notebook.id);
+    } else if (type === "word" && onCreateWordNote) {
+      onCreateWordNote(notebook.id);
+    }
+  }, [notebook.id, onCreateNote, onCreateMarkdownNote, onCreateWordNote]);
 
   // 移动端长按 → 触发上下文菜单（删除/重命名/导出 等）。
   // - 600ms 阈值与笔记列表 (NoteList) / 思维导图项保持一致，避免用户跨场景手感不同。
@@ -748,8 +749,9 @@ function NotebookItem({
               )}
             </span>
             {showNotes && onCreateNote && (
-              <div className="relative" ref={createMenuRef}>
+              <>
                 <button
+                  ref={createMenuBtnRef}
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -761,36 +763,13 @@ function NotebookItem({
                   <Plus size={12} />
                 </button>
                 {showCreateMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-md border border-app-border bg-app-surface shadow-lg py-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowCreateMenu(false);
-                        onCreateNote(notebook.id);
-                      }}
-                      className="w-full px-3 py-1.5 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                    >
-                      <FileText size={14} className="text-tx-tertiary" />
-                      {t("sidebar.newNote")}
-                    </button>
-                    {onCreateMarkdownNote && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowCreateMenu(false);
-                          onCreateMarkdownNote(notebook.id);
-                        }}
-                        className="w-full px-3 py-1.5 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                      >
-                        <FileCode size={14} className="text-emerald-500" />
-                        {t("sidebar.newMarkdownNote") || "新建 Markdown 笔记"}
-                      </button>
-                    )}
-                  </div>
+                  <CreateNoteMenu
+                    anchorRef={createMenuBtnRef}
+                    onPick={handleCreateNoteType}
+                    onClose={() => setShowCreateMenu(false)}
+                  />
                 )}
-              </div>
+              </>
             )}
           </>
         )}
@@ -1654,6 +1633,33 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   }, [actions]);
 
+  const handleCreateSidebarWordNote = useCallback(async (notebookId: string) => {
+    try {
+      const { pickDocxFile, importDocxAsNote } = await import("@/lib/wordNoteService");
+      const file = await pickDocxFile();
+      if (!file) return; // 用户取消
+      toast.info("正在导入 Word 文档…");
+      const { note } = await importDocxAsNote({ notebookId, file });
+      actions.setActiveNote(note as any);
+      actions.setSelectedNotebook(notebookId);
+      actions.setSelectedTag(null);
+      actions.setViewMode("notebook");
+      actions.setMobileView("editor");
+      if (!isDesktop) {
+        actions.setMobileSidebar(false);
+      }
+      setNotesByNotebookId((prev) => {
+        return addNoteToNotebookCache(prev, notebookId, noteToListItem(note as any));
+      });
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+      toast.success("导入成功");
+    } catch (err: any) {
+      console.error("Failed to import Word note:", err);
+      toast.error(err?.message || "导入 Word 文档失败");
+    }
+  }, [actions, isDesktop]);
+
   const handleCreateNotebook = async () => {
     const nb = await api.createNotebook({ name: t('common.newNotebook'), icon: "📒" });
     actions.setNotebooks([...state.notebooks, nb]);
@@ -2246,6 +2252,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     onNoteDrop={handleSidebarNoteDrop}
                     onCreateNote={handleCreateSidebarNote}
                     onCreateMarkdownNote={handleCreateSidebarMarkdownNote}
+                    onCreateWordNote={handleCreateSidebarWordNote}
                     constrainWidth={constrainNotebookTreeWidth}
                     showNoteTime={userPrefs.showNoteListUpdatedTime}
                   />
