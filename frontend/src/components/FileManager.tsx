@@ -941,11 +941,28 @@ export default function FileManager() {
   const isFirstPageNoResults = !loading && items.length === 0 && page === 1;
   const hasAnyFilter = searchQuery || category !== "all";
 
+  // 扁平视图也按 id 去重，防止重复渲染
+  const displayItems = useMemo(() => {
+    const seen = new Set<string>();
+    return items.filter((it) => {
+      if (seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    });
+  }, [items]);
+
   // 按笔记本分组（groupMode === "notebook" 时使用）
   const groupedItems = useMemo(() => {
     if (groupMode !== "notebook") return null;
-    const groups = new Map<string, { label: string; icon: string | null; items: typeof items }>();
-    for (const it of items) {
+    // 先按 attachment.id 去重，防止接口返回重复数据导致分组重复渲染
+    const seen = new Set<string>();
+    const deduped = items.filter((it) => {
+      if (seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    });
+    const groups = new Map<string, { label: string; icon: string | null; items: typeof deduped }>();
+    for (const it of deduped) {
       const nbId = it.primaryNote?.notebookId || null;
       const nbName = it.primaryNote?.notebookName || null;
       const nbIcon = it.primaryNote?.notebookIcon || null;
@@ -1377,9 +1394,9 @@ export default function FileManager() {
               </button>
               <span className="text-xs text-tx-tertiary">
                 已选 <b className="text-accent-primary">{selectedIds.size}</b> 个
-                {items.length > 0 && (
+                {displayItems.length > 0 && (
                   <span className="ml-1 opacity-60">
-                    （本页 {items.length} / 全部 {total}）
+                    （本页 {displayItems.length} / 全部 {total}）
                   </span>
                 )}
               </span>
@@ -1475,7 +1492,7 @@ export default function FileManager() {
               </div>
             ) : viewMode === "grid" ? (
               <GridView
-                items={items}
+                items={displayItems}
                 onOpen={openDetail}
                 onCopyUrl={copyUrl}
                 onCopySnippet={copySnippet}
@@ -1489,7 +1506,7 @@ export default function FileManager() {
               />
             ) : (
               <ListView
-                items={items}
+                items={displayItems}
                 onOpen={openDetail}
                 onCopyUrl={copyUrl}
                 onJumpToNote={jumpToNote}
