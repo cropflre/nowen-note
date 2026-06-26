@@ -981,13 +981,18 @@ export default function FileManager() {
     const groups = new Map<string, { label: string; icon: string | null; items: typeof deduped }>();
 
     if (groupMode === "folder") {
-      // 按附件文件夹分组
+      // 以 attachmentFolders 为基准创建分组（包含空文件夹）
+      for (const folder of attachmentFolders) {
+        groups.set(folder.id, { label: folder.name, icon: null, items: [] });
+      }
+      // 添加"未归档文件"固定分组
+      groups.set("__unarchived__", { label: "未归档文件", icon: null, items: [] });
+      // 遍历当前页 items，分配到对应文件夹分组
       for (const it of deduped) {
         const fId = it.folderId || null;
-        const fName = it.folderName || null;
         const key = fId || "__unarchived__";
-        const label = fName || "未归档文件";
-        if (!groups.has(key)) groups.set(key, { label, icon: null, items: [] });
+        // 如果该 folderId 不在 attachmentFolders 中（可能是刚删除的文件夹），跳过
+        if (!groups.has(key)) continue;
         groups.get(key)!.items.push(it);
       }
       // 排序："未归档文件"放最后，其他按名称
@@ -1015,7 +1020,7 @@ export default function FileManager() {
       if (!aKey.startsWith("__") && bKey.startsWith("__")) return -1;
       return a.label.localeCompare(b.label);
     });
-  }, [groupMode, items]);
+  }, [groupMode, items, attachmentFolders]);
 
   // 方便状态栏展示
   const statsLine = useMemo(() => {
@@ -1488,8 +1493,8 @@ export default function FileManager() {
               </div>
             ) : isFirstPageNoResults ? (
               <EmptyState hasFilter={!!hasAnyFilter} onUpload={onPickFiles} />
-            ) : groupMode === "notebook" && groupedItems ? (
-              // 按笔记本分组视图
+            ) : (groupMode === "notebook" || groupMode === "folder") && groupedItems ? (
+              // 按笔记本/文件夹分组视图
               <div className="space-y-4">
                 {groupedItems.map(([groupKey, group]) => {
                   const isCollapsed = collapsedGroups.has(groupKey);
@@ -1506,7 +1511,9 @@ export default function FileManager() {
                         <span className="text-tx-tertiary font-normal">({group.items.length})</span>
                       </button>
                       {!isCollapsed && (
-                        viewMode === "grid" ? (
+                        group.items.length === 0 ? (
+                          <div className="py-4 text-center text-xs text-tx-tertiary">暂无文件</div>
+                        ) : viewMode === "grid" ? (
                           <GridView
                             items={group.items}
                             onOpen={openDetail}
