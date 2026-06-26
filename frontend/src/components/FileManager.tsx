@@ -75,6 +75,7 @@ import {
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
+import FileUploadDialog from "@/components/FileUploadDialog";
 
 // ---------------------------------------------------------------------------
 // 工具：文件大小可读化 / MIME → 图标 / 时间格式化
@@ -305,6 +306,7 @@ export default function FileManager() {
   // 上传
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
   // 批量选择
   // - selectionMode 决定 UI 是否进入"多选"形态：卡片左上出现 checkbox、
@@ -1186,7 +1188,7 @@ export default function FileManager() {
           </Button>
         )}
 
-        <Button size="sm" onClick={onPickFiles} disabled={uploading} className="shrink-0">
+        <Button size="sm" onClick={() => setUploadDialogOpen(true)} disabled={uploading} className="shrink-0">
           {uploading ? <Loader2 size={14} className="animate-spin mr-1" /> : <Upload size={14} className="mr-1" />}
           {uploading ? "上传中" : "上传文件"}
         </Button>
@@ -1589,6 +1591,14 @@ export default function FileManager() {
           />
         )}
       </AnimatePresence>
+
+      {/* 上传弹窗 */}
+      <FileUploadDialog
+        open={uploadDialogOpen}
+        onClose={() => setUploadDialogOpen(false)}
+        onUploaded={() => { loadList(); loadStats(); loadReclaimable(); }}
+        defaultFolderId={null}
+      />
     </div>
   );
 }

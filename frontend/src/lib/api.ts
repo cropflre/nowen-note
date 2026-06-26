@@ -1306,6 +1306,23 @@ export const api = {
       request<Record<string, string>>(`/folder-sync/check-dedup`, { method: "POST", body: JSON.stringify({ sourcePathHashes }) }),
   },
 
+  // Attachment folders
+  attachmentFolders: {
+    list: () => request<{ folders: Array<{ id: string; name: string; parentId: string | null; fileCount: number; createdAt: string }> }>(`/attachment-folders`),
+    create: (name: string, parentId?: string) =>
+      request<{ id: string; name: string; parentId: string | null; fileCount: number }>(`/attachment-folders`, {
+        method: "POST",
+        body: JSON.stringify({ name, parentId }),
+      }),
+    rename: (id: string, name: string) =>
+      request<{ id: string; name: string; parentId: string | null }>(`/attachment-folders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    remove: (id: string) =>
+      request<{ success: boolean }>(`/attachment-folders/${id}`, { method: "DELETE" }),
+  },
+
   // Security
   // 注意：后端在修改密码成功后会 bump tokenVersion，让其它端旧 token 立即失效，
   //      同时下发一张新 token 给当前请求方。前端必须把新 token 写回 localStorage，
@@ -2006,12 +2023,13 @@ export const api = {
      * Y4: 自动把 workspaceId 作为 query 传给后端；后端会把 holder note 与
      *     attachments.workspaceId 一起落到对应 scope。
      */
-    upload: async (file: File, opts: { noteId?: string; notebookId?: string } = {}): Promise<FileItem> => {
+    upload: async (file: File, opts: { noteId?: string; notebookId?: string; folderId?: string } = {}): Promise<FileItem> => {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
       if (opts.noteId) form.append("noteId", opts.noteId);
       if (opts.notebookId) form.append("notebookId", opts.notebookId);
+      if (opts.folderId) form.append("folderId", opts.folderId);
       const ws = getCurrentWorkspace();
       const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
       const res = await fetch(`${getBaseUrl()}/files/upload${qs}`, {

@@ -2089,5 +2089,18 @@
     "extractionFailed": "extraction failed",
     "noExtractedText": "no text",
     "extractionTruncated": "truncated"
+  },
+  "fileManager": {
+    "uploadFiles": "Upload Files",
+    "targetFolder": "Target Folder",
+    "unarchived": "Unarchived",
+    "newFolder": "New Folder",
+    "folderName": "Folder name",
+    "selectFiles": "Select Files",
+    "dragOrClick": "Click to select files",
+    "supportMultiFiles": "Multiple files supported",
+    "uploading": "Uploading...",
+    "upload": "Upload",
+    "folderCreated": "Folder created"
   }
 }

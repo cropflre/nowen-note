@@ -1573,6 +1573,33 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // v33: attachment_folders 文件夹表 + attachments.folder_id
+  {
+    version: 33,
+    name: "attachment-folders",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS attachment_folders (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          name TEXT NOT NULL,
+          parentId TEXT,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_attachment_folders_user
+          ON attachment_folders(userId);
+        CREATE INDEX IF NOT EXISTS idx_attachment_folders_parent
+          ON attachment_folders(parentId);
+      `);
+      // attachments.folder_id（可为空，NULL = 未归档）
+      try {
+        db.prepare("SELECT folderId FROM attachments LIMIT 1").get();
+      } catch {
+        db.prepare("ALTER TABLE attachments ADD COLUMN folderId TEXT").run();
+      }
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

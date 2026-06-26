@@ -1197,6 +1197,8 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   if (!(file instanceof File)) {
     return c.json({ error: "file 字段缺失或非文件" }, 400);
   }
+  // folderId：可选，上传到指定文件夹
+  const folderId = typeof body.folderId === "string" && body.folderId ? body.folderId : null;
   if (file.size > MAX_UPLOAD_SIZE) {
     return c.json(
       { error: `文件过大（最大 ${MAX_UPLOAD_SIZE / 1024 / 1024}MB）` },
@@ -1229,6 +1231,15 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   // v11 hash dedup：同 user + 同 workspace 内查命中。命中 → 复用老 id 不写盘不写 DB。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
   const db = getDb();
+
+  // 校验 folderId（如果提供）
+  if (folderId) {
+    const folder = db
+      .prepare("SELECT id FROM attachment_folders WHERE id = ? AND userId = ?")
+      .get(folderId, userId) as { id: string } | undefined;
+    if (!folder) return c.json({ error: "目标文件夹不存在" }, 404);
+  }
+
   const dedupRow = db
     .prepare(
       scope.workspaceId
@@ -1280,8 +1291,8 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
 
   try {
     db.prepare(
-      `INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, workspaceId, hash, uploadSource)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, workspaceId, hash, uploadSource, folderId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       noteId,
@@ -1292,9 +1303,8 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       storagePath,
       scope.workspaceId,
       sha256,
-      // v12：标记此附件来自"文件管理"直传入口，"我的上传"筛选据此判定。
-      // 编辑器粘贴 / 内联 base64 抽取 / 老附件等其它路径不写此字段，留 NULL。
       "file_manager",
+      folderId,
     );
   } catch (err) {
     // DB 写失败时把已落盘文件清掉，避免孤儿

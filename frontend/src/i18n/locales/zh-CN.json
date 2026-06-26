@@ -2258,5 +2258,18 @@
     "extractionFailed": "提取失败",
     "noExtractedText": "无文本",
     "extractionTruncated": "已截断"
+  },
+  "fileManager": {
+    "uploadFiles": "上传文件",
+    "targetFolder": "目标位置",
+    "unarchived": "未归档文件",
+    "newFolder": "新建文件夹",
+    "folderName": "文件夹名称",
+    "selectFiles": "选择文件",
+    "dragOrClick": "点击选择文件",
+    "supportMultiFiles": "支持多文件",
+    "uploading": "上传中...",
+    "upload": "上传",
+    "folderCreated": "文件夹已创建"
   }
 }
