@@ -11,9 +11,18 @@
  *   - 同源：走原生 <a download>，同步触发，永远不丢失用户手势。
  *   - 跨源（桌面客户端连远端服务器场景）：仍然走 fetch+blob，
  *     因为跨源下 <a download> 的 filename 属性会被忽略，体验更糟。
+ *   - 移动端降级：iOS Safari 等对 <a download> 支持差，
+ *     同源也走 fetch+blob 保证 filename 生效。
  *
  * 同源判断只看 origin，不依赖具体协议/端口的硬编码。
  */
+
+/** 检测是否为移动设备 */
+function isMobileDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export async function downloadAttachment(url: string, filename: string): Promise<void> {
   if (!url) throw new Error("缺少下载链接");
 
@@ -23,8 +32,10 @@ export async function downloadAttachment(url: string, filename: string): Promise
   // 浏览器一次性、稳定地走下载流。
   const downloadUrl = withDownloadFlag(url);
 
-  if (isSameOrigin(downloadUrl)) {
-    // 同源——原生 <a download>，同步触发，零手势丢失风险
+  // 移动端统一走 fetch+blob：<a download> 在 iOS Safari 上基本不生效，
+  // 直接导航到 URL 会打开预览而非下载。fetch+blob + objectURL 是移动端最可靠的方案。
+  if (!isMobileDevice() && isSameOrigin(downloadUrl)) {
+    // 桌面同源——原生 <a download>，同步触发，零手势丢失风险
     const a = document.createElement("a");
     a.href = downloadUrl;
     a.download = filename || "";
@@ -35,7 +46,7 @@ export async function downloadAttachment(url: string, filename: string): Promise
     return;
   }
 
-  // 跨源——fetch 成 blob 再触发，保留 download 属性
+  // 移动端 或 跨源——fetch 成 blob 再触发，保留 download 属性
   const res = await fetch(downloadUrl, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();

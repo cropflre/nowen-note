@@ -1008,7 +1008,7 @@ export default function FileManager() {
     >
       {/* 顶栏 */}
       <div
-        className="flex flex-wrap items-center gap-3 px-4 md:px-6 py-3 border-b border-app-border bg-app-surface/40"
+        className="flex flex-wrap items-center gap-2 md:gap-3 px-3 md:px-6 py-2.5 md:py-3 border-b border-app-border bg-app-surface/40"
         style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}
       >
         <div className="flex items-center gap-2 shrink-0">
@@ -1184,13 +1184,9 @@ export default function FileManager() {
       </div>
 
       {/* 工具条：分类 / 搜索 / 排序 */}
-      <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-2 border-b border-app-border bg-app-surface/20">
-        {/* 分类 Tabs：
-            - 普通模式：5 个 tab（全部 / 图片 / 文件 / 我的上传 / 孤儿）
-            - 图床模式：与普通模式同构，但"孤儿"改名为"未引用"——更贴合图床场景
-              （图床里这一类多是用户传上去专门发外链的、本就不需要被笔记引用的资源，
-              "孤儿"措辞略带贬义，"未引用"更中性）。 */}
-        <div className="flex items-center gap-1 text-xs">
+      <div className="flex flex-wrap items-center gap-2 px-3 md:px-6 py-1.5 md:py-2 border-b border-app-border bg-app-surface/20">
+        {/* 分类 Tabs：移动端可横滚，桌面端正常排列 */}
+        <div className="flex items-center gap-1 text-xs overflow-x-auto no-scrollbar shrink-0 max-w-full">
           {(isImageHostMode
             ? ([
                 { key: "all", label: "全部", count: stats?.total ?? 0, icon: <Filter size={12} /> },
@@ -1259,44 +1255,45 @@ export default function FileManager() {
           ))}
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 hidden md:block" />
 
-        {/* 搜索 */}
-        <div className="relative w-full sm:w-56">
-          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
-          <Input
-            placeholder="按文件名搜索…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-7 h-8 text-xs bg-app-bg"
-          />
-          {searchInput && (
-            <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-primary"
-              onClick={() => setSearchInput("")}
+        {/* 搜索 + 排序：移动端合并为一行，桌面端分开 */}
+        <div className="flex items-center gap-2 w-full md:w-auto md:flex-1">
+          <div className="relative flex-1 md:w-56">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+            <Input
+              placeholder="按文件名搜索…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-7 h-8 text-xs bg-app-bg"
+            />
+            {searchInput && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-primary"
+                onClick={() => setSearchInput("")}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* 排序 */}
+          <div className="flex items-center gap-1 text-xs shrink-0">
+            <ArrowUpDown size={12} className="text-tx-tertiary hidden sm:block" />
+            <select
+              className="h-8 px-2 rounded-md border border-app-border bg-app-bg text-tx-primary text-xs outline-none"
+              value={sort}
+              onChange={(e) => {
+                setSort(e.target.value as FileSortKey);
+                setPage(1);
+              }}
             >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-
-        {/* 排序 */}
-        <div className="flex items-center gap-1 text-xs">
-          <ArrowUpDown size={12} className="text-tx-tertiary" />
-          <select
-            className="h-8 px-2 rounded-md border border-app-border bg-app-bg text-tx-primary text-xs outline-none"
-            value={sort}
-            onChange={(e) => {
-              setSort(e.target.value as FileSortKey);
-              setPage(1);
-            }}
-          >
-            {SORT_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
         </div>
       </div>
 

@@ -338,7 +338,7 @@ export default function AttachmentDetailDrawer({
               加载中…
             </div>
           ) : (
-            <div className="p-4 space-y-5">
+            <div className="p-3 md:p-4 space-y-4 md:space-y-5">
               {/* 预览区 */}
               <div className="rounded-lg border border-app-border bg-app-bg overflow-hidden">
                 {renderPreview ? (
@@ -349,8 +349,8 @@ export default function AttachmentDetailDrawer({
                     filename={detail.filename}
                     mimeType={detail.mimeType}
                     size={detail.size}
-                    heightClass={expanded ? "min-h-[80vh]" : "min-h-[500px]"}
-                    imgMaxHeightClass={expanded ? "max-h-[80vh]" : "max-h-[360px]"}
+                    heightClass={expanded ? "min-h-[80vh]" : "min-h-[200px] md:min-h-[500px]"}
+                    imgMaxHeightClass={expanded ? "max-h-[80vh]" : "max-h-[240px] md:max-h-[360px]"}
                   />
                 )}
               </div>
@@ -389,7 +389,7 @@ export default function AttachmentDetailDrawer({
                       readOnly
                       value={fullUrl}
                       onFocus={(e) => e.currentTarget.select()}
-                      className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary"
+                      className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary overflow-x-auto"
                     />
                     <div className="flex flex-wrap gap-1.5">
                       {(["url", "markdown", "html"] as ImageHostFormat[]).map((fmt) => (
@@ -496,10 +496,10 @@ export default function AttachmentDetailDrawer({
                       href={resolveAttachmentUrl(detail.url)}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-accent-primary hover:underline inline-flex items-center gap-1 truncate"
+                      className="text-accent-primary hover:underline inline-flex items-center gap-1 break-all [overflow-wrap:anywhere]"
                     >
-                      <Download size={11} />
-                      <span className="truncate">{detail.url}</span>
+                      <Download size={11} className="shrink-0" />
+                      <span>{detail.url}</span>
                     </a>
                   }
                 />
@@ -564,7 +564,7 @@ export default function AttachmentDetailDrawer({
               </div>
 
               {/* 操作按钮区：下载 + （可选）删除 */}
-              <div className="pt-3 border-t border-app-border space-y-2">
+              <div className="pt-3 border-t border-app-border space-y-2 pb-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
                 <Button
                   variant="default"
                   size="sm"
@@ -600,9 +600,9 @@ export default function AttachmentDetailDrawer({
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="shrink-0 w-20 text-tx-tertiary">{label}</span>
-      <div className="flex-1 min-w-0 text-tx-primary break-words">{value}</div>
+    <div className="flex items-start gap-2 md:gap-3">
+      <span className="shrink-0 w-16 md:w-20 text-tx-tertiary">{label}</span>
+      <div className="flex-1 min-w-0 text-tx-primary break-all [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
