@@ -2750,6 +2750,7 @@ const moveToTrash = useCallback(async () => {
               onHeadingsChange={setHeadings}
               onEditorReady={(fn) => { scrollToRef.current = fn; }}
               editable={!effectiveLocked && !modeSwitching}
+              searchQuery={state.searchQuery}
             />
           )}
           </EditorErrorBoundary>

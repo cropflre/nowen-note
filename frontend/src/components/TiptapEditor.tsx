@@ -71,7 +71,7 @@ import {
   HIGHLIGHT_PRESETS,
 } from "@/components/FontSizeExtension";
 import CodeBlockView from "@/components/CodeBlockView";
-import { SearchReplacePanel, createSearchReplaceExtension } from "@/components/SearchReplacePanel";
+import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
 import {
@@ -702,8 +702,20 @@ const BlockIdExtension = Extension.create({
           if (!docChanged) return null;
 
           const tr = newState.tr;
+          // BLOCK-ID-01-RV1: 不加入 undo 栈，避免用户撤销时撤销 blockId 赋值
+          tr.setMeta("addToHistory", false);
           let modified = false;
           const seenIds = new Set<string>();
+
+          // blockId 生成函数（兼容非 Secure Context 环境）
+          const genBlockId = () => {
+            try {
+              return `blk_${crypto.randomUUID()}`;
+            } catch {
+              // fallback: Date.now + Math.random（Electron file:// 或旧 WebView）
+              return `blk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+            }
+          };
 
           // 扫描所有 heading 节点
           newState.doc.descendants((node, pos) => {
@@ -713,9 +725,9 @@ const BlockIdExtension = Extension.create({
 
             // 检查重复 blockId
             if (currentId && seenIds.has(currentId)) {
-              // 重复 ID，重新生成
-              const newId = `blk_${crypto.randomUUID()}`;
+              const newId = genBlockId();
               tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: newId });
+              seenIds.add(newId); // 防御性：确保新 ID 不再重复
               modified = true;
               return;
             }
@@ -726,8 +738,9 @@ const BlockIdExtension = Extension.create({
             }
 
             // 缺少 blockId，生成新的
-            const newId = `blk_${crypto.randomUUID()}`;
+            const newId = genBlockId();
             tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: newId });
+            seenIds.add(newId);
             modified = true;
           });
 
@@ -1286,7 +1299,7 @@ function getEditorPlainText(editor: any): string {
 }
 
 export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEditor(
-  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false },
+  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false, searchQuery },
   ref,
 ) {
   const titleRef = useRef<HTMLInputElement>(null);
@@ -2307,7 +2320,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     },
   });
 
-  // 插入笔记引用（BACKLINKS-01-RV2: 使用 Link mark 实现可点击跳转）
+  // 插入笔记引用
   const handleNoteLinkSelect = useCallback((note: NoteSearchResult) => {
     if (!editor) return;
 
@@ -2324,24 +2337,13 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     const replaceFrom = $from.pos - ($from.parentOffset - triggerIndex);
     const replaceTo = $from.pos;
 
-    // 插入带 Link mark 的笔记引用
-    // href 使用 note:NOTE_ID 格式，点击时由 handleDOMEvents.click 处理跳转
-    // 同时保留纯文本格式用于 note_links 同步（syncNoteLinks 识别 href="note:UUID"）
+    // 插入笔记引用格式：[[note:NOTE_ID|笔记标题]]
+    const linkText = `[[note:${note.id}|${note.title}]]`;
+
     editor.chain()
       .focus()
       .deleteRange({ from: replaceFrom, to: replaceTo })
-      .insertContent({
-        type: "text",
-        text: note.title,
-        marks: [{
-          type: "link",
-          attrs: {
-            href: `note:${note.id}`,
-            target: "_blank",
-            rel: "noopener noreferrer nofollow",
-          },
-        }],
-      })
+      .insertContent(linkText)
       .run();
 
     // 关闭菜单
@@ -3042,6 +3044,36 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     };
     onEditorReady?.(scrollTo);
   }, [editor, onEditorReady]);
+
+  // SEARCH-NOTE-BODY-HIGHLIGHT-01: 外部搜索关键词 → 高亮 + 定位
+  useEffect(() => {
+    if (!editor) return;
+    const view = editor.view;
+    const query = (searchQuery ?? "").trim();
+    try {
+      const tr = view.state.tr.setMeta(searchReplacePluginKey, {
+        query,
+        caseSensitive: false,
+        wholeWord: false,
+        useRegex: false,
+        activeIndex: 0,
+      });
+      view.dispatch(tr);
+      // 有命中时滚动到第一个
+      if (query) {
+        requestAnimationFrame(() => {
+          const st = searchReplacePluginKey.getState(view.state);
+          const matches = st?.matches;
+          if (matches && matches.length > 0) {
+            const m = matches[0];
+            const dom = view.domAtPos(m.from);
+            const el = dom?.node instanceof HTMLElement ? dom.node : dom.node?.parentElement;
+            el?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      }
+    } catch { /* 编辑器 doc 未就绪时静默 */ }
+  }, [editor, searchQuery]);
 
   /**
    * 桌面端格式菜单桥（macOS 原生菜单 / 快捷键 → Tiptap）

@@ -75,6 +75,7 @@
     "katex": "^0.16.46",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.563.0",
+    "lunar-javascript": "^1.7.7",
     "mammoth": "^1.8.0",
     "marked": "^14.1.4",
     "mermaid": "^11.15.0",

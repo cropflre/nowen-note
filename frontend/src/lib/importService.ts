@@ -1,7 +1,7 @@
 import { api } from "./api";
 import { marked, Renderer } from "marked";
 import i18n from "i18next";
-import { Editor, generateJSON } from "@tiptap/core";
+import { Editor, generateJSON, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -14,6 +14,27 @@ import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import { common, createLowlight } from "lowlight";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+
+// BLOCK-ID-01-RV1: heading blockId 扩展（与 TiptapEditor / contentFormat 对齐）
+// 只声明 attrs，不带 appendTransaction plugin
+const BlockIdAttrs = Extension.create({
+  name: "blockId",
+  addGlobalAttributes() {
+    return [{
+      types: ["heading"],
+      attributes: {
+        blockId: {
+          default: null,
+          parseHTML: (element: HTMLElement) => element.getAttribute("data-block-id") || null,
+          renderHTML: (attributes: any) => {
+            if (!attributes.blockId) return {};
+            return { "data-block-id": attributes.blockId };
+          },
+        },
+      },
+    }];
+  },
+});
 
 const lowlight = createLowlight(common);
 
@@ -39,6 +60,9 @@ export const tiptapExtensions = [
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导入/修复阶段 video 节点会被吃
   VideoExtension,
+  // BLOCK-ID-01-RV1: heading blockId 属性，与 TiptapEditor / contentFormat 对齐
+  // 避免 schema 修复时 blockId 被过滤掉
+  BlockIdAttrs,
 ];
 
 export interface ImportFileInfo {

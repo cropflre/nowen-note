@@ -49,6 +49,8 @@ export interface NoteEditorProps {
   editable?: boolean;
   /** 访客模式（分享页）：禁用依赖登录态的能力（TagInput、AI 助手等） */
   isGuest?: boolean;
+  /** SEARCH-NOTE-BODY-HIGHLIGHT-01: 外部搜索关键词，编辑器内高亮并定位 */
+  searchQuery?: string;
   /**
    * Phase 3（可选）：CRDT 协同
    * 当同时提供 yDoc + awareness 时，编辑器应：
