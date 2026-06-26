@@ -509,7 +509,7 @@ function NotebookItem({
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
   noteDragOverId,
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
-  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onCreateNote,
+  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onCreateNote, onCreateMarkdownNote,
   constrainWidth = false,
   showNoteTime = true,
 }: {
@@ -544,6 +544,7 @@ function NotebookItem({
   onNoteDragEnd?: () => void;
   onNoteDrop?: (e: React.DragEvent, notebookId: string) => void;
   onCreateNote?: (notebookId: string) => void;
+  onCreateMarkdownNote?: (notebookId: string) => void;
   constrainWidth?: boolean;
   showNoteTime?: boolean;
 }) {
@@ -563,6 +564,20 @@ function NotebookItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const iconRef = useRef<HTMLButtonElement>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭创建菜单
+  useEffect(() => {
+    if (!showCreateMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) {
+        setShowCreateMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showCreateMenu]);
 
   // 移动端长按 → 触发上下文菜单（删除/重命名/导出 等）。
   // - 600ms 阈值与笔记列表 (NoteList) / 思维导图项保持一致，避免用户跨场景手感不同。
@@ -733,17 +748,49 @@ function NotebookItem({
               )}
             </span>
             {showNotes && onCreateNote && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateNote(notebook.id);
-                }}
-                className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors opacity-0 group-hover:opacity-100"
-                title={t("sidebar.newNote")}
-              >
-                <Plus size={12} />
-              </button>
+              <div className="relative" ref={createMenuRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCreateMenu(!showCreateMenu);
+                  }}
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors opacity-0 group-hover:opacity-100"
+                  title={t("sidebar.newNote")}
+                >
+                  <Plus size={12} />
+                </button>
+                {showCreateMenu && (
+                  <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-md border border-app-border bg-app-surface shadow-lg py-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowCreateMenu(false);
+                        onCreateNote(notebook.id);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <FileText size={14} className="text-tx-tertiary" />
+                      {t("sidebar.newNote")}
+                    </button>
+                    {onCreateMarkdownNote && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowCreateMenu(false);
+                          onCreateMarkdownNote(notebook.id);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                      >
+                        <FileCode size={14} className="text-emerald-500" />
+                        {t("sidebar.newMarkdownNote") || "新建 Markdown 笔记"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
@@ -1579,6 +1626,34 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   }, [actions, t]);
 
+  const handleCreateSidebarMarkdownNote = useCallback(async (notebookId: string) => {
+    try {
+      const note = await api.createNote({
+        notebookId,
+        title: "无标题 Markdown",
+        contentFormat: "markdown",
+        content: "# 无标题 Markdown\n\n",
+        contentText: "无标题 Markdown",
+      } as any);
+      actions.setActiveNote(note);
+      actions.setSelectedNotebook(notebookId);
+      actions.setSelectedTag(null);
+      actions.setViewMode("notebook");
+      actions.setMobileView("editor");
+      if (!isDesktop) {
+        actions.setMobileSidebar(false);
+      }
+      setNotesByNotebookId((prev) => {
+        return addNoteToNotebookCache(prev, notebookId, noteToListItem(note));
+      });
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+    } catch (err: any) {
+      console.error("Failed to create markdown note:", err);
+      toast.error(err?.message || "新建 Markdown 笔记失败");
+    }
+  }, [actions]);
+
   const handleCreateNotebook = async () => {
     const nb = await api.createNotebook({ name: t('common.newNotebook'), icon: "📒" });
     actions.setNotebooks([...state.notebooks, nb]);
@@ -2170,6 +2245,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     onNoteDragEnd={handleSidebarNoteDragEnd}
                     onNoteDrop={handleSidebarNoteDrop}
                     onCreateNote={handleCreateSidebarNote}
+                    onCreateMarkdownNote={handleCreateSidebarMarkdownNote}
                     constrainWidth={constrainNotebookTreeWidth}
                     showNoteTime={userPrefs.showNoteListUpdatedTime}
                   />
