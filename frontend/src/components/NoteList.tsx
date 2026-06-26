@@ -2383,8 +2383,23 @@ export default function NoteList() {
           .then(() => {
             actions.refreshNotebooks();
             actions.refreshNotes();
-            // TAG-CLEANUP-ON-NOTE-DELETE-01: 软删除后刷新标签列表
-            api.getTags().then(actions.setTags).catch(() => {});
+            // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 软删除后刷新标签列表并清理失效筛选
+            api.getTags().then((tags) => {
+              actions.setTags(tags);
+              // 清理 selectedTagIds 中已消失的标签
+              const validTagIds = new Set(tags.map((t: any) => t.id));
+              const currentSelected = state.selectedTagIds;
+              const invalidIds = currentSelected.filter(id => !validTagIds.has(id));
+              if (invalidIds.length > 0) {
+                const remaining = currentSelected.filter(id => validTagIds.has(id));
+                if (remaining.length > 0) {
+                  actions.setSelectedTags(remaining);
+                } else {
+                  actions.clearSelectedTags();
+                  actions.setViewMode("all");
+                }
+              }
+            }).catch(() => {});
           })
           .catch(console.error);
         break;
@@ -2464,8 +2479,23 @@ export default function NoteList() {
           .then(() => {
             actions.refreshNotebooks();
             actions.refreshNotes();
-            // TAG-CLEANUP-ON-NOTE-DELETE-01: 删除笔记后刷新标签列表
-            api.getTags().then(actions.setTags).catch(() => {});
+            // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 删除笔记后刷新标签列表并清理失效筛选
+            api.getTags().then((tags) => {
+              actions.setTags(tags);
+              // 清理 selectedTagIds 中已消失的标签
+              const validTagIds = new Set(tags.map((t: any) => t.id));
+              const currentSelected = state.selectedTagIds;
+              const invalidIds = currentSelected.filter(id => !validTagIds.has(id));
+              if (invalidIds.length > 0) {
+                const remaining = currentSelected.filter(id => validTagIds.has(id));
+                if (remaining.length > 0) {
+                  actions.setSelectedTags(remaining);
+                } else {
+                  actions.clearSelectedTags();
+                  actions.setViewMode("all");
+                }
+              }
+            }).catch(() => {});
           })
           .catch(console.error);
         break;
