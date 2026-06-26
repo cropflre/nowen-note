@@ -316,4 +316,58 @@ taskCalendar.get("/feed/:token", (c) => {
   });
 });
 
+// ── 导出 ICS 生成逻辑供公开路由使用 ──
+
+/** 根据 token 查询 feed 并生成 ICS 内容。返回 null 表示 token 无效或已禁用。 */
+export function buildIcsForToken(token: string): { body: string; feedId: string } | null {
+  const db = getDb();
+  const feed = db.prepare(
+    "SELECT * FROM task_calendar_feeds WHERE token = ? AND enabled = 1"
+  ).get(token) as any;
+  if (!feed) return null;
+
+  // Update lastAccessedAt（fire and forget）
+  try {
+    db.prepare("UPDATE task_calendar_feeds SET lastAccessedAt = datetime('now') WHERE id = ?").run(feed.id);
+  } catch { /* ignore */ }
+
+  let sql = `
+    SELECT t.id, t.title, t.description, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
+    FROM tasks t
+    WHERE t.userId = ?
+      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
+  `;
+  const params: any[] = [feed.userId];
+  if (!feed.includeCompleted) sql += " AND t.isCompleted = 0";
+  if (feed.workspaceId) { sql += " AND t.workspaceId = ?"; params.push(feed.workspaceId); }
+  sql += " ORDER BY COALESCE(t.dueAt, t.dueDate) ASC";
+
+  const tasks = db.prepare(sql).all(...params) as any[];
+
+  const taskIds = tasks.map((t) => t.id);
+  const remindersByTask = new Map<string, any[]>();
+  if (taskIds.length > 0) {
+    const placeholders = taskIds.map(() => "?").join(",");
+    const reminders = db.prepare(
+      `SELECT * FROM task_reminders WHERE taskId IN (${placeholders}) AND enabled = 1`
+    ).all(...taskIds) as any[];
+    for (const r of reminders) {
+      const arr = remindersByTask.get(r.taskId) || [];
+      arr.push(r);
+      remindersByTask.set(r.taskId, arr);
+    }
+  }
+
+  const calLines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Nowen Note//Tasks//CN",
+    "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    icsFold("X-WR-CALNAME:Nowen Tasks"),
+  ];
+  for (const task of tasks) {
+    calLines.push(buildVEvent(task, feed, remindersByTask.get(task.id) || []));
+  }
+  calLines.push("END:VCALENDAR");
+  return { body: calLines.join("\r\n") + "\r\n", feedId: feed.id };
+}
+
 export default taskCalendar;

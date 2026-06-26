@@ -111,7 +111,7 @@ export function TaskCalendarFeedSettings() {
   const handleCopy = useCallback(async () => {
     if (!feed?.token) return;
     const baseUrl = getBaseUrl().replace(/\/api$/, "");
-    const url = `${baseUrl}/api/task-calendar/feed/${feed.token}.ics`;
+    const url = `${baseUrl}/api/calendar/ics/${feed.token}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success(t("tasks.calendarFeed.copied"));
@@ -127,7 +127,7 @@ export function TaskCalendarFeedSettings() {
   }, [feed?.token, t]);
 
   const icsUrl = feed?.token
-    ? `${getBaseUrl().replace(/\/api$/, "")}/api/task-calendar/feed/${feed.token}.ics`
+    ? `${getBaseUrl().replace(/\/api$/, "")}/api/calendar/ics/${feed.token}`
     : "";
 
   if (loading) {
@@ -244,6 +244,28 @@ export function TaskCalendarFeedSettings() {
                   <Copy size={13} />
                 </button>
               </div>
+              {/* webcal 链接（iOS/macOS 一键订阅） */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={icsUrl ? icsUrl.replace(/^https?:\/\//, "webcal://") : ""}
+                  className="flex-1 px-2.5 py-1.5 text-xs bg-app-bg rounded-lg border border-app-border text-tx-tertiary truncate"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const webcalUrl = icsUrl.replace(/^https?:\/\//, "webcal://");
+                    try { await navigator.clipboard.writeText(webcalUrl); toast.success(t("tasks.calendarFeed.copied")); } catch {}
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-tx-tertiary bg-app-hover rounded-lg hover:bg-app-hover/80 transition-colors"
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+              <p className="text-[10px] text-tx-tertiary mt-1">
+                {t("tasks.calendarFeed.subscribeHint", { defaultValue: "在 iOS/macOS 日历 app 中选择「添加订阅」并粘贴上方链接" })}
+              </p>
             </div>
 
             {/* 导出已完成待办 */}

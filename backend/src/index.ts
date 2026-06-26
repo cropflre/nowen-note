@@ -107,6 +107,47 @@ try { initApiTokensTable(getDb()); } catch (e) { console.warn("[init] initApiTok
 // 认证路由（无需 JWT）
 app.route("/api/auth", authRouter);
 
+// TASK-CALENDAR-SUBSCRIBE-01-RV1: 公开 ICS 订阅端点（无需 JWT）
+// 注册在 auth middleware 之前，让手机系统日历可以直接订阅。
+import { buildIcsForToken } from "./routes/task-calendar";
+
+const icsRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+app.get("/api/calendar/ics/:token", (c) => {
+  // 基础限流：每 IP 每分钟 30 次
+  const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
+  const entry = icsRateLimitMap.get(ip);
+  if (entry && entry.resetAt > now) {
+    if (entry.count >= 30) return c.text("Rate limited", 429);
+    entry.count++;
+  } else {
+    icsRateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+  }
+  // 清理过期条目
+  if (icsRateLimitMap.size > 5000) {
+    for (const [k, v] of icsRateLimitMap.entries()) {
+      if (v.resetAt < now) icsRateLimitMap.delete(k);
+    }
+  }
+
+  const rawToken = c.req.param("token");
+  // 支持 /api/calendar/ics/:token 和 /api/calendar/ics/:token.ics
+  const token = rawToken.replace(/\.ics$/, "");
+  if (!token || token.length < 16) return c.text("Not found", 404);
+
+  const result = buildIcsForToken(token);
+  if (!result) return c.text("Not found", 404);
+
+  return new Response(result.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'inline; filename="nowen-tasks.ics"',
+      "Cache-Control": "private, max-age=3600",
+    },
+  });
+});
+
 // 分享公开访问路由（无需 JWT）
 // Phase 5: 速率限制 — 防止暴力破解密码和恶意轮询
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
