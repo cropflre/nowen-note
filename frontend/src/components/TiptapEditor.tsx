@@ -1268,8 +1268,6 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     setIsMobile(mq.matches);
     return () => mq.removeEventListener("change", handler);
   }, []);
-  // MOBILE-TABLE-EDITING-UX-01: 移动端表格底部 Sheet 展开状态
-  const [tableSheetExpanded, setTableSheetExpanded] = useState(false);
   // 调整表格尺寸对话框：按行列差值调用 addRow/deleteRow + addColumn/deleteColumn
   // initialRows/Cols 是打开对话框时的当前表格尺寸
   const [resizeDialog, setResizeDialog] = useState<{ open: boolean; rows: number; cols: number }>({
@@ -4164,6 +4162,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                         className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover transition-colors">
                         <Heading size={14} className="inline mr-2 -mt-0.5" />
                         {t("tiptap.toggleHeaderRow", { defaultValue: "切换表头行" })}
+                      </button>
+                      <button onClick={() => { editor.chain().focus().toggleHeaderColumn().run(); setTableSheet(null); }}
+                        className="w-full h-11 rounded-lg px-3 text-left text-sm text-tx-secondary hover:bg-app-hover transition-colors">
+                        <Heading size={14} className="inline mr-2 -mt-0.5 rotate-90" />
+                        {t("tiptap.toggleHeaderColumn", { defaultValue: "切换表头列" })}
                       </button>
                       <button onClick={() => {
                         const view = editor.view;
