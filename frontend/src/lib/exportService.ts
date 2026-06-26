@@ -84,19 +84,7 @@ interface ExportNote {
   contentFormat?: string;
 }
 
-/**
- * 解析后端返回的时间字符串为 Date 对象。
- * 后端 SQLite datetime('now') 返回 UTC 时间，格式 "YYYY-MM-DD HH:MM:SS"，
- * 无时区后缀。JavaScript new Date() 会将其解析为本地时间，导致时区偏移。
- * 这里统一追加 'Z' 确保按 UTC 解析，再由 toLocaleString() 转为本地显示。
- */
-function parseServerTime(ts: string | undefined | null): Date | null {
-  if (!ts) return null;
-  // 已带时区后缀（Z 或 +08:00 等）直接解析
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(ts)) return new Date(ts);
-  // SQLite datetime 格式 "YYYY-MM-DD HH:MM:SS" → 追加 Z 按 UTC 解析
-  return new Date(ts.replace(" ", "T") + "Z");
-}
+import { parseServerTime } from "@/lib/dateTime";
 
 // 清理文件名中的非法字符
 function sanitizeFilename(name: string): string {
