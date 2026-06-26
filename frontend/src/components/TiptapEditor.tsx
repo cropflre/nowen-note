@@ -1515,6 +1515,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           openOnClick: false,
           autolink: true,
           linkOnPaste: true,
+          protocols: ["http", "https", "mailto", "note"],
           HTMLAttributes: {
             target: "_blank",
             rel: "noopener noreferrer nofollow",
