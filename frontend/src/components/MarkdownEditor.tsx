@@ -1200,10 +1200,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar
-          v2026-05-18���� TiptapEditor ���롪��ȡ�������̵�����������������
-          ��������Ϊʼ�ձ�����һ������������ sticky ���������ˣ�
-          ��֤�ƶ�������ʱ���ܿ���������ʽ��ť���������������ĸ����������� */}
+      {/* Status bar (char/word count, aligned with TiptapEditor) */}
       {editable && (
         <div
           className={cn(
@@ -1448,13 +1445,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
       {/* ״̬��������ͳ�ƣ��� TiptapEditor ���룩 */}
       <div className="px-4 md:px-8 py-1.5 border-t border-app-border/60 text-[11px] text-tx-tertiary flex items-center gap-3 select-none">
-        <span>
-          {tr("tiptap.chars", { count: wordStats.chars }) || `${wordStats.chars} �ַ�`}
-        </span>
-        <span className="opacity-60">��</span>
-        <span>
-          {tr("tiptap.words", { count: wordStats.words }) || `${wordStats.words} ��`}
-        </span>
+        <span>{wordStats.chars}{t('tiptap.chars')}</span>
+        <span className="opacity-60">·</span>
+        <span>{wordStats.words}{t('tiptap.words')}</span>
         <span className="ml-auto opacity-60">Markdown</span>
       </div>
 
