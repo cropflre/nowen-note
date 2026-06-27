@@ -96,6 +96,19 @@ export const apiTokensRepository = {
   },
 
   /**
+   * 记录 token 使用量（按天累加）
+   *
+   * 注意：day 格式为 YYYY-MM-DD (UTC)，由调用方生成。
+   */
+  recordUsage(tokenId: string, day: string): void {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO api_token_usage (tokenId, day, count) VALUES (?, ?, 1)
+       ON CONFLICT(tokenId, day) DO UPDATE SET count = count + 1`,
+    ).run(tokenId, day);
+  },
+
+  /**
    * 吊销 token（软删除）
    */
   revokeById(id: string): void {

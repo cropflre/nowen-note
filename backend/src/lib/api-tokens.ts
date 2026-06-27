@@ -88,10 +88,7 @@ export function initApiTokensTable(db: BetterSqliteDB) {
 export function recordTokenUsage(db: BetterSqliteDB, tokenId: string): void {
   try {
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-    db.prepare(
-      `INSERT INTO api_token_usage (tokenId, day, count) VALUES (?, ?, 1)
-       ON CONFLICT(tokenId, day) DO UPDATE SET count = count + 1`,
-    ).run(tokenId, today);
+    apiTokensRepository.recordUsage(tokenId, today);
   } catch {
     /* 非关键路径，忽略 */
   }
