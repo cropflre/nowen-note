@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, FileCode, FileType2, Calendar } from "lucide-react";
+import { setNextMarkdownNoteTemplate, type MarkdownNoteTemplate } from "@/lib/newNoteDefaults";
 
 export type NoteType = "normal" | "markdown" | "word" | "journal";
 
@@ -17,6 +18,8 @@ export interface CreateNoteMenuProps {
  * 菜单项：
  *   - 新建笔记（富文本编辑器）
  *   - 新建 Markdown 笔记（原生 Markdown 编辑器）
+ *   - 新建代码块笔记（Markdown + ```text``` 模板）
+ *   - 新建 SQL 笔记（Markdown + ```sql``` 模板）
  *   - 今日日记（自动创建或打开今日日记）
  *   - 导入 Word 文档（.docx 转可编辑笔记）
  */
@@ -49,27 +52,54 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
 
   if (!pos) return null;
 
-  const items = [
+  const items: Array<{
+    id: string;
+    noteType: NoteType;
+    label: string;
+    desc: string;
+    icon: React.ReactNode;
+    markdownTemplate?: MarkdownNoteTemplate;
+  }> = [
     {
-      id: "normal" as NoteType,
+      id: "normal",
+      noteType: "normal",
       label: "新建笔记",
       desc: "富文本编辑器",
       icon: <FileText size={14} />,
     },
     {
-      id: "markdown" as NoteType,
+      id: "markdown",
+      noteType: "markdown",
       label: "新建 Markdown 笔记",
       desc: "原生 Markdown 编辑器",
       icon: <FileCode size={14} />,
     },
     {
-      id: "journal" as NoteType,
+      id: "markdown-code",
+      noteType: "markdown",
+      label: "新建代码块笔记",
+      desc: "Markdown · ```text``` 模板",
+      icon: <FileCode size={14} />,
+      markdownTemplate: "code",
+    },
+    {
+      id: "markdown-sql",
+      noteType: "markdown",
+      label: "新建 SQL 笔记",
+      desc: "Markdown · ```sql``` 模板",
+      icon: <FileCode size={14} />,
+      markdownTemplate: "sql",
+    },
+    {
+      id: "journal",
+      noteType: "journal",
       label: "今日日记",
       desc: "一键创建或打开今日日记",
       icon: <Calendar size={14} />,
     },
     {
-      id: "word" as NoteType,
+      id: "word",
+      noteType: "word",
       label: "导入 Word 文档",
       desc: "选择 .docx 转为可编辑笔记",
       icon: <FileType2 size={14} />,
@@ -99,7 +129,8 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              onPick(it.id);
+              if (it.markdownTemplate) setNextMarkdownNoteTemplate(it.markdownTemplate);
+              onPick(it.noteType);
               onClose();
             }}
             className="w-full flex items-start gap-2 px-3 py-2 text-left text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-colors"

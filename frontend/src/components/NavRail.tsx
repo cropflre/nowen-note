@@ -45,6 +45,7 @@ import MigrationModal from "@/components/MigrationModal";
 import { useRailMode, nextRailMode, RailMode } from "@/hooks/useRailMode";
 import { getAppInfo, isDesktop as isDesktopApp, switchDesktopToFull, type AppInfo } from "@/lib/desktopBridge";
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
+import { clearRememberedCredentials } from "@/lib/rememberLogin";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -391,7 +392,10 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       ) : (
         <button
-          onClick={() => {
+          onClick={async () => {
+            // Android/移动端如果开启“下次自动登录”，必须先清除记住密码凭据；
+            // 否则 reload 后 LoginPage 会读取 SecureStorage 并再次自动登录，表现为“退出不了”。
+            await clearRememberedCredentials();
             // L10: 广播给其他 tab 一起下线，与 Sidebar Footer 保持一致
             broadcastLogout("user_logout");
             window.location.reload();
