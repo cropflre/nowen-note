@@ -25,6 +25,7 @@
 import * as sqliteVec from "sqlite-vec";
 import type Database from "better-sqlite3";
 import { getDb } from "../db/schema";
+import { systemSettingsRepository } from "../repositories";
 
 // ====== 内部状态 ======
 let loaded = false;          // sqlite-vec 是否成功加载到当前 db 连接
@@ -57,9 +58,7 @@ export function initVecStore(): { loaded: boolean; dim: number | null; error?: s
 
     // 读持久化的维度；如果之前建过 vec0 表，这里恢复 currentDim
     try {
-      const row = db
-        .prepare("SELECT value FROM system_settings WHERE key = ?")
-        .get(SETTINGS_KEY_DIM) as { value: string } | undefined;
+      const row = systemSettingsRepository.get(SETTINGS_KEY_DIM);
       if (row?.value) {
         const d = parseInt(row.value, 10);
         if (Number.isFinite(d) && d > 0) {
@@ -137,11 +136,7 @@ export function resetVecTable(dim: number): void {
     // 必须先 DROP 旧的，CREATE 时维度才能换
     try { db.exec("DROP TABLE IF EXISTS vec_note_chunks"); } catch { /* 不存在也不要紧 */ }
     ensureVecTable(db, dim);
-    db.prepare(`
-      INSERT INTO system_settings (key, value, updatedAt)
-      VALUES (?, ?, datetime('now'))
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-    `).run(SETTINGS_KEY_DIM, String(dim));
+    systemSettingsRepository.set(SETTINGS_KEY_DIM, String(dim));
   });
   tx();
 
