@@ -419,6 +419,15 @@ export default function TaskCenter() {
     });
   }, []);
 
+  const handleSelectAll = useCallback(() => {
+    const allIds = new Set(flatOrderedTasks.map((t) => t.id));
+    setSelectedIds(allIds);
+  }, [flatOrderedTasks]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
   const handleBatchComplete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -758,6 +767,13 @@ export default function TaskCenter() {
               <>
                 <span className="text-xs text-tx-tertiary">{t("tasks.selectedCount", { count: selectedIds.size })}</span>
                 <button
+                  onClick={selectedIds.size === flatOrderedTasks.length ? handleDeselectAll : handleSelectAll}
+                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-tx-secondary hover:bg-app-hover transition-colors"
+                >
+                  <CheckSquare size={14} />
+                  {selectedIds.size === flatOrderedTasks.length ? t("tasks.deselectAll") : t("tasks.selectAll")}
+                </button>
+                <button
                   onClick={handleBatchComplete}
                   disabled={selectedIds.size === 0}
                   className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 disabled:opacity-40 transition-colors"
@@ -967,6 +983,11 @@ export default function TaskCenter() {
           <div className="md:hidden flex items-center justify-between gap-2 px-4 py-3 border-t border-app-border bg-app-surface">
             <span className="text-xs text-tx-tertiary">{t("tasks.selectedCount", { count: selectedIds.size })}</span>
             <div className="flex items-center gap-2">
+              <button onClick={selectedIds.size === flatOrderedTasks.length ? handleDeselectAll : handleSelectAll}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-full text-tx-secondary hover:bg-app-hover">
+                <CheckSquare size={14} />
+                {selectedIds.size === flatOrderedTasks.length ? t("tasks.deselectAll") : t("tasks.selectAll")}
+              </button>
               <button onClick={handleBatchComplete} disabled={selectedIds.size === 0}
                 className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-full bg-accent-primary/10 text-accent-primary disabled:opacity-40">
                 <CheckSquare size={14} /> {t("tasks.batchComplete")}

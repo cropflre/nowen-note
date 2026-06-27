@@ -1174,6 +1174,8 @@
     "batchComplete": "Complete selected",
     "batchDelete": "Delete selected",
     "batchCancel": "Cancel selection",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
     "selectMode": "Select mode",
     "dragHint": "Drag to reorder",
     "projects": "Projects",

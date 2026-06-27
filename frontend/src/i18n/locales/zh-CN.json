@@ -1203,6 +1203,8 @@
     "batchComplete": "批量完成",
     "batchDelete": "批量删除",
     "batchCancel": "取消选择",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
     "selectMode": "选择模式",
     "dragHint": "拖拽排序",
     "projects": "项目",
