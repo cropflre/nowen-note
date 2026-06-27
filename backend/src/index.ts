@@ -61,6 +61,7 @@ import { initAuditTables } from "./services/audit";
 import { publishMdns, stopMdns } from "./services/discovery";
 import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-worker";
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
+import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
 
 const app = new Hono();
 
@@ -713,6 +714,16 @@ try {
   console.warn("[init] startEmbeddingWorker failed:", e);
 }
 
+// 启动日历 ICS S3 镜像定时导出
+//   - CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
+//   - NODE_ENV=test 时不启动
+//   - 延迟 15 秒后执行第一轮，不阻塞启动流程
+try {
+  startCalendarExportScheduler();
+} catch (e) {
+  console.warn("[init] startCalendarExportScheduler failed:", e);
+}
+
 console.log(`🚀 nowen-note API running on http://localhost:${port}`);
 console.log(`📖 OpenAPI 文档: http://localhost:${port}/api/openapi.json`);
 
@@ -755,6 +766,8 @@ async function gracefulShutdown(signal: string) {
   } finally {
     // 停掉 embedding worker 的轮询定时器，避免 process.exit 之前还在发起 fetch
     try { stopEmbeddingWorker(); } catch { /* ignore */ }
+    // 停掉日历导出定时器
+    try { stopCalendarExportScheduler(); } catch { /* ignore */ }
     // mDNS 停播放在最后：即使 realtime shutdown 抛错，也要尽量通知网络"下线"
     try { stopMdns(); } catch { /* ignore */ }
     // 关停 DB 连接：内部会先 wal_checkpoint(TRUNCATE)，把 -wal 中的事务全部

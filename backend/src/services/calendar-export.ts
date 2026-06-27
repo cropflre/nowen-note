@@ -570,3 +570,127 @@ function updateExportStatus(
     UPDATE calendar_export_targets SET ${updates.join(", ")} WHERE id = ?
   `).run(...params);
 }
+
+// ====== 定时导出调度器 ======
+
+/** 模块级状态：防止重复启动和并发执行 */
+let schedulerIntervalHandle: ReturnType<typeof setInterval> | null = null;
+let isExportRunning = false;
+
+/** 列出所有启用的 export targets */
+export function listEnabledExportTargets(): CalendarExportTarget[] {
+  return getDb()
+    .prepare("SELECT * FROM calendar_export_targets WHERE enabled = 1")
+    .all() as CalendarExportTarget[];
+}
+
+/**
+ * 执行一轮定时导出：遍历所有 enabled targets，逐个调用 exportNow。
+ * 返回统计摘要。
+ */
+export async function runCalendarExportOnce(): Promise<{
+  total: number;
+  success: number;
+  failed: number;
+  skipped: number;
+}> {
+  const targets = listEnabledExportTargets();
+  const stats = { total: targets.length, success: 0, failed: 0, skipped: 0 };
+
+  for (const target of targets) {
+    try {
+      const result = await exportNow(target.userId, target.id);
+      if (result.success) {
+        stats.success++;
+      } else {
+        stats.failed++;
+        console.warn(`[calendar-export] target ${target.id} failed: ${result.error}`);
+      }
+    } catch (err: any) {
+      stats.failed++;
+      console.warn(`[calendar-export] target ${target.id} error: ${err?.message || err}`);
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * 启动定时导出调度器。
+ *
+ * 行为：
+ *   - 读取环境变量 CALENDAR_EXPORT_INTERVAL_MINUTES（默认 30，最小 5）
+ *   - 读取环境变量 CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
+ *   - NODE_ENV=test 时不启动
+ *   - 延迟 15 秒后执行第一轮，之后按 interval 执行
+ *   - 同一进程内多次调用不会重复启动
+ *   - 上一轮未完成时跳过本轮
+ */
+export function startCalendarExportScheduler(): void {
+  // 测试环境不启动
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  // 环境变量关闭
+  if (process.env.CALENDAR_EXPORT_TIMER_DISABLED === "1") {
+    console.log("[calendar-export] scheduler disabled by CALENDAR_EXPORT_TIMER_DISABLED=1");
+    return;
+  }
+
+  // 防止重复启动
+  if (schedulerIntervalHandle) {
+    return;
+  }
+
+  // 解析间隔（默认 30 分钟，最小 5 分钟）
+  let intervalMinutes = Number(process.env.CALENDAR_EXPORT_INTERVAL_MINUTES) || 30;
+  if (intervalMinutes < 5) intervalMinutes = 5;
+  const intervalMs = intervalMinutes * 60 * 1000;
+
+  console.log(`[calendar-export] scheduler started, interval=${intervalMinutes} minutes`);
+
+  // 延迟 15 秒后执行第一轮（不阻塞启动流程）
+  setTimeout(async () => {
+    if (isExportRunning) return;
+    isExportRunning = true;
+    try {
+      const stats = await runCalendarExportOnce();
+      if (stats.total > 0) {
+        console.log(`[calendar-export] first run: total=${stats.total} success=${stats.success} failed=${stats.failed} skipped=${stats.skipped}`);
+      }
+    } catch (err: any) {
+      console.warn("[calendar-export] first run error:", err?.message || err);
+    } finally {
+      isExportRunning = false;
+    }
+  }, 15_000);
+
+  // 定时执行
+  schedulerIntervalHandle = setInterval(async () => {
+    if (isExportRunning) {
+      console.log("[calendar-export] skipping round, previous round still running");
+      return;
+    }
+    isExportRunning = true;
+    try {
+      const stats = await runCalendarExportOnce();
+      if (stats.total > 0) {
+        console.log(`[calendar-export] run: total=${stats.total} success=${stats.success} failed=${stats.failed} skipped=${stats.skipped}`);
+      }
+    } catch (err: any) {
+      console.warn("[calendar-export] run error:", err?.message || err);
+    } finally {
+      isExportRunning = false;
+    }
+  }, intervalMs);
+}
+
+/** 停止定时导出调度器（用于优雅关停） */
+export function stopCalendarExportScheduler(): void {
+  if (schedulerIntervalHandle) {
+    clearInterval(schedulerIntervalHandle);
+    schedulerIntervalHandle = null;
+    console.log("[calendar-export] scheduler stopped");
+  }
+}
