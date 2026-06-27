@@ -123,6 +123,15 @@ app.post("/", async (c) => {
   const userId = c.req.header("X-User-Id") || "demo";
   const body = await c.req.json();
 
+  // 标签名称校验
+  const name = (body.name || "").trim();
+  if (!name) {
+    return c.json({ error: "标签名称不能为空" }, 400);
+  }
+  if (name.length > 30) {
+    return c.json({ error: "标签最多 30 个字符" }, 400);
+  }
+
   const ws = normalizeWorkspaceId(body.workspaceId);
   if (ws) {
     const role = getUserWorkspaceRole(ws, userId);
@@ -135,7 +144,7 @@ app.post("/", async (c) => {
   try {
     db.prepare(
       `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
-    ).run(id, userId, ws, body.name, body.color || "#58a6ff");
+    ).run(id, userId, ws, name, body.color || "#58a6ff");
   } catch (err: any) {
     // UNIQUE(userId, name) 冲突 → 当前账号已有同名标签（可能在其他空间）
     if (String(err?.message || err).includes("UNIQUE")) {
@@ -159,6 +168,18 @@ app.put("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
   const body = await c.req.json();
+
+  // 标签名称校验
+  if (body.name !== undefined) {
+    const name = (body.name || "").trim();
+    if (!name) {
+      return c.json({ error: "标签名称不能为空" }, 400);
+    }
+    if (name.length > 30) {
+      return c.json({ error: "标签最多 30 个字符" }, 400);
+    }
+    body.name = name;
+  }
 
   const owner = getTagOwner(id);
   if (!owner) return c.json({ error: "tag not found" }, 404);

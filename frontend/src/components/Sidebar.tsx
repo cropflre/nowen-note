@@ -2414,7 +2414,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                             backgroundColor: tag.color,
                           }}
                         />
-                        <span className="flex-1 truncate text-left">{tag.name}</span>
+                        <span className="flex-1 truncate text-left" title={tag.name}>{tag.name}</span>
                         {/* 右侧尾部：固定宽度容器，内部用绝对定位叠放数字与删除按钮，避免 hover 时宽度变化引发抖动 */}
                         <span className="relative shrink-0 w-4 h-4 flex items-center justify-center">
                           {tag.noteCount !== undefined && tag.noteCount > 0 && (

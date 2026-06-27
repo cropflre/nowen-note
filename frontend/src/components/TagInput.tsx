@@ -6,6 +6,10 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { Tag } from "@/types";
 import TagColorPicker from "@/components/TagColorPicker";
+import { toast } from "@/lib/toast";
+
+/** 标签名称最大长度 */
+export const MAX_TAG_NAME_LENGTH = 30;
 
 interface TagInputProps {
   noteId: string;
@@ -45,6 +49,12 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
   const addTag = useCallback(async (tagName: string) => {
     const trimmed = tagName.trim();
     if (!trimmed || isAdding) return;
+
+    // 长度校验
+    if (trimmed.length > MAX_TAG_NAME_LENGTH) {
+      toast.error(t("tags.nameTooLong", { defaultValue: "标签最多 {{count}} 个字符", count: MAX_TAG_NAME_LENGTH }));
+      return;
+    }
 
     // 防止重复
     if (noteTags.some((t) => t.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -172,7 +182,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
                   }
                 }}
               />
-              <span>{tag.name}</span>
+              <span className="max-w-[100px] truncate" title={tag.name}>{tag.name}</span>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -196,6 +206,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
           onFocus={handleFocus}
           onBlur={handleBlur}
           disabled={isAdding}
+          maxLength={MAX_TAG_NAME_LENGTH}
           className="flex-1 min-w-[60px] sm:min-w-[80px] bg-transparent text-[10px] sm:text-[11px] text-tx-primary outline-none border-none focus:ring-0 focus:shadow-none placeholder:text-tx-tertiary no-focus-ring"
           placeholder={noteTags.length === 0 ? t('tags.addTagPlaceholder') : ""}
         />
