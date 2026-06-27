@@ -403,6 +403,7 @@
     "imageUploading": "Uploading image...",
     "imageUploadSuccess": "Image uploaded",
     "imageUploadFailed": "Image upload failed",
+    "localizingImages": "Saving {{count}} image(s)...",
     "rtfRescueProcessing": "Processing {{count}} image(s) from pasted content...",
     "rtfRescueDone": "Pasted {{count}} image(s)",
     "rtfRescueUploading": "Uploading images to server ({{done}}/{{total}})...",
