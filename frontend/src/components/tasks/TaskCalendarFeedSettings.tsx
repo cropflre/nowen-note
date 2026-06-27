@@ -108,10 +108,23 @@ export function TaskCalendarFeedSettings() {
     }
   }, [loadFeed, t]);
 
+  // 生成完整绝对 URL（手机系统日历需要完整域名，不能用相对路径）
+  const getAbsoluteIcsUrl = useCallback(() => {
+    if (!feed?.token) return "";
+    const base = getBaseUrl().replace(/\/api$/, "");
+    // 如果 getBaseUrl() 返回相对路径（如 "/api"），base 为空，使用 window.location.origin
+    const origin = base || (typeof window !== "undefined" ? window.location.origin : "");
+    return `${origin}/api/calendar/ics/${feed.token}`;
+  }, [feed?.token]);
+
+  // 检测是否为本机地址（手机无法访问）
+  const isLocalhost = useCallback((url: string) => {
+    return /localhost|127\.0\.0\.1|\[::1\]/.test(url);
+  }, []);
+
   const handleCopy = useCallback(async () => {
-    if (!feed?.token) return;
-    const baseUrl = getBaseUrl().replace(/\/api$/, "");
-    const url = `${baseUrl}/api/calendar/ics/${feed.token}`;
+    const url = getAbsoluteIcsUrl();
+    if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
       toast.success(t("tasks.calendarFeed.copied"));
@@ -124,11 +137,9 @@ export function TaskCalendarFeedSettings() {
       document.body.removeChild(ta);
       toast.success(t("tasks.calendarFeed.copied"));
     }
-  }, [feed?.token, t]);
+  }, [getAbsoluteIcsUrl, t]);
 
-  const icsUrl = feed?.token
-    ? `${getBaseUrl().replace(/\/api$/, "")}/api/calendar/ics/${feed.token}`
-    : "";
+  const icsUrl = getAbsoluteIcsUrl();
 
   if (loading) {
     return (
@@ -266,6 +277,12 @@ export function TaskCalendarFeedSettings() {
               <p className="text-[10px] text-tx-tertiary mt-1">
                 {t("tasks.calendarFeed.subscribeHint", { defaultValue: "在 iOS/macOS 日历 app 中选择「添加订阅」并粘贴上方链接" })}
               </p>
+              {/* 本机地址警告：手机无法访问 localhost */}
+              {isLocalhost(icsUrl) && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                  ⚠️ 当前订阅地址是本机地址，手机系统日历无法访问。请改用公网域名或局域网 IP。
+                </p>
+              )}
             </div>
 
             {/* 导出已完成待办 */}
