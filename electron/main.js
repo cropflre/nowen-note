@@ -22,6 +22,7 @@ const {
 const folderSync = require("./folder-sync");
 const {
   isAllowedExternalUrl,
+  isAllowedMainWindowNavigation,
   isTrustedMainWindowSender,
   isTrustedSetupWindowSender,
   assertMainWindowSender,
@@ -772,6 +773,25 @@ function createWindow() {
   // 首次加载完成后，冲刷待送的文件关联打开请求
   mainWindow.webContents.on("did-finish-load", () => {
     flushPending(mainWindow);
+  });
+
+  // SEC-ELECTRON-01-C-B1: 主窗口 navigation 拦截
+  // 防止 renderer 通过 window.location、恶意链接、脚本跳转等方式把主窗口导航到非应用页面
+  mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    const currentUrl = mainWindow.webContents.getURL();
+    if (isAllowedMainWindowNavigation(navigationUrl, currentUrl)) {
+      return; // 允许内部导航
+    }
+
+    // 阻止主窗口跳转
+    event.preventDefault();
+
+    // 外部 http/https/mailto 走安全外链打开
+    if (isAllowedExternalUrl(navigationUrl)) {
+      shell.openExternal(navigationUrl);
+    } else {
+      console.warn("[main] blocked main window navigation to unsafe URL:", navigationUrl);
+    }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
