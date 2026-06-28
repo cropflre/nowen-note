@@ -136,3 +136,12 @@ export interface BacklinkItem {
   targetBlockId: string | null;
   excerpt: string | null;
 }
+
+/** 笔记引用链接条目（用于 syncNoteLinks） */
+export interface NoteLinkEntry {
+  targetNoteId: string;
+  targetBlockId: string | null;
+  linkType: "note" | "block";
+  linkText: string | null;
+  excerpt: string | null;
+}

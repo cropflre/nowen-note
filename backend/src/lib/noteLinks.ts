@@ -31,15 +31,7 @@
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { noteLinksRepository } from "../repositories";
-
-// BLOCK-LINKS-01: 引用链接条目
-export interface NoteLinkEntry {
-  targetNoteId: string;
-  targetBlockId: string | null;
-  linkType: "note" | "block";
-  linkText: string | null;
-  excerpt: string | null;
-}
+import type { NoteLinkEntry } from "../repositories";
 
 // 匹配 [[note:UUID|标题]] 和 [[note:UUID#blk:BLOCK_ID|标题 > 摘要]] 格式（纯文本形式）
 // UUID 支持大小写十六进制
@@ -116,60 +108,22 @@ export function extractNoteLinksFromContent(content: string): NoteLinkEntry[] {
  * 失败仅打日志，不阻断保存（与 attachmentReferences 一致）。
  */
 export function syncNoteLinks(
-  db: Database.Database,
+  _db: Database.Database,
   userId: string,
   sourceNoteId: string,
   content: string,
 ): void {
   try {
-    // 1. 清除旧的引用关系
-    db.prepare(
-      "DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?"
-    ).run(userId, sourceNoteId);
-
-    // 2. 解析新的引用（含笔记级和块级）
+    // 1. 解析新的引用（含笔记级和块级）
     const links = extractNoteLinksFromContent(content);
 
-    // 3. 排除笔记级自引用（块级自引用允许：引用自己的某个 heading）
+    // 2. 排除笔记级自引用（块级自引用允许：引用自己的某个 heading）
     const filteredLinks = links.filter(
       (link) => !(link.targetNoteId === sourceNoteId.toLowerCase() && !link.targetBlockId)
     );
 
-    if (filteredLinks.length === 0) return;
-
-    // 4. 过滤掉不存在的 target note（简单校验）
-    const validEntries: NoteLinkEntry[] = [];
-    const checkStmt = db.prepare("SELECT id FROM notes WHERE id = ?");
-    for (const link of filteredLinks) {
-      const exists = checkStmt.get(link.targetNoteId);
-      if (exists) validEntries.push(link);
-    }
-
-    if (validEntries.length === 0) return;
-
-    // 5. 批量插入新的引用关系
-    //    使用 INSERT OR IGNORE + 部分唯一约束去重
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, targetBlockId, linkType, linkText, excerpt, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `);
-
-    const insertMany = db.transaction((entries: NoteLinkEntry[]) => {
-      for (const link of entries) {
-        insertStmt.run(
-          uuid(),
-          userId,
-          sourceNoteId,
-          link.targetNoteId,
-          link.targetBlockId,
-          link.linkType,
-          link.linkText,
-          link.excerpt,
-        );
-      }
-    });
-
-    insertMany(validEntries);
+    // 3. 调用 Repository 执行 DELETE + INSERT（保持现有事务边界）
+    noteLinksRepository.replaceLinksForSource(userId, sourceNoteId, filteredLinks);
   } catch (e) {
     console.warn("[syncNoteLinks] failed:", e instanceof Error ? e.message : e);
   }

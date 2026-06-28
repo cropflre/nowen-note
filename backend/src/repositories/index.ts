@@ -27,4 +27,5 @@ export type {
   UpdateCalendarExportTargetInput,
   UpdateCalendarExportTargetStatusInput,
   BacklinkItem,
+  NoteLinkEntry,
 } from "./types";
