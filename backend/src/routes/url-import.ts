@@ -6,6 +6,7 @@ import { promisify } from "util";
 import { getDb } from "../db/schema";
 import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
 import { deleteAttachmentObject, writeAttachmentObject } from "../services/attachment-storage";
+import { sanitizeForImport } from "../lib/sanitizeHtml";
 
 const app = new Hono();
 
@@ -458,9 +459,12 @@ app.post("/", async (c) => {
     return c.json({ error: `写入笔记失败: ${err?.message || err}` }, 500);
   }
 
+  // SEC-XSS-01-B: 入库前清洗外部 HTML，剥离 script/on*/javascript: 等危险内容
+  const sanitizedContent = sanitizeForImport(rawContent);
+
   // 下载图片并改写 HTML（此刻 notes 行已存在，attachments 外键能通过）
   const { html: bodyHtml, downloaded, failed } = await rewriteImages(
-    rawContent,
+    sanitizedContent,
     userId,
     noteId,
     workspaceId,

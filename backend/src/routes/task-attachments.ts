@@ -28,7 +28,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
-import { ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import { ensureAttachmentsDir, MIME_TO_EXT, isHighRiskMime, encodeContentDispositionFilename } from "./attachments";
 import {
   deleteAttachmentObject,
   getUploadMonthPath,
@@ -65,20 +65,26 @@ export async function handleDownloadTaskAttachment(c: Context): Promise<Response
   const id = c.req.param("id");
   const db = getDb();
   const row = db
-    .prepare("SELECT id, mimeType, path FROM task_attachments WHERE id = ?")
-    .get(id) as { id: string; mimeType: string; path: string } | undefined;
+    .prepare("SELECT id, mimeType, path, filename FROM task_attachments WHERE id = ?")
+    .get(id) as { id: string; mimeType: string; path: string; filename: string } | undefined;
   if (!row) return c.json({ error: "附件不存在" }, 404);
 
   const buffer = await readAttachmentObject(row.path);
   if (!buffer) {
     return c.json({ error: "attachment file missing" }, 404);
   }
-  return new Response(new Uint8Array(buffer), {
-    headers: {
-      "Content-Type": row.mimeType || "application/octet-stream",
-      "Cache-Control": "public, max-age=31536000, immutable",
-    },
-  });
+
+  // SEC-XSS-01-B: 高风险 MIME 强制下载，对齐主附件路由行为
+  const headers: Record<string, string> = {
+    "Content-Type": row.mimeType || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+  };
+  if (isHighRiskMime(row.mimeType)) {
+    headers["Content-Disposition"] = encodeContentDispositionFilename(row.filename || "");
+    headers["X-Content-Type-Options"] = "nosniff";
+  }
+
+  return new Response(new Uint8Array(buffer), { headers });
 }
 
 const app = new Hono();

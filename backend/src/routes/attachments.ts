@@ -266,7 +266,7 @@ function pickExt(filename: string | undefined, mime: string): string {
 }
 
 // 为响应头构造一个安全的 filename* 值（RFC 5987），避免中文/空格被截断或破坏。
-function encodeContentDispositionFilename(name: string): string {
+export function encodeContentDispositionFilename(name: string): string {
   const safe = (name || "attachment").replace(/[\r\n"]/g, "_");
   return `attachment; filename*=UTF-8''${encodeURIComponent(safe)}`;
 }
