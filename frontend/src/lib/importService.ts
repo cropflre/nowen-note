@@ -12,9 +12,12 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
+import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+import { MathInline, MathBlock } from "@/components/MathExtensions";
+import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 
 // BLOCK-ID-01-RV1: heading blockId 扩展（与 TiptapEditor / contentFormat 对齐）
 // 只声明 attrs，不带 appendTransaction plugin
@@ -68,11 +71,24 @@ export const tiptapExtensions = [
   TableRowWithHeight,
   TableHeader,
   TableCell,
+  // TextAlign：必须与 TiptapEditor 对齐，否则 repairTiptapJson round-trip
+  // 时段落/标题的 textAlign 属性会被 schema 静默过滤掉，刷新后段落对齐丢失。
+  TextAlign.configure({ types: ["heading", "paragraph"] }),
   // TextStyle + Color + FontSize：与编辑器保持一致，否则导入近来的
   // 带颜色/字号的 HTML 会被 generateJSON schema-filter 掉
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导入/修复阶段 video 节点会被吃
   VideoExtension,
+  // 数学公式（行内 / 块级）：必须与 TiptapEditor 对齐。
+  // 缺这两个时，含 LaTeX 公式的笔记走 repairTiptapJson → generateHTML 会因
+  // schema 不认识 mathInline / mathBlock 抛 RangeError，catch 兜底返回空 doc，
+  // 表现为"刷新后整篇内容消失"。
+  MathInline,
+  MathBlock,
+  // 脚注（引用 / 定义）：同 Math，含脚注节点的 doc 在 repair round-trip 时
+  // 会因 schema 缺失导致 generateHTML 抛错，刷新后笔记内容被清空。
+  FootnoteReference,
+  FootnoteDefinition,
   // BLOCK-ID-01-RV1: heading blockId 属性，与 TiptapEditor / contentFormat 对齐
   // 避免 schema 修复时 blockId 被过滤掉
   BlockIdAttrs,
