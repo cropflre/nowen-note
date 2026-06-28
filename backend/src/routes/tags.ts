@@ -174,8 +174,8 @@ app.delete("/:id", (c) => {
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
-  db.prepare("DELETE FROM note_tags WHERE tagId = ?").run(id);
-  db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+  tagsRepository.deleteTagLinks(id);
+  tagsRepository.deleteById(id);
   return c.json({ success: true });
 });
 

@@ -163,4 +163,24 @@ export const tagsRepository = {
     values.push(tagId);
     db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
   },
+
+  /**
+   * 删除标签与笔记的关联（note_tags）。
+   *
+   * @param tagId 标签 ID
+   */
+  deleteTagLinks(tagId: string): void {
+    const db = getDb();
+    db.prepare("DELETE FROM note_tags WHERE tagId = ?").run(tagId);
+  },
+
+  /**
+   * 删除标签本身。
+   *
+   * @param tagId 标签 ID
+   */
+  deleteById(tagId: string): void {
+    const db = getDb();
+    db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+  },
 };
