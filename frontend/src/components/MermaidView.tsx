@@ -19,6 +19,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { renderMermaid, resetMermaidTheme } from "@/lib/mermaidRenderer";
+import { sanitizeSvg } from "@/lib/sanitizeHtml";
 import { AlertTriangle, Loader2, Maximize2, Minus, Plus, RotateCcw, X, Copy, Download, Code } from "lucide-react";
 
 import { toast } from "@/lib/toast";
@@ -192,7 +193,7 @@ const MermaidLightbox: React.FC<{ svg: string; onClose: () => void }> = ({ svg, 
             maxWidth: "92vw",
             maxHeight: "88vh",
           }}
-          dangerouslySetInnerHTML={{ __html: svg }}
+          dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }}
         />
       </div>
     </div>,
@@ -368,7 +369,7 @@ export const MermaidView: React.FC<MermaidViewProps> = ({
         <div
           className="mermaid-view-svg w-full flex justify-center"
           // mermaid 出的 svg 已是受控来源，且 securityLevel:'strict' 不会执行任意脚本
-          dangerouslySetInnerHTML={{ __html: svg }}
+          dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }}
         />
       </div>
       {previewOpen && svg && (

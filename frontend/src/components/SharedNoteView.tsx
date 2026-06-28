@@ -10,7 +10,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { sanitizeForShare } from "@/lib/sanitizeHtml";
+import { sanitizeForShare, sanitizeSvg } from "@/lib/sanitizeHtml";
 import TiptapEditor from "@/components/TiptapEditor";
 import type { NoteEditorUpdatePayload } from "@/components/editors/types";
 import { detectFormat } from "@/lib/contentFormat";
@@ -213,7 +213,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
             </div>
           `;
         } else {
-          block.innerHTML = res.svg;
+          // SEC-XSS-01-E: Mermaid SVG 兜底清洗
+          block.innerHTML = sanitizeSvg(res.svg);
         }
       });
     });
@@ -270,7 +271,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
             </span>
           `;
         } else {
-          block.innerHTML = res.html;
+          // SEC-XSS-01-E: KaTeX HTML 兜底清洗
+          block.innerHTML = sanitizeForShare(res.html);
         }
       });
     });
