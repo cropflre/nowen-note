@@ -590,6 +590,8 @@ function createSplash(message) {
       allowRunningInsecureContent: false,
     },
   });
+  // SEC-ELECTRON-01-C-B2-B3: 禁止 data URL 窗口打开新窗口
+  splashWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   const html = `
     <html><head><style>
       html,body{margin:0;height:100%;background:#0D1117;color:#E6EDF3;font-family:system-ui,sans-serif;
@@ -636,6 +638,8 @@ function openAboutWindow() {
       allowRunningInsecureContent: false,
     },
   });
+  // SEC-ELECTRON-01-C-B2-B3: 禁止 data URL 窗口打开新窗口
+  about.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   const html = `
     <html><head><style>
       html,body{margin:0;height:100%;background:#0D1117;color:#E6EDF3;
@@ -1168,6 +1172,8 @@ ipcMain.handle("task:notify-permission", () => {
         webSecurity: true,
       },
     });
+    // SEC-ELECTRON-01-C-B2-B3: 禁止 data URL 窗口打开新窗口
+    offscreen.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
     try {
       // 用 data: URL 加载 HTML；base64 编码避免 URL 中特殊字符截断
