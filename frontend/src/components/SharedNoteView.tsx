@@ -1164,7 +1164,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                     },
                     protocols: {
                       href: ["http", "https", "mailto", "note"],
-                      src: ["http", "https", "data"],
+                      src: ["http", "https"],
                     },
                   },
                 ]]}

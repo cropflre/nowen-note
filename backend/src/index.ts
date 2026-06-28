@@ -696,6 +696,23 @@ if (process.env.NODE_ENV === "production") {
     // SPA fallback：返回 index.html
     const indexPath = path.join(frontendDist, "index.html");
     if (fs.existsSync(indexPath)) {
+      // SEC-XSS-01-C-RV1: CSP 必须加在 HTML document 响应上才对浏览器生效
+      c.header(
+        "Content-Security-Policy",
+        [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob: https:",
+          "font-src 'self' data:",
+          "connect-src 'self' ws: wss:",
+          "media-src 'self' blob: https:",
+          "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "frame-ancestors 'none'",
+        ].join("; "),
+      );
       return c.html(fs.readFileSync(indexPath, "utf-8"));
     }
     return c.json({ error: "Not Found" }, 404);
