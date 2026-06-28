@@ -20,7 +20,7 @@ import {
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { getAppInfo, isDesktop as isDesktopApp, openDataDir, resetDesktopLocalAuth, type AppInfo } from "@/lib/desktopBridge";
+import { getAppInfo, getDiagnosticsInfo, isDesktop as isDesktopApp, openDataDir, resetDesktopLocalAuth, type AppInfo } from "@/lib/desktopBridge";
 import { getSyncSummary, getLastSyncAt, subscribeSyncSummary, syncNow, type SyncSummary } from "@/lib/syncEngine";
 import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import MiCloudImport from "@/components/MiCloudImport";
@@ -136,7 +136,11 @@ function DesktopDataSafetyCard() {
 
   useEffect(() => {
     if (!isDesktopApp()) return;
+    // SEC-ELECTRON-01-C: 分开获取安全信息和诊断信息
     getAppInfo().then(setInfo).catch(() => {});
+    getDiagnosticsInfo().then((diag) => {
+      if (diag) setInfo((prev) => prev ? { ...prev, ...diag } : prev);
+    }).catch(() => {});
   }, []);
 
   if (!isDesktopApp() || !info) return null;

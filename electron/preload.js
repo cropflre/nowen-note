@@ -67,8 +67,25 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   },
 
   /** 设置 Windows/Linux 原生菜单栏是否隐藏。 */
-  /** 发送任务提醒通知 */`n  taskNotify(title, body) {`n    return ipcRenderer.invoke("task:notify", { title, body });`n  },`n`n  /** 检查通知权限 */`n  taskNotifyPermission() {`n    return ipcRenderer.invoke("task:notify-permission");`n  },`n`n  setHideMenuBar(next) {
+  setHideMenuBar(next) {
     return ipcRenderer.invoke("app:set-hide-menu-bar", Boolean(next));
+  },
+
+  /** 发送任务提醒通知（SEC-ELECTRON-01-C: 参数校验） */
+  taskNotify(title, body) {
+    const safeTitle = typeof title === "string" ? title.slice(0, 200) : "";
+    const safeBody = typeof body === "string" ? body.slice(0, 1000) : "";
+    return ipcRenderer.invoke("task:notify", { title: safeTitle, body: safeBody });
+  },
+
+  /** 检查通知权限 */
+  taskNotifyPermission() {
+    return ipcRenderer.invoke("task:notify-permission");
+  },
+
+  /** SEC-ELECTRON-01-C: 诊断信息接口（敏感路径等） */
+  getDiagnosticsInfo() {
+    return ipcRenderer.invoke("app:diagnostics-info");
   },
 
   /**
@@ -241,6 +258,7 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   /**
    * 文件夹同步配置（Phase B：仅配置 CRUD，不做扫描/上传）。
    */
+  /** SEC-ELECTRON-01-C: folderSync 参数校验 */
   folderSync: {
     selectFolder() {
       return ipcRenderer.invoke("folder-sync:select-folder");
@@ -249,30 +267,93 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       return ipcRenderer.invoke("folder-sync:get-configs");
     },
     saveConfig(config) {
-      return ipcRenderer.invoke("folder-sync:save-config", config);
+      if (!config || typeof config !== "object") {
+        return Promise.resolve({ ok: false, error: "INVALID_CONFIG" });
+      }
+      const safe = {};
+      if (typeof config.folderId === "string") safe.folderId = config.folderId.slice(0, 128);
+      if (typeof config.folderPath === "string") safe.folderPath = config.folderPath.slice(0, 4096);
+      if (typeof config.targetNotebookId === "string" || config.targetNotebookId === null) {
+        safe.targetNotebookId = config.targetNotebookId;
+      }
+      if (typeof config.includeSubfolders === "boolean") safe.includeSubfolders = config.includeSubfolders;
+      if (Array.isArray(config.fileTypes)) {
+        const allowedExts = [".md", ".markdown", ".txt", ".html", ".htm", ".pdf", ".docx"];
+        safe.fileTypes = config.fileTypes.filter(e => typeof e === "string" && allowedExts.includes(e.toLowerCase()));
+      }
+      if (typeof config.intervalMinutes === "number" && config.intervalMinutes >= 5 && config.intervalMinutes <= 1440) {
+        safe.intervalMinutes = config.intervalMinutes;
+      } else if (config.intervalMinutes === null) {
+        safe.intervalMinutes = null;
+      }
+      if (typeof config.enabled === "boolean") safe.enabled = config.enabled;
+      return ipcRenderer.invoke("folder-sync:save-config", safe);
     },
     removeConfig(folderId) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
       return ipcRenderer.invoke("folder-sync:remove-config", folderId);
     },
     getLogs(folderId) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
       return ipcRenderer.invoke("folder-sync:get-logs", folderId);
     },
     runNow(folderId) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
       return ipcRenderer.invoke("folder-sync:run-now", folderId);
     },
     getIndex(folderId) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
       return ipcRenderer.invoke("folder-sync:get-index", folderId);
     },
     getPendingUploads(folderId) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
       return ipcRenderer.invoke("folder-sync:get-pending-uploads", folderId);
     },
     markUploadResult(folderId, relativePath, result) {
-      return ipcRenderer.invoke("folder-sync:mark-upload-result", folderId, relativePath, result);
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
+      if (typeof relativePath !== "string" || relativePath.includes("..") || relativePath.length > 4096) {
+        return Promise.resolve({ ok: false, error: "INVALID_PATH" });
+      }
+      if (!result || typeof result !== "object") {
+        return Promise.resolve({ ok: false, error: "INVALID_RESULT" });
+      }
+      const safe = {};
+      if (typeof result.success === "boolean") safe.success = result.success;
+      if (typeof result.skipped === "boolean") safe.skipped = result.skipped;
+      if (typeof result.noteId === "string") safe.noteId = result.noteId;
+      if (typeof result.attachmentId === "string") safe.attachmentId = result.attachmentId;
+      if (typeof result.error === "string") safe.error = result.error.slice(0, 1000);
+      return ipcRenderer.invoke("folder-sync:mark-upload-result", folderId, relativePath, safe);
     },
     appendLog(folderId, type, message, detail) {
-      return ipcRenderer.invoke("folder-sync:append-log", folderId, type, message, detail);
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
+      const allowedTypes = ["info", "warn", "error", "sync", "upload"];
+      const safeType = allowedTypes.includes(type) ? type : "info";
+      const safeMsg = typeof message === "string" ? message.slice(0, 1000) : "";
+      const safeDetail = typeof detail === "string" ? detail.slice(0, 2000) : "";
+      return ipcRenderer.invoke("folder-sync:append-log", folderId, safeType, safeMsg, safeDetail);
     },
     getUploadFile(folderId, relativePath) {
+      if (typeof folderId !== "string" || folderId.length > 128) {
+        return Promise.resolve({ ok: false, error: "INVALID_FOLDER_ID" });
+      }
+      if (typeof relativePath !== "string" || relativePath.includes("..") || relativePath.length > 4096) {
+        return Promise.resolve({ ok: false, error: "INVALID_PATH" });
+      }
       return ipcRenderer.invoke("folder-sync:get-upload-file", folderId, relativePath);
     },
   },
