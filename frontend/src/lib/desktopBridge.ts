@@ -76,12 +76,21 @@ export interface AppInfo {
   name: string;
   platform: string;
   arch: string;
+  mode?: "full" | "lite";
+  hideMenuBar?: boolean;
+  // SEC-ELECTRON-01-C: 敏感字段可选，由 getDiagnosticsInfo 获取
+  userData?: string;
+  logDir?: string;
+  backendPort?: number;
+  remoteUrl?: string;
+}
+
+/** SEC-ELECTRON-01-C: 诊断信息（敏感字段，仅在需要时获取） */
+export interface DiagnosticsInfo {
   userData: string;
   logDir: string;
   backendPort: number;
-  mode?: "full" | "lite";
-  remoteUrl?: string;
-  hideMenuBar?: boolean;
+  remoteUrl: string;
 }
 
 export interface OpenFilePayload {
@@ -198,6 +207,7 @@ interface NowenDesktopAPI {
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
   quitAndInstall: () => Promise<{ ok: boolean }>;
   getAppInfo: () => Promise<AppInfo>;
+  getDiagnosticsInfo?: () => Promise<DiagnosticsInfo>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
   openDataDir?: () => Promise<{ ok: boolean; path: string }>;
   setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;
@@ -328,6 +338,13 @@ export async function getAppInfo(): Promise<AppInfo | null> {
   const bridge = getBridge();
   if (!bridge) return null;
   return bridge.getAppInfo();
+}
+
+/** SEC-ELECTRON-01-C: 获取诊断信息（敏感字段，仅在诊断/关于页面调用） */
+export async function getDiagnosticsInfo(): Promise<DiagnosticsInfo | null> {
+  const bridge = getBridge();
+  if (!bridge?.getDiagnosticsInfo) return null;
+  return bridge.getDiagnosticsInfo();
 }
 
 export async function setDesktopHideMenuBar(next: boolean): Promise<{ ok: boolean; hideMenuBar?: boolean; reason?: string }> {

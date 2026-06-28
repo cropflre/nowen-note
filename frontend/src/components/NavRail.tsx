@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils";
 import SettingsModal from "@/components/SettingsModal";
 import MigrationModal from "@/components/MigrationModal";
 import { useRailMode, nextRailMode, RailMode } from "@/hooks/useRailMode";
-import { getAppInfo, isDesktop as isDesktopApp, switchDesktopToFull, type AppInfo } from "@/lib/desktopBridge";
+import { getAppInfo, getDiagnosticsInfo, isDesktop as isDesktopApp, switchDesktopToFull, type AppInfo } from "@/lib/desktopBridge";
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { clearRememberedCredentials } from "@/lib/rememberLogin";
 
@@ -131,6 +131,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   useEffect(() => {
     if (!isDesktopApp()) return;
     let cancelled = false;
+    // SEC-ELECTRON-01-C: 分开获取安全信息和诊断信息
     getAppInfo()
       .then((info) => {
         if (!cancelled) setDesktopInfo(info ?? null);
@@ -138,6 +139,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       .catch(() => {
         if (!cancelled) setDesktopInfo(null);
       });
+    getDiagnosticsInfo()
+      .then((diag) => {
+        if (!cancelled && diag) setDesktopInfo((prev) => prev ? { ...prev, ...diag } : prev);
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 

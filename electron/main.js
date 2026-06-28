@@ -977,9 +977,9 @@ async function changeRemoteServer() {
 
 // ---------- IPC：app 信息 ----------
 function registerAppIpc() {
+  // SEC-ELECTRON-01-C: app:info 只返回安全字段
   ipcMain.removeHandler("app:info");
   ipcMain.handle("app:info", (event) => {
-    // SEC-ELECTRON-01-B: 来源校验
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     return {
@@ -987,12 +987,21 @@ function registerAppIpc() {
       name: app.getName(),
       platform: process.platform,
       arch: process.arch,
+      mode: currentMode,
+      hideMenuBar: currentHideMenuBar,
+    };
+  });
+
+  // SEC-ELECTRON-01-C: 诊断信息接口（敏感路径等，仅在需要时调用）
+  ipcMain.removeHandler("app:diagnostics-info");
+  ipcMain.handle("app:diagnostics-info", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return {
       userData: getUserDataPath(),
       logDir: getLogDir(),
       backendPort,
-      mode: currentMode,
       remoteUrl: currentRemoteUrl,
-      hideMenuBar: currentHideMenuBar,
     };
   });
 
@@ -1394,47 +1403,70 @@ app.whenReady().then(async () => {
   ipcMain.handle("folder-sync:save-config", (event, config) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!config || typeof config !== "object") return { ok: false, error: "INVALID_CONFIG" };
     return folderSync.saveConfig(config);
   });
+
+  // SEC-ELECTRON-01-C: folder-sync 参数校验辅助函数
+  function validateFolderId(folderId) {
+    return typeof folderId === "string" && folderId.length > 0 && folderId.length <= 128
+      && !folderId.includes("..") && !folderId.includes("/") && !folderId.includes("\\");
+  }
+  function validateRelativePath(p) {
+    return typeof p === "string" && p.length > 0 && p.length <= 4096
+      && !p.includes("..") && !/^[A-Za-z]:/.test(p) && !p.startsWith("/");
+  }
+
   ipcMain.handle("folder-sync:remove-config", (event, folderId) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     return folderSync.removeConfig(folderId);
   });
   ipcMain.handle("folder-sync:get-logs", (event, folderId) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     return folderSync.getLogs(folderId);
   });
   ipcMain.handle("folder-sync:run-now", (event, folderId) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     return folderSync.runNow(folderId);
   });
   ipcMain.handle("folder-sync:get-index", (event, folderId) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     return folderSync.getIndex(folderId);
   });
   ipcMain.handle("folder-sync:get-pending-uploads", (event, folderId) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     return folderSync.getPendingUploads(folderId);
   });
   ipcMain.handle("folder-sync:mark-upload-result", (event, folderId, relativePath, result) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
+    if (!validateRelativePath(relativePath)) return { ok: false, error: "INVALID_PATH" };
+    if (!result || typeof result !== "object") return { ok: false, error: "INVALID_RESULT" };
     return folderSync.markUploadResult(folderId, relativePath, result);
   });
   ipcMain.handle("folder-sync:append-log", (event, folderId, type, message, detail) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
     folderSync.appendLog(folderId, type, message, detail);
     return { ok: true };
   });
   ipcMain.handle("folder-sync:get-upload-file", (event, folderId, relativePath) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
+    if (!validateRelativePath(relativePath)) return { ok: false, error: "INVALID_PATH" };
     return folderSync.getUploadFile(folderId, relativePath);
   });
 

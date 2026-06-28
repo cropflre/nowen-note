@@ -202,25 +202,54 @@ function registerCredentialsIpc() {
   // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
   const { assertMainWindowSender } = require("./security");
 
+  // SEC-ELECTRON-01-C: credentials:load 默认不返回密码
   ipcMain.removeHandler("credentials:load");
   ipcMain.handle("credentials:load", (event) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     const data = load();
     if (!data) return null;
-    return {
+    const summary = {
       serverUrl: data.serverUrl,
       username: data.username,
-      password: data.password,
       hasPassword: data.hasPassword,
       autoLogin: data.autoLogin,
     };
+    if (data.autoLogin && data.hasPassword) {
+      summary.password = data.password;
+    }
+    return summary;
   });
 
+  // SEC-ELECTRON-01-C: credentials:save 参数 schema 校验
   ipcMain.removeHandler("credentials:save");
   ipcMain.handle("credentials:save", (event, payload) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (!payload || typeof payload !== "object") {
+      return { ok: false, error: "INVALID_PAYLOAD" };
+    }
+    if (payload.serverUrl !== undefined && typeof payload.serverUrl !== "string") {
+      return { ok: false, error: "INVALID_SERVER_URL" };
+    }
+    if (payload.username !== undefined && typeof payload.username !== "string") {
+      return { ok: false, error: "INVALID_USERNAME" };
+    }
+    if (payload.password !== undefined && typeof payload.password !== "string") {
+      return { ok: false, error: "INVALID_PASSWORD" };
+    }
+    if (payload.remember !== undefined && typeof payload.remember !== "boolean") {
+      return { ok: false, error: "INVALID_REMEMBER" };
+    }
+    if (payload.serverUrl && payload.serverUrl.length > 2048) {
+      return { ok: false, error: "SERVER_URL_TOO_LONG" };
+    }
+    if (payload.username && payload.username.length > 256) {
+      return { ok: false, error: "USERNAME_TOO_LONG" };
+    }
+    if (payload.password && payload.password.length > 1024) {
+      return { ok: false, error: "PASSWORD_TOO_LONG" };
+    }
     return save(payload);
   });
 
