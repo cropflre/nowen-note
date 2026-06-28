@@ -1656,6 +1656,45 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  // ===== 以下为 nowen-note 定制改造（dev-nowen 分支） =====
+  {
+    version: 36,
+    name: "scanner-source-path-and-sha256",
+    up: (db) => {
+      const colNames = new Set(
+        db.prepare("PRAGMA table_info(notes)").all().map((r: any) => r.name),
+      );
+      if (!colNames.has("sourcePath")) {
+        db.exec("ALTER TABLE notes ADD COLUMN sourcePath TEXT");
+      }
+      if (!colNames.has("sha256")) {
+        db.exec("ALTER TABLE notes ADD COLUMN sha256 TEXT");
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_notes_source_path
+          ON notes(userId, sourcePath);
+      `);
+    },
+  },
+  {
+    version: 37,
+    name: "backlinks-table",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS backlinks (
+          sourceNoteId TEXT NOT NULL,
+          targetNoteId TEXT NOT NULL,
+          displayText TEXT,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (sourceNoteId, targetNoteId),
+          FOREIGN KEY (sourceNoteId) REFERENCES notes(id) ON DELETE CASCADE,
+          FOREIGN KEY (targetNoteId) REFERENCES notes(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_backlinks_target
+          ON backlinks(targetNoteId);
+      `);
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

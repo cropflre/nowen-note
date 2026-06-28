@@ -56,3 +56,7 @@ dist-electron-lite/win-unpacked/resources
 dist-electron-lite/win-unpacked
 dist-electron-lite/.icon-ico
 dist-electron-lite
+
+# 虚拟环境
+.venv/
+__pycache__/

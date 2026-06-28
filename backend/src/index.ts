@@ -61,6 +61,8 @@ import { initAuditTables } from "./services/audit";
 import { publishMdns, stopMdns } from "./services/discovery";
 import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-worker";
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
+// [dev-nowen] 扫描器模块
+import { scannerRoutes, ScannerRunner, setScannerRunner, createFileWatcher } from "./scanner";
 
 const app = new Hono();
 
@@ -454,6 +456,9 @@ app.route("/api/users", usersRouter);
 app.route("/api/tokens", tokensRouter);
 app.route("/api/user-migration", userMigrationRouter);
 
+// [dev-nowen] 扫描器路由
+app.route("/api/scanner", scannerRoutes);
+
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 app.route("/api/attachments", attachmentsRouter);
@@ -711,6 +716,49 @@ try {
   startEmbeddingWorker();
 } catch (e) {
   console.warn("[init] startEmbeddingWorker failed:", e);
+}
+
+// [dev-nowen] 初始化 MD 扫描器
+const mdRoot = process.env.NOWEN_MD_ROOT || "";
+if (mdRoot) {
+  try {
+    const db = getDb();
+    const userId = ScannerRunner.resolveUserId(db, "admin");
+    if (!userId) {
+      console.warn("[scanner] 无法解析 admin 用户 ID，扫描器暂不启动");
+    } else {
+      const runner = new ScannerRunner(mdRoot, userId);
+      setScannerRunner(runner);
+      console.log(`[scanner] MD 扫描器已初始化，根目录: ${mdRoot}, userId: ${userId}`);
+
+      // [dev-nowen] 启动文件监听器
+      try {
+        const watcher = createFileWatcher(mdRoot, userId, {
+          onSync: (relPath, stats) => {
+            console.log(`[scanner/watcher] 同步: ${relPath} (${stats.created ? "新建" : "更新"})`);
+          },
+          onError: (relPath, err) => {
+            console.warn(`[scanner/watcher] 错误: ${relPath}: ${err.message}`);
+          },
+        });
+        console.log("[scanner/watcher] 文件监听器已启动");
+      } catch (e) {
+        console.warn("[scanner/watcher] 启动失败:", e);
+      }
+
+      // 首次启动时触发一次增量扫描（异步）
+      runner.incrementalScan().then((stats) => {
+        console.log(`[scanner] 首次扫描完成: ${stats.total} 文件, ${stats.created} 新建, ${stats.updated} 更新, ${stats.skipped} 跳过`);
+      }).catch((e) => {
+        console.warn("[scanner] 首次扫描失败（忽略，可手动触发）:", e.message);
+      });
+    }
+  } catch (e) {
+    console.warn("[scanner] 扫描器初始化失败:", e);
+  }
+} else {
+  console.log("[scanner] MD 扫描器未启用（未设置 NOWEN_MD_ROOT）");
+  console.log("[scanner] 设置环境变量 NOWEN_MD_ROOT 指向 Markdown 文件目录即可启用");
 }
 
 console.log(`🚀 nowen-note API running on http://localhost:${port}`);
