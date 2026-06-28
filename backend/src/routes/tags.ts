@@ -104,9 +104,13 @@ app.post("/", async (c) => {
 
   const id = uuid();
   try {
-    db.prepare(
-      `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
-    ).run(id, userId, ws, name, body.color || "#58a6ff");
+    tagsRepository.create({
+      id,
+      userId,
+      workspaceId: ws,
+      name,
+      color: body.color || "#58a6ff",
+    });
   } catch (err: any) {
     // UNIQUE(userId, name) 冲突 → 当前账号已有同名标签（可能在其他空间）
     if (String(err?.message || err).includes("UNIQUE")) {

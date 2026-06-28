@@ -116,4 +116,22 @@ export const tagsRepository = {
       )
       .get(tagId) as TagWithCount | undefined;
   },
+
+  /**
+   * 创建标签。
+   *
+   * @param input 创建标签的输入
+   */
+  create(input: {
+    id: string;
+    userId: string;
+    workspaceId: string | null;
+    name: string;
+    color: string;
+  }): void {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
+    ).run(input.id, input.userId, input.workspaceId, input.name, input.color);
+  },
 };
