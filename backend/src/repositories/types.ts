@@ -148,13 +148,17 @@ export interface NoteLinkEntry {
 
 // ===== Tags =====
 
-/** 标签条目（含笔记数） */
-export interface TagWithCount {
+/** 标签条目 */
+export interface Tag {
   id: string;
   userId: string;
   workspaceId: string | null;
   name: string;
   color: string;
   createdAt: string;
+}
+
+/** 标签条目（含笔记数） */
+export interface TagWithCount extends Tag {
   noteCount: number;
 }

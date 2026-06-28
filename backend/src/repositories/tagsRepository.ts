@@ -14,7 +14,7 @@
  */
 
 import { getDb } from "../db/schema";
-import type { TagWithCount } from "./types";
+import type { Tag, TagWithCount } from "./types";
 
 export const tagsRepository = {
   /**
@@ -70,5 +70,50 @@ export const tagsRepository = {
         )
         .all(userId, userId) as TagWithCount[];
     }
+  },
+
+  /**
+   * 获取单个标签的所有者信息（用于 ACL 校验）。
+   *
+   * @param tagId 标签 ID
+   * @returns 标签所有者信息，或 undefined（标签不存在）
+   */
+  getOwner(tagId: string): { userId: string; workspaceId: string | null } | undefined {
+    const db = getDb();
+    return db
+      .prepare("SELECT userId, workspaceId FROM tags WHERE id = ?")
+      .get(tagId) as { userId: string; workspaceId: string | null } | undefined;
+  },
+
+  /**
+   * 获取单个标签（按 ID）。
+   *
+   * @param tagId 标签 ID
+   * @returns 标签信息，或 undefined（标签不存在）
+   */
+  getById(tagId: string): Tag | undefined {
+    const db = getDb();
+    return db
+      .prepare("SELECT * FROM tags WHERE id = ?")
+      .get(tagId) as Tag | undefined;
+  },
+
+  /**
+   * 获取单个标签（按 ID，含笔记数）。
+   *
+   * @param tagId 标签 ID
+   * @returns 标签信息（含笔记数），或 undefined（标签不存在）
+   */
+  getByIdWithCount(tagId: string): TagWithCount | undefined {
+    const db = getDb();
+    return db
+      .prepare(
+        `
+        SELECT t.*, COUNT(nt.noteId) AS noteCount
+        FROM tags t LEFT JOIN note_tags nt ON t.id = nt.tagId
+        WHERE t.id = ? GROUP BY t.id
+        `,
+      )
+      .get(tagId) as TagWithCount | undefined;
   },
 };

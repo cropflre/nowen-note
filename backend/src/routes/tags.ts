@@ -34,10 +34,7 @@ function normalizeWorkspaceId(raw: string | null | undefined): string | null {
 function getTagOwner(
   tagId: string,
 ): { userId: string; workspaceId: string | null } | undefined {
-  const db = getDb();
-  return db
-    .prepare("SELECT userId, workspaceId FROM tags WHERE id = ?")
-    .get(tagId) as { userId: string; workspaceId: string | null } | undefined;
+  return tagsRepository.getOwner(tagId);
 }
 
 /**
@@ -123,7 +120,7 @@ app.post("/", async (c) => {
     }
     throw err;
   }
-  const tag = db.prepare("SELECT * FROM tags WHERE id = ?").get(id);
+  const tag = tagsRepository.getById(id);
   return c.json(tag, 201);
 });
 
@@ -163,15 +160,7 @@ app.put("/:id", async (c) => {
   if (fields.length === 0) return c.json({ error: "No fields to update" }, 400);
   values.push(id);
   db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
-  const tag = db
-    .prepare(
-      `
-    SELECT t.*, COUNT(nt.noteId) AS noteCount
-    FROM tags t LEFT JOIN note_tags nt ON t.id = nt.tagId
-    WHERE t.id = ? GROUP BY t.id
-  `,
-    )
-    .get(id);
+  const tag = tagsRepository.getByIdWithCount(id);
   return c.json(tag);
 });
 
