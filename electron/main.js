@@ -1029,9 +1029,27 @@ ipcMain.handle("task:notify-permission", () => {
   });
 
   ipcMain.removeHandler("desktop:reset-local-auth");
-  ipcMain.handle("desktop:reset-local-auth", (event) => {
+  ipcMain.handle("desktop:reset-local-auth", async (event) => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+
+    // SEC-ELECTRON-01-B2-B1: 主进程级别用户确认，防止 XSS 或误触重置本地账号
+    const parentWin = BrowserWindow.getFocusedWindow() || mainWindow;
+    const { response } = await dialog.showMessageBox(parentWin || null, {
+      type: "warning",
+      title: "重置本地账号？",
+      message: "此操作会清除当前桌面端的本地账号认证信息。你可能需要重新登录或重新配置本地账号。是否继续？",
+      buttons: ["取消", "重置"],
+      defaultId: 0,  // 默认按钮是取消
+      cancelId: 0,   // Esc / 关闭弹窗视为取消
+    });
+
+    // 用户点击"取消"或关闭弹窗
+    if (response !== 1) {
+      return { success: false, cancelled: true };
+    }
+
+    // 用户点击"重置"
     return resetLocalAccountAuth();
   });
 
