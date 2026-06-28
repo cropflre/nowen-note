@@ -31,4 +31,5 @@ export type {
   NoteLinkEntry,
   Tag,
   TagWithCount,
+  UpdateTagInput,
 } from "./types";

@@ -134,4 +134,33 @@ export const tagsRepository = {
       `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
     ).run(input.id, input.userId, input.workspaceId, input.name, input.color);
   },
+
+  /**
+   * 更新标签（按 ID）。
+   *
+   * 只更新传入的字段，保持与原 routes/tags.ts 中 PUT /tags/:id 行为一致。
+   * 注意：不显式更新 updatedAt，保持原代码行为。
+   *
+   * @param tagId 标签 ID
+   * @param patch 更新字段
+   */
+  updateById(tagId: string, patch: { name?: string; color?: string }): void {
+    const db = getDb();
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (patch.name !== undefined) {
+      fields.push("name = ?");
+      values.push(patch.name);
+    }
+    if (patch.color !== undefined) {
+      fields.push("color = ?");
+      values.push(patch.color);
+    }
+
+    if (fields.length === 0) return;
+
+    values.push(tagId);
+    db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  },
 };

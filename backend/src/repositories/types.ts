@@ -162,3 +162,9 @@ export interface Tag {
 export interface TagWithCount extends Tag {
   noteCount: number;
 }
+
+/** 更新标签输入 */
+export interface UpdateTagInput {
+  name?: string;
+  color?: string;
+}

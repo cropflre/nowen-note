@@ -151,19 +151,16 @@ app.put("/:id", async (c) => {
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
-  const fields: string[] = [];
-  const values: any[] = [];
+  const patch: { name?: string; color?: string } = {};
   if (body.name !== undefined) {
-    fields.push("name = ?");
-    values.push(body.name);
+    patch.name = body.name;
   }
   if (body.color !== undefined) {
-    fields.push("color = ?");
-    values.push(body.color);
+    patch.color = body.color;
   }
-  if (fields.length === 0) return c.json({ error: "No fields to update" }, 400);
-  values.push(id);
-  db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
+
+  tagsRepository.updateById(id, patch);
   const tag = tagsRepository.getByIdWithCount(id);
   return c.json(tag);
 });
