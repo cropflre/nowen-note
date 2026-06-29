@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** folder_sync_files 记录 */
 export interface FolderSyncFileRecord {
@@ -107,6 +112,52 @@ export const folderSyncFilesRepository = {
       .prepare(`SELECT sourcePathHash, noteId FROM folder_sync_files WHERE userId = ? AND sourcePathHash IN (${placeholders})`)
       .all(userId, ...hashes) as { sourcePathHash: string; noteId: string }[];
 
+    const result: Record<string, string> = {};
+    for (const row of rows) {
+      result[row.sourcePathHash] = row.noteId;
+    }
+    return result;
+  },
+
+  async getBySourcePathHashAsync(userId: string, sourcePathHash: string): Promise<{ id: string; noteId: string; oldSha: string } | undefined> {
+    return getAdapter().queryOne<{ id: string; noteId: string; oldSha: string }>(
+      "SELECT id, noteId, sha256 AS oldSha FROM folder_sync_files WHERE userId = ? AND sourcePathHash = ?",
+      [userId, sourcePathHash],
+    );
+  },
+
+  async createAsync(input: { id: string; userId: string; sourcePathHash: string; relativePath: string; filename: string; sha256: string; noteId: string }): Promise<void> {
+    await getAdapter().execute(
+      "INSERT INTO folder_sync_files (id, userId, sourcePathHash, relativePath, filename, sha256, noteId) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [input.id, input.userId, input.sourcePathHash, input.relativePath, input.filename, input.sha256, input.noteId],
+    );
+  },
+
+  async updateAsync(recordId: string, input: { sha256: string; relativePath: string; filename: string; noteId?: string }): Promise<void> {
+    if (input.noteId !== undefined) {
+      await getAdapter().execute(
+        "UPDATE folder_sync_files SET sha256 = ?, relativePath = ?, filename = ?, noteId = ?, updatedAt = datetime('now') WHERE id = ?",
+        [input.sha256, input.relativePath, input.filename, input.noteId, recordId],
+      );
+    } else {
+      await getAdapter().execute(
+        "UPDATE folder_sync_files SET sha256 = ?, relativePath = ?, filename = ?, updatedAt = datetime('now') WHERE id = ?",
+        [input.sha256, input.relativePath, input.filename, recordId],
+      );
+    }
+  },
+
+  async deleteAsync(recordId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM folder_sync_files WHERE id = ?", [recordId]);
+  },
+
+  async batchGetNoteIdsAsync(userId: string, hashes: string[]): Promise<Record<string, string>> {
+    if (hashes.length === 0) return {};
+    const placeholders = hashes.map(() => "?").join(",");
+    const rows = await getAdapter().queryMany<{ sourcePathHash: string; noteId: string }>(
+      `SELECT sourcePathHash, noteId FROM folder_sync_files WHERE userId = ? AND sourcePathHash IN (${placeholders})`,
+      [userId, ...hashes],
+    );
     const result: Record<string, string> = {};
     for (const row of rows) {
       result[row.sourcePathHash] = row.noteId;

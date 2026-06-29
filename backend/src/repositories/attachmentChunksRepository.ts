@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const attachmentChunksRepository = {
   /**
@@ -59,5 +64,32 @@ export const attachmentChunksRepository = {
     db.prepare(
       `DELETE FROM attachment_chunks WHERE attachmentId IN (SELECT id FROM attachments ${whereClause})`
     ).run(...params);
+  },
+
+  async deleteByAttachmentIdAsync(attachmentId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM attachment_chunks WHERE attachmentId = ?", [attachmentId]);
+  },
+
+  async createAsync(attachmentId: string, chunkIndex: number, chunkText: string): Promise<void> {
+    await getAdapter().execute(
+      "INSERT INTO attachment_chunks (attachmentId, chunkIndex, chunkText, createdAt) VALUES (?, ?, ?, datetime('now'))",
+      [attachmentId, chunkIndex, chunkText],
+    );
+  },
+
+  async deleteByAttachmentIdsAsync(attachmentIds: string[]): Promise<void> {
+    if (attachmentIds.length === 0) return;
+    const placeholders = attachmentIds.map(() => "?").join(",");
+    await getAdapter().execute(
+      `DELETE FROM attachment_chunks WHERE attachmentId IN (${placeholders})`,
+      attachmentIds,
+    );
+  },
+
+  async deleteByAttachmentWhereAsync(whereClause: string, params: unknown[]): Promise<void> {
+    await getAdapter().execute(
+      `DELETE FROM attachment_chunks WHERE attachmentId IN (SELECT id FROM attachments ${whereClause})`,
+      params,
+    );
   },
 };

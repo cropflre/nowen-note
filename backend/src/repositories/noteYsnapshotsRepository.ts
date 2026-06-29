@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const noteYsnapshotsRepository = {
   /**
@@ -63,5 +68,35 @@ export const noteYsnapshotsRepository = {
   deleteByNoteId(noteId: string): void {
     const db = getDb();
     db.prepare("DELETE FROM note_ysnapshots WHERE noteId = ?").run(noteId);
+  },
+
+  async getByNoteIdAsync(noteId: string): Promise<{ snapshot_blob: Buffer; updatesMergedTo: number } | undefined> {
+    return getAdapter().queryOne<{ snapshot_blob: Buffer; updatesMergedTo: number }>(
+      "SELECT snapshot_blob, updatesMergedTo FROM note_ysnapshots WHERE noteId = ?",
+      [noteId],
+    );
+  },
+
+  async getUpdatesMergedToAsync(noteId: string): Promise<{ updatesMergedTo: number } | undefined> {
+    return getAdapter().queryOne<{ updatesMergedTo: number }>(
+      "SELECT updatesMergedTo FROM note_ysnapshots WHERE noteId = ?",
+      [noteId],
+    );
+  },
+
+  async upsertAsync(noteId: string, snapshotBlob: Buffer, updatesMergedTo: number): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO note_ysnapshots (noteId, snapshot_blob, updatesMergedTo, updatedAt)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(noteId) DO UPDATE SET
+         snapshot_blob = excluded.snapshot_blob,
+         updatesMergedTo = excluded.updatesMergedTo,
+         updatedAt = datetime('now')`,
+      [noteId, snapshotBlob, updatesMergedTo],
+    );
+  },
+
+  async deleteByNoteIdAsync(noteId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM note_ysnapshots WHERE noteId = ?", [noteId]);
   },
 };
