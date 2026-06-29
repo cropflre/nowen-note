@@ -1,5 +1,5 @@
 import type { Permission } from "../middleware/acl";
-import { getDb } from "../db/schema";
+import { memberQueryService } from "../queries";
 
 export type NotebookRole = "owner" | "editor" | "viewer";
 
@@ -20,14 +20,7 @@ export function resolveNotebookMemberPermission(
   notebookId: string,
   userId: string,
 ): Permission | null {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT role
-         FROM notebook_members
-        WHERE notebookId = ? AND userId = ? AND status = 'active'`,
-    )
-    .get(notebookId, userId) as { role: string } | undefined;
+  const row = memberQueryService.getNotebookMemberRole(notebookId, userId);
   return notebookRoleToPermission(row?.role);
 }
 
@@ -35,32 +28,10 @@ export function resolveNoteNotebookMemberPermission(
   noteId: string,
   userId: string,
 ): Permission | null {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT nm.role
-         FROM notes n
-         JOIN notebook_members nm ON nm.notebookId = n.notebookId
-        WHERE n.id = ? AND nm.userId = ? AND nm.status = 'active'`,
-    )
-    .get(noteId, userId) as { role: string } | undefined;
+  const row = memberQueryService.getNoteNotebookMemberRole(noteId, userId);
   return notebookRoleToPermission(row?.role);
 }
 
 export function listSharedNotebookIds(userId: string): string[] {
-  const db = getDb();
-  return (
-    db
-      .prepare(
-        `SELECT nm.notebookId
-           FROM notebook_members nm
-           JOIN notebooks nb ON nb.id = nm.notebookId
-          WHERE nm.userId = ?
-            AND nm.status = 'active'
-            AND nb.userId <> ?
-            AND nb.isDeleted = 0
-          ORDER BY nb.updatedAt DESC, nb.id ASC`,
-      )
-      .all(userId, userId) as { notebookId: string }[]
-  ).map((row) => row.notebookId);
+  return memberQueryService.listSharedNotebookIds(userId);
 }

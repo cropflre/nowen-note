@@ -12,3 +12,5 @@
 
 export { attachmentQueryService } from "./attachmentQueryService";
 export type { AttachmentPathEntry, NoteReference, MyUploadsSummary } from "./attachmentQueryService";
+
+export { memberQueryService } from "./memberQueryService";
