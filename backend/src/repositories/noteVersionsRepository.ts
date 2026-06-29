@@ -2,14 +2,13 @@
  * Note Versions Repository
  *
  * 职责：
- * - 封装 note_versions 表的查询类数据库操作
+ * - 封装 note_versions 表的数据库操作
  * - 提供类型安全的接口
  * - 保持现有 SQLite 行为不变
  *
  * 注意：
- * - 本次只迁移查询类 SQL（B2-B1）
- * - 创建版本 INSERT / 删除版本 DELETE / pruneOldVersions / 恢复版本事务
- *   留在后续批次迁移
+ * - 已迁移：查询类 SQL（B2-B1）、创建版本 INSERT（B2-B2）
+ * - 未迁移：删除版本 DELETE / pruneOldVersions / 恢复版本事务
  * - 不涉及 notes 主表 CRUD
  */
 
@@ -117,5 +116,40 @@ export const noteVersionsRepository = {
          LIMIT 1`,
       )
       .get(noteId) as { createdAt: string } | undefined;
+  },
+
+  /**
+   * 创建版本记录。
+   *
+   * 用于：
+   * - 编辑保存时记录修改前状态（changeType='edit'）
+   * - 访客编辑时记录修改前状态（changeType='guest_edit'）
+   * - 恢复版本前备份当前状态（changeType='restore'）
+   *
+   * @param input 版本数据
+   */
+  create(input: {
+    id: string;
+    noteId: string;
+    userId: string;
+    title: string;
+    content: string;
+    contentText: string;
+    version: number;
+    changeType: 'edit' | 'guest_edit' | 'restore';
+    changeSummary?: string;
+  }): void {
+    const db = getDb();
+    if (input.changeSummary !== undefined) {
+      db.prepare(
+        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary);
+    } else {
+      db.prepare(
+        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType);
+    }
   },
 };

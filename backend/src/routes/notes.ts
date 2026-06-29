@@ -643,10 +643,16 @@ app.put("/:id", async (c) => {
         if (shouldInsert) {
           const versionId = uuid();
           // 版本历史里记录实际编辑者（可能与笔记所有者不同）
-          db.prepare(`
-            INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'edit')
-          `).run(versionId, id, userId, currentNote.title, currentNote.content, currentNote.contentText, currentNote.version);
+          noteVersionsRepository.create({
+            id: versionId,
+            noteId: id,
+            userId,
+            title: currentNote.title,
+            content: currentNote.content,
+            contentText: currentNote.contentText,
+            version: currentNote.version,
+            changeType: 'edit',
+          });
         }
       }
     }

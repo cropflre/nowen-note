@@ -505,19 +505,17 @@ sharedRouter.put("/:token/content", async (c) => {
       || (title !== undefined && title !== share.noteTitle);
     if (hasContentChange) {
       const versionId = uuid();
-      db.prepare(`
-        INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'guest_edit', ?)
-      `).run(
-        versionId,
-        share.noteId,
-        share.noteUserId,
-        share.noteTitle,
-        share.noteContent,
-        share.noteContentText,
-        share.noteVersion,
-        `访客 ${trimmedName} 编辑`,
-      );
+      noteVersionsRepository.create({
+        id: versionId,
+        noteId: share.noteId,
+        userId: share.noteUserId,
+        title: share.noteTitle,
+        content: share.noteContent,
+        contentText: share.noteContentText,
+        version: share.noteVersion,
+        changeType: 'guest_edit',
+        changeSummary: `访客 ${trimmedName} 编辑`,
+      });
     }
   }
 
@@ -601,10 +599,17 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
 
   const updated = db.transaction(() => {
     const currentVersionId = uuid();
-    db.prepare(`
-      INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'restore', ?)
-    `).run(currentVersionId, noteId, userId, note.title, note.content, note.contentText, note.version, "恢复前自动备份");
+    noteVersionsRepository.create({
+      id: currentVersionId,
+      noteId,
+      userId,
+      title: note.title,
+      content: note.content,
+      contentText: note.contentText,
+      version: note.version,
+      changeType: 'restore',
+      changeSummary: "恢复前自动备份",
+    });
 
     db.prepare(`
       UPDATE notes
