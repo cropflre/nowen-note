@@ -73,4 +73,73 @@ export const notebookMembersRepository = {
       "UPDATE notebook_members SET status = 'removed', updatedAt = datetime('now') WHERE notebookId = ? AND userId = ?"
     ).run(notebookId, userId);
   },
+
+  /**
+   * 获取笔记本成员列表（含用户信息）。
+   *
+   * @param notebookId 笔记本 ID
+   * @returns 成员列表
+   */
+  listByNotebook(notebookId: string): Array<{
+    id: string;
+    notebookId: string;
+    userId: string;
+    role: string;
+    status: string;
+    invitedBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+    username: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }> {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
+                nm.createdAt, nm.updatedAt,
+                u.username, u.email, u.displayName, u.avatarUrl
+         FROM notebook_members nm
+         JOIN users u ON u.id = nm.userId
+         WHERE nm.notebookId = ? AND nm.status != 'removed'
+         ORDER BY CASE nm.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+                  u.username ASC`
+      )
+      .all(notebookId) as any[];
+  },
+
+  /**
+   * 获取单个成员信息（含用户信息）。
+   *
+   * @param notebookId 笔记本 ID
+   * @param userId 用户 ID
+   * @returns 成员信息，或 undefined
+   */
+  getByNotebookAndUser(notebookId: string, userId: string): {
+    id: string;
+    notebookId: string;
+    userId: string;
+    role: string;
+    status: string;
+    invitedBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+    username: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } | undefined {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
+                nm.createdAt, nm.updatedAt,
+                u.username, u.email, u.displayName, u.avatarUrl
+         FROM notebook_members nm
+         JOIN users u ON u.id = nm.userId
+         WHERE nm.notebookId = ? AND nm.userId = ?`
+      )
+      .get(notebookId, userId) as any;
+  },
 };

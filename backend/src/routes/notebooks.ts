@@ -324,18 +324,7 @@ app.get("/:id/members", (c) => {
     return c.json({ error: "forbidden" }, 403);
   }
 
-  const members = db
-    .prepare(
-      `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
-              nm.createdAt, nm.updatedAt,
-              u.username, u.email, u.displayName, u.avatarUrl
-         FROM notebook_members nm
-         JOIN users u ON u.id = nm.userId
-        WHERE nm.notebookId = ? AND nm.status != 'removed'
-        ORDER BY CASE nm.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
-                 u.username ASC`,
-    )
-    .all(id);
+  const members = notebookMembersRepository.listByNotebook(id);
 
   return c.json(members);
 });
@@ -369,16 +358,7 @@ app.post("/:id/members", async (c) => {
     invitedBy: userId,
   });
 
-  const member = db
-    .prepare(
-      `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
-              nm.createdAt, nm.updatedAt,
-              u.username, u.email, u.displayName, u.avatarUrl
-         FROM notebook_members nm
-         JOIN users u ON u.id = nm.userId
-        WHERE nm.notebookId = ? AND nm.userId = ?`,
-    )
-    .get(id, targetUserId);
+  const member = notebookMembersRepository.getByNotebookAndUser(id, targetUserId);
   return c.json(member, 201);
 });
 
