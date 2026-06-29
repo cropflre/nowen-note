@@ -28,6 +28,7 @@ import crypto from "crypto";
 import os from "os";
 import JSZip from "jszip";
 import { getDb, getDbSchemaVersion } from "../db/schema.js";
+import { noteVersionsRepository } from "../repositories";
 
 // ===== 常量 =====
 
@@ -1710,21 +1711,7 @@ export class BackupManager {
       }
 
       // SQLite datetime('now') 默认 UTC，与 createdAt 默认值同语境
-      const cutoff = `datetime('now', '-${keepDays} days')`;
-      const stmt = db.prepare(`
-        DELETE FROM note_versions
-        WHERE changeType = 'edit'
-          AND createdAt < ${cutoff}
-          AND id NOT IN (
-            SELECT id FROM note_versions v2
-            WHERE v2.noteId = note_versions.noteId
-              AND v2.changeType = 'edit'
-            ORDER BY v2.version DESC
-            LIMIT ?
-          )
-      `);
-      const result = stmt.run(keepRecent);
-      const removed = Number(result.changes) || 0;
+      const removed = noteVersionsRepository.pruneOldVersions(keepRecent, keepDays);
       if (removed > 0) {
         console.log(
           `[Backup] pruneNoteVersions: 清理了 ${removed} 行旧版本（keepRecent=${keepRecent}, keepDays=${keepDays}）`,
