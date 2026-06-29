@@ -57,4 +57,58 @@ export const shareCommentsRepository = {
     const db = getDb();
     db.prepare("DELETE FROM share_comments WHERE id = ?").run(commentId);
   },
+
+  /**
+   * 统计用户的评论数量。
+   *
+   * @param userId 用户 ID
+   * @returns 评论数量
+   */
+  countByUser(userId: string): number {
+    const db = getDb();
+    const row = db.prepare("SELECT COUNT(*) as c FROM share_comments WHERE userId = ?").get(userId) as { c: number };
+    return row.c;
+  },
+
+  /**
+   * 转移用户（用户迁移时使用）。
+   *
+   * @param fromUserId 源用户 ID
+   * @param toUserId 目标用户 ID
+   * @returns 更新的行数
+   */
+  transferOwnership(fromUserId: string, toUserId: string): number {
+    const db = getDb();
+    const result = db.prepare("UPDATE share_comments SET userId = ? WHERE userId = ?").run(toUserId, fromUserId);
+    return result.changes;
+  },
+
+  /**
+   * 创建评论。
+   *
+   * @param input 评论数据
+   */
+  create(input: {
+    id: string;
+    noteId: string;
+    userId: string | null;
+    guestName?: string;
+    guestIpHash?: string;
+    parentId?: string | null;
+    content: string;
+    anchorData?: string | null;
+  }): void {
+    const db = getDb();
+    if (input.userId) {
+      db.prepare(
+        `INSERT INTO share_comments (id, noteId, userId, parentId, content, anchorData)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(input.id, input.noteId, input.userId, input.parentId || null, input.content, input.anchorData || null);
+    } else {
+      db.prepare(
+        `INSERT INTO share_comments (id, noteId, userId, guestName, guestIpHash, parentId, content, anchorData)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(input.id, input.noteId, null, input.guestName || null, input.guestIpHash || null, input.parentId || null, input.content, input.anchorData || null);
+    }
+  },
 };

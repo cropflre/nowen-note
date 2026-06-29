@@ -18,7 +18,7 @@ import { getDb } from "../db/schema";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl";
 import { invalidateUserAuthCache, verifySudoFromRequest, extractClientIp } from "../lib/auth-security";
 import { disconnectUser } from "../services/realtime";
-import { noteAclRepository, workspaceInvitesRepository, noteYupdatesRepository, workspaceMembersRepository } from "../repositories";
+import { noteAclRepository, workspaceInvitesRepository, noteYupdatesRepository, workspaceMembersRepository, shareCommentsRepository } from "../repositories";
 import { logAudit } from "../services/audit";
 
 const users = new Hono();
@@ -509,7 +509,7 @@ users.get("/:id/data-summary", requireAdmin, (c) => {
     ownedWorkspaces: count("SELECT COUNT(*) as c FROM workspaces WHERE ownerId = ?", targetId),
     workspaceMemberships: workspaceMembersRepository.countByUser(targetId),
     noteVersions: count("SELECT COUNT(*) as c FROM note_versions WHERE userId = ?", targetId),
-    shareComments: count("SELECT COUNT(*) as c FROM share_comments WHERE userId = ?", targetId),
+    shareComments: shareCommentsRepository.countByUser(targetId),
     attachments: count("SELECT COUNT(*) as c FROM attachments WHERE userId = ?", targetId),
   });
 });
@@ -602,11 +602,7 @@ function transferAndDeleteUser(
       toId,
       fromId,
     );
-    moved.shareComments = run(
-      "UPDATE share_comments SET userId = ? WHERE userId = ?",
-      toId,
-      fromId,
-    );
+    moved.shareComments = shareCommentsRepository.transferOwnership(fromId, toId);
     moved.attachments = run(
       "UPDATE attachments SET userId = ? WHERE userId = ?",
       toId,
