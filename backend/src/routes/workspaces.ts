@@ -35,7 +35,7 @@ import {
   type EnabledFeaturesConfig,
   type WorkspaceFeature,
 } from "../middleware/acl";
-import { workspaceInvitesRepository, noteAclRepository } from "../repositories";
+import { workspaceInvitesRepository, noteAclRepository, workspaceMembersRepository } from "../repositories";
 
 const app = new Hono();
 
@@ -137,11 +137,7 @@ app.get("/:id", (c) => {
   const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id);
   if (!ws) return c.json({ error: "工作区不存在" }, 404);
 
-  const memberCount = (
-    db.prepare("SELECT COUNT(*) as c FROM workspace_members WHERE workspaceId = ?").get(id) as {
-      c: number;
-    }
-  ).c;
+  const memberCount = workspaceMembersRepository.countByWorkspace(id);
   const notebookCount = (
     db.prepare("SELECT COUNT(*) as c FROM notebooks WHERE workspaceId = ?").get(id) as {
       c: number;
@@ -256,17 +252,13 @@ app.put("/:id/members/:userId", requireWorkspaceRole("admin"), async (c) => {
   }
 
   // 不能修改 owner 的角色
-  const target = db
-    .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(id, targetUserId) as { role: WorkspaceRole } | undefined;
+  const target = workspaceMembersRepository.getRole(id, targetUserId);
   if (!target) return c.json({ error: "成员不存在" }, 404);
   if (target.role === "owner") {
     return c.json({ error: "不能修改 owner 的角色" }, 400);
   }
 
-  db.prepare(
-    "UPDATE workspace_members SET role = ? WHERE workspaceId = ? AND userId = ?",
-  ).run(role, id, targetUserId);
+  workspaceMembersRepository.updateRole(id, targetUserId, role);
 
   return c.json({ success: true });
 });
@@ -277,18 +269,13 @@ app.delete("/:id/members/:userId", requireWorkspaceRole("admin"), (c) => {
   const id = c.req.param("id");
   const targetUserId = c.req.param("userId");
 
-  const target = db
-    .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(id, targetUserId) as { role: WorkspaceRole } | undefined;
+  const target = workspaceMembersRepository.getRole(id, targetUserId);
   if (!target) return c.json({ error: "成员不存在" }, 404);
   if (target.role === "owner") {
     return c.json({ error: "不能移除 owner" }, 400);
   }
 
-  db.prepare("DELETE FROM workspace_members WHERE workspaceId = ? AND userId = ?").run(
-    id,
-    targetUserId,
-  );
+  workspaceMembersRepository.delete(id, targetUserId);
   // 同步清理 note_acl
   noteAclRepository.deleteByUserAndWorkspace(targetUserId, id);
 
@@ -297,22 +284,16 @@ app.delete("/:id/members/:userId", requireWorkspaceRole("admin"), (c) => {
 
 // 主动退出
 app.post("/:id/leave", (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const row = db
-    .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(id, userId) as { role: WorkspaceRole } | undefined;
+  const row = workspaceMembersRepository.getRole(id, userId);
   if (!row) return c.json({ error: "您不是该工作区成员" }, 404);
   if (row.role === "owner") {
     return c.json({ error: "owner 不能退出工作区，请先转让或删除工作区" }, 400);
   }
 
-  db.prepare("DELETE FROM workspace_members WHERE workspaceId = ? AND userId = ?").run(
-    id,
-    userId,
-  );
+  workspaceMembersRepository.delete(id, userId);
   return c.json({ success: true });
 });
 
@@ -396,8 +377,7 @@ app.post("/join", async (c) => {
 
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)`,
-    ).run(invite.workspaceId, userId, invite.role);
+    workspaceMembersRepository.create(invite.workspaceId, userId, invite.role);
     workspaceInvitesRepository.incrementUseCount(invite.id);
   });
   tx();
