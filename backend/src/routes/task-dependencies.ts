@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import crypto from "crypto";
 import { getUserWorkspaceRole, canManageResource } from "../middleware/acl";
+import { taskDependenciesRepository } from "../repositories";
 
 const taskDependencies = new Hono();
 
@@ -29,14 +30,10 @@ function wouldCreateCycle(
     if (current === predecessorId) return true;
     if (visited.has(current)) continue;
     visited.add(current);
-    const nexts = db
-      .prepare(
-        "SELECT successorTaskId FROM task_dependencies WHERE predecessorTaskId = ?"
-      )
-      .all(current) as { successorTaskId: string }[];
+    const nexts = taskDependenciesRepository.listSuccessors(current);
     for (const n of nexts) {
-      if (!visited.has(n.successorTaskId)) {
-        queue.push(n.successorTaskId);
+      if (!visited.has(n)) {
+        queue.push(n);
       }
     }
   }
@@ -53,31 +50,9 @@ taskDependencies.get("/", (c) => {
 
   let rows;
   if (taskId) {
-    if (scope.workspaceId) {
-      rows = db
-        .prepare(
-          "SELECT * FROM task_dependencies WHERE (predecessorTaskId = ? OR successorTaskId = ?) AND workspaceId = ?"
-        )
-        .all(taskId, taskId, scope.workspaceId);
-    } else {
-      rows = db
-        .prepare(
-          "SELECT * FROM task_dependencies WHERE (predecessorTaskId = ? OR successorTaskId = ?) AND userId = ? AND workspaceId IS NULL"
-        )
-        .all(taskId, taskId, userId);
-    }
+    rows = taskDependenciesRepository.listByTask(taskId, userId, scope.workspaceId);
   } else {
-    if (scope.workspaceId) {
-      rows = db
-        .prepare("SELECT * FROM task_dependencies WHERE workspaceId = ?")
-        .all(scope.workspaceId);
-    } else {
-      rows = db
-        .prepare(
-          "SELECT * FROM task_dependencies WHERE userId = ? AND workspaceId IS NULL"
-        )
-        .all(userId);
-    }
+    rows = taskDependenciesRepository.listByWorkspace(userId, scope.workspaceId);
   }
 
   return c.json(rows);
@@ -125,12 +100,7 @@ taskDependencies.post("/", async (c) => {
   }
 
   // Check for duplicate
-  const existing = db
-    .prepare(
-      "SELECT id FROM task_dependencies WHERE predecessorTaskId = ? AND successorTaskId = ? AND type = ?"
-    )
-    .get(predecessorTaskId, successorTaskId, type);
-  if (existing) {
+  if (taskDependenciesRepository.exists(predecessorTaskId, successorTaskId, type)) {
     return c.json({ error: "Dependency already exists" }, 409);
   }
 
@@ -140,20 +110,17 @@ taskDependencies.post("/", async (c) => {
   }
 
   const id = crypto.randomUUID();
-  db.prepare(
-    "INSERT INTO task_dependencies (id, userId, workspaceId, predecessorTaskId, successorTaskId, type) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, userId, wsId, predecessorTaskId, successorTaskId, type);
+  taskDependenciesRepository.create({ id, userId, workspaceId: wsId, predecessorTaskId, successorTaskId, type });
 
-  const created = db.prepare("SELECT * FROM task_dependencies WHERE id = ?").get(id);
+  const created = taskDependenciesRepository.getById(id);
   return c.json(created, 201);
 });
 
 taskDependencies.delete("/:id", (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const depId = c.req.param("id");
 
-  const dep = db.prepare("SELECT * FROM task_dependencies WHERE id = ?").get(depId) as any;
+  const dep = taskDependenciesRepository.getById(depId);
   if (!dep) {
     return c.json({ error: "Dependency not found" }, 404);
   }
@@ -170,7 +137,7 @@ taskDependencies.delete("/:id", (c) => {
     }
   }
 
-  db.prepare("DELETE FROM task_dependencies WHERE id = ?").run(depId);
+  taskDependenciesRepository.delete(depId);
   return c.json({ success: true });
 });
 

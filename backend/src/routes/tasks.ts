@@ -8,6 +8,7 @@ import {
   canManageResource,
   requireWorkspaceFeature,
 } from "../middleware/acl";
+import { taskDependenciesRepository } from "../repositories";
 
 
 /** Collect a task id and all its descendant ids (recursive via parentId). */
@@ -722,7 +723,7 @@ tasks.delete("/:id", (c) => {
   const ph = idsToDelete.map(() => "?").join(",");
 
   // Clean up all dependencies referencing deleted tasks (including descendants)
-  db.prepare(`DELETE FROM task_dependencies WHERE predecessorTaskId IN (${ph}) OR successorTaskId IN (${ph})`).run(...idsToDelete, ...idsToDelete);
+  taskDependenciesRepository.deleteByTaskIds(idsToDelete);
 
   // Delete root task (children cascade via ON DELETE CASCADE)
   db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
@@ -740,9 +741,7 @@ function safeDeleteTaskDependencies(db: any, ids: string[]) {
       console.warn("[tasks.batch] task_dependencies table not found, skipping");
       return;
     }
-    const ph = ids.map(() => "?").join(",");
-    db.prepare(`DELETE FROM task_dependencies WHERE predecessorTaskId IN (${ph}) OR successorTaskId IN (${ph})`)
-      .run(...ids, ...ids);
+    taskDependenciesRepository.deleteByTaskIds(ids);
   } catch (err) {
     console.warn("[tasks.batch] failed to cleanup task_dependencies:", err);
   }
