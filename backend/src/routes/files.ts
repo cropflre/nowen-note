@@ -40,6 +40,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { getDb } from "../db/schema";
+import { attachmentQueryService } from "../queries";
 import {
   ensureAttachmentsDir,
   getAttachmentsDir,
@@ -650,39 +651,14 @@ app.get("/stats", requireWorkspaceFeature("files"), (c) => {
   // 按是否被任意笔记引用拆两档。走 attachment_references 倒排表——索引覆盖
   // attachmentId 列，不会扫全表。
   // 老附件 uploadSource=NULL 不计入；用户从未走过文件管理上传时三个值都为 0。
-  let myUploadsTotal = 0;
-  let myUploadsReferenced = 0;
-  let myUploadsUnreferenced = 0;
-  {
-    const { sql: muSql, args: muArgs } =
-      scope.scope === "workspace"
-        ? {
-            sql: `SELECT
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN EXISTS(
-                      SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id
-                    ) THEN 1 ELSE 0 END) AS referenced
-                  FROM attachments a
-                  WHERE a.workspaceId = ? AND a.uploadSource = 'file_manager'`,
-            args: [scope.workspaceId!] as (string | number)[],
-          }
-        : {
-            sql: `SELECT
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN EXISTS(
-                      SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id
-                    ) THEN 1 ELSE 0 END) AS referenced
-                  FROM attachments a
-                  WHERE a.userId = ? AND a.workspaceId IS NULL AND a.uploadSource = 'file_manager'`,
-            args: [userId] as (string | number)[],
-          };
-    const sumRow = db.prepare(muSql).get(...muArgs) as
-      | { total: number; referenced: number }
-      | undefined;
-    myUploadsTotal = sumRow?.total ?? 0;
-    myUploadsReferenced = sumRow?.referenced ?? 0;
-    myUploadsUnreferenced = myUploadsTotal - myUploadsReferenced;
-  }
+  const uploadsSummary = attachmentQueryService.getMyUploadsSummary(
+    scope.scope === "workspace" ? "workspace" : "personal",
+    userId,
+    scope.scope === "workspace" ? scope.workspaceId! : undefined,
+  );
+  const myUploadsTotal = uploadsSummary.total;
+  const myUploadsReferenced = uploadsSummary.referenced;
+  const myUploadsUnreferenced = uploadsSummary.unreferenced;
 
   const storageInfo = getAttachmentStorageInfo();
   const storageConfig = readObjectStorageConfigPublic();
@@ -783,35 +759,12 @@ app.get("/:id", (c) => {
   //   - 回收站语义：isTrashed=1 的笔记保留行，前端按 isTrashed 字段决定如何标记。
   // 因此 INNER JOIN attachment_references 即可拿到所有引用关系。
   // scope 仍按附件可见性收口，避免跨工作区/跨用户泄露 noteId。
-  const refRows = db
-    .prepare(
-      base.workspaceId
-        ? `SELECT n.id, n.title, n.notebookId, n.isTrashed, n.updatedAt,
-                  nb.name AS notebookName, nb.icon AS notebookIcon
-             FROM attachment_references ar
-             INNER JOIN notes n ON n.id = ar.noteId
-             LEFT JOIN notebooks nb ON nb.id = n.notebookId
-            WHERE ar.attachmentId = ?
-              AND n.workspaceId = ?
-            ORDER BY n.updatedAt DESC`
-        : `SELECT n.id, n.title, n.notebookId, n.isTrashed, n.updatedAt,
-                  nb.name AS notebookName, nb.icon AS notebookIcon
-             FROM attachment_references ar
-             INNER JOIN notes n ON n.id = ar.noteId
-             LEFT JOIN notebooks nb ON nb.id = n.notebookId
-            WHERE ar.attachmentId = ?
-              AND n.userId = ? AND n.workspaceId IS NULL
-            ORDER BY n.updatedAt DESC`,
-    )
-    .all(id, base.workspaceId ?? userId) as {
-      id: string;
-      title: string;
-      notebookId: string | null;
-      isTrashed: number;
-      updatedAt: string;
-      notebookName: string | null;
-      notebookIcon: string | null;
-    }[];
+  const refRows = attachmentQueryService.getNotesReferencingAttachment(
+    id,
+    base.workspaceId ? "workspace" : "personal",
+    userId,
+    base.workspaceId ?? undefined,
+  );
 
   const references = refRows.map((r) => ({
     id: r.id,

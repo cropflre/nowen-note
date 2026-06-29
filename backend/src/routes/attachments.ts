@@ -48,6 +48,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { taskAttachmentsRepository } from "../repositories";
+import { attachmentQueryService } from "../queries";
 import { resolveNotePermission, hasPermission } from "../middleware/acl";
 import { enqueueAttachment } from "../services/embedding-worker";
 import { verifySudoFromRequest } from "../lib/auth-security";
@@ -1338,43 +1339,7 @@ function getLocalAttachmentFileStats(dir: string) {
   return { files, bytes };
 }
 
-function getUniqueAttachmentPaths(limit: number) {
-  return getDb()
-    .prepare(`
-      WITH all_paths AS (
-        SELECT path, size FROM attachments
-        UNION ALL
-        SELECT path, size FROM diary_attachments
-        UNION ALL
-        SELECT path, size FROM task_attachments
-      )
-      SELECT path, MAX(size) AS size, COUNT(*) AS refs
-      FROM all_paths
-      WHERE path IS NOT NULL AND path <> ''
-      GROUP BY path
-      ORDER BY path
-      LIMIT ?
-    `)
-    .all(limit) as Array<{ path: string; size: number; refs: number }>;
-}
-
-function countUniqueAttachmentPaths() {
-  const row = getDb()
-    .prepare(`
-      WITH all_paths AS (
-        SELECT path FROM attachments
-        UNION ALL
-        SELECT path FROM diary_attachments
-        UNION ALL
-        SELECT path FROM task_attachments
-      )
-      SELECT COUNT(DISTINCT path) AS count
-      FROM all_paths
-      WHERE path IS NOT NULL AND path <> ''
-    `)
-    .get() as { count: number } | undefined;
-  return row?.count || 0;
-}
+// getUniqueAttachmentPaths / countUniqueAttachmentPaths 已迁移至 attachmentQueryService
 
 /** GET /api/attachments/_storage/status */
 app.get("/_storage/status", (c) => {
@@ -1468,7 +1433,7 @@ app.get("/_storage/remote-check", async (c) => {
   const storage = getAttachmentStorageInfo();
   const rawLimit = Number(c.req.query("limit") || 50);
   const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
-  const total = countUniqueAttachmentPaths();
+  const total = attachmentQueryService.countUniqueAttachmentPaths();
 
   if (storage.driver !== "s3") {
     return c.json({
@@ -1486,7 +1451,7 @@ app.get("/_storage/remote-check", async (c) => {
     });
   }
 
-  const rows = getUniqueAttachmentPaths(limit);
+  const rows = attachmentQueryService.getUniqueAttachmentPaths(limit);
   const missing: Array<{ path: string; size: number; refs: number; status?: number }> = [];
   const errors: Array<{ path: string; size: number; refs: number; status?: number; error: string }> = [];
   let exists = 0;
