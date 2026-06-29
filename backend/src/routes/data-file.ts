@@ -29,6 +29,7 @@ import Database from "better-sqlite3";
 import { getDb, getDbPath, closeDb } from "../db/schema.js";
 import { verifySudoFromRequest } from "../lib/auth-security.js";
 import { getAttachmentsDir } from "./attachments.js";
+import { taskAttachmentsRepository } from "../repositories";
 
 const app = new Hono();
 
@@ -499,7 +500,7 @@ app.post("/cleanup-orphans", (c) => {
       // 收集 DB 中已登记的全部 path（刚刚删的 DB 孤儿已经不在这批里，这正是我们要的）
       // 收集 attachments + task_attachments 的已登记 path，防止待办图片被误删
       const rows = db.prepare("SELECT path FROM attachments").all() as { path: string }[];
-      const taskRows = db.prepare("SELECT path FROM task_attachments").all() as { path: string }[];
+      const taskRows = taskAttachmentsRepository.listAllPaths();
       const knownPaths = new Set<string>();
       for (const r of rows) {
         if (r?.path) knownPaths.add(r.path);
