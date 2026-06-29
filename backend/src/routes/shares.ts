@@ -698,13 +698,7 @@ sharesRouter.get("/note/:noteId/comments", (c) => {
   const note = db.prepare("SELECT id, userId FROM notes WHERE id = ?").get(noteId) as any;
   if (!note) return c.json({ error: "笔记不存在" }, 404);
 
-  const comments = db.prepare(`
-    SELECT sc.*, u.username, u.avatarUrl
-    FROM share_comments sc
-    LEFT JOIN users u ON sc.userId = u.id
-    WHERE sc.noteId = ?
-    ORDER BY sc.createdAt ASC
-  `).all(noteId) as any[];
+  const comments = shareCommentsRepository.listByNoteIdWithUser(noteId);
 
   return c.json(comments);
 });
@@ -723,17 +717,16 @@ sharesRouter.post("/note/:noteId/comments", async (c) => {
   if (!note) return c.json({ error: "笔记不存在" }, 404);
 
   const id = uuid();
-  db.prepare(`
-    INSERT INTO share_comments (id, noteId, userId, parentId, content, anchorData)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, noteId, userId, parentId || null, content.trim(), anchorData || null);
+  shareCommentsRepository.create({
+    id,
+    noteId,
+    userId,
+    parentId: parentId || null,
+    content: content.trim(),
+    anchorData: anchorData || null,
+  });
 
-  const comment = db.prepare(`
-    SELECT sc.*, u.username, u.avatarUrl
-    FROM share_comments sc
-    LEFT JOIN users u ON sc.userId = u.id
-    WHERE sc.id = ?
-  `).get(id) as any;
+  const comment = shareCommentsRepository.getByIdWithUser(id);
 
   return c.json(comment, 201);
 });
@@ -768,12 +761,7 @@ sharesRouter.patch("/note/:noteId/comments/:commentId/resolve", (c) => {
 
   shareCommentsRepository.updateResolved(commentId, comment.isResolved ? 0 : 1);
 
-  const updated = db.prepare(`
-    SELECT sc.*, u.username, u.avatarUrl
-    FROM share_comments sc
-    LEFT JOIN users u ON sc.userId = u.id
-    WHERE sc.id = ?
-  `).get(commentId) as any;
+  const updated = shareCommentsRepository.getByIdWithUser(commentId);
 
   return c.json(updated);
 });
@@ -858,19 +846,7 @@ sharedRouter.get("/:token/comments", (c) => {
     if (!payload) return c.json({ error: "无效或已过期的令牌" }, 401);
   }
 
-  const comments = db.prepare(`
-    SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-           sc.isResolved, sc.createdAt, sc.updatedAt,
-           u.username, u.avatarUrl,
-           -- displayName：未登录访客 → guestName；登录用户 → username；都没有兜底"匿名"
-           COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-           -- isGuest：userId IS NULL 即为访客（v13 起 userId 可空）
-           CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
-    FROM share_comments sc
-    LEFT JOIN users u ON sc.userId = u.id
-    WHERE sc.noteId = ?
-    ORDER BY sc.createdAt ASC
-  `).all(share.noteId) as any[];
+  const comments = shareCommentsRepository.listByNoteIdWithUserForPublic(share.noteId);
 
   // SQLite 的 1/0 → 转成 boolean，前端用起来更直观
   for (const r of comments) {
@@ -966,21 +942,18 @@ sharedRouter.post("/:token/comments", async (c) => {
   }
 
   const id = uuid();
-  db.prepare(`
-    INSERT INTO share_comments (id, noteId, userId, guestName, guestIpHash, parentId, content, anchorData)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, share.noteId, userId, storedGuestName, ipHash, parentId || null, trimmedContent, anchorData || null);
+  shareCommentsRepository.create({
+    id,
+    noteId: share.noteId,
+    userId,
+    guestName: storedGuestName,
+    guestIpHash: ipHash,
+    parentId: parentId || null,
+    content: trimmedContent,
+    anchorData: anchorData || null,
+  });
 
-  const comment = db.prepare(`
-    SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-           sc.isResolved, sc.createdAt, sc.updatedAt,
-           u.username, u.avatarUrl,
-           COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-           CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
-    FROM share_comments sc
-    LEFT JOIN users u ON sc.userId = u.id
-    WHERE sc.id = ?
-  `).get(id) as any;
+  const comment = shareCommentsRepository.getByIdWithUserForPublic(id);
 
   comment.isGuest = comment.isGuest === 1;
   return c.json(comment, 201);

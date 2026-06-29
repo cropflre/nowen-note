@@ -111,4 +111,94 @@ export const shareCommentsRepository = {
       ).run(input.id, input.noteId, null, input.guestName || null, input.guestIpHash || null, input.parentId || null, input.content, input.anchorData || null);
     }
   },
+
+  /**
+   * 按 noteId 列出评论（含用户信息，管理端视图）。
+   *
+   * 用于笔记所有者查看评论列表。SELECT sc.*, u.username, u.avatarUrl。
+   *
+   * @param noteId 笔记 ID
+   * @returns 评论列表
+   */
+  listByNoteIdWithUser(noteId: string): any[] {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT sc.*, u.username, u.avatarUrl
+         FROM share_comments sc
+         LEFT JOIN users u ON sc.userId = u.id
+         WHERE sc.noteId = ?
+         ORDER BY sc.createdAt ASC`,
+      )
+      .all(noteId) as any[];
+  },
+
+  /**
+   * 按 ID 获取评论详情（含用户信息，管理端视图）。
+   *
+   * 用于添加/修改评论后返回完整记录。
+   *
+   * @param id 评论 ID
+   * @returns 评论记录，或 undefined
+   */
+  getByIdWithUser(id: string): any | undefined {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT sc.*, u.username, u.avatarUrl
+         FROM share_comments sc
+         LEFT JOIN users u ON sc.userId = u.id
+         WHERE sc.id = ?`,
+      )
+      .get(id) as any | undefined;
+  },
+
+  /**
+   * 按 noteId 列出评论（含用户信息 + 计算字段，公开访问视图）。
+   *
+   * 用于访客查看评论。额外返回 displayName 和 isGuest。
+   *
+   * @param noteId 笔记 ID
+   * @returns 评论列表
+   */
+  listByNoteIdWithUserForPublic(noteId: string): any[] {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
+                sc.isResolved, sc.createdAt, sc.updatedAt,
+                u.username, u.avatarUrl,
+                COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
+                CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+         FROM share_comments sc
+         LEFT JOIN users u ON sc.userId = u.id
+         WHERE sc.noteId = ?
+         ORDER BY sc.createdAt ASC`,
+      )
+      .all(noteId) as any[];
+  },
+
+  /**
+   * 按 ID 获取评论详情（含用户信息 + 计算字段，公开访问视图）。
+   *
+   * 用于访客添加评论后返回完整记录。额外返回 displayName 和 isGuest。
+   *
+   * @param id 评论 ID
+   * @returns 评论记录，或 undefined
+   */
+  getByIdWithUserForPublic(id: string): any | undefined {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
+                sc.isResolved, sc.createdAt, sc.updatedAt,
+                u.username, u.avatarUrl,
+                COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
+                CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+         FROM share_comments sc
+         LEFT JOIN users u ON sc.userId = u.id
+         WHERE sc.id = ?`,
+      )
+      .get(id) as any | undefined;
+  },
 };
