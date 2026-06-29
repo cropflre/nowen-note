@@ -45,6 +45,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { attachmentReferencesRepository } from "../repositories";
 
 // 严格 UUID v4 形态：8-4-4-4-12 hex
 // 大小写不敏感（部分客户端可能小写化，但生成端是小写，这里兼顾）。
@@ -105,10 +106,8 @@ export function syncReferences(
 ): { added: number; removed: number } {
   const newSet = extractAttachmentIdsFromContent(content);
 
-  const oldRows = db
-    .prepare("SELECT attachmentId FROM attachment_references WHERE noteId = ?")
-    .all(noteId) as { attachmentId: string }[];
-  const oldSet = new Set(oldRows.map((r) => r.attachmentId.toLowerCase()));
+  const oldIds = attachmentReferencesRepository.listByNoteId(noteId);
+  const oldSet = new Set(oldIds.map((id) => id.toLowerCase()));
 
   // toAdd / toDel
   const toAdd: string[] = [];
@@ -116,32 +115,8 @@ export function syncReferences(
   const toDel: string[] = [];
   for (const id of oldSet) if (!newSet.has(id)) toDel.push(id);
 
-  let added = 0;
-  let removed = 0;
+  attachmentReferencesRepository.addReferences(noteId, toAdd);
+  const removed = attachmentReferencesRepository.removeReferences(noteId, toDel);
 
-  if (toAdd.length > 0) {
-    const insertOne = db.prepare(
-      "INSERT OR IGNORE INTO attachment_references (attachmentId, noteId) VALUES (?, ?)",
-    );
-    for (const id of toAdd) {
-      try {
-        const info = insertOne.run(id, noteId);
-        if (info.changes > 0) added++;
-      } catch {
-        // 外键失败（attachmentId 已不存在）— 静默跳过
-      }
-    }
-  }
-
-  if (toDel.length > 0) {
-    const delPlaceholders = toDel.map(() => "?").join(",");
-    const info = db
-      .prepare(
-        `DELETE FROM attachment_references WHERE noteId = ? AND attachmentId IN (${delPlaceholders})`,
-      )
-      .run(noteId, ...toDel);
-    removed = Number(info.changes || 0);
-  }
-
-  return { added, removed };
+  return { added: toAdd.length, removed };
 }
