@@ -28,6 +28,7 @@ export { taskDependenciesRepository } from "./taskDependenciesRepository";
 export { workspaceInvitesRepository } from "./workspaceInvitesRepository";
 export { notebookShareLinksRepository } from "./notebookShareLinksRepository";
 export { noteAclRepository } from "./noteAclRepository";
+export { taskAttachmentsRepository } from "./taskAttachmentsRepository";
 
 // 类型导出
 export type {

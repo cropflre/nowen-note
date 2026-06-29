@@ -36,6 +36,7 @@ import {
   writeAttachmentObject,
 } from "../services/attachment-storage";
 import { getUserWorkspaceRole, canManageResource } from "../middleware/acl";
+import { taskAttachmentsRepository } from "../repositories";
 
 // 与 attachments 一致的 MIME 白名单（图片类）。
 // 任务附件场景几乎都是截图/示意图，先与笔记模块保持一致；后续若要支持文件
@@ -63,10 +64,7 @@ const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
  */
 export async function handleDownloadTaskAttachment(c: Context): Promise<Response> {
   const id = c.req.param("id");
-  const db = getDb();
-  const row = db
-    .prepare("SELECT id, mimeType, path, filename FROM task_attachments WHERE id = ?")
-    .get(id) as { id: string; mimeType: string; path: string; filename: string } | undefined;
+  const row = taskAttachmentsRepository.getById(id);
   if (!row) return c.json({ error: "附件不存在" }, 404);
 
   const buffer = await readAttachmentObject(row.path);
@@ -173,10 +171,16 @@ app.post("/", async (c) => {
   }
 
   try {
-    db.prepare(
-      `INSERT INTO task_attachments (id, taskId, userId, workspaceId, filename, mimeType, size, path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, taskId, userId, effectiveWorkspaceId, file.name || filename, mime, file.size, filename);
+    taskAttachmentsRepository.create({
+      id,
+      taskId,
+      userId,
+      workspaceId: effectiveWorkspaceId,
+      filename: file.name || filename,
+      mimeType: mime,
+      size: file.size,
+      path: filename,
+    });
   } catch (err: any) {
     try { await deleteAttachmentObject(filename); } catch { /* ignore */ }
     return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
@@ -212,9 +216,7 @@ app.patch("/:id/bind", async (c) => {
   const taskId = typeof body.taskId === "string" ? body.taskId : "";
   if (!taskId) return c.json({ error: "taskId 必传" }, 400);
 
-  const att = db
-    .prepare("SELECT id, userId FROM task_attachments WHERE id = ?")
-    .get(id) as { id: string; userId: string } | undefined;
+  const att = taskAttachmentsRepository.getByIdForPermission(id);
   if (!att) return c.json({ error: "附件不存在" }, 404);
   if (att.userId !== userId) {
     return c.json({ error: "无权绑定该附件", code: "FORBIDDEN" }, 403);
@@ -228,8 +230,7 @@ app.patch("/:id/bind", async (c) => {
     return c.json({ error: "无权操作该任务", code: "FORBIDDEN" }, 403);
   }
 
-  db.prepare("UPDATE task_attachments SET taskId = ?, workspaceId = ? WHERE id = ?")
-    .run(taskId, task.workspaceId, id);
+  taskAttachmentsRepository.updateTaskAssociation(id, taskId, task.workspaceId);
   return c.json({ success: true });
 });
 
@@ -246,11 +247,7 @@ app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const row = db
-    .prepare("SELECT id, userId, taskId, workspaceId, path FROM task_attachments WHERE id = ?")
-    .get(id) as
-    | { id: string; userId: string; taskId: string | null; workspaceId: string | null; path: string }
-    | undefined;
+  const row = taskAttachmentsRepository.getByIdForDelete(id);
   if (!row) return c.json({ error: "附件不存在" }, 404);
 
   if (row.taskId) {
@@ -278,7 +275,7 @@ app.delete("/:id", async (c) => {
   } catch {
     /* 文件删不掉不阻塞，DB 记录仍然要清掉 */
   }
-  db.prepare("DELETE FROM task_attachments WHERE id = ?").run(id);
+  taskAttachmentsRepository.delete(id);
 
   return c.json({ success: true });
 });
