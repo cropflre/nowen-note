@@ -38,7 +38,7 @@ export default function AttachmentPdfPreview({ url, filename, heightClass }: Pro
       title={filename || "PDF 预览"}
       src={src}
       // SEC-ELECTRON-01-D3: sandbox 限制 PDF 内脚本执行
-      sandbox="allow-same-origin allow-scripts"
+      sandbox="allow-scripts"
       className={cn(
         "w-full bg-zinc-950/5 border-0",
         // 没传 heightClass 时给个默认——和 docx/文本预览的体感一致
