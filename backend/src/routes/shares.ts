@@ -680,10 +680,10 @@ sharesRouter.delete("/note/:noteId/versions", (c) => {
   const note = db.prepare("SELECT id FROM notes WHERE id = ? AND userId = ?").get(noteId, userId) as any;
   if (!note) return c.json({ error: "笔记不存在或无权操作" }, 404);
 
-  const before = (db.prepare("SELECT COUNT(*) as count FROM note_versions WHERE noteId = ?").get(noteId) as any).count;
-  db.prepare("DELETE FROM note_versions WHERE noteId = ?").run(noteId);
+  const before = noteVersionsRepository.countByNoteId(noteId);
+  const deleted = noteVersionsRepository.deleteByNoteId(noteId);
 
-  return c.json({ success: true, count: before });
+  return c.json({ success: true, count: before, deleted });
 });
 
 // ===== Phase 3: 评论批注 API =====

@@ -152,4 +152,49 @@ export const noteVersionsRepository = {
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType);
     }
   },
+
+  /**
+   * 删除某笔记的全部版本历史。
+   *
+   * 用于清空某笔记的版本历史。
+   *
+   * @param noteId 笔记 ID
+   * @returns 删除的行数
+   */
+  deleteByNoteId(noteId: string): number {
+    const db = getDb();
+    const result = db.prepare("DELETE FROM note_versions WHERE noteId = ?").run(noteId);
+    return result.changes;
+  },
+
+  /**
+   * 清理旧版本（保留最近 N 条 + M 天内的全部条目）。
+   *
+   * 策略：
+   * - 只删 changeType = 'edit' 的版本
+   * - 保留最近 keepRecent 条
+   * - 保留 createdAt 在 keepDays 天内的全部条目
+   * - 使用关联子查询定位每篇笔记的 top-N
+   *
+   * @param keepRecent 保留最近条数
+   * @param keepDays 保留天数
+   * @returns 删除的行数
+   */
+  pruneOldVersions(keepRecent: number, keepDays: number): number {
+    const db = getDb();
+    const cutoff = `datetime('now', '-${keepDays} days')`;
+    const result = db.prepare(`
+      DELETE FROM note_versions
+      WHERE changeType = 'edit'
+        AND createdAt < ${cutoff}
+        AND id NOT IN (
+          SELECT id FROM note_versions v2
+          WHERE v2.noteId = note_versions.noteId
+            AND v2.changeType = 'edit'
+          ORDER BY v2.version DESC
+          LIMIT ?
+        )
+    `).run(keepRecent);
+    return result.changes;
+  },
 };
