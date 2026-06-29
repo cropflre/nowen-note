@@ -8,7 +8,13 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
 import type { SystemSetting } from "./types";
+
+/** 创建轻量 adapter 实例（每次调用新建，无全局生命周期） */
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const systemSettingsRepository = {
   /**
@@ -130,6 +136,90 @@ export const systemSettingsRepository = {
     const db = getDb();
     db.prepare("DELETE FROM system_settings WHERE key LIKE ?").run(
       `${prefix}%`,
+    );
+  },
+
+  // ============================================================
+  // Async 方法（Phase 1 试点，使用 SqliteAdapter）
+  // ============================================================
+
+  /** 获取单个设置（async） */
+  async getAsync(key: string): Promise<SystemSetting | undefined> {
+    return getAdapter().queryOne<SystemSetting>(
+      "SELECT key, value, updatedAt FROM system_settings WHERE key = ?",
+      [key],
+    );
+  },
+
+  /** 获取多个设置（async） */
+  async getManyAsync(keys: string[]): Promise<SystemSetting[]> {
+    if (keys.length === 0) return [];
+    const placeholders = keys.map(() => "?").join(",");
+    return getAdapter().queryMany<SystemSetting>(
+      `SELECT key, value, updatedAt FROM system_settings WHERE key IN (${placeholders})`,
+      keys,
+    );
+  },
+
+  /** 获取所有设置（async） */
+  async getAllAsync(): Promise<SystemSetting[]> {
+    return getAdapter().queryMany<SystemSetting>(
+      "SELECT key, value, updatedAt FROM system_settings",
+    );
+  },
+
+  /** 按前缀获取设置（async） */
+  async getByPrefixAsync(prefix: string): Promise<SystemSetting[]> {
+    return getAdapter().queryMany<SystemSetting>(
+      "SELECT key, value, updatedAt FROM system_settings WHERE key LIKE ?",
+      [`${prefix}%`],
+    );
+  },
+
+  /** 按多个前缀获取设置（async） */
+  async getByPrefixesAsync(prefixes: string[]): Promise<SystemSetting[]> {
+    if (prefixes.length === 0) return [];
+    const conditions = prefixes.map(() => "key LIKE ?").join(" OR ");
+    const params = prefixes.map((p) => `${p}%`);
+    return getAdapter().queryMany<SystemSetting>(
+      `SELECT key, value, updatedAt FROM system_settings WHERE ${conditions}`,
+      params,
+    );
+  },
+
+  /** 设置单个值（async，upsert） */
+  async setAsync(key: string, value: string): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO system_settings (key, value, updatedAt)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')`,
+      [key, value],
+    );
+  },
+
+  /** 删除单个设置（async） */
+  async deleteAsync(key: string): Promise<void> {
+    await getAdapter().execute(
+      "DELETE FROM system_settings WHERE key = ?",
+      [key],
+    );
+  },
+
+  /** 删除多个设置（async） */
+  async deleteManyAsync(keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+    const placeholders = keys.map(() => "?").join(",");
+    await getAdapter().execute(
+      `DELETE FROM system_settings WHERE key IN (${placeholders})`,
+      keys,
+    );
+  },
+
+  /** 按前缀删除设置（async） */
+  async deleteByPrefixAsync(prefix: string): Promise<void> {
+    await getAdapter().execute(
+      "DELETE FROM system_settings WHERE key LIKE ?",
+      [`${prefix}%`],
     );
   },
 };
