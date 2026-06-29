@@ -11,7 +11,7 @@ import {
 } from "../middleware/acl";
 import { notebookRoleToPermission } from "../services/notebook-permissions";
 import { broadcastNoteDeleted } from "../services/realtime";
-import { notebookShareLinksRepository } from "../repositories";
+import { notebookShareLinksRepository, notebookMembersRepository } from "../repositories";
 
 const app = new Hono();
 
@@ -210,15 +210,13 @@ app.post("/share/:token/join", (c) => {
   }
 
   const role = parseNotebookMemberRole(link.role) || "viewer";
-  db.prepare(
-    `INSERT INTO notebook_members (id, notebookId, userId, role, status, invitedBy)
-     VALUES (?, ?, ?, ?, 'active', ?)
-     ON CONFLICT(notebookId, userId) DO UPDATE SET
-       role = excluded.role,
-       status = 'active',
-       invitedBy = excluded.invitedBy,
-       updatedAt = datetime('now')`,
-  ).run(notebookMemberId(link.notebookId, userId), link.notebookId, userId, role, link.createdBy);
+  notebookMembersRepository.upsert({
+    id: notebookMemberId(link.notebookId, userId),
+    notebookId: link.notebookId,
+    userId,
+    role,
+    invitedBy: link.createdBy,
+  });
 
   return c.json({ success: true, notebookId: link.notebookId, role });
 });
@@ -363,15 +361,13 @@ app.post("/:id/members", async (c) => {
     .get(targetUserId) as { id: string } | undefined;
   if (!target) return c.json({ error: "user not found" }, 404);
 
-  db.prepare(
-    `INSERT INTO notebook_members (id, notebookId, userId, role, status, invitedBy)
-     VALUES (?, ?, ?, ?, 'active', ?)
-     ON CONFLICT(notebookId, userId) DO UPDATE SET
-       role = excluded.role,
-       status = 'active',
-       invitedBy = excluded.invitedBy,
-       updatedAt = datetime('now')`,
-  ).run(notebookMemberId(id, targetUserId), id, targetUserId, role, userId);
+  notebookMembersRepository.upsert({
+    id: notebookMemberId(id, targetUserId),
+    notebookId: id,
+    userId: targetUserId,
+    role,
+    invitedBy: userId,
+  });
 
   const member = db
     .prepare(
@@ -400,19 +396,13 @@ app.patch("/:id/members/:memberUserId", async (c) => {
   }
   if (!role) return c.json({ error: "role must be editor or viewer" }, 400);
 
-  const member = db
-    .prepare("SELECT role FROM notebook_members WHERE notebookId = ? AND userId = ? AND status != 'removed'")
-    .get(id, memberUserId) as { role: string } | undefined;
+  const member = notebookMembersRepository.getRole(id, memberUserId);
   if (!member) return c.json({ error: "member not found" }, 404);
   if (member.role === "owner") {
     return c.json({ error: "owner role cannot be changed here" }, 400);
   }
 
-  db.prepare(
-    `UPDATE notebook_members
-        SET role = ?, updatedAt = datetime('now')
-      WHERE notebookId = ? AND userId = ?`,
-  ).run(role, id, memberUserId);
+  notebookMembersRepository.updateRole(id, memberUserId, role);
 
   return c.json({ success: true });
 });
@@ -428,19 +418,13 @@ app.delete("/:id/members/:memberUserId", (c) => {
     return c.json({ error: "forbidden" }, 403);
   }
 
-  const member = db
-    .prepare("SELECT role FROM notebook_members WHERE notebookId = ? AND userId = ? AND status != 'removed'")
-    .get(id, memberUserId) as { role: string } | undefined;
+  const member = notebookMembersRepository.getRole(id, memberUserId);
   if (!member) return c.json({ error: "member not found" }, 404);
   if (member.role === "owner") {
     return c.json({ error: "owner cannot be removed here" }, 400);
   }
 
-  db.prepare(
-    `UPDATE notebook_members
-        SET status = 'removed', updatedAt = datetime('now')
-      WHERE notebookId = ? AND userId = ?`,
-  ).run(id, memberUserId);
+  notebookMembersRepository.remove(id, memberUserId);
 
   return c.json({ success: true });
 });
