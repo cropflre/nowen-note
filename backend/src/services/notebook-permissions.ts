@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import type { Permission } from "../middleware/acl";
+import { getDb } from "../db/schema";
 
 export type NotebookRole = "owner" | "editor" | "viewer";
 
@@ -17,10 +17,10 @@ export function notebookRoleToPermission(role: string | null | undefined): Permi
 }
 
 export function resolveNotebookMemberPermission(
-  db: Database.Database,
   notebookId: string,
   userId: string,
 ): Permission | null {
+  const db = getDb();
   const row = db
     .prepare(
       `SELECT role
@@ -32,10 +32,10 @@ export function resolveNotebookMemberPermission(
 }
 
 export function resolveNoteNotebookMemberPermission(
-  db: Database.Database,
   noteId: string,
   userId: string,
 ): Permission | null {
+  const db = getDb();
   const row = db
     .prepare(
       `SELECT nm.role
@@ -47,7 +47,8 @@ export function resolveNoteNotebookMemberPermission(
   return notebookRoleToPermission(row?.role);
 }
 
-export function listSharedNotebookIds(db: Database.Database, userId: string): string[] {
+export function listSharedNotebookIds(userId: string): string[] {
+  const db = getDb();
   return (
     db
       .prepare(

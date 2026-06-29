@@ -15,7 +15,7 @@ import {
   resolveNoteNotebookMemberPermission,
   resolveNotebookMemberPermission,
 } from "../services/notebook-permissions";
-import { noteAclRepository } from "../repositories";
+import { noteAclRepository, workspaceMembersRepository } from "../repositories";
 
 export type WorkspaceRole = "owner" | "admin" | "editor" | "commenter" | "viewer";
 export type Permission = "read" | "comment" | "write" | "manage";
@@ -71,11 +71,8 @@ export function roleToPermission(role: WorkspaceRole): Permission {
  * 查询用户在指定工作区中的角色
  */
 export function getUserWorkspaceRole(workspaceId: string, userId: string): WorkspaceRole | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(workspaceId, userId) as { role: WorkspaceRole } | undefined;
-  return row?.role ?? null;
+  const row = workspaceMembersRepository.getRole(workspaceId, userId);
+  return (row?.role as WorkspaceRole) ?? null;
 }
 
 /**
@@ -101,7 +98,7 @@ export function resolveNotePermission(
     return { permission: "manage", workspaceId: note.workspaceId, noteOwnerId: note.userId };
   }
 
-  const notebookMemberPermission = resolveNoteNotebookMemberPermission(db, noteId, userId);
+  const notebookMemberPermission = resolveNoteNotebookMemberPermission(noteId, userId);
   if (notebookMemberPermission) {
     return {
       permission: notebookMemberPermission,
@@ -145,7 +142,7 @@ export function resolveNotebookPermission(
     return { permission: "manage", workspaceId: nb.workspaceId, notebookOwnerId: nb.userId };
   }
 
-  const notebookMemberPermission = resolveNotebookMemberPermission(db, notebookId, userId);
+  const notebookMemberPermission = resolveNotebookMemberPermission(notebookId, userId);
   if (notebookMemberPermission) {
     return {
       permission: notebookMemberPermission,
@@ -167,11 +164,7 @@ export function resolveNotebookPermission(
  * 获取当前用户可访问的所有 workspaceId 集合（包含个人空间标识 null）
  */
 export function getUserAccessibleWorkspaceIds(userId: string): string[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT workspaceId FROM workspace_members WHERE userId = ?")
-    .all(userId) as { workspaceId: string }[];
-  return rows.map((r) => r.workspaceId);
+  return workspaceMembersRepository.listWorkspaceIdsByUser(userId);
 }
 
 /**
