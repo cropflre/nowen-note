@@ -4,6 +4,11 @@ import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { broadcastToUser } from "../services/realtime";
 import { isSystemAdmin } from "../middleware/acl";
+import {
+  normalizeImportWorkspaceId,
+  requireWorkspaceWriteAccess,
+  resolveWritableNotebookTarget,
+} from "../lib/import-target-permissions";
 
 const app = new Hono();
 
@@ -123,9 +128,10 @@ app.post("/import", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const wsRaw = c.req.query("workspaceId") ?? undefined;
-  // 工作区参数：personal/空 → null（写库时也是 NULL），否则保持字符串
-  const targetWs: string | null =
-    !wsRaw || wsRaw.trim() === "" || wsRaw.trim() === "personal" ? null : wsRaw.trim();
+  const wsWasExplicit = wsRaw !== undefined && wsRaw.trim() !== "";
+  // 工作区参数：personal/空 → null（写库时也是 NULL），否则保持字符串。
+  // 显式 notebookId 会在解析后以笔记本所属 workspace 为准。
+  let targetWs: string | null = normalizeImportWorkspaceId(wsRaw);
 
   // 闸门：个人空间导入——按当前用户的 users.personalImportEnabled 判定（方案 B）
   const denied = denyIfPersonalFeatureDisabled(
@@ -152,6 +158,23 @@ app.post("/import", async (c) => {
 
   if (!notes || !Array.isArray(notes) || notes.length === 0) {
     return c.json({ error: "No notes provided" }, 400);
+  }
+
+  let explicitNotebookId: string | null = null;
+  if (notebookId) {
+    const target = resolveWritableNotebookTarget(
+      userId,
+      notebookId,
+      wsWasExplicit ? targetWs : undefined,
+    );
+    if (!target.ok) return c.json(target.body, target.status as any);
+    explicitNotebookId = target.notebookId;
+    targetWs = target.workspaceId;
+  } else {
+    const deniedWorkspace = requireWorkspaceWriteAccess(userId, targetWs);
+    if (deniedWorkspace) {
+      return c.json(deniedWorkspace.body, deniedWorkspace.status as any);
+    }
   }
 
   const { v4: uuid } = require("uuid");
@@ -227,11 +250,11 @@ app.post("/import", async (c) => {
 
   // 决定"默认笔记本 id"：
   // - 若前端传了 notebookId，则所有笔记都归到该 id（覆盖 note.notebookName）
-  //   注意：调用方有责任保证该 id 属于目标 workspace；后端不强校验。
+  //   后端会校验该 notebook 可写，并从 notebook 继承 workspaceId。
   // - 否则若传了全局 notebookName，按该名找/建（限定在 targetWs 域）
   // - 否则每条 note 若带 notebookName 就按各自名找/建，没带的归到"导入的笔记"
   const explicitFallbackId =
-    notebookId ||
+    explicitNotebookId ||
     (notebookName && notebookName.trim() ? getOrCreateNotebookByName(notebookName.trim()) : null);
 
   // INSERT 时显式带 workspaceId，确保新笔记落到指定工作区。
@@ -397,12 +420,19 @@ app.post("/import/nowen-package", async (c) => {
 
   // 解析 workspaceId
   const wsRaw = c.req.query("workspaceId") ?? undefined;
+  const wsWasExplicit = wsRaw !== undefined && wsRaw.trim() !== "";
   const { sql: wsSql, param: wsParam } = workspaceFilter(wsRaw);
 
   // 闸门检查
   const isPersonalScope = wsParam === null;
   const denied = denyIfPersonalFeatureDisabled(userId, isPersonalScope, "personalImportEnabled");
   if (denied) return c.json(denied, 403);
+  if (!(importMode === "into-target" && targetNotebookId)) {
+    const deniedWorkspace = requireWorkspaceWriteAccess(userId, wsParam);
+    if (deniedWorkspace) {
+      return c.json(deniedWorkspace.body, deniedWorkspace.status as any);
+    }
+  }
 
   try {
     // 解析 multipart form data
@@ -421,7 +451,7 @@ app.post("/import/nowen-package", async (c) => {
     const { importNowenPackage } = await import("../services/nowenPackageImport");
     const result = await importNowenPackage(zipBuffer, {
       userId,
-      workspaceId: wsParam,
+      workspaceId: wsWasExplicit ? wsParam : undefined,
       targetNotebookId,
       importMode,
       dryRun,

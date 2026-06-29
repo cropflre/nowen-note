@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { resolveWritableNotebookTarget } from "../lib/import-target-permissions";
 
 const app = new Hono();
 
@@ -338,6 +339,20 @@ app.post("/import", async (c) => {
     return c.json({ error: "请选择要导入的笔记" }, 400);
   }
 
+  const { getDb } = await import("../db/schema");
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  let targetNotebookId: string | null =
+    typeof notebookId === "string" && notebookId.trim() ? notebookId : null;
+  let targetWorkspaceId: string | null = null;
+
+  if (targetNotebookId) {
+    const target = resolveWritableNotebookTarget(userId, targetNotebookId);
+    if (!target.ok) return c.json(target.body, target.status as any);
+    targetNotebookId = target.notebookId;
+    targetWorkspaceId = target.workspaceId;
+  }
+
   const results: { id: string; title: string; content: string; contentText: string; createDate?: number; modifyDate?: number }[] = [];
   const errors: string[] = [];
 
@@ -384,16 +399,11 @@ app.post("/import", async (c) => {
     return c.json({ error: "没有成功获取任何笔记", errors }, 500);
   }
 
-  const { getDb } = await import("../db/schema");
-  const db = getDb();
-  const userId = c.req.header("X-User-Id")!;
-
   // 确定目标笔记本
-  let targetNotebookId = notebookId;
   if (!targetNotebookId) {
     const existing = db
       .prepare(
-        "SELECT id FROM notebooks WHERE userId = ? AND name = '小米云笔记'"
+        "SELECT id FROM notebooks WHERE userId = ? AND name = '小米云笔记' AND workspaceId IS NULL"
       )
       .get(userId) as { id: string } | undefined;
 
@@ -403,14 +413,14 @@ app.post("/import", async (c) => {
       const { v4: uuid } = require("uuid");
       targetNotebookId = uuid();
       db.prepare(
-        "INSERT INTO notebooks (id, userId, name, icon) VALUES (?, ?, '小米云笔记', '📱')"
+        "INSERT INTO notebooks (id, userId, name, icon, workspaceId) VALUES (?, ?, '小米云笔记', '📱', NULL)"
       ).run(targetNotebookId, userId);
     }
   }
 
   const insert = db.prepare(`
-    INSERT INTO notes (id, userId, notebookId, title, content, contentText, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const { v4: uuid } = require("uuid");
@@ -443,6 +453,7 @@ app.post("/import", async (c) => {
       insert.run(
         id,
         userId,
+        targetWorkspaceId,
         targetNotebookId,
         note.title,
         note.content,

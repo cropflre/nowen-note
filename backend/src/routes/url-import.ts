@@ -7,6 +7,11 @@ import { getDb } from "../db/schema";
 import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
 import { deleteAttachmentObject, writeAttachmentObject } from "../services/attachment-storage";
 import { sanitizeForImport } from "../lib/sanitizeHtml";
+import {
+  normalizeImportWorkspaceId,
+  requireWorkspaceWriteAccess,
+  resolveWritableNotebookTarget,
+} from "../lib/import-target-permissions";
 
 const app = new Hono();
 
@@ -387,7 +392,9 @@ app.post("/", async (c) => {
   }
 
   const userId = c.req.header("X-User-Id")!;
-  const workspaceId = c.req.query("workspaceId") || null;
+  const wsRaw = c.req.query("workspaceId") ?? undefined;
+  const wsWasExplicit = wsRaw !== undefined && wsRaw.trim() !== "";
+  let workspaceId = normalizeImportWorkspaceId(wsRaw);
 
   let html: string;
   try {
@@ -432,16 +439,33 @@ app.post("/", async (c) => {
 
   // 确定目标笔记本：未指定 → "导入的文章"
   let targetNotebookId = notebookId;
-  if (!targetNotebookId) {
-    const exist = db
-      .prepare("SELECT id FROM notebooks WHERE userId = ? AND name = ?")
-      .get(userId, "导入的文章") as { id: string } | undefined;
+  if (targetNotebookId) {
+    const target = resolveWritableNotebookTarget(
+      userId,
+      targetNotebookId,
+      wsWasExplicit ? workspaceId : undefined,
+    );
+    if (!target.ok) return c.json(target.body, target.status as any);
+    workspaceId = target.workspaceId;
+  } else {
+    const deniedWorkspace = requireWorkspaceWriteAccess(userId, workspaceId);
+    if (deniedWorkspace) {
+      return c.json(deniedWorkspace.body, deniedWorkspace.status as any);
+    }
+
+    const exist = workspaceId
+      ? (db
+          .prepare("SELECT id FROM notebooks WHERE userId = ? AND name = ? AND workspaceId = ?")
+          .get(userId, "导入的文章", workspaceId) as { id: string } | undefined)
+      : (db
+          .prepare("SELECT id FROM notebooks WHERE userId = ? AND name = ? AND workspaceId IS NULL")
+          .get(userId, "导入的文章") as { id: string } | undefined);
     if (exist) {
       targetNotebookId = exist.id;
     } else {
       targetNotebookId = uuid();
-      db.prepare("INSERT INTO notebooks (id, userId, name, icon) VALUES (?, ?, ?, ?)")
-        .run(targetNotebookId, userId, "导入的文章", "📄");
+      db.prepare("INSERT INTO notebooks (id, userId, name, icon, workspaceId) VALUES (?, ?, ?, ?, ?)")
+        .run(targetNotebookId, userId, "导入的文章", "📄", workspaceId);
     }
   }
 
