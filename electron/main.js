@@ -1256,6 +1256,24 @@ app.whenReady().then(async () => {
   currentRemoteUrl = settings.remoteUrl;
   currentHideMenuBar = !!settings.hideMenuBar;
 
+  // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许 notifications
+  const { session: defaultSession } = require("electron");
+  defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    // 只允许 notifications（任务提醒功能需要），其余全部拒绝
+    if (permission === "notifications") {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+  // setPermissionCheckHandler: 拦截权限查询（非弹窗类的静默检查）
+  if (typeof defaultSession.setPermissionCheckHandler === "function") {
+    defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+      // 同样只允许 notifications
+      return permission === "notifications";
+    });
+  }
+
   // Lite-only 包强制使用 lite 模式：哪怕用户手改 settings.json 为 full 也纠正回来
   if (liteOnly && currentMode !== "lite") {
     console.log("[Electron] lite-only build detected, forcing mode=lite");
