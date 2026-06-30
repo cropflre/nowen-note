@@ -22,7 +22,7 @@ export const embeddingQueueRepository = {
    */
   deleteByNoteId(noteId: string): void {
     const db = getDb();
-    db.prepare("DELETE FROM embedding_queue WHERE noteId = ?").run(noteId);
+    db.prepare("DELETE FROM embedding_queue WHERE \"noteId\" = ?").run(noteId);
   },
 
   /**
@@ -33,7 +33,7 @@ export const embeddingQueueRepository = {
   markSkipped(noteId: string): void {
     const db = getDb();
     db.prepare(
-      "UPDATE embedding_queue SET status = 'done', updatedAt = datetime('now'), lastError = 'skipped: content too short' WHERE noteId = ?"
+      "UPDATE embedding_queue SET status = 'done', \"updatedAt\" = datetime('now'), \"lastError\" = 'skipped: content too short' WHERE \"noteId\" = ?"
     ).run(noteId);
   },
 
@@ -45,7 +45,7 @@ export const embeddingQueueRepository = {
   markDone(noteId: string): void {
     const db = getDb();
     db.prepare(
-      "UPDATE embedding_queue SET status = 'done', lastError = NULL, updatedAt = datetime('now') WHERE noteId = ?"
+      "UPDATE embedding_queue SET status = 'done', \"lastError\" = NULL, \"updatedAt\" = datetime('now') WHERE \"noteId\" = ?"
     ).run(noteId);
   },
 
@@ -57,7 +57,7 @@ export const embeddingQueueRepository = {
   markProcessing(noteId: string): void {
     const db = getDb();
     db.prepare(
-      "UPDATE embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE noteId = ?"
+      "UPDATE embedding_queue SET status = 'processing', \"updatedAt\" = datetime('now') WHERE \"noteId\" = ?"
     ).run(noteId);
   },
 
@@ -73,8 +73,8 @@ export const embeddingQueueRepository = {
     const db = getDb();
     db.prepare(
       `UPDATE embedding_queue
-       SET status = ?, retries = ?, lastError = ?, updatedAt = datetime('now')
-       WHERE noteId = ?`
+       SET status = ?, retries = ?, "lastError" = ?, "updatedAt" = datetime('now')
+       WHERE "noteId" = ?`
     ).run(status, retries, lastError, noteId);
   },
 
@@ -89,10 +89,10 @@ export const embeddingQueueRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT noteId, userId, retries
+        `SELECT "noteId", "userId", retries
          FROM embedding_queue
          WHERE status = 'pending' AND retries < ?
-         ORDER BY enqueuedAt ASC
+         ORDER BY "enqueuedAt" ASC
          LIMIT ?`
       )
       .all(maxRetries, limit) as Array<{ noteId: string; userId: string; retries: number }>;
@@ -107,15 +107,15 @@ export const embeddingQueueRepository = {
   enqueueByWhere(whereClause: string, params: any[]): void {
     const db = getDb();
     db.prepare(
-      `INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
-       SELECT id, userId, workspaceId, 'pending', 0, datetime('now'), datetime('now')
+      `INSERT INTO embedding_queue ("noteId", "userId", "workspaceId", status, retries, "enqueuedAt", "updatedAt")
+       SELECT id, "userId", "workspaceId", 'pending', 0, datetime('now'), datetime('now')
        FROM notes WHERE ${whereClause}
-       ON CONFLICT(noteId) DO UPDATE SET
-         workspaceId = excluded.workspaceId,
+       ON CONFLICT("noteId") DO UPDATE SET
+         "workspaceId" = excluded."workspaceId",
          status = 'pending',
          retries = 0,
-         lastError = NULL,
-         updatedAt = datetime('now')`
+         "lastError" = NULL,
+         "updatedAt" = datetime('now')`
     ).run(...params);
   },
 
@@ -150,26 +150,26 @@ export const embeddingQueueRepository = {
   },
 
   async deleteByNoteIdAsync(noteId: string): Promise<void> {
-    await getAdapter().execute("DELETE FROM embedding_queue WHERE noteId = ?", [noteId]);
+    await getAdapter().execute("DELETE FROM embedding_queue WHERE \"noteId\" = ?", [noteId]);
   },
 
   async markSkippedAsync(noteId: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE embedding_queue SET status = 'done', updatedAt = datetime('now'), lastError = 'skipped: content too short' WHERE noteId = ?",
+      "UPDATE embedding_queue SET status = 'done', \"updatedAt\" = datetime('now'), \"lastError\" = 'skipped: content too short' WHERE \"noteId\" = ?",
       [noteId],
     );
   },
 
   async markDoneAsync(noteId: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE embedding_queue SET status = 'done', lastError = NULL, updatedAt = datetime('now') WHERE noteId = ?",
+      "UPDATE embedding_queue SET status = 'done', \"lastError\" = NULL, \"updatedAt\" = datetime('now') WHERE \"noteId\" = ?",
       [noteId],
     );
   },
 
   async markProcessingAsync(noteId: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE noteId = ?",
+      "UPDATE embedding_queue SET status = 'processing', \"updatedAt\" = datetime('now') WHERE \"noteId\" = ?",
       [noteId],
     );
   },
@@ -177,18 +177,18 @@ export const embeddingQueueRepository = {
   async updateStatusAsync(noteId: string, status: string, retries: number, lastError: string): Promise<void> {
     await getAdapter().execute(
       `UPDATE embedding_queue
-       SET status = ?, retries = ?, lastError = ?, updatedAt = datetime('now')
-       WHERE noteId = ?`,
+       SET status = ?, retries = ?, "lastError" = ?, "updatedAt" = datetime('now')
+       WHERE "noteId" = ?`,
       [status, retries, lastError, noteId],
     );
   },
 
   async listPendingAsync(maxRetries: number, limit: number): Promise<Array<{ noteId: string; userId: string; retries: number }>> {
     return getAdapter().queryMany<{ noteId: string; userId: string; retries: number }>(
-      `SELECT noteId, userId, retries
+      `SELECT "noteId", "userId", retries
        FROM embedding_queue
        WHERE status = 'pending' AND retries < ?
-       ORDER BY enqueuedAt ASC
+       ORDER BY "enqueuedAt" ASC
        LIMIT ?`,
       [maxRetries, limit],
     );
@@ -196,15 +196,15 @@ export const embeddingQueueRepository = {
 
   async enqueueByWhereAsync(whereClause: string, params: unknown[]): Promise<void> {
     await getAdapter().execute(
-      `INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
-       SELECT id, userId, workspaceId, 'pending', 0, datetime('now'), datetime('now')
+      `INSERT INTO embedding_queue ("noteId", "userId", "workspaceId", status, retries, "enqueuedAt", "updatedAt")
+       SELECT id, "userId", "workspaceId", 'pending', 0, datetime('now'), datetime('now')
        FROM notes WHERE ${whereClause}
-       ON CONFLICT(noteId) DO UPDATE SET
-         workspaceId = excluded.workspaceId,
+       ON CONFLICT("noteId") DO UPDATE SET
+         "workspaceId" = excluded."workspaceId",
          status = 'pending',
          retries = 0,
-         lastError = NULL,
-         updatedAt = datetime('now')`,
+         "lastError" = NULL,
+         "updatedAt" = datetime('now')`,
       params,
     );
   },
