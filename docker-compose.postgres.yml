@@ -1,0 +1,33 @@
+# PostgreSQL 本地开发/测试环境
+#
+# 用法：
+#   启动：docker compose -f docker-compose.postgres.yml up -d
+#   停止：docker compose -f docker-compose.postgres.yml down
+#   清理：docker compose -f docker-compose.postgres.yml down -v
+#   连接：psql postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test
+#
+# 注意：
+#   - 此文件不影响默认 docker-compose.yml
+#   - SQLite 仍是默认数据库
+#   - PostgreSQL 仅用于 PG-PILOT 双库测试
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nowen-postgres-test
+    environment:
+      POSTGRES_DB: nowen_note_test
+      POSTGRES_USER: nowen
+      POSTGRES_PASSWORD: nowen_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nowen -d nowen_note_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
