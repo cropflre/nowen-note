@@ -24,7 +24,7 @@ export const customFontsRepository = {
     const db = getDb();
     return db
       .prepare(
-        "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts ORDER BY createdAt DESC",
+        'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts ORDER BY "createdAt" DESC',
       )
       .all() as CustomFont[];
   },
@@ -36,7 +36,7 @@ export const customFontsRepository = {
     const db = getDb();
     return db
       .prepare(
-        "SELECT id, name, fileName, format, createdAt FROM custom_fonts ORDER BY createdAt DESC",
+        'SELECT id, name, "fileName", format, "createdAt" FROM custom_fonts ORDER BY "createdAt" DESC',
       )
       .all() as Array<Omit<CustomFont, "fileSize">>;
   },
@@ -48,7 +48,7 @@ export const customFontsRepository = {
     const db = getDb();
     return db
       .prepare(
-        "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts WHERE id = ?",
+        'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts WHERE id = ?',
       )
       .get(id) as CustomFont | undefined;
   },
@@ -61,7 +61,7 @@ export const customFontsRepository = {
   ): Pick<CustomFont, "id" | "fileName" | "format"> | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT id, fileName, format FROM custom_fonts WHERE id = ?")
+      .prepare('SELECT id, "fileName", format FROM custom_fonts WHERE id = ?')
       .get(id) as Pick<CustomFont, "id" | "fileName" | "format"> | undefined;
   },
 
@@ -72,7 +72,7 @@ export const customFontsRepository = {
     const db = getDb();
     return db
       .prepare(
-        "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts WHERE fileName = ?",
+        'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts WHERE "fileName" = ?',
       )
       .get(fileName) as CustomFont | undefined;
   },
@@ -83,7 +83,7 @@ export const customFontsRepository = {
   getIdByFileName(fileName: string): string | undefined {
     const db = getDb();
     const row = db
-      .prepare("SELECT id FROM custom_fonts WHERE fileName = ?")
+      .prepare('SELECT id FROM custom_fonts WHERE "fileName" = ?')
       .get(fileName) as { id: string } | undefined;
     return row?.id;
   },
@@ -96,7 +96,7 @@ export const customFontsRepository = {
   ): void {
     const db = getDb();
     db.prepare(
-      `INSERT INTO custom_fonts (id, name, fileName, format, fileSize, createdAt)
+      `INSERT INTO custom_fonts (id, name, "fileName", format, "fileSize", "createdAt")
        VALUES (?, ?, ?, ?, ?, datetime('now'))`,
     ).run(font.id, font.name, font.fileName, font.format, font.fileSize);
   },
@@ -115,7 +115,7 @@ export const customFontsRepository = {
   existsByFileName(fileName: string): boolean {
     const db = getDb();
     const result = db
-      .prepare("SELECT 1 FROM custom_fonts WHERE fileName = ? LIMIT 1")
+      .prepare('SELECT 1 FROM custom_fonts WHERE "fileName" = ? LIMIT 1')
       .get(fileName);
     return !!result;
   },
@@ -127,21 +127,21 @@ export const customFontsRepository = {
   /** 获取所有字体（async） */
   async getAllAsync(): Promise<CustomFont[]> {
     return getAdapter().queryMany<CustomFont>(
-      "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts ORDER BY createdAt DESC",
+      'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts ORDER BY "createdAt" DESC',
     );
   },
 
   /** 获取字体列表（async，不含 fileSize） */
   async getListAsync(): Promise<Array<Omit<CustomFont, "fileSize">>> {
     return getAdapter().queryMany<Omit<CustomFont, "fileSize">>(
-      "SELECT id, name, fileName, format, createdAt FROM custom_fonts ORDER BY createdAt DESC",
+      'SELECT id, name, "fileName", format, "createdAt" FROM custom_fonts ORDER BY "createdAt" DESC',
     );
   },
 
   /** 根据 ID 获取字体（async） */
   async getByIdAsync(id: string): Promise<CustomFont | undefined> {
     return getAdapter().queryOne<CustomFont>(
-      "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts WHERE id = ?",
+      'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts WHERE id = ?',
       [id],
     );
   },
@@ -151,7 +151,7 @@ export const customFontsRepository = {
     id: string,
   ): Promise<Pick<CustomFont, "id" | "fileName" | "format"> | undefined> {
     return getAdapter().queryOne<Pick<CustomFont, "id" | "fileName" | "format">>(
-      "SELECT id, fileName, format FROM custom_fonts WHERE id = ?",
+      'SELECT id, "fileName", format FROM custom_fonts WHERE id = ?',
       [id],
     );
   },
@@ -159,7 +159,7 @@ export const customFontsRepository = {
   /** 根据文件名获取字体（async） */
   async getByFileNameAsync(fileName: string): Promise<CustomFont | undefined> {
     return getAdapter().queryOne<CustomFont>(
-      "SELECT id, name, fileName, format, fileSize, createdAt FROM custom_fonts WHERE fileName = ?",
+      'SELECT id, name, "fileName", format, "fileSize", "createdAt" FROM custom_fonts WHERE "fileName" = ?',
       [fileName],
     );
   },
@@ -167,7 +167,7 @@ export const customFontsRepository = {
   /** 根据文件名获取字体 ID（async） */
   async getIdByFileNameAsync(fileName: string): Promise<string | undefined> {
     const row = await getAdapter().queryOne<{ id: string }>(
-      "SELECT id FROM custom_fonts WHERE fileName = ?",
+      'SELECT id FROM custom_fonts WHERE "fileName" = ?',
       [fileName],
     );
     return row?.id;
@@ -178,7 +178,7 @@ export const customFontsRepository = {
     font: Omit<CustomFont, "createdAt"> & { createdAt?: string },
   ): Promise<void> {
     await getAdapter().execute(
-      `INSERT INTO custom_fonts (id, name, fileName, format, fileSize, createdAt)
+      `INSERT INTO custom_fonts (id, name, "fileName", format, "fileSize", "createdAt")
        VALUES (?, ?, ?, ?, ?, datetime('now'))`,
       [font.id, font.name, font.fileName, font.format, font.fileSize],
     );
@@ -195,7 +195,7 @@ export const customFontsRepository = {
   /** 检查文件名是否存在（async） */
   async existsByFileNameAsync(fileName: string): Promise<boolean> {
     const result = await getAdapter().queryOne<{ id: string }>(
-      "SELECT 1 FROM custom_fonts WHERE fileName = ? LIMIT 1",
+      'SELECT 1 FROM custom_fonts WHERE "fileName" = ? LIMIT 1',
       [fileName],
     );
     return !!result;
