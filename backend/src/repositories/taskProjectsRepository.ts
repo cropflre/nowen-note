@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** task_projects 记录 */
 export interface TaskProjectRecord {
@@ -154,5 +159,14 @@ export const taskProjectsRepository = {
       }
     });
     tx();
+  },
+
+  /** 批量更新项目排序（async，使用 executeBatch 事务） */
+  async updateSortOrderAsync(items: Array<{ id: string; sortOrder: number }>): Promise<void> {
+    if (items.length === 0) return;
+    await getAdapter().executeBatch(
+      "UPDATE task_projects SET sortOrder = ?, updatedAt = datetime('now') WHERE id = ?",
+      items.map((i) => [i.sortOrder, i.id]),
+    );
   },
 };
