@@ -222,4 +222,15 @@ export const systemSettingsRepository = {
       [`${prefix}%`],
     );
   },
+
+  /** 设置多个值（async，批量 upsert，使用 executeBatch 事务） */
+  async setManyAsync(entries: Array<{ key: string; value: string }>): Promise<void> {
+    if (entries.length === 0) return;
+    await getAdapter().executeBatch(
+      `INSERT INTO system_settings (key, value, updatedAt)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')`,
+      entries.map((e) => [e.key, e.value]),
+    );
+  },
 };
