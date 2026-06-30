@@ -169,4 +169,87 @@ export const taskProjectsRepository = {
       items.map((i) => [i.sortOrder, i.id]),
     );
   },
+
+  /** 获取项目列表（含任务统计，async） */
+  async listByUserAsync(userId: string, workspaceId: string | null): Promise<TaskProjectWithStats[]> {
+    if (workspaceId) {
+      return getAdapter().queryMany<TaskProjectWithStats>(
+        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
+        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
+        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
+        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
+        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
+        "FROM task_projects p WHERE p.workspaceId = ? ORDER BY p.sortOrder ASC, p.createdAt ASC",
+        [workspaceId],
+      );
+    } else {
+      return getAdapter().queryMany<TaskProjectWithStats>(
+        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
+        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
+        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
+        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
+        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
+        "FROM task_projects p WHERE p.userId = ? AND p.workspaceId IS NULL ORDER BY p.sortOrder ASC, p.createdAt ASC",
+        [userId],
+      );
+    }
+  },
+
+  /** 获取项目详情（async） */
+  async getByIdAsync(projectId: string): Promise<TaskProjectRecord | undefined> {
+    return getAdapter().queryOne<TaskProjectRecord>(
+      "SELECT * FROM task_projects WHERE id = ?",
+      [projectId],
+    );
+  },
+
+  /** 获取项目详情（含统计，async） */
+  async getByIdWithStatsAsync(projectId: string): Promise<TaskProjectWithStats | undefined> {
+    return getAdapter().queryOne<TaskProjectWithStats>(
+      "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
+      "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
+      "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
+      "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
+      "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
+      "FROM task_projects p WHERE p.id = ?",
+      [projectId],
+    );
+  },
+
+  /** 创建项目（async） */
+  async createAsync(input: {
+    id: string;
+    userId: string;
+    workspaceId: string | null;
+    name: string;
+    icon: string | null;
+    color: string | null;
+    sortOrder: number;
+  }): Promise<void> {
+    await getAdapter().execute(
+      "INSERT INTO task_projects (id, userId, workspaceId, name, icon, color, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [input.id, input.userId, input.workspaceId, input.name, input.icon, input.color, input.sortOrder],
+    );
+  },
+
+  /** 更新项目（async） */
+  async updateAsync(projectId: string, input: {
+    name: string;
+    icon: string | null;
+    color: string | null;
+    sortOrder: number;
+  }): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE task_projects SET name = ?, icon = ?, color = ?, sortOrder = ?, updatedAt = datetime('now') WHERE id = ?",
+      [input.name, input.icon, input.color, input.sortOrder, projectId],
+    );
+  },
+
+  /** 删除项目（async，先解除任务关联再删除） */
+  async deleteAsync(projectId: string): Promise<void> {
+    await getAdapter().executeStatements([
+      { sql: "UPDATE tasks SET projectId = NULL WHERE projectId = ?", params: [projectId] },
+      { sql: "DELETE FROM task_projects WHERE id = ?", params: [projectId] },
+    ]);
+  },
 };
