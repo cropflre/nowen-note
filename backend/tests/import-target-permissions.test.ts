@@ -119,7 +119,11 @@ test("export import rejects workspace writes from non-editor members", async () 
   assert.equal(count.count, 0);
 });
 
-test("export import inherits workspace from an explicit writable notebook", async () => {
+test("export import inherits workspace from an explicit writable notebook before personal gate", async () => {
+  db()
+    .prepare("UPDATE users SET personalImportEnabled = 0 WHERE id = ?")
+    .run("editor");
+
   const res = await app.request("/export/import", {
     method: "POST",
     headers: {

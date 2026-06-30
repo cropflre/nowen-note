@@ -133,14 +133,6 @@ app.post("/import", async (c) => {
   // 显式 notebookId 会在解析后以笔记本所属 workspace 为准。
   let targetWs: string | null = normalizeImportWorkspaceId(wsRaw);
 
-  // 闸门：个人空间导入——按当前用户的 users.personalImportEnabled 判定（方案 B）
-  const denied = denyIfPersonalFeatureDisabled(
-    userId,
-    targetWs === null,
-    "personalImportEnabled",
-  );
-  if (denied) return c.json(denied, 403);
-
   const body = await c.req.json();
   const { notes, notebookId, notebookName } = body as {
     notes: {
@@ -176,6 +168,14 @@ app.post("/import", async (c) => {
       return c.json(deniedWorkspace.body, deniedWorkspace.status as any);
     }
   }
+
+  // 闸门：个人空间导入——按解析后的最终 target scope 判定。
+  const denied = denyIfPersonalFeatureDisabled(
+    userId,
+    targetWs === null,
+    "personalImportEnabled",
+  );
+  if (denied) return c.json(denied, 403);
 
   const { v4: uuid } = require("uuid");
 
