@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const notebookMembersRepository = {
   /**
@@ -141,5 +146,96 @@ export const notebookMembersRepository = {
          WHERE nm.notebookId = ? AND nm.userId = ?`
       )
       .get(notebookId, userId) as any;
+  },
+
+  async getRoleAsync(notebookId: string, userId: string): Promise<{ role: string } | undefined> {
+    return getAdapter().queryOne<{ role: string }>(
+      "SELECT role FROM notebook_members WHERE notebookId = ? AND userId = ? AND status != 'removed'",
+      [notebookId, userId],
+    );
+  },
+
+  async upsertAsync(input: {
+    id: string;
+    notebookId: string;
+    userId: string;
+    role: string;
+    invitedBy: string | null;
+  }): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO notebook_members (id, notebookId, userId, role, status, invitedBy)
+       VALUES (?, ?, ?, ?, 'active', ?)
+       ON CONFLICT(notebookId, userId) DO UPDATE SET
+         role = excluded.role,
+         status = 'active',
+         updatedAt = datetime('now')`,
+      [input.id, input.notebookId, input.userId, input.role, input.invitedBy],
+    );
+  },
+
+  async updateRoleAsync(notebookId: string, userId: string, role: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE notebook_members SET role = ?, updatedAt = datetime('now') WHERE notebookId = ? AND userId = ?",
+      [role, notebookId, userId],
+    );
+  },
+
+  async removeAsync(notebookId: string, userId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE notebook_members SET status = 'removed', updatedAt = datetime('now') WHERE notebookId = ? AND userId = ?",
+      [notebookId, userId],
+    );
+  },
+
+  async listByNotebookAsync(notebookId: string): Promise<Array<{
+    id: string;
+    notebookId: string;
+    userId: string;
+    role: string;
+    status: string;
+    invitedBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+    username: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }>> {
+    return getAdapter().queryMany<any>(
+      `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
+              nm.createdAt, nm.updatedAt,
+              u.username, u.email, u.displayName, u.avatarUrl
+       FROM notebook_members nm
+       JOIN users u ON u.id = nm.userId
+       WHERE nm.notebookId = ? AND nm.status != 'removed'
+       ORDER BY CASE nm.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+                u.username ASC`,
+      [notebookId],
+    );
+  },
+
+  async getByNotebookAndUserAsync(notebookId: string, userId: string): Promise<{
+    id: string;
+    notebookId: string;
+    userId: string;
+    role: string;
+    status: string;
+    invitedBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+    username: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } | undefined> {
+    return getAdapter().queryOne<any>(
+      `SELECT nm.id, nm.notebookId, nm.userId, nm.role, nm.status, nm.invitedBy,
+              nm.createdAt, nm.updatedAt,
+              u.username, u.email, u.displayName, u.avatarUrl
+       FROM notebook_members nm
+       JOIN users u ON u.id = nm.userId
+       WHERE nm.notebookId = ? AND nm.userId = ?`,
+      [notebookId, userId],
+    );
   },
 };
