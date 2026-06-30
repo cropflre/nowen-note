@@ -48,19 +48,19 @@ export const noteLinksRepository = {
       const rows = db
         .prepare(
           `SELECT
-            nl.sourceNoteId,
+            nl."sourceNoteId",
             n.title,
-            n.updatedAt,
-            nl.linkText,
-            nl.linkType,
-            nl.targetBlockId,
+            n."updatedAt",
+            nl."linkText",
+            nl."linkType",
+            nl."targetBlockId",
             nl.excerpt
           FROM note_links nl
-          JOIN notes n ON n.id = nl.sourceNoteId
-          WHERE nl.userId = ?
-            AND nl.targetNoteId = ?
-            AND n.isTrashed = 0
-          ORDER BY n.updatedAt DESC
+          JOIN notes n ON n.id = nl."sourceNoteId"
+          WHERE nl."userId" = ?
+            AND nl."targetNoteId" = ?
+            AND n."isTrashed" = 0
+          ORDER BY n."updatedAt" DESC
           LIMIT ?`,
         )
         .all(userId, targetNoteId, limit) as BacklinkItem[];
@@ -94,7 +94,7 @@ export const noteLinksRepository = {
 
     // 1. 清除旧的引用关系
     db.prepare(
-      "DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?",
+      'DELETE FROM note_links WHERE "userId" = ? AND "sourceNoteId" = ?',
     ).run(userId, sourceNoteId);
 
     // 2. 如果 links 为空，直接 return
@@ -113,7 +113,7 @@ export const noteLinksRepository = {
 
     // 5. 批量插入新的引用关系（使用事务）
     const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, targetBlockId, linkType, linkText, excerpt, createdAt, updatedAt)
+      INSERT OR IGNORE INTO note_links (id, "userId", "sourceNoteId", "targetNoteId", "targetBlockId", "linkType", "linkText", excerpt, "createdAt", "updatedAt")
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `);
 
@@ -149,7 +149,7 @@ export const noteLinksRepository = {
 
     // 1. 构造 DELETE statement
     const deleteStatement = {
-      sql: "DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?",
+      sql: 'DELETE FROM note_links WHERE "userId" = ? AND "sourceNoteId" = ?',
       params: [userId, sourceNoteId],
     };
 
@@ -177,7 +177,7 @@ export const noteLinksRepository = {
     const statements = [
       deleteStatement,
       ...validEntries.map((link) => ({
-        sql: `INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, targetBlockId, linkType, linkText, excerpt, createdAt, updatedAt)
+        sql: `INSERT OR IGNORE INTO note_links (id, "userId", "sourceNoteId", "targetNoteId", "targetBlockId", "linkType", "linkText", excerpt, "createdAt", "updatedAt")
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
         params: [
           uuid(),
@@ -204,7 +204,7 @@ export const noteLinksRepository = {
   deleteByNoteId(noteId: string): void {
     const db = getDb();
     db.prepare(
-      "DELETE FROM note_links WHERE sourceNoteId = ? OR targetNoteId = ?",
+      'DELETE FROM note_links WHERE "sourceNoteId" = ? OR "targetNoteId" = ?',
     ).run(noteId, noteId);
   },
 
@@ -217,19 +217,19 @@ export const noteLinksRepository = {
     try {
       const rows = await getAdapter().queryMany<BacklinkItem>(
         `SELECT
-          nl.sourceNoteId,
+          nl."sourceNoteId",
           n.title,
-          n.updatedAt,
-          nl.linkText,
-          nl.linkType,
-          nl.targetBlockId,
+          n."updatedAt",
+          nl."linkText",
+          nl."linkType",
+          nl."targetBlockId",
           nl.excerpt
         FROM note_links nl
-        JOIN notes n ON n.id = nl.sourceNoteId
-        WHERE nl.userId = ?
-          AND nl.targetNoteId = ?
-          AND n.isTrashed = 0
-        ORDER BY n.updatedAt DESC
+        JOIN notes n ON n.id = nl."sourceNoteId"
+        WHERE nl."userId" = ?
+          AND nl."targetNoteId" = ?
+          AND n."isTrashed" = 0
+        ORDER BY n."updatedAt" DESC
         LIMIT ?`,
         [userId, targetNoteId, limit],
       );
@@ -243,7 +243,7 @@ export const noteLinksRepository = {
   /** 删除笔记时清理 note_links 引用关系（async） */
   async deleteByNoteIdAsync(noteId: string): Promise<void> {
     await getAdapter().execute(
-      "DELETE FROM note_links WHERE sourceNoteId = ? OR targetNoteId = ?",
+      'DELETE FROM note_links WHERE "sourceNoteId" = ? OR "targetNoteId" = ?',
       [noteId, noteId],
     );
   },
