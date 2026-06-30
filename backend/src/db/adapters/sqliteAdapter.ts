@@ -33,4 +33,25 @@ export class SqliteAdapter implements DbAdapter {
       lastInsertRowid: result.lastInsertRowid,
     };
   }
+
+  async executeBatch(sql: string, paramsList: unknown[][]): Promise<DbRunResult> {
+    if (paramsList.length === 0) {
+      return { changes: 0 };
+    }
+
+    const stmt = this.db.prepare(sql);
+    let totalChanges = 0;
+    let lastRowid: number | bigint = 0;
+
+    const runBatch = this.db.transaction((items: unknown[][]) => {
+      for (const params of items) {
+        const result = stmt.run(...params);
+        totalChanges += result.changes;
+        lastRowid = result.lastInsertRowid;
+      }
+    });
+
+    runBatch(paramsList);
+    return { changes: totalChanges, lastInsertRowid: lastRowid };
+  }
 }

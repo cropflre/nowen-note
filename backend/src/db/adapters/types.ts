@@ -19,7 +19,7 @@ export interface DbRunResult {
   lastInsertRowid?: number | bigint;
 }
 
-/** Phase 1 最小数据库适配器接口（无事务） */
+/** Phase 1 最小数据库适配器接口（含批量事务） */
 export interface DbAdapter {
   /** 查询单条记录 */
   queryOne<T>(sql: string, params?: unknown[]): Promise<T | undefined>;
@@ -29,4 +29,7 @@ export interface DbAdapter {
 
   /** 执行写操作（INSERT/UPDATE/DELETE） */
   execute(sql: string, params?: unknown[]): Promise<DbRunResult>;
+
+  /** 批量执行同一条 SQL（在事务中执行，中途失败整体回滚） */
+  executeBatch(sql: string, paramsList: unknown[][]): Promise<DbRunResult>;
 }
