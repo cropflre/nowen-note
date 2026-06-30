@@ -71,7 +71,15 @@ test.beforeEach(() => {
 
 test.after(() => {
   closeDb();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  // Small delay to ensure file handles are released on Windows
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {
+    // Retry once after a brief delay (Windows file lock issue)
+    setTimeout(() => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }, 100);
+  }
 });
 
 test("creating a task stores description", async () => {
