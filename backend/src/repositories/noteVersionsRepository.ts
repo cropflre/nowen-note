@@ -61,11 +61,11 @@ export const noteVersionsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT nv.id, nv.noteId, nv.userId, nv.title, nv.version, nv.changeType, nv.changeSummary, nv.createdAt,
+        `SELECT nv.id, nv."noteId", nv."userId", nv.title, nv.version, nv."changeType", nv."changeSummary", nv."createdAt",
                 u.username
          FROM note_versions nv
-         LEFT JOIN users u ON nv.userId = u.id
-         WHERE nv.noteId = ?
+         LEFT JOIN users u ON nv."userId" = u.id
+         WHERE nv."noteId" = ?
          ORDER BY nv.version DESC
          LIMIT ? OFFSET ?`,
       )
@@ -81,7 +81,7 @@ export const noteVersionsRepository = {
   countByNoteId(noteId: string): number {
     const db = getDb();
     const row = db
-      .prepare("SELECT COUNT(*) as count FROM note_versions WHERE noteId = ?")
+      .prepare('SELECT COUNT(*) as count FROM note_versions WHERE "noteId" = ?')
       .get(noteId) as { count: number };
     return row.count;
   },
@@ -98,7 +98,7 @@ export const noteVersionsRepository = {
   getByIdAndNoteId(id: string, noteId: string): NoteVersionRecord | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT * FROM note_versions WHERE id = ? AND noteId = ?")
+      .prepare('SELECT * FROM note_versions WHERE id = ? AND "noteId" = ?')
       .get(id, noteId) as NoteVersionRecord | undefined;
   },
 
@@ -115,8 +115,8 @@ export const noteVersionsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT createdAt FROM note_versions
-         WHERE noteId = ? AND changeType = 'edit'
+        `SELECT "createdAt" FROM note_versions
+         WHERE "noteId" = ? AND "changeType" = 'edit'
          ORDER BY version DESC
          LIMIT 1`,
       )
@@ -152,22 +152,22 @@ export const noteVersionsRepository = {
 
     if (hasChangeSummary && hasCreatedAt) {
       db.prepare(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary, createdAt)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary", "createdAt")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary, input.createdAt);
     } else if (hasChangeSummary) {
       db.prepare(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary);
     } else if (hasCreatedAt) {
       db.prepare(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, createdAt)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "createdAt")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.createdAt);
     } else {
       db.prepare(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType);
     }
@@ -183,7 +183,7 @@ export const noteVersionsRepository = {
    */
   deleteByNoteId(noteId: string): number {
     const db = getDb();
-    const result = db.prepare("DELETE FROM note_versions WHERE noteId = ?").run(noteId);
+    const result = db.prepare('DELETE FROM note_versions WHERE "noteId" = ?').run(noteId);
     return result.changes;
   },
 
@@ -205,12 +205,12 @@ export const noteVersionsRepository = {
     const cutoff = `datetime('now', '-${keepDays} days')`;
     const result = db.prepare(`
       DELETE FROM note_versions
-      WHERE changeType = 'edit'
-        AND createdAt < ${cutoff}
+      WHERE "changeType" = 'edit'
+        AND "createdAt" < ${cutoff}
         AND id NOT IN (
           SELECT id FROM note_versions v2
-          WHERE v2.noteId = note_versions.noteId
-            AND v2.changeType = 'edit'
+          WHERE v2."noteId" = note_versions."noteId"
+            AND v2."changeType" = 'edit'
           ORDER BY v2.version DESC
           LIMIT ?
         )
@@ -233,10 +233,10 @@ export const noteVersionsRepository = {
     const placeholders = noteIds.map(() => "?").join(",");
     return db
       .prepare(
-        `SELECT id, noteId, userId, title, content, contentText, version,
-                changeType, changeSummary, createdAt
+        `SELECT id, "noteId", "userId", title, content, "contentText", version,
+                "changeType", "changeSummary", "createdAt"
          FROM note_versions
-         WHERE noteId IN (${placeholders})`,
+         WHERE "noteId" IN (${placeholders})`,
       )
       .all(...noteIds) as NoteVersionRecord[];
   },
@@ -249,7 +249,7 @@ export const noteVersionsRepository = {
    */
   countByUser(userId: string): number {
     const db = getDb();
-    const row = db.prepare("SELECT COUNT(*) as c FROM note_versions WHERE userId = ?").get(userId) as { c: number };
+    const row = db.prepare('SELECT COUNT(*) as c FROM note_versions WHERE "userId" = ?').get(userId) as { c: number };
     return row.c;
   },
 
@@ -262,17 +262,17 @@ export const noteVersionsRepository = {
    */
   transferOwnership(fromUserId: string, toUserId: string): number {
     const db = getDb();
-    const result = db.prepare("UPDATE note_versions SET userId = ? WHERE userId = ?").run(toUserId, fromUserId);
+    const result = db.prepare('UPDATE note_versions SET "userId" = ? WHERE "userId" = ?').run(toUserId, fromUserId);
     return result.changes;
   },
 
   async listByNoteIdAsync(noteId: string, limit: number, offset: number): Promise<NoteVersionListItem[]> {
     return getAdapter().queryMany<NoteVersionListItem>(
-      `SELECT nv.id, nv.noteId, nv.userId, nv.title, nv.version, nv.changeType, nv.changeSummary, nv.createdAt,
+      `SELECT nv.id, nv."noteId", nv."userId", nv.title, nv.version, nv."changeType", nv."changeSummary", nv."createdAt",
               u.username
        FROM note_versions nv
-       LEFT JOIN users u ON nv.userId = u.id
-       WHERE nv.noteId = ?
+       LEFT JOIN users u ON nv."userId" = u.id
+       WHERE nv."noteId" = ?
        ORDER BY nv.version DESC
        LIMIT ? OFFSET ?`,
       [noteId, limit, offset],
@@ -281,7 +281,7 @@ export const noteVersionsRepository = {
 
   async countByNoteIdAsync(noteId: string): Promise<number> {
     const row = await getAdapter().queryOne<{ count: number }>(
-      "SELECT COUNT(*) as count FROM note_versions WHERE noteId = ?",
+      'SELECT COUNT(*) as count FROM note_versions WHERE "noteId" = ?',
       [noteId],
     );
     return row?.count ?? 0;
@@ -289,15 +289,15 @@ export const noteVersionsRepository = {
 
   async getByIdAndNoteIdAsync(id: string, noteId: string): Promise<NoteVersionRecord | undefined> {
     return getAdapter().queryOne<NoteVersionRecord>(
-      "SELECT * FROM note_versions WHERE id = ? AND noteId = ?",
+      'SELECT * FROM note_versions WHERE id = ? AND "noteId" = ?',
       [id, noteId],
     );
   },
 
   async getLastEditByNoteIdAsync(noteId: string): Promise<{ createdAt: string } | undefined> {
     return getAdapter().queryOne<{ createdAt: string }>(
-      `SELECT createdAt FROM note_versions
-       WHERE noteId = ? AND changeType = 'edit'
+      `SELECT "createdAt" FROM note_versions
+       WHERE "noteId" = ? AND "changeType" = 'edit'
        ORDER BY version DESC
        LIMIT 1`,
       [noteId],
@@ -321,25 +321,25 @@ export const noteVersionsRepository = {
 
     if (hasChangeSummary && hasCreatedAt) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary, createdAt)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary", "createdAt")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary, input.createdAt],
       );
     } else if (hasChangeSummary) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary],
       );
     } else if (hasCreatedAt) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, createdAt)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "createdAt")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.createdAt],
       );
     } else {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType)
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType],
       );
@@ -348,7 +348,7 @@ export const noteVersionsRepository = {
 
   async deleteByNoteIdAsync(noteId: string): Promise<number> {
     const result = await getAdapter().execute(
-      "DELETE FROM note_versions WHERE noteId = ?",
+      'DELETE FROM note_versions WHERE "noteId" = ?',
       [noteId],
     );
     return result.changes;
@@ -358,12 +358,12 @@ export const noteVersionsRepository = {
     const cutoff = `datetime('now', '-${keepDays} days')`;
     const result = await getAdapter().execute(
       `DELETE FROM note_versions
-       WHERE changeType = 'edit'
-         AND createdAt < ${cutoff}
+       WHERE "changeType" = 'edit'
+         AND "createdAt" < ${cutoff}
          AND id NOT IN (
            SELECT id FROM note_versions v2
-           WHERE v2.noteId = note_versions.noteId
-             AND v2.changeType = 'edit'
+           WHERE v2."noteId" = note_versions."noteId"
+             AND v2."changeType" = 'edit'
            ORDER BY v2.version DESC
            LIMIT ?
          )`,
@@ -376,17 +376,17 @@ export const noteVersionsRepository = {
     if (noteIds.length === 0) return [];
     const placeholders = noteIds.map(() => "?").join(",");
     return getAdapter().queryMany<NoteVersionRecord>(
-      `SELECT id, noteId, userId, title, content, contentText, version,
-              changeType, changeSummary, createdAt
+      `SELECT id, "noteId", "userId", title, content, "contentText", version,
+              "changeType", "changeSummary", "createdAt"
        FROM note_versions
-       WHERE noteId IN (${placeholders})`,
+       WHERE "noteId" IN (${placeholders})`,
       noteIds,
     );
   },
 
   async countByUserAsync(userId: string): Promise<number> {
     const row = await getAdapter().queryOne<{ c: number }>(
-      "SELECT COUNT(*) as c FROM note_versions WHERE userId = ?",
+      'SELECT COUNT(*) as c FROM note_versions WHERE "userId" = ?',
       [userId],
     );
     return row?.c ?? 0;
@@ -394,7 +394,7 @@ export const noteVersionsRepository = {
 
   async transferOwnershipAsync(fromUserId: string, toUserId: string): Promise<number> {
     const result = await getAdapter().execute(
-      "UPDATE note_versions SET userId = ? WHERE userId = ?",
+      'UPDATE note_versions SET "userId" = ? WHERE "userId" = ?',
       [toUserId, fromUserId],
     );
     return result.changes;
