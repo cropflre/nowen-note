@@ -324,4 +324,40 @@ export const userSessionsRepository = {
       [userId],
     );
   },
+
+  // ============================================================
+  // Async 方法（B3-B2：批量吊销 + 过期清理）
+  // ============================================================
+
+  async revokeAllOtherAsync(userId: string, currentSessionId: string): Promise<number> {
+    const result = await getAdapter().execute(
+      `UPDATE user_sessions
+       SET revokedAt = datetime('now'), revokedReason = 'user_bulk_revoked'
+       WHERE userId = ? AND revokedAt IS NULL AND id != ?`,
+      [userId, currentSessionId],
+    );
+    return result.changes;
+  },
+
+  async revokeAllAsync(userId: string): Promise<number> {
+    const result = await getAdapter().execute(
+      `UPDATE user_sessions
+       SET revokedAt = datetime('now'), revokedReason = 'user_bulk_revoked'
+       WHERE userId = ? AND revokedAt IS NULL`,
+      [userId],
+    );
+    return result.changes;
+  },
+
+  async cleanupExpiredAsync(userId: string): Promise<number> {
+    const result = await getAdapter().execute(
+      `DELETE FROM user_sessions
+       WHERE userId = ? AND (
+         revokedAt IS NOT NULL
+         OR (expiresAt IS NOT NULL AND datetime(expiresAt) <= datetime('now'))
+       )`,
+      [userId],
+    );
+    return result.changes;
+  },
 };
