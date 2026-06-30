@@ -65,10 +65,6 @@ npx tsx --test tests/system-settings-repository-pg.test.ts
 # 4. 确认全部通过后标记 PG-PILOT-01 完成
 ```
 
-### 注意
-
-`postgres-adapter.test.ts` 使用 `TEST_DATABASE_URL`（不是 `TEST_PG_DATABASE_URL`），两者需同时设置或统一。
-
 ---
 
 ## PG-PILOT-02：不建议启动

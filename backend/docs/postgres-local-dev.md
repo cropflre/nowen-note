@@ -52,7 +52,7 @@ psql postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test -f backe
 
 ```bash
 # PostgreSQL test database (optional, for PG-PILOT tests)
-TEST_DATABASE_URL=postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test
+TEST_PG_DATABASE_URL=postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test
 ```
 
 **注意：** 当前运行时代码不读取此变量。它仅用于测试。
@@ -61,6 +61,7 @@ TEST_DATABASE_URL=postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_
 
 - ✅ Docker PostgreSQL 配置就绪
 - ✅ Schema SQL 草案就绪
-- ⬜ PostgresAdapter 未实现
-- ⬜ PG-PILOT 双库测试未实现
+- ✅ PostgresAdapter 已实现（PG-PILOT-01-A）
+- ✅ PG 测试脚手架就绪（无环境时自动 skip）
+- ⬜ 真实 PostgreSQL 验证（PG-PILOT-01-B，环境阻塞）
 - ⬜ SQLite 仍为默认数据库

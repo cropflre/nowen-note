@@ -1,24 +1,24 @@
 /**
  * PostgresAdapter 测试
  *
- * 需要 TEST_DATABASE_URL 环境变量。
- * 无 TEST_DATABASE_URL 时全部 skip。
+ * 需要 TEST_PG_DATABASE_URL 环境变量。
+ * 无 TEST_PG_DATABASE_URL 时全部 skip。
  *
  * 启动 PostgreSQL：
  *   docker compose -f docker-compose.postgres.yml up -d
- *   export TEST_DATABASE_URL=postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test
+ *   $env:TEST_PG_DATABASE_URL="postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test"
  */
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const PG_URL = process.env.TEST_DATABASE_URL;
+const PG_URL = process.env.TEST_PG_DATABASE_URL;
 
 // Skip all tests if no PostgreSQL available
 const skip = !PG_URL;
 
 async function getPgPool() {
-  if (!PG_URL) throw new Error("TEST_DATABASE_URL not set");
+  if (!PG_URL) throw new Error("TEST_PG_DATABASE_URL not set");
   const { Pool } = await import("pg");
   return new Pool({ connectionString: PG_URL });
 }
