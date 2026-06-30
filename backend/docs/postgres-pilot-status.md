@@ -122,3 +122,50 @@ customFontsRepository 仅需处理两个方言差异：
 ### 经验教训
 
 **PostgreSQL camelCase 列名必须加双引号。** schema 中 `"updatedAt"` 带引号保留驼峰，SQL 中也必须写 `"updatedAt"`，否则 PG 折叠为 `updatedat` 导致列不存在。后续迁移其他 Repository 时需注意此规则。
+
+---
+
+## PG-PILOT-03：favoritesRepository 双库试点 ✅ 完全收口
+
+### 已完成内容
+
+1. `createFavoritesRepository(adapter, nowExpr, insertPrefix, conflictClause)` — 可注入 adapter 的工厂函数
+2. 默认 `favoritesRepository` 仍使用 SQLite（`SqliteAdapter(getDb())`）
+3. 7 个 async 方法全部支持 adapter 注入
+4. `addFavoriteAsync` 使用 `insertPrefix` + `conflictClause` + `nowExpr`
+5. `deleteByNoteIdAsync` / `deleteByUserIdAsync` 继续返回 `execute().changes`
+6. `favorites-repository-pg.test.ts` — 10 个 PG 测试用例
+
+### Commit
+
+- `837b022` — test: add postgres pilot for favorites repository
+
+### 验证结果
+
+| 测试 | 结果 |
+|------|------|
+| postgres-adapter.test.ts | 11 pass |
+| system-settings-repository-pg.test.ts | 11 pass |
+| custom-fonts-repository-pg.test.ts | 11 pass |
+| favorites-repository-pg.test.ts | 10 pass |
+| favorites-repository-async.test.ts | 9 pass |
+| note-tags-repository-async.test.ts | pass |
+| tags-repository-async.test.ts | pass |
+| system-settings-repository-async.test.ts | 7 pass |
+| custom-fonts-repository-async.test.ts | 11 pass |
+| sqlite-adapter.test.ts | 27 pass |
+| db-dialect.test.ts | 13 pass |
+
+**PG 总计：43 pass / 0 fail | SQLite 总计：86 pass / 0 fail**
+
+### 经验
+
+1. `INSERT OR IGNORE` → `INSERT` + `ON CONFLICT ("userId", "noteId") DO NOTHING`
+2. `datetime('now')` → `NOW()`（通过 `nowExpr` 参数注入）
+3. `result.changes` → `adapter.execute().changes`（PostgresAdapter 已兼容）
+4. favorites 表 `PRIMARY KEY ("userId", "noteId")` 支持 `ON CONFLICT DO NOTHING`，无需指定 conflict target
+
+### 附加修复
+
+- `noteTagsRepository.ts`：camelCase 列名引号修复（commit `5d9ef9d`）
+- `tagsRepository.ts`：camelCase 列名引号修复，JOIN 别名正确（commit `929efab`）
