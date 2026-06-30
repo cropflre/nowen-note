@@ -300,4 +300,28 @@ export const userSessionsRepository = {
       [sessionId],
     );
   },
+
+  // ============================================================
+  // Async 方法（B3-B1：revoke + listActiveByUser）
+  // ============================================================
+
+  async revokeAsync(sessionId: string, reason?: string): Promise<void> {
+    await getAdapter().execute(
+      `UPDATE user_sessions
+       SET revokedAt = datetime('now'), revokedReason = ?
+       WHERE id = ? AND revokedAt IS NULL`,
+      [reason || null, sessionId],
+    );
+  },
+
+  async listActiveByUserAsync(userId: string): Promise<SessionListItem[]> {
+    return getAdapter().queryMany<SessionListItem>(
+      `SELECT id, createdAt, lastSeenAt, expiresAt, ip, userAgent, deviceLabel
+       FROM user_sessions
+       WHERE userId = ? AND revokedAt IS NULL
+         AND (expiresAt IS NULL OR datetime(expiresAt) > datetime('now'))
+       ORDER BY lastSeenAt DESC`,
+      [userId],
+    );
+  },
 };
