@@ -23,7 +23,7 @@ export const workspaceMembersRepository = {
    */
   countByWorkspace(workspaceId: string): number {
     const db = getDb();
-    const row = db.prepare("SELECT COUNT(*) as c FROM workspace_members WHERE workspaceId = ?").get(workspaceId) as { c: number };
+    const row = db.prepare("SELECT COUNT(*) as c FROM workspace_members WHERE \"workspaceId\" = ?").get(workspaceId) as { c: number };
     return row.c;
   },
 
@@ -37,7 +37,7 @@ export const workspaceMembersRepository = {
   getRole(workspaceId: string, userId: string): { role: string } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
+      .prepare("SELECT role FROM workspace_members WHERE \"workspaceId\" = ? AND \"userId\" = ?")
       .get(workspaceId, userId) as { role: string } | undefined;
   },
 
@@ -51,7 +51,7 @@ export const workspaceMembersRepository = {
   create(workspaceId: string, userId: string, role: string): void {
     const db = getDb();
     db.prepare(
-      "INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)"
+      "INSERT INTO workspace_members (\"workspaceId\", \"userId\", role) VALUES (?, ?, ?)"
     ).run(workspaceId, userId, role);
   },
 
@@ -65,7 +65,7 @@ export const workspaceMembersRepository = {
   updateRole(workspaceId: string, userId: string, role: string): void {
     const db = getDb();
     db.prepare(
-      "UPDATE workspace_members SET role = ? WHERE workspaceId = ? AND userId = ?"
+      "UPDATE workspace_members SET role = ? WHERE \"workspaceId\" = ? AND \"userId\" = ?"
     ).run(role, workspaceId, userId);
   },
 
@@ -77,7 +77,7 @@ export const workspaceMembersRepository = {
    */
   delete(workspaceId: string, userId: string): void {
     const db = getDb();
-    db.prepare("DELETE FROM workspace_members WHERE workspaceId = ? AND userId = ?").run(workspaceId, userId);
+    db.prepare("DELETE FROM workspace_members WHERE \"workspaceId\" = ? AND \"userId\" = ?").run(workspaceId, userId);
   },
 
   /**
@@ -88,7 +88,7 @@ export const workspaceMembersRepository = {
    */
   countByUser(userId: string): number {
     const db = getDb();
-    const row = db.prepare("SELECT COUNT(*) as c FROM workspace_members WHERE userId = ?").get(userId) as { c: number };
+    const row = db.prepare("SELECT COUNT(*) as c FROM workspace_members WHERE \"userId\" = ?").get(userId) as { c: number };
     return row.c;
   },
 
@@ -100,7 +100,7 @@ export const workspaceMembersRepository = {
    */
   listWorkspaceIdsByUser(userId: string): string[] {
     const db = getDb();
-    const rows = db.prepare("SELECT workspaceId FROM workspace_members WHERE userId = ?").all(userId) as { workspaceId: string }[];
+    const rows = db.prepare("SELECT \"workspaceId\" FROM workspace_members WHERE \"userId\" = ?").all(userId) as { workspaceId: string }[];
     return rows.map((r) => r.workspaceId);
   },
 
@@ -113,7 +113,7 @@ export const workspaceMembersRepository = {
    */
   transferOwnership(fromUserId: string, toUserId: string): number {
     const db = getDb();
-    const result = db.prepare("UPDATE workspace_members SET userId = ? WHERE userId = ?").run(toUserId, fromUserId);
+    const result = db.prepare("UPDATE workspace_members SET \"userId\" = ? WHERE \"userId\" = ?").run(toUserId, fromUserId);
     return result.changes;
   },
 
@@ -135,11 +135,11 @@ export const workspaceMembersRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT m.workspaceId, m.userId, m.role, m.joinedAt,
-                u.username, u.email, u.avatarUrl
+        `SELECT m."workspaceId", m."userId", m.role, m."joinedAt",
+                u.username, u.email, u."avatarUrl"
          FROM workspace_members m
-         JOIN users u ON u.id = m.userId
-         WHERE m.workspaceId = ?
+         JOIN users u ON u.id = m."userId"
+         WHERE m."workspaceId" = ?
          ORDER BY
            CASE m.role
              WHEN 'owner' THEN 1
@@ -148,7 +148,7 @@ export const workspaceMembersRepository = {
              WHEN 'commenter' THEN 4
              WHEN 'viewer' THEN 5
            END ASC,
-           m.joinedAt ASC`,
+           m."joinedAt" ASC`,
       )
       .all(workspaceId) as Array<{
         workspaceId: string;
@@ -172,8 +172,8 @@ export const workspaceMembersRepository = {
     const db = getDb();
     const rows = db
       .prepare(
-        `SELECT workspaceId FROM workspace_members
-         WHERE userId = ? AND workspaceId IN (SELECT workspaceId FROM workspace_members WHERE userId = ?)`
+        `SELECT "workspaceId" FROM workspace_members
+         WHERE "userId" = ? AND "workspaceId" IN (SELECT "workspaceId" FROM workspace_members WHERE "userId" = ?)`
       )
       .all(userId1, userId2) as { workspaceId: string }[];
     return rows.map((r) => r.workspaceId);
@@ -181,7 +181,7 @@ export const workspaceMembersRepository = {
 
   async countByWorkspaceAsync(workspaceId: string): Promise<number> {
     const row = await getAdapter().queryOne<{ c: number }>(
-      "SELECT COUNT(*) as c FROM workspace_members WHERE workspaceId = ?",
+      "SELECT COUNT(*) as c FROM workspace_members WHERE \"workspaceId\" = ?",
       [workspaceId],
     );
     return row?.c ?? 0;
@@ -189,35 +189,35 @@ export const workspaceMembersRepository = {
 
   async getRoleAsync(workspaceId: string, userId: string): Promise<{ role: string } | undefined> {
     return getAdapter().queryOne<{ role: string }>(
-      "SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?",
+      "SELECT role FROM workspace_members WHERE \"workspaceId\" = ? AND \"userId\" = ?",
       [workspaceId, userId],
     );
   },
 
   async createAsync(workspaceId: string, userId: string, role: string): Promise<void> {
     await getAdapter().execute(
-      "INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)",
+      "INSERT INTO workspace_members (\"workspaceId\", \"userId\", role) VALUES (?, ?, ?)",
       [workspaceId, userId, role],
     );
   },
 
   async updateRoleAsync(workspaceId: string, userId: string, role: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE workspace_members SET role = ? WHERE workspaceId = ? AND userId = ?",
+      "UPDATE workspace_members SET role = ? WHERE \"workspaceId\" = ? AND \"userId\" = ?",
       [role, workspaceId, userId],
     );
   },
 
   async deleteAsync(workspaceId: string, userId: string): Promise<void> {
     await getAdapter().execute(
-      "DELETE FROM workspace_members WHERE workspaceId = ? AND userId = ?",
+      "DELETE FROM workspace_members WHERE \"workspaceId\" = ? AND \"userId\" = ?",
       [workspaceId, userId],
     );
   },
 
   async countByUserAsync(userId: string): Promise<number> {
     const row = await getAdapter().queryOne<{ c: number }>(
-      "SELECT COUNT(*) as c FROM workspace_members WHERE userId = ?",
+      "SELECT COUNT(*) as c FROM workspace_members WHERE \"userId\" = ?",
       [userId],
     );
     return row?.c ?? 0;
@@ -225,7 +225,7 @@ export const workspaceMembersRepository = {
 
   async listWorkspaceIdsByUserAsync(userId: string): Promise<string[]> {
     const rows = await getAdapter().queryMany<{ workspaceId: string }>(
-      "SELECT workspaceId FROM workspace_members WHERE userId = ?",
+      "SELECT \"workspaceId\" FROM workspace_members WHERE \"userId\" = ?",
       [userId],
     );
     return rows.map((r) => r.workspaceId);
@@ -233,7 +233,7 @@ export const workspaceMembersRepository = {
 
   async transferOwnershipAsync(fromUserId: string, toUserId: string): Promise<number> {
     const result = await getAdapter().execute(
-      "UPDATE workspace_members SET userId = ? WHERE userId = ?",
+      "UPDATE workspace_members SET \"userId\" = ? WHERE \"userId\" = ?",
       [toUserId, fromUserId],
     );
     return result.changes;
@@ -241,8 +241,8 @@ export const workspaceMembersRepository = {
 
   async listCommonWorkspacesAsync(userId1: string, userId2: string): Promise<string[]> {
     const rows = await getAdapter().queryMany<{ workspaceId: string }>(
-      `SELECT workspaceId FROM workspace_members
-       WHERE userId = ? AND workspaceId IN (SELECT workspaceId FROM workspace_members WHERE userId = ?)`,
+      `SELECT "workspaceId" FROM workspace_members
+       WHERE "userId" = ? AND "workspaceId" IN (SELECT "workspaceId" FROM workspace_members WHERE "userId" = ?)`,
       [userId1, userId2],
     );
     return rows.map((r) => r.workspaceId);
@@ -258,11 +258,11 @@ export const workspaceMembersRepository = {
     avatarUrl: string | null;
   }>> {
     return getAdapter().queryMany<any>(
-      `SELECT m.workspaceId, m.userId, m.role, m.joinedAt,
-              u.username, u.email, u.avatarUrl
+      `SELECT m."workspaceId", m."userId", m.role, m."joinedAt",
+              u.username, u.email, u."avatarUrl"
        FROM workspace_members m
-       JOIN users u ON u.id = m.userId
-       WHERE m.workspaceId = ?
+       JOIN users u ON u.id = m."userId"
+       WHERE m."workspaceId" = ?
        ORDER BY
          CASE m.role
            WHEN 'owner' THEN 1
@@ -271,7 +271,7 @@ export const workspaceMembersRepository = {
            WHEN 'commenter' THEN 4
            WHEN 'viewer' THEN 5
          END ASC,
-         m.joinedAt ASC`,
+         m."joinedAt" ASC`,
       [workspaceId],
     );
   },
