@@ -20,6 +20,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** user_sessions 记录 */
 export interface UserSessionRecord {
@@ -227,5 +232,72 @@ export const userSessionsRepository = {
          ORDER BY lastSeenAt DESC`
       )
       .all(userId) as SessionListItem[];
+  },
+
+  // ============================================================
+  // Async 方法（B3-A：基础 CRUD / 查询类）
+  // ============================================================
+
+  async createAsync(input: {
+    id: string;
+    userId: string;
+    ip: string;
+    userAgent: string;
+    deviceLabel?: string;
+    expiresAt?: string;
+  }): Promise<string> {
+    await getAdapter().execute(
+      `INSERT INTO user_sessions (id, userId, ip, userAgent, deviceLabel, expiresAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        input.id,
+        input.userId,
+        input.ip || "",
+        input.userAgent || "",
+        input.deviceLabel || null,
+        input.expiresAt || null,
+      ],
+    );
+    return input.id;
+  },
+
+  async findByDeviceAsync(userId: string, deviceLabel: string): Promise<{ id: string } | undefined> {
+    return getAdapter().queryOne<{ id: string }>(
+      `SELECT id FROM user_sessions
+       WHERE userId = ? AND deviceLabel = ? AND revokedAt IS NULL
+         AND (expiresAt IS NULL OR datetime(expiresAt) > datetime('now'))
+       ORDER BY lastSeenAt DESC LIMIT 1`,
+      [userId, deviceLabel],
+    );
+  },
+
+  async updateLastSeenAsync(sessionId: string, ip?: string, expiresAt?: string): Promise<void> {
+    if (ip !== undefined && expiresAt !== undefined) {
+      await getAdapter().execute(
+        `UPDATE user_sessions
+         SET lastSeenAt = datetime('now'), ip = ?, expiresAt = ?
+         WHERE id = ?`,
+        [ip || "", expiresAt, sessionId],
+      );
+    } else {
+      await getAdapter().execute(
+        "UPDATE user_sessions SET lastSeenAt = datetime('now') WHERE id = ?",
+        [sessionId],
+      );
+    }
+  },
+
+  async getByIdAndUserAsync(sessionId: string, userId: string): Promise<{ id: string; revokedAt: string | null } | undefined> {
+    return getAdapter().queryOne<{ id: string; revokedAt: string | null }>(
+      "SELECT id, revokedAt FROM user_sessions WHERE id = ? AND userId = ?",
+      [sessionId, userId],
+    );
+  },
+
+  async getByIdAsync(sessionId: string): Promise<{ id: string; userId: string; revokedAt: string | null } | undefined> {
+    return getAdapter().queryOne<{ id: string; userId: string; revokedAt: string | null }>(
+      "SELECT id, userId, revokedAt FROM user_sessions WHERE id = ?",
+      [sessionId],
+    );
   },
 };
