@@ -20,8 +20,8 @@ const WS_ID = "ws-wm";
 const WS_ID2 = "ws-wm2";
 
 function seedBase() {
-  getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(USER_ID, USER_ID, "hash");
-  getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(USER_ID2, USER_ID2, "hash");
+  getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash, email) VALUES (?, ?, ?, ?)").run(USER_ID, USER_ID, "hash", "user@test.com");
+  getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash, email) VALUES (?, ?, ?, ?)").run(USER_ID2, USER_ID2, "hash", "user2@test.com");
   getDb().prepare("INSERT OR IGNORE INTO workspaces (id, name, ownerId) VALUES (?, ?, ?)").run(WS_ID, "Test WS", USER_ID);
   getDb().prepare("INSERT OR IGNORE INTO workspaces (id, name, ownerId) VALUES (?, ?, ?)").run(WS_ID2, "Test WS 2", USER_ID);
 }
@@ -105,7 +105,6 @@ test("deleteAsync removes member", async () => {
 test("deleteAsync no-op when not found", async () => {
   clean();
   await workspaceMembersRepository.deleteAsync("no-such-ws", "no-such-user");
-  // should not throw
 });
 
 // --- countByWorkspaceAsync ---
@@ -219,7 +218,6 @@ test("listByWorkspaceWithUserAsync returns members sorted by role", async () => 
   getDb().prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)").run(WS_ID, USER_ID2, "viewer");
   const rows = await workspaceMembersRepository.listByWorkspaceWithUserAsync(WS_ID);
   assert.ok(rows.length >= 2);
-  // owner first (CASE role WHEN 'owner' THEN 1)
   assert.equal(rows[0].role, "owner");
   assert.ok(rows[0].username);
   assert.ok(rows[0].joinedAt);
@@ -239,11 +237,9 @@ test("listByWorkspaceWithUserAsync returns user fields from JOIN", async () => {
   const rows = await workspaceMembersRepository.listByWorkspaceWithUserAsync(WS_ID);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].username, USER_ID);
-  assert.ok(rows[0].hasOwnProperty("email"));
+  assert.ok(rows[0].joinedAt);
   clean();
 });
-
-// --- role sort order in listByWorkspaceWithUserAsync ---
 
 test("listByWorkspaceWithUserAsync sorts roles: owner > admin > editor > commenter > viewer", async () => {
   clean();
