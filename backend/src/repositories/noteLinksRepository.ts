@@ -13,8 +13,13 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
 import { v4 as uuid } from "uuid";
 import type { BacklinkItem, NoteLinkEntry } from "./types";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const noteLinksRepository = {
   /**
@@ -128,6 +133,66 @@ export const noteLinksRepository = {
     });
 
     insertMany(validEntries);
+  },
+
+  /**
+   * 全量替换 sourceNoteId 的引用关系（async，使用 executeStatements 保证原子性）。
+   *
+   * DELETE 和 INSERT 在同一个事务中执行，保证原子性。
+   */
+  async replaceLinksForSourceAsync(
+    userId: string,
+    sourceNoteId: string,
+    links: NoteLinkEntry[],
+  ): Promise<void> {
+    const db = getDb();
+
+    // 1. 构造 DELETE statement
+    const deleteStatement = {
+      sql: "DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?",
+      params: [userId, sourceNoteId],
+    };
+
+    // 2. 如果 links 为空，只执行 DELETE
+    if (links.length === 0) {
+      await getAdapter().executeStatements([deleteStatement]);
+      return;
+    }
+
+    // 3. 过滤掉不存在的 target note
+    const validEntries: NoteLinkEntry[] = [];
+    const checkStmt = db.prepare("SELECT id FROM notes WHERE id = ?");
+    for (const link of links) {
+      const exists = checkStmt.get(link.targetNoteId);
+      if (exists) validEntries.push(link);
+    }
+
+    // 4. 如果 validEntries 为空，只执行 DELETE
+    if (validEntries.length === 0) {
+      await getAdapter().executeStatements([deleteStatement]);
+      return;
+    }
+
+    // 5. DELETE + INSERT 在同一事务中执行
+    const statements = [
+      deleteStatement,
+      ...validEntries.map((link) => ({
+        sql: `INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, targetBlockId, linkType, linkText, excerpt, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        params: [
+          uuid(),
+          userId,
+          sourceNoteId,
+          link.targetNoteId,
+          link.targetBlockId,
+          link.linkType,
+          link.linkText,
+          link.excerpt,
+        ],
+      })),
+    ];
+
+    await getAdapter().executeStatements(statements);
   },
 
   /**
