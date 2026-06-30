@@ -343,3 +343,201 @@ test("executeBatch uses synchronous db.transaction (not async)", async () => {
 
   db.close();
 });
+
+// ============================================================
+// executeStatements
+// ============================================================
+
+test("executeStatements runs multiple INSERT statements", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  const result = await adapter.executeStatements([
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["alpha", 1] },
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["beta", 2] },
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["gamma", 3] },
+  ]);
+
+  assert.equal(result.changes, 3);
+  const rows = db.prepare("SELECT name FROM items ORDER BY name").all() as { name: string }[];
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].name, "alpha");
+  assert.equal(rows[1].name, "beta");
+  assert.equal(rows[2].name, "gamma");
+
+  db.close();
+});
+
+test("executeStatements runs INSERT + UPDATE", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  const result = await adapter.executeStatements([
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["alpha", 1] },
+    { sql: "UPDATE items SET count = ? WHERE name = ?", params: [99, "alpha"] },
+  ]);
+
+  assert.equal(result.changes, 2);
+  const row = db.prepare("SELECT count FROM items WHERE name = ?").get("alpha") as { count: number };
+  assert.equal(row.count, 99);
+
+  db.close();
+});
+
+test("executeStatements runs DELETE + INSERT (link replacement pattern)", async () => {
+  const db = createTestDb();
+  db.exec("CREATE TABLE links (id TEXT PRIMARY KEY, source TEXT, target TEXT)");
+  db.prepare("INSERT INTO links VALUES (?, ?, ?)").run("l1", "note-1", "note-2");
+  db.prepare("INSERT INTO links VALUES (?, ?, ?)").run("l2", "note-1", "note-3");
+
+  const adapter = new SqliteAdapter(db);
+
+  const result = await adapter.executeStatements([
+    { sql: "DELETE FROM links WHERE source = ?", params: ["note-1"] },
+    { sql: "INSERT INTO links (id, source, target) VALUES (?, ?, ?)", params: ["l3", "note-1", "note-4"] },
+    { sql: "INSERT INTO links (id, source, target) VALUES (?, ?, ?)", params: ["l4", "note-1", "note-5"] },
+  ]);
+
+  assert.equal(result.changes, 4); // 2 delete + 2 insert
+  const rows = db.prepare("SELECT target FROM links WHERE source = ? ORDER BY target").all("note-1") as { target: string }[];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].target, "note-4");
+  assert.equal(rows[1].target, "note-5");
+
+  db.close();
+});
+
+test("executeStatements returns total changes", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  const result = await adapter.executeStatements([
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["a", 1] },
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["b", 2] },
+    { sql: "UPDATE items SET count = ? WHERE name = ?", params: [10, "a"] },
+  ]);
+
+  assert.equal(result.changes, 3);
+
+  db.close();
+});
+
+test("executeStatements returns changes 0 for empty statements", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  const result = await adapter.executeStatements([]);
+
+  assert.equal(result.changes, 0);
+  const rows = db.prepare("SELECT * FROM items").all();
+  assert.equal(rows.length, 0);
+
+  db.close();
+});
+
+test("executeStatements rolls back on failure (DELETE + INSERT scenario)", async () => {
+  const db = createTestDb();
+  db.exec("CREATE TABLE links (id TEXT PRIMARY KEY, source TEXT, target TEXT UNIQUE)");
+  db.prepare("INSERT INTO links VALUES (?, ?, ?)").run("l1", "note-1", "note-2");
+  db.prepare("INSERT INTO links VALUES (?, ?, ?)").run("l2", "note-1", "note-3");
+
+  const adapter = new SqliteAdapter(db);
+
+  // DELETE old links, then INSERT new ones — but second INSERT violates UNIQUE
+  await assert.rejects(
+    () => adapter.executeStatements([
+      { sql: "DELETE FROM links WHERE source = ?", params: ["note-1"] },
+      { sql: "INSERT INTO links (id, source, target) VALUES (?, ?, ?)", params: ["l3", "note-1", "note-4"] },
+      { sql: "INSERT INTO links (id, source, target) VALUES (?, ?, ?)", params: ["l4", "note-1", "note-4"] }, // duplicate target
+    ]),
+    (err: Error) => err.message.includes("UNIQUE"),
+  );
+
+  // Old data should still exist (rolled back)
+  const rows = db.prepare("SELECT * FROM links").all() as any[];
+  assert.equal(rows.length, 2, "old links should be preserved after rollback");
+  assert.equal(rows[0].id, "l1");
+  assert.equal(rows[1].id, "l2");
+
+  db.close();
+});
+
+test("executeStatements failure propagates error", async () => {
+  const db = createTestDb();
+  db.exec("CREATE TABLE strict_tbl (id INTEGER PRIMARY KEY, val TEXT NOT NULL)");
+
+  const adapter = new SqliteAdapter(db);
+
+  await assert.rejects(
+    () => adapter.executeStatements([
+      { sql: "INSERT INTO strict_tbl (val) VALUES (?)", params: ["ok"] },
+      { sql: "INSERT INTO strict_tbl (val) VALUES (?)", params: [null] },
+    ]),
+  );
+
+  db.close();
+});
+
+test("executeStatements executes in order", async () => {
+  const db = createTestDb();
+  db.exec("CREATE TABLE log (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT)");
+  const adapter = new SqliteAdapter(db);
+
+  await adapter.executeStatements([
+    { sql: "INSERT INTO log (action) VALUES (?)", params: ["first"] },
+    { sql: "INSERT INTO log (action) VALUES (?)", params: ["second"] },
+    { sql: "INSERT INTO log (action) VALUES (?)", params: ["third"] },
+  ]);
+
+  const rows = db.prepare("SELECT action FROM log ORDER BY id").all() as { action: string }[];
+  assert.equal(rows[0].action, "first");
+  assert.equal(rows[1].action, "second");
+  assert.equal(rows[2].action, "third");
+
+  db.close();
+});
+
+test("executeStatements does not affect executeBatch", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  // executeStatements
+  await adapter.executeStatements([
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["alpha", 1] },
+  ]);
+  // executeBatch
+  const batch = await adapter.executeBatch(
+    "INSERT INTO items (name, count) VALUES (?, ?)",
+    [["beta", 2], ["gamma", 3]],
+  );
+  assert.equal(batch.changes, 2);
+
+  const rows = db.prepare("SELECT name FROM items ORDER BY name").all() as { name: string }[];
+  assert.equal(rows.length, 3);
+
+  db.close();
+});
+
+test("executeStatements does not affect existing queryOne/queryMany/execute/executeBatch", async () => {
+  const db = createTestDb();
+  const adapter = new SqliteAdapter(db);
+
+  // execute
+  await adapter.execute("INSERT INTO items (name, count) VALUES (?, ?)", ["a", 1]);
+  // queryOne
+  const one = await adapter.queryOne<{ name: string }>("SELECT name FROM items WHERE name = ?", ["a"]);
+  assert.ok(one);
+  // queryMany
+  const many = await adapter.queryMany<{ name: string }>("SELECT name FROM items");
+  assert.equal(many.length, 1);
+  // executeBatch
+  await adapter.executeBatch("INSERT INTO items (name, count) VALUES (?, ?)", [["b", 2]]);
+  // executeStatements
+  await adapter.executeStatements([
+    { sql: "INSERT INTO items (name, count) VALUES (?, ?)", params: ["c", 3] },
+  ]);
+  const all = await adapter.queryMany<{ name: string }>("SELECT name FROM items ORDER BY name");
+  assert.equal(all.length, 3);
+
+  db.close();
+});

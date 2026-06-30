@@ -32,4 +32,7 @@ export interface DbAdapter {
 
   /** 批量执行同一条 SQL（在事务中执行，中途失败整体回滚） */
   executeBatch(sql: string, paramsList: unknown[][]): Promise<DbRunResult>;
+
+  /** 执行多条不同 SQL（在同一事务中执行，中途失败整体回滚） */
+  executeStatements(statements: Array<{ sql: string; params?: unknown[] }>): Promise<{ changes: number }>;
 }
