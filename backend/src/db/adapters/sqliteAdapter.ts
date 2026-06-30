@@ -13,9 +13,9 @@
  */
 
 import type Database from "better-sqlite3";
-import type { DbAdapter, DbRunResult } from "./types";
+import type { DatabaseAdapter, DbRunResult } from "./types";
 
-export class SqliteAdapter implements DbAdapter {
+export class SqliteAdapter implements DatabaseAdapter {
   constructor(private readonly db: Database.Database) {}
 
   async queryOne<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
