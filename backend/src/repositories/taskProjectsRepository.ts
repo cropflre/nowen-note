@@ -46,21 +46,21 @@ export const taskProjectsRepository = {
     const db = getDb();
     if (workspaceId) {
       return db.prepare(
-        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
-        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
-        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
-        "FROM task_projects p WHERE p.workspaceId = ? ORDER BY p.sortOrder ASC, p.createdAt ASC"
+        'SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) AS taskCount, ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) AS completedCount, ' +
+        'CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) > 0 THEN ' +
+        'ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) / ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id)) ELSE 0 END AS progress ' +
+        'FROM task_projects p WHERE p."workspaceId" = ? ORDER BY p."sortOrder" ASC, p."createdAt" ASC'
       ).all(workspaceId) as TaskProjectWithStats[];
     } else {
       return db.prepare(
-        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
-        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
-        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
-        "FROM task_projects p WHERE p.userId = ? AND p.workspaceId IS NULL ORDER BY p.sortOrder ASC, p.createdAt ASC"
+        'SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) AS taskCount, ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) AS completedCount, ' +
+        'CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) > 0 THEN ' +
+        'ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) / ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id)) ELSE 0 END AS progress ' +
+        'FROM task_projects p WHERE p."userId" = ? AND p."workspaceId" IS NULL ORDER BY p."sortOrder" ASC, p."createdAt" ASC'
       ).all(userId) as TaskProjectWithStats[];
     }
   },
@@ -112,7 +112,7 @@ export const taskProjectsRepository = {
   }): void {
     const db = getDb();
     db.prepare(
-      "INSERT INTO task_projects (id, userId, workspaceId, name, icon, color, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      'INSERT INTO task_projects (id, "userId", "workspaceId", name, icon, color, "sortOrder") VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(input.id, input.userId, input.workspaceId, input.name, input.icon, input.color, input.sortOrder);
   },
 
@@ -130,7 +130,7 @@ export const taskProjectsRepository = {
   }): void {
     const db = getDb();
     db.prepare(
-      "UPDATE task_projects SET name = ?, icon = ?, color = ?, sortOrder = ?, updatedAt = datetime('now') WHERE id = ?"
+      'UPDATE task_projects SET name = ?, icon = ?, color = ?, "sortOrder" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?'
     ).run(input.name, input.icon, input.color, input.sortOrder, projectId);
   },
 
@@ -141,7 +141,7 @@ export const taskProjectsRepository = {
    */
   delete(projectId: string): void {
     const db = getDb();
-    db.prepare("UPDATE tasks SET projectId = NULL WHERE projectId = ?").run(projectId);
+    db.prepare('UPDATE tasks SET "projectId" = NULL WHERE "projectId" = ?').run(projectId);
     db.prepare("DELETE FROM task_projects WHERE id = ?").run(projectId);
   },
 
@@ -152,7 +152,7 @@ export const taskProjectsRepository = {
    */
   updateSortOrder(items: Array<{ id: string; sortOrder: number }>): void {
     const db = getDb();
-    const stmt = db.prepare("UPDATE task_projects SET sortOrder = ?, updatedAt = datetime('now') WHERE id = ?");
+    const stmt = db.prepare('UPDATE task_projects SET "sortOrder" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?');
     const tx = db.transaction(() => {
       for (const item of items) {
         stmt.run(item.sortOrder, item.id);
@@ -165,7 +165,7 @@ export const taskProjectsRepository = {
   async updateSortOrderAsync(items: Array<{ id: string; sortOrder: number }>): Promise<void> {
     if (items.length === 0) return;
     await getAdapter().executeBatch(
-      "UPDATE task_projects SET sortOrder = ?, updatedAt = datetime('now') WHERE id = ?",
+      'UPDATE task_projects SET "sortOrder" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?',
       items.map((i) => [i.sortOrder, i.id]),
     );
   },
@@ -174,22 +174,22 @@ export const taskProjectsRepository = {
   async listByUserAsync(userId: string, workspaceId: string | null): Promise<TaskProjectWithStats[]> {
     if (workspaceId) {
       return getAdapter().queryMany<TaskProjectWithStats>(
-        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
-        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
-        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
-        "FROM task_projects p WHERE p.workspaceId = ? ORDER BY p.sortOrder ASC, p.createdAt ASC",
+        'SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) AS taskCount, ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) AS completedCount, ' +
+        'CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) > 0 THEN ' +
+        'ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) / ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id)) ELSE 0 END AS progress ' +
+        'FROM task_projects p WHERE p."workspaceId" = ? ORDER BY p."sortOrder" ASC, p."createdAt" ASC',
         [workspaceId],
       );
     } else {
       return getAdapter().queryMany<TaskProjectWithStats>(
-        "SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) AS taskCount, " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) AS completedCount, " +
-        "CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id) > 0 THEN " +
-        "ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id AND t.isCompleted = 1) / " +
-        "(SELECT COUNT(*) FROM tasks t WHERE t.projectId = p.id)) ELSE 0 END AS progress " +
-        "FROM task_projects p WHERE p.userId = ? AND p.workspaceId IS NULL ORDER BY p.sortOrder ASC, p.createdAt ASC",
+        'SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) AS taskCount, ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) AS completedCount, ' +
+        'CASE WHEN (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id) > 0 THEN ' +
+        'ROUND(100.0 * (SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id AND t."isCompleted" = 1) / ' +
+        '(SELECT COUNT(*) FROM tasks t WHERE t."projectId" = p.id)) ELSE 0 END AS progress ' +
+        'FROM task_projects p WHERE p."userId" = ? AND p."workspaceId" IS NULL ORDER BY p."sortOrder" ASC, p."createdAt" ASC',
         [userId],
       );
     }
@@ -227,7 +227,7 @@ export const taskProjectsRepository = {
     sortOrder: number;
   }): Promise<void> {
     await getAdapter().execute(
-      "INSERT INTO task_projects (id, userId, workspaceId, name, icon, color, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      'INSERT INTO task_projects (id, "userId", "workspaceId", name, icon, color, "sortOrder") VALUES (?, ?, ?, ?, ?, ?, ?)',
       [input.id, input.userId, input.workspaceId, input.name, input.icon, input.color, input.sortOrder],
     );
   },
@@ -240,7 +240,7 @@ export const taskProjectsRepository = {
     sortOrder: number;
   }): Promise<void> {
     await getAdapter().execute(
-      "UPDATE task_projects SET name = ?, icon = ?, color = ?, sortOrder = ?, updatedAt = datetime('now') WHERE id = ?",
+      'UPDATE task_projects SET name = ?, icon = ?, color = ?, "sortOrder" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?',
       [input.name, input.icon, input.color, input.sortOrder, projectId],
     );
   },
@@ -248,7 +248,7 @@ export const taskProjectsRepository = {
   /** 删除项目（async，先解除任务关联再删除） */
   async deleteAsync(projectId: string): Promise<void> {
     await getAdapter().executeStatements([
-      { sql: "UPDATE tasks SET projectId = NULL WHERE projectId = ?", params: [projectId] },
+      { sql: 'UPDATE tasks SET "projectId" = NULL WHERE "projectId" = ?', params: [projectId] },
       { sql: "DELETE FROM task_projects WHERE id = ?", params: [projectId] },
     ]);
   },
