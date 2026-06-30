@@ -6,6 +6,8 @@
     "build": "node build.bundle.mjs",
     "build:tsc": "tsc",
     "start": "node dist/index.js",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:serial": "node scripts/run-tests-serial.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "node ../scripts/rebuild-native.mjs --prebuild=true",
     "migrate:inline-images": "node ../scripts/migrate-inline-images-to-attachments.mjs",
