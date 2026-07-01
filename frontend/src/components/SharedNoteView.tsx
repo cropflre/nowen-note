@@ -530,6 +530,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
           // updateSharedContent 目前签名要求 string，这里兜底为 ""（相当于无变更提交）。
           content: data.content ?? "",
           contentText: data.contentText ?? "",
+          contentFormat: content.contentFormat || "tiptap-json",
           version: latestVersionRef.current ?? undefined,
           guestName: guestNameRef.current.trim(),
         },
@@ -539,7 +540,12 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       setCurrentVersion(result.version);
       // 仅更新内容对象中的元数据字段，避免把刚刚输入的 content/contentText 回塞到 state
       // 否则会触发 TiptapEditor 的 note.content 变化 → 可能引起光标抖动（与先前修复思路一致）
-      setContent((prev) => prev ? { ...prev, version: result.version, updatedAt: result.updatedAt } : prev);
+      setContent((prev) => prev ? {
+        ...prev,
+        version: result.version,
+        updatedAt: result.updatedAt,
+        contentFormat: result.contentFormat ?? prev.contentFormat,
+      } : prev);
       setHasUpdate(false); // 自己刚保存过，清掉"有新版本"提示
       setSaveStatus("saved");
       if (savedIdleTimerRef.current) clearTimeout(savedIdleTimerRef.current);
@@ -606,12 +612,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       version: content.version || 0,
       createdAt: content.updatedAt,
       updatedAt: content.updatedAt,
+      contentFormat: content.contentFormat || "tiptap-json",
       tags: [],
     } as Note;
     // 仅当 noteId/permission 变化时重建；content 的 title/正文 在编辑态下由编辑器自己管理，
     // 避免把 debounce 保存回塞的数据再次喂给编辑器导致光标抖动。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content?.noteId, shareToken, content?.permission, content?.isLocked]);
+  }, [content?.noteId, shareToken, content?.permission, content?.isLocked, content?.contentFormat]);
 
   const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
 

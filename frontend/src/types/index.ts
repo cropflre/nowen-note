@@ -685,6 +685,7 @@ export interface SharedNoteContent {
   title: string;
   content: string;
   contentText: string;
+  contentFormat?: string | null;
   permission: SharePermission;
   updatedAt: string;
   version?: number;

@@ -443,18 +443,14 @@ export default function EditorPane() {
       api.updateNote(noteId, {
         content: normalizedMd,
         contentText: normalizedText,
+        contentFormat: note.contentFormat,
         version,
         syncToYjs: true,
       } as any);
 
     try {
       actions.setSyncStatus("saving");
-      const updated = await putWithReconcile({
-        initialVersion,
-        send: sendNormalizePut,
-        fetchLatestVersion: makeFetchLatestNoteVersion(noteId),
-        onAbort: () => activeNoteRef.current?.id !== noteId,
-      });
+      const updated = await sendNormalizePut(initialVersion);
 
       // ���� version / updatedAt��������� handleUpdate ���� 409
       if (updated && activeNoteRef.current?.id === noteId) {
@@ -480,6 +476,19 @@ export default function EditorPane() {
       if (isAborted(err)) {
         actions.setSyncStatus("idle");
         return true;
+      }
+      if (is409Error(err)) {
+        try {
+          saveDraft({
+            noteId,
+            editorMode: "md",
+            content: normalizedMd,
+            contentText: normalizedText,
+            title: note.title,
+            baseVersion: typeof (err as any)?.currentVersion === "number" ? (err as any).currentVersion : initialVersion,
+            savedAt: Date.now(),
+          });
+        } catch { /* ignore */ }
       }
       console.warn("[EditorPane] normalize PUT on mode switch failed:", err);
       actions.setSyncStatus("error");
@@ -560,6 +569,7 @@ export default function EditorPane() {
             title: note.title,
             content: snap.content,
             contentText: snap.contentText,
+            contentFormat: note.contentFormat,
             version: note.version,
           },
         });
@@ -1103,6 +1113,7 @@ export default function EditorPane() {
       // P0-#2 �޸���CRDT ģʽ�� content δ�� �� ֻͬ�� meta��title����
       // ���� REST PUT ������ yjs ��д notes.content ������̬����
       const payload: any = { title: effectiveData.title, version };
+      payload.contentFormat = currentNote.contentFormat;
       if (effectiveData.content !== undefined) payload.content = effectiveData.content;
       if (effectiveData.contentText !== undefined) payload.contentText = effectiveData.contentText;
       return api.updateNote(currentNote.id, payload);
@@ -1259,6 +1270,7 @@ export default function EditorPane() {
               title: data.title,
               content: snap.content,
               contentText: snap.contentText,
+              contentFormat: currentNote.contentFormat,
               version: currentNote.version,
             },
           });
@@ -1309,6 +1321,7 @@ export default function EditorPane() {
         title: activeNote.title,
         content: activeNote.content,
         contentText: activeNote.contentText,
+        contentFormat: activeNote.contentFormat,
         version: activeNote.version,
       } as any);
       actions.setActiveNote(updated);
@@ -1461,24 +1474,18 @@ const moveToTrash = useCallback(async () => {
       //    MD �༭�� debounce ��Ȼ�� flush���� AI �����ʱ���û��Կ��ܼ�������
       //    �� ���� �� version ������������� 409�������������±ʼ����� version ���ԡ�
       const doUpdate = async (version: number) =>
-        api.updateNote(activeNote.id, { title: cleaned, version } as any);
+        api.updateNote(activeNote.id, { title: cleaned, contentFormat: activeNote.contentFormat, version } as any);
 
       let updated;
       try {
         updated = await doUpdate(activeNote.version);
       } catch (err: any) {
-        const msg = String(err?.message || "");
-        if (/409|conflict/i.test(msg)) {
-          // ֻ��Ҫ latest.version ȥ�����ԣ��� slim �������� content�����ܼ� MB base64 ͼ����
-          const latest = await api.getNoteSlim(activeNote.id).catch(() => null);
-          if (latest?.version !== undefined) {
-            updated = await doUpdate(latest.version);
-          } else {
-            throw err;
-          }
-        } else {
-          throw err;
+        if (is409Error(err)) {
+          actions.setSyncStatus("error");
+          toast.error(t("editor.versionConflict") || "内容已被其他设备更新，请刷新或打开版本历史处理");
+          return;
         }
+        throw err;
       }
 
       // 4) ͬ��ǰ��״̬��MarkdownEditor ���ж����� [note.title] effect

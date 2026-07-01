@@ -2265,9 +2265,9 @@ export const api = {
    */
   updateSharedContent: async (
     token: string,
-    data: { title?: string; content: string; contentText: string; version?: number; guestName: string },
+    data: { title?: string; content: string; contentText: string; contentFormat?: string | null; version?: number; guestName: string },
     accessToken?: string,
-  ): Promise<{ success: true; noteId: string; title: string; version: number; updatedAt: string; guestName: string }> => {
+  ): Promise<{ success: true; noteId: string; title: string; contentFormat?: string | null; version: number; updatedAt: string; guestName: string }> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
     const res = await fetch(`${getBaseUrl()}/shared/${token}/content`, {

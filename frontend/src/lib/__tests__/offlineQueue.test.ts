@@ -23,6 +23,7 @@ describe("offlineQueue conflict handling", () => {
         title: "offline title",
         content: "{}",
         contentText: "offline title",
+        contentFormat: "markdown",
         version: 1,
       },
     });
@@ -44,8 +45,8 @@ describe("offlineQueue conflict handling", () => {
       serverVersion: 5,
       retryCount: 0,
     }));
-    expect(queue[0].body).toEqual(expect.objectContaining({ version: 1, title: "offline title" }));
-    expect(queue[0].localPayload).toEqual(expect.objectContaining({ version: 1, title: "offline title" }));
+    expect(queue[0].body).toEqual(expect.objectContaining({ version: 1, title: "offline title", contentFormat: "markdown" }));
+    expect(queue[0].localPayload).toEqual(expect.objectContaining({ version: 1, title: "offline title", contentFormat: "markdown" }));
   });
 
   it("does not automatically process an existing conflict item", async () => {
@@ -58,6 +59,7 @@ describe("offlineQueue conflict handling", () => {
         title: "offline title",
         content: "{}",
         contentText: "offline title",
+        contentFormat: "markdown",
         version: 2,
       },
     });
@@ -72,7 +74,7 @@ describe("offlineQueue conflict handling", () => {
     expect(fetchFn).not.toHaveBeenCalled();
     expect(queue).toHaveLength(1);
     expect(queue[0].retryCount).toBe(0);
-    expect(queue[0].body).toEqual(expect.objectContaining({ version: 2 }));
+    expect(queue[0].body).toEqual(expect.objectContaining({ version: 2, contentFormat: "markdown" }));
   });
 
   it("keeps the queued update when a 409 response has no currentVersion", async () => {
@@ -85,6 +87,7 @@ describe("offlineQueue conflict handling", () => {
         title: "offline title",
         content: "{}",
         contentText: "offline title",
+        contentFormat: "markdown",
         version: 3,
       },
     });
@@ -101,7 +104,7 @@ describe("offlineQueue conflict handling", () => {
       conflict: true,
       errorCode: "VERSION_CONFLICT",
     }));
-    expect(queue[0].body).toEqual(expect.objectContaining({ version: 3 }));
+    expect(queue[0].body).toEqual(expect.objectContaining({ version: 3, contentFormat: "markdown" }));
   });
 
   it("keeps normal server errors retryable", async () => {
@@ -114,6 +117,7 @@ describe("offlineQueue conflict handling", () => {
         title: "offline title",
         content: "{}",
         contentText: "offline title",
+        contentFormat: "markdown",
         version: 4,
       },
     });
@@ -126,7 +130,7 @@ describe("offlineQueue conflict handling", () => {
     expect(result).toEqual({ success: 0, failed: 1, remaining: 1 });
     expect(queue[0]).not.toHaveProperty("conflict", true);
     expect(queue[0].retryCount).toBe(1);
-    expect(queue[0].body).toEqual(expect.objectContaining({ version: 4 }));
+    expect(queue[0].body).toEqual(expect.objectContaining({ version: 4, contentFormat: "markdown" }));
   });
 
   it("removes successful queued updates", async () => {
