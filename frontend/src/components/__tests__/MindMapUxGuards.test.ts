@@ -32,6 +32,13 @@ describe("MindMapEditor UX guardrails", () => {
     expect(source).toContain("removeNodes(mapData.root, ids)");
   });
 
+  it("moves selected nodes together through the drag/drop path", () => {
+    expect(source).toContain("getMovableNodeIdsForDrag");
+    expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds)");
+    expect(source).toContain("handleMoveNodes(dragNodeId, n.id)");
+    expect(source).toContain("selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId)");
+  });
+
   it("hides the single-node toolbar for multi-selection", () => {
     expect(source).toContain("selectedNodeIds.length > 1 ? null");
   });

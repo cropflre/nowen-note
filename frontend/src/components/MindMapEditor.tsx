@@ -163,6 +163,112 @@ export function hitTestSelectionElements(
     .filter(Boolean) as string[];
 }
 
+export type MindMapMoveRejectReason = "self" | "target-selected" | "descendant";
+
+function cloneMindMapNode(node: MindMapNode): MindMapNode {
+  return {
+    ...node,
+    children: node.children.map(cloneMindMapNode),
+  };
+}
+
+export function isNodeDescendant(root: MindMapNode, ancestorId: string, checkId: string): boolean {
+  if (ancestorId === checkId) return false;
+  if (root.id === ancestorId) {
+    const walk = (node: MindMapNode): boolean =>
+      node.id === checkId || node.children.some(walk);
+    return root.children.some(walk);
+  }
+  return root.children.some((child) => isNodeDescendant(child, ancestorId, checkId));
+}
+
+export function hasSelectedAncestor(root: MindMapNode, nodeId: string, selected: Set<string>): boolean {
+  const walk = (node: MindMapNode, ancestorSelected: boolean): boolean => {
+    if (node.id === nodeId) return ancestorSelected;
+    return node.children.some((child) => walk(child, ancestorSelected || selected.has(node.id)));
+  };
+  return walk(root, false);
+}
+
+export function collectNodesInTreeOrder(root: MindMapNode, ids: Set<string>): MindMapNode[] {
+  const nodes: MindMapNode[] = [];
+  const walk = (node: MindMapNode) => {
+    if (ids.has(node.id)) nodes.push(cloneMindMapNode(node));
+    node.children.forEach(walk);
+  };
+  walk(root);
+  return nodes;
+}
+
+export function getMovableNodeIdsForDrag(
+  root: MindMapNode,
+  sourceId: string,
+  targetId: string,
+  selectedNodeIds: string[],
+): { nodeIds: string[]; reason?: MindMapMoveRejectReason } {
+  if (sourceId === targetId) return { nodeIds: [], reason: "self" };
+
+  const rawIds = selectedNodeIds.length > 1 && selectedNodeIds.includes(sourceId)
+    ? selectedNodeIds
+    : [sourceId];
+
+  if (rawIds.includes(targetId)) {
+    return { nodeIds: [], reason: "target-selected" };
+  }
+
+  const selected = new Set(rawIds.filter((id) => id !== "root" && id !== targetId));
+  if (selected.size === 0) return { nodeIds: [] };
+
+  for (const id of selected) {
+    if (isNodeDescendant(root, id, targetId)) {
+      return { nodeIds: [], reason: "descendant" };
+    }
+  }
+
+  const nodeIds = collectNodesInTreeOrder(root, selected)
+    .map((node) => node.id)
+    .filter((id) => !hasSelectedAncestor(root, id, selected));
+
+  return { nodeIds };
+}
+
+function removeMindMapNodes(root: MindMapNode, nodeIds: Set<string>): MindMapNode {
+  return {
+    ...root,
+    children: root.children
+      .filter((child) => !nodeIds.has(child.id))
+      .map((child) => removeMindMapNodes(child, nodeIds)),
+  };
+}
+
+function appendMindMapChildren(root: MindMapNode, targetId: string, children: MindMapNode[]): MindMapNode {
+  if (root.id === targetId) {
+    return {
+      ...root,
+      collapsed: false,
+      children: [...root.children, ...children],
+    };
+  }
+  return {
+    ...root,
+    children: root.children.map((child) => appendMindMapChildren(child, targetId, children)),
+  };
+}
+
+function containsMindMapNode(root: MindMapNode, nodeId: string): boolean {
+  return root.id === nodeId || root.children.some((child) => containsMindMapNode(child, nodeId));
+}
+
+export function moveMindMapNodes(root: MindMapNode, targetId: string, nodeIds: string[]): MindMapNode {
+  if (!containsMindMapNode(root, targetId)) return root;
+  const movingIds = new Set(nodeIds);
+  const nodesToMove = collectNodesInTreeOrder(root, movingIds);
+  if (nodesToMove.length === 0) return root;
+
+  const newRoot = removeMindMapNodes(root, movingIds);
+  return appendMindMapChildren(newRoot, targetId, nodesToMove);
+}
+
 function getSubtreeHeight(node: LayoutNode): number {
   if (node.children.length === 0) return node.height;
   let total = 0;
@@ -1623,36 +1729,28 @@ export default function MindMapCenter() {
     // tap 由 onClick 处理
   }, []);
 
-  // 拖拽移动节点到目标节点下
-  const handleMoveNode = useCallback((sourceId: string, targetId: string) => {
-    if (!mapData || sourceId === targetId) return;
-    // 不能移动到自己的子树下
-    const isDescendant = (root: MindMapNode, ancestorId: string, checkId: string): boolean => {
-      if (root.id === ancestorId) {
-        const walk = (n: MindMapNode): boolean => {
-          if (n.id === checkId) return true;
-          return n.children?.some(walk) ?? false;
-        };
-        return root.children?.some(walk) ?? false;
-      }
-      return root.children?.some(c => isDescendant(c, ancestorId, checkId)) ?? false;
-    };
-    if (isDescendant(mapData.root, sourceId, targetId)) return;
-    const sourceNode = findNode(mapData.root, sourceId);
-    if (!sourceNode) return;
-    // 从原位置移除
-    let newRoot = removeNode(mapData.root, sourceId);
-    // 插入到目标节点下
-    newRoot = updateNode(newRoot, targetId, (n) => ({
-      ...n,
-      collapsed: false,
-      children: [...n.children, sourceNode],
-    }));
+  // 拖拽移动节点到目标节点下，兼容单选和多选
+  const handleMoveNodes = useCallback((sourceId: string, targetId: string) => {
+    if (!mapData) return;
+    const { nodeIds, reason } = getMovableNodeIdsForDrag(mapData.root, sourceId, targetId, selectedNodeIds);
+    if (reason === "target-selected") {
+      toast.error("不能移动到已选中的节点下");
+      return;
+    }
+    if (reason === "descendant") {
+      toast.error("不能移动到自己的子节点下");
+      return;
+    }
+    if (nodeIds.length === 0) return;
+
+    const newRoot = moveMindMapNodes(mapData.root, targetId, nodeIds);
     const newData = { ...mapData, root: newRoot };
     setMapData(newData);
+    setSelectedNodeIds(nodeIds);
+    setSelectedNodeId(nodeIds[nodeIds.length - 1] || null);
     pushHistory(newData);
     triggerSave(newData);
-  }, [mapData, findNode, removeNode, updateNode, pushHistory, triggerSave]);
+  }, [mapData, selectedNodeIds, pushHistory, triggerSave]);
 
   // 复制节点
   const handleCopyNode = useCallback((nodeId: string) => {
@@ -2789,10 +2887,10 @@ export default function MindMapCenter() {
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
                     isSearchMatch={searchResults.includes(n.id)}
                     isSearchActive={searchResults.length > 0 && searchIndex >= 0 && searchResults[searchIndex] === n.id}
-                    onDragStart={(e) => { e.stopPropagation(); setDragNodeId(n.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", n.id); }}
-                    onDragOver={(e) => { if (dragNodeId && dragNodeId !== n.id) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDropTargetId(n.id); } }}
+                    onDragStart={(e) => { e.stopPropagation(); if (!selectedNodeIds.includes(n.id)) { setSelectedNodeIds([n.id]); setSelectedNodeId(n.id); } setDragNodeId(n.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", n.id); }}
+                    onDragOver={(e) => { const targetIsSelected = !!dragNodeId && selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId) && selectedNodeIds.includes(n.id); if (dragNodeId && dragNodeId !== n.id && !targetIsSelected) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDropTargetId(n.id); } }}
                     onDragLeave={() => { if (dropTargetId === n.id) setDropTargetId(null); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragNodeId && dragNodeId !== n.id) { handleMoveNode(dragNodeId, n.id); } setDragNodeId(null); setDropTargetId(null); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragNodeId && dragNodeId !== n.id) { handleMoveNodes(dragNodeId, n.id); } setDragNodeId(null); setDropTargetId(null); }}
                     isDragTarget={dropTargetId === n.id}
                     isEditing={editingNodeId === n.id}
                     editValue={editValue}
