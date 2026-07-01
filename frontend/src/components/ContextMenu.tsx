@@ -461,7 +461,14 @@ export default function ContextMenu({
         const fullNote = await api.getNote(targetId);
         const { exportNoteAsImage } = await import('@/lib/exportService');
         const ok = await exportNoteAsImage(
-          { id: fullNote.id, title: fullNote.title, content: fullNote.content, contentText: fullNote.contentText, updatedAt: fullNote.updatedAt },
+          {
+            id: fullNote.id,
+            title: fullNote.title,
+            content: fullNote.content,
+            contentText: fullNote.contentText,
+            contentFormat: fullNote.contentFormat,
+            updatedAt: fullNote.updatedAt,
+          },
           { format }
         );
         toast.dismiss(toastId);

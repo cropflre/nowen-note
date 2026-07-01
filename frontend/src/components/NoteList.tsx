@@ -2310,6 +2310,7 @@ export default function NoteList() {
               title: fresh.title,
               content: fresh.content,
               contentText: fresh.contentText,
+              contentFormat: fresh.contentFormat,
               updatedAt: fresh.updatedAt,
             },
             { format }

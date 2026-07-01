@@ -1540,6 +1540,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 title: fullNote.title,
                 content: fullNote.content,
                 contentText: fullNote.contentText,
+                contentFormat: fullNote.contentFormat,
                 updatedAt: fullNote.updatedAt,
               },
               { format }

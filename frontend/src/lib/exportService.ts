@@ -17,6 +17,7 @@ import { common, createLowlight } from "lowlight";
 import { api, resolveAttachmentUrl } from "./api";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+import { markdownToHtml } from "@/lib/contentFormat";
 
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
@@ -68,6 +69,17 @@ function noteContentToHtml(rawContent: string, contentText: string): string {
     return contentText || "";
   }
   return src;
+}
+
+export function noteContentToExportHtml(
+  rawContent: string,
+  contentText: string,
+  contentFormat?: string,
+): string {
+  if (contentFormat === "markdown") {
+    return markdownToHtml(rawContent || contentText || "");
+  }
+  return noteContentToHtml(rawContent, contentText);
 }
 
 interface ExportNote {
@@ -1495,13 +1507,19 @@ async function buildPrintableHtml(note: {
   title: string;
   content: string;
   contentText: string;
+  contentFormat?: string;
   createdAt: string;
   updatedAt: string;
 }): Promise<string> {
-  let html = noteContentToHtml(note.content, note.contentText);
+  let html = noteContentToExportHtml(note.content, note.contentText, note.contentFormat);
   // 把 /api/attachments/<id> 全部 inline 成 data URI（避免新窗口加载失败、canvas tainted）
   const stats: ImgStats = { ok: 0, failed: 0, failures: [] };
   html = await inlineRemoteImages(html, stats);
+  const DOMPurify = await import("dompurify");
+  html = DOMPurify.default.sanitize(html, {
+    ADD_TAGS: ["img"],
+    ADD_ATTR: ["src", "alt", "width", "height", "style", "data-type", "data-checked"],
+  });
 
   const safeTitle = (note.title || i18n.t('common.untitledNote'))
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1901,6 +1919,7 @@ export async function exportNoteAsImage(
     title: string;
     content: string;
     contentText: string;
+    contentFormat?: string;
     updatedAt?: string;
   },
   options: ExportNoteImageOptions
@@ -1914,7 +1933,7 @@ export async function exportNoteAsImage(
   ]);
 
   // 生成正文 HTML 并修正附件图片地址
-  let bodyHtml = noteContentToHtml(note.content, note.contentText);
+  let bodyHtml = noteContentToExportHtml(note.content, note.contentText, note.contentFormat);
   bodyHtml = rewriteImageSrcForCanvas(bodyHtml);
 
   // ??????

@@ -1362,6 +1362,7 @@ export default function EditorPane() {
           title: activeNote.title,
           content: activeNote.content,
           contentText: activeNote.contentText,
+          contentFormat: activeNote.contentFormat,
           updatedAt: activeNote.updatedAt,
         },
         { format }
