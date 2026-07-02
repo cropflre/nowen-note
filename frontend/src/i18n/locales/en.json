@@ -1248,6 +1248,8 @@
       "title": "Calendar Subscription",
       "loading": "Loading...",
       "enable": "Enable Calendar Subscription",
+      "enableAgain": "Enable subscription",
+      "enableSuccess": "Calendar subscription enabled",
       "created": "Calendar subscription enabled",
       "updated": "Settings updated",
       "error": "Operation failed, please try again",

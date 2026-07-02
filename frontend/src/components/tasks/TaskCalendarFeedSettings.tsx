@@ -17,6 +17,8 @@ interface CalendarFeed {
   updatedAt: string;
 }
 
+type ActionLoading = "create" | "update" | "enable" | "disable" | "rotate" | null;
+
 export function TaskCalendarFeedSettings() {
   const { t } = useTranslation();
 
@@ -31,7 +33,7 @@ export function TaskCalendarFeedSettings() {
 
   const [feed, setFeed] = useState<CalendarFeed | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<ActionLoading>(null);
   const [expanded, setExpanded] = useState(false);
 
   const loadFeed = useCallback(async () => {
@@ -88,11 +90,28 @@ export function TaskCalendarFeedSettings() {
     if (!window.confirm(t("tasks.calendarFeed.confirmDisable"))) return;
     try {
       setActionLoading("disable");
-      await handleUpdate({ enabled: false });
+      const res = await api.taskCalendarFeed.update({ enabled: false });
+      setFeed(res.feed);
+      toast.success(t("tasks.calendarFeed.updated"));
+    } catch {
+      toast.error(t("tasks.calendarFeed.error"));
     } finally {
       setActionLoading(null);
     }
-  }, [handleUpdate, t]);
+  }, [t]);
+
+  const handleEnable = useCallback(async () => {
+    try {
+      setActionLoading("enable");
+      const res = await api.taskCalendarFeed.update({ enabled: true });
+      setFeed(res.feed);
+      toast.success(t("tasks.calendarFeed.enableSuccess"));
+    } catch {
+      toast.error(t("tasks.calendarFeed.error"));
+    } finally {
+      setActionLoading(null);
+    }
+  }, [t]);
 
   const handleRotate = useCallback(async () => {
     if (!window.confirm(t("tasks.calendarFeed.confirmRotate"))) return;
@@ -339,19 +358,35 @@ export function TaskCalendarFeedSettings() {
                 )}
                 {t("tasks.calendarFeed.rotate")}
               </button>
-              <button
-                type="button"
-                onClick={handleDisable}
-                disabled={actionLoading === "disable"}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tx-tertiary hover:text-red-600 bg-app-hover rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 ml-auto"
-              >
-                {actionLoading === "disable" ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Trash2 size={13} />
-                )}
-                {t("tasks.calendarFeed.disable")}
-              </button>
+              {feed.enabled ? (
+                <button
+                  type="button"
+                  onClick={handleDisable}
+                  disabled={actionLoading === "disable"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tx-tertiary hover:text-red-600 bg-app-hover rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 ml-auto"
+                >
+                  {actionLoading === "disable" ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={13} />
+                  )}
+                  {t("tasks.calendarFeed.disable")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleEnable}
+                  disabled={actionLoading === "enable"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-accent-primary bg-accent-primary/10 rounded-lg hover:bg-accent-primary/15 transition-colors disabled:opacity-50 ml-auto"
+                >
+                  {actionLoading === "enable" ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Calendar size={13} />
+                  )}
+                  {t("tasks.calendarFeed.enableAgain")}
+                </button>
+              )}
             </div>
 
             {/* 提示 */}

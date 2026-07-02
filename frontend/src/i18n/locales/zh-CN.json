@@ -1407,6 +1407,8 @@
       "title": "日历订阅",
       "loading": "加载中...",
       "enable": "启用日历订阅",
+      "enableAgain": "启用订阅",
+      "enableSuccess": "日历订阅已启用",
       "created": "日历订阅已启用",
       "updated": "设置已更新",
       "error": "操作失败，请重试",
