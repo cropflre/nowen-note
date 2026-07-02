@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import JSZip from "jszip";
+import { resolveWritableNotebookTarget } from "../lib/import-target-permissions";
 
 // ====== 类型定义 ======
 
@@ -364,15 +365,9 @@ export async function importNowenPackage(zipBuffer: Buffer, params: ImportParams
   let resolvedWorkspaceId: string | null = workspaceId ?? null;
 
   if (importMode === "into-target" && targetNotebookId) {
-    const target = db.prepare(
-      "SELECT id, userId, isDeleted, workspaceId FROM notebooks WHERE id = ? AND userId = ?"
-    ).get(targetNotebookId, userId) as { id: string; userId: string; isDeleted: number; workspaceId: string | null } | undefined;
-
-    if (!target) {
-      return { success: false, dryRun, warnings, errors: ["Target notebook not found or not owned by user"] };
-    }
-    if (target.isDeleted === 1) {
-      return { success: false, dryRun, warnings, errors: ["Target notebook is deleted"] };
+    const target = resolveWritableNotebookTarget(userId, targetNotebookId, workspaceId);
+    if (!target.ok) {
+      return { success: false, dryRun, warnings, errors: [target.body.error] };
     }
     // 以 target notebook 的 workspaceId 为准
     resolvedWorkspaceId = target.workspaceId;

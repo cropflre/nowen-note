@@ -14,6 +14,10 @@ import {
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
+import {
+  requireWorkspaceWriteAccess,
+  resolveWritableNotebookTarget,
+} from "../lib/import-target-permissions";
 
 const ai = new Hono();
 
@@ -848,6 +852,13 @@ ai.post("/parse-document", async (c) => {
       return c.json({ error: "文件内容为空或无法解析" }, 400);
     }
 
+    let targetWorkspaceId: string | null = null;
+    if (notebookId) {
+      const target = resolveWritableNotebookTarget(userId, notebookId);
+      if (!target.ok) return c.json(target.body, target.status as any);
+      targetWorkspaceId = target.workspaceId;
+    }
+
     // 使用 AI 将内容转换为规范的 Markdown 格式
     const aiPrompt = formatMode === "note"
       ? "请将以下文档内容整理为结构化的笔记格式（Markdown），合理使用标题层级、列表、表格、代码块等元素，保留原始信息不丢失，使内容清晰易读："
@@ -893,9 +904,9 @@ ai.post("/parse-document", async (c) => {
       const contentText = markdownContent.replace(/[#*`>\-|_\[\]()]/g, "").replace(/\n{2,}/g, "\n").trim();
 
       db.prepare(`
-        INSERT INTO notes (id, title, content, contentText, notebookId, userId, isFavorite, isPinned, isTrashed, isLocked, version, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, datetime('now'), datetime('now'))
-      `).run(noteId, title, JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: markdownContent }] }] }), contentText, notebookId, userId);
+        INSERT INTO notes (id, title, content, contentText, notebookId, userId, workspaceId, isFavorite, isPinned, isTrashed, isLocked, version, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, datetime('now'), datetime('now'))
+      `).run(noteId, title, JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: markdownContent }] }] }), contentText, notebookId, userId, targetWorkspaceId);
 
       return c.json({
         success: true,
@@ -1381,6 +1392,11 @@ ai.post("/import-to-knowledge", async (c) => {
     // 如果没有指定 notebookId，自动查找/创建一个"知识库文档"笔记本（按 scope 隔离）
     let targetNotebookId = notebookId;
     if (!targetNotebookId) {
+      const deniedWorkspace = requireWorkspaceWriteAccess(userId, workspaceId);
+      if (deniedWorkspace) {
+        return c.json(deniedWorkspace.body, deniedWorkspace.status as any);
+      }
+
       let existing: { id: string } | undefined;
       if (workspaceId === null) {
         // 个人空间：按 (userId, workspaceId IS NULL) 匹配
@@ -1403,22 +1419,10 @@ ai.post("/import-to-knowledge", async (c) => {
         ).run(targetNotebookId, userId, workspaceId);
       }
     } else {
-      // 用户显式传了 notebookId：必须确保它在当前 scope 内，避免把工作区文档塞到
-      // 个人空间笔记本（或反之），同时阻断越权写入。
-      const nb = db.prepare(
-        "SELECT id, userId, workspaceId FROM notebooks WHERE id = ?",
-      ).get(targetNotebookId) as { id: string; userId: string; workspaceId: string | null } | undefined;
-      if (!nb) {
-        return c.json({ error: "笔记本不存在" }, 404);
-      }
-      const nbWs = nb.workspaceId || null;
-      if (nbWs !== workspaceId) {
-        return c.json({ error: "笔记本不属于当前工作区" }, 403);
-      }
-      // 个人空间下还要确保是当前用户自己的笔记本
-      if (workspaceId === null && nb.userId !== userId) {
-        return c.json({ error: "无权写入该笔记本" }, 403);
-      }
+      // 用户显式传了 notebookId：必须确保它在当前 scope 内且当前用户可写。
+      const target = resolveWritableNotebookTarget(userId, targetNotebookId, workspaceId);
+      if (!target.ok) return c.json(target.body, target.status as any);
+      targetNotebookId = target.notebookId;
     }
 
     const results: { fileName: string; success: boolean; noteId?: string; error?: string }[] = [];
@@ -2527,5 +2531,4 @@ ai.post("/notebook-mermaid", async (c) => {
   }
 });
 export default ai;
-
 
