@@ -1,0 +1,38 @@
+/* Issue #145 UI guards
+ * These rules are intentionally scoped to existing runtime class patterns so the fix
+ * can land without touching large layout components.
+ */
+
+/* 1. Reminder center should be an opaque dialog, not a transparent glass panel. */
+.fixed.inset-0.z-\[10000\] > [role="dialog"][aria-modal="true"] {
+  background: var(--color-bg) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.fixed.inset-0.z-\[10000\] > .absolute.inset-0 {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* 2. Diary mood picker must float above the compose textarea and cards. */
+[class*="bg-app-surface/60"][class*="backdrop-blur-sm"][class*="rounded-2xl"] {
+  isolation: isolate;
+  z-index: 80 !important;
+}
+
+[class*="w-[220px]"][class*="bg-app-elevated"][class*="shadow-lg"] {
+  z-index: 9999 !important;
+}
+
+/* 3. Notebook tree: avoid unnecessary horizontal scroll for normal names. */
+[data-radix-scroll-area-viewport] {
+  overflow-x: hidden !important;
+}
+
+/* 4. Markdown status bar: keep count in one line and avoid cramped overflow. */
+.nowen-md-editor-status {
+  min-height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+}
