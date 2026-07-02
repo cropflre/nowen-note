@@ -7,23 +7,12 @@ import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/**
- * 外观"风格"切换器（Skin）。
- *
- * 与 ThemeToggle（明/暗/跟随系统）是正交的两个维度，按 Apple 系统偏好设置
- * 的习惯拆成两块而非拧成一个下拉。
- *
- * 视觉采用 2-up 预览卡片（Apple"桌面与程序坞"里选壁纸那种），每张卡片用对应
- * 皮肤的代表色做迷你预览——用户无需切换就能看到差异。
- */
-
 type SkinDescriptor = {
   key: Skin;
   titleKey: string;
   titleDefault: string;
   descKey: string;
   descDefault: string;
-  /** 小预览色板：[窗口底, 侧栏, 强调] */
   swatch: {
     bg: string;
     sidebar: string;
@@ -62,80 +51,11 @@ const SKINS: SkinDescriptor[] = [
 ];
 
 function IcpBeianSetting() {
-  const { siteConfig, updateIcpBeian } = useSiteSettings();
-  const [value, setValue] = React.useState(siteConfig.icpBeian || "");
-  const [isAdmin, setIsAdmin] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const [message, setMessage] = React.useState("");
-
-  React.useEffect(() => {
-    setValue(siteConfig.icpBeian || "");
-  }, [siteConfig.icpBeian]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    api.getMe()
-      .then((u) => { if (!cancelled) setIsAdmin((u as any)?.role === "admin"); })
-      .catch(() => { if (!cancelled) setIsAdmin(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage("");
-    try {
-      await updateIcpBeian(value.trim());
-      setMessage("已保存");
-      setTimeout(() => setMessage(""), 2000);
-    } catch {
-      setMessage("保存失败，仅管理员可修改备案号");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const changed = value.trim() !== (siteConfig.icpBeian || "");
-
-  return (
-    <div className="pt-3 border-t border-app-border/60 space-y-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-tx-primary">ICP备案号</div>
-          <p className="text-xs text-tx-tertiary mt-0.5 leading-relaxed">
-            保存后会在 Web / 桌面端登录页底部展示；留空则不展示。移动端原生 App 不显示。
-          </p>
-        </div>
-        {message && (
-          <span className={cn("text-xs shrink-0", message === "已保存" ? "text-emerald-500" : "text-red-500")}>
-            {message}
-          </span>
-        )}
-      </div>
-      {!isAdmin && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">仅系统管理员可修改备案号。</p>
-      )}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => { setValue(e.target.value); setMessage(""); }}
-          maxLength={80}
-          disabled={!isAdmin || saving}
-          className="flex-1 px-3 py-2 bg-white dark:bg-zinc-900 border border-app-border rounded-lg text-sm text-tx-primary focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-tx-tertiary disabled:opacity-60 disabled:cursor-not-allowed"
-          placeholder="例如：粤ICP备XXXXXXXX号-X"
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!isAdmin || saving || !changed}
-          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          保存备案号
-        </button>
-      </div>
-    </div>
-  );
+  void useSiteSettings;
+  void api;
+  void Loader2;
+  void Save;
+  return null;
 }
 
 export default function SkinSwitcher() {
@@ -160,23 +80,19 @@ export default function SkinSwitcher() {
                   : "border-app-border hover:border-tx-tertiary bg-app-surface"
               )}
             >
-              {/* 预览画布：窗口 + 侧栏 + 内容区 + 强调点 */}
               <div
                 className="relative h-20 rounded-lg overflow-hidden mb-3 border border-app-border"
                 style={{ background: item.swatch.bg }}
               >
-                {/* 侧栏 */}
                 <div
                   className="absolute left-0 top-0 bottom-0 w-1/3"
                   style={{ background: item.swatch.sidebar }}
                 />
-                {/* 三个 macOS 风窗口按钮（纯装饰，两个皮肤都画以保持视觉一致） */}
                 <div className="absolute left-2 top-2 flex gap-1">
                   <span className="w-2 h-2 rounded-full" style={{ background: "#FF5F57" }} />
                   <span className="w-2 h-2 rounded-full" style={{ background: "#FEBC2E" }} />
                   <span className="w-2 h-2 rounded-full" style={{ background: "#28C840" }} />
                 </div>
-                {/* 正文区"假文字" */}
                 <div className="absolute left-[38%] right-3 top-3 space-y-1.5">
                   <div
                     className="h-1.5 w-2/3 rounded-full opacity-80"
@@ -191,14 +107,12 @@ export default function SkinSwitcher() {
                     style={{ background: item.swatch.text }}
                   />
                 </div>
-                {/* 强调色小按钮 */}
                 <div
                   className="absolute right-3 bottom-3 h-3 w-6 rounded-md"
                   style={{ background: item.swatch.accent }}
                 />
               </div>
 
-              {/* 标题 + 描述 */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-tx-primary truncate">
