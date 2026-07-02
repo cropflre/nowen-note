@@ -250,7 +250,8 @@
     <script>
       (function () {
         var text = "%VITE_ICP_BEIAN_TEXT%".trim();
-        var url = "%VITE_ICP_BEIAN_URL%".trim() || "https://beian.miit.gov.cn/";
+        var rawUrl = "%VITE_ICP_BEIAN_URL%".trim();
+        var url = (!rawUrl || rawUrl.indexOf("VITE_ICP_BEIAN_URL") !== -1) ? "https://beian.miit.gov.cn/" : rawUrl;
         // Vite 未配置对应 env 时会保留占位符；此时保持隐藏，避免显示假备案号。
         if (!text || text.indexOf("VITE_ICP_BEIAN_TEXT") !== -1) return;
         // 备案号只面向 Web 站点展示；Electron / Capacitor 原生客户端不显示，避免压住客户端 UI。
@@ -266,7 +267,7 @@
         var link = document.getElementById("beian-link");
         if (!footer || !link) return;
         link.textContent = text;
-        link.href = url || "https://beian.miit.gov.cn/";
+        link.href = url;
         footer.classList.add("is-visible");
       })();
     </script>
