@@ -5,7 +5,7 @@ import { api, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
 export interface SiteConfig {
   title: string;
   favicon: string;
-  /** ICP 备案号；为空时不展示底部备案信息。 */
+  /** ICP 备案号；由 Docker/运行时环境变量 NOWEN_ICP_BEIAN 提供。 */
   icpBeian: string;
   editorFontFamily: string; // 空串=默认(Inter), 自定义字体 id, 或内置字体名
   // 注：v6 起，"个人空间导出/导入"不再是站点级全站开关；它已下沉为 users 表
@@ -36,8 +36,7 @@ export function getBuiltinFontName(font: typeof BUILTIN_FONTS[number]): string {
 
 interface SiteSettingsContextValue {
   siteConfig: SiteConfig;
-  updateSiteConfig: (title: string, favicon: string, icpBeian?: string) => Promise<void>;
-  updateIcpBeian: (icpBeian: string) => Promise<void>;
+  updateSiteConfig: (title: string, favicon: string) => Promise<void>;
   updateEditorFont: (fontId: string) => Promise<void>;
   isLoaded: boolean;
 }
@@ -45,25 +44,11 @@ interface SiteSettingsContextValue {
 const SiteSettingsContext = createContext<SiteSettingsContextValue>({
   siteConfig: DEFAULT_CONFIG,
   updateSiteConfig: async () => {},
-  updateIcpBeian: async () => {},
   updateEditorFont: async () => {},
   isLoaded: false,
 });
 
-/**
- * 应用站点标题与 favicon 到 DOM。
- *
- * 历史坑点（2026-04 修复）：
- *  1. index.html 里同时存在 `<link rel="icon">`、`<link rel="alternate icon">`、
- *     `<link rel="apple-touch-icon">`。以前只更新第一个，其他继续指向旧 URL,
- *     浏览器可能回退到 `alternate icon` → 看起来"换了没生效"。
- *  2. 直接改 `link.href` 时，浏览器常常复用已缓存的 favicon 不刷新。稳妥做法
- *     是 **移除旧节点、新建节点**，这样浏览器必须重新发起解析。
- *  3. 之前 `link.type` 只识别 svg / png / x-icon，上传 jpg/webp/ico 时一律被
- *     写成 image/png → 某些浏览器直接拒渲。改为从 data URL 真实 MIME 读取。
- */
 function parseDataUrlMime(url: string): string {
-  // data:image/png;base64,... → image/png
   const m = /^data:([^;,]+)[;,]/i.exec(url);
   return m ? m[1].toLowerCase() : "image/png";
 }
@@ -71,26 +56,22 @@ function parseDataUrlMime(url: string): string {
 function applyToDOM(title: string, faviconUrl: string) {
   document.title = title || "nowen-note";
 
-  // 清理页面上所有"图标类"link（含 alternate/apple-touch/shortcut），避免旧节点覆盖新节点
   const oldLinks = document.head.querySelectorAll<HTMLLinkElement>(
     'link[rel="icon"], link[rel="shortcut icon"], link[rel="alternate icon"], link[rel="apple-touch-icon"]'
   );
   oldLinks.forEach((n) => n.parentNode?.removeChild(n));
 
-  // 新建主 icon 节点
   const link = document.createElement("link");
   link.rel = "icon";
   if (faviconUrl) {
     link.type = parseDataUrlMime(faviconUrl) || "image/png";
     link.href = faviconUrl;
   } else {
-    // 恢复内置品牌 favicon（与 index.html 保持一致）
     link.type = "image/svg+xml";
     link.href = "/favicon.svg";
   }
   document.head.appendChild(link);
 
-  // apple-touch-icon 同步更新；自定义图标时复用相同 href（PWA/添加到主屏幕体验一致）
   const apple = document.createElement("link");
   apple.rel = "apple-touch-icon";
   apple.href = faviconUrl || "/apple-touch-icon.svg";
@@ -104,7 +85,6 @@ function applyEditorFont(fontId: string, customFontName?: string) {
     return;
   }
 
-  // 自定义字体：注入 @font-face 并设置 CSS 变量
   if (fontId && customFontName) {
     const fontFaceName = `CustomFont-${fontId.slice(0, 8)}`;
     const styleId = `font-face-${fontId}`;
@@ -123,7 +103,6 @@ function applyEditorFont(fontId: string, customFontName?: string) {
     return;
   }
 
-  // 回退默认
   document.documentElement.style.setProperty(
     "--editor-font-family",
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif"
@@ -145,7 +124,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
       setSiteConfig(config);
       applyToDOM(config.title, config.favicon);
 
-      // 加载自定义字体名
       if (config.editorFontFamily && !BUILTIN_FONTS.find(f => f.id === config.editorFontFamily)) {
         try {
           const fonts = await api.getFontsPublic();
@@ -176,30 +154,20 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener(SERVER_URL_CHANGED_EVENT, handleServerUrlChanged);
   }, [loadSiteSettings]);
 
-  const updateSiteConfig = useCallback(async (title: string, favicon: string, icpBeian = siteConfig.icpBeian) => {
+  const updateSiteConfig = useCallback(async (title: string, favicon: string) => {
     const data = await api.updateSiteSettings({
       site_title: title,
       site_favicon: favicon,
-      site_icp_beian: icpBeian,
-    } as any);
+    });
     const config: SiteConfig = {
       title: data.site_title || "nowen-note",
       favicon: data.site_favicon || "",
-      icpBeian: (data as any).site_icp_beian ?? icpBeian,
+      icpBeian: (data as any).site_icp_beian || siteConfig.icpBeian,
       editorFontFamily: data.editor_font_family || siteConfig.editorFontFamily,
     };
     setSiteConfig(config);
     applyToDOM(config.title, config.favicon);
   }, [siteConfig.editorFontFamily, siteConfig.icpBeian]);
-
-  const updateIcpBeian = useCallback(async (icpBeian: string) => {
-    const submitted = icpBeian.trim();
-    const data = await api.updateSiteSettings({ site_icp_beian: submitted } as any);
-    const saved = (data as any).site_icp_beian ?? submitted;
-    const latest = await api.getSiteSettingsPublic().catch(() => null);
-    const next = latest?.site_icp_beian ?? saved;
-    setSiteConfig((prev) => ({ ...prev, icpBeian: next }));
-  }, []);
 
   const updateEditorFont = useCallback(async (fontId: string) => {
     const data = await api.updateSiteSettings({ editor_font_family: fontId });
@@ -209,7 +177,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     };
     setSiteConfig(config);
 
-    // 获取自定义字体名用于 @font-face
     if (fontId && !BUILTIN_FONTS.find(f => f.id === fontId)) {
       try {
         const fonts = await api.getFonts();
@@ -224,7 +191,7 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   }, [siteConfig]);
 
   return (
-    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updateIcpBeian, updateEditorFont, isLoaded }}>
+    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updateEditorFont, isLoaded }}>
       {children}
     </SiteSettingsContext.Provider>
   );
