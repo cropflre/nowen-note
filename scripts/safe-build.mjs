@@ -23,7 +23,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,14 @@ const isWin = process.platform === "win32";
 
 function log(msg) {
   console.log(`[safe-build] ${msg}`);
+}
+
+function assertFileExists(filePath, label) {
+  if (!existsSync(filePath)) {
+    throw new Error(`${label} missing: ${filePath}`);
+  }
+  const stat = statSync(filePath);
+  log(`${label}: OK (${Math.round(stat.size / 1024)} KB)`);
 }
 
 // Step 1: 杀残留进程（Windows only）
@@ -216,6 +224,28 @@ try {
   if (isWin) {
     const exePath = join(tmpOut, "win-unpacked", "Nowen Note.exe");
     if (existsSync(exePath)) {
+      const resourcesPath = join(tmpOut, "win-unpacked", "resources");
+      assertFileExists(
+        join(resourcesPath, "frontend", "dist", "index.html"),
+        "frontend/dist/index.html",
+      );
+      assertFileExists(
+        join(resourcesPath, "backend", "dist", "index.js"),
+        "backend/dist/index.js",
+      );
+      assertFileExists(
+        join(
+          resourcesPath,
+          "backend",
+          "node_modules",
+          "better-sqlite3",
+          "build",
+          "Release",
+          "better_sqlite3.node",
+        ),
+        "better-sqlite3 native module",
+      );
+
       const ps = spawnSync(
         "powershell",
         [

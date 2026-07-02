@@ -44,10 +44,50 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isFileLockError(err) {
+  return err?.code === "EPERM" || err?.code === "EBUSY";
+}
+
 /** 递归删除目录（Node 14.14+ 支持 fs.rmSync 的 recursive） */
 function rimrafSync(p) {
   if (!fs.existsSync(p)) return;
-  fs.rmSync(p, { recursive: true, force: true });
+  let lastError;
+  for (let i = 0; i < 5; i++) {
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      lastError = err;
+      if (!isFileLockError(err)) throw err;
+      sleepSync(250 * (i + 1));
+    }
+  }
+
+  const stalePath = `${p}.stale-${process.pid}-${Date.now()}`;
+  try {
+    fs.renameSync(p, stalePath);
+    console.warn(`[rebuild-native] 无法立即删除，已改名隔离：${stalePath}`);
+    return;
+  } catch (renameErr) {
+    if (!isFileLockError(renameErr)) throw renameErr;
+  }
+
+  throw new Error(
+    `无法清理 ${p}：${lastError?.message || lastError}\n` +
+      "  Windows 正在占用 better_sqlite3.node。请先关闭正在运行的 Nowen Note、后端 dev server 或相关 node.exe 后重试。"
+  );
+}
+
+function readJsonIfExists(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** 解析 --key=value 或 --key value 形式的命令行参数 */
@@ -159,25 +199,42 @@ async function main() {
   const bsRoot = path.join(backendDir, "node_modules", "better-sqlite3");
   const bsBuildDir = path.join(bsRoot, "build");
   const bsPrebuildsDir = path.join(bsRoot, "prebuilds");
-  if (fs.existsSync(bsBuildDir)) {
+  const nodFile = path.join(bsBuildDir, "Release", "better_sqlite3.node");
+  const stampPath = path.join(bsBuildDir, "Release", ".electron-abi.json");
+  const existingStamp = readJsonIfExists(stampPath);
+  const existingDetected = fs.existsSync(nodFile)
+    ? detectNodeFilePlatform(nodFile)
+    : { platform: "unknown", arch: "unknown" };
+  const expectedDetectedPlatform =
+    targetPlatform === "win32"
+      ? "win32"
+      : targetPlatform === "darwin"
+        ? "darwin"
+        : "linux";
+  const canReuseExisting =
+    existingStamp?.electronVersion === electronVersion &&
+    existingStamp?.platform === targetPlatform &&
+    existingStamp?.arch === targetArch &&
+    existingDetected.platform === expectedDetectedPlatform &&
+    (existingDetected.arch === "universal" || existingDetected.arch === "unknown" || existingDetected.arch === targetArch);
+
+  if (canReuseExisting) {
+    console.log(`[rebuild-native] 复用已验证的 Electron 原生产物：${nodFile}`);
+  } else if (fs.existsSync(bsBuildDir)) {
     console.log(`[rebuild-native] 清理旧的编译产物：${bsBuildDir}`);
     rimrafSync(bsBuildDir);
   }
-  if (fs.existsSync(bsPrebuildsDir)) {
+  if (!canReuseExisting && fs.existsSync(bsPrebuildsDir)) {
     console.log(`[rebuild-native] 清理旧的 prebuilds：${bsPrebuildsDir}`);
     rimrafSync(bsPrebuildsDir);
   }
 
-  const nodFile = path.join(bsBuildDir, "Release", "better_sqlite3.node");
   const start = Date.now();
+  let usedPrebuild = isCross;
 
-  if (isCross) {
-    // ===== 跨平台分支：用 prebuild-install 直接下 target 平台的 .node =====
-    // @electron/rebuild 只能编出 host 架构，跨平台编出来装不上。
-    // better-sqlite3 官方为每个 Electron ABI × 每个平台都发布了 prebuilt 包，
-    // 直接拉即可。
+  const runPrebuildInstall = (reason) => {
     console.log(
-      `[rebuild-native] cross-platform prepare via prebuild-install ` +
+      `[rebuild-native] ${reason} via prebuild-install ` +
         `(runtime=electron, target=${electronVersion}, platform=${targetPlatform}, arch=${targetArch})`
     );
     // 优先用 backend 内的 prebuild-install shim：直接调 .cmd 比 npx 在 Windows 上稳得多
@@ -225,6 +282,17 @@ async function main() {
       );
       process.exit(1);
     }
+    usedPrebuild = true;
+  };
+
+  if (canReuseExisting) {
+    usedPrebuild = existingStamp?.mode === "prebuild";
+  } else if (isCross) {
+    // ===== 跨平台分支：用 prebuild-install 直接下 target 平台的 .node =====
+    // @electron/rebuild 只能编出 host 架构，跨平台编出来装不上。
+    // better-sqlite3 官方为每个 Electron ABI × 每个平台都发布了 prebuilt 包，
+    // 直接拉即可。
+    runPrebuildInstall("cross-platform prepare");
   } else {
     // ===== 同平台分支：@electron/rebuild 真编译 =====
     let rebuild;
@@ -240,13 +308,23 @@ async function main() {
     process.env.npm_config_build_from_source = "true";
     process.env.PREBUILD_INSTALL_FORCE_BUILD = "true";
     console.log(`[rebuild-native] rebuilding native modules under ${backendDir} ...`);
-    await rebuild({
-      buildPath: backendDir,
-      electronVersion,
-      force: true,
-      onlyModules: ["better-sqlite3"],
-      disablePreGypCopy: true,
-    });
+    try {
+      await rebuild({
+        buildPath: backendDir,
+        electronVersion,
+        force: true,
+        onlyModules: ["better-sqlite3"],
+        disablePreGypCopy: true,
+      });
+    } catch (err) {
+      console.warn(
+        "[rebuild-native] native rebuild failed, falling back to prebuild-install:",
+        err?.message || err
+      );
+      delete process.env.PREBUILD_INSTALL_FORCE_BUILD;
+      process.env.npm_config_build_from_source = "false";
+      runPrebuildInstall("same-platform fallback");
+    }
   }
 
   const elapsed = (Date.now() - start) / 1000;
@@ -261,16 +339,10 @@ async function main() {
   }
   const stat = fs.statSync(nodFile);
   const detected = detectNodeFilePlatform(nodFile);
-  const expectDetected =
-    targetPlatform === "win32"
-      ? "win32"
-      : targetPlatform === "darwin"
-        ? "darwin"
-        : "linux";
-  if (detected.platform !== expectDetected) {
+  if (detected.platform !== expectedDetectedPlatform) {
     console.error(
       `[rebuild-native] ✗ 产物平台不匹配！\n` +
-        `   期望: ${expectDetected}（${targetPlatform}-${targetArch}）\n` +
+        `   期望: ${expectedDetectedPlatform}（${targetPlatform}-${targetArch}）\n` +
         `   实际: ${detected.platform}-${detected.arch}（根据文件魔数识别）\n` +
         `   这份 .node 拷到目标机器一定 dlopen 失败。`
     );
@@ -291,7 +363,6 @@ async function main() {
   );
 
   // ===== 写 stamp =====
-  const stampPath = path.join(bsBuildDir, "Release", ".electron-abi.json");
   fs.writeFileSync(
     stampPath,
     JSON.stringify(
@@ -303,7 +374,7 @@ async function main() {
         detectedArch: detected.arch,
         rebuiltAt: new Date().toISOString(),
         nodeMtime: stat.mtime.toISOString(),
-        mode: isCross ? "cross-prebuild" : "native-rebuild",
+        mode: usedPrebuild ? "prebuild" : "native-rebuild",
         hostPlatform,
         hostArch,
       },

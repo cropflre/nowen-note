@@ -202,3 +202,10 @@ describe("buildServerUrl (legacy)", () => {
   });
 });
 
+describe("API endpoint construction", () => {
+  it("为外部 HTTP 服务正确拼出 /api/health", () => {
+    const baseUrl = normalizeServerBaseUrl("http://note.nowen.cn");
+    expect(`${baseUrl}/api/health`).toBe("http://note.nowen.cn/api/health");
+  });
+});
+

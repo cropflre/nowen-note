@@ -618,6 +618,53 @@ function closeSplash() {
   splashWindow = null;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildMainWindowErrorHtml({ title, message, details = [] }) {
+  const rows = details
+    .filter((row) => row && row.value !== undefined && row.value !== null && row.value !== "")
+    .map(
+      (row) => `
+        <div class="row">
+          <div class="key">${escapeHtml(row.label)}</div>
+          <div class="value">${escapeHtml(row.value)}</div>
+        </div>`
+    )
+    .join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
+    html,body{margin:0;min-height:100vh;background:#0D1117;color:#E6EDF3;font-family:system-ui,sans-serif}
+    body{display:flex;align-items:center;justify-content:center;padding:28px;box-sizing:border-box}
+    .box{width:min(760px,100%);border:1px solid #30363d;border-radius:8px;background:#161b22;padding:24px;box-sizing:border-box}
+    .title{font-size:20px;font-weight:600;margin-bottom:10px}
+    .message{font-size:14px;color:#c9d1d9;line-height:1.6;margin-bottom:18px}
+    .row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;border-top:1px solid #30363d;padding:10px 0}
+    .key{font-size:12px;color:#8b949e}
+    .value{font-size:12px;color:#E6EDF3;word-break:break-word;white-space:pre-wrap}
+    button{margin-top:18px;padding:8px 18px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#E6EDF3;cursor:pointer;font-size:13px}
+    button:hover{background:#30363d}
+  </style></head><body><div class="box">
+    <div class="title">${escapeHtml(title)}</div>
+    <div class="message">${escapeHtml(message)}</div>
+    ${rows}
+    <button onclick="window.location.reload()">重新加载</button>
+  </div></body></html>`;
+}
+
+function loadMainWindowErrorPage(win, payload) {
+  if (!win || win.isDestroyed()) return;
+  const html = buildMainWindowErrorHtml(payload);
+  win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html)).catch((e) => {
+    console.error("[main-window] failed to load local error page:", e?.message || e);
+  });
+}
+
 // ---------- 关于窗口 ----------
 function openAboutWindow() {
   const about = new BrowserWindow({
@@ -674,6 +721,7 @@ function applyMenuBarPreference() {
 function createWindow() {
   const isMac = process.platform === "darwin";
   const hideMenuBar = !isMac && !!currentHideMenuBar;
+  const preloadPath = path.join(__dirname, "preload.js");
 
   // macOS 原生观感：
   //   - hiddenInset 把 Traffic Light 嵌入工具栏，不占独立标题栏；
@@ -709,13 +757,34 @@ function createWindow() {
       webSecurity: true,
       allowRunningInsecureContent: false,
       // sandbox 不能开：preload 使用 require("electron")，sandbox 下 require 不可用
-      preload: path.join(__dirname, "preload.js"),
+      preload: preloadPath,
       additionalArguments: isLiteOnlyBuild() ? ["--nowen-lite-only"] : [],
     },
   });
 
   // SEC-ELECTRON-01-B-RV1: 注册主窗口 webContents.id 用于 IPC sender 校验
   setTrustedMainWindowId(mainWindow.webContents.id);
+  let hasShownMainWindow = false;
+  let loadingErrorPage = false;
+  const revealMainWindow = (reason) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (hasShownMainWindow) return;
+    hasShownMainWindow = true;
+    closeSplash();
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    console.log(
+      `[main-window] reveal reason=${reason} url=${mainWindow.webContents.getURL()}`
+    );
+  };
+  const startupRevealTimer = setTimeout(() => {
+    console.warn(
+      `[main-window] startup-timeout url=${mainWindow?.webContents?.getURL?.() || ""}`
+    );
+    revealMainWindow("startup-timeout");
+  }, 10000);
+  startupRevealTimer.unref?.();
 
   // 根据当前模式决定 API 目标：
   //   full → 本机后端 http://127.0.0.1:{backendPort}
@@ -728,28 +797,63 @@ function createWindow() {
       ? currentRemoteUrl
       : `http://127.0.0.1:${backendPort}`;
   const frontendIndex = path.join(getFrontendDist(), "index.html");
-  if (fs.existsSync(frontendIndex)) {
+  const frontendIndexExists = fs.existsSync(frontendIndex);
+  const preloadExists = fs.existsSync(preloadPath);
+  console.log(
+    `[main-window] resourcesPath=${process.resourcesPath || ""} ` +
+      `frontendIndex=${frontendIndex} exists=${frontendIndexExists} ` +
+      `preload=${preloadPath} exists=${preloadExists} ` +
+      `targetUrl=${targetUrl} mode=${currentMode} packaged=${app.isPackaged}`
+  );
+  const handleInitialLoadError = (err) => {
+    console.error("[main-window] initial load failed:", err?.stack || err?.message || err);
+    if (!loadingErrorPage) {
+      loadingErrorPage = true;
+      loadMainWindowErrorPage(mainWindow, {
+        title: "Nowen Note 窗口加载失败",
+        message: "主窗口初始资源加载失败。应用已打开诊断页，避免只剩后台进程。",
+        details: [
+          { label: "error", value: err?.stack || err?.message || err },
+          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "frontendIndex", value: frontendIndex },
+          { label: "frontendIndex exists", value: String(fs.existsSync(frontendIndex)) },
+          { label: "preload", value: preloadPath },
+          { label: "preload exists", value: String(fs.existsSync(preloadPath)) },
+          { label: "targetUrl", value: targetUrl },
+          { label: "logs", value: getLogDir() },
+          { label: "data", value: getUserDataPath() },
+        ],
+      });
+    }
+    revealMainWindow("initial-load-error");
+  };
+  if (frontendIndexExists) {
     // 桌面客户端始终加载本地 UI，远程地址作为 API base 通过 query 参数传入
-    mainWindow.loadFile(frontendIndex, { query: { serverUrl: targetUrl } });
-  } else if (currentMode === "lite") {
-    // lite 模式但本地前端缺失：显示错误提示，不要加载远程页面（可能是 WebUI 禁用页）
-    const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-      body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-        font-family:system-ui,sans-serif;background:#0D1117;color:#E6EDF3;text-align:center;padding:20px}
-      .box{max-width:400px}.title{font-size:18px;font-weight:600;margin-bottom:12px;color:#E6EDF3}
-      .hint{font-size:13px;color:#8b949e;line-height:1.6}
-      button{margin-top:16px;padding:8px 20px;border-radius:8px;border:1px solid #30363d;
-        background:#21262d;color:#E6EDF3;cursor:pointer;font-size:13px}
-      button:hover{background:#30363d}
-    </style></head><body><div class="box">
-      <div class="title">客户端资源缺失</div>
-      <div class="hint">本地前端文件未找到。请重新安装 Nowen Note Lite，或检查安装包是否完整。</div>
-      <button onclick="window.location.reload()">重试</button>
-    </div></body></html>`;
-    mainWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(errorHtml));
+    mainWindow
+      .loadFile(frontendIndex, { query: { serverUrl: targetUrl } })
+      .catch(handleInitialLoadError);
+  } else if (app.isPackaged || currentMode === "lite") {
+    // packaged / lite 包缺前端时直接展示本地错误页，不要静默落到远端或隐藏窗口。
+    loadingErrorPage = true;
+    loadMainWindowErrorPage(mainWindow, {
+      title: "Nowen Note 客户端资源缺失",
+      message: "本地前端文件未找到。请重新安装 Nowen Note，或检查安装包是否完整。",
+      details: [
+        { label: "frontendIndex", value: frontendIndex },
+        { label: "frontendIndex exists", value: String(frontendIndexExists) },
+        { label: "preload", value: preloadPath },
+        { label: "preload exists", value: String(preloadExists) },
+        { label: "targetUrl", value: targetUrl },
+        { label: "mode", value: currentMode },
+        { label: "resourcesPath", value: process.resourcesPath || "" },
+        { label: "logs", value: getLogDir() },
+        { label: "data", value: getUserDataPath() },
+      ],
+    });
+    revealMainWindow("frontend-missing");
   } else {
     // full 模式 dev 环境：加载本地 dev server
-    mainWindow.loadURL(targetUrl);
+    mainWindow.loadURL(targetUrl).catch(handleInitialLoadError);
   }
   applyMenuBarPreference();
 
@@ -774,13 +878,99 @@ function createWindow() {
   }
 
   mainWindow.once("ready-to-show", () => {
-    closeSplash();
-    mainWindow.show();
+    revealMainWindow("ready-to-show");
   });
 
   // 首次加载完成后，冲刷待送的文件关联打开请求
   mainWindow.webContents.on("did-finish-load", () => {
+    revealMainWindow("did-finish-load");
     flushPending(mainWindow);
+  });
+
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      console.error(
+        `[main-window] did-fail-load code=${errorCode} desc=${errorDescription} ` +
+          `url=${validatedURL} isMainFrame=${isMainFrame}`
+      );
+      if (!isMainFrame || loadingErrorPage) {
+        revealMainWindow("did-fail-load");
+        return;
+      }
+      loadingErrorPage = true;
+      loadMainWindowErrorPage(mainWindow, {
+        title: "Nowen Note 窗口加载失败",
+        message: "主窗口资源加载失败。应用已打开诊断页，方便定位安装包资源、前端或本地服务问题。",
+        details: [
+          { label: "errorCode", value: String(errorCode) },
+          { label: "errorDescription", value: errorDescription },
+          { label: "validatedURL", value: validatedURL },
+          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "frontendIndex", value: frontendIndex },
+          { label: "frontendIndex exists", value: String(fs.existsSync(frontendIndex)) },
+          { label: "preload", value: preloadPath },
+          { label: "preload exists", value: String(fs.existsSync(preloadPath)) },
+          { label: "targetUrl", value: targetUrl },
+          { label: "logs", value: getLogDir() },
+          { label: "data", value: getUserDataPath() },
+        ],
+      });
+      revealMainWindow("did-fail-load");
+    }
+  );
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[main-window] render-process-gone:", details);
+    if (!loadingErrorPage) {
+      loadingErrorPage = true;
+      loadMainWindowErrorPage(mainWindow, {
+        title: "Nowen Note 渲染进程异常",
+        message: "主窗口渲染进程已退出。应用已打开诊断页，避免只剩后台进程。",
+        details: [
+          { label: "reason", value: details?.reason },
+          { label: "exitCode", value: details?.exitCode },
+          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "logs", value: getLogDir() },
+          { label: "data", value: getUserDataPath() },
+        ],
+      });
+    }
+    revealMainWindow("render-process-gone");
+  });
+
+  mainWindow.webContents.on("unresponsive", () => {
+    console.warn("[main-window] unresponsive url=" + mainWindow.webContents.getURL());
+    revealMainWindow("unresponsive");
+  });
+  mainWindow.webContents.on("responsive", () => {
+    console.log("[main-window] responsive url=" + mainWindow.webContents.getURL());
+  });
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(
+      `[main-window] console-message level=${level} source=${sourceId}:${line} ${message}`
+    );
+  });
+  mainWindow.webContents.on("preload-error", (_event, failedPreloadPath, error) => {
+    console.error(
+      `[main-window] preload-error path=${failedPreloadPath} error=${error?.stack || error?.message || error}`
+    );
+    if (!loadingErrorPage) {
+      loadingErrorPage = true;
+      loadMainWindowErrorPage(mainWindow, {
+        title: "Nowen Note Preload 加载失败",
+        message: "主窗口 preload 脚本加载失败。桌面端桥接能力不可用，请根据下面路径和日志排查安装包。",
+        details: [
+          { label: "preload", value: failedPreloadPath || preloadPath },
+          { label: "preload exists", value: String(fs.existsSync(preloadPath)) },
+          { label: "error", value: error?.stack || error?.message || error },
+          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "logs", value: getLogDir() },
+          { label: "data", value: getUserDataPath() },
+        ],
+      });
+    }
+    revealMainWindow("preload-error");
   });
 
   // SEC-ELECTRON-01-C-B1: 主窗口 navigation 拦截
@@ -826,6 +1016,7 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    clearTimeout(startupRevealTimer);
     mainWindow = null;
   });
 }
@@ -1257,7 +1448,7 @@ app.whenReady().then(async () => {
   currentHideMenuBar = !!settings.hideMenuBar;
 
   // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许 notifications
-  const { session: defaultSession } = require("electron");
+  const defaultSession = session.defaultSession;
   defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     // 只允许 notifications（任务提醒功能需要），其余全部拒绝
     if (permission === "notifications") {

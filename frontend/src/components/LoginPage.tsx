@@ -175,6 +175,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     e.preventDefault();
     setError("");
     setIsLoading(true);
+    let loginUrl = "";
     try {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl === null) return;
@@ -203,7 +204,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
         return;
       }
 
-      const loginUrl = baseUrl ? `${baseUrl}/api/auth/login` : "/api/auth/login";
+      loginUrl = baseUrl ? `${baseUrl}/api/auth/login` : "/api/auth/login";
       const { getDeviceId } = await import("@/lib/deviceId");
       const res = await fetch(loginUrl, {
         method: "POST",
@@ -217,8 +218,10 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
       }
       localStorage.setItem("nowen-token", data.token);
       onLogin(data.token, data.user);
-    } catch {
-      setError(t("auth.networkError"));
+    } catch (err: any) {
+      const message = err?.message || String(err || t("auth.networkError"));
+      console.error("[login] request failed", { url: loginUrl || "(resolveBaseUrl)", error: message });
+      setError(`${message}（请检查服务器地址、CORS/CSP、证书或 /api 反代）`);
     } finally {
       setIsLoading(false);
     }

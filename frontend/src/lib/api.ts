@@ -3657,8 +3657,8 @@ export async function withSudo<T>(
 
 // 测试服务器连接（不需要 token）
 export async function testServerConnection(serverUrl: string): Promise<{ ok: boolean; error?: string }> {
+  const url = `${serverUrl.replace(/\/+$/, "")}/api/health`;
   try {
-    const url = `${serverUrl.replace(/\/+$/, "")}/api/health`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(url, { signal: controller.signal });
@@ -3668,8 +3668,10 @@ export async function testServerConnection(serverUrl: string): Promise<{ ok: boo
     if (data.status === "ok") return { ok: true };
     return { ok: false, error: "Invalid response" };
   } catch (e: any) {
-    if (e.name === "AbortError") return { ok: false, error: "连接超时" };
-    return { ok: false, error: e.message || "连接失败" };
+    const message = e?.message || String(e || "连接失败");
+    console.error("[api] testServerConnection failed", { url, error: message });
+    if (e?.name === "AbortError") return { ok: false, error: `连接超时：${url}` };
+    return { ok: false, error: `${message}（请求：${url}；请检查服务器地址、CORS/CSP、证书或 /api 反代）` };
   }
 }
 

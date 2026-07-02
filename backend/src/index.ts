@@ -63,26 +63,18 @@ import { publishMdns, stopMdns } from "./services/discovery";
 import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-worker";
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
+import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
 
 const app = new Hono();
 
 app.use("*", logger());
 
-// SEC-CORS-01: 生产环境 CORS 白名单化
-function resolveCorsOrigins(): string[] {
-  const raw = process.env.CORS_ORIGINS;
-  if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-}
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
 
 app.use("*", cors({
   origin: (origin) => {
-    if (!isProd) return origin || "*";
-    if (!origin) return "*";
-    if (corsOrigins.length > 0) return corsOrigins.includes(origin) ? origin : "";
-    return "";
+    return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id", "X-Requested-With", "X-Request-Id"],
@@ -91,9 +83,9 @@ app.use("*", cors({
 
 if (isProd) {
   if (corsOrigins.length > 0) {
-    console.log(`[CORS] 生产模式白名单: ${corsOrigins.join(", ")}`);
+    console.log(`[CORS] 生产模式白名单: ${corsOrigins.join(", ")}；默认原生客户端来源: ${DEFAULT_NATIVE_CORS_ORIGINS.join(", ")}`);
   } else {
-    console.log("[CORS] 生产模式：仅允许同源请求（未配置 CORS_ORIGINS）");
+    console.log(`[CORS] 生产模式：允许默认原生客户端来源: ${DEFAULT_NATIVE_CORS_ORIGINS.join(", ")}；如需网页跨域请配置 CORS_ORIGINS`);
   }
 } else {
   console.log("[CORS] 开发模式：允许所有来源");

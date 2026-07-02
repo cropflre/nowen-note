@@ -7,11 +7,11 @@
       default-src 'self';
       script-src 'self' 'unsafe-inline' 'unsafe-eval';
       style-src 'self' 'unsafe-inline';
-      img-src 'self' file: data: blob: http://127.0.0.1:* http://localhost:* https:;
-      font-src 'self' data: blob: http://127.0.0.1:* http://localhost:* https:;
-      connect-src 'self' http://127.0.0.1:* http://localhost:* https: ws://127.0.0.1:* ws://localhost:* wss:;
-      frame-src 'self' blob: data: http://127.0.0.1:* http://localhost:* https:;
-      media-src 'self' blob: data: http://127.0.0.1:* http://localhost:* https:;
+      img-src 'self' file: data: blob: http: https:;
+      font-src 'self' data: blob: http: https:;
+      connect-src 'self' http: https: ws: wss:;
+      frame-src 'self' blob: data: http: https:;
+      media-src 'self' blob: data: http: https:;
       worker-src 'self' blob:;
       object-src 'none';
       base-uri 'self';
