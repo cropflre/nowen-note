@@ -8,7 +8,7 @@ import {
   Lock, Eye, EyeOff, X,
   Mail, Send, Settings as SettingsIcon, ChevronDown, ChevronRight,
   BookOpen, ExternalLink,
-  User as UserIcon, Users, ServerCog, Package,
+  User as UserIcon, Users, ServerCog, Package, Smartphone,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
@@ -54,6 +54,8 @@ import type { Workspace } from "@/types";
 
 type Scope = "personal" | "workspace" | "system";
 type SubTab = "export" | "import" | "database" | "backup" | "danger";
+type ImportMethod = "siyuan" | "generic" | "nowen" | "url" | "mobile-memo" | "youdao";
+type MobileMemoMethod = "xiaomi" | "oppo" | "iphone";
 
 /** 各 scope 下允许的二级 Tab 集合（顺序即展示顺序） */
 const SUBTABS_BY_SCOPE: Record<Scope, ReadonlyArray<SubTab>> = {
@@ -86,49 +88,35 @@ function SyncCenterCard() {
   };
 
   return (
-    <section className="rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-500/5 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
-            <RefreshCw className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">本地优先同步</h4>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              编辑先保存到本地，网络恢复后后台同步到服务器。
-            </p>
-          </div>
+    <section className="rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-500/5 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-xs text-zinc-600 dark:text-zinc-300">
+          <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-800 dark:text-zinc-100">
+            <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            本地优先同步
+          </span>
+          <span className="text-zinc-300 dark:text-zinc-700">·</span>
+          <span>待同步 {summary.pending} 条</span>
+          <span className="text-zinc-300 dark:text-zinc-700">·</span>
+          <span className="min-w-0 truncate">上次同步 {formatSyncTime(summary.lastSyncAt)}</span>
+          <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">·</span>
+          <span className="hidden sm:inline truncate" title={getBaseUrl()}>
+            {getBaseUrl().replace(/\/api$/, "")}
+          </span>
         </div>
         <button
           type="button"
           onClick={handleSyncNow}
           disabled={syncing}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
         >
           {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           立即同步
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs">
-        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
-          <div className="text-zinc-400 dark:text-zinc-500">待同步</div>
-          <div className="font-semibold text-zinc-800 dark:text-zinc-100">{summary.pending} 条</div>
-        </div>
-        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
-          <div className="text-zinc-400 dark:text-zinc-500">上次同步</div>
-          <div className="font-semibold text-zinc-800 dark:text-zinc-100">{formatSyncTime(summary.lastSyncAt)}</div>
-        </div>
-        <div className="rounded-lg bg-white/70 dark:bg-zinc-900/40 border border-blue-100 dark:border-blue-900/30 p-2">
-          <div className="text-zinc-400 dark:text-zinc-500">服务器</div>
-          <div className="font-semibold text-zinc-800 dark:text-zinc-100 truncate" title={getBaseUrl()}>
-            {getBaseUrl().replace(/\/api$/, "")}
-          </div>
-        </div>
-      </div>
-
       {(summary.lastError || message) && (
-        <p className={`mt-2 text-xs ${summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
+        <p className={`mt-1.5 text-xs ${summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
           {summary.lastError ? `最近错误：${summary.lastError}` : message}
         </p>
       )}
@@ -318,6 +306,8 @@ export default function DataManager() {
   const [importFiles, setImportFiles] = useState<ImportFileInfo[]>([]);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>("siyuan");
+  const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
   // 记录"上一次导入实际落到的 workspaceId"和导入数量。
   //   - 当目标 ≠ 当前侧边栏 workspace 时，用于渲染"切到该工作区查看"的提示，
   //     避免出现"点完导入说成功、但侧边栏里看不到笔记"的体感（实际写入了别的空间）。
@@ -771,6 +761,79 @@ export default function DataManager() {
   // 导出/导入按钮应被禁用，避免发出 ?workspaceId= （后端会按个人空间错处理）
   const workspaceScopeNotReady = scope === "workspace" && !effectiveWorkspaceId;
 
+  const importMethods = [
+    {
+      id: "siyuan",
+      icon: BookOpen,
+      label: t("dataManager.importMethodSiyuan"),
+      desc: t("dataManager.importMethodSiyuanDesc"),
+      tag: t("dataManager.importMethodSiyuanTag"),
+      tone: "emerald",
+    },
+    {
+      id: "generic",
+      icon: FileUp,
+      label: t("dataManager.importMethodGeneric"),
+      desc: t("dataManager.importMethodGenericDesc"),
+      tag: t("dataManager.importMethodGenericTag"),
+      tone: "indigo",
+    },
+    {
+      id: "nowen",
+      icon: Package,
+      label: t("dataManager.importMethodNowen"),
+      desc: t("dataManager.importMethodNowenDesc"),
+      tag: t("dataManager.importMethodNowenTag"),
+      tone: "violet",
+    },
+    {
+      id: "url",
+      icon: ExternalLink,
+      label: t("dataManager.importMethodUrl"),
+      desc: t("dataManager.importMethodUrlDesc"),
+      tag: t("dataManager.importMethodUrlTag"),
+      tone: "blue",
+    },
+    {
+      id: "mobile-memo",
+      icon: Smartphone,
+      label: t("dataManager.importMethodMobileMemo"),
+      desc: t("dataManager.importMethodMobileMemoDesc"),
+      tag: t("dataManager.importMethodMobileMemoTag"),
+      tone: "orange",
+    },
+    {
+      id: "youdao",
+      icon: BookOpen,
+      label: t("dataManager.importMethodYoudao"),
+      desc: t("dataManager.importMethodYoudaoDesc"),
+      tag: t("dataManager.importMethodYoudaoTag"),
+      tone: "rose",
+    },
+  ] as const;
+
+  const getImportMethodClass = (tone: string, active: boolean): string => {
+    if (!active) {
+      return "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300";
+    }
+    switch (tone) {
+      case "emerald":
+        return "border-emerald-300 bg-emerald-50/80 text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-500/10 dark:text-emerald-200";
+      case "indigo":
+        return "border-indigo-300 bg-indigo-50/80 text-indigo-800 dark:border-indigo-800/70 dark:bg-indigo-500/10 dark:text-indigo-200";
+      case "violet":
+        return "border-violet-300 bg-violet-50/80 text-violet-800 dark:border-violet-800/70 dark:bg-violet-500/10 dark:text-violet-200";
+      case "blue":
+        return "border-blue-300 bg-blue-50/80 text-blue-800 dark:border-blue-800/70 dark:bg-blue-500/10 dark:text-blue-200";
+      case "orange":
+        return "border-orange-300 bg-orange-50/80 text-orange-800 dark:border-orange-800/70 dark:bg-orange-500/10 dark:text-orange-200";
+      case "rose":
+        return "border-rose-300 bg-rose-50/80 text-rose-800 dark:border-rose-800/70 dark:bg-rose-500/10 dark:text-rose-200";
+      default:
+        return "border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
+    }
+  };
+
   // -----------------------------------------------------------------
   // 入口闸门
   //   - isAdmin === null：身份未拉到，渲染骨架占位（避免闪现拒绝页又秒变正常）
@@ -1062,18 +1125,17 @@ export default function DataManager() {
       </section>
       )}
 
-      {/* ===== 导入区域（含第三方导入入口） ===== */}
+      {/* ===== 导入区域：Import Hub ===== */}
       {activeSubTab === "import" && (
-      <>
       <section>
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-2">
           <FileUp size={18} className="text-emerald-500" />
           <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('dataManager.importNotes')}</h4>
         </div>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
+          {t('dataManager.importDescription')}
+        </p>
 
-        {/* 与 export 区对称：管理员关闭"个人空间导入"时，对普通用户展示 lock 横幅
-            并禁用下方入口（第三方导入也一并隐藏，避免绕过主入口从小米云/OPPO 云
-            等途径导入）。 */}
         {personalImportLocked && (
           <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-300">
             <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
@@ -1081,524 +1143,515 @@ export default function DataManager() {
           </div>
         )}
 
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
-            {t('dataManager.importDescription')}
-          </p>
-
-          {importFiles.length === 0 && (
-            <div className="mb-4">
-              <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
-                {t('dataManager.thirdPartyImport')}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-3 sm:p-4">
+          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
+            {t('dataManager.importHubTitle')}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {importMethods.map((method) => {
+              const Icon = method.icon;
+              const active = activeImportMethod === method.id;
+              return (
                 <button
+                  key={method.id}
                   type="button"
-                  onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
+                  onClick={() => setActiveImportMethod(method.id)}
                   disabled={personalImportLocked}
-                  className="group text-left rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-white dark:bg-zinc-900/40 hover:bg-emerald-50/60 dark:hover:bg-emerald-500/5 disabled:opacity-60 disabled:cursor-not-allowed p-3 transition-colors"
+                  aria-pressed={active}
+                  className={`min-h-[92px] rounded-xl border p-3 text-left transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${getImportMethodClass(method.tone, active)}`}
                 >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
-                      <BookOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-300" />
+                  <span className="flex items-start gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-lg bg-white/70 dark:bg-zinc-950/30 flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        {t('dataManager.siyuanImportTitle')}
-                      </span>
-                      <span className="block mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                        {t('dataManager.siyuanImportDesc')}
-                      </span>
-                      <span className="block mt-1 text-[11px] leading-relaxed text-emerald-600 dark:text-emerald-300">
-                        {t('dataManager.siyuanImportExperimental')}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                        <Upload className="w-3.5 h-3.5" />
-                        {t('dataManager.chooseSiyuanExport')}
+                      <span className="block text-sm font-semibold truncate">{method.label}</span>
+                      <span className="block mt-0.5 text-xs opacity-75 truncate">{method.desc}</span>
+                      <span className="inline-flex max-w-full mt-2 rounded-md bg-white/70 dark:bg-zinc-950/30 px-1.5 py-0.5 text-[11px] font-medium truncate">
+                        {method.tag}
                       </span>
                     </span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
-                  disabled={personalImportLocked}
-                  className="group text-left rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 disabled:opacity-60 disabled:cursor-not-allowed p-3 transition-colors"
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
-                      <FileUp className="w-4 h-4 text-indigo-600 dark:text-indigo-300" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        {t('dataManager.genericImportTitle')}
-                      </span>
-                      <span className="block mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                        {t('dataManager.genericImportDesc')}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-indigo-600 dark:text-indigo-300">
-                        <Upload className="w-3.5 h-3.5" />
-                        {t('dataManager.chooseFiles')}
-                      </span>
-                    </span>
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Dropzone */}
-          {importFiles.length === 0 && (
-            <div
-              onDragOver={personalImportLocked ? undefined : handleDragOver}
-              onDragLeave={personalImportLocked ? undefined : handleDragLeave}
-              onDrop={personalImportLocked ? undefined : handleDrop}
-              onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
-              aria-disabled={personalImportLocked}
-              className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                personalImportLocked
-                  ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-800/20 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
-                  : isDragOver
-                  ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/5 dark:border-indigo-500 cursor-pointer"
-                  : "border-zinc-300 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer"
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".md,.txt,.markdown,.html,.htm,.pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
-                onChange={handleFileSelect}
-                disabled={personalImportLocked}
-                className="hidden"
-              />
-              <Upload
-                size={32}
-                className={`mx-auto mb-3 ${
-                  isDragOver ? "text-indigo-500" : "text-zinc-400 dark:text-zinc-500"
-                }`}
-              />
-              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                {t('dataManager.dropFilesHere')}
-              </p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">
-                {t('dataManager.supportedFiles')}
-              </p>
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
-                {t('dataManager.siyuanImportSupportedHint')}
-              </p>
-            </div>
-          )}
-
-          {/* 笔记导入错误提示（PDF 超大 / 无文本层 / 其他读取失败） */}
-          {notesImportError && importFiles.length === 0 && (
-            <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-red-200/60 dark:border-red-900/40 bg-red-50/40 dark:bg-red-500/5 text-xs text-red-600 dark:text-red-400">
-              <span className="flex-shrink-0 mt-0.5">⚠</span>
-              <span className="flex-1 break-all">{notesImportError}</span>
-              <button
-                type="button"
-                onClick={() => setNotesImportError("")}
-                className="text-red-500/80 hover:text-red-600 dark:hover:text-red-300 ml-2 flex-shrink-0"
-                aria-label="close"
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {notesImportNotice && (
-            <div
-              className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${
-                notesImportNotice.kind === "siyuan"
-                  ? "border-emerald-200/70 bg-emerald-50/50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/5 dark:text-emerald-300"
-                  : "border-amber-200/70 bg-amber-50/50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/5 dark:text-amber-300"
-              }`}
-            >
-              {notesImportNotice.kind === "siyuan" ? (
-                <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
-              ) : (
-                <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold mb-1">
-                  {notesImportNotice.kind === "siyuan"
-                    ? t('dataManager.siyuanImportReportTitle')
-                    : t('dataManager.importNoticeTitle')}
-                </div>
-                <div className="space-y-1">
-                  {notesImportNotice.messages.map((message, index) => (
-                    <p key={`${message}-${index}`} className="leading-relaxed">
-                      {message}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 文件预览列表 */}
-          {importFiles.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={toggleAll}
-                    className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium"
-                  >
-                    {importFiles.every((f) => f.selected) ? t('dataManager.deselectAll') : t('dataManager.selectAll')}
-                  </button>
-                  <span className="text-xs text-zinc-400 dark:text-zinc-600">
-                    {t('dataManager.selectedCount', { selected: selectedCount, total: importFiles.length })}
                   </span>
-                </div>
-                <button
-                  onClick={clearImportList}
-                  className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                >
-                  <Trash2 size={14} />
                 </button>
-              </div>
+              );
+            })}
+          </div>
 
-              {/* 目标笔记本选择
-                  state.notebooks 是"侧边栏当前激活工作区"的笔记本列表。如果用户
-                  在 DataManager 里选的 scope 与侧边栏激活 scope 不一致，列表中的
-                  笔记本 id 不属于目标 workspace，硬塞进 import 会产生跨空间脏数据。
-                  这里加一道"scope 匹配"判断：不匹配时只允许"自动创建"，并提示原因。 */}
-              {(() => {
-                const currentGlobalWs = getCurrentWorkspace();
-                const scopeMatchesGlobal = effectiveWorkspaceId === currentGlobalWs;
-                return (
-                  <div className="mb-3">
-                    <label className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 block">{t('dataManager.importToNotebook')}</label>
-                    <select
-                      value={scopeMatchesGlobal ? selectedNotebookId : ""}
-                      onChange={(e) => setSelectedNotebookId(e.target.value)}
-                      disabled={!scopeMatchesGlobal}
-                      className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <option value="">{t('dataManager.autoCreateNotebook')}</option>
-                      {scopeMatchesGlobal && state.notebooks.map((nb) => (
-                        <option key={nb.id} value={nb.id}>
-                          {nb.icon} {nb.name}
-                        </option>
-                      ))}
-                    </select>
-                    {/* P1-2：zip 内 metadata.json 提供了原笔记本信息时的提示。
-                        - matched：当前空间里存在同 id 的笔记本，已自动预选；
-                        - missing：metadata 提到的 rootNotebookId 在当前空间不存在，
-                          常见于跨实例 / 跨工作区的迁移场景。 */}
-                    {hasZip && zipMetaHint && (
-                      <p className="text-[11px] mt-1.5 leading-relaxed">
-                        {zipMetaHint.kind === "matched" ? (
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            ✓ 已根据备份元数据自动选中原笔记本：
-                            <span className="font-semibold">{zipMetaHint.notebookName}</span>
-                          </span>
-                        ) : (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            ⓘ 备份来自其他实例或工作区
-                            {zipMetaHint.rootNotebookName ? (
-                              <>（原笔记本：<span className="font-semibold">{zipMetaHint.rootNotebookName}</span>）</>
-                            ) : null}
-                            ；当前空间未找到同 id 的笔记本，可手动选择目标或保持「自动创建」。
-                          </span>
-                        )}
+          <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
+            {(activeImportMethod === "siyuan" || activeImportMethod === "generic") && (
+              <>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h5 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {activeImportMethod === "siyuan"
+                        ? t('dataManager.siyuanImportPanelTitle')
+                        : t('dataManager.genericImportPanelTitle')}
+                    </h5>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                      {activeImportMethod === "siyuan"
+                        ? t('dataManager.siyuanImportPanelDesc')
+                        : t('dataManager.genericImportPanelDesc')}
+                    </p>
+                    {activeImportMethod === "siyuan" && (
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                        {t('dataManager.siyuanImportPanelHint')}
                       </p>
                     )}
                   </div>
-                );
-              })()}
+                </div>
 
-              {/* 按文件名建笔记本 —— 仅对散文件生效 */}
-              {!hasZip && (
-                <div className="mb-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 p-3">
-                  <label
-                    className={`flex items-start gap-2.5 cursor-pointer ${
-                      selectedNotebookId ? "opacity-50 cursor-not-allowed" : ""
+                {importFiles.length === 0 && (
+                  <div
+                    onDragOver={personalImportLocked ? undefined : handleDragOver}
+                    onDragLeave={personalImportLocked ? undefined : handleDragLeave}
+                    onDrop={personalImportLocked ? undefined : handleDrop}
+                    onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
+                    aria-disabled={personalImportLocked}
+                    className={`relative border-2 border-dashed rounded-xl p-5 sm:p-6 text-center transition-all ${
+                      personalImportLocked
+                        ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-800/20 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
+                        : isDragOver
+                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/5 dark:border-indigo-500 cursor-pointer"
+                        : "border-zinc-300 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer"
                     }`}
                   >
                     <input
-                      type="checkbox"
-                      checked={perFileNotebook && !selectedNotebookId}
-                      disabled={!!selectedNotebookId}
-                      onChange={(e) => setPerFileNotebook(e.target.checked)}
-                      className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30"
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".md,.txt,.markdown,.html,.htm,.pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                      onChange={handleFileSelect}
+                      disabled={personalImportLocked}
+                      className="hidden"
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm text-zinc-700 dark:text-zinc-300 font-medium">
-                        {t('dataManager.perFileNotebook')}
-                      </div>
-                      <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        {t('dataManager.perFileNotebookHint')}
-                      </div>
-                    </div>
-                  </label>
-
-                  {/* 同名处理策略 —— 只有启用 perFile 时才显示 */}
-                  {perFileNotebook && !selectedNotebookId && (
-                    <div className="mt-2.5 pl-6 flex flex-col gap-1.5">
-                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="dup-strategy"
-                          value="merge"
-                          checked={duplicateStrategy === "merge"}
-                          onChange={() => setDuplicateStrategy("merge")}
-                          className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
-                        />
-                        {t('dataManager.duplicateMerge')}
-                      </label>
-                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="dup-strategy"
-                          value="unique"
-                          checked={duplicateStrategy === "unique"}
-                          onChange={() => setDuplicateStrategy("unique")}
-                          className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
-                        />
-                        {t('dataManager.duplicateUnique')}
-                      </label>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
-                {importFiles.map((file, idx) => {
-                  const notebookPathText = getNotebookPathText(file);
-                  return (
-                    <label
-                      key={idx}
-                      className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                        file.selected
-                          ? "bg-indigo-50/50 dark:bg-indigo-500/5"
-                          : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                    <Upload
+                      size={28}
+                      className={`mx-auto mb-2.5 ${
+                        isDragOver ? "text-indigo-500" : "text-zinc-400 dark:text-zinc-500"
                       }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={file.selected}
-                        onChange={() => toggleFileSelection(idx)}
-                        className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30 flex-shrink-0"
-                      />
-                      <FileText size={14} className="mt-0.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
-                            {file.title}
-                          </span>
-                          <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
-                            {(file.size / 1024).toFixed(1)} KB
-                          </span>
-                        </span>
-                        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium ${getImportSourceTone(file.source)}`}>
-                            {getImportSourceLabel(file.source)}
-                          </span>
-                          {notebookPathText && (
-                            <span
-                              title={notebookPathText}
-                              className="min-w-0 max-w-full break-all text-zinc-400 dark:text-zinc-500 sm:truncate sm:break-normal"
-                            >
-                              {notebookPathText}
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+                    />
+                    <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                      {activeImportMethod === "siyuan"
+                        ? t('dataManager.chooseSiyuanExport')
+                        : t('dataManager.dropFilesHere')}
+                    </p>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">
+                      {activeImportMethod === "siyuan"
+                        ? t('dataManager.siyuanImportSupportedHint')
+                        : t('dataManager.supportedFiles')}
+                    </p>
+                    {activeImportMethod === "generic" && (
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                        {t('dataManager.siyuanImportSupportedHint')}
+                      </p>
+                    )}
+                  </div>
+                )}
 
-              {/* 导入进度 */}
-              {importProgress && (
-                <div className="mt-3 flex items-center gap-2">
-                  {importProgress.phase === "error" ? (
-                    <AlertCircle size={14} className="text-red-500" />
-                  ) : importProgress.phase === "done" ? (
-                    <CheckCircle size={14} className="text-green-500" />
-                  ) : (
-                    <Loader2 size={14} className="text-indigo-500 animate-spin" />
-                  )}
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {importProgress.message}
-                  </span>
-                </div>
-              )}
-
-              {/* 导入完成横幅
-                  明确告诉用户笔记导入到了哪个空间，并在目标 ≠ 当前侧边栏空间时
-                  提供一键切换入口；解决"显示成功但看不到笔记"的核心体感问题。 */}
-              {lastImportTarget && (
-                <div className="mt-3 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-500/10">
-                  <div className="flex items-start gap-2">
-                    <CheckCircle size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                        {t('dataManager.importDoneTitle', { count: lastImportTarget.count })}
-                      </div>
-                      <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 break-all">
-                        {t('dataManager.importDoneTargetLabel')}
-                        <span className="font-semibold">{lastImportTarget.workspaceName}</span>
-                      </div>
-                      {lastImportTarget.workspaceId !== getCurrentWorkspace() && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            onClick={handleSwitchToImportTarget}
-                            className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors"
-                          >
-                            {t('dataManager.importDoneSwitch')}
-                          </button>
-                          <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 self-center">
-                            {t('dataManager.importDoneSwitchHint')}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                {notesImportError && importFiles.length === 0 && (
+                  <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-red-200/60 dark:border-red-900/40 bg-red-50/40 dark:bg-red-500/5 text-xs text-red-600 dark:text-red-400">
+                    <span className="flex-shrink-0 mt-0.5">⚠</span>
+                    <span className="flex-1 break-all">{notesImportError}</span>
                     <button
-                      onClick={() => setLastImportTarget(null)}
-                      className="text-emerald-700/60 dark:text-emerald-300/60 hover:text-emerald-700 dark:hover:text-emerald-300 flex-shrink-0"
-                      aria-label="dismiss"
+                      type="button"
+                      onClick={() => setNotesImportError("")}
+                      className="text-red-500/80 hover:text-red-600 dark:hover:text-red-300 ml-2 flex-shrink-0"
+                      aria-label="close"
                     >
-                      <X size={14} />
+                      ×
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* 导入按钮 */}
-              <button
-                onClick={handleImport}
-                disabled={isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked}
-                className={`mt-3 flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${
-                  isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked
-                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
-                    : importProgress?.phase === "done"
-                    ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
-                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg"
-                }`}
-              >
-                {isImporting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {t('dataManager.importing')}
-                  </>
-                ) : importProgress?.phase === "done" ? (
-                  <>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    {t('dataManager.importSuccess')}
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4 mr-2" />
-                    {t('dataManager.importButton', { count: selectedCount })}
-                  </>
                 )}
-              </button>
-            </div>
-          )}
+
+                {notesImportNotice && (
+                  <div
+                    className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${
+                      notesImportNotice.kind === "siyuan"
+                        ? "border-emerald-200/70 bg-emerald-50/50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/5 dark:text-emerald-300"
+                        : "border-amber-200/70 bg-amber-50/50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/5 dark:text-amber-300"
+                    }`}
+                  >
+                    {notesImportNotice.kind === "siyuan" ? (
+                      <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    ) : (
+                      <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold mb-1">
+                        {notesImportNotice.kind === "siyuan"
+                          ? t('dataManager.siyuanImportReportTitle')
+                          : t('dataManager.importNoticeTitle')}
+                      </div>
+                      <div className="space-y-1">
+                        {notesImportNotice.messages.map((message, index) => (
+                          <p key={`${message}-${index}`} className="leading-relaxed">
+                            {message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {importFiles.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={toggleAll}
+                          className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium"
+                        >
+                          {importFiles.every((f) => f.selected) ? t('dataManager.deselectAll') : t('dataManager.selectAll')}
+                        </button>
+                        <span className="text-xs text-zinc-400 dark:text-zinc-600">
+                          {t('dataManager.selectedCount', { selected: selectedCount, total: importFiles.length })}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearImportList}
+                        className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const currentGlobalWs = getCurrentWorkspace();
+                      const scopeMatchesGlobal = effectiveWorkspaceId === currentGlobalWs;
+                      return (
+                        <div className="mb-3">
+                          <label className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 block">{t('dataManager.importToNotebook')}</label>
+                          <select
+                            value={scopeMatchesGlobal ? selectedNotebookId : ""}
+                            onChange={(e) => setSelectedNotebookId(e.target.value)}
+                            disabled={!scopeMatchesGlobal}
+                            className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            <option value="">{t('dataManager.autoCreateNotebook')}</option>
+                            {scopeMatchesGlobal && state.notebooks.map((nb) => (
+                              <option key={nb.id} value={nb.id}>
+                                {nb.icon} {nb.name}
+                              </option>
+                            ))}
+                          </select>
+                          {hasZip && zipMetaHint && (
+                            <p className="text-[11px] mt-1.5 leading-relaxed">
+                              {zipMetaHint.kind === "matched" ? (
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  ✓ 已根据备份元数据自动选中原笔记本：
+                                  <span className="font-semibold">{zipMetaHint.notebookName}</span>
+                                </span>
+                              ) : (
+                                <span className="text-amber-600 dark:text-amber-400">
+                                  ⓘ 备份来自其他实例或工作区
+                                  {zipMetaHint.rootNotebookName ? (
+                                    <>（原笔记本：<span className="font-semibold">{zipMetaHint.rootNotebookName}</span>）</>
+                                  ) : null}
+                                  ；当前空间未找到同 id 的笔记本，可手动选择目标或保持「自动创建」。
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {!hasZip && (
+                      <div className="mb-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 p-3">
+                        <label
+                          className={`flex items-start gap-2.5 cursor-pointer ${
+                            selectedNotebookId ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={perFileNotebook && !selectedNotebookId}
+                            disabled={!!selectedNotebookId}
+                            onChange={(e) => setPerFileNotebook(e.target.checked)}
+                            className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-zinc-700 dark:text-zinc-300 font-medium">
+                              {t('dataManager.perFileNotebook')}
+                            </div>
+                            <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                              {t('dataManager.perFileNotebookHint')}
+                            </div>
+                          </div>
+                        </label>
+
+                        {perFileNotebook && !selectedNotebookId && (
+                          <div className="mt-2.5 pl-6 flex flex-col gap-1.5">
+                            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="dup-strategy"
+                                value="merge"
+                                checked={duplicateStrategy === "merge"}
+                                onChange={() => setDuplicateStrategy("merge")}
+                                className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
+                              />
+                              {t('dataManager.duplicateMerge')}
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="dup-strategy"
+                                value="unique"
+                                checked={duplicateStrategy === "unique"}
+                                onChange={() => setDuplicateStrategy("unique")}
+                                className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
+                              />
+                              {t('dataManager.duplicateUnique')}
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
+                      {importFiles.map((file, idx) => {
+                        const notebookPathText = getNotebookPathText(file);
+                        return (
+                          <label
+                            key={idx}
+                            className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                              file.selected
+                                ? "bg-indigo-50/50 dark:bg-indigo-500/5"
+                                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={file.selected}
+                              onChange={() => toggleFileSelection(idx)}
+                              className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30 flex-shrink-0"
+                            />
+                            <FileText size={14} className="mt-0.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                                  {file.title}
+                                </span>
+                                <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
+                                  {(file.size / 1024).toFixed(1)} KB
+                                </span>
+                              </span>
+                              <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
+                                <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium ${getImportSourceTone(file.source)}`}>
+                                  {getImportSourceLabel(file.source)}
+                                </span>
+                                {notebookPathText && (
+                                  <span
+                                    title={notebookPathText}
+                                    className="min-w-0 max-w-full break-all text-zinc-400 dark:text-zinc-500 sm:truncate sm:break-normal"
+                                  >
+                                    {notebookPathText}
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {importProgress && (
+                      <div className="mt-3 flex items-center gap-2">
+                        {importProgress.phase === "error" ? (
+                          <AlertCircle size={14} className="text-red-500" />
+                        ) : importProgress.phase === "done" ? (
+                          <CheckCircle size={14} className="text-green-500" />
+                        ) : (
+                          <Loader2 size={14} className="text-indigo-500 animate-spin" />
+                        )}
+                        <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                          {importProgress.message}
+                        </span>
+                      </div>
+                    )}
+
+                    {lastImportTarget && (
+                      <div className="mt-3 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-500/10">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                              {t('dataManager.importDoneTitle', { count: lastImportTarget.count })}
+                            </div>
+                            <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 break-all">
+                              {t('dataManager.importDoneTargetLabel')}
+                              <span className="font-semibold">{lastImportTarget.workspaceName}</span>
+                            </div>
+                            {lastImportTarget.workspaceId !== getCurrentWorkspace() && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleSwitchToImportTarget}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors"
+                                >
+                                  {t('dataManager.importDoneSwitch')}
+                                </button>
+                                <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 self-center">
+                                  {t('dataManager.importDoneSwitchHint')}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setLastImportTarget(null)}
+                            className="text-emerald-700/60 dark:text-emerald-300/60 hover:text-emerald-700 dark:hover:text-emerald-300 flex-shrink-0"
+                            aria-label="dismiss"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleImport}
+                      disabled={isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked}
+                      className={`mt-3 flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${
+                        isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked
+                          ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
+                          : importProgress?.phase === "done"
+                          ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg"
+                      }`}
+                    >
+                      {isImporting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          {t('dataManager.importing')}
+                        </>
+                      ) : importProgress?.phase === "done" ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          {t('dataManager.importSuccess')}
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          {t('dataManager.importButton', { count: selectedCount })}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!personalImportLocked && activeImportMethod === "nowen" && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Package size={16} className="text-violet-500" />
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    {t('note.nowenPackageImport')}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                  {t('note.nowenPackageImportDesc')}
+                </p>
+                <input
+                  type="file"
+                  accept=".nowen.zip,.zip"
+                  className="hidden"
+                  id="nowen-package-import-input"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    e.target.value = "";
+
+                    try {
+                      toast.info(t('note.nowenPackageImportDryRun'));
+                      const dryResult = await api.dryRunNowenPackage(file);
+
+                      if (!dryResult.success) {
+                        toast.error(dryResult.errors?.[0] || t('note.nowenPackageImportFailed'));
+                        return;
+                      }
+
+                      const pkg = dryResult.package;
+                      const confirmed = window.confirm(
+                        t('note.nowenPackageImportConfirmTitle') + "\n\n" +
+                        t('note.nowenPackageImportConfirmDesc', {
+                          notes: pkg?.counts?.notes || 0,
+                          attachments: pkg?.counts?.attachments || 0,
+                        })
+                      );
+
+                      if (!confirmed) return;
+
+                      toast.info(t('note.nowenPackageImportDryRun'));
+                      const result = await api.importNowenPackage(file);
+
+                      if (result.success) {
+                        const counts = result.counts;
+                        toast.success(
+                          t('note.nowenPackageImportSuccess') +
+                          (counts ? ` (${counts.notes} notes, ${counts.attachments} attachments)` : "")
+                        );
+                        actions.refreshNotebooks();
+                        actions.refreshNotes();
+                      } else {
+                        toast.error(result.errors?.[0] || t('note.nowenPackageImportFailed'));
+                      }
+                    } catch (err: any) {
+                      console.error("[NowenPackageImport] Failed:", err);
+                      toast.error(err.message || t('note.nowenPackageImportFailed'));
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('nowen-package-import-input')?.click()}
+                  className="flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg transition-all"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {t('note.nowenPackageImport')}
+                </button>
+              </div>
+            )}
+
+            {!personalImportLocked && activeImportMethod === "url" && <UrlImport />}
+
+            {!personalImportLocked && activeImportMethod === "mobile-memo" && (
+              <div>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {([
+                    { id: "xiaomi", label: t('dataManager.mobileMemoXiaomi') },
+                    { id: "oppo", label: t('dataManager.mobileMemoOppo') },
+                    { id: "iphone", label: t('dataManager.mobileMemoIphone') },
+                  ] as const).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveMobileMemoMethod(item.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        activeMobileMemoMethod === item.id
+                          ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800/70 dark:bg-orange-500/10 dark:text-orange-300"
+                          : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                {activeMobileMemoMethod === "xiaomi" && <MiCloudImport />}
+                {activeMobileMemoMethod === "oppo" && <OppoCloudImport />}
+                {activeMobileMemoMethod === "iphone" && <ICloudImport />}
+              </div>
+            )}
+
+            {!personalImportLocked && activeImportMethod === "youdao" && <YoudaoImport />}
+          </div>
         </div>
       </section>
-
-      {/* Nowen 数据包导入 */}
-      {!personalImportLocked && (
-        <section>
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Package size={16} className="text-violet-500" />
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {t('note.nowenPackageImport')}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-              {t('note.nowenPackageImportDesc')}
-            </p>
-            <input
-              type="file"
-              accept=".nowen.zip,.zip"
-              className="hidden"
-              id="nowen-package-import-input"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                e.target.value = "";
-
-                try {
-                  toast.info(t('note.nowenPackageImportDryRun'));
-                  const dryResult = await api.dryRunNowenPackage(file);
-
-                  if (!dryResult.success) {
-                    toast.error(dryResult.errors?.[0] || t('note.nowenPackageImportFailed'));
-                    return;
-                  }
-
-                  const pkg = dryResult.package;
-                  const confirmed = window.confirm(
-                    t('note.nowenPackageImportConfirmTitle') + "\n\n" +
-                    t('note.nowenPackageImportConfirmDesc', {
-                      notes: pkg?.counts?.notes || 0,
-                      attachments: pkg?.counts?.attachments || 0,
-                    })
-                  );
-
-                  if (!confirmed) return;
-
-                  toast.info(t('note.nowenPackageImportDryRun'));
-                  const result = await api.importNowenPackage(file);
-
-                  if (result.success) {
-                    const counts = result.counts;
-                    toast.success(
-                      t('note.nowenPackageImportSuccess') +
-                      (counts ? ` (${counts.notes} notes, ${counts.attachments} attachments)` : "")
-                    );
-                    // 刷新数据
-                    actions.refreshNotebooks();
-                    actions.refreshNotes();
-                  } else {
-                    toast.error(result.errors?.[0] || t('note.nowenPackageImportFailed'));
-                  }
-                } catch (err: any) {
-                  console.error("[NowenPackageImport] Failed:", err);
-                  toast.error(err.message || t('note.nowenPackageImportFailed'));
-                }
-              }}
-            />
-            <button
-              onClick={() => document.getElementById('nowen-package-import-input')?.click()}
-              className="flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg transition-all"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              {t('note.nowenPackageImport')}
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* 第三方云/备忘录导入：同样受 personalImport 开关约束。
-          管理员关闭开关时，不应存在"主入口禁用但 MiCloud / OPPO / iCloud / 有道
-          还能用"的绕过漏洞；对普通用户 lock 时直接整体隐藏。 */}
-      {!personalImportLocked && (
-        <>
-          {/* ===== URL 导入（微信公众号文章） ===== */}
-          <UrlImport />
-
-          {/* ===== 小米云服务导入 ===== */}
-          <MiCloudImport />
-
-          {/* ===== OPPO 云便签导入 ===== */}
-          <OppoCloudImport />
-
-          {/* ===== iPhone 备忘录导入 ===== */}
-          <ICloudImport />
-
-          {/* ===== 有道云笔记导入 ===== */}
-          <YoudaoImport />
-        </>
-      )}
-      </>
       )}
 
       {/* ===== 数据库文件 (.data) 导出/导入/占用统计 ===== */}
