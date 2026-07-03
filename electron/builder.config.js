@@ -552,6 +552,8 @@ module.exports = {
         Keywords: "note;markdown;editor;nowen;",
       },
     },
+    // Linux x64 / arm64 会分两次构建；文件名必须带架构，避免互相覆盖。
+    artifactName: "${productName}-${version}-${arch}.${ext}",
   },
   // deb 专属字段（maintainer/description 已在上面 linux 里兜底，这里补 priority / section）
   deb: {
