@@ -3,7 +3,7 @@ import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { broadcastToUser } from "../services/realtime";
-import { isSystemAdmin } from "../middleware/acl";
+import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 
 const app = new Hono();
 
@@ -161,7 +161,7 @@ app.post("/import", async (c) => {
 
   // 工作区比较：notebooks.workspaceId 也用 NULL 表示个人空间，IS 比较可同时匹配。
   const findNbByName = db.prepare(
-    "SELECT id FROM notebooks WHERE userId = ? AND name = ? AND workspaceId IS ?"
+    "SELECT id FROM notebooks WHERE userId = ? AND name = ? AND workspaceId IS ? AND isDeleted = 0"
   );
   const insertNbByName = db.prepare(
     "INSERT INTO notebooks (id, userId, name, icon, workspaceId) VALUES (?, ?, ?, ?, ?)"
@@ -188,7 +188,7 @@ app.post("/import", async (c) => {
    * 空/非法路径返回 null，由调用方回退。
    */
   const findChild = db.prepare(
-    "SELECT id FROM notebooks WHERE userId = ? AND name = ? AND parentId IS ? AND workspaceId IS ?"
+    "SELECT id FROM notebooks WHERE userId = ? AND name = ? AND parentId IS ? AND workspaceId IS ? AND isDeleted = 0"
   );
   const insertNbWithParent = db.prepare(
     "INSERT INTO notebooks (id, userId, parentId, name, icon, workspaceId) VALUES (?, ?, ?, ?, ?, ?)"
@@ -226,13 +226,40 @@ app.post("/import", async (c) => {
   };
 
   // 决定"默认笔记本 id"：
-  // - 若前端传了 notebookId，则所有笔记都归到该 id（覆盖 note.notebookName）
-  //   注意：调用方有责任保证该 id 属于目标 workspace；后端不强校验。
+  // - 若前端传了 notebookId，则所有笔记都归到该 id（覆盖 note.notebookName）。
+  //   必须校验它仍是当前 scope 下的可见笔记本，避免导入到软删除笔记本后
+  //   前端提示成功但侧边栏不可见。
   // - 否则若传了全局 notebookName，按该名找/建（限定在 targetWs 域）
   // - 否则每条 note 若带 notebookName 就按各自名找/建，没带的归到"导入的笔记"
-  const explicitFallbackId =
-    notebookId ||
-    (notebookName && notebookName.trim() ? getOrCreateNotebookByName(notebookName.trim()) : null);
+  let explicitFallbackId: string | null = null;
+  if (notebookId) {
+    const targetNotebook = db
+      .prepare(
+        "SELECT id, userId, workspaceId, isDeleted FROM notebooks WHERE id = ?",
+      )
+      .get(notebookId) as
+      | { id: string; userId: string; workspaceId: string | null; isDeleted: number }
+      | undefined;
+
+    if (!targetNotebook) {
+      return c.json({ error: "目标笔记本不存在", code: "NOTEBOOK_NOT_FOUND" }, 400);
+    }
+    if (targetNotebook.isDeleted === 1) {
+      return c.json({ error: "目标笔记本已删除，无法导入", code: "NOTEBOOK_TRASHED" }, 400);
+    }
+    if ((targetNotebook.workspaceId || null) !== targetWs) {
+      return c.json({ error: "目标笔记本不属于当前导入空间", code: "NOTEBOOK_SCOPE_MISMATCH" }, 400);
+    }
+    if (targetWs === null && targetNotebook.userId !== userId) {
+      return c.json({ error: "无权导入到该笔记本", code: "NOTEBOOK_FORBIDDEN" }, 403);
+    }
+    if (targetWs !== null && !isSystemAdmin(userId) && !hasRole(getUserWorkspaceRole(targetWs, userId), "editor")) {
+      return c.json({ error: "无权导入到该笔记本", code: "NOTEBOOK_FORBIDDEN" }, 403);
+    }
+    explicitFallbackId = targetNotebook.id;
+  } else if (notebookName && notebookName.trim()) {
+    explicitFallbackId = getOrCreateNotebookByName(notebookName.trim());
+  }
 
   // INSERT 时显式带 workspaceId，确保新笔记落到指定工作区。
   const insertWithDates = db.prepare(`
