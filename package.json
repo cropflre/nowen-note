@@ -36,6 +36,7 @@
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^7.6.0",
     "@capacitor/core": "^8.2.0",
+    "@electron/notarize": "^2.5.0",
     "@electron/rebuild": "^3.7.0",
     "archiver": "^7.0.1",
     "electron": "^33.0.0",

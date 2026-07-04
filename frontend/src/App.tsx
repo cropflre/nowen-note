@@ -905,7 +905,14 @@ function AuthGate() {
           if (cachedUser) {
             // 云端降级：保留 token + serverUrl，使用上次用户信息进入主界面。
             // 后续读请求会走 offlineRead，本地缓存可用；写请求失败会进 offlineQueue。
-            try { window.dispatchEvent(new CustomEvent("nowen:cloud-degraded")); } catch { /* ignore */ }
+            try {
+              window.dispatchEvent(new CustomEvent("nowen:cloud-degraded", {
+                detail: {
+                  reason: "verify_network_failure",
+                  serverUrl,
+                },
+              }));
+            } catch { /* ignore */ }
             return;
           }
           // 无缓存时无法绑定 localStore 用户 id，只能展示登录页；但仍不清 token，

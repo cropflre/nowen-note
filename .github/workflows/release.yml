@@ -10,8 +10,8 @@
 #   WIN_CSC_LINK                  : 证书 .pfx 的 base64（或可访问的 URL）
 #   WIN_CSC_KEY_PASSWORD          : 证书密码
 #   # macOS 代码签名 + 公证（可选）：
-#   MAC_CSC_LINK                  : .p12 证书 base64
-#   MAC_CSC_KEY_PASSWORD          : p12 密码
+#   MAC_CSC_LINK 或 CSC_LINK      : .p12 证书 base64
+#   MAC_CSC_KEY_PASSWORD 或 CSC_KEY_PASSWORD : p12 密码
 #   APPLE_API_KEY                 : App Store Connect API Key 文件内容（base64 或 p8 原文）
 #   APPLE_API_KEY_ID              : Key ID
 #   APPLE_API_ISSUER              : Issuer ID
@@ -123,10 +123,10 @@ jobs:
 
       # ========= macOS 代码签名 + 公证环境变量（可选） =========
       - name: Export macOS signing env
-        if: matrix.os == 'macos-latest' && env.MAC_CSC_LINK != ''
+        if: matrix.os == 'macos-latest'
         env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK || secrets.CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD || secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -134,8 +134,12 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          echo "CSC_LINK=$MAC_CSC_LINK" >> $GITHUB_ENV
-          echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> $GITHUB_ENV
+          if [ -n "$MAC_CSC_LINK" ]; then
+            echo "CSC_LINK=$MAC_CSC_LINK" >> $GITHUB_ENV
+          fi
+          if [ -n "$MAC_CSC_KEY_PASSWORD" ]; then
+            echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> $GITHUB_ENV
+          fi
           echo "APPLE_ID=$APPLE_ID" >> $GITHUB_ENV
           echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> $GITHUB_ENV
           echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> $GITHUB_ENV

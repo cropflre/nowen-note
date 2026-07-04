@@ -35,6 +35,7 @@ import {
 } from "@/lib/diaryDraft";
 import SayCalendarView from "@/components/diary/SayCalendarView";
 import DiarySidebar from "@/components/diary/DiarySidebar";
+import { useApp } from "@/store/AppContext";
 
 // 心情选项
 const MOODS = [
@@ -525,7 +526,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   return (
     <div
       className={cn(
-        "relative z-40 bg-app-surface/60 backdrop-blur-sm rounded-2xl border border-app-border shadow-sm transition-all",
+        "relative z-0 bg-app-surface/60 backdrop-blur-sm rounded-2xl border border-app-border shadow-sm transition-all",
         isDragging && "ring-2 ring-accent-primary/50 border-accent-primary/40",
       )}
       onDragEnter={handleDragEnter}
@@ -2013,6 +2014,7 @@ function FilterBar({
 // ============================================================
 export default function DiaryCenter() {
   const { t } = useTranslation();
+  const { state } = useApp();
   const [items, setItems] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -2293,7 +2295,7 @@ export default function DiaryCenter() {
               </div>
 
               {/* 发布框 */}
-              <div className="relative">
+              <div className={cn("relative", state.mobileSidebarOpen && "hidden md:block")}>
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-violet-500/5 to-pink-500/5 rounded-2xl" />
                 <div className="relative">
                   <ComposeBox key={getCurrentWorkspace() || "personal"} onPost={handlePost} />

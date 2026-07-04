@@ -159,6 +159,20 @@ export function getBaseUrl(): string {
   return server ? `${server}/api` : "/api";
 }
 
+export function isNativeCapacitor(): boolean {
+  return typeof window !== "undefined" && !!(window as any).Capacitor?.isNativePlatform?.();
+}
+
+export function isAndroidInvalidServerUrl(url: string): boolean {
+  if (!url) return true;
+  try {
+    const u = new URL(url);
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+  } catch {
+    return true;
+  }
+}
+
 // ============================================================================
 // SSE 流解析工具（专为 AI 流式接口设计）
 // ----------------------------------------------------------------------------
@@ -539,8 +553,13 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     if (userSignal.aborted) linkedController.abort();
     else userSignal.addEventListener("abort", () => linkedController.abort(), { once: true });
   }
-  // 写入类请求才设超时（GET/读类不设，长轮询场景另行处理）；GET 也保留兜底但更长
-  const TIMEOUT_MS = (method === "GET" || method === "HEAD") ? 60000 : 30000;
+  // Android 原生壳里错误地址/弱网下 GET 体感很像"永远加载"；Web 端保持较长读超时。
+  const TIMEOUT_MS =
+    method === "GET" || method === "HEAD"
+      ? isNativeCapacitor()
+        ? 20000
+        : 60000
+      : 30000;
   const timeoutId = setTimeout(() => {
     try { linkedController.abort(); } catch { /* ignore */ }
   }, TIMEOUT_MS);

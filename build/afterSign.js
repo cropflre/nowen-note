@@ -2,7 +2,7 @@
  * electron-builder afterSign 钩子：macOS 公证（notarize）。
  *
  * 启用方式：
- * 1. 在 builder.config.js 里把 mac.afterSign 改为 "build/afterSign.js"
+ * 1. 在 builder.config.js 里设置顶层 afterSign: "build/afterSign.js"
  * 2. 安装 @electron/notarize（或 electron-notarize）为 devDependency
  *    npm i -D @electron/notarize
  * 3. 设置以下环境变量中的一组：
@@ -17,6 +17,9 @@
  *
  * 未设置任何变量时自动跳过（本地构建友好）。
  */
+const path = require("path");
+const { notarize } = require("@electron/notarize");
+
 exports.default = async function notarizing(context) {
   const { electronPlatformName, appOutDir, packager } = context;
   if (electronPlatformName !== "darwin") return;
@@ -31,26 +34,19 @@ exports.default = async function notarizing(context) {
     process.env.APPLE_TEAM_ID;
 
   if (!useApiKey && !useAppleId) {
-    console.log("[afterSign] 未检测到公证凭据，跳过 notarize。");
-    return;
-  }
-
-  let notarize;
-  try {
-    ({ notarize } = require("@electron/notarize"));
-  } catch (e) {
     console.warn(
-      "[afterSign] @electron/notarize 未安装，跳过公证。请运行：npm i -D @electron/notarize"
+      "[afterSign] Missing Apple notarization credentials, skip notarization."
     );
     return;
   }
 
   const appName = packager.appInfo.productFilename;
-  const appPath = `${appOutDir}/${appName}.app`;
+  const appPath = path.join(appOutDir, `${appName}.app`);
 
   console.log(`[afterSign] notarizing ${appPath} ...`);
 
   const common = {
+    appBundleId: "com.nowen.note",
     appPath,
     tool: "notarytool",
   };

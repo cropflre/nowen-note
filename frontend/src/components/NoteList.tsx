@@ -1,14 +1,14 @@
 ﻿import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, PanelLeftClose } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, PanelLeftClose, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useApp, useAppActions } from "@/store/AppContext";
-import { api, getCurrentWorkspace } from "@/lib/api";
+import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -896,8 +896,9 @@ export function PullToRefresh({
         await onRefresh();
       } catch {
         // 刷新失败由调用方或后续同步兜底处理，这里只负责结束下拉状态。
+      } finally {
+        setRefreshing(false);
       }
-      setRefreshing(false);
     }
 
     setPulling(false);
@@ -1328,6 +1329,7 @@ export default function NoteList() {
   // picker 模式下记住即将创建的笔记类型；用户选 notebook 后据此分支。
   const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "word">("normal");
   const [dateFilter, setDateFilter] = useState<string | null>(null); // YYYY-MM-DD
+  const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const notesFetchSeqRef = useRef(0);
   const notesQueryKeyRef = useRef("");
@@ -1375,6 +1377,9 @@ export default function NoteList() {
   const notesRef = useRef<NoteListItem[]>([]);
   useEffect(() => { notesRef.current = state.notes; }, [state.notes]);
   const { t } = useTranslation();
+  const currentServerUrl = getServerUrl();
+  const showAndroidLocalhostHint =
+    isNativeCapacitor() && !!currentServerUrl && isAndroidInvalidServerUrl(currentServerUrl);
 
   // Phase 2: 加载分享状态
   useEffect(() => {
@@ -1405,6 +1410,7 @@ export default function NoteList() {
     const queryChanged = notesQueryKeyRef.current !== notesQueryKey;
     notesQueryKeyRef.current = notesQueryKey;
     actions.setLoading(true);
+    setNotesLoadError(null);
     if (queryChanged) actions.setNotes([]);
     let notes: NoteListItem[] = [];
     try {
@@ -1463,23 +1469,48 @@ export default function NoteList() {
       }
       if (requestSeq !== notesFetchSeqRef.current) return;
       actions.setNotes(notes);
+    } catch (err: any) {
+      if (requestSeq !== notesFetchSeqRef.current) return;
+      console.warn("[NoteList] fetch notes failed", err);
+      if (isNativeCapacitor()) {
+        console.warn("[NoteList] Android notes load failed", {
+          baseUrl: getBaseUrl(),
+          serverUrl: getServerUrl(),
+          online: navigator.onLine,
+          viewMode: state.viewMode,
+          selectedNotebookId: state.selectedNotebookId,
+        });
+      }
+      setNotesLoadError(err?.message || t("noteList.loadFailed", { defaultValue: "Failed to load notes" }));
     } finally {
       if (requestSeq === notesFetchSeqRef.current) {
         actions.setLoading(false);
       }
     }
-  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir]);
+  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, t]);
 
   useEffect(() => {
-    fetchNotes().catch(console.error);
+    void fetchNotes();
     // 追加依赖：notesRefreshToken 递增时强制刷新当前视图
   }, [fetchNotes, state.notesRefreshToken]);
 
   const handlePullRefresh = useCallback(async () => {
-    await fetchNotes();
-    actions.refreshNotebooks();
-    api.getTags().then(actions.setTags).catch(() => {});
+    try {
+      await fetchNotes();
+      actions.refreshNotebooks();
+      api.getTags().then(actions.setTags).catch(() => {});
+    } catch (err) {
+      console.warn("[NoteList] pull refresh failed", err);
+    }
   }, [actions, fetchNotes]);
+
+  const handleReloginOrChangeServer = useCallback(async () => {
+    await import("@/lib/rememberLogin")
+      .then((m) => m.clearRememberedCredentials())
+      .catch(() => {});
+    broadcastLogout("android_server_unreachable");
+    window.location.reload();
+  }, []);
 
   // ─── 日历徽章数据源 ──────────────────────────────────────────────
   // 单独维护一份**不带 dateFilter** 的笔记列表用于日历每日数量徽章。
@@ -3474,7 +3505,40 @@ export default function NoteList() {
               />
             ))}
           </AnimatePresence>
-          {state.notes.length === 0 && !state.isLoading && (
+          {state.notes.length === 0 && !state.isLoading && notesLoadError && (
+            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-accent-danger/10 flex items-center justify-center mb-4">
+                <AlertTriangle size={28} className="text-accent-danger/60" />
+              </div>
+              <p className="text-sm font-semibold text-tx-primary mb-2">
+                {t("noteList.loadErrorTitle")}
+              </p>
+              <p className="text-xs text-tx-tertiary max-w-[260px] leading-relaxed">
+                {t("noteList.loadErrorDesc")}
+              </p>
+              {showAndroidLocalhostHint && (
+                <p className="mt-3 text-xs text-accent-danger max-w-[280px] leading-relaxed">
+                  {t("noteList.androidLocalhostServerError")}
+                </p>
+              )}
+              <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-2">
+                <button
+                  onClick={() => void fetchNotes()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
+                >
+                  <RefreshCw size={14} />
+                  {t("noteList.retryLoad")}
+                </button>
+                <button
+                  onClick={() => void handleReloginOrChangeServer()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-app-hover text-tx-secondary text-xs font-medium hover:bg-app-active active:scale-95 transition-all"
+                >
+                  {t("noteList.reloginOrChangeServer")}
+                </button>
+              </div>
+            </div>
+          )}
+          {state.notes.length === 0 && !state.isLoading && !notesLoadError && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className="w-16 h-16 rounded-2xl bg-accent-primary/10 flex items-center justify-center mb-4">
                 <FileText size={28} className="text-accent-primary/40" />

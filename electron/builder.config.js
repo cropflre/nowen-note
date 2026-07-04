@@ -526,10 +526,10 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
-    notarize: false, // 交给 afterSign 钩子或 CI 单独处理更稳妥；可按需切 true
+    notarize: false, // 交给 afterSign 钩子处理；本地缺少 Apple 凭据时会自动跳过
   },
-  // 可选：公证钩子，见下方 afterSign.js
-  // afterSign: "build/afterSign.js",
+  // macOS 公证钩子。仅 darwin 生效；本地缺少 Apple 凭据时不会阻断构建。
+  afterSign: "build/afterSign.js",
   linux: {
     target: ["AppImage", "deb"],
     icon: "electron/icon.png",
