@@ -277,6 +277,21 @@ function buildNotebookTree(notebooks: Notebook[]): Notebook[] {
   return roots;
 }
 
+function getNotebookPathLabel(notebooks: Notebook[], notebookId: string): string | null {
+  const byId = new Map(notebooks.map((notebook) => [notebook.id, notebook]));
+  const path: string[] = [];
+  const visited = new Set<string>();
+  let cursor: string | null | undefined = notebookId;
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor);
+    const notebook = byId.get(cursor);
+    if (!notebook) break;
+    path.unshift(notebook.name);
+    cursor = notebook.parentId ?? null;
+  }
+  return path.length > 0 ? path.join(" / ") : null;
+}
+
 function NotebookTreeItem({
   notebook, depth, selectedId, currentNotebookId, onSelect,
 }: {
@@ -954,7 +969,7 @@ const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime,
+  showNoteTime, notebookLabel,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -973,6 +988,7 @@ const NoteCard = React.memo(function NoteCard({
   cardRef?: (el: HTMLDivElement | null) => void;
   searchQuery?: string;
   showNoteTime?: boolean;
+  notebookLabel?: string;
 }) {
   // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
   // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
@@ -1113,10 +1129,20 @@ const NoteCard = React.memo(function NoteCard({
             - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
             两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
         <div className="flex items-center justify-between mt-2 text-tx-tertiary gap-2">
-          {showNoteTime && (
-            <div className="flex items-center gap-1.5 min-w-0">
+          {(showNoteTime || notebookLabel) && (
+            <div className="flex items-center gap-2 min-w-0">
+              {notebookLabel && (
+                <span className="flex min-w-0 items-center gap-1 text-[10px] text-tx-tertiary" title={notebookLabel}>
+                  <Folder size={10} className="shrink-0" />
+                  <span className="truncate">{notebookLabel}</span>
+                </span>
+              )}
+              {showNoteTime && (
+                <span className="flex shrink-0 items-center gap-1.5">
               <Clock size={10} />
               <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
+                </span>
+              )}
             </div>
           )}
           {showCreator ? (
@@ -1163,6 +1189,8 @@ function VirtualNoteList({
   noteCardRefs,
   searchQuery,
   showNoteTime,
+  showNotebookLabel,
+  notebookLabels,
 }: {
   notes: NoteListItem[];
   activeNoteId: string | undefined;
@@ -1183,6 +1211,8 @@ function VirtualNoteList({
   noteCardRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
   searchQuery?: string;
   showNoteTime?: boolean;
+  showNotebookLabel?: boolean;
+  notebookLabels?: Map<string, string>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1218,11 +1248,12 @@ function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const totalHeight = notes.length * ITEM_HEIGHT;
-  const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN);
-  const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + OVERSCAN);
+  const itemHeight = showNotebookLabel ? 104 : ITEM_HEIGHT;
+  const totalHeight = notes.length * itemHeight;
+  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
+  const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
   const visibleNotes = notes.slice(startIndex, endIndex);
-  const offsetY = startIndex * ITEM_HEIGHT;
+  const offsetY = startIndex * itemHeight;
 
   return (
     <div
@@ -1258,6 +1289,7 @@ function VirtualNoteList({
               onTouchEnd={onTouchEnd}
               searchQuery={searchQuery}
               showNoteTime={showNoteTime}
+              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId) : undefined}
             />
           ))}
         </div>
@@ -1539,6 +1571,21 @@ export default function NoteList() {
       return cmp * dir || a.id.localeCompare(b.id);
     });
   }, [state.notes, sortPref.by, sortPref.dir, state.viewMode]);
+
+  const showNotebookLabel = state.viewMode === "all";
+  const notebookLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    if (!showNotebookLabel) return labels;
+    for (const note of sortedNotes) {
+      if (labels.has(note.notebookId)) continue;
+      labels.set(
+        note.notebookId,
+        getNotebookPathLabel(state.notebooks, note.notebookId)
+          || t("noteList.unknownNotebook", { defaultValue: "未知笔记本" }),
+      );
+    }
+    return labels;
+  }, [showNotebookLabel, sortedNotes, state.notebooks, t]);
 
   // 监听 WebSocket：外部导入 / 同账号其它设备保存后自动刷新列表
   useEffect(() => {
@@ -3390,6 +3437,9 @@ export default function NoteList() {
             onTouchEnd={handleTouchEnd}
             noteCardRefs={noteCardRefs}
             searchQuery={state.searchQuery || undefined}
+            showNoteTime={showNoteTime}
+            showNotebookLabel={showNotebookLabel}
+            notebookLabels={notebookLabels}
           />
         ) : (
         <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
@@ -3420,6 +3470,7 @@ export default function NoteList() {
                 onTouchEnd={handleTouchEnd}
                 searchQuery={state.searchQuery || undefined}
                 showNoteTime={showNoteTime}
+                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId) : undefined}
               />
             ))}
           </AnimatePresence>

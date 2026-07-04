@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileCode, FileText, Lock, Pin, Plus, X } from "lucide-react";
+import { FileCode, FileText, Folder, Lock, Pin, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
@@ -20,6 +20,12 @@ type CreateMenuState = {
 } | null;
 
 type CreateNoteFormat = "tiptap-json" | "markdown";
+
+type CreateNotebookMenuState = {
+  x: number;
+  y: number;
+  contentFormat: CreateNoteFormat;
+} | null;
 
 type DragInsertTarget = {
   tabId: string;
@@ -103,12 +109,28 @@ export default function NoteTabsBar() {
   const { openNoteTabs, activeNote, noteLoading } = state;
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [createMenu, setCreateMenu] = useState<CreateMenuState>(null);
+  const [createNotebookMenu, setCreateNotebookMenu] = useState<CreateNotebookMenuState>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dragInsertTarget, setDragInsertTarget] = useState<DragInsertTarget>(null);
   const [creating, setCreating] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
+  const createNotebookMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressClickRef = useRef(false);
+
+  const notebookOptions = useMemo(() => {
+    return state.notebooks
+      .map((notebook) => ({
+        notebook,
+        label: getNotebookPath(state.notebooks, notebook.id).join(" / ") || notebook.name,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [state.notebooks]);
+
+  const validNotebookIds = useMemo(
+    () => new Set(state.notebooks.map((notebook) => notebook.id)),
+    [state.notebooks]
+  );
 
   const targetTab = useMemo(() => {
     if (!contextMenu) return null;
@@ -206,19 +228,12 @@ export default function NoteTabsBar() {
     actions.splitEditor({ noteId: tab.id, direction });
   }, [actions]);
 
-  const createNote = useCallback(async (contentFormat: CreateNoteFormat) => {
+  const createNote = useCallback(async (contentFormat: CreateNoteFormat, notebookId: string) => {
     if (creating) return;
-    const notebookId = activeNote?.notebookId
-      || state.selectedNotebookId
-      || openNoteTabs.find((tab) => tab.notebookId)?.notebookId
-      || state.notebooks[0]?.id;
-    if (!notebookId) {
-      toast.warning(t("common.needNotebookFirst"));
-      return;
-    }
 
     setCreating(true);
     setCreateMenu(null);
+    setCreateNotebookMenu(null);
     try {
       const note = await api.createNote({
         notebookId,
@@ -273,6 +288,34 @@ export default function NoteTabsBar() {
     t,
   ]);
 
+  const startCreateNote = useCallback((contentFormat: CreateNoteFormat) => {
+    const candidateIds = [activeNote?.notebookId, state.selectedNotebookId].filter(Boolean) as string[];
+    const notebookId = candidateIds.find((id) => validNotebookIds.has(id));
+    if (notebookId) {
+      void createNote(contentFormat, notebookId);
+      return;
+    }
+    if (state.notebooks.length === 0) {
+      toast.warning(t("common.needNotebookFirst"));
+      return;
+    }
+    setCreateMenu(null);
+    setCreateNotebookMenu({
+      contentFormat,
+      x: createMenu?.x ?? Math.max(8, window.innerWidth / 2 - 144),
+      y: createMenu?.y ?? 48,
+    });
+  }, [
+    activeNote?.notebookId,
+    createMenu?.x,
+    createMenu?.y,
+    createNote,
+    state.notebooks.length,
+    state.selectedNotebookId,
+    t,
+    validNotebookIds,
+  ]);
+
   const copyFromTab = useCallback(async (
     tab: OpenNoteTab,
     type: "wiki" | "markdown" | "title" | "id" | "path",
@@ -307,17 +350,20 @@ export default function NoteTabsBar() {
   }, []);
 
   useEffect(() => {
-    if (!contextMenu && !createMenu) return;
+    if (!contextMenu && !createMenu && !createNotebookMenu) return;
     const onPointerDown = (event: MouseEvent) => {
       if (menuRef.current?.contains(event.target as Node)) return;
       if (createMenuRef.current?.contains(event.target as Node)) return;
+      if (createNotebookMenuRef.current?.contains(event.target as Node)) return;
       setContextMenu(null);
       setCreateMenu(null);
+      setCreateNotebookMenu(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setContextMenu(null);
         setCreateMenu(null);
+        setCreateNotebookMenu(null);
       }
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -326,7 +372,7 @@ export default function NoteTabsBar() {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [contextMenu, createMenu]);
+  }, [contextMenu, createMenu, createNotebookMenu]);
 
   useEffect(() => {
     if (contextMenu && !targetTab) setContextMenu(null);
@@ -350,6 +396,8 @@ export default function NoteTabsBar() {
   const menuY = contextMenu ? Math.max(8, Math.min(contextMenu.y, window.innerHeight - 500)) : 0;
   const createMenuX = createMenu ? Math.max(8, Math.min(createMenu.x, window.innerWidth - 252)) : 0;
   const createMenuY = createMenu ? Math.max(8, Math.min(createMenu.y, window.innerHeight - 180)) : 0;
+  const createNotebookMenuX = createNotebookMenu ? Math.max(8, Math.min(createNotebookMenu.x, window.innerWidth - 300)) : 0;
+  const createNotebookMenuY = createNotebookMenu ? Math.max(8, Math.min(createNotebookMenu.y, window.innerHeight - 360)) : 0;
 
   return (
     <div
@@ -472,6 +520,7 @@ export default function NoteTabsBar() {
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             setContextMenu(null);
+            setCreateNotebookMenu(null);
             setCreateMenu((menu) => menu ? null : { x: rect.left, y: rect.bottom + 6 });
           }}
           disabled={creating}
@@ -494,14 +543,47 @@ export default function NoteTabsBar() {
             icon={<FileText size={15} />}
             label={t("editorTabs.newRichTextNote")}
             description={t("editorTabs.richTextEditor")}
-            onClick={() => void createNote("tiptap-json")}
+            onClick={() => startCreateNote("tiptap-json")}
           />
           <CreateMenuItem
             icon={<FileCode size={15} />}
             label={t("editorTabs.newMarkdownNote")}
             description={t("editorTabs.markdownEditor")}
-            onClick={() => void createNote("markdown")}
+            onClick={() => startCreateNote("markdown")}
           />
+        </div>,
+        document.body
+      )}
+
+      {createNotebookMenu && createPortal(
+        <div
+          ref={createNotebookMenuRef}
+          className="fixed z-[80] w-72 overflow-hidden rounded-xl border border-app-border bg-white shadow-xl dark:bg-zinc-950"
+          style={{ left: createNotebookMenuX, top: createNotebookMenuY }}
+          role="menu"
+        >
+          <div className="border-b border-app-border px-3 py-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-tx-primary">
+              <Folder size={15} className="shrink-0 text-accent-primary" />
+              <span className="truncate">{t("common.selectNotebook")}</span>
+            </div>
+            <p className="mt-1 text-xs text-tx-tertiary">{t("common.selectNotebookHint")}</p>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {notebookOptions.map(({ notebook, label }) => (
+              <button
+                key={notebook.id}
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
+                onClick={() => void createNote(createNotebookMenu.contentFormat, notebook.id)}
+                role="menuitem"
+                title={label}
+              >
+                <span className="shrink-0">{notebook.icon || "📁"}</span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>,
         document.body
       )}
