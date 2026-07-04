@@ -72,6 +72,7 @@
     "confirmPassword": "Confirm Password",
     "usernameRegisterPlaceholder": "3-32 chars letters/digits",
     "twoFactor": {
+      "title": "Two-factor authentication",
       "prompt": "Signing in as {{username}}. Enter the 6-digit code from your Authenticator.",
       "codeLabel": "Authentication Code",
       "codeHint": "You can also enter a one-time recovery code (xxxxx-xxxxx)",

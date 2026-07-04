@@ -72,6 +72,7 @@
     "confirmPassword": "确认密码",
     "usernameRegisterPlaceholder": "3-32 位字母/数字",
     "twoFactor": {
+      "title": "两步验证",
       "prompt": "正在以 {{username}} 身份登录，请输入 Authenticator 中的 6 位动态码",
       "codeLabel": "动态验证码",
       "codeHint": "也可输入一次性恢复码（格式 xxxxx-xxxxx）",

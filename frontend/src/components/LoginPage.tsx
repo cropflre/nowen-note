@@ -25,6 +25,7 @@ interface LoginPageProps {
 }
 
 type Mode = "login" | "register";
+type LoginStep = "password" | "twoFactor";
 
 function isMobileNativeClientRuntime(): boolean {
   try {
@@ -46,6 +47,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const { height: keyboardHeight } = useKeyboardVisible();
 
   const [mode, setMode] = useState<Mode>("login");
+  const [loginStep, setLoginStep] = useState<LoginStep>("password");
   const [serverParts, setServerParts] = useState<ServerAddressParts>({
     protocol: "http",
     host: "",
@@ -58,6 +60,9 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const [confirmPassword, setConfirmPassword] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [twoFactorTicket, setTwoFactorTicket] = useState("");
+  const [twoFactorUsername, setTwoFactorUsername] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [allowRegistration, setAllowRegistration] = useState(true);
@@ -68,6 +73,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const icpBeianText = siteConfig.icpBeian?.trim() || "";
   const showIcpBeian = !!icpBeianText && !isMobileNativeClientRuntime();
   const isRegister = mode === "register";
+  const isTwoFactorStep = loginStep === "twoFactor";
 
   useEffect(() => {
     if (!isClientMode) return;
@@ -124,11 +130,12 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
 
   const submitDisabled = useMemo(() => {
     if (isLoading) return true;
+    if (isTwoFactorStep) return false;
     if (!username.trim() || !password) return true;
     if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isClientMode, isLoading, isRegister, password, serverParts.host, username]);
+  }, [confirmPassword, isClientMode, isLoading, isRegister, isTwoFactorStep, password, serverParts.host, username]);
 
   const serverStatusIcon = () => {
     if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
@@ -216,6 +223,21 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
         setError(data.error || t("auth.loginFailed"));
         return;
       }
+
+      if (data.requires2FA && data.ticket) {
+        setTwoFactorTicket(data.ticket);
+        setTwoFactorUsername(data.username || username.trim());
+        setTwoFactorCode("");
+        setLoginStep("twoFactor");
+        setError("");
+        return;
+      }
+
+      if (!data.token || !data.user) {
+        setError(t("auth.loginFailed"));
+        return;
+      }
+
       localStorage.setItem("nowen-token", data.token);
       onLogin(data.token, data.user);
     } catch (err: any) {
@@ -225,6 +247,75 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleTwoFactorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!twoFactorTicket) {
+      setLoginStep("password");
+      setError(t("auth.twoFactor.ticketExpired"));
+      return;
+    }
+    if (!twoFactorCode.trim()) {
+      setError(t("auth.twoFactor.codeRequired"));
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const baseUrl = isClientMode ? buildServerUrl(serverParts) : "";
+      const verifyUrl = baseUrl
+        ? `${baseUrl}/api/auth/2fa/verify`
+        : "/api/auth/2fa/verify";
+      const { getDeviceId } = await import("@/lib/deviceId");
+      const res = await fetch(verifyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket: twoFactorTicket,
+          code: twoFactorCode.trim(),
+          deviceId: getDeviceId(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (data.code === "TFA_TICKET_EXPIRED") {
+          setLoginStep("password");
+          setTwoFactorTicket("");
+          setTwoFactorCode("");
+          setError(t("auth.twoFactor.ticketExpired"));
+          return;
+        }
+        if (data.code === "TFA_INVALID_CODE") {
+          setError(t("auth.twoFactor.verifyFailed"));
+          return;
+        }
+        setError(data.error || t("auth.twoFactor.verifyFailed"));
+        return;
+      }
+
+      if (!data.token || !data.user) {
+        setError(t("auth.twoFactor.verifyFailed"));
+        return;
+      }
+
+      localStorage.setItem("nowen-token", data.token);
+      onLogin(data.token, data.user);
+    } catch (err: any) {
+      setError(err?.message || t("auth.networkError"));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const backToPasswordLogin = () => {
+    setLoginStep("password");
+    setTwoFactorTicket("");
+    setTwoFactorCode("");
+    setError("");
   };
 
   const handleDisconnect = () => {
@@ -237,6 +328,10 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     setConfirmPassword("");
     setEmail("");
     setDisplayName("");
+    setLoginStep("password");
+    setTwoFactorTicket("");
+    setTwoFactorUsername("");
+    setTwoFactorCode("");
     setError("");
     onDisconnect?.();
   };
@@ -247,6 +342,10 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
     setError("");
     setPassword("");
     setConfirmPassword("");
+    setLoginStep("password");
+    setTwoFactorTicket("");
+    setTwoFactorUsername("");
+    setTwoFactorCode("");
   };
 
   return (
@@ -282,13 +381,16 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
               <BookOpen size={24} className="text-indigo-600 dark:text-indigo-400" />
             </motion.div>
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-              {siteConfig.title || t("auth.appTitle")}
+              {isTwoFactorStep ? t("auth.twoFactor.title") : siteConfig.title || t("auth.appTitle")}
             </h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
-              {isRegister ? t("auth.registerSubtitle") : isClientMode ? t("auth.subtitleClient") : t("auth.subtitle")}
+              {isTwoFactorStep
+                ? t("auth.twoFactor.prompt", { username: twoFactorUsername || username.trim() })
+                : isRegister ? t("auth.registerSubtitle") : isClientMode ? t("auth.subtitleClient") : t("auth.subtitle")}
             </p>
           </div>
 
+          {!isTwoFactorStep && (
           <div className="flex items-center gap-1 p-1 mb-5 rounded-lg bg-zinc-100 dark:bg-zinc-800">
             <button
               type="button"
@@ -307,8 +409,56 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
               {t("auth.registerTab")}
             </button>
           </div>
+          )}
 
-          <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+          <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
+            {isTwoFactorStep ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.twoFactor.codeLabel")}</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                    <input
+                      type="text"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value)}
+                      className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                      placeholder="123456 / xxxxx-xxxxx"
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.twoFactor.codeHint")}</p>
+                </div>
+
+                <AnimatePresence>
+                  {error && (
+                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                      <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <button
+                  type="submit"
+                  disabled={submitDisabled}
+                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
+                >
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t("auth.twoFactor.verifyButton")}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={backToPasswordLogin}
+                  className="w-full text-xs text-zinc-500 hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"
+                >
+                  {t("auth.twoFactor.backToLogin")}
+                </button>
+              </>
+            ) : (
+            <>
             <AnimatePresence>
               {isClientMode && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5 overflow-hidden">
@@ -435,17 +585,19 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : isRegister ? t("auth.registerButton") : t("auth.loginButton")}
             </button>
+            </>
+            )}
           </form>
 
-          <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
+          {!isTwoFactorStep && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
             {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}
-          </p>
+          </p>}
 
-          {!allowRegistration && !isRegister && (
+          {!isTwoFactorStep && !allowRegistration && !isRegister && (
             <p className="text-center text-[11px] text-zinc-400 dark:text-zinc-600 mt-1.5">{t("auth.registerClosed")}</p>
           )}
 
-          {isClientMode && getServerUrl() && (
+          {!isTwoFactorStep && isClientMode && getServerUrl() && (
             <div className="mt-3 flex justify-center">
               <button type="button" onClick={handleDisconnect} className="text-xs text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors">
                 {t("auth.resetServer")}
