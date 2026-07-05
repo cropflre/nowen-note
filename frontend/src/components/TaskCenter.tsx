@@ -43,6 +43,20 @@ import { CalendarExportTargetSettings } from "./tasks/CalendarExportTargetSettin
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 import { taskMatchesSearch } from "./tasks/taskSearch";
 
+export function formatLocalDateKey(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function getDefaultTaskPatchForFilter(filter: TaskFilter): Partial<Task> {
+  if (filter === "today") {
+    return { dueDate: formatLocalDateKey() };
+  }
+  return {};
+}
+
 /* ===== Main Component ===== */
 export default function TaskCenter() {
   const { t } = useTranslation();
@@ -265,7 +279,11 @@ export default function TaskCenter() {
     if (!newTitle.trim()) return false;
     const titleToCreate = newTitle.trim();
     try {
-      const task = await api.createTask({ title: titleToCreate, projectId: selectedProjectId || undefined });
+      const task = await api.createTask({
+        title: titleToCreate,
+        projectId: selectedProjectId || undefined,
+        ...getDefaultTaskPatchForFilter(filter),
+      });
       setTasks((prev) => [task, ...prev]);
       setNewTitle("");
       inputRef.current?.focus();

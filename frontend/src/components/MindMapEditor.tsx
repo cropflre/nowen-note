@@ -53,17 +53,25 @@ interface LayoutNode {
 
 const NODE_H = 36;
 const NODE_MIN_W = 80;
+const NODE_MAX_W = 520;
 const NODE_CHAR_W = 14;
 const H_GAP = 50;
 const V_GAP = 12;
 
-function measureNode(text: string): { width: number; height: number } {
-  const w = Math.max(NODE_MIN_W, Math.min(text.length * NODE_CHAR_W + 32, 260));
-  return { width: w, height: NODE_H };
+function clampNodeWidth(width: number): number {
+  return Math.max(NODE_MIN_W, Math.min(Math.round(width), NODE_MAX_W));
+}
+
+function measureNode(node: Pick<MindMapNode, "text" | "width">): { width: number; height: number } {
+  const autoWidth = Math.max(NODE_MIN_W, Math.min(node.text.length * NODE_CHAR_W + 32, 260));
+  const width = typeof node.width === "number" && Number.isFinite(node.width)
+    ? clampNodeWidth(node.width)
+    : autoWidth;
+  return { width, height: NODE_H };
 }
 
 function buildLayout(node: MindMapNode, depth: number, parent: LayoutNode | null): LayoutNode {
-  const { width, height } = measureNode(node.text);
+  const { width, height } = measureNode(node);
   const ln: LayoutNode = {
     id: node.id,
     text: node.text,
@@ -484,6 +492,7 @@ const NodeBox = React.memo(function NodeBox({
   onSelect, onDoubleClick, onEditChange, onEditSubmit,
   onToggleCollapse, isMobile, onContextMenu, nodeData,
   markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, isDragTarget,
+  onResizeStart,
 }: {
   node: LayoutNode;
   isSelected: boolean;
@@ -505,6 +514,7 @@ const NodeBox = React.memo(function NodeBox({
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   isDragTarget?: boolean;
+  onResizeStart?: (e: React.PointerEvent<HTMLButtonElement>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const color = getNodeColor(node.depth);
@@ -525,7 +535,7 @@ const NodeBox = React.memo(function NodeBox({
         <div
           data-mindmap-node-id={node.id}
           className={cn(
-            "flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-all duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden",
+            "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-all duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
             isSearchMatch && "ring-2 ring-amber-400/70", isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20", isDragTarget && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20"
           )}
           style={{
@@ -587,6 +597,16 @@ const NodeBox = React.memo(function NodeBox({
             />
           ) : (
             <span className="truncate">{node.text}</span>
+          )}
+          {isSelected && !isEditing && onResizeStart && (
+            <button
+              type="button"
+              data-mindmap-node-resize-handle="true"
+              aria-label="Resize node"
+              className="absolute right-1 top-1/2 h-5 w-2 -translate-y-1/2 cursor-ew-resize rounded-full border border-blue-400/70 bg-white/90 opacity-80 shadow-sm transition-opacity hover:opacity-100 dark:bg-zinc-900/90"
+              onPointerDown={onResizeStart}
+              onClick={(e) => e.stopPropagation()}
+            />
           )}
         </div>
       </foreignObject>
@@ -658,8 +678,14 @@ function FloatingToolbar({
   }, [showMore]);
 
   return (
-    <div className="absolute z-40 flex items-center gap-1.5"
-      style={{ left: position.x, top: position.y, transform: "translateX(-50%)" }}>
+    <div
+      data-mindmap-floating-toolbar="true"
+      className="absolute z-40 flex items-center gap-1.5"
+      style={{ left: position.x, top: position.y, transform: "translateX(-50%)" }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <button className={cn("flex items-center gap-1 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ease-out shadow-md shadow-blue-500/20 border border-blue-400/50", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
         onClick={(e) => { e.stopPropagation(); onAddChild(); }}>
         <Plus size={isMobile ? 14 : 10} />
@@ -994,6 +1020,7 @@ export default function MindMapCenter() {
   const viewportUserSetRef = useRef(false);
   const panFrameRef = useRef<number | null>(null);
   const suppressCanvasClickRef = useRef(false);
+  const removeNodeResizeListenersRef = useRef<(() => void) | null>(null);
   const pointerStateRef = useRef<{
     mode: "none" | "pan" | "select";
     pointerId: number | null;
@@ -1432,6 +1459,69 @@ export default function MindMapCenter() {
     const newRoot = updateNode(mapData.root, selectedNodeId, (n) => ({ ...n, note: note || undefined }));
     const newData = { ...mapData, root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
   }, [mapData, selectedNodeId, updateNode, triggerSave, pushHistory]);
+
+  const applyNodeWidth = useCallback((nodeId: string, width: number): MindMapData | null => {
+    const current = mapDataRef.current;
+    if (!current) return null;
+    const nextWidth = clampNodeWidth(width);
+    const newRoot = updateNode(current.root, nodeId, (n) => ({ ...n, width: nextWidth }));
+    const newData = { ...current, root: newRoot };
+    mapDataRef.current = newData;
+    setMapData(newData);
+    return newData;
+  }, [updateNode]);
+
+  const handleNodeResizeStart = useCallback((nodeId: string, width: number, e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeNodeResizeListenersRef.current?.();
+    suppressCanvasClickRef.current = true;
+
+    const state = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startWidth: clampNodeWidth(width),
+      lastWidth: clampNodeWidth(width),
+      zoom,
+      didChange: false,
+    };
+
+    const removeListeners = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      removeNodeResizeListenersRef.current = null;
+    };
+
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerId !== state.pointerId) return;
+      event.preventDefault();
+      const nextWidth = clampNodeWidth(state.startWidth + (event.clientX - state.startX) / state.zoom);
+      if (nextWidth === state.lastWidth) return;
+      state.lastWidth = nextWidth;
+      state.didChange = nextWidth !== state.startWidth;
+      applyNodeWidth(nodeId, nextWidth);
+    };
+
+    const onEnd = (event: PointerEvent) => {
+      if (event.pointerId !== state.pointerId) return;
+      event.preventDefault();
+      removeListeners();
+      if (state.didChange && mapDataRef.current) {
+        pushHistory(mapDataRef.current);
+        triggerSave(mapDataRef.current);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    removeNodeResizeListenersRef.current = removeListeners;
+  }, [applyNodeWidth, pushHistory, triggerSave, zoom]);
+
+  useEffect(() => {
+    return () => removeNodeResizeListenersRef.current?.();
+  }, []);
 
 
   // Theme application
@@ -2018,6 +2108,8 @@ export default function MindMapCenter() {
     if (editingNodeId) return;
     if (e.button !== 0 && e.button !== 1) return;
     const target = e.target as HTMLElement;
+    if (target.closest("[data-mindmap-floating-toolbar]")) return;
+    if (target.closest("[data-mindmap-node-resize-handle]")) return;
     if (target.closest("input, textarea, [contenteditable='true']")) return;
 
     const point = toCanvasPoint(e.clientX, e.clientY);
@@ -2918,6 +3010,7 @@ export default function MindMapCenter() {
                     onContextMenu={(e) => e.preventDefault()}
                     markerIcons={<MarkerIcons markers={nodeById.get(n.id)?.markers} />}
                     nodeData={nodeById.get(n.id)}
+                    onResizeStart={(e) => handleNodeResizeStart(n.id, n.width, e)}
                   />
                 ))}
                 </g>

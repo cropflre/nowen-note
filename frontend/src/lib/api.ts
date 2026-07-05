@@ -1440,7 +1440,13 @@ export const api = {
   // 注意：后端在修改密码成功后会 bump tokenVersion，让其它端旧 token 立即失效，
   //      同时下发一张新 token 给当前请求方。前端必须把新 token 写回 localStorage，
   //      否则当前 tab 的下次请求会被当成"旧 token"拒绝。
-  updateSecurity: async (data: { currentPassword: string; newUsername?: string; newPassword?: string }) => {
+  updateSecurity: async (data: {
+    currentPassword: string;
+    newUsername?: string;
+    newPassword?: string;
+    newEmail?: string | null;
+    newDisplayName?: string | null;
+  }) => {
     const res = await request<{ success: boolean; message: string; token?: string }>(
       "/auth/change-password",
       { method: "POST", body: JSON.stringify(data) },

@@ -535,6 +535,7 @@ export interface CustomFont {
 export interface MindMapNode {
   id: string;
   text: string;
+  width?: number;
   children: MindMapNode[];
   collapsed?: boolean;
   markers?: Array<"done" | "todo" | "priority-high" | "warning" | "idea" | "pin">;

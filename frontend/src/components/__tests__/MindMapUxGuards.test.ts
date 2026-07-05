@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(resolve(process.cwd(), "src/components/MindMapEditor.tsx"), "utf8");
+const typesSource = readFileSync(resolve(process.cwd(), "src/types/index.ts"), "utf8");
 
 describe("MindMapEditor UX guardrails", () => {
   it("uses pointer capture and rAF for canvas pan interactions", () => {
@@ -41,5 +42,21 @@ describe("MindMapEditor UX guardrails", () => {
 
   it("hides the single-node toolbar for multi-selection", () => {
     expect(source).toContain("selectedNodeIds.length > 1 ? null");
+  });
+
+  it("keeps floating toolbar pointer events out of canvas selection", () => {
+    expect(source).toContain('data-mindmap-floating-toolbar="true"');
+    expect(source).toContain('target.closest("[data-mindmap-floating-toolbar]")');
+    expect(source).toContain("onPointerDown={(e) => e.stopPropagation()}");
+    expect(source).toContain("onMouseDown={(e) => e.stopPropagation()}");
+  });
+
+  it("supports dragging selected mind map nodes to resize their width", () => {
+    expect(typesSource).toContain("width?: number");
+    expect(source).toContain("function clampNodeWidth");
+    expect(source).toContain('data-mindmap-node-resize-handle="true"');
+    expect(source).toContain('target.closest("[data-mindmap-node-resize-handle]")');
+    expect(source).toContain("handleNodeResizeStart");
+    expect(source).toContain("applyNodeWidth");
   });
 });

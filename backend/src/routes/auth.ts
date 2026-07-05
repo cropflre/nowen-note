@@ -481,7 +481,7 @@ auth.post("/login", async (c) => {
   });
 });
 
-// ========== 修改账号安全信息（用户名 + 密码） ==========
+// ========== 修改账号安全信息（用户名 + 邮箱 + 昵称 + 密码） ==========
 
 auth.post("/change-password", async (c) => {
   const userId = extractUserId(c);
@@ -491,18 +491,20 @@ auth.post("/change-password", async (c) => {
   }
 
   const body = await c.req.json();
-  const { currentPassword, newUsername, newPassword } = body as {
+  const { currentPassword, newUsername, newPassword, newEmail, newDisplayName } = body as {
     currentPassword: string;
     newUsername?: string;
     newPassword?: string;
+    newEmail?: string | null;
+    newDisplayName?: string | null;
   };
 
   if (!currentPassword) {
     return c.json({ error: "必须提供当前密码" }, 400);
   }
 
-  if (!newUsername && !newPassword) {
-    return c.json({ error: "请填写要修改的用户名或新密码" }, 400);
+  if (!newUsername && !newPassword && newEmail === undefined && newDisplayName === undefined) {
+    return c.json({ error: "请填写要修改的账号资料或新密码" }, 400);
   }
 
   if (newPassword && newPassword.length < 6) {
@@ -512,9 +514,24 @@ auth.post("/change-password", async (c) => {
     const err = validateUsername(newUsername);
     if (err) return c.json({ error: err }, 400);
   }
+  const normalizedEmail = newEmail === undefined
+    ? undefined
+    : newEmail === null
+      ? null
+      : String(newEmail).trim() || null;
+  if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return c.json({ error: "邮箱格式不正确" }, 400);
+  }
+  const normalizedDisplayName = newDisplayName === undefined
+    ? undefined
+    : newDisplayName === null
+      ? null
+      : String(newDisplayName).trim() || null;
 
   const db = getDb();
-  const user = db.prepare("SELECT id, username, passwordHash FROM users WHERE id = ?").get(userId) as any;
+  const user = db
+    .prepare("SELECT id, username, email, displayName, passwordHash FROM users WHERE id = ?")
+    .get(userId) as any;
   if (!user) return c.json({ error: "用户不存在" }, 404);
 
   if (!verifyPasswordCompat(currentPassword, user.passwordHash)) {
@@ -527,6 +544,16 @@ auth.post("/change-password", async (c) => {
   if (newUsername && newUsername !== user.username) {
     updates.push("username = ?");
     params.push(newUsername.trim());
+  }
+
+  if (normalizedEmail !== undefined && normalizedEmail !== (user.email ?? null)) {
+    updates.push("email = ?");
+    params.push(normalizedEmail);
+  }
+
+  if (normalizedDisplayName !== undefined && normalizedDisplayName !== (user.displayName ?? null)) {
+    updates.push("displayName = ?");
+    params.push(normalizedDisplayName);
   }
 
   if (newPassword) {
@@ -545,20 +572,27 @@ auth.post("/change-password", async (c) => {
   try {
     db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...params);
   } catch (e: any) {
-    if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT") && String(e?.message || "").includes("username")) {
-      return c.json({ error: "该用户名已被使用" }, 409);
+    if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
+      const msg = String(e?.message || "");
+      if (msg.includes("users.email") || msg.includes("email")) {
+        return c.json({ error: "该邮箱已被注册" }, 409);
+      }
+      if (msg.includes("users.username") || msg.includes("username")) {
+        return c.json({ error: "该用户名已被使用" }, 409);
+      }
     }
     throw e;
   }
 
-  // 若修改了密码，为当前会话重新下发新 token，避免立即被自己失效
+  // 若修改了用户名或密码，为当前会话重新下发新 token，避免 token 里的 username 过旧；
+  // 改密码时也避免 bump tokenVersion 后当前端立即失效。
   //
   // Phase 6: 同时建立一条新的 user_sessions 记录（带 jti）。因为 bump tokenVersion
   // 会使旧 jti 对应的 token 在中间件里被拒（tver 不匹配），所以给当前端下发新 token 时
   // 也要分配一个新 sessionId。旧会话记录留在 DB 里，revokedAt 仍为 NULL 也无所谓——
   // 它们对应的 token 已经因 tver 不匹配而不可用。
   let newToken: string | undefined;
-  if (newPassword) {
+  if (newUsername || newPassword) {
     const updated = db
       .prepare("SELECT id, username, tokenVersion FROM users WHERE id = ?")
       .get(userId) as { id: string; username: string; tokenVersion: number };

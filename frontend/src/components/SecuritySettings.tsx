@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  Mail,
   User,
   Smartphone,
   Copy,
@@ -130,6 +131,10 @@ function PasswordSection() {
   const { t } = useTranslation();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [originalEmail, setOriginalEmail] = useState("");
+  const [originalDisplayName, setOriginalDisplayName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -138,7 +143,24 @@ function PasswordSection() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [successLabel, setSuccessLabel] = useState("");
   const [shake, setShake] = useState(false);
+
+  const loadProfile = useCallback(() => {
+    let cancelled = false;
+    api.getMe().then((user) => {
+      if (cancelled) return;
+      const nextEmail = user.email || "";
+      const nextDisplayName = user.displayName || "";
+      setEmail(nextEmail);
+      setDisplayName(nextDisplayName);
+      setOriginalEmail(nextEmail);
+      setOriginalDisplayName(nextDisplayName);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => loadProfile(), [loadProfile]);
 
   const triggerShake = (msg: string) => {
     setError(msg);
@@ -153,8 +175,16 @@ function PasswordSection() {
     if (!currentPassword) {
       return triggerShake(t('securitySettings.currentPasswordRequired'));
     }
-    if (!newPassword && !newUsername) {
+    const trimmedEmail = email.trim();
+    const trimmedDisplayName = displayName.trim();
+    const emailChanged = trimmedEmail !== originalEmail;
+    const displayNameChanged = trimmedDisplayName !== originalDisplayName;
+
+    if (!newPassword && !newUsername.trim() && !emailChanged && !displayNameChanged) {
       return triggerShake(t('securitySettings.noChanges'));
+    }
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return triggerShake(t('securitySettings.emailInvalid'));
     }
     if (newPassword && newPassword.length < 6) {
       return triggerShake(t('securitySettings.passwordTooShort'));
@@ -169,7 +199,9 @@ function PasswordSection() {
       // api.updateSecurity 会自动把新 token 写回 localStorage（后端改密会 bump tokenVersion）
       await api.updateSecurity({
         currentPassword,
-        newUsername: newUsername || undefined,
+        newUsername: newUsername.trim() || undefined,
+        newEmail: emailChanged ? (trimmedEmail || null) : undefined,
+        newDisplayName: displayNameChanged ? (trimmedDisplayName || null) : undefined,
         newPassword: newPassword || undefined,
       });
       // 改密后清掉"记住密码/自动登录"和快速登录旧 token，避免旧密码反复尝试
@@ -177,12 +209,23 @@ function PasswordSection() {
         void import("@/lib/rememberLogin").then((m) => m.clearRememberedCredentials()).catch(() => {});
         void import("@/lib/quickLogin").then((m) => m.disableQuickLogin()).catch(() => {});
       }
+      setSuccessLabel(changedPassword ? t('securitySettings.successMessage') : t('securitySettings.profileUpdated'));
       setSuccess(true);
-      setTimeout(() => {
-        // 改密成功 → 通知其他 tab 重新登录，当前 tab 保持登录态 reload
-        broadcastAuthChanged("password_changed");
-        window.location.reload();
-      }, 1200);
+      setCurrentPassword("");
+      setNewUsername("");
+      setNewPassword("");
+      setConfirmPassword("");
+      if (changedPassword) {
+        setTimeout(() => {
+          // 改密成功 → 通知其他 tab 重新登录，当前 tab 保持登录态 reload
+          broadcastAuthChanged("password_changed");
+          window.location.reload();
+        }, 1200);
+      } else {
+        loadProfile();
+        broadcastAuthChanged("profile_changed");
+        setTimeout(() => setSuccess(false), 1200);
+      }
     } catch (err: any) {
       triggerShake(err?.message || t('securitySettings.updateFailed'));
     } finally {
@@ -250,6 +293,42 @@ function PasswordSection() {
               className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-500 transition-all text-sm"
               placeholder={t('securitySettings.newUsernamePlaceholder')}
               autoComplete="username"
+            />
+          </div>
+        </div>
+
+        {/* 邮箱 */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('securitySettings.email')}</label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Mail className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+            </div>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-500 transition-all text-sm"
+              placeholder={t('securitySettings.emailPlaceholder')}
+              autoComplete="email"
+            />
+          </div>
+        </div>
+
+        {/* 昵称 */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('securitySettings.displayName')}</label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <User className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+            </div>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-500 transition-all text-sm"
+              placeholder={t('securitySettings.displayNamePlaceholder')}
+              autoComplete="nickname"
             />
           </div>
         </div>
@@ -340,7 +419,7 @@ function PasswordSection() {
           ) : success ? (
             <>
               <CheckCircle2 className="w-4 h-4 mr-2" />
-              {t('securitySettings.successMessage')}
+              {successLabel || t('securitySettings.profileUpdated')}
             </>
           ) : (
             <>

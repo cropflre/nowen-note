@@ -35,6 +35,33 @@ interface SharedNoteViewProps {
   shareToken: string;
 }
 
+export function isExternalHttpLink(href: string): boolean {
+  const trimmed = href.trim();
+  if (!trimmed) return false;
+
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith("#") ||
+    lower.startsWith("note:") ||
+    lower.startsWith("mailto:") ||
+    lower.startsWith("tel:") ||
+    lower.startsWith("sms:")
+  ) {
+    return false;
+  }
+
+  return /^https?:\/\//i.test(trimmed) || /^\/\//.test(trimmed);
+}
+
+export function normalizeExternalHref(href: string): string {
+  const trimmed = href.trim();
+  if (/^\/\//.test(trimmed)) {
+    const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+    return `${protocol}${trimmed}`;
+  }
+  return trimmed;
+}
+
 export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null);
   const [content, setContent] = useState<SharedNoteContent | null>(null);
@@ -94,6 +121,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const [isMobileOutlineOpen, setIsMobileOutlineOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
   const [lightboxScale, setLightboxScale] = useState(1);
+  const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
 
   // Lightbox Esc 关闭 + 滚动锁 + 缩放
   useEffect(() => {
@@ -136,6 +164,24 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     });
     return () => cancelAnimationFrame(raf);
   }, [content?.content]);
+
+  // 分享页只读内容里的外部链接默认新标签页打开；HTML/PM 路径需要 DOM 后处理。
+  useEffect(() => {
+    const root = pmRenderRef.current;
+    if (!root || !content?.content || !isReadOnlyContent) return;
+
+    const anchors = Array.from(root.querySelectorAll<HTMLAnchorElement>("a[href]"));
+    for (const anchor of anchors) {
+      const href = anchor.getAttribute("href") || "";
+      if (!isExternalHttpLink(href)) continue;
+
+      anchor.setAttribute("target", "_blank");
+      anchor.setAttribute("rel", "noopener noreferrer");
+      if (!anchor.getAttribute("title")) {
+        anchor.setAttribute("title", "在新标签页打开");
+      }
+    }
+  }, [content?.content, isReadOnlyContent]);
 
   useEffect(() => { guestNameRef.current = guestName; }, [guestName]);
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -620,8 +666,6 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content?.noteId, shareToken, content?.permission, content?.isLocked, content?.contentFormat]);
 
-  const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
-
   useEffect(() => {
     if (!isReadOnlyContent) {
       setOutlineHeadings([]);
@@ -809,6 +853,12 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         } catch {
           toast.info(`${label}：${plain}`);
         }
+        return;
+      }
+
+      if (isExternalHttpLink(href)) {
+        e.preventDefault();
+        window.open(normalizeExternalHref(href), "_blank", "noopener,noreferrer");
         return;
       }
     }
@@ -1178,6 +1228,20 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                   },
                 ]]}
                 components={{
+                  a({ href, children, ...props }: any) {
+                    const rawHref = String(href || "");
+                    const isExternal = isExternalHttpLink(rawHref);
+                    return (
+                      <a
+                        {...props}
+                        href={rawHref}
+                        target={isExternal ? "_blank" : props.target}
+                        rel={isExternal ? "noopener noreferrer" : props.rel}
+                      >
+                        {children}
+                      </a>
+                    );
+                  },
                   // 拦截 mermaid 围栏代码块：react-markdown 把 ```mermaid 渲染成
                   // <pre><code class="language-mermaid">...</code></pre>。我们识别
                   // 出 language-mermaid 后用 MermaidView 直接出 SVG，其它语言保持
@@ -1861,7 +1925,11 @@ function renderNode(node: any): string {
               text = `<code>${text}</code>`;
               break;
             case "link":
-              text = `<a href="${escapeHtml(mark.attrs?.href || "")}" target="_blank" rel="noopener">${text}</a>`;
+              {
+                const href = String(mark.attrs?.href || "");
+                const attrs = isExternalHttpLink(href) ? ` target="_blank" rel="noopener noreferrer"` : "";
+                text = `<a href="${escapeHtml(href)}"${attrs}>${text}</a>`;
+              }
               break;
             case "highlight":
               text = `<mark>${text}</mark>`;
