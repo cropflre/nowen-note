@@ -29,6 +29,11 @@ import {
   runNotebookCreateAction,
   type NotebookCreateHandler,
 } from "@/lib/notebookCreateNote";
+import {
+  getDropZoneFromClientY,
+  reorderNotesWithinNotebook,
+  type NoteDropZone,
+} from "@/lib/noteManualSort";
 import { Note, Notebook, NoteListItem, ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -439,7 +444,10 @@ function SidebarNoteItem({
   onSelect,
   onContextMenu,
   onDragStart,
+  onDragOver,
   onDragEnd,
+  onDrop,
+  dragOverZone,
   constrainWidth = false,
   showNoteTime = true,
 }: {
@@ -449,7 +457,10 @@ function SidebarNoteItem({
   onSelect: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
+  onDragOver?: (e: React.DragEvent, id: string) => void;
   onDragEnd?: () => void;
+  onDrop?: (e: React.DragEvent, id: string) => void;
+  dragOverZone?: NoteDropZone | null;
   constrainWidth?: boolean;
   showNoteTime?: boolean;
 }) {
@@ -461,10 +472,13 @@ function SidebarNoteItem({
       onClick={() => onSelect(note.id)}
       onContextMenu={(e) => onContextMenu(e, note.id)}
       onDragStart={(e) => onDragStart?.(e, note.id)}
+      onDragOver={(e) => onDragOver?.(e, note.id)}
       onDragEnd={() => onDragEnd?.()}
+      onDrop={(e) => onDrop?.(e, note.id)}
       className={cn(
         "relative flex items-center gap-1 pr-2 py-1 rounded-md text-left text-xs transition-colors cursor-grab active:cursor-grabbing",
         constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+        dragOverZone && "bg-accent-primary/5",
         active
           ? "bg-app-active text-tx-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
@@ -480,6 +494,13 @@ function SidebarNoteItem({
           style={{ left: `${(depth - 1) * SIDEBAR_TREE_INDENT + 35}px`, width: "22px" }}
         />
       )}
+      {dragOverZone === "before" && (
+        <span className="absolute left-8 right-2 top-0 h-0.5 rounded-full bg-accent-primary pointer-events-none" />
+      )}
+      {dragOverZone === "after" && (
+        <span className="absolute left-8 right-2 bottom-0 h-0.5 rounded-full bg-accent-primary pointer-events-none" />
+      )}
+      <GripVertical size={12} className="shrink-0 text-tx-tertiary/70" />
       <span
         className={cn(
           "absolute top-2 bottom-2 w-0.5 rounded-full pointer-events-none",
@@ -513,9 +534,10 @@ function NotebookItem({
   editingId, editValue, onEditChange, onEditSubmit, onEditCancel,
   onIconChange,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
-  noteDragOverId,
+  noteDragOverId, noteItemDragOverId, noteItemDragOverZone,
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
-  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onCreateNote, onCreateMarkdownNote, onCreateWordNote,
+  onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onNoteItemDragOver, onNoteItemDrop,
+  onCreateNote, onCreateMarkdownNote, onCreateWordNote,
   constrainWidth = false,
   showNoteTime = true,
 }: {
@@ -539,6 +561,8 @@ function NotebookItem({
   dragOverId?: string | null;
   dragOverZone?: "before" | "inside" | null;
   noteDragOverId?: string | null;
+  noteItemDragOverId?: string | null;
+  noteItemDragOverZone?: NoteDropZone | null;
   showNotes?: boolean;
   notesByNotebookId?: Map<string, NoteListItem[]>;
   loadingNotebookIds?: Set<string>;
@@ -549,6 +573,8 @@ function NotebookItem({
   onNoteDragOver?: (e: React.DragEvent, notebookId: string) => void;
   onNoteDragEnd?: () => void;
   onNoteDrop?: (e: React.DragEvent, notebookId: string) => void;
+  onNoteItemDragOver?: (e: React.DragEvent, noteId: string) => void;
+  onNoteItemDrop?: (e: React.DragEvent, noteId: string) => void;
   onCreateNote?: NotebookCreateHandler;
   onCreateMarkdownNote?: NotebookCreateHandler;
   onCreateWordNote?: NotebookCreateHandler;
@@ -822,6 +848,8 @@ function NotebookItem({
                 dragOverId={dragOverId}
                 dragOverZone={dragOverZone}
                 noteDragOverId={noteDragOverId}
+                noteItemDragOverId={noteItemDragOverId}
+                noteItemDragOverZone={noteItemDragOverZone}
                 showNotes={showNotes}
                 notesByNotebookId={notesByNotebookId}
                 loadingNotebookIds={loadingNotebookIds}
@@ -832,6 +860,8 @@ function NotebookItem({
                 onNoteDragOver={onNoteDragOver}
                 onNoteDragEnd={onNoteDragEnd}
                 onNoteDrop={onNoteDrop}
+                onNoteItemDragOver={onNoteItemDragOver}
+                onNoteItemDrop={onNoteItemDrop}
                 {...getNotebookCreateHandlersForChild({
                   onCreateNote,
                   onCreateMarkdownNote,
@@ -850,7 +880,10 @@ function NotebookItem({
                 onSelect={onSelectNote || (() => {})}
                 onContextMenu={onNoteContextMenu || (() => {})}
                 onDragStart={onNoteDragStart}
+                onDragOver={onNoteItemDragOver}
                 onDragEnd={onNoteDragEnd}
+                onDrop={onNoteItemDrop}
+                dragOverZone={noteItemDragOverId === note.id ? noteItemDragOverZone : null}
                 constrainWidth={constrainWidth}
                 showNoteTime={showNoteTime}
               />
@@ -1072,6 +1105,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const [dragOverNbZone, setDragOverNbZone] = useState<"before" | "inside" | null>(null);
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [dragOverNoteNotebookId, setDragOverNoteNotebookId] = useState<string | null>(null);
+  const [dragOverSidebarNoteId, setDragOverSidebarNoteId] = useState<string | null>(null);
+  const [dragOverSidebarNoteZone, setDragOverSidebarNoteZone] = useState<NoteDropZone | null>(null);
 
   // 标签颜色选择浮层状态（通过右键 / 长按触发）
   const [tagColorPopover, setTagColorPopover] = useState<{
@@ -1224,6 +1259,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragNbId(id);
     setDragNoteId(null);
     setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(null);
+    setDragOverSidebarNoteZone(null);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", id);
   }, []);
@@ -1345,6 +1382,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     e.stopPropagation();
     setDragNoteId(noteId);
     setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(null);
+    setDragOverSidebarNoteZone(null);
     setDragNbId(null);
     setDragOverNbId(null);
     setDragOverNbZone(null);
@@ -1370,7 +1409,66 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const handleSidebarNoteDragEnd = useCallback(() => {
     setDragNoteId(null);
     setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(null);
+    setDragOverSidebarNoteZone(null);
   }, []);
+
+  const handleSidebarNoteItemDragOver = useCallback((e: React.DragEvent, targetNoteId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceId = e.dataTransfer.getData("application/x-nowen-note") || dragNoteId;
+    const source = getCachedNote(sourceId);
+    const target = getCachedNote(targetNoteId);
+    if (!source || !target || source.id === target.id || source.isLocked === 1 || target.isLocked === 1 || source.notebookId !== target.notebookId) {
+      e.dataTransfer.dropEffect = "none";
+      setDragOverSidebarNoteId(null);
+      setDragOverSidebarNoteZone(null);
+      return;
+    }
+
+    const zone = getDropZoneFromClientY(e.clientY, e.currentTarget.getBoundingClientRect());
+    e.dataTransfer.dropEffect = "move";
+    setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(targetNoteId);
+    setDragOverSidebarNoteZone(zone);
+  }, [dragNoteId, getCachedNote]);
+
+  const handleSidebarNoteItemDrop = useCallback(async (e: React.DragEvent, targetNoteId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceId = e.dataTransfer.getData("application/x-nowen-note") || dragNoteId;
+    const target = getCachedNote(targetNoteId);
+    const zone = dragOverSidebarNoteZone || getDropZoneFromClientY(e.clientY, e.currentTarget.getBoundingClientRect());
+    setDragNoteId(null);
+    setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(null);
+    setDragOverSidebarNoteZone(null);
+    if (!sourceId || !target) return;
+
+    const notebookId = target.notebookId;
+    const currentNotes = notesByNotebookIdRef.current.get(notebookId) || [];
+    const result = reorderNotesWithinNotebook(currentNotes, sourceId, targetNoteId, zone);
+    if (!result) return;
+
+    setNotesByNotebookId((prev) => new Map(prev).set(notebookId, result.notes));
+    try {
+      await api.reorderNotes(result.items);
+      toast.success("排序已保存");
+      actions.refreshNotes();
+      actions.refreshNotebooks();
+    } catch (err: any) {
+      console.error("Failed to reorder sidebar notes:", err);
+      toast.error(err?.message || "排序保存失败");
+      void loadNotesForNotebook(notebookId, true);
+      actions.refreshNotes();
+    }
+  }, [
+    actions,
+    dragNoteId,
+    dragOverSidebarNoteZone,
+    getCachedNote,
+    loadNotesForNotebook,
+  ]);
 
   const handleSidebarNoteDrop = useCallback(async (e: React.DragEvent, targetNotebookId: string) => {
     e.preventDefault();
@@ -1378,6 +1476,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     const noteId = e.dataTransfer.getData("application/x-nowen-note") || dragNoteId;
     setDragNoteId(null);
     setDragOverNoteNotebookId(null);
+    setDragOverSidebarNoteId(null);
+    setDragOverSidebarNoteZone(null);
     if (!noteId) return;
 
     const note = getCachedNote(noteId);
@@ -2286,6 +2386,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     dragOverId={dragOverNbId}
                     dragOverZone={dragOverNbZone}
                     noteDragOverId={dragOverNoteNotebookId}
+                    noteItemDragOverId={dragOverSidebarNoteId}
+                    noteItemDragOverZone={dragOverSidebarNoteZone}
                     showNotes={showNotesInNotebookTree}
                     notesByNotebookId={notesByNotebookId}
                     loadingNotebookIds={loadingNotebookIds}
@@ -2296,6 +2398,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     onNoteDragOver={handleSidebarNoteDragOver}
                     onNoteDragEnd={handleSidebarNoteDragEnd}
                     onNoteDrop={handleSidebarNoteDrop}
+                    onNoteItemDragOver={handleSidebarNoteItemDragOver}
+                    onNoteItemDrop={handleSidebarNoteItemDrop}
                     onCreateNote={handleCreateSidebarNote}
                     onCreateMarkdownNote={handleCreateSidebarMarkdownNote}
                     onCreateWordNote={handleCreateSidebarWordNote}

@@ -22,6 +22,7 @@ import { deleteNote as deleteLocalNote, getNote as getLocalNote, putNote as putL
 import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
 import { initNoteListTitleOnlyMode } from "@/lib/noteListTitleOnlyMode";
+import { getNoteListDragHint, reorderNotesWithinNotebook } from "@/lib/noteManualSort";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -970,7 +971,7 @@ const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime, notebookLabel,
+  showNoteTime, notebookLabel, dragHint,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -990,6 +991,7 @@ const NoteCard = React.memo(function NoteCard({
   searchQuery?: string;
   showNoteTime?: boolean;
   notebookLabel?: string;
+  dragHint?: string;
 }) {
   // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
   // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
@@ -1061,9 +1063,17 @@ const NoteCard = React.memo(function NoteCard({
       <div className="pl-3.5 pr-3 py-2.5 min-w-0">
         {/* 标题行 + 状态图标 */}
         <div className="flex items-center justify-between gap-2 min-w-0">
-          {draggable && (
-            <GripVertical size={14} className="text-tx-tertiary opacity-0 group-hover:opacity-60 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
-          )}
+          <span
+            title={dragHint}
+            className={cn(
+              "inline-flex text-tx-tertiary transition-opacity shrink-0",
+              draggable
+                ? "opacity-70 cursor-grab active:cursor-grabbing"
+                : "opacity-30 cursor-help"
+            )}
+          >
+            <GripVertical size={14} />
+          </span>
           <h3 className={cn(
             // 标题强制单行：这里**故意**不用 `truncate`（white-space: nowrap）。
             // 历史踩坑：`truncate` 在 flex item 里偶发被外层富文本/prose 全局样式覆盖
@@ -1192,6 +1202,7 @@ function VirtualNoteList({
   showNoteTime,
   showNotebookLabel,
   notebookLabels,
+  dragHint,
 }: {
   notes: NoteListItem[];
   activeNoteId: string | undefined;
@@ -1214,6 +1225,7 @@ function VirtualNoteList({
   showNoteTime?: boolean;
   showNotebookLabel?: boolean;
   notebookLabels?: Map<string, string>;
+  dragHint?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1291,6 +1303,7 @@ function VirtualNoteList({
               searchQuery={searchQuery}
               showNoteTime={showNoteTime}
               notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId) : undefined}
+              dragHint={dragHint}
             />
           ))}
         </div>
@@ -2700,6 +2713,7 @@ export default function NoteList() {
   const canDragSort = sortPref.by === "manual" && (
     state.viewMode === "notebook" || state.viewMode === "all" || state.viewMode === "favorites" || state.viewMode === "tag"
   );
+  const noteDragHint = getNoteListDragHint(canDragSort);
 
   // 判别 DataTransfer 是否带"操作系统外部文件"——
   // 这是区分"内部笔记排序拖拽 vs 用户从桌面/资源管理器拖入文件"的唯一可靠依据。
@@ -2873,24 +2887,24 @@ export default function NoteList() {
     setDragOverNoteId(null);
     if (!sourceId || sourceId === targetNoteId) return;
 
-    const currentNotes = [...state.notes];
-    const sourceIdx = currentNotes.findIndex((n) => n.id === sourceId);
-    const targetIdx = currentNotes.findIndex((n) => n.id === targetNoteId);
-    if (sourceIdx === -1 || targetIdx === -1) return;
-
-    // 移动元素
-    const [moved] = currentNotes.splice(sourceIdx, 1);
-    currentNotes.splice(targetIdx, 0, moved);
+    const result = reorderNotesWithinNotebook(state.notes, sourceId, targetNoteId, "before");
+    if (!result) {
+      const source = state.notes.find((n) => n.id === sourceId);
+      const target = state.notes.find((n) => n.id === targetNoteId);
+      if (source && target && source.notebookId !== target.notebookId) {
+        toast.warning("不同笔记本内的笔记不能直接排序");
+      }
+      return;
+    }
 
     // 更新本地状态
-    actions.setNotes(currentNotes);
-
-    // 持久化排序
-    const items = currentNotes.map((n, i) => ({ id: n.id, sortOrder: i }));
+    actions.setNotes(result.notes);
     try {
-      await api.reorderNotes(items);
+      await api.reorderNotes(result.items);
+      toast.success("排序已保存");
     } catch (err) {
       console.error("Failed to reorder notes:", err);
+      toast.error("排序保存失败");
       await fetchNotes(); // 回滚
     }
   }, [dragNoteId, state.notes, actions, fetchNotes]);
@@ -2955,21 +2969,18 @@ export default function NoteList() {
 
     if (!targetId || sourceId === targetId) return;
 
-    const currentNotes = [...state.notes];
-    const sourceIdx = currentNotes.findIndex((n) => n.id === sourceId);
-    const targetIdx = currentNotes.findIndex((n) => n.id === targetId);
-    if (sourceIdx === -1 || targetIdx === -1) return;
+    const result = reorderNotesWithinNotebook(state.notes, sourceId, targetId, "before");
+    if (!result) return;
 
-    const [moved] = currentNotes.splice(sourceIdx, 1);
-    currentNotes.splice(targetIdx, 0, moved);
-    actions.setNotes(currentNotes);
+    actions.setNotes(result.notes);
     haptic.medium();
 
-    const items = currentNotes.map((n, i) => ({ id: n.id, sortOrder: i }));
     try {
-      await api.reorderNotes(items);
+      await api.reorderNotes(result.items);
+      toast.success("排序已保存");
     } catch (err) {
       console.error("Failed to reorder notes:", err);
+      toast.error("排序保存失败");
       await fetchNotes();
     }
   }, [dragOverNoteId, state.notes, actions, fetchNotes]);
@@ -3471,6 +3482,7 @@ export default function NoteList() {
             showNoteTime={showNoteTime}
             showNotebookLabel={showNotebookLabel}
             notebookLabels={notebookLabels}
+            dragHint={noteDragHint}
           />
         ) : (
         <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
@@ -3502,6 +3514,7 @@ export default function NoteList() {
                 searchQuery={state.searchQuery || undefined}
                 showNoteTime={showNoteTime}
                 notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId) : undefined}
+                dragHint={noteDragHint}
               />
             ))}
           </AnimatePresence>
