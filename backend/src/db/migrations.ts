@@ -1872,6 +1872,21 @@ export const MIGRATIONS: Migration[] = [
       db.prepare("ALTER TABLE note_versions ADD COLUMN contentFormat TEXT NOT NULL DEFAULT 'tiptap-json'").run();
     },
   },
+  // v41: 循环任务支持按总次数结束；repeatSequenceIndex 用于避免物理删除导致 COUNT 回退。
+  {
+    version: 41,
+    name: "tasks-repeat-end-count",
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("repeatEndCount")) {
+        db.prepare("ALTER TABLE tasks ADD COLUMN repeatEndCount INTEGER").run();
+      }
+      if (!colNames.has("repeatSequenceIndex")) {
+        db.prepare("ALTER TABLE tasks ADD COLUMN repeatSequenceIndex INTEGER").run();
+      }
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

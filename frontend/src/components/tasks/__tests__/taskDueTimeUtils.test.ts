@@ -48,13 +48,14 @@ describe("due time helpers", () => {
   });
 
   it("clearing dueDate also clears dueAt and disables repeat", () => {
-    const task = makeTask({ dueDate: "2026-06-17", dueAt: "2026-06-17T17:00", repeatRule: "weekly" });
+    const task = makeTask({ dueDate: "2026-06-17", dueAt: "2026-06-17T17:00", repeatRule: "weekly", repeatEndCount: 5 });
     expect(buildDueDatePatch(task, "")).toEqual({
       dueDate: null,
       dueAt: null,
       repeatRule: "none",
       repeatInterval: 1,
       repeatEndDate: null,
+      repeatEndCount: null,
     });
   });
 

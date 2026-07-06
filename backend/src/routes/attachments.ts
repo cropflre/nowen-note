@@ -759,6 +759,7 @@ app.delete("/:id", async (c) => {
 //     同一份字符串同时承载 HTML 形式和 JSON 形式里的 src 属性值；
 //   - 用正则替换只操作 src 的值部分，对 JSON / HTML 都安全。
 const INLINE_IMG_BASE64_RE = /(["'])data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\1/gi;
+const MARKDOWN_IMG_BASE64_RE = /!\[([^\]]*)\]\(data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\)/gi;
 
 export interface InlineImageExtractResult {
   /** 替换后的 content（data URI 已被换成 /api/attachments/<id>） */
@@ -817,70 +818,85 @@ export function extractInlineBase64Images(
   const attachmentIds: string[] = [];
   let replacedCount = 0;
 
-  const newContent = content.replace(
+  const createAttachmentUrl = (mime: string, base64: string): string | null => {
+    const mimeLower = mime.toLowerCase();
+    if (!ALLOWED_IMAGE_MIMES.has(mimeLower)) {
+      return null;
+    }
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(base64, "base64");
+    } catch {
+      return null;
+    }
+    if (buffer.length === 0 || buffer.length > MAX_ATTACHMENT_SIZE) {
+      return null;
+    }
+
+    // hash dedup：先查命中，命中则不写盘，但复制新元数据行并返回新 id
+    const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+    const hit = (workspaceId
+      ? dedupSelect.get(userId, workspaceId, sha256)
+      : dedupSelect.get(userId, sha256)) as ExistingAttachmentForDedup | undefined;
+    if (hit) {
+      try {
+        const clone = createDeduplicatedAttachmentRow({
+          source: hit,
+          noteId,
+          userId,
+          workspaceId,
+          filename: hit.filename,
+          hash: sha256,
+        });
+        attachmentIds.push(clone.id);
+        replacedCount++;
+        return clone.url;
+      } catch {
+        return null;
+      }
+    }
+
+    const id = uuid();
+    const ext = MIME_TO_EXT[mimeLower] || "bin";
+    const monthPath = getUploadMonthPath();
+    const filename = `${monthPath}/${id}.${ext}`;
+    const savePath = path.join(ATTACHMENTS_DIR, filename);
+
+    try {
+      fs.mkdirSync(path.dirname(savePath), { recursive: true });
+      fs.writeFileSync(savePath, buffer);
+    } catch {
+      return null;
+    }
+    try {
+      insertStmt.run(id, noteId, userId, filename, mimeLower, buffer.length, filename, workspaceId, sha256);
+    } catch {
+      // DB 写失败 → 清掉磁盘文件，保留原 data URI
+      try { fs.unlinkSync(savePath); } catch { /* ignore */ }
+      return null;
+    }
+
+    attachmentIds.push(id);
+    replacedCount++;
+    return `/api/attachments/${id}`;
+  };
+
+  const htmlRewritten = content.replace(
     INLINE_IMG_BASE64_RE,
     (_match, quote: string, mime: string, base64: string) => {
-      const mimeLower = mime.toLowerCase();
-      if (!ALLOWED_IMAGE_MIMES.has(mimeLower)) {
-        return _match; // 不支持的 MIME，保持原样
-      }
-      let buffer: Buffer;
-      try {
-        buffer = Buffer.from(base64, "base64");
-      } catch {
-        return _match;
-      }
-      if (buffer.length === 0 || buffer.length > MAX_ATTACHMENT_SIZE) {
-        return _match;
-      }
-
-      // hash dedup：先查命中，命中则不写盘，但复制新元数据行并返回新 id
-      const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-      const hit = (workspaceId
-        ? dedupSelect.get(userId, workspaceId, sha256)
-        : dedupSelect.get(userId, sha256)) as ExistingAttachmentForDedup | undefined;
-      if (hit) {
-        try {
-          const clone = createDeduplicatedAttachmentRow({
-            source: hit,
-            noteId,
-            userId,
-            workspaceId,
-            filename: hit.filename,
-            hash: sha256,
-          });
-          attachmentIds.push(clone.id);
-          replacedCount++;
-          return `${quote}${clone.url}${quote}`;
-        } catch {
-          return _match;
-        }
-      }
-
-      const id = uuid();
-      const ext = MIME_TO_EXT[mimeLower] || "bin";
-      const monthPath = getUploadMonthPath();
-      const filename = `${monthPath}/${id}.${ext}`;
-      const savePath = path.join(ATTACHMENTS_DIR, filename);
-
-      try {
-        fs.mkdirSync(path.dirname(savePath), { recursive: true });
-        fs.writeFileSync(savePath, buffer);
-      } catch {
-        return _match;
-      }
-      try {
-        insertStmt.run(id, noteId, userId, filename, mimeLower, buffer.length, filename, workspaceId, sha256);
-      } catch {
-        // DB 写失败 → 清掉磁盘文件，保留原 data URI
-        try { fs.unlinkSync(savePath); } catch { /* ignore */ }
-        return _match;
-      }
-
-      attachmentIds.push(id);
-      replacedCount++;
+      const url = createAttachmentUrl(mime, base64);
+      if (!url) return _match;
       // 用同款 quote 包住替换值，避免破坏外层 JSON / HTML 的引号平衡
-      return `${quote}/api/attachments/${id}${quote}`;
+      return `${quote}${url}${quote}`;
+    },
+  );
+
+  const newContent = htmlRewritten.replace(
+    MARKDOWN_IMG_BASE64_RE,
+    (_match, alt: string, mime: string, base64: string) => {
+      const url = createAttachmentUrl(mime, base64);
+      if (!url) return _match;
+      return `![${alt}](${url})`;
     },
   );
 

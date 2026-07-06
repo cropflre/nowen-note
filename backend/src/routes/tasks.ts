@@ -281,10 +281,19 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const repeatEndDate = body.repeatEndDate ?? null;
   const repeatGroupId = body.repeatGroupId ?? null;
   const repeatGeneratedFromId = body.repeatGeneratedFromId ?? null;
+  let repeatEndCount: number | null;
+  try {
+    repeatEndCount = normalizeRepeatEndCount(body.repeatEndCount);
+  } catch {
+    return c.json({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
+  }
 
   const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
   if (!VALID_REPEAT.includes(repeatRule)) {
     return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
+  }
+  if (repeatRule === "none") {
+    repeatEndCount = null;
   }
   if (repeatRule !== "none" && repeatRule !== "custom" && repeatInterval < 1) {
     return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
@@ -355,10 +364,13 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
 
   const effectiveIsCompleted = status === "done" ? 1 : 0;
 
+  const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
+  const repeatSequenceIndex = repeatRule === "none" ? null : 1;
+
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson);
+    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
 
   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   return c.json(task, 201);
@@ -398,10 +410,21 @@ tasks.put("/:id", (c) => {
     const repeatRule = body.repeatRule !== undefined ? body.repeatRule : (existing.repeatRule || "none");
     const repeatInterval = body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeatInterval ?? 1);
     const repeatEndDate = body.repeatEndDate !== undefined ? body.repeatEndDate : (existing.repeatEndDate ?? null);
+    let repeatEndCount: number | null;
+    try {
+      repeatEndCount = body.repeatEndCount !== undefined
+        ? normalizeRepeatEndCount(body.repeatEndCount)
+        : (existing.repeatEndCount ?? null);
+    } catch {
+      return c.json({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
+    }
 
     const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
     if (!VALID_REPEAT.includes(repeatRule)) {
       return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
+    }
+    if (repeatRule === "none") {
+      repeatEndCount = null;
     }
     if (repeatRule !== "none" && repeatRule !== "custom" && (repeatInterval ?? 0) < 1) {
       return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
@@ -502,16 +525,20 @@ tasks.put("/:id", (c) => {
       }
     }
 
+    const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
+    const repeatSequenceIndex = repeatRule === "none" ? null : (existing.repeatSequenceIndex ?? 1);
+
     db.prepare(`
       UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
-        description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatRuleJson = ?, updatedAt = datetime('now')
+        description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatEndCount = ?, repeatSequenceIndex = ?, repeatRuleJson = ?, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatRuleJson, id);
+    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatEndCount, repeatSequenceIndex, repeatRuleJson, id);
 
     let generatedTask = null;
     // Generate next repeated task when marking as done via PUT
     if (isCompleted === 1 && existing.isCompleted === 0) {
-      generatedTask = generateNextRepeatedTask(db, existing);
+      const updatedForGeneration = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+      generatedTask = generateNextRepeatedTask(db, updatedForGeneration);
     }
 
     const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
@@ -586,6 +613,15 @@ function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
 
 // TASK-RECURRENCE-CUSTOM-01-RV1: 校验自定义循环规则字段
 const VALID_FREQS = ["day", "week", "month", "year"];
+function normalizeRepeatEndCount(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 999) {
+    throw new Error("INVALID_REPEAT_END_COUNT");
+  }
+  return n;
+}
+
 function validateRepeatRuleJson(rj: any): string | null {
   if (!rj || typeof rj !== "object") return "repeatRuleJson must be an object";
   if (!VALID_FREQS.includes(rj.frequency)) return "frequency must be day/week/month/year";
@@ -611,11 +647,32 @@ function validateRepeatRuleJson(rj: any): string | null {
   return null;
 }
 
+function getRepeatOccurrenceCount(db: any, groupId: string): number {
+  const row = db.prepare(
+    "SELECT COUNT(*) AS count FROM tasks WHERE id = ? OR repeatGroupId = ?"
+  ).get(groupId, groupId) as { count: number } | undefined;
+  return row?.count ?? 0;
+}
+
 /** Generate next repeated task. Returns the new task or null. */
 function generateNextRepeatedTask(db: any, task: any): any {
   if (!task.repeatRule || task.repeatRule === "none" || task.repeatNextGeneratedId) return null;
   const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
   if (!baseDateStr) return null;
+  const groupId = task.repeatGroupId || task.id;
+
+  const maxCount = task.repeatEndCount === null || task.repeatEndCount === undefined
+    ? null
+    : Number(task.repeatEndCount);
+  const currentSequenceIndex = task.repeatSequenceIndex === null || task.repeatSequenceIndex === undefined
+    ? getRepeatOccurrenceCount(db, groupId)
+    : Number(task.repeatSequenceIndex);
+  if (maxCount !== null && Number.isFinite(maxCount) && maxCount >= 1) {
+    if (currentSequenceIndex >= maxCount) return null;
+  }
+  const nextSequenceIndex = Number.isFinite(currentSequenceIndex) && currentSequenceIndex >= 1
+    ? currentSequenceIndex + 1
+    : getRepeatOccurrenceCount(db, groupId) + 1;
 
   const parts = baseDateStr.split("-").map(Number);
   const base = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -663,11 +720,10 @@ function generateNextRepeatedTask(db: any, task: any): any {
   }
 
   const newId = crypto.randomUUID();
-  const groupId = task.repeatGroupId || task.id;
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatRuleJson)
-    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(newId, task.userId, task.workspaceId, task.title, task.description || "", task.priority, nextDueDate, nextDueAt, null, task.noteId, task.parentId, task.projectId, 'todo', task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id, task.repeatRuleJson);
+    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
+    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(newId, task.userId, task.workspaceId, task.title, task.description || "", task.priority, nextDueDate, nextDueAt, null, task.noteId, task.parentId, task.projectId, 'todo', task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id, task.repeatEndCount ?? null, nextSequenceIndex, task.repeatRuleJson);
 
   db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run(newId, task.id);
 

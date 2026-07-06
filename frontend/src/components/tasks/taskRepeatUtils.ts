@@ -83,6 +83,14 @@ function nextDateFromCustomRule(base: Date, rule: any): Date | null {
 export function getNextRepeatDate(task: Task): string | null {
   if (!isRepeatingTask(task)) return null;
 
+  if (
+    task.repeatEndCount !== null &&
+    task.repeatEndCount !== undefined &&
+    (task.repeatSequenceIndex ?? 1) >= task.repeatEndCount
+  ) {
+    return null;
+  }
+
   const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
   if (!baseDateStr) return null;
 
@@ -153,6 +161,8 @@ export function buildNextRepeatedTaskPatch(task: Task): Partial<Task> | null {
     repeatRule: task.repeatRule,
     repeatInterval: task.repeatInterval,
     repeatEndDate: task.repeatEndDate ?? null,
+    repeatEndCount: task.repeatEndCount ?? null,
+    repeatSequenceIndex: (task.repeatSequenceIndex ?? 1) + 1,
     repeatGroupId: task.repeatGroupId ?? task.id,
     repeatGeneratedFromId: task.id,
     repeatRuleJson: task.repeatRuleJson ?? null,

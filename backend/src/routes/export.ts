@@ -80,6 +80,10 @@ function workspaceFilter(raw: string | undefined): { sql: string; param: string 
   return { sql: "AND n.workspaceId = ?", param: ws };
 }
 
+function normalizeImportedContentFormat(value: unknown): "tiptap-json" | "markdown" {
+  return value === "markdown" ? "markdown" : "tiptap-json";
+}
+
 // 获取笔记（含完整内容）+ 笔记本信息，用于前端打包导出
 //   - 默认按 personal（workspaceId IS NULL）
 //   - 传 ?workspaceId=<uuid> 时按指定工作区过滤
@@ -143,6 +147,7 @@ app.post("/import", async (c) => {
       contentText: string;
       createdAt?: string;
       updatedAt?: string;
+      contentFormat?: string;
       notebookName?: string; // 可选：按原笔记本名归属（单层，向后兼容）
       notebookPath?: string[]; // 可选：笔记本层级路径（从根到叶），如 ["我是文章2", "test2", "新笔记本"]
     }[];
@@ -263,12 +268,12 @@ app.post("/import", async (c) => {
 
   // INSERT 时显式带 workspaceId，确保新笔记落到指定工作区。
   const insertWithDates = db.prepare(`
-    INSERT INTO notes (id, userId, notebookId, title, content, contentText, createdAt, updatedAt, workspaceId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat, createdAt, updatedAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertDefault = db.prepare(`
-    INSERT INTO notes (id, userId, notebookId, title, content, contentText, workspaceId)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   // 导入后如果发现 content 里有内联 base64 图片，需要再 UPDATE 一次把 src 换成 URL。
   // 这里必须在 INSERT notes 之后才能写 attachments 行（外键依赖），所以走两步。
@@ -303,12 +308,13 @@ app.post("/import", async (c) => {
       usedNotebookIds.add(targetId);
 
       const id = uuid();
+      const contentFormat = normalizeImportedContentFormat(note.contentFormat);
       if (note.createdAt || note.updatedAt) {
         const createdAt = note.createdAt || new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
         const updatedAt = note.updatedAt || createdAt;
-        insertWithDates.run(id, userId, targetId, note.title, note.content, note.contentText, createdAt, updatedAt, targetWs);
+        insertWithDates.run(id, userId, targetId, note.title, note.content, note.contentText, contentFormat, createdAt, updatedAt, targetWs);
       } else {
-        insertDefault.run(id, userId, targetId, note.title, note.content, note.contentText, targetWs);
+        insertDefault.run(id, userId, targetId, note.title, note.content, note.contentText, contentFormat, targetWs);
       }
 
       // 抽取 content 里的内联 base64 图片为 attachments：

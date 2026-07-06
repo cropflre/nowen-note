@@ -26,6 +26,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     repeatGroupId: overrides.repeatGroupId ?? null,
     repeatGeneratedFromId: overrides.repeatGeneratedFromId ?? null,
     repeatNextGeneratedId: overrides.repeatNextGeneratedId ?? null,
+    repeatEndCount: overrides.repeatEndCount ?? null,
+    repeatSequenceIndex: overrides.repeatSequenceIndex ?? 1,
     repeatRuleJson: overrides.repeatRuleJson ?? null,
     ...overrides,
   } as Task;
@@ -76,6 +78,10 @@ describe("getNextRepeatDate", () => {
     const t = makeTask({ repeatRule: "daily", dueDate: "2026-06-10", repeatEndDate: "2026-06-10" });
     expect(getNextRepeatDate(t)).toBeNull();
   });
+  it("returns null when repeatEndCount has reached the current occurrence", () => {
+    const t = makeTask({ repeatRule: "daily", dueDate: "2026-06-10", repeatEndCount: 3, repeatSequenceIndex: 3 });
+    expect(getNextRepeatDate(t)).toBeNull();
+  });
   it("returns null for no dueDate/dueAt", () => {
     const t = makeTask({ repeatRule: "daily" });
     expect(getNextRepeatDate(t)).toBeNull();
@@ -99,6 +105,13 @@ describe("buildNextRepeatedTaskPatch", () => {
     expect(patch!.status).toBe("todo");
     expect(patch!.repeatRule).toBe("daily");
     expect(patch!.repeatGeneratedFromId).toBe(t.id);
+  });
+  it("carries repeatEndCount and increments repeatSequenceIndex", () => {
+    const t = makeTask({ repeatRule: "daily", dueDate: "2026-06-10", repeatEndCount: 12, repeatSequenceIndex: 4 });
+    const patch = buildNextRepeatedTaskPatch(t);
+    expect(patch).not.toBeNull();
+    expect(patch!.repeatEndCount).toBe(12);
+    expect(patch!.repeatSequenceIndex).toBe(5);
   });
   it("preserves dueAt time part", () => {
     const t = makeTask({ repeatRule: "weekly", dueAt: "2026-06-10T14:00:00", dueDate: "2026-06-10" });

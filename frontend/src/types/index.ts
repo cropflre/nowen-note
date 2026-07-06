@@ -415,6 +415,10 @@ export interface Task {
   repeatRule?: "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
   repeatInterval?: number;
   repeatEndDate?: string | null;
+  /** 循环任务按总次数结束；null 表示不按次数限制。 */
+  repeatEndCount?: number | null;
+  /** 当前循环序号，避免删除历史任务后按 COUNT 计算回退。 */
+  repeatSequenceIndex?: number | null;
   repeatGroupId?: string | null;
   repeatGeneratedFromId?: string | null;
   repeatNextGeneratedId?: string | null;

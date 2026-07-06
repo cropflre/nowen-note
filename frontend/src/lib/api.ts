@@ -781,6 +781,98 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
   } as unknown as T;
 }
 
+type ImportNotePayload = {
+  title: string;
+  content: string;
+  contentText: string;
+  contentFormat?: "tiptap-json" | "markdown" | "html";
+  createdAt?: string;
+  updatedAt?: string;
+  notebookName?: string;
+  notebookPath?: string[];
+};
+
+type ImportNotesResponse = {
+  success: boolean;
+  count: number;
+  notebookId: string;
+  notebookIds?: string[];
+  notes: any[];
+  workspaceId?: string | null;
+};
+
+const IMPORT_NOTES_MAX_BATCH_BODY_CHARS = 8 * 1024 * 1024;
+const IMPORT_NOTES_MAX_BATCH_COUNT = 20;
+
+function estimateImportNoteChars(note: ImportNotePayload): number {
+  // 只做保守估算，避免为了估算大小又提前 JSON.stringify 整个大对象。
+  let total = 256;
+  total += note.title.length + note.content.length + note.contentText.length;
+  total += (note.createdAt?.length || 0) + (note.updatedAt?.length || 0);
+  total += note.notebookName?.length || 0;
+  total += note.notebookPath?.reduce((sum, part) => sum + part.length + 8, 0) || 0;
+  return total;
+}
+
+function splitImportNoteBatches(notes: ImportNotePayload[]): ImportNotePayload[][] {
+  const batches: ImportNotePayload[][] = [];
+  let current: ImportNotePayload[] = [];
+  let currentChars = 512;
+
+  for (const note of notes) {
+    const noteChars = estimateImportNoteChars(note);
+    const wouldOverflow =
+      current.length > 0 &&
+      (current.length >= IMPORT_NOTES_MAX_BATCH_COUNT ||
+        currentChars + noteChars > IMPORT_NOTES_MAX_BATCH_BODY_CHARS);
+    if (wouldOverflow) {
+      batches.push(current);
+      current = [];
+      currentChars = 512;
+    }
+    current.push(note);
+    currentChars += noteChars;
+  }
+
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function isInvalidStringLengthError(error: unknown): boolean {
+  return error instanceof RangeError && /Invalid string length/i.test(error.message);
+}
+
+async function postImportNoteBatchWithSplit(
+  batch: ImportNotePayload[],
+  postBatch: (batch: ImportNotePayload[]) => Promise<ImportNotesResponse>,
+): Promise<ImportNotesResponse[]> {
+  try {
+    return [await postBatch(batch)];
+  } catch (error) {
+    if (batch.length > 1 && isInvalidStringLengthError(error)) {
+      const mid = Math.ceil(batch.length / 2);
+      return [
+        ...(await postImportNoteBatchWithSplit(batch.slice(0, mid), postBatch)),
+        ...(await postImportNoteBatchWithSplit(batch.slice(mid), postBatch)),
+      ];
+    }
+    throw error;
+  }
+}
+
+function mergeImportNoteResponses(results: ImportNotesResponse[]): ImportNotesResponse {
+  const notebookIds = Array.from(new Set(results.flatMap((result) => result.notebookIds || [])));
+  const notes = results.flatMap((result) => result.notes || []);
+  return {
+    success: results.every((result) => result.success),
+    count: results.reduce((sum, result) => sum + (result.count || 0), 0),
+    notebookId: results.find((result) => result.notebookId)?.notebookId || notebookIds[0] || "",
+    notebookIds: notebookIds.length > 0 ? notebookIds : undefined,
+    notes,
+    workspaceId: results.find((result) => result.workspaceId !== undefined)?.workspaceId,
+  };
+}
+
 export const api = {
   // Public (no auth required)
   getSiteSettingsPublic: async (): Promise<{
@@ -1588,18 +1680,28 @@ export const api = {
     const filename = filenameMatch ? decodeURIComponent(filenameMatch[1].replace(/"/g, "")) : "nowen-package.nowen.zip";
     return { blob, filename };
   },
-  importNotes: (
-    notes: { title: string; content: string; contentText: string; createdAt?: string; updatedAt?: string; notebookName?: string; notebookPath?: string[] }[],
+  importNotes: async (
+    notes: ImportNotePayload[],
     notebookId?: string,
     notebookName?: string,
     workspaceId?: string,
   ) => {
     const ws = workspaceId ?? getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
-    return request<{ success: boolean; count: number; notebookId: string; notebookIds?: string[]; notes: any[]; workspaceId?: string | null }>(`/export/import${qs}`, {
-      method: "POST",
-      body: JSON.stringify({ notes, notebookId, notebookName }),
-    });
+    const postBatch = (batch: ImportNotePayload[]) =>
+      request<ImportNotesResponse>(`/export/import${qs}`, {
+        method: "POST",
+        body: JSON.stringify({ notes: batch, notebookId, notebookName }),
+      });
+
+    const batches = splitImportNoteBatches(notes);
+    const results: ImportNotesResponse[] = [];
+
+    for (const batch of batches) {
+      results.push(...await postImportNoteBatchWithSplit(batch, postBatch));
+    }
+
+    return mergeImportNoteResponses(results);
   },
   /** Nowen 数据包 dry-run 预检 */
   dryRunNowenPackage: async (file: File) => {

@@ -453,6 +453,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     "repeatGroupId" TEXT,
     "repeatGeneratedFromId" TEXT,
     "repeatNextGeneratedId" TEXT,
+    "repeatEndCount" INTEGER,
+    "repeatSequenceIndex" INTEGER,
     "startDate" TEXT,
     description TEXT NOT NULL DEFAULT '',
     "repeatRuleJson" TEXT

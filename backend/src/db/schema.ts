@@ -253,6 +253,8 @@ function initSchema(db: Database.Database) {
       noteId TEXT,
       parentId TEXT,
       sortOrder INTEGER DEFAULT 0,
+      repeatEndCount INTEGER,
+      repeatSequenceIndex INTEGER,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,

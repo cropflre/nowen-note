@@ -56,6 +56,22 @@ const PRESET_OFFSETS = [
   { minutes: 1440, key: "before1day" },
 ] as const;
 
+type RepeatEndMode = "never" | "date" | "count";
+
+function getRepeatEndMode(task: Task): RepeatEndMode {
+  if (task.repeatEndCount) return "count";
+  if (task.repeatEndDate) return "date";
+  return "never";
+}
+
+function normalizeRepeatEndCountInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(999, n));
+}
+
 const descriptionMarkdownComponents: Components = {
   h1: ({ children }) => <h1 className="mt-3 mb-2 text-lg font-semibold text-tx-primary">{children}</h1>,
   h2: ({ children }) => <h2 className="mt-3 mb-2 text-base font-semibold text-tx-primary">{children}</h2>,
@@ -157,6 +173,8 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly" | "custom">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
   const [repeatEndDate, setRepeatEndDate] = useState(task.repeatEndDate || "");
+  const [repeatEndMode, setRepeatEndMode] = useState<RepeatEndMode>(getRepeatEndMode(task));
+  const [repeatEndCount, setRepeatEndCount] = useState(task.repeatEndCount ? String(task.repeatEndCount) : "");
   // TASK-RECURRENCE-CUSTOM-01: 自定义循环规则
   const existingRuleJson = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
   const [customFrequency, setCustomFrequency] = useState<string>(existingRuleJson.frequency || "day");
@@ -197,6 +215,8 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setRepeatRule(task.repeatRule || "none");
     setRepeatInterval(task.repeatInterval || 1);
     setRepeatEndDate(task.repeatEndDate || "");
+    setRepeatEndMode(getRepeatEndMode(task));
+    setRepeatEndCount(task.repeatEndCount ? String(task.repeatEndCount) : "");
     // TASK-RECURRENCE-CUSTOM-01
     const rj = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
     setCustomFrequency(rj.frequency || "day");
@@ -517,6 +537,8 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   setRepeatRule("none");
                   setRepeatInterval(1);
                   setRepeatEndDate("");
+                  setRepeatEndMode("never");
+                  setRepeatEndCount("");
                 }
                 setDateError(null);
                 onUpdate(task.id, buildDueDatePatch(task, newVal));
@@ -708,11 +730,25 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               const rule = e.target.value as "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
               setRepeatRule(rule);
               if (rule === "none") {
-                onUpdate(task.id, { repeatRule: "none", repeatInterval: 1, repeatEndDate: null, repeatRuleJson: null });
+                setRepeatEndMode("never");
+                setRepeatEndDate("");
+                setRepeatEndCount("");
+                onUpdate(task.id, { repeatRule: "none", repeatInterval: 1, repeatEndDate: null, repeatEndCount: null, repeatRuleJson: null });
               } else if (rule === "custom") {
-                onUpdate(task.id, { repeatRule: "custom", repeatRuleJson: JSON.stringify(buildRepeatRuleJson()), repeatEndDate: repeatEndDate || null });
+                onUpdate(task.id, {
+                  repeatRule: "custom",
+                  repeatRuleJson: JSON.stringify(buildRepeatRuleJson()),
+                  repeatEndDate: repeatEndMode === "date" ? repeatEndDate || null : null,
+                  repeatEndCount: repeatEndMode === "count" ? normalizeRepeatEndCountInput(repeatEndCount) : null,
+                });
               } else {
-                onUpdate(task.id, { repeatRule: rule, repeatInterval, repeatEndDate: repeatEndDate || null, repeatRuleJson: null });
+                onUpdate(task.id, {
+                  repeatRule: rule,
+                  repeatInterval,
+                  repeatEndDate: repeatEndMode === "date" ? repeatEndDate || null : null,
+                  repeatEndCount: repeatEndMode === "count" ? normalizeRepeatEndCountInput(repeatEndCount) : null,
+                  repeatRuleJson: null,
+                });
               }
             }}
             disabled={!hasDeadline}
@@ -880,17 +916,73 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
             </div>
           )}
           {repeatRule !== "none" && (
-            <div>
-              <label className="text-xs text-tx-tertiary mb-1 block">{t("tasks.repeat.endDate")}</label>
-              <input
-                type="date"
-                value={repeatEndDate}
-                onChange={(e) => {
-                  setRepeatEndDate(e.target.value);
-                  onUpdate(task.id, { repeatEndDate: e.target.value || null });
-                }}
-                className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
-              />
+            <div className="space-y-2">
+              <label className="text-xs text-tx-tertiary mb-1 block">{t("tasks.repeat.endCondition")}</label>
+              <div className="grid grid-cols-3 rounded-md border border-app-border bg-app-bg p-0.5">
+                {(["never", "date", "count"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setRepeatEndMode(mode);
+                      if (mode === "never") {
+                        setRepeatEndDate("");
+                        setRepeatEndCount("");
+                        onUpdate(task.id, { repeatEndDate: null, repeatEndCount: null });
+                      } else if (mode === "date") {
+                        setRepeatEndCount("");
+                        onUpdate(task.id, { repeatEndDate: repeatEndDate || null, repeatEndCount: null });
+                      } else {
+                        setRepeatEndDate("");
+                        onUpdate(task.id, { repeatEndDate: null, repeatEndCount: normalizeRepeatEndCountInput(repeatEndCount) });
+                      }
+                    }}
+                    className={cn(
+                      "rounded px-2 py-1.5 text-xs font-medium transition-colors",
+                      repeatEndMode === mode
+                        ? "bg-accent-primary text-white"
+                        : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
+                    )}
+                  >
+                    {mode === "never"
+                      ? t("tasks.repeat.endNever")
+                      : mode === "date"
+                        ? t("tasks.repeat.endByDate")
+                        : t("tasks.repeat.endByCount")}
+                  </button>
+                ))}
+              </div>
+              {repeatEndMode === "date" && (
+                <input
+                  type="date"
+                  value={repeatEndDate}
+                  onChange={(e) => {
+                    setRepeatEndDate(e.target.value);
+                    onUpdate(task.id, { repeatEndDate: e.target.value || null, repeatEndCount: null });
+                  }}
+                  className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+                />
+              )}
+              {repeatEndMode === "count" && (
+                <div className="space-y-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={repeatEndCount}
+                    placeholder={t("tasks.repeat.endCountPlaceholder")}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const count = normalizeRepeatEndCountInput(raw);
+                      const nextValue = count === null ? "" : String(count);
+                      setRepeatEndCount(nextValue);
+                      onUpdate(task.id, { repeatEndDate: null, repeatEndCount: count });
+                    }}
+                    className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+                  />
+                  <p className="text-[10px] text-tx-tertiary">{t("tasks.repeat.endCountHint")}</p>
+                </div>
+              )}
             </div>
           )}
         </div>

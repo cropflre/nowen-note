@@ -18,6 +18,7 @@ export function buildDueDatePatch(task: Task, nextDueDate: string): Partial<Task
       patch.repeatRule = "none";
       patch.repeatInterval = 1;
       patch.repeatEndDate = null;
+      patch.repeatEndCount = null;
     }
     return patch;
   }

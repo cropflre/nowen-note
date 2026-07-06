@@ -197,6 +197,16 @@ export default function EditorPane() {
    */
   const editorHandleRef = useRef<NoteEditorHandle | null>(null);
 
+  const handleToggleHtmlPreviewMode = useCallback(async () => {
+    if (htmlPreviewMode) {
+      setShowHtmlEditWarning(true);
+      return;
+    }
+
+    try { await editorHandleRef.current?.flushSave(); } catch {}
+    setHtmlPreviewMode(true);
+  }, [htmlPreviewMode]);
+
   /** 用于在编辑器模式切换时，防止用户连点导致重复 PUT / mount 竞态。 */
   const modeSwitchInflightRef = useRef<boolean>(false);
   const [modeSwitching, setModeSwitching] = useState(false);
@@ -2266,14 +2276,7 @@ const moveToTrash = useCallback(async () => {
                       <button
                         onClick={async () => {
                           setShowMobileMenu(false);
-                          if (htmlPreviewMode) {
-                            setShowHtmlEditWarning(true);
-                          } else {
-                            // �ӱ༭�л�Ԥ�������� flush �༭�� pending ���ݣ�ȷ�����������ѱ���
-                            try { await editorHandleRef.current?.flushSave(); } catch {}
-                            // ������ activeNote.content����Ԥ��չʾ�༭�����������
-                            setHtmlPreviewMode(true);
-                          }
+                          await handleToggleHtmlPreviewMode();
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                       >
@@ -2591,6 +2594,21 @@ const moveToTrash = useCallback(async () => {
             )}
           </Button>
 
+          {noteIsHtml && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={handleToggleHtmlPreviewMode}
+              title={htmlPreviewMode ? t("editor.htmlPreview.switchToEditTooltip") : t("editor.htmlPreview.switchToPreviewTooltip")}
+              aria-label={htmlPreviewMode ? t("editor.htmlPreview.switchToEdit") : t("editor.htmlPreview.switchToPreview")}
+            >
+              {htmlPreviewMode
+                ? <Pencil size={14} className="text-amber-500" />
+                : <Eye size={14} className="text-blue-500" />}
+            </Button>
+          )}
+
           <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
@@ -2756,12 +2774,7 @@ const moveToTrash = useCallback(async () => {
                       <button
                         onClick={async () => {
                           setShowDesktopMoreMenu(false);
-                          if (htmlPreviewMode) {
-                            setShowHtmlEditWarning(true);
-                          } else {
-                            try { await editorHandleRef.current?.flushSave(); } catch {}
-                            setHtmlPreviewMode(true);
-                          }
+                          await handleToggleHtmlPreviewMode();
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
                       >

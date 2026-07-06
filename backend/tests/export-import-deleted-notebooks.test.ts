@@ -216,3 +216,68 @@ test("explicit notebookId import rejects soft-deleted target notebooks", async (
   const body = await res.json() as { code: string };
   assert.equal(body.code, "NOTEBOOK_TRASHED");
 });
+
+test("import preserves markdown contentFormat when provided", async () => {
+  const res = await app.request("/export/import?workspaceId=personal", {
+    method: "POST",
+    headers: {
+      "X-User-Id": USER_ID,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      notes: [{
+        title: "Markdown Import",
+        content: "# Markdown Import\n\nBody",
+        contentText: "Markdown Import Body",
+        contentFormat: "markdown",
+        notebookPath: ["SiYuan User Guide"],
+      }],
+    }),
+  });
+  if (res.status !== 201) {
+    assert.equal(res.status, 201, await res.text());
+  }
+  const body = await res.json() as { notes: { id: string }[] };
+
+  const row = db()
+    .prepare("SELECT content, contentFormat FROM notes WHERE id = ?")
+    .get(body.notes[0].id) as { content: string; contentFormat: string };
+  assert.equal(row.contentFormat, "markdown");
+  assert.equal(row.content, "# Markdown Import\n\nBody");
+});
+
+test("import extracts Markdown image data URIs into attachments", async () => {
+  const res = await app.request("/export/import?workspaceId=personal", {
+    method: "POST",
+    headers: {
+      "X-User-Id": USER_ID,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      notes: [{
+        title: "Markdown Image",
+        content: "![pic](data:image/png;base64,iVBORw0KGgo=)",
+        contentText: "pic",
+        contentFormat: "markdown",
+        notebookPath: ["SiYuan User Guide"],
+      }],
+    }),
+  });
+  if (res.status !== 201) {
+    assert.equal(res.status, 201, await res.text());
+  }
+  const body = await res.json() as { notes: { id: string }[] };
+
+  const row = db()
+    .prepare("SELECT content, contentFormat FROM notes WHERE id = ?")
+    .get(body.notes[0].id) as { content: string; contentFormat: string };
+  assert.equal(row.contentFormat, "markdown");
+  assert.match(row.content, /^!\[pic\]\(\/api\/attachments\/[a-f0-9-]+\)$/);
+
+  const attachment = db()
+    .prepare("SELECT noteId, mimeType, size FROM attachments WHERE noteId = ?")
+    .get(body.notes[0].id) as { noteId: string; mimeType: string; size: number } | undefined;
+  assert.ok(attachment);
+  assert.equal(attachment.mimeType, "image/png");
+  assert.ok(attachment.size > 0);
+});

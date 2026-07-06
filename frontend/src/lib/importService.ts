@@ -104,6 +104,7 @@ export interface ImportFileInfo {
   notebookName?: string; // （已废弃，仅为向后兼容）从路径/目录推导出的单层笔记本名
   notebookPath?: string[]; // 笔记本层级路径（从根到子），如 ["我是文章2", "test2", "新笔记本"]
   imageMap?: Record<string, string>; // 相对路径 -> base64 data URI（zip 内的图片资源）
+  contentFormat?: "tiptap-json" | "markdown" | "html";
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1164,6 +1165,33 @@ function resolveLocalAssetSrc(src: string, imageMap?: Record<string, string>): s
   return src;
 }
 
+function isSiyuanSource(source?: string): boolean {
+  return source === "siyuan" || source === "siyuan-sy";
+}
+
+function replaceMarkdownLocalAssets(md: string, imageMap?: Record<string, string>): string {
+  if (!imageMap || !md) return md;
+
+  const withMarkdownImages = md.replace(
+    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (match, alt: string, rawSrc: string) => {
+      const src = String(rawSrc || "").trim();
+      if (/^(https?:|data:|\/\/)/i.test(src)) return match;
+      const resolved = resolveLocalAssetSrc(src, imageMap);
+      return `![${alt}](${resolved})`;
+    },
+  );
+
+  return replaceLocalAssetSources(withMarkdownImages, imageMap);
+}
+
+function convertSiyuanImportToMarkdown(fileInfo: ImportFileInfo): string {
+  let md = fileInfo.content || "";
+  md = md.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+  md = replaceMarkdownLocalAssets(md, fileInfo.imageMap);
+  return md.trim();
+}
+
 // 处理行内 Markdown 语法
 function inlineMarkdown(text: string, imageMap?: Record<string, string>): string {
   return (
@@ -1331,10 +1359,12 @@ export async function importNotes(
     onProgress?.({ phase: "uploading", current: 0, total: selected.length, message: i18n.t('dataManager.uploadingProgress') });
 
     const notes = selected.map((f) => {
-      const note: { title: string; content: string; contentText: string; createdAt?: string; updatedAt?: string; notebookName?: string; notebookPath?: string[] } = {
+      const importAsMarkdown = isSiyuanSource(f.source);
+      const note: { title: string; content: string; contentText: string; contentFormat?: "tiptap-json" | "markdown" | "html"; createdAt?: string; updatedAt?: string; notebookName?: string; notebookPath?: string[] } = {
         title: f.title,
-        content: convertToTiptapJson(f),
+        content: importAsMarkdown ? convertSiyuanImportToMarkdown(f) : convertToTiptapJson(f),
         contentText: extractPlainText(f),
+        contentFormat: importAsMarkdown ? "markdown" : "tiptap-json",
       };
       // 对 Markdown 文件尝试提取 frontmatter 中的日期
       if (f.source === "md" || !f.source) {
