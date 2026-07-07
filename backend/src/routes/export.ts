@@ -16,7 +16,26 @@ const app = new Hono();
 const SIYUAN_IMPORT_TMP_PREFIX = "nowen-siyuan-import-";
 const SIYUAN_IMPORT_TMP_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const SIYUAN_IMPORT_TMP_STALE_AGE_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SIYUAN_IMPORT_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+const SIYUAN_IMPORT_MAX_BYTES = (() => {
+  const raw = Number(process.env.SIYUAN_IMPORT_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SIYUAN_IMPORT_MAX_BYTES;
+})();
 let lastSiyuanImportTmpCleanupAt = 0;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${bytes} bytes`;
+  return `${Math.floor(bytes / 1024 / 1024)}MB`;
+}
+
+class SiyuanImportTooLargeError extends Error {
+  status = 413;
+  code = "SIYUAN_IMPORT_TOO_LARGE";
+
+  constructor() {
+    super(`思源导入包过大，最大支持 ${formatBytes(SIYUAN_IMPORT_MAX_BYTES)}`);
+  }
+}
 
 async function cleanupStaleSiyuanImportTmpDirs(): Promise<void> {
   const now = Date.now();
@@ -126,6 +145,11 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
     throw new Error("请求必须是 multipart/form-data");
   }
 
+  const contentLength = Number(c.req.header("content-length") || "");
+  if (Number.isFinite(contentLength) && contentLength > SIYUAN_IMPORT_MAX_BYTES) {
+    throw new SiyuanImportTooLargeError();
+  }
+
   const body = c.req.raw.body;
   if (!body) throw new Error("请求体为空");
 
@@ -137,13 +161,21 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
 
   try {
     return await new Promise((resolve, reject) => {
-      const busboy = Busboy({ headers: { "content-type": contentType } });
+      const busboy = Busboy({
+        headers: { "content-type": contentType },
+        limits: { files: 1, fileSize: SIYUAN_IMPORT_MAX_BYTES },
+      });
       let seenFile = false;
       let filename = "siyuan.zip";
       let size = 0;
       let fileWrite: Promise<void> | null = null;
 
-      const fail = (err: unknown) => reject(err instanceof Error ? err : new Error(String(err)));
+      let failed = false;
+      const fail = (err: unknown) => {
+        if (failed) return;
+        failed = true;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      };
 
       busboy.on("file", (fieldName: string, file: NodeJS.ReadableStream, info: { filename?: string }) => {
         if (fieldName !== "file" || seenFile) {
@@ -154,6 +186,12 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
         filename = info?.filename || filename;
         const out = fs.createWriteStream(tmpPath);
         file.on("data", (chunk: Buffer) => { size += chunk.length; });
+        file.on("limit", () => {
+          file.unpipe(out);
+          out.destroy();
+          file.resume();
+          fail(new SiyuanImportTooLargeError());
+        });
         file.on("error", fail);
         out.on("error", fail);
         file.pipe(out);
@@ -539,6 +577,9 @@ app.post("/import/siyuan-package", async (c) => {
 
     return c.json(result, 201);
   } catch (err: any) {
+    if (err instanceof SiyuanImportTooLargeError || err?.code === "SIYUAN_IMPORT_TOO_LARGE") {
+      return c.json({ error: err?.message || "思源导入包过大", code: "SIYUAN_IMPORT_TOO_LARGE" }, 413);
+    }
     console.error("[export.import.siyuan-package] Error:", err);
     return c.json({ error: err?.message || "Siyuan import failed", code: "SIYUAN_IMPORT_FAILED" }, 500);
   } finally {
