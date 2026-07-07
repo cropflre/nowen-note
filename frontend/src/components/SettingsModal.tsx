@@ -696,6 +696,11 @@ function SwitchesPanel() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const desktop = isDesktop();
   const supportsDesktopMenuBarToggle = desktop && desktopPlatform !== "darwin";
+  const markdownDefaultModes = [
+    { value: "source" as const, label: t("markdown.view.source") },
+    { value: "preview" as const, label: t("markdown.view.preview") },
+    { value: "split" as const, label: t("markdown.view.split") },
+  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -790,6 +795,34 @@ function SwitchesPanel() {
       </div>
 
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.markdownDefaultViewMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.markdownDefaultViewModeDesc")}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
+            {markdownDefaultModes.map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                onClick={() => setUserPref("markdownDefaultViewMode", mode.value)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
+                  userPrefs.markdownDefaultViewMode === mode.value
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {switches.map((item) => (
           <label key={item.key} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
             <input

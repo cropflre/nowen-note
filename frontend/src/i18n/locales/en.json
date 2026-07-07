@@ -560,6 +560,8 @@
     "prefShowNoteListUpdatedTimeHint": "Show relative dates in the note list. Turn it off for a cleaner list.",
     "enableNoteTabs": "Enable top note tabs",
     "enableNoteTabsDesc": "Open multiple notes and switch between them from the editor header. Disable to use the classic single-note mode.",
+    "markdownDefaultViewMode": "Default Markdown View",
+    "markdownDefaultViewModeDesc": "Choose whether Markdown notes open in source, preview, or split view.",
     "prefShowNotesInNotebookTreeHint": "When enabled, the left notebook tree shows direct notes under expanded notebooks. Search, tags, favorites, and trash still use the list.",
     "readingDensity": "Reading Density",
     "readingDensityDesc": "Adjust vertical spacing of paragraphs and list items. Compact saves screen space (per-device).",

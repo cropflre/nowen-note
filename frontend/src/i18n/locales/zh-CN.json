@@ -577,6 +577,8 @@
     "prefShowNoteListUpdatedTimeHint": "开启后，左侧笔记列表会显示更新时间；关闭后列表更简洁。",
     "enableNoteTabs": "启用顶部笔记标签页",
     "enableNoteTabsDesc": "打开多个笔记后，可在编辑区顶部快速切换。关闭后恢复当前单笔记模式。",
+    "markdownDefaultViewMode": "Markdown 默认打开方式",
+    "markdownDefaultViewModeDesc": "打开 Markdown 笔记时默认使用源码、预览或分屏模式。",
     "prefShowNotesInNotebookTreeHint": "开启后，左侧笔记本目录会在展开的笔记本下显示直属笔记；搜索、标签、收藏、回收站仍使用列表。",
     "readingDensity": "阅读密度",
     "readingDensityDesc": "调节正文段落和列表项的纵向间距，紧凑模式更省空间（仅本设备生效）。",

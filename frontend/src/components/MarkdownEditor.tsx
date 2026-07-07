@@ -99,6 +99,7 @@ import {
   Film,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { useUserPreferences, type MarkdownViewMode } from "@/hooks/useUserPreferences";
 
 import { Note, Tag } from "@/types";
 import TagInput from "@/components/TagInput";
@@ -355,6 +356,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   awareness,
 }, ref) {
   const { t: tr } = useTranslation();
+  const { prefs: userPrefs } = useUserPreferences();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
@@ -376,9 +378,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const isSettingContent = useRef(false);
 
   // MARKDOWN-PREVIEW-MODE-01: 源码/预览/分屏模式
-  type MarkdownViewMode = "source" | "preview" | "split";
-  const [viewMode, setViewMode] = useState<MarkdownViewMode>("source");
-  const [previewMarkdown, setPreviewMarkdown] = useState(note.content || "");
+  const defaultViewMode = userPrefs.markdownDefaultViewMode;
+  const [viewMode, setViewMode] = useState<MarkdownViewMode>(defaultViewMode);
+  const [previewMarkdown, setPreviewMarkdown] = useState(() =>
+    normalizeToMarkdown(note.content, note.contentText)
+  );
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -1023,6 +1027,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
     // ��ʼͳ�� + ���
     setWordStats(computeStats(initialDoc));
+    setPreviewMarkdown(initialDoc);
     onHeadingsChangeRef.current?.(extractHeadings(view));
 
     return () => {
@@ -1051,11 +1056,16 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
     // Phase 3: CRDT ģʽ���ĵ��� yCollab �йܣ���Ҫ�ֶ� dispatch setContent��
     // ������������ update ����Զ��״̬��ֻ����ͳ��/���ˢ�¡�
+    const isSwitchingNote = lastSyncedNoteIdRef.current !== note.id;
+
     if (collabEnabledRef.current) {
-      if (lastSyncedNoteIdRef.current !== note.id) {
+      if (isSwitchingNote) {
         lastSyncedNoteIdRef.current = note.id;
+        setViewMode(defaultViewMode);
       }
-      setWordStats(computeStats(view.state.doc.toString()));
+      const currentDoc = view.state.doc.toString();
+      setPreviewMarkdown(currentDoc);
+      setWordStats(computeStats(currentDoc));
       onHeadingsChangeRef.current?.(extractHeadings(view));
       if (titleRef.current && titleRef.current.value !== note.title) {
         titleRef.current.value = note.title;
@@ -1064,9 +1074,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     }
 
     // �л��ʼ�ʱ������д�������±ʼǵ� content �϶�Ҫ����Ӧ�ã�
-    if (lastSyncedNoteIdRef.current !== note.id) {
+    if (isSwitchingNote) {
       lastEmittedContentRef.current = null;
       lastSyncedNoteIdRef.current = note.id;
+      setViewMode(defaultViewMode);
     }
 
     // ��д�Զ����������� EditorPane ����ɹ���� content ��� activeNote��
@@ -1080,7 +1091,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       lastEmittedContentRef.current !== null &&
       note.content === lastEmittedContentRef.current
     ) {
-      setWordStats(computeStats(view.state.doc.toString()));
+      const currentDoc = view.state.doc.toString();
+      setPreviewMarkdown(currentDoc);
+      setWordStats(computeStats(currentDoc));
       onHeadingsChangeRef.current?.(extractHeadings(view));
       if (titleRef.current && titleRef.current.value !== note.title) {
         titleRef.current.value = note.title;
@@ -1107,6 +1120,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     }
 
     setWordStats(computeStats(nextDoc));
+    setPreviewMarkdown(nextDoc);
     onHeadingsChangeRef.current?.(extractHeadings(view));
 
     if (titleRef.current) {
@@ -1115,7 +1129,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // ���� content ������ version���� TiptapEditor ����һ�µ����塣
     // ���� EditorPane ����� content������ effect ���Ƶ��������
     // ����� lastEmittedContentRef �����������"�Լ�д���ֱ� setContent ����"��
-  }, [note.id, note.content]);
+  }, [note.id, note.content, note.contentText, defaultViewMode]);
 
   // ---------- ���ⵥ��ͬ�� ----------
   //

@@ -9,8 +9,10 @@
 import React, { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AlertTriangle, BadgeAlert, Info, Lightbulb, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { remarkSiyuanCallouts, type SiyuanCalloutType } from "@/lib/markdownCallouts";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
 
@@ -96,6 +98,62 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   );
 }
 
+const calloutStyles: Record<SiyuanCalloutType, { icon: React.ComponentType<any>; className: string }> = {
+  note: {
+    icon: Info,
+    className: "border-blue-400/70 bg-blue-500/10 text-blue-600 dark:text-blue-300",
+  },
+  tip: {
+    icon: Lightbulb,
+    className: "border-emerald-400/70 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+  },
+  important: {
+    icon: BadgeAlert,
+    className: "border-violet-400/70 bg-violet-500/10 text-violet-600 dark:text-violet-300",
+  },
+  warning: {
+    icon: AlertTriangle,
+    className: "border-amber-400/80 bg-amber-500/10 text-amber-600 dark:text-amber-300",
+  },
+  caution: {
+    icon: ShieldAlert,
+    className: "border-red-400/80 bg-red-500/10 text-red-600 dark:text-red-300",
+  },
+};
+
+function getCalloutProperty(node: any, key: string): string | undefined {
+  const value = node?.properties?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function CalloutBlockquote({ node, children }: { node?: any; children?: React.ReactNode }) {
+  const type = getCalloutProperty(node, "data-callout-type") as SiyuanCalloutType | undefined;
+  const title = getCalloutProperty(node, "data-callout-title");
+  const style = type ? calloutStyles[type] : undefined;
+
+  if (!type || !title || !style) {
+    return (
+      <blockquote className="my-4 border-l-4 border-accent-primary/40 bg-app-hover/40 px-4 py-2 rounded-r-lg text-tx-secondary italic">
+        {children}
+      </blockquote>
+    );
+  }
+
+  const Icon = style.icon;
+
+  return (
+    <blockquote className={cn("my-4 rounded-r-lg border-l-4 px-4 py-3", style.className)}>
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Icon size={16} className="shrink-0" />
+        <span>{title}</span>
+      </div>
+      <div className="mt-2 text-tx-primary [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+        {children}
+      </div>
+    </blockquote>
+  );
+}
+
 /** 自定义渲染器 */
 const components: Record<string, React.FC<any>> = {
   // 标题
@@ -162,11 +220,7 @@ const components: Record<string, React.FC<any>> = {
   },
 
   // 引用
-  blockquote: ({ children }) => (
-    <blockquote className="my-4 border-l-4 border-accent-primary/40 bg-app-hover/40 px-4 py-2 rounded-r-lg text-tx-secondary italic">
-      {children}
-    </blockquote>
-  ),
+  blockquote: CalloutBlockquote,
 
   // 表格
   table: ({ children }) => (
@@ -228,7 +282,7 @@ export function MarkdownPreview({ markdown, className, compact }: MarkdownPrevie
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkSiyuanCallouts]} components={components}>
         {renderedMarkdown}
       </ReactMarkdown>
     </div>

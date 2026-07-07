@@ -34,6 +34,7 @@ const STORAGE_KEY = "nowen.user-prefs.v1";
  *   - "compact"：紧凑——减少 ~30% 纵向空间，长笔记翻屏更省力
  * 仅影响 .ProseMirror 下的 p / li，不动标题/代码块/表格，避免破坏视觉锚点。 */
 export type ReadingDensity = "cozy" | "compact";
+export type MarkdownViewMode = "source" | "preview" | "split";
 
 export interface UserPreferences {
   /** 标签页/Electron 窗口标题是否跟随当前笔记标题（关闭则用站点名）。默认 false。 */
@@ -51,6 +52,8 @@ export interface UserPreferences {
   showNoteListUpdatedTime: boolean;
   /** 是否启用编辑区顶部多笔记标签页。默认 false。 */
   enableNoteTabs: boolean;
+  /** Markdown 笔记默认打开视图。默认 source，保持历史行为。 */
+  markdownDefaultViewMode: MarkdownViewMode;
 }
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -61,6 +64,7 @@ const DEFAULT_PREFS: UserPreferences = {
   readingDensity: "cozy",
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
+  markdownDefaultViewMode: "source",
 };
 
 function readFromStorage(): UserPreferences {
@@ -93,6 +97,12 @@ function readFromStorage(): UserPreferences {
       enableNoteTabs: typeof parsed.enableNoteTabs === "boolean"
         ? parsed.enableNoteTabs
         : DEFAULT_PREFS.enableNoteTabs,
+      markdownDefaultViewMode:
+        parsed.markdownDefaultViewMode === "source" ||
+        parsed.markdownDefaultViewMode === "preview" ||
+        parsed.markdownDefaultViewMode === "split"
+          ? parsed.markdownDefaultViewMode
+          : DEFAULT_PREFS.markdownDefaultViewMode,
     };
   } catch {
     return DEFAULT_PREFS;
