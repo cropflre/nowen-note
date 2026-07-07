@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Notebook } from "@/types";
-import { getNotebookExpansionChanges } from "@/lib/notebookExpansion";
+import {
+  getNotebookExpansionChanges,
+  getNextNotebookExpansionState,
+} from "@/lib/notebookExpansion";
 
 const notebook = (id: string, isExpanded: number): Notebook => ({
   id,
@@ -36,5 +39,15 @@ describe("getNotebookExpansionChanges", () => {
     expect(result.changed).toEqual([open]);
     expect(result.nextNotebooks[0]).toEqual({ ...open, isExpanded: 0 });
     expect(result.nextNotebooks[1]).toBe(closed);
+  });
+});
+
+describe("getNextNotebookExpansionState", () => {
+  it("collapses all when any notebook is expanded", () => {
+    expect(getNextNotebookExpansionState([notebook("open", 1), notebook("closed", 0)])).toBe(0);
+  });
+
+  it("expands all when every notebook is collapsed", () => {
+    expect(getNextNotebookExpansionState([notebook("closed-1", 0), notebook("closed-2", 0)])).toBe(1);
   });
 });

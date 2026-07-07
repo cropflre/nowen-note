@@ -45,7 +45,11 @@ import {
   moveNoteInNotebookCache,
   upsertNoteInNotebookCache,
 } from "@/lib/notebookNoteCache";
-import { getNotebookExpansionChanges, type NotebookExpandedState } from "@/lib/notebookExpansion";
+import {
+  getNextNotebookExpansionState,
+  getNotebookExpansionChanges,
+  type NotebookExpandedState,
+} from "@/lib/notebookExpansion";
 import { SIDEBAR_TREE_INDENT, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
 
 /* ===== Emoji 图标选择器 ===== */
@@ -1126,8 +1130,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     () => sidebarTreeContentMinWidth(getMaxNotebookDepth(tree)),
     [tree]
   );
+  const nextNotebookExpansionState = useMemo(
+    () => getNextNotebookExpansionState(state.notebooks),
+    [state.notebooks]
+  );
   const collapseAllNotebooksLabel = t("sidebar.collapseAllNotebooks");
   const expandAllNotebooksLabel = t("sidebar.expandAllNotebooks");
+  const toggleAllNotebooksLabel = nextNotebookExpansionState === 0
+    ? collapseAllNotebooksLabel
+    : expandAllNotebooksLabel;
 
   useEffect(() => {
     notesByNotebookIdRef.current = notesByNotebookId;
@@ -1579,13 +1590,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   }, [actions, loadNotesForNotebook, showNotesInNotebookTree, state.notebooks, t]);
 
-  const handleCollapseAllNotebooks = useCallback(() => {
-    void handleSetAllNotebooksExpanded(0);
-  }, [handleSetAllNotebooksExpanded]);
-
-  const handleExpandAllNotebooks = useCallback(() => {
-    void handleSetAllNotebooksExpanded(1);
-  }, [handleSetAllNotebooksExpanded]);
+  const handleToggleAllNotebooks = useCallback(() => {
+    void handleSetAllNotebooksExpanded(nextNotebookExpansionState);
+  }, [handleSetAllNotebooksExpanded, nextNotebookExpansionState]);
 
   const openTabIfEnabled = useCallback((note: Note) => {
     if (!userPrefs.enableNoteTabs) return;
@@ -2373,21 +2380,11 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={handleCollapseAllNotebooks}
-            title={collapseAllNotebooksLabel}
-            aria-label={collapseAllNotebooksLabel}
+            onClick={handleToggleAllNotebooks}
+            title={toggleAllNotebooksLabel}
+            aria-label={toggleAllNotebooksLabel}
           >
-            <ChevronRight size={14} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleExpandAllNotebooks}
-            title={expandAllNotebooksLabel}
-            aria-label={expandAllNotebooksLabel}
-          >
-            <ChevronDown size={14} />
+            {nextNotebookExpansionState === 0 ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           </Button>
           <Button
             variant="ghost"

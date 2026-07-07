@@ -10,3 +10,7 @@ export function getNotebookExpansionChanges(notebooks: Notebook[], expanded: Not
     )),
   };
 }
+
+export function getNextNotebookExpansionState(notebooks: Notebook[]): NotebookExpandedState {
+  return notebooks.some((notebook) => notebook.isExpanded === 1) ? 0 : 1;
+}
