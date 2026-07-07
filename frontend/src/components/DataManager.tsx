@@ -17,14 +17,6 @@ import {
   ImportFileInfo, ImportProgress,
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
-import {
-  assertSiyuanZipCanBeReadInBrowser,
-  inspectSiyuanZip,
-  readSiyuanMarkdownZip,
-  readSiyuanSyZip,
-  type SiyuanImportReport,
-  type SiyuanSyImportReport,
-} from "@/lib/siyuanImportService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -152,7 +144,7 @@ function DesktopDataSafetyCard() {
     }).catch(() => {});
     getDiagnosticsInfo().then((diag) => {
       if (diag) setInfo((prev) => prev ? { ...prev, ...diag } : prev);
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   if (!isDesktopApp() || !info) return null;
@@ -288,7 +280,7 @@ function DesktopDataSafetyCard() {
 }
 
 export default function DataManager() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
 
@@ -389,6 +381,8 @@ export default function DataManager() {
   const [importFiles, setImportFiles] = useState<ImportFileInfo[]>([]);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [serverSiyuanFile, setServerSiyuanFile] = useState<File | null>(null);
+  const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<"tiptap-json" | "markdown">("tiptap-json");
   const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>("siyuan");
   const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
   // 记录"上一次导入实际落到的 workspaceId"和导入数量。
@@ -488,73 +482,6 @@ export default function DataManager() {
     }
   };
 
-  const formatSiyuanImportReport = (report: SiyuanImportReport): string[] => {
-    const messages = [
-      t("dataManager.siyuanDetected"),
-      t("dataManager.siyuanReportMarkdownFiles", { count: report.totalMarkdownFiles }),
-    ];
-    if (report.cleanedBlockAttrs > 0) {
-      messages.push(t("dataManager.siyuanReportCleanedBlockAttrs", { count: report.cleanedBlockAttrs }));
-    }
-    if (report.convertedWikiLinks > 0 || report.convertedBlockRefs > 0) {
-      messages.push(t("dataManager.siyuanReportConvertedLinks", {
-        wiki: report.convertedWikiLinks,
-        block: report.convertedBlockRefs,
-      }));
-    }
-    if (report.detectedTags.length > 0) {
-      const tagSeparator = i18n.language?.startsWith("zh") ? "、" : ", ";
-      const shownTags = report.detectedTags.slice(0, 8).join(tagSeparator);
-      const more = Math.max(0, report.detectedTags.length - 8);
-      messages.push(more > 0
-        ? t("dataManager.siyuanReportDetectedTagsMore", { tags: shownTags, more })
-        : t("dataManager.siyuanReportDetectedTags", { tags: shownTags }));
-    }
-    if (report.unresolvedAssets.length > 0) {
-      messages.push(t("dataManager.siyuanReportUnresolvedAssets", { count: report.unresolvedAssets.length }));
-    }
-    if (report.unsupportedFiles.length > 0) {
-      messages.push(t("dataManager.siyuanReportUnsupportedFiles", { count: report.unsupportedFiles.length }));
-    }
-    if (report.totalSyFiles > 0) {
-      messages.push(t("dataManager.siyuanSyNotSupported"));
-    }
-    return messages;
-  };
-
-  const formatSiyuanSyImportReport = (report: SiyuanSyImportReport): string[] => {
-    const messages = [
-      t("dataManager.siyuanSyDetected"),
-      t("dataManager.siyuanSyReportDocuments", {
-        total: report.totalSyFiles,
-        imported: report.importedDocuments,
-      }),
-      t("dataManager.siyuanSyReportAssets", { count: report.totalAssets }),
-    ];
-    if (report.detectedTags.length > 0) {
-      const tagSeparator = i18n.language?.startsWith("zh") ? "、" : ", ";
-      const shownTags = report.detectedTags.slice(0, 8).join(tagSeparator);
-      const more = Math.max(0, report.detectedTags.length - 8);
-      messages.push(more > 0
-        ? t("dataManager.siyuanReportDetectedTagsMore", { tags: shownTags, more })
-        : t("dataManager.siyuanReportDetectedTags", { tags: shownTags }));
-    }
-    const unsupportedEntries = Object.entries(report.unsupportedNodes)
-      .filter(([, count]) => count > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-    if (unsupportedEntries.length > 0) {
-      messages.push(t("dataManager.siyuanSyReportUnsupportedNodes", {
-        nodes: unsupportedEntries.map(([type, count]) => `${type} x${count}`).join(", "),
-      }));
-    }
-    if (report.unresolvedAssets.length > 0) {
-      messages.push(t("dataManager.siyuanSyReportUnresolvedAssets", { count: report.unresolvedAssets.length }));
-    }
-    messages.push(t("dataManager.siyuanSyExperimentalHint"));
-    return messages;
-  };
-
   const getImportSourceLabel = (source?: string): string => {
     switch (source?.toLowerCase()) {
       case "siyuan-sy":
@@ -600,9 +527,29 @@ export default function DataManager() {
   const getNotebookPathText = (file: ImportFileInfo): string =>
     file.notebookPath?.filter(Boolean).join(" / ") || "";
 
+  const getSiyuanUnsupportedNodeLabel = (nodeType: string): string => {
+    const key = `dataManager.siyuanUnsupportedNode.${nodeType}`;
+    const translated = t(key);
+    return translated === key ? nodeType : translated;
+  };
+
+  const formatUnsupportedNodesSummary = (unsupportedNodes: Record<string, number>): string => {
+    const entries = Object.entries(unsupportedNodes)
+      .filter(([, count]) => Number(count) > 0)
+      .sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return "";
+    const shown = entries.slice(0, 8);
+    const summary = shown
+      .map(([type, count]) => `${getSiyuanUnsupportedNodeLabel(type)} x${count}`)
+      .join(", ");
+    const remaining = entries.length - shown.length;
+    return remaining > 0 ? `${summary} (+${remaining})` : summary;
+  };
+
   const processFiles = async (files: FileList) => {
     setNotesImportError("");
     setNotesImportNotice(null);
+    setServerSiyuanFile(null);
     let result: ImportFileInfo[] = [];
     const fileArray = Array.from(files);
     const zipFile = fileArray.find((f) => f.name.endsWith(".zip"));
@@ -610,39 +557,31 @@ export default function DataManager() {
     try {
       if (zipFile) {
         if (activeImportMethod === "siyuan") {
-          assertSiyuanZipCanBeReadInBrowser(zipFile.size);
+          setServerSiyuanFile(zipFile);
+          result = [{
+            name: zipFile.name,
+            title: zipFile.name.replace(/\.zip$/i, ""),
+            content: "",
+            size: zipFile.size,
+            selected: true,
+            source: "siyuan-sy",
+          }];
+          setHasZip(true);
+          setPerFileNotebook(false);
+          setZipMetaHint(null);
+          setNotesImportNotice({
+            kind: "siyuan",
+            messages: [
+              t("dataManager.siyuanServerImportReady", { size: Math.round(zipFile.size / 1024 / 1024) }),
+              t("dataManager.siyuanServerImportHint"),
+            ],
+          });
+          setImportFiles(result);
+          return;
         }
-        const siyuanInspection = await inspectSiyuanZip(zipFile);
         let r: Awaited<ReturnType<typeof readMarkdownFromZipWithMeta>>;
-        if (siyuanInspection.hasSyFiles && !siyuanInspection.hasMarkdownFiles) {
-          const siyuanResult = await readSiyuanSyZip(zipFile);
-          if (siyuanResult.files.length === 0) {
-            throw new Error(t("dataManager.siyuanSyReadFailed"));
-          }
-          result = siyuanResult.files;
-          r = { files: result, meta: null };
-          setNotesImportNotice({
-            kind: "siyuan",
-            messages: formatSiyuanSyImportReport(siyuanResult.report),
-          });
-        } else if (siyuanInspection.isSiyuanMarkdownZip) {
-          const siyuanResult = await readSiyuanMarkdownZip(zipFile);
-          result = siyuanResult.files;
-          r = { files: result, meta: null };
-          setNotesImportNotice({
-            kind: "siyuan",
-            messages: formatSiyuanImportReport(siyuanResult.report),
-          });
-        } else {
-          r = await readMarkdownFromZipWithMeta(zipFile);
-          result = r.files;
-          if (siyuanInspection.hasSyFiles) {
-            setNotesImportNotice({
-              kind: "warning",
-              messages: [t("dataManager.siyuanSyNotSupported")],
-            });
-          }
-        }
+        r = await readMarkdownFromZipWithMeta(zipFile);
+        result = r.files;
         setHasZip(true);
         // zip 由其内部目录/zip 文件名派生笔记本，关闭 per-file
         setPerFileNotebook(false);
@@ -724,16 +663,60 @@ export default function DataManager() {
     const safeNotebookId = scopeMatchesGlobal ? selectedNotebookId : "";
     // perFileNotebook 与 selectedNotebookId 互斥：只要选了具体笔记本，就不启用 per-file
     const usePerFile = !safeNotebookId && perFileNotebook;
-    const result = await importNotes(
-      importFiles,
-      safeNotebookId || undefined,
-      (p) => setImportProgress(p),
-      {
-        perFileNotebook: usePerFile,
-        duplicateStrategy,
-        workspaceId: effectiveWorkspaceId,
-      }
-    );
+    let result: { success: boolean; count: number };
+    try {
+      result = serverSiyuanFile
+        ? await (async () => {
+          setImportProgress({
+            phase: "uploading",
+            current: 0,
+            total: 1,
+            message: t("dataManager.uploadingProgress"),
+          });
+          const imported = await api.importSiyuanPackage(serverSiyuanFile, {
+            targetNotebookId: safeNotebookId || undefined,
+            workspaceId: effectiveWorkspaceId,
+            contentFormat: siyuanImportContentFormat,
+          });
+          setImportProgress({
+            phase: "done",
+            current: imported.count,
+            total: imported.count,
+            message: t("dataManager.importSuccessCount", { count: imported.count }),
+          });
+          const noticeMessages: string[] = [];
+          if (imported.warnings?.length) {
+            noticeMessages.push(...imported.warnings.slice(0, 6));
+          }
+          const unsupportedSummary = formatUnsupportedNodesSummary(imported.stats?.unsupportedNodes || {});
+          if (unsupportedSummary) {
+            noticeMessages.push(t("dataManager.siyuanUnsupportedNodesReport", { nodes: unsupportedSummary }));
+            noticeMessages.push(t("dataManager.siyuanUnsupportedNodesHint"));
+          }
+          if (noticeMessages.length) {
+            setNotesImportNotice({ kind: "siyuan", messages: noticeMessages });
+          }
+          return { success: true, count: imported.count };
+        })()
+        : await importNotes(
+          importFiles,
+          safeNotebookId || undefined,
+          (p) => setImportProgress(p),
+          {
+            perFileNotebook: usePerFile,
+            duplicateStrategy,
+            workspaceId: effectiveWorkspaceId,
+          }
+        );
+    } catch (err: any) {
+      result = { success: false, count: 0 };
+      setImportProgress({
+        phase: "error",
+        current: 0,
+        total: 1,
+        message: t("dataManager.importFailed", { error: err?.message || String(err) }),
+      });
+    }
     setIsImporting(false);
 
     if (result.success) {
@@ -766,7 +749,7 @@ export default function DataManager() {
         setImportFiles([]);
         setImportProgress(null);
         setHasZip(false);
-        setNotesImportNotice(null);
+        setServerSiyuanFile(null);
         // 注意：lastImportTarget 不在这里清空——它要持续展示，直到用户主动
         // 关闭横幅或点击"切到该工作区查看"。
       }, 3000);
@@ -792,6 +775,7 @@ export default function DataManager() {
     setImportFiles([]);
     setImportProgress(null);
     setHasZip(false);
+    setServerSiyuanFile(null);
     setNotesImportError("");
     setNotesImportNotice(null);
   };
@@ -961,33 +945,32 @@ export default function DataManager() {
           className="flex flex-wrap gap-1 p-1 mb-3 rounded-lg bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800"
         >
           {([
-            { id: "personal",  icon: UserIcon,  label: t('dataManager.scope.personal'), adminOnly: false },
-            { id: "workspace", icon: Users,     label: t('dataManager.scope.workspace'), adminOnly: true  },
-            { id: "system",    icon: ServerCog, label: t('dataManager.scope.system'),   adminOnly: true  },
+            { id: "personal", icon: UserIcon, label: t('dataManager.scope.personal'), adminOnly: false },
+            { id: "workspace", icon: Users, label: t('dataManager.scope.workspace'), adminOnly: true },
+            { id: "system", icon: ServerCog, label: t('dataManager.scope.system'), adminOnly: true },
           ] as const)
             // 非管理员：只保留 personal。workspace/system 涉及跨用户/全库操作，
             // 严格 admin-only —— 不仅隐藏按钮，连 tab 都不渲染，避免被看见。
             .filter((s) => isAdmin || !s.adminOnly)
             .map((s) => {
-            const active = scope === s.id;
-            const Icon = s.icon;
-            return (
-              <button
-                key={s.id}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setScope(s.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  active
+              const active = scope === s.id;
+              const Icon = s.icon;
+              return (
+                <button
+                  key={s.id}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setScope(s.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${active
                     ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm"
                     : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-zinc-900/40"
-                }`}
-              >
-                <Icon size={14} />
-                {s.label}
-              </button>
-            );
-          })}
+                    }`}
+                >
+                  <Icon size={14} />
+                  {s.label}
+                </button>
+              );
+            })}
         </div>
 
         {/* ===== 当前 scope 提示横幅 =====
@@ -1044,11 +1027,11 @@ export default function DataManager() {
           className="flex flex-wrap gap-1 p-1 rounded-lg bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800"
         >
           {([
-            { id: "export",   icon: FolderDown,      label: t('dataManager.tabs.export'),   tone: "indigo"  },
-            { id: "import",   icon: FileUp,          label: t('dataManager.tabs.import'),   tone: "emerald" },
-            { id: "database", icon: Database,        label: t('dataManager.tabs.database'), tone: "sky"     },
-            { id: "backup",   icon: Save,            label: t('dataManager.tabs.backup'),   tone: "violet"  },
-            { id: "danger",   icon: AlertTriangle,   label: t('dataManager.tabs.danger'),   tone: "red"     },
+            { id: "export", icon: FolderDown, label: t('dataManager.tabs.export'), tone: "indigo" },
+            { id: "import", icon: FileUp, label: t('dataManager.tabs.import'), tone: "emerald" },
+            { id: "database", icon: Database, label: t('dataManager.tabs.database'), tone: "sky" },
+            { id: "backup", icon: Save, label: t('dataManager.tabs.backup'), tone: "violet" },
+            { id: "danger", icon: AlertTriangle, label: t('dataManager.tabs.danger'), tone: "red" },
           ] as const).filter((tab) => SUBTABS_BY_SCOPE[scope].includes(tab.id)).map((tab) => {
             const active = activeSubTab === tab.id;
             const Icon = tab.icon;
@@ -1062,11 +1045,10 @@ export default function DataManager() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setActiveSubTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  active
-                    ? activeToneClass
-                    : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-zinc-900/40"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${active
+                  ? activeToneClass
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-zinc-900/40"
+                  }`}
               >
                 <Icon size={14} className={active && tab.tone === "red" ? "text-red-500" : undefined} />
                 {tab.label}
@@ -1078,806 +1060,835 @@ export default function DataManager() {
 
       {/* ===== 导出区域 ===== */}
       {activeSubTab === "export" && (
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <FolderDown size={18} className="text-indigo-500" />
-          <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('dataManager.exportBackup')}</h4>
-        </div>
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <FolderDown size={18} className="text-indigo-500" />
+            <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('dataManager.exportBackup')}</h4>
+          </div>
 
-        {/* 普通用户且管理员已关闭"个人空间导出"开关时：展示 lock 横幅并禁用下方按钮。
+          {/* 普通用户且管理员已关闭"个人空间导出"开关时：展示 lock 横幅并禁用下方按钮。
             不直接隐藏整个 section —— 让用户能看见"这里本来有导出，但被管理员关闭了"，
             比悄悄消失更透明、减少"我的设置是不是 bug"类困惑。 */}
-        {personalExportLocked && (
-          <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-300">
-            <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
-            <span>{t('dataManager.scope.personalExportDisabled')}</span>
-          </div>
-        )}
-
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
-            {t('dataManager.exportDescription')}
-          </p>
-
-          {exportProgress && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                {exportProgress.phase === "error" ? (
-                  <AlertCircle size={16} className="text-red-500" />
-                ) : exportProgress.phase === "done" ? (
-                  <CheckCircle size={16} className="text-green-500" />
-                ) : (
-                  <Loader2 size={16} className="text-indigo-500 animate-spin" />
-                )}
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {exportProgress.message}
-                </span>
-              </div>
-              {exportProgress.phase === "packing" && (
-                <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5">
-                  <motion.div
-                    className="bg-indigo-500 h-1.5 rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${exportProgress.current}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
-              )}
+          {personalExportLocked && (
+            <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-300">
+              <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
+              <span>{t('dataManager.scope.personalExportDisabled')}</span>
             </div>
           )}
 
-          {/* 导出选项：图片处理策略 */}
-          <label className="flex items-start gap-2 mb-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={exportInlineImages}
-              onChange={(e) => setExportInlineImages(e.target.checked)}
-              disabled={isExporting}
-              className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer"
-            />
-            <span className="text-sm">
-              <span className="text-zinc-700 dark:text-zinc-300">
-                {t('dataManager.exportInlineImages')}
-              </span>
-              <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                {t('dataManager.exportInlineImagesHint')}
-              </span>
-            </span>
-          </label>
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+              {t('dataManager.exportDescription')}
+            </p>
 
-          <button
-            onClick={handleExportAll}
-            disabled={isExporting || workspaceScopeNotReady || personalExportLocked}
-            className={`flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${
-              isExporting || workspaceScopeNotReady || personalExportLocked
+            {exportProgress && (
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  {exportProgress.phase === "error" ? (
+                    <AlertCircle size={16} className="text-red-500" />
+                  ) : exportProgress.phase === "done" ? (
+                    <CheckCircle size={16} className="text-green-500" />
+                  ) : (
+                    <Loader2 size={16} className="text-indigo-500 animate-spin" />
+                  )}
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {exportProgress.message}
+                  </span>
+                </div>
+                {exportProgress.phase === "packing" && (
+                  <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5">
+                    <motion.div
+                      className="bg-indigo-500 h-1.5 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${exportProgress.current}%` }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 导出选项：图片处理策略 */}
+            <label className="flex items-start gap-2 mb-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={exportInlineImages}
+                onChange={(e) => setExportInlineImages(e.target.checked)}
+                disabled={isExporting}
+                className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer"
+              />
+              <span className="text-sm">
+                <span className="text-zinc-700 dark:text-zinc-300">
+                  {t('dataManager.exportInlineImages')}
+                </span>
+                <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  {t('dataManager.exportInlineImagesHint')}
+                </span>
+              </span>
+            </label>
+
+            <button
+              onClick={handleExportAll}
+              disabled={isExporting || workspaceScopeNotReady || personalExportLocked}
+              className={`flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${isExporting || workspaceScopeNotReady || personalExportLocked
                 ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
                 : exportProgress?.phase === "done"
-                ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg"
-            }`}
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {t('dataManager.exporting')}
-              </>
-            ) : exportProgress?.phase === "done" ? (
-              <>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                {t('dataManager.exportSuccess')}
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 mr-2" />
-                {t('dataManager.exportAsZip')}
-              </>
-            )}
-          </button>
-
-          {/* Nowen 数据包导出 */}
-          <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
-            <div className="flex items-center gap-2 mb-2">
-              <Package size={16} className="text-violet-500" />
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {t('note.nowenPackage')}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-              {t('note.nowenPackageDesc')}
-            </p>
-            <button
-              onClick={handleExportNowenPackage}
-              disabled={isExportingNowen || personalExportLocked}
-              className={`flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${
-                isExportingNowen || personalExportLocked
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
-                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg"
-              }`}
+                  ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
+                  : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg"
+                }`}
             >
-              {isExportingNowen ? (
+              {isExporting ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {t('note.nowenPackageExporting')}
+                  {t('dataManager.exporting')}
+                </>
+              ) : exportProgress?.phase === "done" ? (
+                <>
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  {t('dataManager.exportSuccess')}
                 </>
               ) : (
                 <>
-                  <Package className="w-4 h-4 mr-2" />
-                  {t('note.nowenPackage')}
+                  <Download className="w-4 h-4 mr-2" />
+                  {t('dataManager.exportAsZip')}
                 </>
               )}
             </button>
+
+            {/* Nowen 数据包导出 */}
+            <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+              <div className="flex items-center gap-2 mb-2">
+                <Package size={16} className="text-violet-500" />
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  {t('note.nowenPackage')}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                {t('note.nowenPackageDesc')}
+              </p>
+              <button
+                onClick={handleExportNowenPackage}
+                disabled={isExportingNowen || personalExportLocked}
+                className={`flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${isExportingNowen || personalExportLocked
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
+                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg"
+                  }`}
+              >
+                {isExportingNowen ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {t('note.nowenPackageExporting')}
+                  </>
+                ) : (
+                  <>
+                    <Package className="w-4 h-4 mr-2" />
+                    {t('note.nowenPackage')}
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
       )}
 
       {/* ===== 导入区域：Import Hub ===== */}
       {activeSubTab === "import" && (
-      <section>
-        <div className="flex items-center gap-2 mb-2">
-          <FileUp size={18} className="text-emerald-500" />
-          <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('dataManager.importNotes')}</h4>
-        </div>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
-          {t('dataManager.importDescription')}
-        </p>
-
-        {personalImportLocked && (
-          <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-300">
-            <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
-            <span>{t('dataManager.scope.personalImportDisabled')}</span>
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <FileUp size={18} className="text-emerald-500" />
+            <h4 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('dataManager.importNotes')}</h4>
           </div>
-        )}
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
+            {t('dataManager.importDescription')}
+          </p>
 
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-3 sm:p-4">
-          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
-            {t('dataManager.importHubTitle')}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {importMethods.map((method) => {
-              const Icon = method.icon;
-              const active = activeImportMethod === method.id;
-              return (
-                <button
-                  key={method.id}
-                  type="button"
-                  onClick={() => setActiveImportMethod(method.id)}
-                  disabled={personalImportLocked}
-                  aria-pressed={active}
-                  className={`min-h-[92px] rounded-xl border p-3 text-left transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${getImportMethodClass(method.tone, active)}`}
-                >
-                  <span className="flex items-start gap-2.5 min-w-0">
-                    <span className="w-8 h-8 rounded-lg bg-white/70 dark:bg-zinc-950/30 flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-4 h-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold truncate">{method.label}</span>
-                      <span className="block mt-0.5 text-xs opacity-75 truncate">{method.desc}</span>
-                      <span className="inline-flex max-w-full mt-2 rounded-md bg-white/70 dark:bg-zinc-950/30 px-1.5 py-0.5 text-[11px] font-medium truncate">
-                        {method.tag}
+          {personalImportLocked && (
+            <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-300">
+              <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
+              <span>{t('dataManager.scope.personalImportDisabled')}</span>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-3 sm:p-4">
+            <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
+              {t('dataManager.importHubTitle')}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {importMethods.map((method) => {
+                const Icon = method.icon;
+                const active = activeImportMethod === method.id;
+                return (
+                  <button
+                    key={method.id}
+                    type="button"
+                    onClick={() => setActiveImportMethod(method.id)}
+                    disabled={personalImportLocked}
+                    aria-pressed={active}
+                    className={`min-h-[92px] rounded-xl border p-3 text-left transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${getImportMethodClass(method.tone, active)}`}
+                  >
+                    <span className="flex items-start gap-2.5 min-w-0">
+                      <span className="w-8 h-8 rounded-lg bg-white/70 dark:bg-zinc-950/30 flex items-center justify-center flex-shrink-0">
+                        <Icon className="w-4 h-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold truncate">{method.label}</span>
+                        <span className="block mt-0.5 text-xs opacity-75 truncate">{method.desc}</span>
+                        <span className="inline-flex max-w-full mt-2 rounded-md bg-white/70 dark:bg-zinc-950/30 px-1.5 py-0.5 text-[11px] font-medium truncate">
+                          {method.tag}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
-            {(activeImportMethod === "siyuan" || activeImportMethod === "generic") && (
-              <>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <h5 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      {activeImportMethod === "siyuan"
-                        ? t('dataManager.siyuanImportPanelTitle')
-                        : t('dataManager.genericImportPanelTitle')}
-                    </h5>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                      {activeImportMethod === "siyuan"
-                        ? t('dataManager.siyuanImportPanelDesc')
-                        : t('dataManager.genericImportPanelDesc')}
-                    </p>
-                    {activeImportMethod === "siyuan" && (
-                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
-                        {t('dataManager.siyuanImportPanelHint')}
+            <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
+              {(activeImportMethod === "siyuan" || activeImportMethod === "generic") && (
+                <>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <h5 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {activeImportMethod === "siyuan"
+                          ? t('dataManager.siyuanImportPanelTitle')
+                          : t('dataManager.genericImportPanelTitle')}
+                      </h5>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                        {activeImportMethod === "siyuan"
+                          ? t('dataManager.siyuanImportPanelDesc')
+                          : t('dataManager.genericImportPanelDesc')}
                       </p>
-                    )}
+                      {activeImportMethod === "siyuan" && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                          {t('dataManager.siyuanImportPanelHint')}
+                        </p>
+                      )}
+                      {activeImportMethod === "siyuan" && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                          {t('dataManager.siyuanImportPanelDowngradeHint')}
+                        </p>
+                      )}
+                      {activeImportMethod === "siyuan" && (
+                        <div className="mt-3">
+                          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1.5">
+                            {t('dataManager.siyuanImportFormatLabel')}
+                          </p>
+                          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setSiyuanImportContentFormat("tiptap-json")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors ${siyuanImportContentFormat === "tiptap-json"
+                                ? "bg-emerald-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatRichText')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSiyuanImportContentFormat("markdown")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 ${siyuanImportContentFormat === "markdown"
+                                ? "bg-emerald-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatMarkdown')}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1.5">
+                            {siyuanImportContentFormat === "tiptap-json"
+                              ? t('dataManager.siyuanImportFormatRichTextHint')
+                              : t('dataManager.siyuanImportFormatMarkdownHint')}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {importFiles.length === 0 && (
-                  <div
-                    onDragOver={personalImportLocked ? undefined : handleDragOver}
-                    onDragLeave={personalImportLocked ? undefined : handleDragLeave}
-                    onDrop={personalImportLocked ? undefined : handleDrop}
-                    onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
-                    aria-disabled={personalImportLocked}
-                    className={`relative border-2 border-dashed rounded-xl p-5 sm:p-6 text-center transition-all ${
-                      personalImportLocked
+                  {importFiles.length === 0 && (
+                    <div
+                      onDragOver={personalImportLocked ? undefined : handleDragOver}
+                      onDragLeave={personalImportLocked ? undefined : handleDragLeave}
+                      onDrop={personalImportLocked ? undefined : handleDrop}
+                      onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
+                      aria-disabled={personalImportLocked}
+                      className={`relative border-2 border-dashed rounded-xl p-5 sm:p-6 text-center transition-all ${personalImportLocked
                         ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-800/20 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
                         : isDragOver
-                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/5 dark:border-indigo-500 cursor-pointer"
-                        : "border-zinc-300 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer"
-                    }`}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept=".md,.txt,.markdown,.html,.htm,.pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
-                      onChange={handleFileSelect}
-                      disabled={personalImportLocked}
-                      className="hidden"
-                    />
-                    <Upload
-                      size={28}
-                      className={`mx-auto mb-2.5 ${
-                        isDragOver ? "text-indigo-500" : "text-zinc-400 dark:text-zinc-500"
-                      }`}
-                    />
-                    <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                      {activeImportMethod === "siyuan"
-                        ? t('dataManager.chooseSiyuanExport')
-                        : t('dataManager.dropFilesHere')}
-                    </p>
-                    <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">
-                      {activeImportMethod === "siyuan"
-                        ? t('dataManager.siyuanImportSupportedHint')
-                        : t('dataManager.supportedFiles')}
-                    </p>
-                    {activeImportMethod === "generic" && (
-                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
-                        {t('dataManager.siyuanImportSupportedHint')}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {notesImportError && importFiles.length === 0 && (
-                  <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-red-200/60 dark:border-red-900/40 bg-red-50/40 dark:bg-red-500/5 text-xs text-red-600 dark:text-red-400">
-                    <span className="flex-shrink-0 mt-0.5">⚠</span>
-                    <span className="flex-1 break-all">{notesImportError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNotesImportError("")}
-                      className="text-red-500/80 hover:text-red-600 dark:hover:text-red-300 ml-2 flex-shrink-0"
-                      aria-label="close"
+                          ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/5 dark:border-indigo-500 cursor-pointer"
+                          : "border-zinc-300 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer"
+                        }`}
                     >
-                      ×
-                    </button>
-                  </div>
-                )}
-
-                {notesImportNotice && (
-                  <div
-                    className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${
-                      notesImportNotice.kind === "siyuan"
-                        ? "border-emerald-200/70 bg-emerald-50/50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/5 dark:text-emerald-300"
-                        : "border-amber-200/70 bg-amber-50/50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/5 dark:text-amber-300"
-                    }`}
-                  >
-                    {notesImportNotice.kind === "siyuan" ? (
-                      <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
-                    ) : (
-                      <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold mb-1">
-                        {notesImportNotice.kind === "siyuan"
-                          ? t('dataManager.siyuanImportReportTitle')
-                          : t('dataManager.importNoticeTitle')}
-                      </div>
-                      <div className="space-y-1">
-                        {notesImportNotice.messages.map((message, index) => (
-                          <p key={`${message}-${index}`} className="leading-relaxed">
-                            {message}
-                          </p>
-                        ))}
-                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept=".md,.txt,.markdown,.html,.htm,.pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                        onChange={handleFileSelect}
+                        disabled={personalImportLocked}
+                        className="hidden"
+                      />
+                      <Upload
+                        size={28}
+                        className={`mx-auto mb-2.5 ${isDragOver ? "text-indigo-500" : "text-zinc-400 dark:text-zinc-500"
+                          }`}
+                      />
+                      <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                        {activeImportMethod === "siyuan"
+                          ? t('dataManager.chooseSiyuanExport')
+                          : t('dataManager.dropFilesHere')}
+                      </p>
+                      <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">
+                        {activeImportMethod === "siyuan"
+                          ? t('dataManager.siyuanImportSupportedHint')
+                          : t('dataManager.supportedFiles')}
+                      </p>
+                      {activeImportMethod === "generic" && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                          {t('dataManager.siyuanImportSupportedHint')}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {importFiles.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={toggleAll}
-                          className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium"
-                        >
-                          {importFiles.every((f) => f.selected) ? t('dataManager.deselectAll') : t('dataManager.selectAll')}
-                        </button>
-                        <span className="text-xs text-zinc-400 dark:text-zinc-600">
-                          {t('dataManager.selectedCount', { selected: selectedCount, total: importFiles.length })}
-                        </span>
-                      </div>
+                  {notesImportError && importFiles.length === 0 && (
+                    <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border border-red-200/60 dark:border-red-900/40 bg-red-50/40 dark:bg-red-500/5 text-xs text-red-600 dark:text-red-400">
+                      <span className="flex-shrink-0 mt-0.5">⚠</span>
+                      <span className="flex-1 break-all">{notesImportError}</span>
                       <button
                         type="button"
-                        onClick={clearImportList}
-                        className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        onClick={() => setNotesImportError("")}
+                        className="text-red-500/80 hover:text-red-600 dark:hover:text-red-300 ml-2 flex-shrink-0"
+                        aria-label="close"
                       >
-                        <Trash2 size={14} />
+                        ×
                       </button>
                     </div>
+                  )}
 
-                    {(() => {
-                      const currentGlobalWs = getCurrentWorkspace();
-                      const scopeMatchesGlobal = effectiveWorkspaceId === currentGlobalWs;
-                      return (
-                        <div className="mb-3">
-                          <label className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 block">{t('dataManager.importToNotebook')}</label>
-                          <select
-                            value={scopeMatchesGlobal ? selectedNotebookId : ""}
-                            onChange={(e) => setSelectedNotebookId(e.target.value)}
-                            disabled={!scopeMatchesGlobal}
-                            className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            <option value="">{t('dataManager.autoCreateNotebook')}</option>
-                            {scopeMatchesGlobal && state.notebooks.map((nb) => (
-                              <option key={nb.id} value={nb.id}>
-                                {nb.icon} {nb.name}
-                              </option>
-                            ))}
-                          </select>
-                          {hasZip && zipMetaHint && (
-                            <p className="text-[11px] mt-1.5 leading-relaxed">
-                              {zipMetaHint.kind === "matched" ? (
-                                <span className="text-emerald-600 dark:text-emerald-400">
-                                  ✓ 已根据备份元数据自动选中原笔记本：
-                                  <span className="font-semibold">{zipMetaHint.notebookName}</span>
-                                </span>
-                              ) : (
-                                <span className="text-amber-600 dark:text-amber-400">
-                                  ⓘ 备份来自其他实例或工作区
-                                  {zipMetaHint.rootNotebookName ? (
-                                    <>（原笔记本：<span className="font-semibold">{zipMetaHint.rootNotebookName}</span>）</>
-                                  ) : null}
-                                  ；当前空间未找到同 id 的笔记本，可手动选择目标或保持「自动创建」。
-                                </span>
-                              )}
-                            </p>
-                          )}
+                  {notesImportNotice && (
+                    <div
+                      className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${notesImportNotice.kind === "siyuan"
+                        ? "border-emerald-200/70 bg-emerald-50/50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/5 dark:text-emerald-300"
+                        : "border-amber-200/70 bg-amber-50/50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/5 dark:text-amber-300"
+                        }`}
+                    >
+                      {notesImportNotice.kind === "siyuan" ? (
+                        <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
+                      ) : (
+                        <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold mb-1">
+                          {notesImportNotice.kind === "siyuan"
+                            ? t('dataManager.siyuanImportReportTitle')
+                            : t('dataManager.importNoticeTitle')}
                         </div>
-                      );
-                    })()}
-
-                    {!hasZip && (
-                      <div className="mb-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 p-3">
-                        <label
-                          className={`flex items-start gap-2.5 cursor-pointer ${
-                            selectedNotebookId ? "opacity-50 cursor-not-allowed" : ""
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={perFileNotebook && !selectedNotebookId}
-                            disabled={!!selectedNotebookId}
-                            onChange={(e) => setPerFileNotebook(e.target.checked)}
-                            className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm text-zinc-700 dark:text-zinc-300 font-medium">
-                              {t('dataManager.perFileNotebook')}
-                            </div>
-                            <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                              {t('dataManager.perFileNotebookHint')}
-                            </div>
-                          </div>
-                        </label>
-
-                        {perFileNotebook && !selectedNotebookId && (
-                          <div className="mt-2.5 pl-6 flex flex-col gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="dup-strategy"
-                                value="merge"
-                                checked={duplicateStrategy === "merge"}
-                                onChange={() => setDuplicateStrategy("merge")}
-                                className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
-                              />
-                              {t('dataManager.duplicateMerge')}
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="dup-strategy"
-                                value="unique"
-                                checked={duplicateStrategy === "unique"}
-                                onChange={() => setDuplicateStrategy("unique")}
-                                className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
-                              />
-                              {t('dataManager.duplicateUnique')}
-                            </label>
-                          </div>
-                        )}
+                        <div className="space-y-1">
+                          {notesImportNotice.messages.map((message, index) => (
+                            <p key={`${message}-${index}`} className="leading-relaxed">
+                              {message}
+                            </p>
+                          ))}
+                        </div>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
-                      {importFiles.map((file, idx) => {
-                        const notebookPathText = getNotebookPathText(file);
+                  {importFiles.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={toggleAll}
+                            className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium"
+                          >
+                            {importFiles.every((f) => f.selected) ? t('dataManager.deselectAll') : t('dataManager.selectAll')}
+                          </button>
+                          <span className="text-xs text-zinc-400 dark:text-zinc-600">
+                            {t('dataManager.selectedCount', { selected: selectedCount, total: importFiles.length })}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearImportList}
+                          className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      {(() => {
+                        const currentGlobalWs = getCurrentWorkspace();
+                        const scopeMatchesGlobal = effectiveWorkspaceId === currentGlobalWs;
                         return (
+                          <div className="mb-3">
+                            <label className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 block">{t('dataManager.importToNotebook')}</label>
+                            <select
+                              value={scopeMatchesGlobal ? selectedNotebookId : ""}
+                              onChange={(e) => setSelectedNotebookId(e.target.value)}
+                              disabled={!scopeMatchesGlobal}
+                              className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              <option value="">{t('dataManager.autoCreateNotebook')}</option>
+                              {scopeMatchesGlobal && state.notebooks.map((nb) => (
+                                <option key={nb.id} value={nb.id}>
+                                  {nb.icon} {nb.name}
+                                </option>
+                              ))}
+                            </select>
+                            {hasZip && zipMetaHint && (
+                              <p className="text-[11px] mt-1.5 leading-relaxed">
+                                {zipMetaHint.kind === "matched" ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400">
+                                    ✓ 已根据备份元数据自动选中原笔记本：
+                                    <span className="font-semibold">{zipMetaHint.notebookName}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 dark:text-amber-400">
+                                    ⓘ 备份来自其他实例或工作区
+                                    {zipMetaHint.rootNotebookName ? (
+                                      <>（原笔记本：<span className="font-semibold">{zipMetaHint.rootNotebookName}</span>）</>
+                                    ) : null}
+                                    ；当前空间未找到同 id 的笔记本，可手动选择目标或保持「自动创建」。
+                                  </span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {!hasZip && (
+                        <div className="mb-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 p-3">
                           <label
-                            key={idx}
-                            className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                              file.selected
-                                ? "bg-indigo-50/50 dark:bg-indigo-500/5"
-                                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                            }`}
+                            className={`flex items-start gap-2.5 cursor-pointer ${selectedNotebookId ? "opacity-50 cursor-not-allowed" : ""
+                              }`}
                           >
                             <input
                               type="checkbox"
-                              checked={file.selected}
-                              onChange={() => toggleFileSelection(idx)}
-                              className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30 flex-shrink-0"
+                              checked={perFileNotebook && !selectedNotebookId}
+                              disabled={!!selectedNotebookId}
+                              onChange={(e) => setPerFileNotebook(e.target.checked)}
+                              className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30"
                             />
-                            <FileText size={14} className="mt-0.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
-                                  {file.title}
-                                </span>
-                                <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
-                                  {(file.size / 1024).toFixed(1)} KB
-                                </span>
-                              </span>
-                              <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
-                                <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium ${getImportSourceTone(file.source)}`}>
-                                  {getImportSourceLabel(file.source)}
-                                </span>
-                                {notebookPathText && (
-                                  <span
-                                    title={notebookPathText}
-                                    className="min-w-0 max-w-full break-all text-zinc-400 dark:text-zinc-500 sm:truncate sm:break-normal"
-                                  >
-                                    {notebookPathText}
-                                  </span>
-                                )}
-                              </span>
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-
-                    {importProgress && (
-                      <div className="mt-3 flex items-center gap-2">
-                        {importProgress.phase === "error" ? (
-                          <AlertCircle size={14} className="text-red-500" />
-                        ) : importProgress.phase === "done" ? (
-                          <CheckCircle size={14} className="text-green-500" />
-                        ) : (
-                          <Loader2 size={14} className="text-indigo-500 animate-spin" />
-                        )}
-                        <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                          {importProgress.message}
-                        </span>
-                      </div>
-                    )}
-
-                    {lastImportTarget && (
-                      <div className="mt-3 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-500/10">
-                        <div className="flex items-start gap-2">
-                          <CheckCircle size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                              {t('dataManager.importDoneTitle', { count: lastImportTarget.count })}
-                            </div>
-                            <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 break-all">
-                              {t('dataManager.importDoneTargetLabel')}
-                              <span className="font-semibold">{lastImportTarget.workspaceName}</span>
-                            </div>
-                            {lastImportTarget.workspaceId !== getCurrentWorkspace() && (
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={handleSwitchToImportTarget}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors"
-                                >
-                                  {t('dataManager.importDoneSwitch')}
-                                </button>
-                                <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 self-center">
-                                  {t('dataManager.importDoneSwitchHint')}
-                                </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-zinc-700 dark:text-zinc-300 font-medium">
+                                {t('dataManager.perFileNotebook')}
                               </div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setLastImportTarget(null)}
-                            className="text-emerald-700/60 dark:text-emerald-300/60 hover:text-emerald-700 dark:hover:text-emerald-300 flex-shrink-0"
-                            aria-label="dismiss"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                              <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                {t('dataManager.perFileNotebookHint')}
+                              </div>
+                            </div>
+                          </label>
 
-                    <button
-                      type="button"
-                      onClick={handleImport}
-                      disabled={isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked}
-                      className={`mt-3 flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${
-                        isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked
+                          {perFileNotebook && !selectedNotebookId && (
+                            <div className="mt-2.5 pl-6 flex flex-col gap-1.5">
+                              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="dup-strategy"
+                                  value="merge"
+                                  checked={duplicateStrategy === "merge"}
+                                  onChange={() => setDuplicateStrategy("merge")}
+                                  className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
+                                />
+                                {t('dataManager.duplicateMerge')}
+                              </label>
+                              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="dup-strategy"
+                                  value="unique"
+                                  checked={duplicateStrategy === "unique"}
+                                  onChange={() => setDuplicateStrategy("unique")}
+                                  className="w-3.5 h-3.5 text-indigo-500 focus:ring-indigo-500/30"
+                                />
+                                {t('dataManager.duplicateUnique')}
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
+                        {importFiles.map((file, idx) => {
+                          const notebookPathText = getNotebookPathText(file);
+                          return (
+                            <label
+                              key={idx}
+                              className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${file.selected
+                                ? "bg-indigo-50/50 dark:bg-indigo-500/5"
+                                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                                }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={file.selected}
+                                onChange={() => toggleFileSelection(idx)}
+                                className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30 flex-shrink-0"
+                              />
+                              <FileText size={14} className="mt-0.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                                    {file.title}
+                                  </span>
+                                  <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
+                                    {(file.size / 1024).toFixed(1)} KB
+                                  </span>
+                                </span>
+                                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
+                                  <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium ${getImportSourceTone(file.source)}`}>
+                                    {getImportSourceLabel(file.source)}
+                                  </span>
+                                  {notebookPathText && (
+                                    <span
+                                      title={notebookPathText}
+                                      className="min-w-0 max-w-full break-all text-zinc-400 dark:text-zinc-500 sm:truncate sm:break-normal"
+                                    >
+                                      {notebookPathText}
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {importProgress && (
+                        <div className="mt-3 flex items-center gap-2">
+                          {importProgress.phase === "error" ? (
+                            <AlertCircle size={14} className="text-red-500" />
+                          ) : importProgress.phase === "done" ? (
+                            <CheckCircle size={14} className="text-green-500" />
+                          ) : (
+                            <Loader2 size={14} className="text-indigo-500 animate-spin" />
+                          )}
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                            {importProgress.message}
+                          </span>
+                        </div>
+                      )}
+
+                      {lastImportTarget && (
+                        <div className="mt-3 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-500/10">
+                          <div className="flex items-start gap-2">
+                            <CheckCircle size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                                {t('dataManager.importDoneTitle', { count: lastImportTarget.count })}
+                              </div>
+                              <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 break-all">
+                                {t('dataManager.importDoneTargetLabel')}
+                                <span className="font-semibold">{lastImportTarget.workspaceName}</span>
+                              </div>
+                              {lastImportTarget.workspaceId !== getCurrentWorkspace() && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleSwitchToImportTarget}
+                                    className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors"
+                                  >
+                                    {t('dataManager.importDoneSwitch')}
+                                  </button>
+                                  <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 self-center">
+                                    {t('dataManager.importDoneSwitchHint')}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setLastImportTarget(null)}
+                              className="text-emerald-700/60 dark:text-emerald-300/60 hover:text-emerald-700 dark:hover:text-emerald-300 flex-shrink-0"
+                              aria-label="dismiss"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleImport}
+                        disabled={isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked}
+                        className={`mt-3 flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${isImporting || selectedCount === 0 || workspaceScopeNotReady || personalImportLocked
                           ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
                           : importProgress?.phase === "done"
-                          ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
-                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg"
-                      }`}
-                    >
-                      {isImporting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          {t('dataManager.importing')}
-                        </>
-                      ) : importProgress?.phase === "done" ? (
-                        <>
-                          <CheckCircle className="w-4 h-4 mr-2" />
-                          {t('dataManager.importSuccess')}
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          {t('dataManager.importButton', { count: selectedCount })}
-                        </>
-                      )}
-                    </button>
+                            ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
+                            : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg"
+                          }`}
+                      >
+                        {isImporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            {t('dataManager.importing')}
+                          </>
+                        ) : importProgress?.phase === "done" ? (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            {t('dataManager.importSuccess')}
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-2" />
+                            {t('dataManager.importButton', { count: selectedCount })}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {!personalImportLocked && activeImportMethod === "nowen" && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Package size={16} className="text-violet-500" />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      {t('note.nowenPackageImport')}
+                    </span>
                   </div>
-                )}
-              </>
-            )}
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                    {t('note.nowenPackageImportDesc')}
+                  </p>
+                  <input
+                    type="file"
+                    accept=".nowen.zip,.zip"
+                    className="hidden"
+                    id="nowen-package-import-input"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
 
-            {!personalImportLocked && activeImportMethod === "nowen" && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Package size={16} className="text-violet-500" />
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    {t('note.nowenPackageImport')}
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-                  {t('note.nowenPackageImportDesc')}
-                </p>
-                <input
-                  type="file"
-                  accept=".nowen.zip,.zip"
-                  className="hidden"
-                  id="nowen-package-import-input"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    e.target.value = "";
+                      try {
+                        toast.info(t('note.nowenPackageImportDryRun'));
+                        const dryResult = await api.dryRunNowenPackage(file);
 
-                    try {
-                      toast.info(t('note.nowenPackageImportDryRun'));
-                      const dryResult = await api.dryRunNowenPackage(file);
+                        if (!dryResult.success) {
+                          toast.error(dryResult.errors?.[0] || t('note.nowenPackageImportFailed'));
+                          return;
+                        }
 
-                      if (!dryResult.success) {
-                        toast.error(dryResult.errors?.[0] || t('note.nowenPackageImportFailed'));
-                        return;
-                      }
-
-                      const pkg = dryResult.package;
-                      const confirmed = window.confirm(
-                        t('note.nowenPackageImportConfirmTitle') + "\n\n" +
-                        t('note.nowenPackageImportConfirmDesc', {
-                          notes: pkg?.counts?.notes || 0,
-                          attachments: pkg?.counts?.attachments || 0,
-                        })
-                      );
-
-                      if (!confirmed) return;
-
-                      toast.info(t('note.nowenPackageImportDryRun'));
-                      const result = await api.importNowenPackage(file);
-
-                      if (result.success) {
-                        const counts = result.counts;
-                        toast.success(
-                          t('note.nowenPackageImportSuccess') +
-                          (counts ? ` (${counts.notes} notes, ${counts.attachments} attachments)` : "")
+                        const pkg = dryResult.package;
+                        const confirmed = window.confirm(
+                          t('note.nowenPackageImportConfirmTitle') + "\n\n" +
+                          t('note.nowenPackageImportConfirmDesc', {
+                            notes: pkg?.counts?.notes || 0,
+                            attachments: pkg?.counts?.attachments || 0,
+                          })
                         );
-                        actions.refreshNotebooks();
-                        actions.refreshNotes();
-                      } else {
-                        toast.error(result.errors?.[0] || t('note.nowenPackageImportFailed'));
+
+                        if (!confirmed) return;
+
+                        toast.info(t('note.nowenPackageImportDryRun'));
+                        const result = await api.importNowenPackage(file);
+
+                        if (result.success) {
+                          const counts = result.counts;
+                          toast.success(
+                            t('note.nowenPackageImportSuccess') +
+                            (counts ? ` (${counts.notes} notes, ${counts.attachments} attachments)` : "")
+                          );
+                          actions.refreshNotebooks();
+                          actions.refreshNotes();
+                        } else {
+                          toast.error(result.errors?.[0] || t('note.nowenPackageImportFailed'));
+                        }
+                      } catch (err: any) {
+                        console.error("[NowenPackageImport] Failed:", err);
+                        toast.error(err.message || t('note.nowenPackageImportFailed'));
                       }
-                    } catch (err: any) {
-                      console.error("[NowenPackageImport] Failed:", err);
-                      toast.error(err.message || t('note.nowenPackageImportFailed'));
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('nowen-package-import-input')?.click()}
-                  className="flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg transition-all"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {t('note.nowenPackageImport')}
-                </button>
-              </div>
-            )}
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('nowen-package-import-input')?.click()}
+                    className="flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg transition-all"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    {t('note.nowenPackageImport')}
+                  </button>
+                </div>
+              )}
 
-            {!personalImportLocked && activeImportMethod === "url" && <UrlImport />}
+              {!personalImportLocked && activeImportMethod === "url" && <UrlImport />}
 
-            {!personalImportLocked && activeImportMethod === "mobile-memo" && (
-              <div>
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {([
-                    { id: "xiaomi", label: t('dataManager.mobileMemoXiaomi') },
-                    { id: "oppo", label: t('dataManager.mobileMemoOppo') },
-                    { id: "iphone", label: t('dataManager.mobileMemoIphone') },
-                  ] as const).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveMobileMemoMethod(item.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                        activeMobileMemoMethod === item.id
+              {!personalImportLocked && activeImportMethod === "mobile-memo" && (
+                <div>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {([
+                      { id: "xiaomi", label: t('dataManager.mobileMemoXiaomi') },
+                      { id: "oppo", label: t('dataManager.mobileMemoOppo') },
+                      { id: "iphone", label: t('dataManager.mobileMemoIphone') },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveMobileMemoMethod(item.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${activeMobileMemoMethod === item.id
                           ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800/70 dark:bg-orange-500/10 dark:text-orange-300"
                           : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+                          }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  {activeMobileMemoMethod === "xiaomi" && <MiCloudImport />}
+                  {activeMobileMemoMethod === "oppo" && <OppoCloudImport />}
+                  {activeMobileMemoMethod === "iphone" && <ICloudImport />}
                 </div>
-                {activeMobileMemoMethod === "xiaomi" && <MiCloudImport />}
-                {activeMobileMemoMethod === "oppo" && <OppoCloudImport />}
-                {activeMobileMemoMethod === "iphone" && <ICloudImport />}
-              </div>
-            )}
+              )}
 
-            {!personalImportLocked && activeImportMethod === "youdao" && <YoudaoImport />}
+              {!personalImportLocked && activeImportMethod === "youdao" && <YoudaoImport />}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
       )}
 
       {/* ===== 数据库文件 (.data) 导出/导入/占用统计 ===== */}
       {activeSubTab === "database" && (
-      <DataFileSection />
+        <DataFileSection />
       )}
 
       {/* ===== 备份与灾备（B 系列） ===== */}
       {activeSubTab === "backup" && (
-      <BackupSection />
+        <BackupSection />
       )}
 
       {/* ===== 危险区域 (Danger Zone) ===== */}
       {activeSubTab === "danger" && (
-      <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
-        <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle size={18} className="text-red-500" />
-          <h4 className="text-base font-bold text-red-600 dark:text-red-500">{t('dataManager.dangerZone')}</h4>
-        </div>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
-          {t('dataManager.dangerDescription')}
-        </p>
+        <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle size={18} className="text-red-500" />
+            <h4 className="text-base font-bold text-red-600 dark:text-red-500">{t('dataManager.dangerZone')}</h4>
+          </div>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+            {t('dataManager.dangerDescription')}
+          </p>
 
-        <button
-          onClick={() => { setShowResetModal(true); setConfirmText(""); setResetError(""); setSudoPwd(""); }}
-          className="px-4 py-2 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg transition-colors text-sm"
-        >
-          {t('dataManager.factoryReset')}
-        </button>
+          <button
+            onClick={() => { setShowResetModal(true); setConfirmText(""); setResetError(""); setSudoPwd(""); }}
+            className="px-4 py-2 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg transition-colors text-sm"
+          >
+            {t('dataManager.factoryReset')}
+          </button>
 
-        {/* 二次确认模态框 */}
-        <AnimatePresence>
-          {showResetModal && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm"
-                onClick={() => !isResetting && setShowResetModal(false)}
-              />
-
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ type: "spring", duration: 0.4, bounce: 0 }}
-                className="relative bg-white dark:bg-zinc-900 w-full max-w-md p-6 rounded-xl shadow-2xl border border-red-200 dark:border-red-900/50"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                    <AlertTriangle size={20} className="text-red-600 dark:text-red-500" />
-                  </div>
-                  <h4 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                    {t('dataManager.resetConfirmTitle')}
-                  </h4>
-                </div>
-
-                <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-1">
-                  {t('dataManager.resetConfirmDesc')}
-                </p>
-                <ul className="text-sm text-zinc-500 dark:text-zinc-400 mb-4 list-disc list-inside space-y-0.5">
-                  <li>{t('dataManager.resetItem1')}</li>
-                  <li>{t('dataManager.resetItem2')}</li>
-                  <li>{t('dataManager.resetItem3')}</li>
-                </ul>
-
-                <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-3">
-                  {t('dataManager.resetInputHint')}
-                </p>
+          {/* 二次确认模态框 */}
+          <AnimatePresence>
+            {showResetModal && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm"
+                  onClick={() => !isResetting && setShowResetModal(false)}
+                />
 
                 <motion.div
-                  animate={shake ? { x: [-10, 10, -10, 10, 0] } : {}}
-                  transition={{ duration: 0.4 }}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ type: "spring", duration: 0.4, bounce: 0 }}
+                  className="relative bg-white dark:bg-zinc-900 w-full max-w-md p-6 rounded-xl shadow-2xl border border-red-200 dark:border-red-900/50"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <input
-                    type="text"
-                    value={confirmText}
-                    onChange={(e) => {
-                      setConfirmText(e.target.value);
-                      setResetError("");
-                    }}
-                    placeholder={t('dataManager.resetInputPlaceholder')}
-                    className={`w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none font-mono text-sm transition-colors ${
-                      resetError
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle size={20} className="text-red-600 dark:text-red-500" />
+                    </div>
+                    <h4 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                      {t('dataManager.resetConfirmTitle')}
+                    </h4>
+                  </div>
+
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-1">
+                    {t('dataManager.resetConfirmDesc')}
+                  </p>
+                  <ul className="text-sm text-zinc-500 dark:text-zinc-400 mb-4 list-disc list-inside space-y-0.5">
+                    <li>{t('dataManager.resetItem1')}</li>
+                    <li>{t('dataManager.resetItem2')}</li>
+                    <li>{t('dataManager.resetItem3')}</li>
+                  </ul>
+
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-3">
+                    {t('dataManager.resetInputHint')}
+                  </p>
+
+                  <motion.div
+                    animate={shake ? { x: [-10, 10, -10, 10, 0] } : {}}
+                    transition={{ duration: 0.4 }}
+                  >
+                    <input
+                      type="text"
+                      value={confirmText}
+                      onChange={(e) => {
+                        setConfirmText(e.target.value);
+                        setResetError("");
+                      }}
+                      placeholder={t('dataManager.resetInputPlaceholder')}
+                      className={`w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none font-mono text-sm transition-colors ${resetError
                         ? "border-red-500/50 focus:ring-2 focus:ring-red-500/30"
                         : "border-zinc-300 dark:border-zinc-700 focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
-                    }`}
-                    autoFocus
-                  />
+                        }`}
+                      autoFocus
+                    />
+                  </motion.div>
+
+                  {resetError && (
+                    <p className="text-sm text-red-500 mt-2">{resetError}</p>
+                  )}
+
+                  {/* H2: 二次密码验证（sudo） */}
+                  <div className="mt-4">
+                    <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5">
+                      {t('dataManager.sudoPasswordLabel')}
+                    </label>
+                    <input
+                      type="password"
+                      value={sudoPwd}
+                      onChange={(e) => {
+                        setSudoPwd(e.target.value);
+                        setResetError("");
+                      }}
+                      placeholder={t('dataManager.sudoPasswordPlaceholder')}
+                      autoComplete="current-password"
+                      className="w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none text-sm transition-colors border-zinc-300 dark:border-zinc-700 focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
+                    />
+                    <p className="text-[11px] text-zinc-400 mt-1">
+                      {t('dataManager.sudoPasswordHint')}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end gap-3 mt-5">
+                    <button
+                      onClick={() => { setShowResetModal(false); setSudoPwd(""); }}
+                      disabled={isResetting}
+                      className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                    >
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      onClick={handleFactoryReset}
+                      disabled={isResetting || confirmText !== "RESET" || !sudoPwd}
+                      className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg flex items-center transition-colors"
+                    >
+                      {isResetting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                      {t('dataManager.confirmDestroy')}
+                    </button>
+                  </div>
                 </motion.div>
-
-                {resetError && (
-                  <p className="text-sm text-red-500 mt-2">{resetError}</p>
-                )}
-
-                {/* H2: 二次密码验证（sudo） */}
-                <div className="mt-4">
-                  <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5">
-                    {t('dataManager.sudoPasswordLabel')}
-                  </label>
-                  <input
-                    type="password"
-                    value={sudoPwd}
-                    onChange={(e) => {
-                      setSudoPwd(e.target.value);
-                      setResetError("");
-                    }}
-                    placeholder={t('dataManager.sudoPasswordPlaceholder')}
-                    autoComplete="current-password"
-                    className="w-full px-3 py-2 border rounded-lg bg-transparent text-zinc-900 dark:text-zinc-100 outline-none text-sm transition-colors border-zinc-300 dark:border-zinc-700 focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
-                  />
-                  <p className="text-[11px] text-zinc-400 mt-1">
-                    {t('dataManager.sudoPasswordHint')}
-                  </p>
-                </div>
-
-                <div className="flex justify-end gap-3 mt-5">
-                  <button
-                    onClick={() => { setShowResetModal(false); setSudoPwd(""); }}
-                    disabled={isResetting}
-                    className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                  >
-                    {t('common.cancel')}
-                  </button>
-                  <button
-                    onClick={handleFactoryReset}
-                    disabled={isResetting || confirmText !== "RESET" || !sudoPwd}
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg flex items-center transition-colors"
-                  >
-                    {isResetting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    {t('dataManager.confirmDestroy')}
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-      </section>
+              </div>
+            )}
+          </AnimatePresence>
+        </section>
       )}
     </div>
   );
@@ -2652,11 +2663,10 @@ export function DataFileSection() {
                       />
                     </div>
                     {storageConfigMsg && (
-                      <div className={`rounded-md px-2 py-1 text-[11px] ${
-                        storageConfigMsg.type === "ok"
-                          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                          : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300"
-                      }`}>
+                      <div className={`rounded-md px-2 py-1 text-[11px] ${storageConfigMsg.type === "ok"
+                        ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300"
+                        }`}>
                         {storageConfigMsg.text}
                       </div>
                     )}
@@ -2722,11 +2732,10 @@ export function DataFileSection() {
                       </div>
                     )}
                     {remoteCheck && (
-                      <div className={`rounded-md px-2 py-1 text-[11px] ${
-                        remoteCheck.ok
-                          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                          : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                      }`}>
+                      <div className={`rounded-md px-2 py-1 text-[11px] ${remoteCheck.ok
+                        ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        }`}>
                         <div>
                           已检查 {remoteCheck.checked}/{remoteCheck.total} 个，存在 {remoteCheck.exists} 个，缺失 {remoteCheck.missing.length} 个，错误 {remoteCheck.errors.length} 个
                         </div>
@@ -2773,11 +2782,10 @@ export function DataFileSection() {
             <button
               onClick={handleExport}
               disabled={isExporting}
-              className={`flex items-center justify-center w-full py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                isExporting
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
-              }`}
+              className={`flex items-center justify-center w-full py-2 px-3 rounded-lg font-medium text-sm transition-all ${isExporting
+                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                : "bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
+                }`}
             >
               {isExporting ? (
                 <>
@@ -2902,11 +2910,10 @@ export function DataFileSection() {
               <button
                 onClick={handleCheckAttachmentHealth}
                 disabled={isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming}
-                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                  isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
-                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                }`}
+                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                  }`}
               >
                 {isCheckingHealth ? (
                   <>
@@ -2926,11 +2933,10 @@ export function DataFileSection() {
               <button
                 onClick={handleScanOrphans}
                 disabled={isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming}
-                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                  isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
-                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                    : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700"
-                }`}
+                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${isRepairingAttachment || isCheckingHealth || isScanningOrphans || isCleaningOrphans || isVacuuming
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                  : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700"
+                  }`}
               >
                 {isScanningOrphans ? (
                   <>
@@ -2949,11 +2955,10 @@ export function DataFileSection() {
             <button
               onClick={handleCleanupOrphans}
               disabled={isCheckingHealth || isCleaningOrphans || isVacuuming || isScanningOrphans}
-              className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                isCheckingHealth || isCleaningOrphans || isVacuuming || isScanningOrphans
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                  : "bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
-              }`}
+              className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${isCheckingHealth || isCleaningOrphans || isVacuuming || isScanningOrphans
+                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                : "bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+                }`}
             >
               {isCleaningOrphans ? (
                 <>
@@ -2972,11 +2977,10 @@ export function DataFileSection() {
               <button
                 onClick={handleVacuum}
                 disabled={isRepairingAttachment || isCheckingHealth || isVacuuming || isCleaningOrphans || isScanningOrphans}
-                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                  isRepairingAttachment || isCheckingHealth || isVacuuming || isCleaningOrphans || isScanningOrphans
-                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
-                }`}
+                className={`flex items-center justify-center py-2 px-3 rounded-lg font-medium text-sm transition-all ${isRepairingAttachment || isCheckingHealth || isVacuuming || isCleaningOrphans || isScanningOrphans
+                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                  }`}
               >
                 {isVacuuming ? (
                   <>
@@ -3225,7 +3229,7 @@ function BackupSection() {
         setIsAdmin((u as any)?.role === "admin");
         setCurrentEmail((u as any)?.email || "");
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { cancelled = true; };
   }, []);
 
@@ -3553,11 +3557,10 @@ function BackupSection() {
                 <Clock size={11} /> {t("dataManager.backup.lastSuccess")}
               </div>
               <div
-                className={`font-semibold ${
-                  status.hoursSinceLastSuccess !== null && status.hoursSinceLastSuccess > status.autoBackupIntervalHours * 2
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-zinc-800 dark:text-zinc-200"
-                }`}
+                className={`font-semibold ${status.hoursSinceLastSuccess !== null && status.hoursSinceLastSuccess > status.autoBackupIntervalHours * 2
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-zinc-800 dark:text-zinc-200"
+                  }`}
               >
                 {formatSince(status.hoursSinceLastSuccess)}
               </div>
@@ -3818,11 +3821,10 @@ function BackupSection() {
                   (status.autoBackupEmailOnSuccess ?? false) === autoEmailOnSuccess &&
                   (status.autoBackupEmailTo ?? "") === autoEmailTo.trim())
               }
-              className={`flex items-center justify-center py-1.5 px-3 rounded-lg text-xs font-medium transition-all ${
-                autoSaving
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
-              }`}
+              className={`flex items-center justify-center py-1.5 px-3 rounded-lg text-xs font-medium transition-all ${autoSaving
+                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                }`}
             >
               {autoSaving ? (
                 <>
@@ -3861,11 +3863,10 @@ function BackupSection() {
           <button
             onClick={() => handleCreate("db-only")}
             disabled={creating !== null}
-            className={`flex-1 min-w-0 sm:min-w-[10rem] h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
-              creating !== null
-                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-            }`}
+            className={`flex-1 min-w-0 sm:min-w-[10rem] h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${creating !== null
+              ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+              : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+              }`}
           >
             {creating === "db-only" ? (
               <>
@@ -3882,11 +3883,10 @@ function BackupSection() {
           <button
             onClick={() => handleCreate("full")}
             disabled={creating !== null}
-            className={`flex-1 min-w-0 sm:min-w-[8rem] h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
-              creating !== null
-                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
-            }`}
+            className={`flex-1 min-w-0 sm:min-w-[8rem] h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${creating !== null
+              ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+              : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+              }`}
           >
             {creating === "full" ? (
               <>
@@ -3937,11 +3937,10 @@ function BackupSection() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing || creating !== null}
-            className={`h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap border transition-all ${
-              importing || creating !== null
-                ? "border-zinc-200 dark:border-zinc-700 text-zinc-400 cursor-not-allowed"
-                : "border-sky-300 dark:border-sky-600 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10"
-            }`}
+            className={`h-9 flex items-center justify-center px-3 rounded-lg font-medium text-sm whitespace-nowrap border transition-all ${importing || creating !== null
+              ? "border-zinc-200 dark:border-zinc-700 text-zinc-400 cursor-not-allowed"
+              : "border-sky-300 dark:border-sky-600 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10"
+              }`}
           >
             {importing ? (
               <>
@@ -4398,11 +4397,10 @@ function BackupRestoreDialog(props: {
             <button
               onClick={handleConfirm}
               disabled={confirmText !== target.filename}
-              className={`px-3 py-1.5 text-xs rounded font-semibold flex items-center gap-1.5 ${
-                confirmText === target.filename
-                  ? "bg-red-600 hover:bg-red-700 text-white"
-                  : "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
-              }`}
+              className={`px-3 py-1.5 text-xs rounded font-semibold flex items-center gap-1.5 ${confirmText === target.filename
+                ? "bg-red-600 hover:bg-red-700 text-white"
+                : "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                }`}
             >
               <ShieldAlert size={12} />
               {t("dataManager.backup.confirmRestore")}
@@ -4632,11 +4630,10 @@ function BackupDirSection(props: {
         {/* —— 操作结果 —— */}
         {opMsg && (
           <div
-            className={`flex items-start gap-1.5 rounded-md px-2.5 py-1.5 text-xs ${
-              opMsg.type === "ok"
-                ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/40"
-                : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 border border-red-200 dark:border-red-700/40"
-            }`}
+            className={`flex items-start gap-1.5 rounded-md px-2.5 py-1.5 text-xs ${opMsg.type === "ok"
+              ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/40"
+              : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 border border-red-200 dark:border-red-700/40"
+              }`}
           >
             {opMsg.type === "ok" ? (
               <CheckCircle size={12} className="mt-0.5 flex-shrink-0" />
@@ -4657,11 +4654,10 @@ function BackupDirSection(props: {
             <button
               onClick={handleSwitch}
               disabled={switching}
-              className={`w-full flex items-center justify-center py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                switching
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
-                  : "bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
-              }`}
+              className={`w-full flex items-center justify-center py-2 px-3 rounded-lg text-xs font-medium transition-all ${switching
+                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                : "bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
+                }`}
             >
               {switching ? (
                 <>
@@ -4762,14 +4758,14 @@ function BackupSendEmailDialog(props: {
         type: "ok",
         text: out.result.generatedNew
           ? t("dataManager.backup.sendEmailGeneratedSuccess", {
-              filename: sentName,
-              to: to.trim(),
-              resp: out.result.lastResponse || "",
-            })
+            filename: sentName,
+            to: to.trim(),
+            resp: out.result.lastResponse || "",
+          })
           : t("dataManager.backup.sendEmailSuccess", {
-              to: to.trim(),
-              resp: out.result.lastResponse || "",
-            }),
+            to: to.trim(),
+            resp: out.result.lastResponse || "",
+          }),
       });
       // 生成了新备份时，通知上层刷新列表；发送当前备份时不需要
       if (out.result.generatedNew && onSent) onSent();
@@ -4859,11 +4855,10 @@ function BackupSendEmailDialog(props: {
                 ]).map((opt) => (
                   <label
                     key={opt.val}
-                    className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition ${
-                      format === opt.val
-                        ? "border-sky-400 dark:border-sky-500/60 bg-sky-50 dark:bg-sky-500/10"
-                        : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-                    }`}
+                    className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition ${format === opt.val
+                      ? "border-sky-400 dark:border-sky-500/60 bg-sky-50 dark:bg-sky-500/10"
+                      : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                      }`}
                   >
                     <input
                       type="radio"
@@ -4934,11 +4929,10 @@ function BackupSendEmailDialog(props: {
             {/* 结果 */}
             {msg && (
               <div
-                className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${
-                  msg.type === "ok"
-                    ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
-                    : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
-                }`}
+                className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${msg.type === "ok"
+                  ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
+                  : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
+                  }`}
               >
                 {msg.type === "ok" ? (
                   <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -5279,11 +5273,10 @@ function SmtpConfigSection(props: {
         <span className="ml-auto flex items-center gap-2">
           {loaded && (
             <span
-              className={`text-[11px] px-1.5 py-0.5 rounded ${
-                enabled
-                  ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                  : "bg-zinc-200 dark:bg-zinc-700/50 text-zinc-600 dark:text-zinc-400"
-              }`}
+              className={`text-[11px] px-1.5 py-0.5 rounded ${enabled
+                ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "bg-zinc-200 dark:bg-zinc-700/50 text-zinc-600 dark:text-zinc-400"
+                }`}
             >
               {enabled ? t("dataManager.smtp.enabled") : t("dataManager.smtp.disabled")}
             </span>
@@ -5446,11 +5439,10 @@ function SmtpConfigSection(props: {
               {/* Save 结果 */}
               {saveMsg && (
                 <div
-                  className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${
-                    saveMsg.type === "ok"
-                      ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
-                      : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
-                  }`}
+                  className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${saveMsg.type === "ok"
+                    ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
+                    : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
+                    }`}
                 >
                   {saveMsg.type === "ok" ? (
                     <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -5506,11 +5498,10 @@ function SmtpConfigSection(props: {
                 </div>
                 {testMsg && (
                   <div
-                    className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${
-                      testMsg.type === "ok"
-                        ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
-                        : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
-                    }`}
+                    className={`flex items-start gap-2 p-2.5 rounded-lg text-xs leading-relaxed ${testMsg.type === "ok"
+                      ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300"
+                      : "bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300"
+                      }`}
                   >
                     {testMsg.type === "ok" ? (
                       <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />

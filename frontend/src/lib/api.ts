@@ -461,7 +461,7 @@ export function broadcastLogout(reason?: string) {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         keepalive: true,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   } catch {
     /* ignore */
@@ -482,7 +482,7 @@ export function broadcastLogout(reason?: string) {
     // 立即删除，这样下次登出也能再次触发（避免 value 相同被合并）
     localStorage.removeItem("nowen-logout-broadcast");
     // 通知同 tab 内的组件（如 SecuritySettings）token 已变化
-    try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch {}
+    try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch { }
   } catch {
     /* 隐私模式下 localStorage 可能不可用，忽略 */
   }
@@ -493,7 +493,7 @@ export function broadcastLogout(reason?: string) {
   // 失败忽略：secure storage 不可用时本来就没东西要清。
   void import("./quickLogin")
     .then((m) => m.disableQuickLogin())
-    .catch(() => {});
+    .catch(() => { });
 }
 
 /**
@@ -652,7 +652,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     typeof window !== "undefined" && /^\/(?:share|notebook-share)\//.test(window.location.pathname);
   if (res.status === 401 || res.status === 403) {
     let errBody: any = {};
-    try { errBody = await res.clone().json(); } catch {}
+    try { errBody = await res.clone().json(); } catch { }
     const code: string | undefined = errBody?.code;
     const sessionRevoked =
       res.status === 401 ||
@@ -748,9 +748,9 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
       updatedAt: new Date().toISOString(),
       ...body,
     };
-    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as any)).catch(() => {});
+    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as any)).catch(() => { });
   } else if (mutationType === "deleteNote") {
-    void import("@/lib/localStore").then((m) => m.deleteNote(noteId)).catch(() => {});
+    void import("@/lib/localStore").then((m) => m.deleteNote(noteId)).catch(() => { });
   }
 
   // 构造乐观返回值
@@ -842,6 +842,13 @@ function isInvalidStringLengthError(error: unknown): boolean {
   return error instanceof RangeError && /Invalid string length/i.test(error.message);
 }
 
+function isPayloadTooLargeError(error: unknown): boolean {
+  const anyErr = error as { status?: number; message?: string } | null;
+  if (anyErr?.status === 413) return true;
+  const msg = anyErr?.message || "";
+  return /\b413\b|payload too large|entity too large|request entity too large/i.test(msg);
+}
+
 async function postImportNoteBatchWithSplit(
   batch: ImportNotePayload[],
   postBatch: (batch: ImportNotePayload[]) => Promise<ImportNotesResponse>,
@@ -849,7 +856,7 @@ async function postImportNoteBatchWithSplit(
   try {
     return [await postBatch(batch)];
   } catch (error) {
-    if (batch.length > 1 && isInvalidStringLengthError(error)) {
+    if (batch.length > 1 && (isInvalidStringLengthError(error) || isPayloadTooLargeError(error))) {
       const mid = Math.ceil(batch.length / 2);
       return [
         ...(await postImportNoteBatchWithSplit(batch.slice(0, mid), postBatch)),
@@ -936,24 +943,24 @@ export const api = {
   // 后端永远返回 200：成功 { available: true, ... }；失败 { available: false, reason }。
   getLatestRelease: async (): Promise<
     | {
-        available: true;
-        tag: string;
-        version: string;
+      available: true;
+      tag: string;
+      version: string;
+      name: string;
+      htmlUrl: string;
+      publishedAt: string;
+      prerelease: boolean;
+      draft: boolean;
+      body?: string;
+      // 资产列表：每条对应一个 GitHub release asset（exe/dmg/apk/fpk/upk 等）。
+      // 后端从 GitHub API 整理后下发，前端在「下载客户端」面板里按文件名分类。
+      assets: Array<{
         name: string;
-        htmlUrl: string;
-        publishedAt: string;
-        prerelease: boolean;
-        draft: boolean;
-        body?: string;
-        // 资产列表：每条对应一个 GitHub release asset（exe/dmg/apk/fpk/upk 等）。
-        // 后端从 GitHub API 整理后下发，前端在「下载客户端」面板里按文件名分类。
-        assets: Array<{
-          name: string;
-          size: number;
-          contentType: string;
-          browserDownloadUrl: string;
-        }>;
-      }
+        size: number;
+        contentType: string;
+        browserDownloadUrl: string;
+      }>;
+    }
     | { available: false; reason: string }
   > => {
     try {
@@ -1146,7 +1153,7 @@ export const api = {
   getNote: (id: string) => _readNote(id, async () => {
     const note = await request<Note>(`/notes/${id}`);
     // Phase C: \u6210\u529f\u62c9\u5230\u7b14\u8bb0\u6b63\u6587 \u2192 \u5199\u5165\u672c\u5730\u7f13\u5b58\uff0c\u4f9b\u540e\u7eed\u79bb\u7ebf\u6253\u5f00
-    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => {});
+    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
     return note;
   }),
   /**
@@ -1187,7 +1194,7 @@ export const api = {
     const p = request<Note>(`/notes/${id}`, { method: "PUT", body: JSON.stringify(data) });
     // Phase D: 成功后同步本地缓存，保证离线重启后也能看到最新内容
     p.then((note) => {
-      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => {});
+      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
     }).catch(() => { /* 失败不写入本地 */ });
     return p;
   },
@@ -1195,15 +1202,17 @@ export const api = {
 
   // BACKLINKS-02: 获取笔记的反向链接（哪些笔记引用了当前笔记）
   getBacklinks: (noteId: string, limit = 50) =>
-    request<{ backlinks: Array<{
-      sourceNoteId: string;
-      title: string;
-      updatedAt: string;
-      linkText: string | null;
-      linkType: string;
-      targetBlockId: string | null;
-      excerpt: string | null;
-    }> }>(
+    request<{
+      backlinks: Array<{
+        sourceNoteId: string;
+        title: string;
+        updatedAt: string;
+        linkText: string | null;
+        linkType: string;
+        targetBlockId: string | null;
+        excerpt: string | null;
+      }>
+    }>(
       `/notes/${noteId}/backlinks?limit=${limit}`
     ),
   emptyTrash: () =>
@@ -1382,7 +1391,7 @@ export const api = {
   deleteTaskDependency: (id: string) => {
     return request<{ success: boolean }>(`/task-dependencies/${id}`, { method: "DELETE" });
   },
-    // Task reminders
+  // Task reminders
   getRecentReminders: (since: number) =>
     request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number }> }>(
       `/task-reminders/recent?since=${since}`
@@ -1544,7 +1553,7 @@ export const api = {
       { method: "POST", body: JSON.stringify(data) },
     );
     if (res.token) {
-      try { localStorage.setItem("nowen-token", res.token); } catch {}
+      try { localStorage.setItem("nowen-token", res.token); } catch { }
     }
     return res;
   },
@@ -1556,7 +1565,7 @@ export const api = {
       { method: "POST", body: JSON.stringify({ confirmText }), sudoToken },
     );
     if (res.token) {
-      try { localStorage.setItem("nowen-token", res.token); } catch {}
+      try { localStorage.setItem("nowen-token", res.token); } catch { }
     }
     return res;
   },
@@ -1702,6 +1711,40 @@ export const api = {
     }
 
     return mergeImportNoteResponses(results);
+  },
+  /** 服务端导入思源 .sy 数据包：用于大 zip，避免浏览器解压和 base64 JSON 膨胀。 */
+  importSiyuanPackage: async (
+    file: File,
+    opts?: { targetNotebookId?: string; workspaceId?: string; contentFormat?: "tiptap-json" | "markdown" },
+  ): Promise<ImportNotesResponse & {
+    warnings?: string[];
+    stats?: {
+      syFiles: number;
+      importedDocuments: number;
+      assets: number;
+      importedAssets: number;
+      unresolvedAssets: number;
+      unsupportedNodes?: Record<string, number>;
+    };
+  }> => {
+    const token = getToken();
+    const ws = opts?.workspaceId ?? getCurrentWorkspace();
+    const params = new URLSearchParams();
+    if (ws && ws !== "personal") params.set("workspaceId", ws);
+    if (opts?.targetNotebookId) params.set("targetNotebookId", opts.targetNotebookId);
+    if (opts?.contentFormat) params.set("contentFormat", opts.contentFormat);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${getBaseUrl()}/export/import/siyuan-package${qs}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
   },
   /** Nowen 数据包 dry-run 预检 */
   dryRunNowenPackage: async (file: File) => {
@@ -2121,7 +2164,7 @@ export const api = {
   journals: {
     /** 获取或创建今日日记（POST 语义，避免 GET 副作用） */
     getOrCreateToday: (localDate?: string) =>
-      request<{ id: string; title: string; existed: boolean; [key: string]: any }>("/journals/today", {
+      request<{ id: string; title: string; existed: boolean;[key: string]: any }>("/journals/today", {
         method: "POST",
         body: JSON.stringify({ localDate }),
       }),
@@ -2348,8 +2391,8 @@ export const api = {
   restoreNoteVersion: (noteId: string, versionId: string) => {
     const p = request<Note>(`/shares/note/${noteId}/versions/${versionId}/restore`, { method: "POST" });
     p.then((note) => {
-      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => {});
-    }).catch(() => {});
+      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
+    }).catch(() => { });
     return p;
   },
   clearNoteVersions: (noteId: string) =>

@@ -267,7 +267,14 @@ const components: Record<string, React.FC<any>> = {
 
 export function MarkdownPreview({ markdown, className, compact, containerRef }: MarkdownPreviewProps) {
   const { t } = useTranslation();
-  const renderedMarkdown = useMemo(() => preprocessMarkdownVideos(markdown), [markdown]);
+  const renderedMarkdown = useMemo(() => {
+    const normalized = markdown
+      // 去掉常见零宽字符，避免 `##` / `![...]` 被当作普通文本渲染。
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      // 把不可断空格/全角空格归一，避免标题语法失效。
+      .replace(/[\u00A0\u3000]/g, " ");
+    return preprocessMarkdownVideos(normalized);
+  }, [markdown]);
 
   if (!markdown || !markdown.trim()) {
     return (

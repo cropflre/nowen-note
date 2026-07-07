@@ -246,9 +246,9 @@ const baseTheme = EditorView.theme({
     outline: "none",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-    {
-      backgroundColor: "rgba(59, 130, 246, 0.2)",
-    },
+  {
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+  },
   ".cm-activeLine": {
     backgroundColor: "transparent",
   },
@@ -938,8 +938,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         // P3-#14����ʽ���� UndoManager �ó������Ȱ�����ϲ���350ms window��
         ...(collabEnabled && yDoc && awareness
           ? [yCollab(yDoc.getText("content"), awareness, {
-              undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
-            })]
+            undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
+          })]
           : []),
 
         // �����༭����
@@ -1336,10 +1336,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
       if (detail.mark) {
         switch (detail.mark) {
-          case "bold":      toggleWrap(view, "**");   break;
-          case "italic":    toggleWrap(view, "*");    break;
-          case "strike":    toggleWrap(view, "~~");   break;
-          case "code":      toggleInlineCode(view);   break;
+          case "bold": toggleWrap(view, "**"); break;
+          case "italic": toggleWrap(view, "*"); break;
+          case "strike": toggleWrap(view, "~~"); break;
+          case "code": toggleInlineCode(view); break;
           // MD ��ԭ���»����﷨���� HTML ���ס�toggleWrap �ĵ� 3 �����ڷǶԳư�����
           case "underline": toggleWrap(view, "<u>", "</u>"); break;
         }
@@ -1651,7 +1651,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           paddingBottom ֻ�Լ��̸߶ȣ������걻���뷨��ס��
           v2026-05-18 ���Ƴ��ƶ��������������ɶ��� sticky ��������ͳһ
           �е���ʽ����� */}
-            {/* editor content area - source/preview/split */}
+      {/* editor content area - source/preview/split */}
       <div className={cn(
         "flex-1 min-h-0",
         viewMode === "split" ? "flex overflow-hidden" : "overflow-auto px-4 md:px-8"
@@ -1708,7 +1708,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           style={{ top: bubble.top, left: bubble.left }}
           onMouseDown={(e) => e.preventDefault()}
         >
-                    <ToolbarButton
+          <ToolbarButton
             onClick={() => void copySelectionText()}
             title={tr('tiptap.copySelectionText')}
           >
@@ -1740,7 +1740,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               <ExternalLink size={14} />
             </ToolbarButton>
           )}
-<ToolbarButton
+          <ToolbarButton
             onClick={() => withView((v) => toggleWrap(v, "**"))}
             title={tr("tiptap.bold") || "�Ӵ�"}
           >

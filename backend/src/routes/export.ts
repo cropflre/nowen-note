@@ -1,11 +1,47 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { broadcastToUser } from "../services/realtime";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { Readable } from "stream";
+
+const Busboy = require("busboy");
 
 const app = new Hono();
+const SIYUAN_IMPORT_TMP_PREFIX = "nowen-siyuan-import-";
+const SIYUAN_IMPORT_TMP_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const SIYUAN_IMPORT_TMP_STALE_AGE_MS = 24 * 60 * 60 * 1000;
+let lastSiyuanImportTmpCleanupAt = 0;
+
+async function cleanupStaleSiyuanImportTmpDirs(): Promise<void> {
+  const now = Date.now();
+  if (now - lastSiyuanImportTmpCleanupAt < SIYUAN_IMPORT_TMP_CLEANUP_INTERVAL_MS) return;
+  lastSiyuanImportTmpCleanupAt = now;
+
+  try {
+    const tmpRoot = os.tmpdir();
+    const entries = await fs.promises.readdir(tmpRoot, { withFileTypes: true });
+    await Promise.all(entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(SIYUAN_IMPORT_TMP_PREFIX))
+      .map(async (entry) => {
+        const abs = path.join(tmpRoot, entry.name);
+        try {
+          const stat = await fs.promises.stat(abs);
+          if (now - stat.mtimeMs < SIYUAN_IMPORT_TMP_STALE_AGE_MS) return;
+          await fs.promises.rm(abs, { recursive: true, force: true });
+        } catch {
+          /* ignore stale cleanup failure */
+        }
+      }));
+  } catch {
+    /* ignore stale cleanup failure */
+  }
+}
 
 /**
  * 个人空间导出/导入开关闸门（方案 B：per-user）。
@@ -82,6 +118,72 @@ function workspaceFilter(raw: string | undefined): { sql: string; param: string 
 
 function normalizeImportedContentFormat(value: unknown): "tiptap-json" | "markdown" {
   return value === "markdown" ? "markdown" : "tiptap-json";
+}
+
+async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string; tmpPath: string; filename: string; size: number }> {
+  const contentType = c.req.header("content-type") || "";
+  if (!contentType.toLowerCase().includes("multipart/form-data")) {
+    throw new Error("请求必须是 multipart/form-data");
+  }
+
+  const body = c.req.raw.body;
+  if (!body) throw new Error("请求体为空");
+
+  // 进程异常中断时可能残留旧目录；每隔一段时间做一次清理兜底。
+  await cleanupStaleSiyuanImportTmpDirs();
+
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), SIYUAN_IMPORT_TMP_PREFIX));
+  const tmpPath = path.join(tmpDir, "upload.zip");
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const busboy = Busboy({ headers: { "content-type": contentType } });
+      let seenFile = false;
+      let filename = "siyuan.zip";
+      let size = 0;
+      let fileWrite: Promise<void> | null = null;
+
+      const fail = (err: unknown) => reject(err instanceof Error ? err : new Error(String(err)));
+
+      busboy.on("file", (fieldName: string, file: NodeJS.ReadableStream, info: { filename?: string }) => {
+        if (fieldName !== "file" || seenFile) {
+          file.resume();
+          return;
+        }
+        seenFile = true;
+        filename = info?.filename || filename;
+        const out = fs.createWriteStream(tmpPath);
+        file.on("data", (chunk: Buffer) => { size += chunk.length; });
+        file.on("error", fail);
+        out.on("error", fail);
+        file.pipe(out);
+        fileWrite = new Promise((res, rej) => {
+          out.on("finish", () => res());
+          out.on("error", rej);
+          file.on("error", rej);
+        });
+      });
+
+      busboy.on("error", fail);
+      busboy.on("finish", () => {
+        void (async () => {
+          try {
+            if (!seenFile) throw new Error("缺少 file 字段");
+            if (fileWrite) await fileWrite;
+            if (size <= 0) throw new Error("上传文件为空");
+            resolve({ tmpDir, tmpPath, filename, size });
+          } catch (err) {
+            fail(err);
+          }
+        })();
+      });
+
+      Readable.fromWeb(body as any).pipe(busboy);
+    });
+  } catch (err) {
+    try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 // 获取笔记（含完整内容）+ 笔记本信息，用于前端打包导出
@@ -379,6 +481,73 @@ app.post("/import", async (c) => {
   }, 201);
 });
 
+// ====== 思源 .sy 数据包导入（服务端流式路径） ======
+
+app.post("/import/siyuan-package", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const wsRaw = c.req.query("workspaceId") ?? undefined;
+  const targetWs: string | null =
+    !wsRaw || wsRaw.trim() === "" || wsRaw.trim() === "personal" ? null : wsRaw.trim();
+  const targetNotebookId = (c.req.query("targetNotebookId") || "").trim() || undefined;
+  const contentFormat = normalizeImportedContentFormat(c.req.query("contentFormat"));
+
+  const denied = denyIfPersonalFeatureDisabled(
+    userId,
+    targetWs === null,
+    "personalImportEnabled",
+  );
+  if (denied) return c.json(denied, 403);
+
+  if (targetWs !== null && !isSystemAdmin(userId) && !hasRole(getUserWorkspaceRole(targetWs, userId), "editor")) {
+    return c.json({ error: "无权导入到该工作区", code: "WORKSPACE_FORBIDDEN" }, 403);
+  }
+
+  if (targetNotebookId) {
+    const targetNotebook = db
+      .prepare("SELECT id, userId, workspaceId, isDeleted FROM notebooks WHERE id = ?")
+      .get(targetNotebookId) as
+      | { id: string; userId: string; workspaceId: string | null; isDeleted: number }
+      | undefined;
+    if (!targetNotebook) return c.json({ error: "目标笔记本不存在", code: "NOTEBOOK_NOT_FOUND" }, 400);
+    if (targetNotebook.isDeleted === 1) return c.json({ error: "目标笔记本已删除，无法导入", code: "NOTEBOOK_TRASHED" }, 400);
+    if ((targetNotebook.workspaceId || null) !== targetWs) {
+      return c.json({ error: "目标笔记本不属于当前导入空间", code: "NOTEBOOK_SCOPE_MISMATCH" }, 400);
+    }
+    if (targetWs === null && targetNotebook.userId !== userId) {
+      return c.json({ error: "无权导入到该笔记本", code: "NOTEBOOK_FORBIDDEN" }, 403);
+    }
+  }
+
+  let uploaded: { tmpDir: string; tmpPath: string; filename: string; size: number } | null = null;
+  try {
+    uploaded = await receiveMultipartFileToTemp(c);
+    const { importSiyuanPackageFromZipFile } = await import("../services/siyuanPackageImport");
+    const result = await importSiyuanPackageFromZipFile(uploaded.tmpPath, {
+      userId,
+      workspaceId: targetWs,
+      targetNotebookId,
+      contentFormat,
+    });
+
+    broadcastToUser(userId, {
+      type: "notes:imported" as any,
+      count: result.count,
+      notebookIds: result.notebookIds,
+      workspaceId: targetWs,
+    });
+
+    return c.json(result, 201);
+  } catch (err: any) {
+    console.error("[export.import.siyuan-package] Error:", err);
+    return c.json({ error: err?.message || "Siyuan import failed", code: "SIYUAN_IMPORT_FAILED" }, 500);
+  } finally {
+    if (uploaded?.tmpDir) {
+      try { await fs.promises.rm(uploaded.tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  }
+});
+
 // ====== Nowen 数据包导出 ======
 
 app.get("/nowen-package", async (c) => {
@@ -475,7 +644,7 @@ app.post("/import/nowen-package", async (c) => {
           },
         } as any);
         broadcastToUser(userId, { type: "notebooks:changed", payload: {} } as any);
-      } catch {}
+      } catch { }
     }
 
     return c.json(result, 200);
