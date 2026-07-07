@@ -13,6 +13,7 @@ import { AlertTriangle, BadgeAlert, Info, Lightbulb, ShieldAlert } from "lucide-
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { remarkSiyuanCallouts, type SiyuanCalloutType } from "@/lib/markdownCallouts";
+import { headingDataAttrs } from "@/lib/markdownPreviewOutline";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
 
@@ -21,6 +22,8 @@ interface MarkdownPreviewProps {
   className?: string;
   /** 紧凑模式（分屏时使用），去掉居中和过宽限制 */
   compact?: boolean;
+  /** 预览滚动容器 ref，用于大纲跳转定位 */
+  containerRef?: React.Ref<HTMLDivElement>;
 }
 
 /** 图片组件：支持 /api/attachments、http、data:image，带加载失败占位 */
@@ -157,23 +160,23 @@ function CalloutBlockquote({ node, children }: { node?: any; children?: React.Re
 /** 自定义渲染器 */
 const components: Record<string, React.FC<any>> = {
   // 标题
-  h1: ({ children }) => (
-    <h1 className="text-3xl font-bold mt-2 mb-4 leading-tight text-tx-primary">{children}</h1>
+  h1: ({ node, children }) => (
+    <h1 {...headingDataAttrs(node)} className="text-3xl font-bold mt-2 mb-4 leading-tight text-tx-primary">{children}</h1>
   ),
-  h2: ({ children }) => (
-    <h2 className="text-2xl font-bold mt-6 mb-3 leading-snug text-tx-primary border-b border-app-border pb-2">{children}</h2>
+  h2: ({ node, children }) => (
+    <h2 {...headingDataAttrs(node)} className="text-2xl font-bold mt-6 mb-3 leading-snug text-tx-primary border-b border-app-border pb-2">{children}</h2>
   ),
-  h3: ({ children }) => (
-    <h3 className="text-xl font-semibold mt-5 mb-2 text-tx-primary">{children}</h3>
+  h3: ({ node, children }) => (
+    <h3 {...headingDataAttrs(node)} className="text-xl font-semibold mt-5 mb-2 text-tx-primary">{children}</h3>
   ),
-  h4: ({ children }) => (
-    <h4 className="text-lg font-semibold mt-4 mb-2 text-tx-primary">{children}</h4>
+  h4: ({ node, children }) => (
+    <h4 {...headingDataAttrs(node)} className="text-lg font-semibold mt-4 mb-2 text-tx-primary">{children}</h4>
   ),
-  h5: ({ children }) => (
-    <h5 className="text-base font-semibold mt-3 mb-1.5 text-tx-primary">{children}</h5>
+  h5: ({ node, children }) => (
+    <h5 {...headingDataAttrs(node)} className="text-base font-semibold mt-3 mb-1.5 text-tx-primary">{children}</h5>
   ),
-  h6: ({ children }) => (
-    <h6 className="text-sm font-semibold mt-3 mb-1.5 text-tx-secondary">{children}</h6>
+  h6: ({ node, children }) => (
+    <h6 {...headingDataAttrs(node)} className="text-sm font-semibold mt-3 mb-1.5 text-tx-secondary">{children}</h6>
   ),
 
   // 段落
@@ -262,13 +265,13 @@ const components: Record<string, React.FC<any>> = {
   },
 };
 
-export function MarkdownPreview({ markdown, className, compact }: MarkdownPreviewProps) {
+export function MarkdownPreview({ markdown, className, compact, containerRef }: MarkdownPreviewProps) {
   const { t } = useTranslation();
   const renderedMarkdown = useMemo(() => preprocessMarkdownVideos(markdown), [markdown]);
 
   if (!markdown || !markdown.trim()) {
     return (
-      <div className={cn("flex items-center justify-center h-full text-tx-tertiary text-sm", className)}>
+      <div ref={containerRef} className={cn("flex items-center justify-center h-full text-tx-tertiary text-sm", className)}>
         {t("markdown.preview.empty")}
       </div>
     );
@@ -276,6 +279,7 @@ export function MarkdownPreview({ markdown, className, compact }: MarkdownPrevie
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         "nowen-md-preview leading-7 text-tx-primary overflow-y-auto",
         compact ? "p-4 md:p-6" : "p-4 md:p-6 max-w-[860px] mx-auto",
