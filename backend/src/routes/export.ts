@@ -580,6 +580,9 @@ app.post("/import/siyuan-package", async (c) => {
     if (err instanceof SiyuanImportTooLargeError || err?.code === "SIYUAN_IMPORT_TOO_LARGE") {
       return c.json({ error: err?.message || "思源导入包过大", code: "SIYUAN_IMPORT_TOO_LARGE" }, 413);
     }
+    if (err?.code === "SIYUAN_ZIP_BUDGET_EXCEEDED") {
+      return c.json({ error: err?.message || "思源导入包解压后超出限制", code: "SIYUAN_ZIP_BUDGET_EXCEEDED" }, 413);
+    }
     console.error("[export.import.siyuan-package] Error:", err);
     return c.json({ error: err?.message || "Siyuan import failed", code: "SIYUAN_IMPORT_FAILED" }, 500);
   } finally {

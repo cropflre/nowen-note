@@ -40,6 +40,7 @@ export interface SiyuanPackageImportResult {
 interface ZipEntryLike {
     path: string;
     type?: string;
+    uncompressedSize?: number;
     vars?: { uncompressedSize?: number };
     buffer(): Promise<Buffer>;
 }
@@ -84,6 +85,36 @@ const SIYUAN_SY_EXT_RE = /\.sy$/i;
 const SIYUAN_CONF_RE = /(^|\/)\.siyuan\/conf\.json$/i;
 const ASSETS_SEGMENT_RE = /(^|\/)assets\//i;
 const EMBEDDABLE_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|ogg|ogv|m4v|mov|mp3|wav|m4a|flac|aac|pdf|docx?|xlsx?|pptx?|zip|txt|md)([?#].*)?$/i;
+const DEFAULT_MAX_ZIP_ENTRIES = 50_000;
+const DEFAULT_MAX_SY_FILES = 20_000;
+const DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_MAX_SINGLE_SY_BYTES = 20 * 1024 * 1024;
+const DEFAULT_MAX_SINGLE_ASSET_BYTES = 1024 * 1024 * 1024;
+
+function readPositiveNumberEnv(name: string, fallback: number): number {
+    const raw = Number(process.env[name]);
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+const SIYUAN_ZIP_BUDGETS = {
+    maxEntries: readPositiveNumberEnv("SIYUAN_IMPORT_MAX_ZIP_ENTRIES", DEFAULT_MAX_ZIP_ENTRIES),
+    maxSyFiles: readPositiveNumberEnv("SIYUAN_IMPORT_MAX_SY_FILES", DEFAULT_MAX_SY_FILES),
+    maxTotalUncompressedBytes: readPositiveNumberEnv(
+        "SIYUAN_IMPORT_MAX_TOTAL_UNCOMPRESSED_BYTES",
+        DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES,
+    ),
+    maxSingleSyBytes: readPositiveNumberEnv("SIYUAN_IMPORT_MAX_SINGLE_SY_BYTES", DEFAULT_MAX_SINGLE_SY_BYTES),
+    maxSingleAssetBytes: readPositiveNumberEnv("SIYUAN_IMPORT_MAX_SINGLE_ASSET_BYTES", DEFAULT_MAX_SINGLE_ASSET_BYTES),
+};
+
+export class SiyuanZipBudgetError extends Error {
+    status = 413;
+    code = "SIYUAN_ZIP_BUDGET_EXCEEDED";
+
+    constructor(message: string) {
+        super(message);
+    }
+}
 
 function normalizeZipPath(value: string): string {
     return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -103,6 +134,45 @@ function isIgnoredSiyuanDataEntry(value: string): boolean {
 
 function isSyEntry(value: string): boolean {
     return SIYUAN_SY_EXT_RE.test(value);
+}
+
+function getEntryUncompressedSize(entry: ZipEntryLike): number {
+    const raw = entry.vars?.uncompressedSize ?? entry.uncompressedSize;
+    return Number.isFinite(raw) && raw !== undefined && raw >= 0 ? raw : 0;
+}
+
+function assertZipBudget(entries: ZipEntryLike[]): void {
+    if (entries.length > SIYUAN_ZIP_BUDGETS.maxEntries) {
+        throw new SiyuanZipBudgetError(`思源导入包文件数量过多，最多支持 ${SIYUAN_ZIP_BUDGETS.maxEntries} 个条目`);
+    }
+
+    let syFiles = 0;
+    let totalUncompressed = 0;
+    for (const entry of entries) {
+        const entryPath = normalizeZipPath(entry.path);
+        if (entry.type === "Directory" || isIgnoredSiyuanDataEntry(entryPath)) continue;
+
+        const size = getEntryUncompressedSize(entry);
+        totalUncompressed += size;
+        if (totalUncompressed > SIYUAN_ZIP_BUDGETS.maxTotalUncompressedBytes) {
+            throw new SiyuanZipBudgetError("思源导入包解压后总大小超出限制");
+        }
+
+        if (isSyEntry(entryPath)) {
+            syFiles++;
+            if (syFiles > SIYUAN_ZIP_BUDGETS.maxSyFiles) {
+                throw new SiyuanZipBudgetError(`思源导入包 .sy 文件过多，最多支持 ${SIYUAN_ZIP_BUDGETS.maxSyFiles} 个`);
+            }
+            if (size > SIYUAN_ZIP_BUDGETS.maxSingleSyBytes) {
+                throw new SiyuanZipBudgetError(`思源文档过大：${entryPath}`);
+            }
+            continue;
+        }
+
+        if (ASSETS_SEGMENT_RE.test(entryPath) && size > SIYUAN_ZIP_BUDGETS.maxSingleAssetBytes) {
+            throw new SiyuanZipBudgetError(`思源资源文件过大：${entryPath}`);
+        }
+    }
 }
 
 function stripQueryHash(ref: string): string {
@@ -469,6 +539,7 @@ export async function importSiyuanPackageFromZipFile(
             throw new Error(`Unsafe path in Siyuan package: ${entry.path}`);
         }
     }
+    assertZipBudget(entries);
 
     const boxNames = new Map<string, string>();
     const docById = new Map<string, SiyuanDocIndex>();
