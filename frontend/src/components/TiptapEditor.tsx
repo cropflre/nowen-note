@@ -32,6 +32,7 @@ import { TextSelection, NodeSelection } from "@tiptap/pm/state";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
+import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
@@ -1469,6 +1470,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   //   独立 timer 后内容 debounce 不再被标题修改打断；标题保存只发 { title }，
   //   内容字段照常由 onUpdate 的 content debounce 保存。
   const titleDebounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const isTitleComposingRef = useRef(false);
+  const lastEmittedTitleRef = useRef(note.title);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
@@ -2537,8 +2540,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         // 再次校验 noteId 未变化（切换笔记时 debounce 会被清理，这里是双重保险）
         if (noteRef.current.id !== scheduledNoteId) return;
         const json = JSON.stringify(editor.getJSON());
-        const title = titleRef.current?.value || noteRef.current.title;
+        const title = isTitleComposingRef.current
+          ? noteRef.current.title
+          : titleRef.current?.value || noteRef.current.title;
         lastEmittedContentRef.current = json;
+        lastEmittedTitleRef.current = title;
         onUpdateRef.current({ content: json, contentText: text, title, _noteId: scheduledNoteId });
       }, 500);
     },
@@ -2621,8 +2627,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     }
     const json = JSON.stringify(editor.getJSON());
     const text = getEditorPlainText(editor);
-    const title = titleRef.current?.value || noteRef.current.title;
+    const title = isTitleComposingRef.current
+      ? noteRef.current.title
+      : titleRef.current?.value || noteRef.current.title;
     lastEmittedContentRef.current = json;
+    lastEmittedTitleRef.current = title;
     onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
     try {
       toast.success(t('tiptap.saved') || 'Saved');
@@ -2651,8 +2660,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         debounceTimer.current = null;
         const json = JSON.stringify(editor.getJSON());
         const text = getEditorPlainText(editor);
-        const title = titleRef.current?.value || noteRef.current.title;
+        const title = isTitleComposingRef.current
+          ? noteRef.current.title
+          : titleRef.current?.value || noteRef.current.title;
         lastEmittedContentRef.current = json;
+        lastEmittedTitleRef.current = title;
         onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
       },
       discardPending: () => {
@@ -2767,7 +2779,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         // 仍然刷新字数/大纲，保证状态栏和大纲与实际内容同步
         setWordStats(computeStats(getEditorPlainText(editor)));
         onHeadingsChange?.(extractHeadings(editor));
-        if (titleRef.current && titleRef.current.value !== note.title) {
+        if (titleRef.current && shouldSyncTitleValue({
+          inputValue: titleRef.current.value,
+          noteTitle: note.title,
+          isComposing: isTitleComposingRef.current,
+        })) {
           titleRef.current.value = note.title;
         }
         return;
@@ -2813,7 +2829,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       setWordStats(computeStats(getEditorPlainText(editor)));
       onHeadingsChange?.(extractHeadings(editor));
     }
-    if (titleRef.current) {
+    if (titleRef.current && !isTitleComposingRef.current) {
       titleRef.current.value = note.title;
     }
   }, [note.id, note.content]);
@@ -2840,8 +2856,15 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   useEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    if (el.value !== note.title) {
+    if (shouldSyncTitleValue({
+      inputValue: el.value,
+      noteTitle: note.title,
+      isComposing: isTitleComposingRef.current,
+    })) {
       el.value = note.title;
+    }
+    if (!isTitleComposingRef.current) {
+      lastEmittedTitleRef.current = note.title;
     }
   }, [note.title]);
 
@@ -3506,7 +3529,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     };
   }, [editor]);
 
-  const handleTitleChange = useCallback(() => {
+  const emitTitleUpdate = useCallback(() => {
+    const title = titleRef.current?.value || "";
+    const noteTitle = noteRef.current.title;
+    if (!shouldEmitTitleUpdate({
+      title,
+      noteTitle,
+      lastEmittedTitle: lastEmittedTitleRef.current,
+    })) {
+      return;
+    }
+    lastEmittedTitleRef.current = title;
+    onUpdateRef.current({ title, _noteId: noteRef.current.id });
+  }, []);
+
+  const scheduleTitleSave = useCallback(() => {
     // P0-1: 使用独立的 titleDebounceTimer，不再复用 debounceTimer，
     // 避免清掉内容的 pending debounce，且只发 title 字段，绝不带 content。
     // 这样无论标题保存何时返回，都不会触碰 lastEmittedContentRef，
@@ -3514,10 +3551,33 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     if (titleDebounceTimer.current) clearTimeout(titleDebounceTimer.current);
     titleDebounceTimer.current = setTimeout(() => {
       titleDebounceTimer.current = null;
-      const title = titleRef.current?.value || "";
-      onUpdateRef.current({ title, _noteId: noteRef.current.id });
+      emitTitleUpdate();
     }, 500);
+  }, [emitTitleUpdate]);
+
+  const handleTitleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nativeEvent = event.nativeEvent as Event & { isComposing?: boolean };
+    if (shouldSkipTitleChange({
+      eventIsComposing: nativeEvent.isComposing,
+      isComposing: isTitleComposingRef.current,
+    })) {
+      return;
+    }
+    scheduleTitleSave();
+  }, [scheduleTitleSave]);
+
+  const handleTitleCompositionStart = useCallback(() => {
+    isTitleComposingRef.current = true;
+    if (titleDebounceTimer.current) {
+      clearTimeout(titleDebounceTimer.current);
+      titleDebounceTimer.current = null;
+    }
   }, []);
+
+  const handleTitleCompositionEnd = useCallback(() => {
+    isTitleComposingRef.current = false;
+    emitTitleUpdate();
+  }, [emitTitleUpdate]);
 
   const handleImageUpload = useCallback(() => {
     if (!editor) return;
@@ -4302,6 +4362,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           ref={titleRef}
           defaultValue={note.title}
           onChange={handleTitleChange}
+          onCompositionStart={handleTitleCompositionStart}
+          onCompositionEnd={handleTitleCompositionEnd}
           placeholder={t('tiptap.titlePlaceholder')}
           readOnly={!editable}
           className={cn(

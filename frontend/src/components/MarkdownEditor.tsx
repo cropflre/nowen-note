@@ -109,6 +109,7 @@ import { copyText } from "@/lib/clipboard";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
+import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
@@ -360,6 +361,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const isTitleComposingRef = useRef(false);
+  const lastEmittedTitleRef = useRef(note.title);
 
   /** Phase 3: �Ƿ����� CRDT Эͬģʽ��y-codemirror.next �й��ĵ��� */
   const collabEnabled = !!(yDoc && awareness);
@@ -375,6 +378,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   onHeadingsChangeRef.current = onHeadingsChange;
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSettingContent = useRef(false);
 
   // MARKDOWN-PREVIEW-MODE-01: 源码/预览/分屏模式
@@ -690,8 +694,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     if (!view) return;
     const md = view.state.doc.toString();
     const plain = markdownToPlainText(md);
-    const title = titleRef.current?.value || noteRef.current.title;
+    const title = isTitleComposingRef.current
+      ? noteRef.current.title
+      : titleRef.current?.value || noteRef.current.title;
     lastEmittedContentRef.current = md;
+    lastEmittedTitleRef.current = title;
     // P0-#2 �޸���CRDT ģʽ�� content ��ȫ�ɷ���� Y.Doc �йܳ־û���
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
@@ -723,6 +730,28 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     }
   }, [emitSave, tr]);
 
+  const emitTitleUpdate = useCallback(() => {
+    const title = titleRef.current?.value || "";
+    const noteTitle = noteRef.current.title;
+    if (!shouldEmitTitleUpdate({
+      title,
+      noteTitle,
+      lastEmittedTitle: lastEmittedTitleRef.current,
+    })) {
+      return;
+    }
+    lastEmittedTitleRef.current = title;
+    onUpdateRef.current({ title, _noteId: noteRef.current.id });
+  }, []);
+
+  const scheduleTitleSave = useCallback(() => {
+    if (titleDebounceTimer.current) clearTimeout(titleDebounceTimer.current);
+    titleDebounceTimer.current = setTimeout(() => {
+      titleDebounceTimer.current = null;
+      emitTitleUpdate();
+    }, 500);
+  }, [emitTitleUpdate]);
+
   /**
    * �Ը������¶����ʽ API��
    *   - flushSave(): �л��༭�� / �л��ʼ�ʱ������ pending �� debounce ����д��ȥ��
@@ -732,16 +761,26 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     ref,
     () => ({
       flushSave: () => {
-        if (!debounceTimer.current) return;
-        clearTimeout(debounceTimer.current);
-        debounceTimer.current = null;
-        emitSave();
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+          emitSave();
+        }
+        if (titleDebounceTimer.current) {
+          clearTimeout(titleDebounceTimer.current);
+          titleDebounceTimer.current = null;
+          emitTitleUpdate();
+        }
       },
       discardPending: () => {
         // �л��༭��ʱ���÷������� PUT����� debounce �����������
         if (debounceTimer.current) {
           clearTimeout(debounceTimer.current);
           debounceTimer.current = null;
+        }
+        if (titleDebounceTimer.current) {
+          clearTimeout(titleDebounceTimer.current);
+          titleDebounceTimer.current = null;
         }
       },
       /**
@@ -769,7 +808,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         } catch { return false; }
       },
     }),
-    [emitSave],
+    [emitSave, emitTitleUpdate],
   );
 
   // ---------- ���ι��أ����� EditorView ----------
@@ -1035,6 +1074,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
       }
+      if (titleDebounceTimer.current) {
+        clearTimeout(titleDebounceTimer.current);
+        titleDebounceTimer.current = null;
+      }
       view.destroy();
       viewRef.current = null;
     };
@@ -1053,6 +1096,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
     }
+    if (titleDebounceTimer.current) {
+      clearTimeout(titleDebounceTimer.current);
+      titleDebounceTimer.current = null;
+    }
 
     // Phase 3: CRDT ģʽ���ĵ��� yCollab �йܣ���Ҫ�ֶ� dispatch setContent��
     // ������������ update ����Զ��״̬��ֻ����ͳ��/���ˢ�¡�
@@ -1067,7 +1114,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       setPreviewMarkdown(currentDoc);
       setWordStats(computeStats(currentDoc));
       onHeadingsChangeRef.current?.(extractHeadings(view));
-      if (titleRef.current && titleRef.current.value !== note.title) {
+      if (titleRef.current && shouldSyncTitleValue({
+        inputValue: titleRef.current.value,
+        noteTitle: note.title,
+        isComposing: isTitleComposingRef.current,
+      })) {
         titleRef.current.value = note.title;
       }
       return;
@@ -1095,7 +1146,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       setPreviewMarkdown(currentDoc);
       setWordStats(computeStats(currentDoc));
       onHeadingsChangeRef.current?.(extractHeadings(view));
-      if (titleRef.current && titleRef.current.value !== note.title) {
+      if (titleRef.current && shouldSyncTitleValue({
+        inputValue: titleRef.current.value,
+        noteTitle: note.title,
+        isComposing: isTitleComposingRef.current,
+      })) {
         titleRef.current.value = note.title;
       }
       return;
@@ -1123,7 +1178,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     setPreviewMarkdown(nextDoc);
     onHeadingsChangeRef.current?.(extractHeadings(view));
 
-    if (titleRef.current) {
+    if (titleRef.current && !isTitleComposingRef.current) {
       titleRef.current.value = note.title;
     }
     // ���� content ������ version���� TiptapEditor ����һ�µ����塣
@@ -1141,8 +1196,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   useEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    if (el.value !== note.title) {
+    if (shouldSyncTitleValue({
+      inputValue: el.value,
+      noteTitle: note.title,
+      isComposing: isTitleComposingRef.current,
+    })) {
       el.value = note.title;
+    }
+    if (!isTitleComposingRef.current) {
+      lastEmittedTitleRef.current = note.title;
     }
   }, [note.title]);
 
@@ -1267,11 +1329,31 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // ---------- ����仯�������� ----------
 
   const handleTitleChange = useCallback(
-    (_e: React.ChangeEvent<HTMLInputElement>) => {
-      scheduleSave();
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const nativeEvent = event.nativeEvent as Event & { isComposing?: boolean };
+      if (shouldSkipTitleChange({
+        eventIsComposing: nativeEvent.isComposing,
+        isComposing: isTitleComposingRef.current,
+      })) {
+        return;
+      }
+      scheduleTitleSave();
     },
-    [scheduleSave]
+    [scheduleTitleSave]
   );
+
+  const handleTitleCompositionStart = useCallback(() => {
+    isTitleComposingRef.current = true;
+    if (titleDebounceTimer.current) {
+      clearTimeout(titleDebounceTimer.current);
+      titleDebounceTimer.current = null;
+    }
+  }, []);
+
+  const handleTitleCompositionEnd = useCallback(() => {
+    isTitleComposingRef.current = false;
+    emitTitleUpdate();
+  }, [emitTitleUpdate]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1507,6 +1589,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           defaultValue={note.title}
           placeholder={tr("tiptap.titlePlaceholder") || "�ޱ���"}
           onChange={handleTitleChange}
+          onCompositionStart={handleTitleCompositionStart}
+          onCompositionEnd={handleTitleCompositionEnd}
           onKeyDown={handleTitleKeyDown}
           readOnly={!editable}
           className="w-full bg-transparent outline-none text-2xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60"
