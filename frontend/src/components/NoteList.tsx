@@ -218,7 +218,6 @@ function SortMenu({
               </button>
             );
           })}
-        </div>
 
           {/* 分割线 */}
           <div className="my-1 border-t border-app-border" />
@@ -240,6 +239,7 @@ function SortMenu({
               <span>{t("noteList.showUpdatedTime")}</span>
             </span>
           </button>
+        </div>
       </div>
     </>,
     document.body
