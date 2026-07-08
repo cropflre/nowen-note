@@ -79,7 +79,7 @@ export function exportCanvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/
 }
 
 export async function loadImageAsBitmap(src: string): Promise<HTMLImageElement | ImageBitmap> {
-  const resp = await fetch(src);
+  const resp = await fetch(src, { credentials: "include" });
   if (!resp.ok) throw new Error("IMAGE_LOAD_FAILED");
   const blob = await resp.blob();
   if (blob.type.toLowerCase().includes("svg")) {
@@ -96,8 +96,14 @@ export async function loadImageAsBitmap(src: string): Promise<HTMLImageElement |
   img.decoding = "async";
   const objectUrl = URL.createObjectURL(blob);
   const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("IMAGE_LOAD_FAILED"));
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("IMAGE_LOAD_FAILED"));
+    };
   });
   img.src = objectUrl;
   return loaded;

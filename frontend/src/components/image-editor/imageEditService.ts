@@ -8,7 +8,13 @@ export function isSvgImageSource(src: string, mimeType?: string | null): boolean
 }
 
 export function editedImageBlobToFile(blob: Blob, filename?: string): File {
+  const mimeType = blob.type || "image/png";
+  const ext = mimeType.includes("webp")
+    ? "webp"
+    : mimeType.includes("jpeg") || mimeType.includes("jpg")
+      ? "jpg"
+      : "png";
   const base = (filename || `edited-image-${Date.now()}`).trim() || `edited-image-${Date.now()}`;
-  const safeName = /\.[a-z0-9]{2,5}$/i.test(base) ? base : `${base}.png`;
-  return new File([blob], safeName, { type: blob.type || "image/png" });
+  const stem = base.replace(/\.[a-z0-9]{2,5}$/i, "");
+  return new File([blob], `${stem}.${ext}`, { type: mimeType });
 }
