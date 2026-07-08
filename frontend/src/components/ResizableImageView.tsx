@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewProps } from "@tiptap/react";
 import { resolveAttachmentUrl, getServerUrl } from "@/lib/api";
-import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
-import { saveAs } from "file-saver";
-import { toast } from "@/lib/toast";
 
 /**
  * 判断是否为本应用的附件路径（/api/attachments/xxx）。
@@ -72,7 +69,6 @@ export function ResizableImageView(props: NodeViewProps) {
 
   // 拖拽过程中的"临时宽度"。未在拖拽时为 null，渲染走 attribute 的 width。
   const [draftWidth, setDraftWidth] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
   const dragStateRef = useRef<{
     startX: number;
     startWidth: number;
@@ -281,35 +277,6 @@ export function ResizableImageView(props: NodeViewProps) {
   // 显示用的宽度：拖拽中用 draft，否则用 attribute（null 时交给图片自然宽度）
   const displayWidth = draftWidth ?? (typeof initialWidth === "number" ? initialWidth : null);
 
-  // 保存当前图片到相册 / 下载
-  const handleSaveImage = useCallback(async () => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      const resp = await fetch(finalSrc);
-      if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
-      const blob = await resp.blob();
-      const mimeType = blob.type || "image/png";
-      const ext = mimeType.includes("jpeg") || mimeType.includes("jpg")
-        ? "jpg"
-        : mimeType.includes("webp") ? "webp" : "png";
-      const fileName = `nowen-image-${Date.now()}.${ext}`;
-
-      if (isAndroidNative()) {
-        await saveImageToGallery({ blob, fileName, mimeType });
-        toast.success("已保存到相册");
-      } else {
-        saveAs(blob, fileName);
-        toast.success("已下载图片");
-      }
-    } catch (err) {
-      console.error("[ResizableImageView] save image failed:", err);
-      toast.error("保存图片失败");
-    } finally {
-      setSaving(false);
-    }
-  }, [finalSrc, saving]);
-
   // 手柄样式（inline 以保持该组件"自给自足"，无需改全局 CSS）
   // 移动端手柄略大一些，触控更友好。
   const isCoarsePointer =
@@ -485,91 +452,6 @@ export function ResizableImageView(props: NodeViewProps) {
             </span>
           )}
 
-          {/* 选中态右上角浮一个"查看大图"按钮。
-              说明：
-                - 尺寸调节由 TiptapEditor 顶层的 imageBubble 气泡菜单（25/50/75/100 + 原图）
-                  统一负责，避免和这里重复；
-                - 这里只补"打开 Lightbox"入口，因为：
-                    a) 编辑态默认行为是 dblclick 才打开预览，触屏无双击；
-                    b) 顶层气泡菜单只有尺寸预设，没有"看大图"按钮。
-                - 实现上 dispatch 一个原生 dblclick 到 img 上，复用 TiptapEditor 的
-                  顶层 dblclick 监听器，不需要把 setPreviewImage 透传到子组件。 */}
-          {draftWidth == null && (
-            <button
-              type="button"
-              contentEditable={false}
-              onMouseDown={(e) => {
-                // 阻止冒泡到 ProseMirror，避免点按钮失去图片选中态
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                imgRef.current?.dispatchEvent(
-                  new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
-                );
-              }}
-              title="查看大图"
-              style={{
-                position: "absolute",
-                top: 6,
-                right: 6,
-                width: 26,
-                height: 26,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                borderRadius: 6,
-                background: "rgba(24,24,27,0.78)",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 14,
-                lineHeight: 1,
-                pointerEvents: "auto",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-              }}
-            >
-              ⛶
-            </button>
-          )}
-
-          {/* 保存图片按钮 */}
-          {draftWidth == null && (
-            <button
-              type="button"
-              contentEditable={false}
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleSaveImage(); }}
-              disabled={saving}
-              title={saving ? "保存中..." : "保存图片"}
-              style={{
-                position: "absolute",
-                top: 6,
-                right: 36,
-                width: 26,
-                height: 26,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                borderRadius: 6,
-                background: "rgba(24,24,27,0.78)",
-                color: "#fff",
-                border: "none",
-                cursor: saving ? "wait" : "pointer",
-                fontSize: 12,
-                lineHeight: 1,
-                pointerEvents: "auto",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-                opacity: saving ? 0.6 : 1,
-              }}
-            >
-              {saving ? "⏳" : "⬇"}
-            </button>
-          )}
         </span>
       )}
     </NodeViewWrapper>

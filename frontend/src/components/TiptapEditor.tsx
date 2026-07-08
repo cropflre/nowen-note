@@ -14,6 +14,8 @@ import { AnimatePresence, motion } from "framer-motion";import StarterKit from "
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
+import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
+import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
 import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Underline from "@tiptap/extension-underline";
@@ -33,8 +35,15 @@ import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
-import { api } from "@/lib/api";
+import { api, resolveAttachmentUrl } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import {
+  buildReplacedImageAttrs,
+  getImageCopySource,
+  getImageDownloadFilename,
+  isImageReplaceTargetNode,
+  type ImageNodeAttrs,
+} from "@/lib/imageToolbar";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
@@ -51,9 +60,11 @@ import {
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
 import { downloadAttachment } from "@/lib/downloadFile";
+import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
+import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
 import { Note, Tag } from "@/types";
@@ -91,6 +102,34 @@ import { useTranslation } from "react-i18next";
 const lowlight = createLowlight(common);
 
 const NOTE_WIKI_LINK_RE = /\[\[note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:#blk:([a-zA-Z0-9_-]+))?(?:\|((?:\\\]|[^\]])*))?\]\]/g;
+
+const IMAGE_SIZE_PRESETS = [
+  { key: "25", labelKey: "tiptap.imageSize25", ratio: 0.25 },
+  { key: "50", labelKey: "tiptap.imageSize50", ratio: 0.5 },
+  { key: "75", labelKey: "tiptap.imageSize75", ratio: 0.75 },
+  { key: "100", labelKey: "tiptap.imageSize100", ratio: 1 },
+] as const;
+
+function appendImageExtension(filename: string, mimeType: string): string {
+  if (/\.[a-z0-9]{2,5}$/i.test(filename)) return filename;
+  const ext = mimeType.includes("jpeg") || mimeType.includes("jpg")
+    ? "jpg"
+    : mimeType.includes("webp") ? "webp" : "png";
+  return `${filename}.${ext}`;
+}
+
+async function saveImageBlobSource(src: string, filename: string): Promise<void> {
+  const resp = await fetch(src);
+  if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
+  const blob = await resp.blob();
+  const mimeType = blob.type || "image/png";
+  const fileName = appendImageExtension(filename, mimeType);
+  if (isAndroidNative()) {
+    await saveImageToGallery({ blob, fileName, mimeType });
+    return;
+  }
+  saveAs(blob, fileName);
+}
 
 function parsePastedWikiNoteLinks(text: string, fallbackTitle: string): HTMLDivElement | null {
   NOTE_WIKI_LINK_RE.lastIndex = 0;
@@ -1502,10 +1541,18 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [bubble, setBubble] = useState<{ open: boolean; top: number; left: number }>({
     open: false, top: 0, left: 0,
   });
-  // 图片选中时的快捷尺寸气泡
+  // 图片选中时的统一操作气泡
   const [imageBubble, setImageBubble] = useState<{ open: boolean; top: number; left: number }>({
     open: false, top: 0, left: 0,
   });
+  const [imageSizeMenuOpen, setImageSizeMenuOpen] = useState(false);
+  const [replacingImage, setReplacingImage] = useState(false);
+  const [imageEditDialog, setImageEditDialog] = useState<{
+    open: boolean;
+    src: string;
+    filename: string;
+    imagePos: number;
+  } | null>(null);
   // 光标在表格内时的表格操作气泡（合并/拆分/增删行列等）
   // 与文本/图片气泡互斥：选中图片或选中非空文本时不显示表格气泡
   const [tableBubble, setTableBubble] = useState<{ open: boolean; top: number; left: number; cellText: string }>({
@@ -1523,6 +1570,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     setIsMobile(mq.matches);
     return () => mq.removeEventListener("change", handler);
   }, []);
+  useEffect(() => {
+    if (!imageBubble.open) setImageSizeMenuOpen(false);
+  }, [imageBubble.open]);
   // 调整表格尺寸对话框：按行列差值调用 addRow/deleteRow + addColumn/deleteColumn
   // initialRows/Cols 是打开对话框时的当前表格尺寸
   const [resizeDialog, setResizeDialog] = useState<{ open: boolean; rows: number; cols: number }>({
@@ -2964,6 +3014,170 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const handlePreviewMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
+
+  const getSelectedImageAttrs = useCallback((): ImageNodeAttrs | null => {
+    if (!editor || !editor.isActive("image")) return null;
+    return editor.getAttributes("image") as ImageNodeAttrs;
+  }, [editor]);
+
+  const handlePreviewSelectedImage = useCallback(() => {
+    const attrs = getSelectedImageAttrs();
+    const src = typeof attrs?.src === "string" ? attrs.src : "";
+    if (!src) return;
+    setPreviewImage(resolveAttachmentUrl(src));
+    setImageZoom(1);
+    setImageDrag({ x: 0, y: 0 });
+  }, [getSelectedImageAttrs]);
+
+  const handleDownloadSelectedImage = useCallback(async () => {
+    const attrs = getSelectedImageAttrs();
+    const src = typeof attrs?.src === "string" ? attrs.src : "";
+    if (!src) return;
+    const resolvedSrc = resolveAttachmentUrl(src);
+    const filename = getImageDownloadFilename(attrs ?? {});
+    try {
+      if (isAndroidNative() || src.startsWith("data:") || src.startsWith("blob:")) {
+        await saveImageBlobSource(resolvedSrc, filename);
+        toast.success(t("tiptap.imageDownloadSuccess", { defaultValue: "图片已保存" }));
+      } else {
+        await downloadAttachment(resolvedSrc, filename);
+      }
+    } catch (err) {
+      console.error("Download image failed:", err);
+      toast.error(t("tiptap.imageDownloadFailed", { defaultValue: "图片下载失败" }));
+    }
+  }, [getSelectedImageAttrs, t]);
+
+  const handleCopySelectedImageSrc = useCallback(async () => {
+    const attrs = getSelectedImageAttrs();
+    const src = getImageCopySource(attrs ?? {});
+    if (!src) return;
+    const ok = await copyText(src);
+    if (ok) {
+      toast.success(t("tiptap.imageAddressCopied", { defaultValue: "已复制图片地址" }));
+    } else {
+      toast.error(t("tiptap.copySelectionFail"));
+    }
+  }, [getSelectedImageAttrs, t]);
+
+  const handleReplaceSelectedImage = useCallback(() => {
+    if (!editor) return;
+    const currentNote = noteRef.current;
+    if (!currentNote?.id) {
+      toast.error(t("tiptap.imageReplaceFailed", { defaultValue: "替换图片失败" }));
+      return;
+    }
+    const attrs = getSelectedImageAttrs();
+    if (!attrs?.src) return;
+    const imagePos = editor.state.selection.from;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast.error(t("tiptap.imageFileInvalid", { defaultValue: "请选择图片文件" }));
+        return;
+      }
+      setReplacingImage(true);
+      toast.info(t("tiptap.imageReplacing", { defaultValue: "正在替换图片..." }));
+      api.attachments.upload(currentNote.id, file)
+        .then((res) => {
+          if (res.category !== "image") {
+            throw new Error("uploaded file is not an image");
+          }
+          const targetNode = editor.state.doc.nodeAt(imagePos);
+          if (!isImageReplaceTargetNode(targetNode)) {
+            toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后替换" }));
+            return;
+          }
+          editor
+            .chain()
+            .focus()
+            .setNodeSelection(imagePos)
+            .updateAttributes("image", buildReplacedImageAttrs(targetNode.attrs as ImageNodeAttrs, res.url))
+            .run();
+          toast.success(t("tiptap.imageReplaceSuccess", { defaultValue: "图片已替换" }));
+        })
+        .catch((err) => {
+          console.error("Replace image failed:", err);
+          toast.error(t("tiptap.imageReplaceFailed", { defaultValue: "替换图片失败" }));
+        })
+        .finally(() => setReplacingImage(false));
+    };
+    input.click();
+  }, [editor, getSelectedImageAttrs, t]);
+
+  const handleDeleteSelectedImage = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().deleteSelection().run();
+    setImageBubble((b) => (b.open ? { ...b, open: false } : b));
+  }, [editor]);
+
+  const handleEditSelectedImage = useCallback(() => {
+    if (!editor) return;
+    const currentNote = noteRef.current;
+    if (!currentNote?.id) {
+      toast.error(t("tiptap.imageEditOpenFailed", { defaultValue: "无法编辑图片" }));
+      return;
+    }
+    const attrs = getSelectedImageAttrs();
+    const src = typeof attrs?.src === "string" ? attrs.src : "";
+    if (!src) return;
+    if (isSvgImageSource(src)) {
+      toast.info(t("tiptap.imageEditSvgUnsupported", { defaultValue: "SVG 暂不支持编辑" }));
+      return;
+    }
+    setImageEditDialog({
+      open: true,
+      src: resolveAttachmentUrl(src),
+      filename: getImageDownloadFilename(attrs ?? {}),
+      imagePos: editor.state.selection.from,
+    });
+    setImageBubble((b) => (b.open ? { ...b, open: false } : b));
+  }, [editor, getSelectedImageAttrs, t]);
+
+  const handleSaveEditedImage = useCallback(async (blob: Blob) => {
+    if (!editor || !imageEditDialog) return;
+    const currentNote = noteRef.current;
+    if (!currentNote?.id) {
+      toast.error(t("tiptap.imageEditSaveFailed", { defaultValue: "图片保存失败" }));
+      throw new Error("missing note id");
+    }
+    toast.info(t("tiptap.imageEditUploading", { defaultValue: "正在保存编辑后的图片..." }));
+    const file = editedImageBlobToFile(blob, imageEditDialog.filename);
+    const res = await api.attachments.upload(currentNote.id, file);
+    if (res.category !== "image") {
+      throw new Error("uploaded file is not an image");
+    }
+    const targetNode = editor.state.doc.nodeAt(imageEditDialog.imagePos);
+    if (!isImageReplaceTargetNode(targetNode)) {
+      toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后替换" }));
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .setNodeSelection(imageEditDialog.imagePos)
+      .updateAttributes("image", buildReplacedImageAttrs(targetNode.attrs as ImageNodeAttrs, res.url))
+      .run();
+    toast.success(t("tiptap.imageEditSaveSuccess", { defaultValue: "图片已保存" }));
+  }, [editor, imageEditDialog, t]);
+
+  const handleSetSelectedImageSize = useCallback((ratio: number | null) => {
+    if (!editor) return;
+    if (ratio == null) {
+      editor.chain().focus().updateAttributes("image", { width: null, height: null }).run();
+      setImageSizeMenuOpen(false);
+      return;
+    }
+    const root = editor.view.dom as HTMLElement;
+    const contentWidth = root.clientWidth || 640;
+    const target = Math.round(contentWidth * ratio);
+    editor.chain().focus().updateAttributes("image", { width: target }).run();
+    setImageSizeMenuOpen(false);
+  }, [editor]);
 
   // 动态切换编辑器的可编辑状态
   useEffect(() => {
@@ -4597,49 +4811,135 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         </div>
       )}
 
-      {/* 选区气泡菜单：图片快捷尺寸 */}
-      {editor && editable && imageBubble.open && (
+      {/* 选中图片后的统一操作入口：桌面悬浮工具条，移动端底部 Sheet */}
+      {editor && editable && !isGuest && imageBubble.open && !isMobile && (
         <div
           className="fixed z-50 flex items-center gap-0.5 bg-app-elevated border border-app-border rounded-lg shadow-lg p-1"
           style={{ top: imageBubble.top, left: imageBubble.left }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          {[
-            { key: "25", label: t("tiptap.imageSize25"), ratio: 0.25 },
-            { key: "50", label: t("tiptap.imageSize50"), ratio: 0.5 },
-            { key: "75", label: t("tiptap.imageSize75"), ratio: 0.75 },
-            { key: "100", label: t("tiptap.imageSize100"), ratio: 1 },
-          ].map((s) => (
-            <ToolbarButton
-              key={s.key}
-              title={s.label}
-              onClick={() => {
-                const root = editor.view.dom as HTMLElement;
-                const contentWidth = root.clientWidth || 640;
-                const target = Math.round(contentWidth * s.ratio);
-                editor
-                  .chain()
-                  .focus()
-                  .updateAttributes("image", { width: target })
-                  .run();
-              }}
-            >
-              <span className="text-xs px-1">{s.label}</span>
-            </ToolbarButton>
-          ))}
-          <div className="w-px h-4 bg-app-border mx-0.5" />
-          <ToolbarButton
-            title={t("tiptap.imageSizeOriginalTitle")}
-            onClick={() => {
-              editor
-                .chain()
-                .focus()
-                .updateAttributes("image", { width: null, height: null })
-                .run();
-            }}
-          >
-            <span className="text-xs px-1">{t("tiptap.imageSizeOriginal")}</span>
+          <ToolbarButton title={t("tiptap.imageViewLarge")} onClick={handlePreviewSelectedImage}>
+            <ExternalLink size={14} />
           </ToolbarButton>
+          <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
+            <Download size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.imageReplace")}
+            disabled={replacingImage}
+            onClick={handleReplaceSelectedImage}
+          >
+            <Upload size={14} />
+          </ToolbarButton>
+          <ToolbarButton title={t("tiptap.imageCopyAddress")} onClick={() => { void handleCopySelectedImageSrc(); }}>
+            <Copy size={14} />
+          </ToolbarButton>
+          <ToolbarButton title={t("tiptap.imageDelete")} onClick={handleDeleteSelectedImage}>
+            <Trash2 size={14} />
+          </ToolbarButton>
+          <ToolbarButton title={t("tiptap.imageEditComingSoon")} onClick={handleEditSelectedImage}>
+            <Palette size={14} />
+          </ToolbarButton>
+          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <div className="relative">
+            <ToolbarButton
+              title={t("tiptap.imageMoreSizes")}
+              isActive={imageSizeMenuOpen}
+              onClick={() => setImageSizeMenuOpen((v) => !v)}
+            >
+              <ChevronDown size={14} />
+            </ToolbarButton>
+            {imageSizeMenuOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 z-50 min-w-32 rounded-lg border border-app-border bg-app-elevated p-1 shadow-lg"
+                data-popover
+              >
+                {IMAGE_SIZE_PRESETS.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    onClick={() => handleSetSelectedImageSize(s.ratio)}
+                  >
+                    {t(s.labelKey)}
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-app-border" />
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                  onClick={() => handleSetSelectedImageSize(null)}
+                >
+                  {t("tiptap.imageSizeOriginal")}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {editor && editable && !isGuest && imageBubble.open && isMobile && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 bg-app-elevated border-t border-app-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.12)]"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm font-medium text-tx-primary">{t("tiptap.imageActions")}</span>
+            <button
+              type="button"
+              className="rounded-md p-1.5 text-tx-secondary hover:bg-app-hover"
+              onClick={() => setImageBubble((b) => ({ ...b, open: false }))}
+              aria-label={t("common.close")}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { key: "view", label: t("tiptap.imageViewLarge"), icon: ExternalLink, action: handlePreviewSelectedImage },
+              { key: "download", label: t("tiptap.imageDownload"), icon: Download, action: () => { void handleDownloadSelectedImage(); } },
+              { key: "replace", label: t("tiptap.imageReplace"), icon: Upload, action: handleReplaceSelectedImage, disabled: replacingImage },
+              { key: "copy", label: t("tiptap.imageCopyAddress"), icon: Copy, action: () => { void handleCopySelectedImageSrc(); } },
+              { key: "delete", label: t("tiptap.imageDelete"), icon: Trash2, action: handleDeleteSelectedImage },
+              { key: "edit", label: t("tiptap.imageEdit"), icon: Palette, action: handleEditSelectedImage },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  disabled={item.disabled}
+                  onClick={item.action}
+                  className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-app-border bg-app-surface px-1.5 py-2 text-xs text-tx-secondary active:bg-app-hover disabled:opacity-40"
+                >
+                  <Icon size={18} />
+                  <span className="leading-tight">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3">
+            <div className="mb-1.5 text-xs font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
+            <div className="grid grid-cols-5 gap-2">
+              {IMAGE_SIZE_PRESETS.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  className="h-9 rounded-lg border border-app-border text-xs text-tx-secondary active:bg-app-hover"
+                  onClick={() => handleSetSelectedImageSize(s.ratio)}
+                >
+                  {t(s.labelKey)}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="h-9 rounded-lg border border-app-border text-xs text-tx-secondary active:bg-app-hover"
+                onClick={() => handleSetSelectedImageSize(null)}
+              >
+                {t("tiptap.imageSizeOriginal")}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -5032,6 +5332,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           query={noteLinkMenu.query}
           onSelect={handleNoteLinkSelect}
           onClose={() => setNoteLinkMenu(prev => ({ ...prev, open: false }))}
+        />
+      )}
+
+      {imageEditDialog?.open && (
+        <ImageEditDialog
+          open={imageEditDialog.open}
+          src={imageEditDialog.src}
+          filename={imageEditDialog.filename}
+          onClose={() => setImageEditDialog(null)}
+          onSave={handleSaveEditedImage}
         />
       )}
 
