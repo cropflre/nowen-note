@@ -434,6 +434,47 @@ export interface TaskStats {
   week: number;
 }
 
+export type HabitCheckinStatus = "success" | "partial" | "failure";
+
+export interface Habit {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  title: string;
+  icon: string;
+  color: string;
+  sortOrder: number;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  creatorName?: string | null;
+  todayStatus?: HabitCheckinStatus | null;
+  todayNote?: string | null;
+  todayCheckinDate?: string | null;
+}
+
+export interface HabitCheckin {
+  id: string;
+  habitId: string;
+  userId: string;
+  workspaceId: string | null;
+  checkinDate: string;
+  status: HabitCheckinStatus;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HabitStats {
+  totalCheckins: number;
+  checkinDays: number;
+  currentStreak: number;
+  successCount: number;
+  partialCount: number;
+  failureCount: number;
+  habitCount?: number;
+}
+
 /** Task reminder config */
 export interface TaskReminder {
   id: string;

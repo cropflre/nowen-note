@@ -1569,6 +1569,44 @@ export const api = {
     return request<TaskStats>(`/tasks/stats/summary${qs}`);
   },
 
+  // Habits
+  getHabits: (includeArchived = false, checkinDate?: string) => {
+    const params = new URLSearchParams();
+    const ws = getCurrentWorkspace();
+    if (ws && ws !== "personal") params.set("workspaceId", ws);
+    if (includeArchived) params.set("includeArchived", "1");
+    if (checkinDate) params.set("checkinDate", checkinDate);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<import("@/types").Habit[]>(`/habits${qs}`);
+  },
+  createHabit: (data: { title: string; icon?: string; color?: string; sortOrder?: number }) => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<import("@/types").Habit>(`/habits${qs}`, { method: "POST", body: JSON.stringify(data) });
+  },
+  updateHabit: (id: string, data: Partial<import("@/types").Habit>) =>
+    request<import("@/types").Habit>(`/habits/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  archiveHabit: (id: string, archived = true) =>
+    request<import("@/types").Habit>(`/habits/${id}/archive`, { method: "PATCH", body: JSON.stringify({ archived }) }),
+  getHabitCheckins: (id: string, params?: { from?: string; to?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.from) search.set("from", params.from);
+    if (params?.to) search.set("to", params.to);
+    const qs = search.toString() ? `?${search.toString()}` : "";
+    return request<import("@/types").HabitCheckin[]>(`/habits/${id}/checkins${qs}`);
+  },
+  checkInHabit: (id: string, data: { status: import("@/types").HabitCheckinStatus; note?: string; checkinDate?: string }) =>
+    request<import("@/types").HabitCheckin>(`/habits/${id}/checkins`, { method: "POST", body: JSON.stringify(data) }),
+  getHabitStats: (includeArchived = false, checkinDate?: string) => {
+    const params = new URLSearchParams();
+    const ws = getCurrentWorkspace();
+    if (ws && ws !== "personal") params.set("workspaceId", ws);
+    if (includeArchived) params.set("includeArchived", "1");
+    if (checkinDate) params.set("checkinDate", checkinDate);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<import("@/types").HabitStats>(`/habits/stats${qs}`);
+  },
+
 
   // Task calendar subscription (ICS feed)
   taskCalendarFeed: {

@@ -11,7 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency } from "@/types";
+import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus } from "@/types";
 import { cn } from "@/lib/utils";
 import { isTaskBlockedByDependency } from "./tasks/taskDependencyUtils";
 import {
@@ -43,6 +43,8 @@ import { CalendarExportTargetSettings } from "./tasks/CalendarExportTargetSettin
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 import { taskMatchesSearch } from "./tasks/taskSearch";
 import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSmartRecognition";
+import { HabitStatsOverview } from "./tasks/HabitStatsOverview";
+import { HabitRow } from "./tasks/HabitRow";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -74,6 +76,8 @@ function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> 
 export default function TaskCenter() {
   const { t } = useTranslation();
 
+  type CenterMode = "tasks" | "habits";
+
   const FILTERS: { key: TaskFilter; label: string; icon: React.ReactNode }[] = [
     { key: "all", label: t("tasks.allTasks"), icon: <Inbox size={16} /> },
     { key: "today", label: t("tasks.today"), icon: <CalendarDays size={16} /> },
@@ -82,8 +86,20 @@ export default function TaskCenter() {
     { key: "completed", label: t("tasks.completed"), icon: <CheckCheck size={16} /> },
   ];
 
+  const selectTaskFilter = (nextFilter: TaskFilter) => {
+    setCenterMode("tasks");
+    setFilter(nextFilter);
+    setSelectedTaskId(null);
+    setSearchQuery("");
+    setSelectedProjectId(null);
+  };
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
+  const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [habitStats, setHabitStats] = useState<HabitStats | null>(null);
+  const [newHabitTitle, setNewHabitTitle] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
@@ -95,6 +111,11 @@ export default function TaskCenter() {
   // Phase 4: search
   const [searchQuery, setSearchQuery] = useState("");
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
+
+  const pendingHabitCount = useMemo(
+    () => habits.filter((habit) => !habit.todayStatus).length,
+    [habits],
+  );
 
   // Phase 5.2: dependencies
   const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
@@ -214,6 +235,20 @@ export default function TaskCenter() {
     }
   }, [filter, selectedProjectId, workspaceVersion]);
 
+  const loadHabits = useCallback(async () => {
+    try {
+      const checkinDate = formatLocalDateKey();
+      const [list, statsData] = await Promise.all([
+        api.getHabits(false, checkinDate),
+        api.getHabitStats(false, checkinDate),
+      ]);
+      setHabits(list);
+      setHabitStats(statsData);
+    } catch (err) {
+      console.error("Failed to load habits:", err);
+    }
+  }, []);
+
   const loadDependencies = useCallback(async () => {
     try {
       const deps = await api.getTaskDependencies();
@@ -235,13 +270,53 @@ export default function TaskCenter() {
     loadReminderBadge();
   }, [loadReminderBadge]);
 
-  useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); }, [loadTasks, loadDependencies, loadReminderBadge]);
+  useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); loadHabits(); }, [loadTasks, loadDependencies, loadReminderBadge, loadHabits]);
 
   useEffect(() => {
-    const onWs = () => { setSelectedTaskId(null); setSearchQuery(""); setSelectedIds(new Set()); setSelectMode(false); setSelectedProjectId(null); setWorkspaceVersion((v) => v + 1); reload(); };
+    const onWs = () => { setSelectedTaskId(null); setSearchQuery(""); setSelectedIds(new Set()); setSelectMode(false); setSelectedProjectId(null); setWorkspaceVersion((v) => v + 1); reload(); loadHabits(); };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [loadTasks]);
+  }, [loadTasks, loadHabits]);
+
+  const handleCreateHabit = async (): Promise<boolean> => {
+    const title = newHabitTitle.trim();
+    if (!title) return false;
+    try {
+      const checkinDate = formatLocalDateKey();
+      const habit = await api.createHabit({ title });
+      setHabits((prev) => [habit, ...prev]);
+      setNewHabitTitle("");
+      const statsData = await api.getHabitStats(false, checkinDate);
+      setHabitStats(statsData);
+      return true;
+    } catch (err) {
+      console.error("Failed to create habit:", err);
+      toast.error(t("habits.toast.createFailed"));
+      return false;
+    }
+  };
+
+  const handleHabitCheckin = async (habit: Habit, status: HabitCheckinStatus, note: string) => {
+    const checkinDate = formatLocalDateKey();
+    const updated = await api.checkInHabit(habit.id, { status, note, checkinDate });
+    setHabits((prev) => prev.map((item) => (
+      item.id === habit.id
+        ? { ...item, todayStatus: updated.status, todayNote: updated.note, todayCheckinDate: updated.checkinDate }
+        : item
+    )));
+    const statsData = await api.getHabitStats(false, checkinDate);
+    setHabitStats(statsData);
+    toast.success(t("habits.toast.checkinUpdated"));
+  };
+
+  const handleArchiveHabit = async (habit: Habit) => {
+    const checkinDate = formatLocalDateKey();
+    await api.archiveHabit(habit.id, true);
+    setHabits((prev) => prev.filter((item) => item.id !== habit.id));
+    const statsData = await api.getHabitStats(false, checkinDate);
+    setHabitStats(statsData);
+    toast.success(t("habits.toast.archived"));
+  };
 
   // === Keyboard shortcuts ===
   useEffect(() => {
@@ -623,29 +698,43 @@ export default function TaskCenter() {
     <div className={cn(TASK_CENTER_ROOT_CLASS, taskFullscreen && "fixed inset-0 z-[80] bg-app-bg")}>
       {/* Left: Sidebar Filters + Projects (desktop) */}
       <div className="hidden md:flex w-56 shrink-0 flex-col border-r border-app-border bg-app-surface overflow-y-auto" style={{ paddingTop: "var(--safe-area-top)" }}>
-        <div className="px-4 py-3 border-b border-app-border">
-          <span className="text-xs font-semibold text-tx-tertiary uppercase tracking-wider">{t("tasks.title")}</span>
-        </div>
         <nav className="flex-1 px-2 py-1.5 space-y-0.5">
           {FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => { setFilter(f.key); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+              onClick={() => selectTaskFilter(f.key)}
               className={cn(
                 "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
-                filter === f.key && !selectedProjectId ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
+                centerMode === "tasks" && filter === f.key && !selectedProjectId ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
               )}
             >
               {f.icon}
               <span className="flex-1 text-left">{f.label}</span>
               <span className={cn(
                 "text-xs min-w-[20px] text-center rounded-full px-1.5 py-0.5",
-                filter === f.key && !selectedProjectId ? "bg-accent-primary/20 text-accent-primary" : "text-tx-tertiary"
+                centerMode === "tasks" && filter === f.key && !selectedProjectId ? "bg-accent-primary/20 text-accent-primary" : "text-tx-tertiary"
               )}>
                 {filterCount(f.key)}
               </span>
             </button>
           ))}
+
+          <button
+            onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
+              centerMode === "habits" ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
+            )}
+          >
+            <ListTodo size={16} />
+            <span className="flex-1 text-left">{t("habits.title")}</span>
+            <span className={cn(
+              "text-xs min-w-[20px] text-center rounded-full px-1.5 py-0.5",
+              centerMode === "habits" ? "bg-accent-primary/20 text-accent-primary" : "text-tx-tertiary"
+            )}>
+              {pendingHabitCount}
+            </span>
+          </button>
 
           {/* Projects section */}
           <div className="mt-3 mb-0.5 px-3">
@@ -678,10 +767,10 @@ export default function TaskCenter() {
           {projects.map((p) => (
             <div key={p.id} className="relative">
               <button
-                onClick={() => { setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
+                onClick={() => { setCenterMode("tasks"); setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
                 className={cn(
                   "flex items-center gap-2.5 w-full px-3 py-1.5 rounded-lg text-sm transition-colors group",
-                  selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
+                  centerMode === "tasks" && selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
                 )}
               >
                 <FolderOpen size={14} style={{ color: p.color }} />
@@ -721,10 +810,10 @@ export default function TaskCenter() {
           {FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => { setFilter(f.key); setSelectedTaskId(null); setSearchQuery(""); }}
+              onClick={() => selectTaskFilter(f.key)}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
-                filter === f.key
+                centerMode === "tasks" && filter === f.key
                   ? "bg-accent-primary/15 text-accent-primary"
                   : "text-tx-secondary bg-app-hover/50 active:bg-app-active"
               )}
@@ -733,192 +822,264 @@ export default function TaskCenter() {
               {f.label}
               <span className={cn(
                 "text-[10px] min-w-[16px] text-center",
-                filter === f.key ? "text-accent-primary" : "text-tx-tertiary"
+                centerMode === "tasks" && filter === f.key ? "text-accent-primary" : "text-tx-tertiary"
               )}>
                 {filterCount(f.key)}
               </span>
             </button>
           ))}
-          {/* Mobile project trigger */}
-          <MobileProjectTrigger
-            selectedProjectId={selectedProjectId}
-            projects={projects}
-            onClick={() => setMobileProjectOpen(true)}
-            t={t}
-          />
-          {/* Mobile view toggle (cycle: list -> board -> calendar -> list) */}
           <button
-            onClick={() => setViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : "list")}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-full text-xs shrink-0 text-tx-secondary bg-app-hover/50 active:bg-app-active"
-            title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : t("tasks.listView")}
-          >
-            {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : <LayoutList size={12} />}
-          </button>
-        </div>
-
-        {/* Overview cards only in all filter */}
-        {filter === "all" && !isLoading && (
-          <TaskOverview tasks={tasks} stats={stats} />
-        )}
-
-        {/* Header desktop with batch controls */}
-        <div className="hidden md:flex items-center justify-between px-5 py-3 border-b border-app-border">
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-tx-primary">
-              {selectedProjectId
-                ? projects.find((p) => p.id === selectedProjectId)?.name || t("tasks.allTasks")
-                : FILTERS.find((f) => f.key === filter)?.label || t("tasks.allTasks")}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* View mode toggle */}
-            <div className="flex items-center rounded-md border border-app-border overflow-hidden">
-              <button
-                onClick={() => setViewMode("list")}
-                className={cn("p-1.5 transition-colors", viewMode === "list" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                title={t("tasks.listView")}
-              >
-                <LayoutList size={14} />
-              </button>
-              <button
-                onClick={() => setViewMode("board")}
-                className={cn("p-1.5 transition-colors", viewMode === "board" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                title={t("tasks.boardView")}
-              >
-                <LayoutGrid size={14} />
-              </button>
-              <button
-                onClick={() => setViewMode("calendar")}
-                className={cn("p-1.5 transition-colors", viewMode === "calendar" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                title={t("tasks.calendarView")}
-              >
-                <CalendarIcon size={14} />
-              </button>
-              <button
-                onClick={() => setViewMode("timeline")}
-                className={cn("p-1.5 transition-colors", viewMode === "timeline" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                title={t("tasks.timelineView")}
-              >
-                <BarChart3 size={14} />
-              </button>
-            </div>
-            <button
-              onClick={() => setSortByDueTime((v) => !v)}
-              className={cn(
-                "p-1.5 rounded-md transition-colors",
-                sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
-              )}
-              title={t("tasks.sortByDueTime")}
-            >
-              <CalendarDays size={14} />
-            </button>
-            <button
-              onClick={() => setTaskFullscreen((v) => !v)}
-              className="p-1.5 rounded-md transition-colors text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
-              title={taskFullscreen ? t("tasks.exitFullscreen") : t("tasks.enterFullscreen")}
-            >
-              {taskFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            {selectMode ? (
-              <>
-                <span className="text-xs text-tx-tertiary">{t("tasks.selectedCount", { count: selectedIds.size })}</span>
-                <button
-                  onClick={selectedIds.size === flatOrderedTasks.length ? handleDeselectAll : handleSelectAll}
-                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-tx-secondary hover:bg-app-hover transition-colors"
-                >
-                  <CheckSquare size={14} />
-                  {selectedIds.size === flatOrderedTasks.length ? t("tasks.deselectAll") : t("tasks.selectAll")}
-                </button>
-                <button
-                  onClick={handleBatchComplete}
-                  disabled={selectedIds.size === 0}
-                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 disabled:opacity-40 transition-colors"
-                >
-                  <CheckSquare size={14} /> {t("tasks.batchComplete")}
-                </button>
-                <button
-                  onClick={handleBatchDelete}
-                  disabled={selectedIds.size === 0}
-                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:opacity-40 transition-colors"
-                >
-                  <Trash2 size={14} /> {t("tasks.batchDelete")}
-                </button>
-                <button
-                  onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
-                  className="text-xs text-tx-tertiary hover:text-tx-secondary px-2 py-1 transition-colors"
-                >
-                  {t("tasks.batchCancel")}
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setSelectMode(true)}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-tx-secondary rounded-md hover:bg-app-hover transition-colors"
-                title={t("tasks.selectMode")}
-              >
-                <CheckSquare size={14} />
-              </button>
+            onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
+              centerMode === "habits" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary bg-app-hover/50 active:bg-app-active"
             )}
-          </div>
-        </div>
-
-        {/* Search bar */}
-        <div className="flex items-center gap-2 px-4 md:px-5 py-1.5 border-b border-app-border">
-          <Search size={14} className="text-tx-tertiary shrink-0" />
-          <input
-            ref={searchRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("tasks.searchPlaceholder")}
-            className="flex-1 bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="text-tx-tertiary hover:text-tx-secondary transition-colors">
-              <XIcon size={14} />
-            </button>
+          >
+            <ListTodo size={14} />
+            {t("habits.title")}
+            <span className={cn(
+              "text-[10px] min-w-[16px] text-center",
+              centerMode === "habits" ? "text-accent-primary" : "text-tx-tertiary"
+            )}>
+              {pendingHabitCount}
+            </span>
+          </button>
+          {centerMode === "tasks" && (
+            <>
+              {/* Mobile project trigger */}
+              <MobileProjectTrigger
+                selectedProjectId={selectedProjectId}
+                projects={projects}
+                onClick={() => setMobileProjectOpen(true)}
+                t={t}
+              />
+              {/* Mobile view toggle (cycle: list -> board -> calendar -> list) */}
+              <button
+                onClick={() => setViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : "list")}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-full text-xs shrink-0 text-tx-secondary bg-app-hover/50 active:bg-app-active"
+                title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : t("tasks.listView")}
+              >
+                {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : <LayoutList size={12} />}
+              </button>
+            </>
           )}
         </div>
 
-        {/* Quick Add */}
-        <div className="px-4 md:px-5 py-2 border-b border-app-border">
-          <TaskQuickAdd
-            value={newTitle}
-            onChange={setNewTitle}
-            onSubmit={handleCreate}
-            inputRef={inputRef}
-          />
-          <div className="flex items-center gap-1 mt-2">
-            <button
-              type="button"
-              onClick={() => setShowTemplatePicker(true)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors"
-            >
-              <FileText size={13} />
-              {t("tasks.templates.button")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowReminderCenter(true)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors relative"
-            >
-              <Bell size={13} />
-              {t("tasks.reminderCenter.open")}
-              {reminderBadgeCount > 0 && (
-                <span className="absolute -top-1 -right-1 text-[9px] min-w-[14px] h-[14px] px-0.5 rounded-full bg-amber-500 text-white flex items-center justify-center">
-                  {reminderBadgeCount}
-                </span>
+        {/* Overview cards only in all filter */}
+        {centerMode === "tasks" && filter === "all" && !isLoading && (
+          <TaskOverview tasks={tasks} stats={stats} />
+        )}
+        {centerMode === "habits" && !isLoading && (
+          <HabitStatsOverview stats={habitStats} />
+        )}
+
+        {/* Header desktop with batch controls */}
+        {centerMode === "tasks" ? (
+          <div className="hidden md:flex items-center justify-between px-5 py-3 border-b border-app-border">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-tx-primary">
+                {selectedProjectId
+                  ? projects.find((p) => p.id === selectedProjectId)?.name || t("tasks.allTasks")
+                  : FILTERS.find((f) => f.key === filter)?.label || t("tasks.allTasks")}
+              </h1>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* View mode toggle */}
+              <div className="flex items-center rounded-md border border-app-border overflow-hidden">
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={cn("p-1.5 transition-colors", viewMode === "list" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
+                  title={t("tasks.listView")}
+                >
+                  <LayoutList size={14} />
+                </button>
+                <button
+                  onClick={() => setViewMode("board")}
+                  className={cn("p-1.5 transition-colors", viewMode === "board" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
+                  title={t("tasks.boardView")}
+                >
+                  <LayoutGrid size={14} />
+                </button>
+                <button
+                  onClick={() => setViewMode("calendar")}
+                  className={cn("p-1.5 transition-colors", viewMode === "calendar" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
+                  title={t("tasks.calendarView")}
+                >
+                  <CalendarIcon size={14} />
+                </button>
+                <button
+                  onClick={() => setViewMode("timeline")}
+                  className={cn("p-1.5 transition-colors", viewMode === "timeline" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
+                  title={t("tasks.timelineView")}
+                >
+                  <BarChart3 size={14} />
+                </button>
+              </div>
+              <button
+                onClick={() => setSortByDueTime((v) => !v)}
+                className={cn(
+                  "p-1.5 rounded-md transition-colors",
+                  sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+                )}
+                title={t("tasks.sortByDueTime")}
+              >
+                <CalendarDays size={14} />
+              </button>
+              <button
+                onClick={() => setTaskFullscreen((v) => !v)}
+                className="p-1.5 rounded-md transition-colors text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+                title={taskFullscreen ? t("tasks.exitFullscreen") : t("tasks.enterFullscreen")}
+              >
+                {taskFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              {selectMode ? (
+                <>
+                  <span className="text-xs text-tx-tertiary">{t("tasks.selectedCount", { count: selectedIds.size })}</span>
+                  <button
+                    onClick={selectedIds.size === flatOrderedTasks.length ? handleDeselectAll : handleSelectAll}
+                    className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <CheckSquare size={14} />
+                    {selectedIds.size === flatOrderedTasks.length ? t("tasks.deselectAll") : t("tasks.selectAll")}
+                  </button>
+                  <button
+                    onClick={handleBatchComplete}
+                    disabled={selectedIds.size === 0}
+                    className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 disabled:opacity-40 transition-colors"
+                  >
+                    <CheckSquare size={14} /> {t("tasks.batchComplete")}
+                  </button>
+                  <button
+                    onClick={handleBatchDelete}
+                    disabled={selectedIds.size === 0}
+                    className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Trash2 size={14} /> {t("tasks.batchDelete")}
+                  </button>
+                  <button
+                    onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
+                    className="text-xs text-tx-tertiary hover:text-tx-secondary px-2 py-1 transition-colors"
+                  >
+                    {t("tasks.batchCancel")}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setSelectMode(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-tx-secondary rounded-md hover:bg-app-hover transition-colors"
+                  title={t("tasks.selectMode")}
+                >
+                  <CheckSquare size={14} />
+                </button>
               )}
-            </button>
-            <TaskCalendarFeedSettings />
-            <CalendarExportTargetSettings />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="hidden md:flex items-center justify-between px-5 py-3 border-b border-app-border">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-tx-primary">{t("habits.title")}</h1>
+            </div>
+            <div className="text-xs text-tx-tertiary">{t("habits.summary")}</div>
+          </div>
+        )}
+
+        {/* Search bar */}
+        {centerMode === "tasks" ? (
+          <div className="flex items-center gap-2 px-4 md:px-5 py-1.5 border-b border-app-border">
+            <Search size={14} className="text-tx-tertiary shrink-0" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t("tasks.searchPlaceholder")}
+              className="flex-1 bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="text-tx-tertiary hover:text-tx-secondary transition-colors">
+                <XIcon size={14} />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-4 md:px-5 py-2 border-b border-app-border">
+            <input
+              type="text"
+              value={newHabitTitle}
+              onChange={(e) => setNewHabitTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateHabit(); }}
+              placeholder={t("habits.createPlaceholder")}
+              className="flex-1 rounded-md border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none focus:border-accent-primary"
+            />
+            <button
+              onClick={handleCreateHabit}
+              className="rounded-md bg-accent-primary px-3 py-2 text-sm text-white transition-opacity hover:opacity-90"
+            >
+              {t("habits.add")}
+            </button>
+          </div>
+        )}
+
+        {/* Quick Add */}
+        {centerMode === "tasks" && (
+          <div className="px-4 md:px-5 py-2 border-b border-app-border">
+            <TaskQuickAdd
+              value={newTitle}
+              onChange={setNewTitle}
+              onSubmit={handleCreate}
+              inputRef={inputRef}
+            />
+            <div className="flex items-center gap-1 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowTemplatePicker(true)}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors"
+              >
+                <FileText size={13} />
+                {t("tasks.templates.button")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReminderCenter(true)}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors relative"
+              >
+                <Bell size={13} />
+                {t("tasks.reminderCenter.open")}
+                {reminderBadgeCount > 0 && (
+                  <span className="absolute -top-1 -right-1 text-[9px] min-w-[14px] h-[14px] px-0.5 rounded-full bg-amber-500 text-white flex items-center justify-center">
+                    {reminderBadgeCount}
+                  </span>
+                )}
+              </button>
+              <TaskCalendarFeedSettings />
+              <CalendarExportTargetSettings />
+            </div>
+          </div>
+        )}
 
         {/* Task List / Board / Calendar View */}
-        {viewMode === "board" && !isLoading && displayTasks.length > 0 ? (
+        {centerMode === "habits" ? (
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-5 py-3">
+            {habits.length === 0 ? (
+              <div className="flex h-40 items-center justify-center text-sm text-tx-tertiary">
+                {t("habits.empty")}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {habits.map((habit) => (
+                  <HabitRow
+                    key={habit.id}
+                    habit={habit}
+                    onCheckin={handleHabitCheckin}
+                    onArchive={handleArchiveHabit}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : viewMode === "board" && !isLoading && displayTasks.length > 0 ? (
           <TaskBoardView
             tasks={displayTasks}
             onSelect={(task) => setSelectedTaskId(task.id)}
@@ -1101,7 +1262,7 @@ export default function TaskCenter() {
       )}
 
       {/* Right: Detail Panel — direct flex sibling, no AnimatePresence to avoid layout gap */}
-      {selectedTask && (
+      {centerMode === "tasks" && selectedTask && (
         <TaskDetailPanel
           key={selectedTask.id}
           task={selectedTask}

@@ -1259,7 +1259,7 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_mindmap_folders_workspace ON mindmap_folders(workspaceId);
       `);
       // mindmaps 表加 folderId 列
-      try { db.prepare("ALTER TABLE mindmaps ADD COLUMN folderId TEXT").run(); } catch {}
+      try { db.prepare("ALTER TABLE mindmaps ADD COLUMN folderId TEXT").run(); } catch { }
     },
   },
   // v18: Notebook 级成员关系。Workspace 继续作为底层容器，Notebook 成为产品层协作空间。
@@ -1899,6 +1899,56 @@ export const MIGRATIONS: Migration[] = [
           updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
           FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
         );
+      `);
+    },
+  },
+  // v43: 习惯打卡独立模块。习惯不复用 tasks，避免影响任务完成/重复/项目语义。
+  {
+    version: 43,
+    name: "habits-checkins",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS habits (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          workspaceId TEXT,
+          title TEXT NOT NULL,
+          icon TEXT NOT NULL DEFAULT 'check-circle',
+          color TEXT NOT NULL DEFAULT '#10b981',
+          sortOrder INTEGER NOT NULL DEFAULT 0,
+          archivedAt TEXT,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (workspaceId) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS habit_checkins (
+          id TEXT PRIMARY KEY,
+          habitId TEXT NOT NULL,
+          userId TEXT NOT NULL,
+          workspaceId TEXT,
+          checkinDate TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failure')),
+          note TEXT NOT NULL DEFAULT '',
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (habitId) REFERENCES habits(id) ON DELETE CASCADE,
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (workspaceId) REFERENCES workspaces(id) ON DELETE CASCADE,
+          UNIQUE(habitId, checkinDate)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_habits_user_ws_archived_sort
+          ON habits(userId, workspaceId, archivedAt, sortOrder);
+        CREATE INDEX IF NOT EXISTS idx_habits_workspace_archived_sort
+          ON habits(workspaceId, archivedAt, sortOrder);
+        CREATE INDEX IF NOT EXISTS idx_habit_checkins_habit_date
+          ON habit_checkins(habitId, checkinDate);
+        CREATE INDEX IF NOT EXISTS idx_habit_checkins_user_date
+          ON habit_checkins(userId, checkinDate);
+        CREATE INDEX IF NOT EXISTS idx_habit_checkins_workspace_date
+          ON habit_checkins(workspaceId, checkinDate);
       `);
     },
   },

@@ -1460,6 +1460,36 @@
     "enterFullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen"
   },
+  "habits": {
+    "title": "Habits",
+    "sidebarHint": "Active habits are shown by default. Archived habits are hidden, while historical stats remain available.",
+    "summary": "Independent from tasks, tracked with daily check-ins",
+    "createPlaceholder": "Add a new habit",
+    "add": "Add",
+    "empty": "No habits yet. Create one to get started.",
+    "notePlaceholder": "Check-in note",
+    "stats": {
+      "totalCheckins": "Total Check-ins",
+      "checkinDays": "Check-in Days",
+      "currentStreak": "Current Streak"
+    },
+    "status": {
+      "success": "Success",
+      "partial": "Partial",
+      "failure": "Failure"
+    },
+    "actions": {
+      "success": "Success",
+      "partial": "Partial",
+      "failure": "Failure",
+      "archive": "Archive"
+    },
+    "toast": {
+      "createFailed": "Failed to create habit",
+      "checkinUpdated": "Check-in updated",
+      "archived": "Habit archived"
+    }
+  },
   "tags": {
     "addTagPlaceholder": "Add tag...",
     "createTag": "Create tag \"{{name}}\"",

@@ -1619,6 +1619,36 @@
     "enterFullscreen": "全屏",
     "exitFullscreen": "退出全屏"
   },
+  "habits": {
+    "title": "习惯",
+    "sidebarHint": "习惯列表默认按活跃状态显示，归档后隐藏，但统计可保留历史。",
+    "summary": "独立于任务，按每日打卡统计",
+    "createPlaceholder": "添加一个新习惯",
+    "add": "添加",
+    "empty": "还没有习惯，先创建一个。",
+    "notePlaceholder": "打卡备注",
+    "stats": {
+      "totalCheckins": "总打卡次数",
+      "checkinDays": "打卡天数",
+      "currentStreak": "连续打卡天数"
+    },
+    "status": {
+      "success": "成功",
+      "partial": "部分",
+      "failure": "失败"
+    },
+    "actions": {
+      "success": "成功",
+      "partial": "部分",
+      "failure": "失败",
+      "archive": "归档"
+    },
+    "toast": {
+      "createFailed": "创建习惯失败",
+      "checkinUpdated": "打卡已更新",
+      "archived": "习惯已归档"
+    }
+  },
   "tags": {
     "addTagPlaceholder": "添加标签...",
     "createTag": "创建标签 \"{{name}}\"",

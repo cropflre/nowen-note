@@ -417,6 +417,44 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parentId);
     CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(isCompleted);
 
+    -- 习惯打卡表：与 tasks 独立，避免把打卡状态混入任务完成/重复逻辑。
+    CREATE TABLE IF NOT EXISTS habits (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      workspaceId TEXT,
+      title TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT 'check-circle',
+      color TEXT NOT NULL DEFAULT '#10b981',
+      sortOrder INTEGER NOT NULL DEFAULT 0,
+      archivedAt TEXT,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspaceId) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS habit_checkins (
+      id TEXT PRIMARY KEY,
+      habitId TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      workspaceId TEXT,
+      checkinDate TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failure')),
+      note TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (habitId) REFERENCES habits(id) ON DELETE CASCADE,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspaceId) REFERENCES workspaces(id) ON DELETE CASCADE,
+      UNIQUE(habitId, checkinDate)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_habits_user_ws_archived_sort ON habits(userId, workspaceId, archivedAt, sortOrder);
+    CREATE INDEX IF NOT EXISTS idx_habits_workspace_archived_sort ON habits(workspaceId, archivedAt, sortOrder);
+    CREATE INDEX IF NOT EXISTS idx_habit_checkins_habit_date ON habit_checkins(habitId, checkinDate);
+    CREATE INDEX IF NOT EXISTS idx_habit_checkins_user_date ON habit_checkins(userId, checkinDate);
+    CREATE INDEX IF NOT EXISTS idx_habit_checkins_workspace_date ON habit_checkins(workspaceId, checkinDate);
+
     -- FTS 同步触发器
     CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
       INSERT INTO notes_fts(rowid, title, contentText) VALUES (new.rowid, new.title, new.contentText);
