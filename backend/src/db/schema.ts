@@ -242,6 +242,14 @@ function initSchema(db: Database.Database) {
       updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- 用户级 UI 偏好（跨浏览器 / 跨设备同步）
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      userId TEXT PRIMARY KEY,
+      preferencesJson TEXT NOT NULL DEFAULT '{}',
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     -- 待办任务表
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,

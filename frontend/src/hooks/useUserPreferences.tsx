@@ -4,17 +4,19 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { api } from "@/lib/api";
 
 /**
- * 用户级 UI 偏好（per-device, per-browser）
+ * 用户级 UI 偏好（per-user, synced）
  *
  * 与 useSiteSettings 的区别：
  *   - useSiteSettings  → 站点级配置（site_title / favicon / 字体），走后端 API，
  *     全站共享，**只有管理员能改**；
- *   - useUserPreferences（本 hook）→ 当前浏览器/设备的私人偏好，仅 localStorage，
- *     不入库、不同步、**每个用户在每台设备各自独立**。
+ *   - useUserPreferences（本 hook）→ 当前用户的私人偏好，优先同步到后端，
+ *     localStorage 仅作为启动缓存和离线兜底。
  *
  * 这里收纳的是"看起来该跟用户走，但又不该污染笔记数据本身"的开关，例如：
  *   - 标签页/窗口标题是显示笔记标题还是软件名；
@@ -67,43 +69,47 @@ const DEFAULT_PREFS: UserPreferences = {
   markdownDefaultViewMode: "source",
 };
 
+function normalizeUserPreferences(parsed: Partial<UserPreferences>): UserPreferences {
+  return {
+    noteTitleAsAppTitle: typeof parsed.noteTitleAsAppTitle === "boolean"
+      ? parsed.noteTitleAsAppTitle
+      : DEFAULT_PREFS.noteTitleAsAppTitle,
+    outlineDefaultOpen: typeof parsed.outlineDefaultOpen === "boolean"
+      ? parsed.outlineDefaultOpen
+      : DEFAULT_PREFS.outlineDefaultOpen,
+    lockOnOpen: typeof parsed.lockOnOpen === "boolean"
+      ? parsed.lockOnOpen
+      : DEFAULT_PREFS.lockOnOpen,
+    showNotesInNotebookTree: typeof parsed.showNotesInNotebookTree === "boolean"
+      ? parsed.showNotesInNotebookTree
+      : DEFAULT_PREFS.showNotesInNotebookTree,
+    readingDensity: parsed.readingDensity === "compact" || parsed.readingDensity === "cozy"
+      ? parsed.readingDensity
+      : DEFAULT_PREFS.readingDensity,
+    showNoteListUpdatedTime: typeof parsed.showNoteListUpdatedTime === "boolean"
+      ? parsed.showNoteListUpdatedTime
+      : (localStorage.getItem("nowen.noteList.showTime") !== null
+        ? localStorage.getItem("nowen.noteList.showTime") === "true"
+        : DEFAULT_PREFS.showNoteListUpdatedTime),
+    enableNoteTabs: typeof parsed.enableNoteTabs === "boolean"
+      ? parsed.enableNoteTabs
+      : DEFAULT_PREFS.enableNoteTabs,
+    markdownDefaultViewMode:
+      parsed.markdownDefaultViewMode === "source" ||
+      parsed.markdownDefaultViewMode === "preview" ||
+      parsed.markdownDefaultViewMode === "split"
+        ? parsed.markdownDefaultViewMode
+        : DEFAULT_PREFS.markdownDefaultViewMode,
+  };
+}
+
 function readFromStorage(): UserPreferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<UserPreferences>;
     // 字段做白名单 + 类型校验，防止旧版本 / 手改 localStorage 把布尔变成字符串
-    return {
-      noteTitleAsAppTitle: typeof parsed.noteTitleAsAppTitle === "boolean"
-        ? parsed.noteTitleAsAppTitle
-        : DEFAULT_PREFS.noteTitleAsAppTitle,
-      outlineDefaultOpen: typeof parsed.outlineDefaultOpen === "boolean"
-        ? parsed.outlineDefaultOpen
-        : DEFAULT_PREFS.outlineDefaultOpen,
-      lockOnOpen: typeof parsed.lockOnOpen === "boolean"
-        ? parsed.lockOnOpen
-        : DEFAULT_PREFS.lockOnOpen,
-      showNotesInNotebookTree: typeof parsed.showNotesInNotebookTree === "boolean"
-        ? parsed.showNotesInNotebookTree
-        : DEFAULT_PREFS.showNotesInNotebookTree,
-      readingDensity: parsed.readingDensity === "compact" || parsed.readingDensity === "cozy"
-        ? parsed.readingDensity
-        : DEFAULT_PREFS.readingDensity,
-      showNoteListUpdatedTime: typeof parsed.showNoteListUpdatedTime === "boolean"
-        ? parsed.showNoteListUpdatedTime
-        : (localStorage.getItem("nowen.noteList.showTime") !== null
-          ? localStorage.getItem("nowen.noteList.showTime") === "true"
-          : DEFAULT_PREFS.showNoteListUpdatedTime),
-      enableNoteTabs: typeof parsed.enableNoteTabs === "boolean"
-        ? parsed.enableNoteTabs
-        : DEFAULT_PREFS.enableNoteTabs,
-      markdownDefaultViewMode:
-        parsed.markdownDefaultViewMode === "source" ||
-        parsed.markdownDefaultViewMode === "preview" ||
-        parsed.markdownDefaultViewMode === "split"
-          ? parsed.markdownDefaultViewMode
-          : DEFAULT_PREFS.markdownDefaultViewMode,
-    };
+    return normalizeUserPreferences(parsed);
   } catch {
     return DEFAULT_PREFS;
   }
@@ -129,6 +135,11 @@ const UserPreferencesContext = createContext<UserPreferencesContextValue>({
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<UserPreferences>(() => readFromStorage());
+  const prefsRef = useRef(prefs);
+
+  useEffect(() => {
+    prefsRef.current = prefs;
+  }, [prefs]);
 
   // 阅读密度作用到全局：通过 body class 触发 CSS 变量切换，从而影响 .ProseMirror p/li 的间距。
   // 放在 Provider 而非具体组件里，是因为编辑器并不一定挂载（设置弹窗也要能预览到效果）。
@@ -151,11 +162,45 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const syncFromServer = useCallback(async () => {
+    try {
+      if (!localStorage.getItem("nowen-token")) return;
+      const remote = await api.getUserPreferences();
+      const remotePrefs = normalizeUserPreferences(remote);
+
+      if (remote.hasPreferences) {
+        setPrefs(remotePrefs);
+        writeToStorage(remotePrefs);
+        return;
+      }
+
+      // 旧版本的开关只存在当前浏览器。服务器还没有记录时，先把本地值迁移上去。
+      await api.updateUserPreferences(prefsRef.current);
+    } catch {
+      // 未登录、离线或旧后端时保留 localStorage 行为，避免设置页不可用。
+    }
+  }, []);
+
+  useEffect(() => {
+    void syncFromServer();
+    window.addEventListener("nowen:token-changed", syncFromServer);
+    window.addEventListener("focus", syncFromServer);
+    return () => {
+      window.removeEventListener("nowen:token-changed", syncFromServer);
+      window.removeEventListener("focus", syncFromServer);
+    };
+  }, [syncFromServer]);
+
   const setPref = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
     setPrefs((prev) => {
       if (prev[key] === value) return prev;
       const next = { ...prev, [key]: value };
       writeToStorage(next);
+      if (localStorage.getItem("nowen-token")) {
+        api.updateUserPreferences(next).catch(() => {
+          // 网络失败不回滚 UI；localStorage 仍作为离线兜底。
+        });
+      }
       return next;
     });
   }, []);

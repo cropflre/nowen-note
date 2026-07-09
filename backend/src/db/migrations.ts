@@ -1887,6 +1887,21 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  // v42: 用户级 UI 偏好跨浏览器 / 跨设备同步。
+  {
+    version: 42,
+    name: "user-preferences",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          userId TEXT PRIMARY KEY,
+          preferencesJson TEXT NOT NULL DEFAULT '{}',
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

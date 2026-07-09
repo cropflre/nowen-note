@@ -37,6 +37,11 @@ function isMobileNativeClientRuntime(): boolean {
   }
 }
 
+function storeLoginToken(token: string) {
+  localStorage.setItem("nowen-token", token);
+  try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch { }
+}
+
 export default function LoginPage({ onLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
@@ -207,7 +212,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
           email: email.trim() || undefined,
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
-        localStorage.setItem("nowen-token", data.token);
+        storeLoginToken(data.token);
         onLogin(data.token, data.user);
         return;
       }
@@ -241,7 +246,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
         return;
       }
 
-      localStorage.setItem("nowen-token", data.token);
+      storeLoginToken(data.token);
       onLogin(data.token, data.user);
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
@@ -306,7 +311,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
         return;
       }
 
-      localStorage.setItem("nowen-token", data.token);
+      storeLoginToken(data.token);
       onLogin(data.token, data.user);
     } catch (err: any) {
       setError(err?.message || t("auth.networkError"));

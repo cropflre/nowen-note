@@ -1094,6 +1094,37 @@ export const api = {
 
   // User
   getMe: () => request<User>("/me"),
+  getUserPreferences: () => request<{
+    noteTitleAsAppTitle: boolean;
+    outlineDefaultOpen: boolean;
+    lockOnOpen: boolean;
+    showNotesInNotebookTree: boolean;
+    readingDensity: "cozy" | "compact";
+    showNoteListUpdatedTime: boolean;
+    enableNoteTabs: boolean;
+    markdownDefaultViewMode: "source" | "preview" | "split";
+    hasPreferences?: boolean;
+  }>("/user-preferences"),
+  updateUserPreferences: (data: {
+    noteTitleAsAppTitle: boolean;
+    outlineDefaultOpen: boolean;
+    lockOnOpen: boolean;
+    showNotesInNotebookTree: boolean;
+    readingDensity: "cozy" | "compact";
+    showNoteListUpdatedTime: boolean;
+    enableNoteTabs: boolean;
+    markdownDefaultViewMode: "source" | "preview" | "split";
+  }) => request<{
+    noteTitleAsAppTitle: boolean;
+    outlineDefaultOpen: boolean;
+    lockOnOpen: boolean;
+    showNotesInNotebookTree: boolean;
+    readingDensity: "cozy" | "compact";
+    showNoteListUpdatedTime: boolean;
+    enableNoteTabs: boolean;
+    markdownDefaultViewMode: "source" | "preview" | "split";
+    hasPreferences?: boolean;
+  }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
   // 用户搜索（所有已登录用户可用）
   searchUsers: (q?: string) => {
