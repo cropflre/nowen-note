@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search as SearchIcon, FileText, Loader2 } from "lucide-react";
-import { useAppActions } from "@/store/AppContext";
+import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import type { SearchResult } from "@/types";
@@ -18,6 +18,46 @@ export interface CommandPaletteProps {
   /** 由外部控制开合；App 层一个 useState 即可 */
   open: boolean;
   onClose: () => void;
+}
+
+/**
+ * Sidebar 的搜索框是本地受控输入。SearchCenter 打开结果时会派发一个原生 input
+ * 事件把它清空，Sidebar 的空值分支会同步把 viewMode 切到 all。由于这两个组件
+ * 独立调度，最后一次 dispatch 可能覆盖 SearchCenter 刚设置的 notebook 目标。
+ *
+ * 守卫只在“刚离开 search 会话 + 已打开目标笔记 + 查询已清空”这一窄窗口修正，
+ * 不影响用户平时从 Rail 主动切换到 all/favorites 等其他视图。
+ */
+function SearchNavigationGuard() {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const wasSearch = useRef(false);
+
+  useEffect(() => {
+    if (state.viewMode === "search") {
+      wasSearch.current = true;
+      return;
+    }
+    if (!wasSearch.current || state.searchQuery.trim()) return;
+
+    const openedIntoSelectedNotebook = !!state.activeNote
+      && !!state.selectedNotebookId
+      && state.activeNote.notebookId === state.selectedNotebookId;
+
+    if (openedIntoSelectedNotebook && state.viewMode === "all") {
+      actions.setViewMode("notebook");
+    }
+    wasSearch.current = false;
+  }, [
+    actions,
+    state.activeNote?.id,
+    state.activeNote?.notebookId,
+    state.searchQuery,
+    state.selectedNotebookId,
+    state.viewMode,
+  ]);
+
+  return null;
 }
 
 export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
@@ -219,6 +259,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   return (
     <>
+      <SearchNavigationGuard />
       <SearchCenter />
       {typeof document !== "undefined" && paletteBody ? createPortal(paletteBody, document.body) : null}
     </>
