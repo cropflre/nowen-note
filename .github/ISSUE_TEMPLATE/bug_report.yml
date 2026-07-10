@@ -1,174 +1,47 @@
 name: 🐛 Bug 反馈
-description: 报告可稳定复现的异常、错误或功能故障
+description: 软件哪里不对？简单说一下就行
 title: "[Bug] "
 body:
   - type: markdown
     attributes:
       value: |
-        感谢你帮助改进 Nowen Note。请尽量提供完整的复现信息；带 `*` 的字段为必填项。
+        感谢反馈！不用写得很专业，把看到的问题说清楚即可。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 发生了什么？
+      description: 简单说明你做了什么、出现了什么问题。能复现的话顺便写一下步骤。
+      placeholder: |
+        例如：
+        1. 打开某篇笔记
+        2. 点击分享
+        3. 页面一直加载，无法打开
+    validations:
+      required: true
 
   - type: dropdown
-    id: deployment
+    id: platform
     attributes:
-      label: 使用方式
-      description: 问题出现在哪种使用方式中？
+      label: 在哪里遇到的？
       options:
+        - 电脑客户端
+        - 电脑浏览器
+        - 手机浏览器 / App
         - Docker / 自建服务
-        - Electron 桌面端
-        - Web 浏览器
-        - 移动端浏览器
-        - 其他
+        - 不确定
     validations:
       required: true
 
   - type: input
     id: version
     attributes:
-      label: Nowen Note 版本
-      description: 可在设置页、关于页或安装包名称中查看
+      label: 版本号（不知道可不填）
       placeholder: 例如：v1.3.1
-    validations:
-      required: true
-
-  - type: dropdown
-    id: os
-    attributes:
-      label: 操作系统
-      options:
-        - Windows 11
-        - Windows 10
-        - macOS
-        - Linux
-        - Android
-        - iOS / iPadOS
-        - 其他
-    validations:
-      required: true
-
-  - type: dropdown
-    id: browser
-    attributes:
-      label: 浏览器或客户端
-      options:
-        - Electron 桌面客户端
-        - Chrome / Chromium
-        - Microsoft Edge
-        - Safari
-        - Firefox
-        - 不适用
-        - 其他
-    validations:
-      required: true
-
-  - type: dropdown
-    id: module
-    attributes:
-      label: 问题模块
-      options:
-        - 编辑器 / Markdown
-        - 笔记 / 笔记本 / 文件夹
-        - 搜索
-        - 同步
-        - 导入 / 导出
-        - 附件 / 文件管理
-        - AI 助手
-        - 待办任务
-        - 用户 / 权限 / 协作
-        - 设置 / 系统
-        - 其他
-    validations:
-      required: true
 
   - type: textarea
-    id: description
+    id: attachments
     attributes:
-      label: 问题描述
-      description: 请清楚说明发生了什么，以及问题对使用造成的影响
-      placeholder: 请描述问题现象……
-    validations:
-      required: true
-
-  - type: textarea
-    id: steps
-    attributes:
-      label: 复现步骤
-      description: 请提供能够稳定触发问题的操作步骤
-      placeholder: |
-        1. 打开……
-        2. 点击……
-        3. 输入……
-        4. 出现……
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: 预期结果
-      placeholder: 正常情况下应该发生什么？
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: 实际结果
-      placeholder: 实际发生了什么？是否有报错信息？
-    validations:
-      required: true
-
-  - type: dropdown
-    id: frequency
-    attributes:
-      label: 复现频率
-      options:
-        - 每次都能复现
-        - 经常出现
-        - 偶尔出现
-        - 仅出现过一次
-        - 暂时无法再次复现
-    validations:
-      required: true
-
-  - type: dropdown
-    id: severity
-    attributes:
-      label: 影响程度
-      options:
-        - 阻断使用：无法启动、数据丢失或核心功能不可用
-        - 严重：主要功能不可用，但存在临时绕过方式
-        - 一般：部分功能异常，不影响主要流程
-        - 轻微：界面、文案或体验问题
-    validations:
-      required: true
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: 日志或报错信息
-      description: 可粘贴浏览器控制台、服务端日志或 Electron 日志；提交前请移除密码、Token、Cookie 等敏感信息
-      render: shell
-
-  - type: textarea
-    id: screenshots
-    attributes:
-      label: 截图、录屏或相关文件
-      description: 可直接拖拽图片、录屏或示例文件到此处
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: 其他补充信息
-      description: 例如部署配置、特殊数据、临时解决办法或相关 Issue
-
-  - type: checkboxes
-    id: confirmation
-    attributes:
-      label: 提交前确认
-      options:
-        - label: 我已搜索现有 Issue，确认没有内容相同的重复反馈
-          required: true
-        - label: 我已移除日志和截图中的密码、密钥、Token、Cookie 等敏感信息
-          required: true
-        - label: 我已尽量使用当前最新版本复现该问题
-          required: false
+      label: 截图、录屏或报错（推荐）
+      description: 直接拖进来即可。请不要上传密码、密钥、Token 等敏感信息。
+      placeholder: 把截图、录屏或报错内容粘贴到这里……
