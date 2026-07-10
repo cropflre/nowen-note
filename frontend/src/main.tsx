@@ -7,6 +7,7 @@ import NoteIconBridge from "./components/NoteIconBridge";
 import "./index.css";
 import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
+import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 
 function removeBootSplash() {
   try {
@@ -26,6 +27,10 @@ function BootSplashRemover() {
   }, []);
   return null;
 }
+
+// Android 原生端的 API GET/HEAD 在 React 挂载前启用 CapacitorHttp 优先通道。
+// 这会同时覆盖启动鉴权与笔记列表首屏请求，避免蜂窝网络下 WebView fetch 长时间挂起。
+installAndroidNativeHttpBridge();
 
 // 在应用渲染前应用已保存的代码块主题，避免首帧闪烁
 initCodeBlockTheme();
