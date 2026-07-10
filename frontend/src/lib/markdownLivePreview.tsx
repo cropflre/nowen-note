@@ -1,14 +1,17 @@
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { syntaxTree } from "@codemirror/language";
-import { RangeSetBuilder, type Extension } from "@codemirror/state";
+import {
+  EditorState,
+  RangeSetBuilder,
+  StateField,
+  type Extension,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
-  ViewPlugin,
   WidgetType,
   type DecorationSet,
-  type ViewUpdate,
 } from "@codemirror/view";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import {
@@ -25,9 +28,23 @@ export interface MarkdownLivePreviewBlock {
   markdown: string;
 }
 
-export function collectMarkdownLivePreviewBlocks(view: EditorView): MarkdownLivePreviewBlock[] {
-  const selection = view.state.selection.main;
-  const cursor = syntaxTree(view.state).cursor();
+function getEditorState(source: EditorView | EditorState): EditorState {
+  return source instanceof EditorView ? source.state : source;
+}
+
+/**
+ * Collect top-level blocks that do not intersect the current selection.
+ *
+ * Accepting both EditorView and EditorState keeps the helper useful to callers while
+ * allowing the decorations to be produced by a StateField. CodeMirror requires block
+ * decorations to come directly from state rather than a ViewPlugin decorations facet.
+ */
+export function collectMarkdownLivePreviewBlocks(
+  source: EditorView | EditorState,
+): MarkdownLivePreviewBlock[] {
+  const state = getEditorState(source);
+  const selection = state.selection.main;
+  const cursor = syntaxTree(state).cursor();
   const blocks: MarkdownLivePreviewBlock[] = [];
   if (!cursor.firstChild()) return blocks;
 
@@ -39,7 +56,7 @@ export function collectMarkdownLivePreviewBlocks(view: EditorView): MarkdownLive
     blocks.push({
       from: node.from,
       to: node.to,
-      markdown: view.state.doc.sliceString(node.from, node.to),
+      markdown: state.doc.sliceString(node.from, node.to),
     });
   } while (cursor.nextSibling());
 
@@ -111,13 +128,13 @@ class MarkdownLivePreviewWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(state: EditorState): DecorationSet {
   // Large documents stay responsive because CodeMirror's syntax tree is incremental;
   // this hard ceiling prevents thousands of React roots on pathological imports.
-  if (view.state.doc.length > 350_000) return Decoration.none;
+  if (state.doc.length > 350_000) return Decoration.none;
 
   const builder = new RangeSetBuilder<Decoration>();
-  for (const block of collectMarkdownLivePreviewBlocks(view)) {
+  for (const block of collectMarkdownLivePreviewBlocks(state)) {
     builder.add(
       block.from,
       block.to,
@@ -130,22 +147,26 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-const livePreviewPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-
-    constructor(view: EditorView) {
-      this.decorations = buildDecorations(view);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged) {
-        this.decorations = buildDecorations(update.view);
-      }
-    }
+/**
+ * Block decorations cannot be returned from ViewPlugin.decorations. Doing so throws:
+ * "Block decorations may not be specified via plugins" when live preview is enabled.
+ * A StateField is the supported CodeMirror path for document-layout decorations.
+ */
+const livePreviewDecorations = StateField.define<DecorationSet>({
+  create(state) {
+    return buildDecorations(state);
   },
-  { decorations: (value) => value.decorations },
-);
+  update(value, transaction) {
+    const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
+    if (transaction.docChanged || selectionChanged) {
+      return buildDecorations(transaction.state);
+    }
+    return value;
+  },
+  provide(field) {
+    return EditorView.decorations.from(field);
+  },
+});
 
 const livePreviewTheme = EditorView.theme({
   ".cm-live-preview-block": {
@@ -170,4 +191,4 @@ const livePreviewTheme = EditorView.theme({
   },
 });
 
-export const markdownLivePreviewExtension: Extension = [livePreviewPlugin, livePreviewTheme];
+export const markdownLivePreviewExtension: Extension = [livePreviewDecorations, livePreviewTheme];
