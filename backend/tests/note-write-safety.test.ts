@@ -14,7 +14,7 @@ import { ensureNoteWriteSafetyTrigger } from "../src/repositories/noteWriteSafet
 const USER_ID = "sync-safety-user";
 const NOTEBOOK_ID = "sync-safety-notebook";
 const NOTE_ID = "sync-safety-note";
-const ORIGINAL_CONTENT = "important content that must remain recoverable across devices";
+const ORIGINAL_CONTENT = "important content that must remain recoverable across devices without accidental loss";
 
 function seedNote(): void {
   const db = getDb();
