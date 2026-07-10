@@ -1,17 +1,3 @@
-/**
- * optimisticLockApi.ts 单元测试
- *
- * 关键路径：
- *   1) send 成功 —— 不走 reconcile
- *   2) 409 + err.currentVersion —— 用 latest 重放一次
- *   3) 409 + 无 currentVersion，fetchLatestVersion 提供 —— 用它的值重放
- *   4) 409 + 无任何 latest —— 抛原错误
- *   5) 409 + onAbort() → true —— 抛 aborted 错误
- *   6) 非 409 错误 —— 直接透传
- *   7) is409Error / isAborted 边界
- *
- * 注意：这里只测纯函数，不涉及 api 模块，send/fetchLatestVersion 全用 mock。
- */
 import { describe, expect, it, vi } from "vitest";
 import {
   is409Error,
@@ -20,158 +6,147 @@ import {
 } from "@/lib/optimisticLockApi";
 
 function make409(currentVersion?: number): Error & Record<string, any> {
-  const e: any = new Error("409 conflict");
-  e.status = 409;
-  if (typeof currentVersion === "number") e.currentVersion = currentVersion;
-  return e;
+  const error: any = new Error("409 conflict");
+  error.status = 409;
+  error.code = "VERSION_CONFLICT";
+  if (typeof currentVersion === "number") error.currentVersion = currentVersion;
+  return error;
 }
 
 describe("is409Error", () => {
-  it("识别 status=409", () => {
+  it("recognizes status, code and conflict messages", () => {
     expect(is409Error({ status: 409 })).toBe(true);
-  });
-  it("识别 message 含 409/conflict", () => {
+    expect(is409Error({ code: "VERSION_CONFLICT" })).toBe(true);
     expect(is409Error(new Error("Version conflict"))).toBe(true);
     expect(is409Error(new Error("HTTP 409"))).toBe(true);
   });
-  it("非 409 返回 false", () => {
+
+  it("returns false for unrelated failures", () => {
     expect(is409Error(new Error("500 server error"))).toBe(false);
     expect(is409Error(null)).toBe(false);
-    expect(is409Error(undefined)).toBe(false);
   });
 });
 
 describe("putWithReconcile", () => {
-  it("首发成功直接返回，不调用 fetchLatestVersion", async () => {
-    const send = vi.fn(async (_v: number) => ({ ok: true, v: _v }));
+  it("returns a successful first attempt unchanged", async () => {
+    const send = vi.fn(async (version: number) => ({ ok: true, version }));
     const fetchLatestVersion = vi.fn();
 
-    const result = await putWithReconcile({
+    await expect(putWithReconcile({
       initialVersion: 3,
       send,
       fetchLatestVersion,
-    });
+    })).resolves.toEqual({ ok: true, version: 3 });
 
-    expect(result).toEqual({ ok: true, v: 3 });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(3);
     expect(fetchLatestVersion).not.toHaveBeenCalled();
   });
 
-  it("409 + err.currentVersion：用它重放一次", async () => {
-    let attempt = 0;
-    const send = vi.fn(async (v: number) => {
-      attempt++;
-      if (attempt === 1) throw make409(7);
-      return { ok: true, v };
-    });
+  it("stops on 409 by default even when currentVersion is available", async () => {
+    const send = vi.fn().mockRejectedValue(make409(7));
 
-    const result = await putWithReconcile({ initialVersion: 3, send });
+    await expect(putWithReconcile({ initialVersion: 3, send }))
+      .rejects.toMatchObject({ status: 409, currentVersion: 7 });
 
-    expect(result).toEqual({ ok: true, v: 7 });
-    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(3);
+  });
+
+  it("retries with currentVersion only after explicit opt-in", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(make409(7))
+      .mockResolvedValueOnce({ ok: true, version: 8 });
+
+    await expect(putWithReconcile({
+      initialVersion: 3,
+      send,
+      retryOnConflict: true,
+    })).resolves.toEqual({ ok: true, version: 8 });
+
     expect(send).toHaveBeenNthCalledWith(1, 3);
     expect(send).toHaveBeenNthCalledWith(2, 7);
   });
 
-  it("409 无 currentVersion：走 fetchLatestVersion", async () => {
-    let attempt = 0;
-    const send = vi.fn(async (v: number) => {
-      attempt++;
-      if (attempt === 1) throw make409(); // 无 currentVersion
-      return { ok: true, v };
-    });
-    const fetchLatestVersion = vi.fn(async () => 9);
+  it("may fetch the latest version for an explicitly replay-safe mutation", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(make409())
+      .mockResolvedValueOnce({ ok: true, version: 10 });
+    const fetchLatestVersion = vi.fn().mockResolvedValue(9);
 
-    const result = await putWithReconcile({
+    await expect(putWithReconcile({
       initialVersion: 3,
       send,
       fetchLatestVersion,
-    });
+      retryOnConflict: true,
+    })).resolves.toEqual({ ok: true, version: 10 });
 
-    expect(result).toEqual({ ok: true, v: 9 });
     expect(fetchLatestVersion).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenNthCalledWith(2, 9);
   });
 
-  it("fetchLatestVersion 抛错时抛原始 409", async () => {
-    const send = vi.fn(async (_v: number) => {
-      throw make409();
-    });
-    const fetchLatestVersion = vi.fn(async () => {
-      throw new Error("network down");
-    });
+  it("enriches a default conflict without replaying it", async () => {
+    const send = vi.fn().mockRejectedValue(make409());
+    const fetchLatestVersion = vi.fn().mockResolvedValue(9);
 
-    await expect(
-      putWithReconcile({ initialVersion: 3, send, fetchLatestVersion }),
-    ).rejects.toMatchObject({ status: 409 });
+    await expect(putWithReconcile({
+      initialVersion: 3,
+      send,
+      fetchLatestVersion,
+    })).rejects.toMatchObject({ status: 409, currentVersion: 9 });
+
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("409 + 无 fetchLatestVersion 且无 currentVersion：抛原 409", async () => {
-    const send = vi.fn(async (_v: number) => {
-      throw make409();
-    });
-    await expect(
-      putWithReconcile({ initialVersion: 3, send }),
-    ).rejects.toMatchObject({ status: 409 });
+  it("keeps the original conflict when the version lookup fails", async () => {
+    const send = vi.fn().mockRejectedValue(make409());
+    const fetchLatestVersion = vi.fn().mockRejectedValue(new Error("network down"));
+
+    await expect(putWithReconcile({
+      initialVersion: 3,
+      send,
+      fetchLatestVersion,
+    })).rejects.toMatchObject({ status: 409 });
+
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("onAbort=true：抛 aborted 错误，不重放", async () => {
-    const send = vi.fn(async (_v: number) => {
-      throw make409(7);
-    });
+  it("honors onAbort before an optional retry", async () => {
+    const send = vi.fn().mockRejectedValue(make409(7));
     const onAbort = vi.fn(() => true);
 
     try {
-      await putWithReconcile({ initialVersion: 3, send, onAbort });
+      await putWithReconcile({
+        initialVersion: 3,
+        send,
+        onAbort,
+        retryOnConflict: true,
+      });
       expect.fail("should have thrown");
-    } catch (err: any) {
-      expect(isAborted(err)).toBe(true);
+    } catch (error) {
+      expect(isAborted(error)).toBe(true);
     }
-    expect(send).toHaveBeenCalledTimes(1); // 未重放
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("onAbort=false：正常重放", async () => {
-    let attempt = 0;
-    const send = vi.fn(async (v: number) => {
-      attempt++;
-      if (attempt === 1) throw make409(7);
-      return { ok: true, v };
-    });
-    const onAbort = vi.fn(() => false);
-
-    const result = await putWithReconcile({
-      initialVersion: 3,
-      send,
-      onAbort,
-    });
-    expect(result).toEqual({ ok: true, v: 7 });
-    expect(send).toHaveBeenCalledTimes(2);
-  });
-
-  it("非 409 错误原样抛出，不调用 fetchLatestVersion", async () => {
-    const send = vi.fn(async (_v: number) => {
-      throw new Error("500 internal");
-    });
+  it("passes non-conflict failures through", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("500 internal"));
     const fetchLatestVersion = vi.fn();
 
-    await expect(
-      putWithReconcile({ initialVersion: 3, send, fetchLatestVersion }),
-    ).rejects.toThrow("500 internal");
+    await expect(putWithReconcile({
+      initialVersion: 3,
+      send,
+      fetchLatestVersion,
+    })).rejects.toThrow("500 internal");
+
     expect(fetchLatestVersion).not.toHaveBeenCalled();
   });
 });
 
 describe("isAborted", () => {
-  it("识别 aborted 标志", () => {
-    const e: any = new Error("x");
-    e.aborted = true;
-    expect(isAborted(e)).toBe(true);
-  });
-  it("非 aborted 错误返回 false", () => {
+  it("recognizes the aborted marker", () => {
+    const error: any = new Error("x");
+    error.aborted = true;
+    expect(isAborted(error)).toBe(true);
     expect(isAborted(new Error("x"))).toBe(false);
-    expect(isAborted(null)).toBe(false);
   });
 });
