@@ -1,0 +1,40 @@
+name: Apply Issue 170 Emoji Picker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-issue-170.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-issue-170-main
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply focused Sidebar codemod
+        run: node scripts/apply-issue-170.mjs
+
+      - name: Remove one-shot automation
+        run: rm scripts/apply-issue-170.mjs .github/workflows/apply-issue-170.yml
+
+      - name: Commit directly to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(sidebar): replace notebook icon picker (#170)"
+          git push origin HEAD:main
