@@ -4,6 +4,7 @@ import "./lib/androidCompat";
 import "./i18n";
 import App from "./App";
 import "./index.css";
+import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 
 function removeBootSplash() {
