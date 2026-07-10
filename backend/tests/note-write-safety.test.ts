@@ -14,6 +14,7 @@ import { ensureNoteWriteSafetyTrigger } from "../src/repositories/noteWriteSafet
 const USER_ID = "sync-safety-user";
 const NOTEBOOK_ID = "sync-safety-notebook";
 const NOTE_ID = "sync-safety-note";
+const ORIGINAL_CONTENT = "important content that must remain recoverable across devices";
 
 function seedNote(): void {
   const db = getDb();
@@ -39,8 +40,8 @@ function seedNote(): void {
     USER_ID,
     NOTEBOOK_ID,
     "Original title",
-    "important content",
-    "important content",
+    ORIGINAL_CONTENT,
+    ORIGINAL_CONTENT,
     "markdown",
     7,
   );
@@ -49,7 +50,7 @@ function seedNote(): void {
 
 test.beforeEach(seedNote);
 
-test("snapshots the exact server revision before a destructive overwrite", () => {
+test("snapshots the exact server revision before content is cleared", () => {
   const db = getDb();
 
   db.prepare(`
@@ -66,14 +67,33 @@ test("snapshots the exact server revision before a destructive overwrite", () =>
 
   assert.equal(snapshot.noteId, NOTE_ID);
   assert.equal(snapshot.title, "Original title");
-  assert.equal(snapshot.content, "important content");
-  assert.equal(snapshot.contentText, "important content");
+  assert.equal(snapshot.content, ORIGINAL_CONTENT);
+  assert.equal(snapshot.contentText, ORIGINAL_CONTENT);
   assert.equal(snapshot.contentFormat, "markdown");
   assert.equal(snapshot.version, 7);
-  assert.equal(snapshot.changeSummary, "Automatic safety snapshot before overwrite");
+  assert.equal(snapshot.changeSummary, "Automatic safety snapshot before destructive overwrite");
 });
 
-test("does not duplicate a revision already recorded by the route", () => {
+test("snapshots a one-write body reduction greater than eighty percent", () => {
+  const db = getDb();
+
+  db.prepare(`
+    UPDATE notes
+    SET content = 'tiny', contentText = 'tiny', version = version + 1
+    WHERE id = ?
+  `).run(NOTE_ID);
+
+  const row = db.prepare(`
+    SELECT content, version
+    FROM note_versions
+    WHERE noteId = ?
+  `).get(NOTE_ID) as { content: string; version: number };
+
+  assert.equal(row.content, ORIGINAL_CONTENT);
+  assert.equal(row.version, 7);
+});
+
+test("does not duplicate an exact revision already recorded by the route", () => {
   const db = getDb();
   db.prepare(`
     INSERT INTO note_versions (
@@ -85,8 +105,8 @@ test("does not duplicate a revision already recorded by the route", () => {
     NOTE_ID,
     USER_ID,
     "Original title",
-    "important content",
-    "important content",
+    ORIGINAL_CONTENT,
+    ORIGINAL_CONTENT,
     "markdown",
     7,
     "route snapshot",
@@ -94,7 +114,7 @@ test("does not duplicate a revision already recorded by the route", () => {
 
   db.prepare(`
     UPDATE notes
-    SET title = 'Renamed', version = version + 1
+    SET content = '', contentText = '', version = version + 1
     WHERE id = ?
   `).run(NOTE_ID);
 
@@ -105,4 +125,21 @@ test("does not duplicate a revision already recorded by the route", () => {
   `).get(NOTE_ID) as { count: number };
 
   assert.equal(row.count, 1);
+});
+
+test("does not create permanent snapshots for ordinary edits", () => {
+  const db = getDb();
+  db.prepare(`
+    UPDATE notes
+    SET content = content || ' plus', contentText = contentText || ' plus', version = version + 1
+    WHERE id = ?
+  `).run(NOTE_ID);
+
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM note_versions
+    WHERE noteId = ?
+  `).get(NOTE_ID) as { count: number };
+
+  assert.equal(row.count, 0);
 });
