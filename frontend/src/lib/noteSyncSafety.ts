@@ -2,6 +2,8 @@ import type { Note } from "@/types";
 import { api } from "@/lib/api";
 import {
   clearOfflineNoteSnapshot,
+  fingerprintNoteContent,
+  getOfflineNoteSnapshot,
   isCurrentlyOffline,
   isOfflineNoteSnapshot,
   markOfflineNoteSnapshot,
@@ -168,16 +170,6 @@ function preserveConflict(
   return record;
 }
 
-/**
- * Installs a narrow safety wrapper around note detail reads and note writes.
- *
- * Invariants:
- * - A detail loaded from IndexedDB is never accepted as a writable base revision until a
- *   fresh server GET succeeds.
- * - A versioned PUT is only considered synced when the server returns a strictly newer
- *   revision. Offline queue optimistic responses keep the draft and surface pending/error.
- * - 409 conflicts preserve the local payload and server snapshot, and are never replayed.
- */
 export function installNoteSyncSafety(): void {
   if (typeof window === "undefined") return;
   const guardedWindow = window as GuardedWindow;
@@ -207,6 +199,7 @@ export function installNoteSyncSafety(): void {
     if (versioned) persistLocalDraft(noteId, data, baseVersion);
 
     if (versioned && isOfflineNoteSnapshot(noteId) && !isCurrentlyOffline()) {
+      const offlineBase = getOfflineNoteSnapshot(noteId);
       let fresh: Note;
       try {
         fresh = await originalGetNote(noteId);
@@ -227,10 +220,15 @@ export function installNoteSyncSafety(): void {
       }
 
       clearOfflineNoteSnapshot(noteId);
-      if (fresh.version !== baseVersion) {
+      const baseContentMismatch = !!(
+        offlineBase?.contentFingerprint &&
+        fingerprintNoteContent(fresh.content) !== offlineBase.contentFingerprint
+      );
+      if (fresh.version !== baseVersion || baseContentMismatch) {
         preserveConflict(noteId, data, baseVersion, fresh, "STALE_OFFLINE_BASE");
         const error = syncError("VERSION_CONFLICT", "Version conflict", 409) as any;
         error.currentVersion = fresh.version;
+        error.baseContentMismatch = baseContentMismatch;
         throw error;
       }
     }
@@ -244,7 +242,7 @@ export function installNoteSyncSafety(): void {
           id: noteId,
           version: baseVersion,
           updatedAt: updated?.updatedAt,
-        } as Note);
+        });
         window.dispatchEvent(new CustomEvent(NOTE_SYNC_PENDING_EVENT, {
           detail: { noteId, baseVersion, queued: true },
         }));
