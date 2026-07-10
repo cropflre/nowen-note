@@ -30,8 +30,8 @@ export function buildReplacedImageAttrs(current: ImageNodeAttrs, nextSrc: string
     title: current.title ?? null,
     width: current.width ?? null,
     height: current.height ?? null,
-    rotation: current.rotation ?? 0,
-    flipX: current.flipX ?? false,
+    ...(current.rotation !== undefined ? { rotation: current.rotation } : {}),
+    ...(current.flipX !== undefined ? { flipX: current.flipX } : {}),
   };
 }
 
