@@ -556,7 +556,9 @@ export default function DataManager() {
 
     try {
       if (zipFile) {
-        if (activeImportMethod === "siyuan") {
+        const lowerZipName = zipFile.name.toLowerCase();
+        const isSiyuanSyZip = lowerZipName.endsWith(".sy.zip");
+        if (activeImportMethod === "siyuan" && isSiyuanSyZip) {
           setServerSiyuanFile(zipFile);
           result = [{
             name: zipFile.name,
