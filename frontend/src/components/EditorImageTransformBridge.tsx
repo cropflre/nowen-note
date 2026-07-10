@@ -35,11 +35,16 @@ function findDesktopImageToolbar(): HTMLElement | null {
     ? ["View large image", "Download image"]
     : ["查看大图", "下载图片"];
   const candidates = Array.from(document.querySelectorAll<HTMLElement>("div.fixed.z-50.flex.items-center"));
-  return candidates.find((candidate) => {
+  const translatedMatch = candidates.find((candidate) => {
     const titles = Array.from(candidate.querySelectorAll<HTMLButtonElement>("button[title]"))
       .map((button) => button.title.trim());
     return expected.every((label) => titles.includes(label));
-  }) || null;
+  });
+  if (translatedMatch) return translatedMatch;
+  // Fallback for custom translations: image toolbar has six direct actions plus one size menu.
+  return candidates.find((candidate) =>
+    candidate.querySelectorAll(":scope > button, :scope > div.relative > button").length === 7,
+  ) || null;
 }
 
 function findCompactMobileSheet(): HTMLElement | null {
@@ -77,6 +82,16 @@ function applyWrapperTransform(wrapper: HTMLElement, rotation: ImageRotation, fl
   if (wrapper.style.transition !== "transform 160ms ease") {
     wrapper.style.transition = "transform 160ms ease";
   }
+  const sideways = rotation === 90 || rotation === 270;
+  wrapper.querySelectorAll<HTMLElement>('span[style*="resize"]').forEach((handle) => {
+    const current = handle.dataset.originalResizeCursor || handle.style.cursor;
+    if (!current) return;
+    if (!handle.dataset.originalResizeCursor) handle.dataset.originalResizeCursor = current;
+    const next = sideways
+      ? current === "nwse-resize" ? "nesw-resize" : current === "nesw-resize" ? "nwse-resize" : current
+      : current;
+    if (handle.style.cursor !== next) handle.style.cursor = next;
+  });
 }
 
 function syncAllImageWrappers(): void {
@@ -204,6 +219,19 @@ export default function EditorImageTransformBridge() {
       attachEditor();
       schedule();
     };
+    const prepareResizeMeasurement = (event: Event) => {
+      const handle = event.target instanceof HTMLElement ? event.target : null;
+      if (!handle?.style.cursor.includes("resize")) return;
+      const wrapper = handle.closest<HTMLElement>(".resizable-image-wrapper");
+      const transform = wrapper?.style.transform || "";
+      if (!wrapper || !transform) return;
+      // Existing NodeView drag code measures getBoundingClientRect().width. Temporarily remove
+      // rotation during the same pointer event so 90° images still resize from their real width.
+      wrapper.style.transform = "";
+      queueMicrotask(() => {
+        if (wrapper.isConnected) wrapper.style.transform = transform;
+      });
+    };
     observe();
     const observer = new MutationObserver(observe);
     observer.observe(document.body, {
@@ -214,11 +242,15 @@ export default function EditorImageTransformBridge() {
     });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
+    document.addEventListener("mousedown", prepareResizeMeasurement, true);
+    document.addEventListener("touchstart", prepareResizeMeasurement, true);
     return () => {
       if (frame) cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
+      document.removeEventListener("mousedown", prepareResizeMeasurement, true);
+      document.removeEventListener("touchstart", prepareResizeMeasurement, true);
       if (attachedEditor) {
         attachedEditor.off("selectionUpdate", schedule);
         attachedEditor.off("transaction", schedule);
@@ -246,10 +278,14 @@ export default function EditorImageTransformBridge() {
 
   if (!target) return null;
 
-  const rotate = (delta: -90 | 90) => update({
-    rotation: normalizeImageRotation(target.rotation + delta),
-  });
-  const flip = () => update({ flipX: !target.flipX });
+  const rotate = (delta: -90 | 90) => {
+    const current = targetRef.current?.editor.state.selection?.node?.attrs?.rotation;
+    update({ rotation: normalizeImageRotation(normalizeImageRotation(current) + delta) });
+  };
+  const flip = () => {
+    const current = targetRef.current?.editor.state.selection?.node?.attrs?.flipX;
+    update({ flipX: !normalizeImageFlipX(current) });
+  };
 
   const desktopPortal = target.desktopToolbar ? createPortal(
     <>
