@@ -292,7 +292,10 @@ export default function ContextMenu({
   const targetId = latestMenu.targetId;
   const isNoteMenu = isOpen && latestMenu.targetType === "note" && !!targetId;
   const isTrashNoteMenu = items.some((item) => item.id === "restore" || item.id === "delete_permanent");
+  // 批量菜单没有“打开”这一单篇操作。树形笔记菜单虽然同样包含 toggle_pin，
+  // 但它有 open；不能再仅凭 toggle_pin + 缺少 export_submenu 将其误判为批量菜单。
   const isBulkNoteMenu =
+    !items.some((item) => item.id === "open") &&
     items.some((item) => item.id === "toggle_pin") &&
     !items.some((item) => item.id === "export_submenu");
   const isInlineNotebookTreeNoteMenu =
