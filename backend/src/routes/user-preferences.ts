@@ -30,11 +30,12 @@ const DEFAULT_PREFS: UserPreferences = {
 
 const MAX_NOTE_ICON_CODE_POINTS = 32;
 const MAX_NOTE_ICON_BATCH = 200;
-let noteIconsTableReady = false;
+let noteIconsDatabase: object | null = null;
 
 function ensureNoteIconsTable(): void {
-  if (noteIconsTableReady) return;
-  getDb().exec(`
+  const db = getDb();
+  if (noteIconsDatabase === db) return;
+  db.exec(`
     CREATE TABLE IF NOT EXISTS note_icons (
       noteId TEXT PRIMARY KEY,
       icon TEXT NOT NULL,
@@ -43,7 +44,7 @@ function ensureNoteIconsTable(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_note_icons_updatedAt ON note_icons(updatedAt);
   `);
-  noteIconsTableReady = true;
+  noteIconsDatabase = db;
 }
 
 function normalizeNoteIcon(input: unknown): string | null {
