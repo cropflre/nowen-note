@@ -14,6 +14,8 @@ interface EditorBridgeState {
   liveInstalled: boolean;
   liveActive: boolean;
   splitPreviewRoot: HTMLElement | null;
+  splitSourcePane: HTMLElement | null;
+  splitPreviewPane: HTMLElement | null;
   splitCleanup: (() => void) | null;
 }
 
@@ -22,6 +24,7 @@ const states = new WeakMap<EditorView, EditorBridgeState>();
 function setButtonActive(button: HTMLButtonElement, active: boolean): void {
   for (const className of ACTIVE_CLASSES) button.classList.toggle(className, active);
   for (const className of INACTIVE_CLASSES) button.classList.toggle(className, !active);
+  button.setAttribute("aria-pressed", String(active));
 }
 
 function getEditorView(host: HTMLElement): EditorView | null {
@@ -43,6 +46,8 @@ function getState(view: EditorView): EditorBridgeState {
     liveInstalled: false,
     liveActive: false,
     splitPreviewRoot: null,
+    splitSourcePane: null,
+    splitPreviewPane: null,
     splitCleanup: null,
   };
   states.set(view, created);
@@ -88,10 +93,7 @@ function createLiveButton(sourceButton: HTMLButtonElement): HTMLButtonElement {
   return button;
 }
 
-function bindModeButtons(
-  group: HTMLElement,
-  state: EditorBridgeState,
-): void {
+function bindModeButtons(group: HTMLElement, state: EditorBridgeState): void {
   const allButtons = Array.from(group.querySelectorAll<HTMLButtonElement>(":scope > button"));
   let liveButton = allButtons.find((button) => button.dataset.nowenMarkdownLive === "1") || null;
   const nativeButtons = allButtons.filter((button) => button.dataset.nowenMarkdownLive !== "1");
@@ -108,8 +110,7 @@ function bindModeButtons(
   if (!liveButton.dataset.nowenMarkdownBound) {
     liveButton.dataset.nowenMarkdownBound = "1";
     liveButton.addEventListener("click", () => {
-      // Keep the React editor in source layout, then replace inactive blocks through
-      // a CodeMirror compartment. This leaves Markdown as the only data source.
+      // Keep React in source layout, then replace only inactive Markdown blocks.
       sourceButton.click();
       window.setTimeout(() => {
         setLivePreview(state, true);
@@ -135,15 +136,31 @@ function bindModeButtons(
   if (localStorage.getItem(LIVE_MODE_KEY) === "1") {
     if (!state.liveActive) {
       sourceButton.click();
-      window.setTimeout(() => setLivePreview(state, true), 0);
+      window.setTimeout(() => {
+        setLivePreview(state, true);
+        // sourceButton.click() intentionally passes through the native-mode listener,
+        // so restore the remembered live mode after that synchronous listener runs.
+        localStorage.setItem(LIVE_MODE_KEY, "1");
+      }, 0);
     }
     setButtonActive(sourceButton, false);
     setButtonActive(previewButton, false);
     setButtonActive(splitButton, false);
     setButtonActive(liveButton, true);
   } else {
+    if (state.liveActive) setLivePreview(state, false);
     setButtonActive(liveButton, false);
   }
+}
+
+function clearSplitBinding(state: EditorBridgeState): void {
+  state.splitCleanup?.();
+  state.splitCleanup = null;
+  state.splitPreviewRoot = null;
+  if (state.splitSourcePane?.style.overflow === "hidden") state.splitSourcePane.style.removeProperty("overflow");
+  if (state.splitPreviewPane?.style.overflow === "hidden") state.splitPreviewPane.style.removeProperty("overflow");
+  state.splitSourcePane = null;
+  state.splitPreviewPane = null;
 }
 
 function bindSplitScroll(host: HTMLElement, editorRoot: HTMLElement, state: EditorBridgeState): void {
@@ -159,19 +176,20 @@ function bindSplitScroll(host: HTMLElement, editorRoot: HTMLElement, state: Edit
   );
 
   if (!isSplit) {
-    state.splitCleanup?.();
-    state.splitCleanup = null;
-    state.splitPreviewRoot = null;
+    clearSplitBinding(state);
     return;
   }
 
-  // CodeMirror and MarkdownPreview already own their scrolling. Removing the parent
-  // overflow eliminates the duplicate scrollbars reported in the issue.
-  sourcePane!.style.overflow = "hidden";
-  previewPane!.style.overflow = "hidden";
+  // CodeMirror and MarkdownPreview own scrolling; parent overflow caused duplicate bars.
+  if (sourcePane!.style.overflow !== "hidden") sourcePane!.style.overflow = "hidden";
+  if (previewPane!.style.overflow !== "hidden") previewPane!.style.overflow = "hidden";
 
   if (state.splitPreviewRoot === previewRoot && state.splitCleanup) return;
-  state.splitCleanup?.();
+  clearSplitBinding(state);
+  sourcePane!.style.overflow = "hidden";
+  previewPane!.style.overflow = "hidden";
+  state.splitSourcePane = sourcePane;
+  state.splitPreviewPane = previewPane;
   state.splitPreviewRoot = previewRoot;
   state.splitCleanup = attachMarkdownSplitScrollSync(state.view, previewRoot!);
 }
@@ -200,7 +218,12 @@ export default function MarkdownExperienceBridge() {
 
     schedule();
     const observer = new MutationObserver(schedule);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
     window.addEventListener("resize", schedule);
     window.addEventListener("focus", schedule);
     return () => {
