@@ -3,6 +3,7 @@ import {
   getAllNotes,
   getAllTags,
   getNote as localGetNote,
+  isNoteDetailCached,
   isReady as localStoreReady,
 } from "@/lib/localStore";
 import type { Note, NoteListItem, Notebook, Tag } from "@/types";
@@ -12,7 +13,6 @@ export interface OfflineNoteSnapshot {
   version: number;
   updatedAt?: string;
   capturedAt: number;
-  /** Fingerprint of the cached base body, not of later editor changes. */
   contentFingerprint?: string;
 }
 
@@ -24,8 +24,6 @@ const offlineNoteSnapshots = new Map<string, OfflineNoteSnapshot>();
 
 export function fingerprintNoteContent(content: unknown): string | undefined {
   if (typeof content !== "string") return undefined;
-  // FNV-1a over UTF-16 code units. This is not a security hash; it is a compact stale-base
-  // detector combined with length and version checks.
   let hash = 0x811c9dc5;
   for (let index = 0; index < content.length; index += 1) {
     hash ^= content.charCodeAt(index);
@@ -130,7 +128,7 @@ export function readNotesList(
     const all = await getAllNotes();
     const matched = filter ? all.filter(filter) : all;
     matched.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-    return matched.map(({ content, ...rest }) => rest as unknown as NoteListItem);
+    return matched.map(({ content, __detailCached, ...rest }) => rest as unknown as NoteListItem);
   });
 }
 
@@ -144,8 +142,8 @@ export function readNote(id: string, online: () => Promise<Note>): Promise<Note>
     async () => {
       const note = await localGetNote(id);
       if (!note) throw new Error("笔记不在本地缓存中");
-      if (typeof note.content !== "string") {
-        throw new Error("该笔记的正文未缓存，离线时无法打开");
+      if (!isNoteDetailCached(note)) {
+        throw new Error("该笔记只有列表摘要，正文尚未缓存，离线时无法打开");
       }
       return note;
     },
