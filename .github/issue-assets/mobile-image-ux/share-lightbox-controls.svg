@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+  <rect width="900" height="520" fill="#090b10"/>
+  <rect x="150" y="60" width="600" height="370" rx="18" fill="#151a24" stroke="#30394b"/>
+  <rect x="255" y="92" width="390" height="305" rx="12" fill="#3f6538"/>
+  <circle cx="95" cy="245" r="28" fill="#1f2634" stroke="#56617a"/>
+  <path d="M104 230 L88 245 L104 260" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="805" cy="245" r="28" fill="#1f2634" stroke="#56617a"/>
+  <path d="M796 230 L812 245 L796 260" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="332" y="448" width="236" height="48" rx="24" fill="#1f2634" stroke="#56617a"/>
+  <g fill="#fff" font-family="Arial,sans-serif" font-size="15" text-anchor="middle">
+    <text x="95" y="294">上一张</text><text x="805" y="294">下一张</text>
+    <text x="375" y="478">↺ 左转</text><text x="450" y="478">1 / 6</text><text x="525" y="478">右转 ↻</text>
+  </g>
+  <text x="450" y="35" fill="#f4f6fb" font-family="Arial,sans-serif" font-size="22" text-anchor="middle">分享页面 Lightbox 期望操作</text>
+  <text x="450" y="515" fill="#aab2c2" font-family="Arial,sans-serif" font-size="14" text-anchor="middle">移动端支持点击按钮与左右滑动；旋转仅影响当前预览，不修改原图</text>
+</svg>
