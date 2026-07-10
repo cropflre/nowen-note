@@ -1,0 +1,13 @@
+/*
+ * Global overlay layer contract.
+ *
+ * Page popovers use z-index <= 50, page lightboxes use 100, system-level
+ * modals use 110, and modal-on-modal content starts at 120. SettingsModal
+ * is portaled to <body>, but its legacy z-50 utility tied with DiaryCenter
+ * popovers and could sit below Diary lightboxes, causing the two UIs to
+ * overlap. The extra `.fixed` specificity intentionally overrides z-50
+ * without resorting to !important.
+ */
+[data-swipe-blocker="settings-modal"].fixed {
+  z-index: 110;
+}
