@@ -29,6 +29,28 @@ describe("imageToolbar", () => {
     });
   });
 
+  it("keeps rotation and horizontal flip when replacing a transformed image", () => {
+    expect(
+      buildReplacedImageAttrs(
+        {
+          src: "/api/attachments/old",
+          alt: null,
+          title: null,
+          width: 320,
+          height: null,
+          rotation: 270,
+          flipX: true,
+        },
+        "/api/attachments/new",
+      ),
+    ).toMatchObject({
+      src: "/api/attachments/new",
+      width: 320,
+      rotation: 270,
+      flipX: true,
+    });
+  });
+
   it("copies image src with the current origin for relative attachment paths", () => {
     expect(getImageCopySource({ src: "/api/attachments/image-id" }, "https://note.example.com")).toBe(
       "https://note.example.com/api/attachments/image-id",
