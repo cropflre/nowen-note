@@ -1,0 +1,85 @@
+name: Apply Issue 198 Markdown Experience
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-issue-198.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-issue-198-main
+  cancel-in-progress: false
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Use encoding-independent editor anchor
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const path = "scripts/apply-issue-198.mjs";
+          let source = fs.readFileSync(path, "utf8");
+          source = source.replace(
+            /const statusStart = .*?;\n/,
+            'const statusStart = \'      <div className="px-4 md:px-8 py-1.5 border-t border-app-border\/60 text-[11px] text-tx-tertiary flex items-center gap-3 select-none">\';\n',
+          );
+          fs.writeFileSync(path, source, "utf8");
+          NODE
+
+      - name: Apply focused Markdown codemod
+        run: node scripts/apply-issue-198.mjs
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Markdown regression tests
+        working-directory: frontend
+        run: >-
+          npm run test:run --
+          src/components/__tests__/MarkdownPreview.interactions.test.tsx
+          src/components/__tests__/MarkdownPreview.html.test.tsx
+          src/lib/__tests__/markdownScrollSync.test.ts
+          src/lib/__tests__/markdownTasks.test.ts
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Test user preference compatibility
+        working-directory: backend
+        run: node --import tsx --test tests/user-preferences.test.ts
+
+      - name: Type-check backend
+        working-directory: backend
+        run: npm run build:tsc
+
+      - name: Remove one-shot automation
+        run: rm scripts/apply-issue-198.mjs .github/workflows/apply-issue-198.yml
+
+      - name: Commit directly to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(markdown): enhance editing and live preview (#198)"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
