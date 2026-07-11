@@ -2,6 +2,7 @@ import type { Context, Next } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { parseSingleHttpRange } from "../lib/http-range";
+import { inferVideoMime } from "../lib/media-mime";
 import { getAttachmentSize, readAttachmentRange } from "../services/attachment-storage";
 
 interface MediaAttachmentRow {
@@ -64,16 +65,37 @@ async function authorizeMediaRange(c: Context, row: MediaAttachmentRow): Promise
  */
 export async function handleAttachmentMediaRange(c: Context, next: Next): Promise<Response | void> {
   const id = c.req.param("id");
-  const row = getDb()
+  const db = getDb();
+  const row = db
     .prepare(
       "SELECT id, noteId, mimeType, path, filename, size FROM attachments WHERE id = ?",
     )
     .get(id) as MediaAttachmentRow | undefined;
 
   // Let the canonical handler produce the existing 404 shape for unknown attachments.
-  if (!row || !isSeekableMediaMime(row.mimeType)) {
+  if (!row) {
     await next();
     return;
+  }
+
+  // Historical Android providers sometimes stored MP4/MOV rows as application/octet-stream.
+  // Repair only a known video extension, then delegate/full-serve with the corrected MIME so old
+  // notes gain inline playback and seeking without a data migration or re-upload.
+  if (!isSeekableMediaMime(row.mimeType)) {
+    const inferred = inferVideoMime(row.filename);
+    if (!inferred) {
+      await next();
+      return;
+    }
+    try {
+      db.prepare(
+        "UPDATE attachments SET mimeType = ? WHERE id = ? AND (mimeType IS NULL OR mimeType = '' OR mimeType = 'application/octet-stream')",
+      ).run(inferred, row.id);
+      row.mimeType = inferred;
+    } catch {
+      // The response can still use the inferred MIME even if a read-only database blocks repair.
+      row.mimeType = inferred;
+    }
   }
 
   c.header("Accept-Ranges", "bytes");
