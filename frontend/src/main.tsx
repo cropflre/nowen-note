@@ -12,6 +12,7 @@ import ImageExperienceBridge from "./components/ImageExperienceBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
 import DesktopUpdateCenter from "./components/DesktopUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
+import TaskDataTransferBridge from "./components/TaskDataTransferBridge";
 import "./index.css";
 import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
@@ -78,6 +79,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <EditorImageTransformBridge />
     <DesktopUpdateCenter />
     <TwoFactorLoginChallengeCenter />
+    <TaskDataTransferBridge />
     <App />
   </React.StrictMode>
 );
