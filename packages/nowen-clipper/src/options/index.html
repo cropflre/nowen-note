@@ -8,7 +8,7 @@
   <body>
     <main class="container">
       <h1>Nowen Note Clipper 设置</h1>
-      <p class="sub">把这里填好，就可以一键把网页内容剪藏到你的 Nowen Note 实例。</p>
+      <p class="sub">把这里填好，就可以用速记、正文和选区模式保存到你的 Nowen Note 实例。</p>
 
       <section class="card">
         <h2>1. 服务器地址</h2>
@@ -20,9 +20,7 @@
 
       <section class="card" id="login-card">
         <h2>2. 登录账号</h2>
-        <p class="hint">
-          输入你的 Nowen Note 用户名和密码，点击「登录」即可完成认证。
-        </p>
+        <p class="hint">输入 Nowen Note 用户名和密码。最近的模式和目标位置会按服务器 + 账号隔离保存。</p>
         <label>
           <span>用户名</span>
           <input id="username" type="text" placeholder="用户名" autocomplete="username" />
@@ -39,7 +37,6 @@
           <span id="login-result" class="test-result"></span>
         </div>
 
-        <!-- 2FA 验证（默认隐藏） -->
         <div id="twofa-section" class="hidden" style="margin-top: 14px;">
           <label>
             <span>两步验证码（6 位数字）</span>
@@ -52,7 +49,6 @@
         </div>
       </section>
 
-      <!-- 登录状态卡片（登录成功后显示） -->
       <section class="card hidden" id="status-card">
         <h2>2. 登录状态</h2>
         <div class="status-info">
@@ -68,7 +64,7 @@
       <section class="card">
         <h2>3. 默认行为</h2>
         <label>
-          <span>默认笔记本</span>
+          <span>无明确选择时使用的笔记本</span>
           <input id="defaultNotebook" type="text" placeholder="Web 剪藏（不存在会自动创建）" />
         </label>
         <label>
@@ -78,57 +74,78 @@
         <label>
           <span>图片处理</span>
           <select id="imageMode">
-            <option value="inline">下载并随笔记保存（推荐，离线可看）</option>
-            <option value="link">保留原始链接（不下载）</option>
-            <option value="skip">忽略图片（只保留文字）</option>
+            <option value="inline">下载并上传到 Nowen（推荐）</option>
+            <option value="link">保留原始链接</option>
+            <option value="skip">忽略图片</option>
           </select>
         </label>
         <label>
           <span>输出格式</span>
           <select id="outputFormat">
-            <option value="markdown">Markdown（推荐，更轻量）</option>
-            <option value="html">HTML（保留更多样式）</option>
+            <option value="markdown">Markdown（推荐）</option>
+            <option value="html">HTML</option>
           </select>
         </label>
         <label class="checkbox">
           <input id="includeSource" type="checkbox" />
-          <span>在笔记末尾附加"来源 URL"</span>
+          <span>在笔记末尾附加来源 URL</span>
         </label>
       </section>
 
       <section class="card">
-        <h2>4. AI 优化（实验功能）</h2>
+        <h2>4. 懒加载与图片安全限制</h2>
+        <p class="hint">剪藏正文前可短暂滚动页面以触发视口外图片。完成后会恢复原滚动位置。</p>
+        <label class="checkbox">
+          <input id="lazyLoadScroll" type="checkbox" />
+          <span>主动触发页面懒加载图片</span>
+        </label>
+        <label>
+          <span>单次最多处理图片数量</span>
+          <input id="maxImageCount" type="number" min="1" max="500" step="1" />
+        </label>
+        <label>
+          <span>单张图片上限（MB）</span>
+          <input id="maxSingleImageMb" type="number" min="1" max="50" step="1" />
+        </label>
+        <label>
+          <span>全部图片总量上限（MB）</span>
+          <input id="maxTotalImageMb" type="number" min="1" max="250" step="1" />
+        </label>
+        <label>
+          <span>单张下载超时（秒）</span>
+          <input id="imageTimeoutSeconds" type="number" min="1" max="30" step="1" />
+        </label>
+        <p class="hint">扩展会拒绝非 HTTP/HTTPS、localhost、私网 IP、常见内网域名和重定向图片地址，避免访问内网资源。</p>
+      </section>
+
+      <section class="card">
+        <h2>5. AI 优化（实验功能）</h2>
         <p class="hint">
-          剪藏后通过 AI 自动整理（摘要 / 标签 / 大纲 / 翻译等），<strong>原文默认保留</strong>，AI 产物按所选方式拼回笔记。
-          AI 服务复用你在 Nowen Note 主站「AI 设置」里配置的 Provider（OpenAI / Ollama / DeepSeek / 通义 / Gemini / 豆包），
-          扩展本身不持有任何 API Key。剪藏内容会被发送到该 Provider，请知悉数据流向。
+          剪藏后通过 AI 自动整理，原文默认保留。AI 服务复用主站配置，扩展不保存 Provider API Key。
         </p>
         <label class="checkbox">
           <input id="aiEnhanceEnabled" type="checkbox" />
-          <span>默认启用 AI 优化（仅对"完整内容/简化内容/选区"模式生效，截图与完全克隆不参与）</span>
+          <span>默认启用 AI 优化</span>
         </label>
-
         <fieldset class="ai-tasks-fieldset">
           <legend>默认任务勾选</legend>
           <div class="ai-tasks-grid">
             <label class="checkbox"><input type="checkbox" data-task="summary" /><span>TL;DR 摘要</span></label>
-            <label class="checkbox"><input type="checkbox" data-task="tags" /><span>自动标签（合并到笔记标签）</span></label>
+            <label class="checkbox"><input type="checkbox" data-task="tags" /><span>自动标签</span></label>
             <label class="checkbox"><input type="checkbox" data-task="outline" /><span>结构化大纲</span></label>
-            <label class="checkbox"><input type="checkbox" data-task="title" /><span>重写标题（适合标题党）</span></label>
-            <label class="checkbox"><input type="checkbox" data-task="highlight" /><span>重点高亮（提取关键句）</span></label>
-            <label class="checkbox"><input type="checkbox" data-task="translation" /><span>翻译为中文（外文剪藏）</span></label>
+            <label class="checkbox"><input type="checkbox" data-task="title" /><span>重写标题</span></label>
+            <label class="checkbox"><input type="checkbox" data-task="highlight" /><span>重点高亮</span></label>
+            <label class="checkbox"><input type="checkbox" data-task="translation" /><span>翻译为中文</span></label>
           </div>
         </fieldset>
-
         <label>
           <span>拼接方式</span>
           <select id="aiEnhanceMode">
-            <option value="prepend">摘要置顶 + 原文（推荐：先看结论再看细节）</option>
-            <option value="append">原文 + AI 产物追加在末尾（零信息损失）</option>
-            <option value="replace">只保留 AI 产物（适合极长文章只要总结）</option>
+            <option value="prepend">摘要置顶 + 原文</option>
+            <option value="append">原文 + AI 产物</option>
+            <option value="replace">只保留 AI 产物</option>
           </select>
         </label>
-
         <label>
           <span>输出语言</span>
           <select id="aiEnhanceLanguage">
@@ -136,28 +153,32 @@
             <option value="en">English</option>
           </select>
         </label>
-
         <label>
-          <span>正文截断字数上限（超出自动取头+尾，控制成本）</span>
+          <span>正文截断字数上限</span>
           <input id="aiMaxInputChars" type="number" min="1000" max="12000" step="500" placeholder="6000" />
         </label>
-
         <label>
           <span>AI 失败时</span>
           <select id="aiFailureStrategy">
-            <option value="fallback">降级保存原文（推荐：剪藏不中断）</option>
-            <option value="fail">整体失败，让我重试</option>
+            <option value="fallback">降级保存原文</option>
+            <option value="fail">整体失败</option>
           </select>
         </label>
-
         <label>
-          <span>自定义补充指令（可选，拼到 system prompt 末尾）</span>
-          <textarea id="aiCustomInstruction" rows="2" placeholder="例如：偏好简洁、技术风格；摘要不超过 60 字"></textarea>
+          <span>自定义补充指令</span>
+          <textarea id="aiCustomInstruction" rows="2" placeholder="例如：偏好简洁、技术风格"></textarea>
         </label>
       </section>
 
+      <section class="card">
+        <h2>6. 当前账号最近选择</h2>
+        <p class="hint">只清除当前服务器和当前账号保存的模式、空间、笔记本、图片策略、格式与置顶选择，不影响登录和其它账号。</p>
+        <button id="reset-account-preferences" class="btn">恢复当前账号默认选择</button>
+        <span id="reset-result" class="save-result"></span>
+      </section>
+
       <div class="actions">
-        <button id="save" class="btn primary">保存</button>
+        <button id="save" class="btn primary">保存设置</button>
         <span id="save-result" class="save-result"></span>
       </div>
     </main>
