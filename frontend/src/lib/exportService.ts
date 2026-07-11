@@ -11,11 +11,7 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import {
-  TableWithSiyuanAttrs,
-  TableCellWithAlign,
-  TableHeaderWithAlign,
-} from "@/components/extensions/TableFidelityExtensions";
+import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import { common, createLowlight } from "lowlight";
 import { api, resolveAttachmentUrl } from "./api";
@@ -36,10 +32,10 @@ const tiptapExtensions = [
   Highlight.configure({ multicolor: true }),
   TaskList,
   TaskItem.configure({ nested: true }),
-  TableWithSiyuanAttrs.configure({ resizable: false }),
+  Table.configure({ resizable: false }),
   TableRowWithHeight,
-  TableHeaderWithAlign,
-  TableCellWithAlign,
+  TableHeader,
+  TableCell,
   // TextStyle + Color + FontSize：取保导出 HTML 时保留 inline color / font-size，
   // 否则 generateHTML 会把 textStyle mark 从 schema 过滤 → 导出的 .md/.html
   // 丢颜色字号。
@@ -989,8 +985,8 @@ export async function exportAllNotes(
       const scopeLabel = options?.workspaceId === "personal"
         ? "个人空间"
         : options?.workspaceId
-          ? "所选工作区"
-          : "当前空间";
+        ? "所选工作区"
+        : "当前空间";
       onProgress?.({
         phase: "error",
         current: 0,
@@ -1234,7 +1230,7 @@ export async function exportNotebook(
     } else {
       console.warn(
         "[exportNotebook] backend /export/notes missing notebookId; fallback to notebookName filter " +
-        "(may be inaccurate if duplicate names exist across parents). Upgrade backend to fix."
+          "(may be inaccurate if duplicate names exist across parents). Upgrade backend to fix."
       );
       const nameSet = descendantNotebookNames || new Set<string>([notebookName]);
       notes = (allNotes || []).filter(
@@ -1860,12 +1856,12 @@ export async function exportSingleNoteAsImage(noteId: string): Promise<boolean> 
 
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
-      `<foreignObject width="100%" height="100%">` +
-      `<div xmlns="${XHTML_NS}" style="background:#ffffff;width:${width}px;">` +
-      safeStyle +
-      pageXml +
-      `</div>` +
-      `</foreignObject>` +
+        `<foreignObject width="100%" height="100%">` +
+          `<div xmlns="${XHTML_NS}" style="background:#ffffff;width:${width}px;">` +
+            safeStyle +
+            pageXml +
+          `</div>` +
+        `</foreignObject>` +
       `</svg>`;
 
     cleanup();

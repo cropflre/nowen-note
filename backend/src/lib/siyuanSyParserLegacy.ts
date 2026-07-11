@@ -33,11 +33,6 @@ interface RenderContext {
     attachments: Set<string>;
 }
 
-interface ExtractedInlineStyle {
-    cssText: string;
-    extraMarkTypes: string[];
-}
-
 const MARKER_NODE_TYPES = new Set([
     "NodeHeadingC8hMarker",
     "NodeBang",
@@ -79,85 +74,6 @@ function getValue(node: SiyuanNode | undefined, keys: string[]): any {
 function getString(node: SiyuanNode | undefined, keys: string[]): string {
     const value = getValue(node, keys);
     return typeof value === "string" ? value : value == null ? "" : String(value);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return Object.prototype.toString.call(value) === "[object Object]";
-}
-
-function toStyleString(value: unknown): string {
-    if (typeof value === "string") return value.trim();
-    if (!isPlainObject(value)) return "";
-    const parts: string[] = [];
-    for (const [key, val] of Object.entries(value)) {
-        const text = typeof val === "string" ? val.trim() : val == null ? "" : String(val);
-        if (!key.trim() || !text) continue;
-        parts.push(`${key.trim()}: ${text}`);
-    }
-    return parts.join("; ");
-}
-
-function extractStyleFromKramdownData(raw: string): string {
-    const text = raw.trim();
-    if (!text) return "";
-
-    const styleAttr = text.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
-    if (styleAttr) return styleAttr.trim();
-
-    const ialBody = text.match(/^\{:\s*([\s\S]*?)\s*\}$/)?.[1];
-    if (ialBody) {
-        const ialStyle = ialBody.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
-        if (ialStyle) return ialStyle.trim();
-    }
-
-    if (/^[a-zA-Z-]+\s*:/.test(text)) return text;
-    return "";
-}
-
-function mergeCssDeclarations(styleTexts: string[]): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const styleText of styleTexts) {
-        for (const part of styleText.split(";")) {
-            const idx = part.indexOf(":");
-            if (idx <= 0) continue;
-            const key = part.slice(0, idx).trim().toLowerCase();
-            const value = part.slice(idx + 1).trim();
-            if (!key || !value) continue;
-            map.set(key, value);
-        }
-    }
-    return map;
-}
-
-function extractInlineStyle(node: SiyuanNode): ExtractedInlineStyle | null {
-    const candidates: string[] = [];
-    const ownStyle = toStyleString(getValue(node, ["style", "Style", "TextMarkStyle"]));
-    if (ownStyle) candidates.push(ownStyle);
-
-    for (const child of node.Children || []) {
-        if (child.Type !== "NodeKramdownSpanIAL") continue;
-        const childStyle = toStyleString(getValue(child, ["style", "Style"]));
-        if (childStyle) candidates.push(childStyle);
-        const fromData = extractStyleFromKramdownData(getString(child, ["Data", "Tokens", "HTML", "html", "Text", "text"]));
-        if (fromData) candidates.push(fromData);
-    }
-
-    const css = mergeCssDeclarations(candidates);
-    if (css.size === 0) return null;
-
-    const extra = new Set<string>();
-    const fontWeight = (css.get("font-weight") || "").toLowerCase();
-    if (/\b(bold|[6-9]00)\b/.test(fontWeight)) extra.add("strong");
-    const fontStyle = (css.get("font-style") || "").toLowerCase();
-    if (fontStyle.includes("italic") || fontStyle.includes("oblique")) extra.add("em");
-    const textDecoration = `${css.get("text-decoration") || ""} ${css.get("text-decoration-line") || ""}`.toLowerCase();
-    if (textDecoration.includes("underline")) extra.add("u");
-    if (textDecoration.includes("line-through")) extra.add("strike");
-
-    return {
-        cssText: Array.from(css.entries()).map(([key, value]) => `${key}: ${value}`).join("; "),
-        extraMarkTypes: Array.from(extra),
-    };
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -252,97 +168,56 @@ function textFromChildren(node: SiyuanNode, ctx: RenderContext): string {
 }
 
 function renderTextMark(node: SiyuanNode, ctx: RenderContext): string {
-    const markTypes = getString(node, ["TextMarkType", "type", "markType"])
-        .toLowerCase()
-        .split(/\s+/)
-        .map((value) => value.trim())
-        .filter(Boolean);
-    const inlineStyle = extractInlineStyle(node);
-    const normalizedMarkTypes = Array.from(new Set([
-        ...markTypes,
-        ...(inlineStyle?.extraMarkTypes || []),
-    ]));
-    const rawText = (
+    const markType = getString(node, ["TextMarkType", "type", "markType"]).toLowerCase();
+    const text = (
         getString(node, ["TextMarkTextContent", "Text", "text", "Data"]) ||
         renderChildrenInline(node, ctx)
     ).trim();
-    const inlineMath = getString(node, ["TextMarkInlineMathContent", "inlineMath", "math"]).trim();
-    const inlineMemo = getString(node, ["TextMarkInlineMemoContent", "inlineMemo", "memo"]).trim();
     const href = getString(node, ["TextMarkAHref", "href", "url", "dest"]);
-    const blockRefId = getString(node, ["TextMarkBlockRefID", "BlockRefID", "id", "ID"]);
 
-    // SiYuan allows combined TextMarkType values like "block-ref strong".
-    // We normalize by applying special semantics first, then styling wrappers.
-    if (normalizedMarkTypes.includes("inline-math")) {
-        const latex = inlineMath || rawText;
-        return latex ? `$${latex}$` : "";
-    }
-
-    let text = rawText;
-    if (normalizedMarkTypes.includes("inline-memo")) {
-        addUnsupported(ctx, "inline-memo", "Siyuan inline memo was imported as plain text.");
-        ctx.warnings.push("Siyuan inline memo was imported as plain text.");
-        text = inlineMemo || text;
-    }
-    if (normalizedMarkTypes.includes("tag")) {
-        const tag = text.replace(/^#|#$/g, "").trim();
-        if (tag) ctx.tags.add(tag);
-        text = tag ? `#${tag}#` : "";
-    }
-    if (normalizedMarkTypes.includes("block-ref")) {
-        ctx.blockRefs++;
-        text = text || (blockRefId ? `[块引用:${blockRefId}]` : "[块引用]");
-    }
-    if (normalizedMarkTypes.includes("file-annotation-ref") && !text) {
-        text = "[文件标注]";
-    }
-
-    for (const markType of normalizedMarkTypes) {
-        switch (markType) {
-            case "code":
-                text = text ? `\`${text.replace(/`/g, "\\`")}\`` : "";
-                break;
-            case "kbd":
-                text = text ? `<kbd>${text}</kbd>` : "";
-                break;
-            case "strong":
-                text = text ? `**${text}**` : "";
-                break;
-            case "em":
-                text = text ? `*${text}*` : "";
-                break;
-            case "s":
-            case "strike":
-                text = text ? `~~${text}~~` : "";
-                break;
-            case "u":
-                text = text ? `<u>${text}</u>` : "";
-                break;
-            case "mark":
-                text = text ? `<mark>${text}</mark>` : "";
-                break;
-            case "sup":
-                text = text ? `<sup>${text}</sup>` : "";
-                break;
-            case "sub":
-                text = text ? `<sub>${text}</sub>` : "";
-                break;
-            default:
-                break;
+    switch (markType) {
+        case "code":
+            return text ? `\`${text.replace(/`/g, "\\`")}\`` : "";
+        case "kbd":
+            return text ? `<kbd>${text}</kbd>` : "";
+        case "strong":
+            return text ? `**${text}**` : "";
+        case "em":
+            return text ? `*${text}*` : "";
+        case "s":
+        case "strike":
+            return text ? `~~${text}~~` : "";
+        case "u":
+            return text ? `<u>${text}</u>` : "";
+        case "mark":
+            return text ? `<mark>${text}</mark>` : "";
+        case "a":
+            return href ? `[${text || href}](${href})` : text;
+        case "tag": {
+            const tag = text.replace(/^#|#$/g, "").trim();
+            if (tag) ctx.tags.add(tag);
+            return tag ? `#${tag}#` : "";
         }
+        case "block-ref": {
+            ctx.blockRefs++;
+            const id = getString(node, ["TextMarkBlockRefID", "BlockRefID", "id", "ID"]);
+            return text || (id ? `[块引用:${id}]` : "[块引用]");
+        }
+        case "inline-math":
+            return text ? `$${text}$` : "";
+        case "sup":
+            return text ? `<sup>${text}</sup>` : "";
+        case "sub":
+            return text ? `<sub>${text}</sub>` : "";
+        case "inline-memo":
+            addUnsupported(ctx, "inline-memo", "Siyuan inline memo was imported as plain text.");
+            ctx.warnings.push("Siyuan inline memo was imported as plain text.");
+            return text;
+        case "file-annotation-ref":
+            return text || "[文件标注]";
+        default:
+            return text || renderChildrenInline(node, ctx);
     }
-
-    if (inlineStyle?.cssText && text) {
-        text = `<span style="${escapeAttr(inlineStyle.cssText)}">${text}</span>`;
-    }
-
-    if (normalizedMarkTypes.includes("a")) {
-        return href ? `[${text || href}](${href})` : text;
-    }
-    if (normalizedMarkTypes.length === 0) {
-        return text || renderChildrenInline(node, ctx);
-    }
-    return text;
 }
 
 function renderInline(node: SiyuanNode, ctx: RenderContext): string {

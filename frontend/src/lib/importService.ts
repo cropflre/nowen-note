@@ -10,11 +10,7 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import {
-  TableWithSiyuanAttrs,
-  TableCellWithAlign,
-  TableHeaderWithAlign,
-} from "@/components/extensions/TableFidelityExtensions";
+import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
@@ -74,10 +70,10 @@ export const tiptapExtensions = [
   Highlight.configure({ multicolor: true }),
   TaskList,
   TaskItem.configure({ nested: true }),
-  TableWithSiyuanAttrs.configure({ resizable: false }),
+  Table.configure({ resizable: false }),
   TableRowWithHeight,
-  TableHeaderWithAlign,
-  TableCellWithAlign,
+  TableHeader,
+  TableCell,
   // TextAlign：必须与 TiptapEditor 对齐，否则 repairTiptapJson round-trip
   // 时段落/标题的 textAlign 属性会被 schema 静默过滤掉，刷新后段落对齐丢失。
   TextAlign.configure({ types: ["heading", "paragraph"] }),
@@ -1106,12 +1102,15 @@ function wrapInlineChildrenInParagraph(el: Element): void {
 // 触发 contentMatchAt 抛错，整个编辑器白屏。
 //
 // 这里用最简的字符串替换把 <thead>/<tbody>/<tfoot> 标签剥掉（保留里面的
-// <tr>）。单元格 align 需保留给 schema round-trip（SiYuan 表格保真）。
+// <tr>），并把 <th>/<td> 上的 align 属性删掉（Tiptap 默认表格不识别）。
 function normalizeTableHtml(html: string): string {
   if (!html || html.indexOf("<table") === -1) return html;
   return html
     // 剥掉 <thead>/<tbody>/<tfoot> 包裹标签（保留内部 <tr>）
-    .replace(/<\/?(thead|tbody|tfoot)\b[^>]*>/gi, "");
+    .replace(/<\/?(thead|tbody|tfoot)\b[^>]*>/gi, "")
+    // 删掉单元格上的 align 属性（marked 用来表示 :---: 对齐）
+    .replace(/(<t[hd])\s+align="[^"]*"/gi, "$1")
+    .replace(/(<t[hd])\s+align='[^']*'/gi, "$1");
 }
 
 // Layer 2 兜底：用一个离屏 Editor 把任意脏 HTML 修复成合 schema 的 JSON。

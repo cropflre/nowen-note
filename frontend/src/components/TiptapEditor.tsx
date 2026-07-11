@@ -10,7 +10,7 @@ const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPre
 // 复用的附件详情抽屉（与 FileManager 同一份实现）
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import { posToDOMRect } from "@tiptap/core";
-import { AnimatePresence, motion } from "framer-motion"; import StarterKit from "@tiptap/starter-kit";
+import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
@@ -22,11 +22,7 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import {
-  TableWithSiyuanAttrs,
-  TableCellWithAlign,
-  TableHeaderWithAlign,
-} from "./extensions/TableFidelityExtensions";
+import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 // 自定义 TableRow：在原扩展基础上加 height 持久化 attribute + 行高拖拽手柄。
 // 之所以从 @tiptap/extension-table 解构里去掉 TableRow，是因为下面要用扩展过的版本，
 // 同名导出会冲突。行高语义为"min-height"——内容超出仍会撑开。
@@ -1688,7 +1684,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const lastEmittedContentRef = useRef<string | null>(null);
 
   // 立即保存（Ctrl/Cmd+S 使用）：清掉 debounce 并立刻调用 onUpdate
-  const flushSaveRef = useRef<() => void>(() => { });
+  const flushSaveRef = useRef<() => void>(() => {});
 
   // 稳定的键盘扩展引用（Tab/Shift-Tab/Mod-s）
   const keyboardExtension = useRef(createKeyboardExtension(flushSaveRef));
@@ -1806,7 +1802,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           class: 'task-item',
         },
       }),
-      TableWithSiyuanAttrs.configure({
+      Table.configure({
         resizable: true,
         handleWidth: 5,
         cellMinWidth: 60,
@@ -1815,8 +1811,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       }),
       // TableRowResizable: 替换原 TableRow，新增行高拖拽能力（rowHeight 存在 <tr style="height">）
       TableRowResizable,
-      TableHeaderWithAlign,
-      TableCellWithAlign,
+      TableHeader,
+      TableCell,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
@@ -1906,8 +1902,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             const label = /^mailto:/i.test(href)
               ? "邮箱"
               : /^tel:/i.test(href)
-                ? "电话"
-                : "号码";
+              ? "电话"
+              : "号码";
             try {
               if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(plain).then(
@@ -1965,7 +1961,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             " pngblip=", (probeRtf.match(/\\pngblip/g) || []).length,
             " items=", itemList,
             " files=", fileList);
-        } catch { }
+        } catch {}
         try {
           // 1) 处理剪贴板中的图片文件（如截图粘贴）
           //    走 /api/attachments 上传接口：写磁盘 + 落 attachments 行，
@@ -2213,7 +2209,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                     const finalImgs = tempDiv.querySelectorAll("img").length;
                     console.log("[paste-diag] rtf-rescue normalized <img>=", finalImgs,
                       " stats=", normalized.imageStats);
-                  } catch { }
+                  } catch {}
                   const slice = parser.parseSlice(tempDiv);
                   try {
                     let cnt = 0;
@@ -2221,7 +2217,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                       if (n.type.name === "image") cnt += 1;
                     });
                     console.log("[paste-diag] rtf-rescue PM slice image nodes=", cnt);
-                  } catch { }
+                  } catch {}
                   dispatch(state.tr.replaceSelection(slice));
 
                   // 4) 插入已完成 —— 此刻先告诉用户"图片已粘贴"，随后
@@ -2416,7 +2412,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                 " isWord=", normalized.isWordSource,
                 " stats=", normalized.imageStats,
                 " firstSrcHead=", firstSrc.slice(0, 80));
-            } catch { }
+            } catch {}
             const slice = parser.parseSlice(tempDiv);
             try {
               let imgCountInSlice = 0;
@@ -2424,7 +2420,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                 if (n.type.name === "image") imgCountInSlice += 1;
               });
               console.log("[paste-diag] PM slice image nodes=", imgCountInSlice);
-            } catch { }
+            } catch {}
             const tr = state.tr.replaceSelection(slice);
             dispatch(tr);
             // 若存在图片还没加载完（没有任何可用 src 的 <img>），提示用户
@@ -2456,7 +2452,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             if (fallbackText) {
               insertPlainTextPreservingParagraphs(view, fallbackText);
             }
-          } catch { }
+          } catch {}
           return true;
         }
       },
@@ -2668,7 +2664,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editor.chain().focus().selectAll().run();
   }, [editor]);
 
-  // 实现 flushSave：Ctrl/Cmd+S 触发，绕过 500ms debounce 立即保存
+    // 实现 flushSave：Ctrl/Cmd+S 触发，绕过 500ms debounce 立即保存
   flushSaveRef.current = () => {
     if (!editor) return;
     if (debounceTimer.current) {
@@ -2685,7 +2681,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
     try {
       toast.success(t('tiptap.saved') || 'Saved');
-    } catch { }
+    } catch {}
   };
 
   /**
@@ -3469,7 +3465,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       // 延迟一帧关闭，避免点击气泡菜单按钮时因 blur 而菜单消失
       requestAnimationFrame(() => {
         if (!editor.view.hasFocus()) {
-          // 如果焦点移到了弹窗内（如字号/颜色选择器），不关闭气泡菜单
+        // 如果焦点移到了弹窗内（如字号/颜色选择器），不关闭气泡菜单
           const ae = document.activeElement;
           if (ae && ae !== document.body && (ae as Element).closest?.('[data-popover]')) return;
           setBubble(b => b.open ? { ...b, open: false } : b);
@@ -3646,11 +3642,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       const chain = editor.chain().focus();
       if (detail.mark) {
         switch (detail.mark) {
-          case "bold": chain.toggleBold().run(); break;
-          case "italic": chain.toggleItalic().run(); break;
+          case "bold":      chain.toggleBold().run();      break;
+          case "italic":    chain.toggleItalic().run();    break;
           case "underline": chain.toggleUnderline().run(); break;
-          case "strike": chain.toggleStrike().run(); break;
-          case "code": chain.toggleCode().run(); break;
+          case "strike":    chain.toggleStrike().run();    break;
+          case "code":      chain.toggleCode().run();      break;
         }
         return;
       }
@@ -4052,7 +4048,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editor
       .chain()
       .focus()
-      .command(({ tr, dispatch }: { tr: any; dispatch: any }) => {
+      .command(( { tr, dispatch }: { tr: any; dispatch: any }) => {
         if (!dispatch) return true;
         // 先删除覆盖范围，再在原位置插入单一 codeBlock
         tr.delete(blockStart, blockEnd);
@@ -4601,7 +4597,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           style={{ top: bubble.top, left: bubble.left }}
           onMouseDown={(e) => e.preventDefault()} // 阻止点击按钮时 editor blur
         >
-          <ToolbarButton
+                    <ToolbarButton
             onClick={() => void copySelectionText()}
             title={t('tiptap.copySelectionText')}
           >
@@ -4633,7 +4629,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
               <ExternalLink size={14} />
             </ToolbarButton>
           )}
-          <ToolbarButton
+<ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             isActive={editor.isActive("bold")}
             title={t('tiptap.bold')}
@@ -5056,7 +5052,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                         const view = editor.view;
                         const { from } = view.state.selection;
                         let tableEl: HTMLTableElement | null = null;
-                        try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch { }
+                        try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch {}
                         const rows = tableEl?.querySelectorAll("tr").length ?? 3;
                         const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
                         setResizeDialog({ open: true, rows, cols });
@@ -5082,69 +5078,69 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         // ── 桌面端：浮动工具条（保持原样）──
         return (
-          <div
-            className="fixed z-50 flex items-center gap-px bg-app-elevated border border-app-border rounded-lg shadow-lg p-0.5"
-            style={{ top: tableBubble.top, left: tableBubble.left }}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            {phone && (<>
-              <ToolbarButton compact title={t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })} onClick={() => { navigator.clipboard.writeText(phone); }}>
-                <span className="text-[11px] px-0.5">📋</span>
-              </ToolbarButton>
-              <ToolbarButton compact title={t("tiptap.cellCallPhone", { defaultValue: "拨打电话" })} onClick={() => window.open(`tel:${phone}`, "_self")}>
-                <span className="text-[11px] px-0.5">📞</span>
-              </ToolbarButton>
-              <ToolbarButton compact title={t("tiptap.cellSmsPhone", { defaultValue: "发短信" })} onClick={() => window.open(`sms:${phone}`, "_self")}>
-                <span className="text-[11px] px-0.5">💬</span>
-              </ToolbarButton>
-              <div className="w-px h-3 bg-app-border mx-0.5" />
-            </>)}
-            <ToolbarButton compact title={t("tiptap.addRowBefore")} onClick={() => editor.chain().focus().addRowBefore().run()}>
-              <Rows3 size={14} className="rotate-180" />
+        <div
+          className="fixed z-50 flex items-center gap-px bg-app-elevated border border-app-border rounded-lg shadow-lg p-0.5"
+          style={{ top: tableBubble.top, left: tableBubble.left }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {phone && (<>
+            <ToolbarButton compact title={t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })} onClick={() => { navigator.clipboard.writeText(phone); }}>
+              <span className="text-[11px] px-0.5">📋</span>
             </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.addRowAfter")} onClick={() => editor.chain().focus().addRowAfter().run()}>
-              <Rows3 size={14} />
+            <ToolbarButton compact title={t("tiptap.cellCallPhone", { defaultValue: "拨打电话" })} onClick={() => window.open(`tel:${phone}`, "_self")}>
+              <span className="text-[11px] px-0.5">📞</span>
             </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.deleteRow")} onClick={() => editor.chain().focus().deleteRow().run()}>
-              <span className="flex items-center"><Rows3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
+            <ToolbarButton compact title={t("tiptap.cellSmsPhone", { defaultValue: "发短信" })} onClick={() => window.open(`sms:${phone}`, "_self")}>
+              <span className="text-[11px] px-0.5">💬</span>
             </ToolbarButton>
             <div className="w-px h-3 bg-app-border mx-0.5" />
-            <ToolbarButton compact title={t("tiptap.addColumnBefore")} onClick={() => editor.chain().focus().addColumnBefore().run()}>
-              <Columns3 size={14} className="-scale-x-100" />
-            </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.addColumnAfter")} onClick={() => editor.chain().focus().addColumnAfter().run()}>
-              <Columns3 size={14} />
-            </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.deleteColumn")} onClick={() => editor.chain().focus().deleteColumn().run()}>
-              <span className="flex items-center"><Columns3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
-            </ToolbarButton>
-            <div className="w-px h-3 bg-app-border mx-0.5" />
-            <ToolbarButton compact title={t("tiptap.mergeCells")} disabled={!editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()}>
-              <Merge size={14} />
-            </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.splitCell")} disabled={!editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()}>
-              <Split size={14} />
-            </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.toggleHeaderRow")} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>
-              <Heading size={14} />
-            </ToolbarButton>
-            <ToolbarButton compact title={t("tiptap.resizeTable")} onClick={() => {
-              const view = editor.view;
-              const { from } = view.state.selection;
-              let tableEl: HTMLTableElement | null = null;
-              try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch { }
-              const rows = tableEl?.querySelectorAll("tr").length ?? 3;
-              const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
-              setResizeDialog({ open: true, rows, cols });
-              setTableBubble(b => ({ ...b, open: false }));
-            }}>
-              <span className="text-[10px] px-0.5 tabular-nums">⊞</span>
-            </ToolbarButton>
-            <div className="w-px h-3 bg-app-border mx-0.5" />
-            <ToolbarButton compact title={t("tiptap.deleteTable")} onClick={() => editor.chain().focus().deleteTable().run()}>
-              <Trash2 size={14} className="text-red-500" />
-            </ToolbarButton>
-          </div>
+          </>)}
+          <ToolbarButton compact title={t("tiptap.addRowBefore")} onClick={() => editor.chain().focus().addRowBefore().run()}>
+            <Rows3 size={14} className="rotate-180" />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.addRowAfter")} onClick={() => editor.chain().focus().addRowAfter().run()}>
+            <Rows3 size={14} />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.deleteRow")} onClick={() => editor.chain().focus().deleteRow().run()}>
+            <span className="flex items-center"><Rows3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
+          </ToolbarButton>
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact title={t("tiptap.addColumnBefore")} onClick={() => editor.chain().focus().addColumnBefore().run()}>
+            <Columns3 size={14} className="-scale-x-100" />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.addColumnAfter")} onClick={() => editor.chain().focus().addColumnAfter().run()}>
+            <Columns3 size={14} />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.deleteColumn")} onClick={() => editor.chain().focus().deleteColumn().run()}>
+            <span className="flex items-center"><Columns3 size={14} /><Trash2 size={10} className="-ml-0.5" /></span>
+          </ToolbarButton>
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact title={t("tiptap.mergeCells")} disabled={!editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()}>
+            <Merge size={14} />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.splitCell")} disabled={!editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()}>
+            <Split size={14} />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.toggleHeaderRow")} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>
+            <Heading size={14} />
+          </ToolbarButton>
+          <ToolbarButton compact title={t("tiptap.resizeTable")} onClick={() => {
+            const view = editor.view;
+            const { from } = view.state.selection;
+            let tableEl: HTMLTableElement | null = null;
+            try { tableEl = (view.domAtPos(from).node as Element)?.closest?.("table") as HTMLTableElement | null; } catch {}
+            const rows = tableEl?.querySelectorAll("tr").length ?? 3;
+            const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
+            setResizeDialog({ open: true, rows, cols });
+            setTableBubble(b => ({ ...b, open: false }));
+          }}>
+            <span className="text-[10px] px-0.5 tabular-nums">⊞</span>
+          </ToolbarButton>
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton compact title={t("tiptap.deleteTable")} onClick={() => editor.chain().focus().deleteTable().run()}>
+            <Trash2 size={14} className="text-red-500" />
+          </ToolbarButton>
+        </div>
         );
       })()}
 
@@ -5199,37 +5195,37 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           renderPreview={
             attachmentPreview.isDocx
               ? (detail, expanded) => (
-                <Suspense fallback={<div className="p-6 text-xs text-tx-tertiary">加载预览组件…</div>}>
-                  <DocxAttachmentPreview
-                    url={detail.url}
-                    filename={detail.filename}
-                    heightClass={expanded ? "min-h-[80vh]" : "min-h-[600px]"}
-                    onReplace={async (file) => {
-                      // 上传新 .docx 覆盖旧附件 + 更新笔记 content 指向新 url。
-                      const oldId = detail.id;
-                      const noteId = noteRef.current?.id || "";
-                      if (!noteId) {
-                        toast.error("无法识别当前笔记，刷新后重试");
-                        return;
-                      }
-                      try {
-                        const { replaceWordAttachment } = await import("@/lib/wordNoteService");
-                        const res = await replaceWordAttachment({ noteId, oldAttachmentId: oldId, file });
-                        toast.success("已上传新版本");
-                        // 关掉预览：旧 id 已失效，再渲染会报错。
-                        setAttachmentPreview(null);
-                        // 触发笔记内容刷新：让外层 EditorPane 拉一次最新 note。
+                  <Suspense fallback={<div className="p-6 text-xs text-tx-tertiary">加载预览组件…</div>}>
+                    <DocxAttachmentPreview
+                      url={detail.url}
+                      filename={detail.filename}
+                      heightClass={expanded ? "min-h-[80vh]" : "min-h-[600px]"}
+                      onReplace={async (file) => {
+                        // 上传新 .docx 覆盖旧附件 + 更新笔记 content 指向新 url。
+                        const oldId = detail.id;
+                        const noteId = noteRef.current?.id || "";
+                        if (!noteId) {
+                          toast.error("无法识别当前笔记，刷新后重试");
+                          return;
+                        }
                         try {
-                          window.dispatchEvent(new CustomEvent("nowen:note-updated", { detail: { noteId: res.note.id } }));
-                        } catch { /* ignore */ }
-                      } catch (err: any) {
-                        console.error("Replace docx failed:", err);
-                        toast.error(err?.message || "上传新版本失败");
-                      }
-                    }}
-                  />
-                </Suspense>
-              )
+                          const { replaceWordAttachment } = await import("@/lib/wordNoteService");
+                          const res = await replaceWordAttachment({ noteId, oldAttachmentId: oldId, file });
+                          toast.success("已上传新版本");
+                          // 关掉预览：旧 id 已失效，再渲染会报错。
+                          setAttachmentPreview(null);
+                          // 触发笔记内容刷新：让外层 EditorPane 拉一次最新 note。
+                          try {
+                            window.dispatchEvent(new CustomEvent("nowen:note-updated", { detail: { noteId: res.note.id } }));
+                          } catch { /* ignore */ }
+                        } catch (err: any) {
+                          console.error("Replace docx failed:", err);
+                          toast.error(err?.message || "上传新版本失败");
+                        }
+                      }}
+                    />
+                  </Suspense>
+                )
               : undefined
           }
         />
