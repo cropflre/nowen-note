@@ -71,8 +71,8 @@ jobs:
           cd frontend
           npm ci
           set +e
-          npx tsc -b --pretty false > ../head-tsc.log 2>&1
-          echo $? > ../head-tsc.status
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/head-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/head-tsc.status"
           set -e
       - name: Typecheck current main
         shell: bash
@@ -82,8 +82,8 @@ jobs:
           cd ../main-worktree/frontend
           npm ci
           set +e
-          npx tsc -b --pretty false > ../../main-tsc.log 2>&1
-          echo $? > ../../main-tsc.status
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/main-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/main-tsc.status"
           set -e
       - name: Prepare TypeScript diagnostic delta
         shell: bash
