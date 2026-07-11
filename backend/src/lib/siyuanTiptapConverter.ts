@@ -12,6 +12,14 @@ export interface SiyuanTiptapConvertOptions {
     resolveAssetUrl?: (raw: string) => string | null;
 }
 
+interface ExtractedInlineStyle {
+    cssText: string;
+    color?: string;
+    backgroundColor?: string;
+    fontSize?: string;
+    extraMarkTypes: string[];
+}
+
 const MARKER_NODE_TYPES = new Set([
     "NodeHeadingC8hMarker",
     "NodeBang",
@@ -55,6 +63,142 @@ function getValue(node: SiyuanNode | undefined, keys: string[]): unknown {
 function getString(node: SiyuanNode | undefined, keys: string[]): string {
     const value = getValue(node, keys);
     return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function serializeUnknownValue(value: unknown): unknown | undefined {
+    if (value == null) return undefined;
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed ? trimmed : undefined;
+    }
+    if (typeof value === "number" || typeof value === "boolean") return value;
+    if (Array.isArray(value)) {
+        const out: unknown[] = [];
+        for (const item of value) {
+            const serialized = serializeUnknownValue(item);
+            if (serialized !== undefined) out.push(serialized);
+        }
+        return out.length > 0 ? out : undefined;
+    }
+    if (isPlainObject(value)) {
+        const out: Record<string, unknown> = {};
+        for (const [key, item] of Object.entries(value)) {
+            const serialized = serializeUnknownValue(item);
+            if (serialized !== undefined) out[key] = serialized;
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+    }
+    return undefined;
+}
+
+function toStyleString(value: unknown): string {
+    if (typeof value === "string") return value.trim();
+    if (!isPlainObject(value)) return "";
+    const parts: string[] = [];
+    for (const [key, val] of Object.entries(value)) {
+        const text = typeof val === "string" ? val.trim() : val == null ? "" : String(val);
+        if (!key.trim() || !text) continue;
+        parts.push(`${key.trim()}: ${text}`);
+    }
+    return parts.join("; ");
+}
+
+function extractStyleFromKramdownData(raw: string): string {
+    const text = raw.trim();
+    if (!text) return "";
+
+    const styleAttr = text.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
+    if (styleAttr) return styleAttr.trim();
+
+    const ialBody = text.match(/^\{:\s*([\s\S]*?)\s*\}$/)?.[1];
+    if (ialBody) {
+        const ialStyle = ialBody.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
+        if (ialStyle) return ialStyle.trim();
+    }
+
+    if (/^[a-zA-Z-]+\s*:/.test(text)) return text;
+    return "";
+}
+
+function mergeCssDeclarations(styleTexts: string[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const styleText of styleTexts) {
+        for (const part of styleText.split(";")) {
+            const idx = part.indexOf(":");
+            if (idx <= 0) continue;
+            const key = part.slice(0, idx).trim().toLowerCase();
+            const value = part.slice(idx + 1).trim();
+            if (!key || !value) continue;
+            map.set(key, value);
+        }
+    }
+    return map;
+}
+
+function extractInlineStyle(node: SiyuanNode): ExtractedInlineStyle | null {
+    const candidates: string[] = [];
+
+    const ownStyle = toStyleString(getValue(node, ["style", "Style", "TextMarkStyle"]));
+    if (ownStyle) candidates.push(ownStyle);
+
+    for (const child of node.Children || []) {
+        if (child.Type !== "NodeKramdownSpanIAL") continue;
+        const childStyle = toStyleString(getValue(child, ["style", "Style"]));
+        if (childStyle) candidates.push(childStyle);
+        const fromData = extractStyleFromKramdownData(getString(child, ["Data", "Tokens", "HTML", "html", "Text", "text"]));
+        if (fromData) candidates.push(fromData);
+    }
+
+    const css = mergeCssDeclarations(candidates);
+    if (css.size === 0) return null;
+
+    const extra = new Set<string>();
+    const fontWeight = (css.get("font-weight") || "").toLowerCase();
+    if (/\b(bold|[6-9]00)\b/.test(fontWeight)) extra.add("strong");
+    const fontStyle = (css.get("font-style") || "").toLowerCase();
+    if (fontStyle.includes("italic") || fontStyle.includes("oblique")) extra.add("em");
+    const textDecoration = `${css.get("text-decoration") || ""} ${css.get("text-decoration-line") || ""}`.toLowerCase();
+    if (textDecoration.includes("underline")) extra.add("u");
+    if (textDecoration.includes("line-through")) extra.add("strike");
+
+    return {
+        cssText: Array.from(css.entries()).map(([key, value]) => `${key}: ${value}`).join("; "),
+        color: css.get("color"),
+        backgroundColor: css.get("background-color"),
+        fontSize: css.get("font-size"),
+        extraMarkTypes: Array.from(extra),
+    };
+}
+
+function toPositiveInt(value: unknown): number | undefined {
+    const parsed = typeof value === "number" ? value : Number(String(value || "").trim());
+    if (!Number.isFinite(parsed)) return undefined;
+    const rounded = Math.trunc(parsed);
+    return rounded > 0 ? rounded : undefined;
+}
+
+function readCellColwidth(node: SiyuanNode): number[] | undefined {
+    const raw = getValue(node, ["colwidth", "ColWidth", "colWidth", "TableCellWidth", "width"]);
+    if (raw == null) return undefined;
+    if (Array.isArray(raw)) {
+        const numbers = raw
+            .map((item) => toPositiveInt(item))
+            .filter((item): item is number => item !== undefined);
+        return numbers.length > 0 ? numbers : undefined;
+    }
+    if (typeof raw === "string") {
+        const numbers = raw
+            .split(/[\s,|]+/)
+            .map((item) => toPositiveInt(item))
+            .filter((item): item is number => item !== undefined);
+        return numbers.length > 0 ? numbers : undefined;
+    }
+    const parsed = toPositiveInt(raw);
+    return parsed ? [parsed] : undefined;
 }
 
 function looksLikeAssetOrUrl(value: string): boolean {
@@ -205,34 +349,90 @@ function trimParagraphBoundary(content: TiptapJsonNode[]): TiptapJsonNode[] {
 }
 
 function renderTextMark(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const markType = getString(node, ["TextMarkType", "type", "markType"]).toLowerCase();
+    const markTypes = getString(node, ["TextMarkType", "type", "markType"])
+        .toLowerCase()
+        .split(/\s+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const inlineStyle = extractInlineStyle(node);
+    const normalizedMarkTypes = Array.from(new Set([
+        ...markTypes,
+        ...(inlineStyle?.extraMarkTypes || []),
+    ]));
     const rawText = getString(node, ["TextMarkTextContent", "Text", "text", "Data"]);
-    const content = rawText ? textNode(rawText) : renderInlineContent(node, options);
+    const inlineMath = getString(node, ["TextMarkInlineMathContent", "inlineMath", "math"]);
+    const inlineMemo = getString(node, ["TextMarkInlineMemoContent", "inlineMemo", "memo"]);
     const href = getString(node, ["TextMarkAHref", "href", "url", "dest"]);
+    const blockRefId = getString(node, ["TextMarkBlockRefID", "BlockRefID", "id", "ID"]);
 
-    switch (markType) {
-        case "strong":
-            return content.map((item) => withMark(item, { type: "bold" }));
-        case "em":
-            return content.map((item) => withMark(item, { type: "italic" }));
-        case "s":
-        case "strike":
-            return content.map((item) => withMark(item, { type: "strike" }));
-        case "code":
-            return content.map((item) => withMark(item, { type: "code" }));
-        case "u":
-            return content.map((item) => withMark(item, { type: "underline" }));
-        case "mark":
-            return content.map((item) => withMark(item, { type: "highlight" }));
-        case "a":
-            return href ? content.map((item) => withMark(item, { type: "link", attrs: { href } })) : content;
-        case "inline-math": {
-            const latex = rawText || renderPlainText(node);
-            return latex.trim() ? [{ type: "mathInline", attrs: { latex: latex.trim() } }] : [];
-        }
-        default:
-            return content;
+    if (normalizedMarkTypes.includes("inline-math")) {
+        const latex = inlineMath || rawText || renderPlainText(node);
+        return latex.trim() ? [{ type: "mathInline", attrs: { latex: latex.trim() } }] : [];
     }
+
+    let content = rawText ? textNode(rawText) : renderInlineContent(node, options);
+    if (normalizedMarkTypes.includes("inline-memo")) {
+        const memoText = inlineMemo || rawText || renderPlainText(node);
+        content = memoText ? textNode(memoText) : [];
+    }
+    if (normalizedMarkTypes.includes("tag")) {
+        const base = (rawText || renderPlainText(node)).replace(/^#|#$/g, "").trim();
+        content = base ? textNode(`#${base}#`) : [];
+    }
+    if (normalizedMarkTypes.includes("block-ref") && content.length === 0) {
+        content = textNode(blockRefId ? `[块引用:${blockRefId}]` : "[块引用]");
+    }
+    if (normalizedMarkTypes.includes("file-annotation-ref") && content.length === 0) {
+        content = textNode("[文件标注]");
+    }
+
+    for (const markType of normalizedMarkTypes) {
+        switch (markType) {
+            case "strong":
+                content = content.map((item) => withMark(item, { type: "bold" }));
+                break;
+            case "em":
+                content = content.map((item) => withMark(item, { type: "italic" }));
+                break;
+            case "s":
+            case "strike":
+                content = content.map((item) => withMark(item, { type: "strike" }));
+                break;
+            case "code":
+            case "kbd":
+                content = content.map((item) => withMark(item, { type: "code" }));
+                break;
+            case "u":
+                content = content.map((item) => withMark(item, { type: "underline" }));
+                break;
+            case "mark":
+                content = content.map((item) =>
+                    withMark(item, {
+                        type: "highlight",
+                        attrs: inlineStyle?.backgroundColor ? { color: inlineStyle.backgroundColor } : undefined,
+                    })
+                );
+                break;
+            case "a":
+                if (href) content = content.map((item) => withMark(item, { type: "link", attrs: { href } }));
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (inlineStyle?.color || inlineStyle?.fontSize) {
+        const attrs: Record<string, unknown> = {};
+        if (inlineStyle.color) attrs.color = inlineStyle.color;
+        if (inlineStyle.fontSize) attrs.fontSize = inlineStyle.fontSize;
+        content = content.map((item) => withMark(item, { type: "textStyle", attrs }));
+    }
+
+    if (inlineStyle?.backgroundColor && !normalizedMarkTypes.includes("mark")) {
+        content = content.map((item) => withMark(item, { type: "highlight", attrs: { color: inlineStyle.backgroundColor } }));
+    }
+
+    return content;
 }
 
 function renderInlineContent(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
@@ -473,8 +673,20 @@ function flattenTableRows(node: SiyuanNode): SiyuanNode[] {
 
 function renderTableCell(node: SiyuanNode, options: SiyuanTiptapConvertOptions, type: "tableHeader" | "tableCell"): TiptapJsonNode {
     const content = renderBlocks(node.Children || [], options);
+    const attrs: Record<string, unknown> = {};
+    const colspan = toPositiveInt(getValue(node, ["colspan", "ColSpan", "colSpan"]));
+    const rowspan = toPositiveInt(getValue(node, ["rowspan", "RowSpan", "rowSpan"]));
+    const colwidth = readCellColwidth(node);
+    const align = getString(node, ["align", "Align", "TableCellAlign", "tableCellAlign", "Alignment"]).trim();
+
+    if (colspan && colspan > 1) attrs.colspan = colspan;
+    if (rowspan && rowspan > 1) attrs.rowspan = rowspan;
+    if (colwidth && colwidth.length > 0) attrs.colwidth = colwidth;
+    if (align) attrs.align = align;
+
     return {
         type,
+        ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
         content: content.length > 0 ? content : [{ type: "paragraph" }],
     };
 }
@@ -490,7 +702,15 @@ function renderTable(node: SiyuanNode, options: SiyuanTiptapConvertOptions): Tip
             content: cells.map((cell) => renderTableCell(cell, options, cellType)),
         });
     }
-    return rows.length > 0 ? [{ type: "table", content: rows }] : [];
+    const attrs: Record<string, unknown> = {};
+    const tableAligns = serializeUnknownValue(getValue(node, ["TableAligns", "tableAligns"]));
+    const colgroup = serializeUnknownValue(getValue(node, ["colgroup", "ColGroup", "tableColgroup", "TableColGroup"]));
+    if (tableAligns !== undefined) attrs.tableAligns = tableAligns;
+    if (colgroup !== undefined) attrs.colgroup = colgroup;
+
+    return rows.length > 0
+        ? [{ type: "table", ...(Object.keys(attrs).length > 0 ? { attrs } : {}), content: rows }]
+        : [];
 }
 
 function renderPlainText(node: SiyuanNode | undefined): string {

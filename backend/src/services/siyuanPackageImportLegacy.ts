@@ -77,6 +77,7 @@ interface NotePlan {
     title: string;
     content: string;
     contentText: string;
+    tags: string[];
     notebookPath: string[];
     updatedAt?: string;
     attachments: AttachmentRow[];
@@ -666,6 +667,7 @@ export async function importSiyuanPackageFromZipFile(
                 title: converted.title || doc.title,
                 content: finalContent,
                 contentText: converted.plainText,
+                tags: uniqueSorted(converted.stats.tags),
                 notebookPath: buildSiyuanNotebookPath(doc.path, docById, boxNames),
                 updatedAt: converted.updatedAt || doc.updatedAt,
                 attachments: attachmentRows,
@@ -690,6 +692,22 @@ export async function importSiyuanPackageFromZipFile(
             INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, workspaceId, hash, uploadSource)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'siyuan_import')
         `);
+        const selectTagByName = db.prepare("SELECT id FROM tags WHERE userId = ? AND name = ? LIMIT 1");
+        const insertTagWithWorkspace = db.prepare(
+            "INSERT OR IGNORE INTO tags (id, userId, name, color, workspaceId) VALUES (?, ?, ?, ?, ?)",
+        );
+        const insertTagWithoutWorkspace = db.prepare(
+            "INSERT OR IGNORE INTO tags (id, userId, name, color) VALUES (?, ?, ?, ?)",
+        );
+        const insertNoteTag = db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)");
+
+        let tagsSupportsWorkspaceId = false;
+        try {
+            db.prepare("SELECT workspaceId FROM tags LIMIT 1").get();
+            tagsSupportsWorkspaceId = true;
+        } catch {
+            tagsSupportsWorkspaceId = false;
+        }
 
         const getOrCreateNotebookByPath = (notebookPath: string[]): string => {
             if (params.targetNotebookId) return params.targetNotebookId;
@@ -755,6 +773,22 @@ export async function importSiyuanPackageFromZipFile(
                         params.workspaceId,
                         attachment.hash,
                     );
+                }
+                for (const tagName of note.tags) {
+                    let existing = selectTagByName.get(params.userId, tagName) as { id: string } | undefined;
+                    if (!existing) {
+                        const newTagId = uuid();
+                        if (tagsSupportsWorkspaceId) {
+                            insertTagWithWorkspace.run(newTagId, params.userId, tagName, "#58a6ff", params.workspaceId);
+                        } else {
+                            insertTagWithoutWorkspace.run(newTagId, params.userId, tagName, "#58a6ff");
+                        }
+                        existing = selectTagByName.get(params.userId, tagName) as { id: string } | undefined;
+                        if (!existing) {
+                            existing = { id: newTagId };
+                        }
+                    }
+                    insertNoteTag.run(note.id, existing.id);
                 }
                 syncAttachmentReferences(db, note.id, note.content);
                 importedNotes.push({ id: note.id, title: note.title, notebookId, version: 1 });

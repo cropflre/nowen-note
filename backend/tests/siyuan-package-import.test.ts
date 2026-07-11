@@ -37,6 +37,14 @@ function text(value: string) {
   return { Type: "NodeText", Data: value };
 }
 
+function textMark(type: string, value: string) {
+  return {
+    Type: "NodeTextMark",
+    TextMarkType: type,
+    TextMarkTextContent: value,
+  };
+}
+
 function image(src: string, alt = "图片") {
   return {
     Type: "NodeImage",
@@ -318,6 +326,55 @@ test("service import stores Tiptap JSON when contentFormat is tiptap-json", asyn
     .prepare("SELECT COUNT(*) AS count FROM attachment_references WHERE noteId = ?")
     .get(note.id) as { count: number };
   assert.equal(referenceCount.count, 2);
+});
+
+test("service import syncs Siyuan tags into tags and note_tags", async () => {
+  db()
+    .prepare("INSERT INTO tags (id, userId, name, color, workspaceId) VALUES (?, ?, ?, ?, ?)")
+    .run("existing-tag", USER_ID, "共同", "#58a6ff", WORKSPACE_ID);
+
+  const zipPath = await writeZip("tag-sync-import.zip", {
+    "tag-doc-1.sy": JSON.stringify(syDoc("tag-doc-1", "标签文档一", [
+      paragraph([text("标签 "), textMark("tag", "共同"), text(" 与 "), textMark("tag", "新增")]),
+    ])),
+    "tag-doc-2.sy": JSON.stringify(syDoc("tag-doc-2", "标签文档二", [
+      paragraph([text("另一个标签 "), textMark("tag", "#新增#")]),
+    ])),
+  });
+
+  const result = await importSiyuanPackageFromZipFile(zipPath, {
+    userId: USER_ID,
+    workspaceId: WORKSPACE_ID,
+    targetNotebookId: TARGET_NOTEBOOK_ID,
+    contentFormat: "markdown",
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.count, 2);
+
+  const tags = db()
+    .prepare("SELECT id, name, workspaceId FROM tags WHERE userId = ? AND name IN (?, ?) ORDER BY name")
+    .all(USER_ID, "共同", "新增") as Array<{ id: string; name: string; workspaceId: string | null }>;
+  assert.deepEqual(tags.map((item) => item.name), ["共同", "新增"]);
+  assert.equal(tags.find((item) => item.name === "共同")?.id, "existing-tag");
+  assert.ok(tags.find((item) => item.name === "新增")?.id);
+  assert.ok(tags.every((item) => item.workspaceId === WORKSPACE_ID));
+
+  const links = db()
+    .prepare(`
+      SELECT n.title AS title, t.name AS tagName
+      FROM note_tags nt
+      JOIN notes n ON n.id = nt.noteId
+      JOIN tags t ON t.id = nt.tagId
+      WHERE n.title IN (?, ?)
+      ORDER BY n.title, t.name
+    `)
+    .all("标签文档一", "标签文档二") as Array<{ title: string; tagName: string }>;
+  assert.deepEqual(links, [
+    { title: "标签文档一", tagName: "共同" },
+    { title: "标签文档一", tagName: "新增" },
+    { title: "标签文档二", tagName: "新增" },
+  ]);
 });
 
 test("service import removes newly written files when database insert fails", async () => {

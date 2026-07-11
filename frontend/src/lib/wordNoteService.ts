@@ -27,7 +27,11 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
+import {
+  TableWithSiyuanAttrs,
+  TableCellWithAlign,
+  TableHeaderWithAlign,
+} from "@/components/extensions/TableFidelityExtensions";
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import { common, createLowlight } from "lowlight";
 import { TextStyleKit } from "@/components/FontSizeExtension";
@@ -44,10 +48,10 @@ const tiptapExtensions = [
   Highlight.configure({ multicolor: true }),
   TaskList,
   TaskItem.configure({ nested: true }),
-  Table.configure({ resizable: false }),
+  TableWithSiyuanAttrs.configure({ resizable: false }),
   TableRowWithHeight,
-  TableHeader,
-  TableCell,
+  TableHeaderWithAlign,
+  TableCellWithAlign,
   ...TextStyleKit,
   VideoExtension,
 ];
