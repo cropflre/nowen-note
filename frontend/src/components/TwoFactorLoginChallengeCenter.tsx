@@ -9,7 +9,11 @@ import {
 } from "@/lib/twoFactorLoginChallenge";
 
 function storeLoginToken(token: string): void {
-  localStorage.setItem("nowen-token", token);
+  try {
+    localStorage.setItem("nowen-token", token);
+  } catch {
+    /* AuthGate reload will fall back to the login page if storage is unavailable. */
+  }
   try {
     window.dispatchEvent(new CustomEvent("nowen:token-changed"));
   } catch {
@@ -77,14 +81,16 @@ export default function TwoFactorLoginChallengeCenter() {
   useEffect(() => {
     if (!challenge) return;
     const delay = Math.max(0, challenge.expiresAt - Date.now());
-    const timer = window.setTimeout(() => {
+    const expiryTimer = window.setTimeout(() => {
       clearTwoFactorLoginChallenge();
-      setError(copy.expired);
       window.location.reload();
     }, delay + 25);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [challenge, copy.expired]);
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(expiryTimer);
+      window.clearTimeout(focusTimer);
+    };
+  }, [challenge]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -128,10 +134,7 @@ export default function TwoFactorLoginChallengeCenter() {
     try {
       const response = await fetch(current.verifyUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store",
-        },
+        headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
           ticket: current.ticket,
