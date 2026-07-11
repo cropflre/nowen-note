@@ -1,3 +1,5 @@
+import "../routes/user-migration-v2-register";
+
 export const DEFAULT_NATIVE_CORS_ORIGINS = [
   "https://localhost",
   "http://localhost",
