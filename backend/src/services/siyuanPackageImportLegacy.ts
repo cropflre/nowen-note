@@ -50,6 +50,13 @@ function tagsSupportWorkspaceId(): boolean {
     }
 }
 
+function listExistingTagIds(userId: string): Set<string> {
+    const rows = getDb()
+        .prepare("SELECT id FROM tags WHERE userId = ?")
+        .all(userId) as Array<{ id: string }>;
+    return new Set(rows.map((row) => row.id));
+}
+
 function readImportedTagLinks(noteIds: string[], withWorkspaceId: boolean): ImportedTagLinkRow[] {
     if (noteIds.length === 0) return [];
     const db = getDb();
@@ -73,7 +80,7 @@ function readImportedTagLinks(noteIds: string[], withWorkspaceId: boolean): Impo
     return rows;
 }
 
-function cleanImportedTagLinks(noteIds: string[]): string[] {
+function cleanImportedTagLinks(noteIds: string[], preExistingTagIds: Set<string>): string[] {
     if (noteIds.length === 0) return [];
     const db = getDb();
     const withWorkspaceId = tagsSupportWorkspaceId();
@@ -105,7 +112,9 @@ function cleanImportedTagLinks(noteIds: string[]): string[] {
             deleteLink.run(row.noteId, row.tagId);
         }
         for (const tagId of new Set(rejected.map((row) => row.tagId))) {
-            deleteOrphanTag.run(tagId, tagId);
+            if (!preExistingTagIds.has(tagId)) {
+                deleteOrphanTag.run(tagId, tagId);
+            }
         }
     })();
 
@@ -124,7 +133,8 @@ function cleanImportedTagLinks(noteIds: string[]): string[] {
  *
  * - note and tag must belong to the same workspace;
  * - tag names must be non-empty and at most 30 characters;
- * - newly-created invalid tags are removed when they have no remaining links.
+ * - newly-created invalid tags are removed when they have no remaining links;
+ * - pre-existing account tags are never deleted by import cleanup.
  *
  * The core import remains transaction-oriented for notes and attachments, while
  * this synchronous audit prevents imported data from retaining relationships
@@ -134,8 +144,12 @@ export async function importSiyuanPackageFromZipFile(
     zipFilePath: string,
     params: ImportParams,
 ): Promise<SiyuanPackageImportResult> {
+    const preExistingTagIds = listExistingTagIds(params.userId);
     const result = await importSiyuanPackageCore(zipFilePath, params);
-    const cleanupWarnings = cleanImportedTagLinks(result.notes.map((note) => note.id));
+    const cleanupWarnings = cleanImportedTagLinks(
+        result.notes.map((note) => note.id),
+        preExistingTagIds,
+    );
     return {
         ...result,
         warnings: uniqueSorted([...result.warnings, ...cleanupWarnings]),
