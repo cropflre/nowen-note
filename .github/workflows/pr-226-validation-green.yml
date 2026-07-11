@@ -85,7 +85,7 @@ jobs:
           npx tsc -b --pretty false > ../../main-tsc.log 2>&1
           echo $? > ../../main-tsc.status
           set -e
-      - name: Assert no new TypeScript diagnostics
+      - name: Prepare TypeScript diagnostic delta
         shell: bash
         run: |
           grep 'error TS' head-tsc.log | sort > head-errors.txt || true
@@ -94,4 +94,17 @@ jobs:
           cat main-errors.txt
           echo 'Proposed branch diagnostics:'
           cat head-errors.txt
-          diff -u main-errors.txt head-errors.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-typecheck-delta
+          path: |
+            head-tsc.log
+            main-tsc.log
+            head-tsc.status
+            main-tsc.status
+            head-errors.txt
+            main-errors.txt
+      - name: Assert no new TypeScript diagnostics
+        shell: bash
+        run: diff -u main-errors.txt head-errors.txt
