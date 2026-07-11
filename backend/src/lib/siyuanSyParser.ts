@@ -115,24 +115,45 @@ function collectHtmlAssetRefs(node: SiyuanNode, images: Set<string>, attachments
     for (const child of node.Children || []) collectHtmlAssetRefs(child, images, attachments);
 }
 
+function countNodeType(node: SiyuanNode, type: string): number {
+    let count = node.Type === type ? 1 : 0;
+    for (const child of node.Children || []) count += countNodeType(child, type);
+    return count;
+}
+
 /**
  * Compatibility wrapper around the mature SiYuan parser.
  *
  * The legacy converter remains responsible for all existing block fidelity. We only
  * normalize pieces it previously dropped: emoji nodes, iframe nodes and asset refs
  * embedded inside raw HTML. Iframes become raw HTML and are rendered later by the
- * sanitized Markdown preview.
+ * sanitized Markdown preview or converted into supported Tiptap video/link nodes.
  */
 export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
+    const iframeCount = countNodeType(doc, "NodeIFrame");
     const prepared = prepareNode(doc);
     const result = legacySiyuanSyToMarkdown(prepared);
     const images = new Set(result.stats.images);
     const attachments = new Set(result.stats.attachments);
+    const unsupportedNodes = { ...result.stats.unsupportedNodes };
+    const warnings = [...result.warnings];
+
     collectHtmlAssetRefs(prepared, images, attachments);
+
+    // Keep the historical import-reporting contract even though the enhanced parser
+    // normalizes iframe nodes before the legacy parser sees them. The content itself is
+    // still preserved as a supported video or a safe link by the rich-text converter.
+    if (iframeCount > 0) {
+        unsupportedNodes.NodeIFrame = (unsupportedNodes.NodeIFrame || 0) + iframeCount;
+        warnings.push("Siyuan iframe content was downgraded to a supported video or safe link.");
+    }
+
     return {
         ...result,
+        warnings,
         stats: {
             ...result.stats,
+            unsupportedNodes,
             images: [...images].sort((a, b) => a.localeCompare(b)),
             attachments: [...attachments].sort((a, b) => a.localeCompare(b)),
         },
