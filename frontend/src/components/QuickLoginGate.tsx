@@ -30,6 +30,7 @@ import {
   getQuickLoginUsername,
 } from "@/lib/quickLogin";
 import { setServerUrl, getServerUrl } from "@/lib/api";
+import { hasActiveTwoFactorLoginChallenge } from "@/lib/twoFactorLoginChallenge";
 import type { User } from "@/types";
 
 interface Props {
@@ -59,6 +60,13 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 密码第一步已经签发 2FA ticket 时，必须优先完成该挑战。否则 Android
+      // 生物识别弹窗会覆盖验证码层，用户会误以为又被退回普通登录。
+      if (hasActiveTwoFactorLoginChallenge()) {
+        if (!cancelled) onSettled(false);
+        return;
+      }
+
       if (!isQuickLoginPlatformSupported()) {
         if (!cancelled) onSettled(false);
         return;
