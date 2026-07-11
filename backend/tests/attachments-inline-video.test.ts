@@ -115,6 +115,22 @@ test("empty Android MIME is normalized from a known video extension", async () =
   assert.equal(inlineRes.headers.get("content-type"), "video/mp4");
 });
 
+test("legacy octet-stream video rows are repaired lazily before inline playback", async () => {
+  const uploaded = await uploadVideo({ filename: "legacy-camera.mp4", seed: 25 });
+  db().prepare("UPDATE attachments SET mimeType = 'application/octet-stream' WHERE id = ?")
+    .run(uploaded.id);
+
+  const inlineRes = await app.request(`/attachments/${uploaded.id}?inline=1`, {
+    headers: { "X-User-Id": USER_ID },
+  });
+  assert.equal(inlineRes.status, 200);
+  assert.equal(inlineRes.headers.get("content-type"), "video/mp4");
+
+  const repaired = db().prepare("SELECT mimeType FROM attachments WHERE id = ?")
+    .get(uploaded.id) as { mimeType: string };
+  assert.equal(repaired.mimeType, "video/mp4");
+});
+
 test("video attachments respond to browser byte ranges for seeking", async () => {
   const uploaded = await uploadVideo({ seed: 22 });
   const rangeRes = await app.request(`/attachments/${uploaded.id}?inline=1`, {
