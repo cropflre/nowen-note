@@ -1,5 +1,5 @@
 import { api, getCurrentWorkspace } from "@/lib/api";
-import type { Task, TaskDependency, TaskPriority, TaskProject, TaskReminder, TaskStatus } from "@/types";
+import type { Task, TaskPriority, TaskReminder, TaskStatus } from "@/types";
 
 export const TASK_BACKUP_FORMAT = "nowen-task-backup";
 export const TASK_BACKUP_VERSION = 1;
@@ -34,6 +34,7 @@ export interface TaskBackupTask {
   dueDate: string | null;
   dueAt: string | null;
   startDate: string | null;
+  /** Kept in the backup for diagnostics; imports deliberately detach source note links. */
   noteId: string | null;
   parentSourceId: string | null;
   projectSourceId: string | null;
@@ -139,6 +140,10 @@ function nullableText(value: unknown, maxLength = 128): string | null {
   return normalized || null;
 }
 
+function normalizedName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
 function normalizeStatus(value: unknown): TaskStatus {
   const raw = String(value ?? "todo").trim().toLowerCase();
   if (["done", "completed", "complete", "已完成", "完成"].includes(raw)) return "done";
@@ -156,10 +161,9 @@ function normalizePriority(value: unknown): TaskPriority {
 
 function normalizeRepeatRule(value: unknown): TaskBackupTask["repeatRule"] {
   const raw = String(value ?? "none").trim().toLowerCase();
-  if (["daily", "weekly", "monthly", "yearly", "custom"].includes(raw)) {
-    return raw as TaskBackupTask["repeatRule"];
-  }
-  return "none";
+  return ["daily", "weekly", "monthly", "yearly", "custom"].includes(raw)
+    ? raw as TaskBackupTask["repeatRule"]
+    : "none";
 }
 
 function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -177,17 +181,15 @@ function normalizeBooleanNumber(value: unknown): number {
 function normalizeRepeatRuleJson(value: unknown): Record<string, unknown> | null {
   if (!value) return null;
   if (typeof value === "object" && !Array.isArray(value)) return { ...(value as Record<string, unknown>) };
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      return null;
-    }
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function randomId(prefix: string): string {
@@ -195,10 +197,6 @@ function randomId(prefix: string): string {
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}-${suffix}`;
-}
-
-function normalizedName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
 function csvEscape(value: unknown): string {
@@ -227,9 +225,8 @@ export function parseCsvRows(text: string): string[][] {
       continue;
     }
 
-    if (char === '"') {
-      quoted = true;
-    } else if (char === ",") {
+    if (char === '"') quoted = true;
+    else if (char === ",") {
       row.push(field);
       field = "";
     } else if (char === "\n") {
@@ -237,11 +234,10 @@ export function parseCsvRows(text: string): string[][] {
       if (row.some((item) => item.length > 0)) rows.push(row);
       row = [];
       field = "";
-    } else {
-      field += char;
-    }
+    } else field += char;
   }
 
+  if (quoted) throw new Error("CSV 存在未闭合的引号");
   row.push(field.replace(/\r$/, ""));
   if (row.some((item) => item.length > 0)) rows.push(row);
   return rows;
@@ -296,12 +292,11 @@ function normalizeHeader(value: string): string {
 function buildTaskPathMap(tasks: Array<{ sourceId: string; parentSourceId: string | null; title: string }>): Map<string, string> {
   const byId = new Map(tasks.map((task) => [task.sourceId, task]));
   const cache = new Map<string, string>();
-
   const resolve = (id: string, visiting = new Set<string>()): string => {
     if (cache.has(id)) return cache.get(id)!;
     const task = byId.get(id);
     if (!task) return "";
-    if (visiting.has(id)) return task.title;
+    if (visiting.has(id)) throw new Error(`任务层级存在循环引用：${task.title}`);
     visiting.add(id);
     const parentPath = task.parentSourceId ? resolve(task.parentSourceId, visiting) : "";
     visiting.delete(id);
@@ -309,36 +304,33 @@ function buildTaskPathMap(tasks: Array<{ sourceId: string; parentSourceId: strin
     cache.set(id, path);
     return path;
   };
-
   for (const task of tasks) resolve(task.sourceId);
   return cache;
 }
 
 export function buildTaskCsv(pkg: TaskBackupPackage): string {
-  const projectNames = new Map(pkg.data.projects.map((project) => [project.sourceId, project.name]));
-  const paths = buildTaskPathMap(pkg.data.tasks);
-  const rows = pkg.data.tasks.map((task) => {
-    const parentPath = task.parentSourceId ? paths.get(task.parentSourceId) || "" : "";
-    return [
-      task.sourceId,
-      task.parentSourceId || "",
-      task.title,
-      task.description,
-      task.status,
-      task.priority,
-      task.startDate || "",
-      task.dueDate || "",
-      task.dueAt || "",
-      task.projectSourceId ? projectNames.get(task.projectSourceId) || "" : "",
-      parentPath,
-      task.repeatRule,
-      task.repeatInterval,
-      task.repeatEndDate || "",
-      task.repeatEndCount ?? "",
-      task.isCompleted,
-      task.sortOrder,
-    ].map(csvEscape).join(",");
-  });
+  const normalized = normalizeTaskBackup(pkg);
+  const projectNames = new Map(normalized.data.projects.map((project) => [project.sourceId, project.name]));
+  const paths = buildTaskPathMap(normalized.data.tasks);
+  const rows = normalized.data.tasks.map((task) => [
+    task.sourceId,
+    task.parentSourceId || "",
+    task.title,
+    task.description,
+    task.status,
+    task.priority,
+    task.startDate || "",
+    task.dueDate || "",
+    task.dueAt || "",
+    task.projectSourceId ? projectNames.get(task.projectSourceId) || "" : "",
+    task.parentSourceId ? paths.get(task.parentSourceId) || "" : "",
+    task.repeatRule,
+    task.repeatInterval,
+    task.repeatEndDate || "",
+    task.repeatEndCount ?? "",
+    task.isCompleted,
+    task.sortOrder,
+  ].map(csvEscape).join(","));
   return `\uFEFF${CSV_HEADERS.join(",")}\r\n${rows.join("\r\n")}`;
 }
 
@@ -392,10 +384,10 @@ export function taskBackupFromCsv(text: string): TaskBackupPackage {
       status,
       repeatRule,
       repeatInterval: normalizeInteger(record.repeatInterval, 1, 1, 999),
-      repeatEndDate: nullableText(record.repeatEndDate),
-      repeatEndCount: record.repeatEndCount.trim()
-        ? normalizeInteger(record.repeatEndCount, 1, 1, 999)
-        : null,
+      repeatEndDate: repeatRule === "none" ? null : nullableText(record.repeatEndDate),
+      repeatEndCount: repeatRule === "none" || !record.repeatEndCount?.trim()
+        ? null
+        : normalizeInteger(record.repeatEndCount, 1, 1, 999),
       repeatGroupId: null,
       repeatGeneratedFromSourceId: null,
       repeatRuleJson: null,
@@ -408,7 +400,8 @@ export function taskBackupFromCsv(text: string): TaskBackupPackage {
   for (const task of tasks) {
     const parentPath = rawParentPaths.get(task.sourceId) || "";
     const fullPath = parentPath ? `${parentPath} / ${task.title}` : task.title;
-    if (!fullPathToId.has(normalizedName(fullPath))) fullPathToId.set(normalizedName(fullPath), task.sourceId);
+    const key = normalizedName(fullPath);
+    if (!fullPathToId.has(key)) fullPathToId.set(key, task.sourceId);
   }
   for (const task of tasks) {
     if (task.parentSourceId) continue;
@@ -474,6 +467,30 @@ function sanitizeTask(input: unknown, index: number): TaskBackupTask {
   };
 }
 
+function validateTaskHierarchy(tasks: TaskBackupTask[]): void {
+  const byId = new Map(tasks.map((task) => [task.sourceId, task]));
+  const completed = new Set<string>();
+
+  for (const task of tasks) {
+    if (completed.has(task.sourceId)) continue;
+    const path: string[] = [];
+    const positions = new Map<string, number>();
+    let current: TaskBackupTask | undefined = task;
+
+    while (current && !completed.has(current.sourceId)) {
+      const position = positions.get(current.sourceId);
+      if (position !== undefined) {
+        const cycle = path.slice(position).map((id) => byId.get(id)?.title || id).join(" → ");
+        throw new Error(`任务层级存在循环引用：${cycle}`);
+      }
+      positions.set(current.sourceId, path.length);
+      path.push(current.sourceId);
+      current = current.parentSourceId ? byId.get(current.parentSourceId) : undefined;
+    }
+    path.forEach((id) => completed.add(id));
+  }
+}
+
 export function normalizeTaskBackup(input: unknown): TaskBackupPackage {
   if (!input || typeof input !== "object") throw new Error("不是有效的待办备份文件");
   const root = input as Record<string, unknown>;
@@ -482,12 +499,12 @@ export function normalizeTaskBackup(input: unknown): TaskBackupPackage {
   if (!Number.isFinite(version) || version < 1 || version > TASK_BACKUP_VERSION) {
     throw new Error(`不支持的备份版本：${String(root.version)}`);
   }
+
   const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : {};
   const rawProjects = Array.isArray(data.projects) ? data.projects : [];
   const rawTasks = Array.isArray(data.tasks) ? data.tasks : [];
   const rawDependencies = Array.isArray(data.dependencies) ? data.dependencies : [];
   const rawReminders = Array.isArray(data.reminders) ? data.reminders : [];
-
   if (rawProjects.length > TASK_IMPORT_MAX_PROJECTS) throw new Error(`项目数量超过 ${TASK_IMPORT_MAX_PROJECTS}`);
   if (rawTasks.length > TASK_IMPORT_MAX_TASKS) throw new Error(`任务数量超过 ${TASK_IMPORT_MAX_TASKS}`);
   if (rawDependencies.length > TASK_IMPORT_MAX_RELATIONS || rawReminders.length > TASK_IMPORT_MAX_RELATIONS) {
@@ -506,6 +523,7 @@ export function normalizeTaskBackup(input: unknown): TaskBackupPackage {
     if (taskIds.has(task.sourceId)) throw new Error(`任务 ID 重复：${task.sourceId}`);
     taskIds.add(task.sourceId);
   }
+  validateTaskHierarchy(tasks);
 
   const dependencies: TaskBackupDependency[] = rawDependencies.map((value, index) => {
     const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -522,7 +540,7 @@ export function normalizeTaskBackup(input: unknown): TaskBackupPackage {
     return {
       taskSourceId,
       offsetMinutes: normalizeInteger(row.offsetMinutes, 0, -525600, 525600),
-      enabled: normalizeBooleanNumber(row.enabled),
+      enabled: row.enabled === undefined ? 1 : normalizeBooleanNumber(row.enabled),
       snoozedUntil: nullableText(row.snoozedUntil, 64),
     };
   });
@@ -562,13 +580,8 @@ export async function collectTaskBackup(onProgress?: TaskImportOptions["onProgre
   ]);
   onProgress?.({ phase: "collect", current: 2, total: 3, message: "正在读取任务提醒…" });
 
-  const reminderLists = await mapWithConcurrency(tasks, 8, async (task) => {
-    try {
-      return await api.getTaskReminders(task.id);
-    } catch {
-      return [] as TaskReminder[];
-    }
-  });
+  // A backup must not silently convert a failed reminder request into an empty reminder list.
+  const reminderLists = await mapWithConcurrency(tasks, 8, (task) => api.getTaskReminders(task.id));
   const taskIds = new Set(tasks.map((task) => task.id));
   const projectIds = new Set(projects.map((project) => project.id));
 
@@ -629,16 +642,19 @@ export async function collectTaskBackup(onProgress?: TaskImportOptions["onProgre
     },
   };
   onProgress?.({ phase: "done", current: 3, total: 3, message: "备份数据已准备完成" });
-  return pkg;
+  return normalizeTaskBackup(pkg);
 }
 
 export function summarizeTaskBackup(pkg: TaskBackupPackage): Omit<TaskImportPreview, "format" | "fileName" | "pkg"> {
   const taskIds = new Set(pkg.data.tasks.map((task) => task.sourceId));
+  const projectIds = new Set(pkg.data.projects.map((project) => project.sourceId));
   const warnings: string[] = [];
   const missingParents = pkg.data.tasks.filter((task) => task.parentSourceId && !taskIds.has(task.parentSourceId)).length;
-  const missingProjects = pkg.data.tasks.filter((task) => task.projectSourceId && !pkg.data.projects.some((project) => project.sourceId === task.projectSourceId)).length;
+  const missingProjects = pkg.data.tasks.filter((task) => task.projectSourceId && !projectIds.has(task.projectSourceId)).length;
+  const linkedNotes = pkg.data.tasks.filter((task) => !!task.noteId).length;
   if (missingParents) warnings.push(`${missingParents} 个任务的父任务不在文件中，将作为顶级任务导入`);
   if (missingProjects) warnings.push(`${missingProjects} 个任务引用了缺失项目，将导入到“无项目”`);
+  if (linkedNotes) warnings.push(`${linkedNotes} 个任务关联了源笔记；导入时将解除旧关联，避免跨空间错误链接`);
   return {
     projects: pkg.data.projects.length,
     tasks: pkg.data.tasks.length,
@@ -654,7 +670,16 @@ export async function parseTaskImportFile(file: File): Promise<TaskImportPreview
   if (file.size > TASK_IMPORT_MAX_FILE_BYTES) throw new Error("文件超过 10MB，无法导入");
   const text = await file.text();
   const isCsv = /\.csv$/i.test(file.name) || /csv/i.test(file.type);
-  const pkg = isCsv ? taskBackupFromCsv(text) : normalizeTaskBackup(JSON.parse(text));
+  let pkg: TaskBackupPackage;
+  if (isCsv) pkg = taskBackupFromCsv(text);
+  else {
+    try {
+      pkg = normalizeTaskBackup(JSON.parse(text));
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error("JSON 文件格式错误，无法解析");
+      throw error;
+    }
+  }
   return { format: isCsv ? "csv" : "json", fileName: file.name, pkg, ...summarizeTaskBackup(pkg) };
 }
 
@@ -682,7 +707,7 @@ export function createTaskImportSignature(input: {
   ].join("\u001f");
 }
 
-function taskPathForRuntime(taskId: string, tasks: Task[], cache = new Map<string, string>(), visiting = new Set<string>()): string {
+function taskPathForRuntime(taskId: string, tasks: Task[], cache: Map<string, string>, visiting = new Set<string>()): string {
   if (cache.has(taskId)) return cache.get(taskId)!;
   const task = tasks.find((item) => item.id === taskId);
   if (!task) return "";
@@ -695,17 +720,24 @@ function taskPathForRuntime(taskId: string, tasks: Task[], cache = new Map<strin
   return path;
 }
 
-function sourceDepth(task: TaskBackupTask, byId: Map<string, TaskBackupTask>, visiting = new Set<string>()): number {
-  if (!task.parentSourceId || !byId.has(task.parentSourceId)) return 0;
-  if (visiting.has(task.sourceId)) return 0;
-  visiting.add(task.sourceId);
-  const parent = byId.get(task.parentSourceId)!;
-  const depth = 1 + sourceDepth(parent, byId, visiting);
-  visiting.delete(task.sourceId);
-  return Math.min(depth, 100);
+function orderedSourceTasks(tasks: TaskBackupTask[]): TaskBackupTask[] {
+  const byId = new Map(tasks.map((task) => [task.sourceId, task]));
+  const emitted = new Set<string>();
+  const ordered: TaskBackupTask[] = [];
+  const visit = (task: TaskBackupTask) => {
+    if (emitted.has(task.sourceId)) return;
+    const parent = task.parentSourceId ? byId.get(task.parentSourceId) : undefined;
+    if (parent) visit(parent);
+    emitted.add(task.sourceId);
+    ordered.push(task);
+  };
+  [...tasks]
+    .sort((a, b) => a.sortOrder - b.sortOrder || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+    .forEach(visit);
+  return ordered;
 }
 
-function importedParentPath(task: TaskBackupTask, byId: Map<string, TaskBackupTask>, cache = new Map<string, string>()): string {
+function importedParentPath(task: TaskBackupTask, byId: Map<string, TaskBackupTask>, cache: Map<string, string>): string {
   if (!task.parentSourceId) return "";
   if (cache.has(task.parentSourceId)) return cache.get(task.parentSourceId)!;
   const parent = byId.get(task.parentSourceId);
@@ -726,6 +758,12 @@ async function rollbackImport(created: {
   for (const id of [...created.reminders].reverse()) await api.deleteTaskReminder(id).catch(() => undefined);
   for (const id of [...created.tasks].reverse()) await api.deleteTask(id).catch(() => undefined);
   for (const id of [...created.projects].reverse()) await api.deleteTaskProject(id).catch(() => undefined);
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+  return result;
 }
 
 export async function importTaskBackup(rawPackage: TaskBackupPackage, options: TaskImportOptions = {}): Promise<TaskImportResult> {
@@ -755,6 +793,8 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
     options.onProgress?.({ phase: "projects", current: 0, total: pkg.data.projects.length, message: "正在合并项目…" });
     const projectIdMap = new Map<string, string>();
     const projectsByName = new Map(existingProjects.map((project) => [normalizedName(project.name), project]));
+    const projectNameById = new Map(existingProjects.map((project) => [project.id, project.name]));
+
     for (let index = 0; index < pkg.data.projects.length; index += 1) {
       const project = pkg.data.projects[index];
       const existing = projectsByName.get(normalizedName(project.name));
@@ -762,31 +802,33 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
         projectIdMap.set(project.sourceId, existing.id);
         result.reusedProjects += 1;
       } else {
-        const createdProject = await api.createTaskProject({ name: project.name, icon: project.icon, color: project.color });
+        let createdProject = await api.createTaskProject({ name: project.name, icon: project.icon, color: project.color });
+        created.projects.push(createdProject.id);
+        if (createdProject.sortOrder !== project.sortOrder) {
+          try {
+            createdProject = await api.updateTaskProject(createdProject.id, { sortOrder: project.sortOrder });
+          } catch {
+            warnings.push(`项目“${project.name}”已导入，但排序位置未能恢复`);
+          }
+        }
         projectIdMap.set(project.sourceId, createdProject.id);
         projectsByName.set(normalizedName(project.name), createdProject);
-        created.projects.push(createdProject.id);
+        projectNameById.set(createdProject.id, project.name);
         result.createdProjects += 1;
       }
       options.onProgress?.({ phase: "projects", current: index + 1, total: pkg.data.projects.length, message: `正在合并项目 ${index + 1}/${pkg.data.projects.length}` });
     }
-
-    const taskBySourceId = new Map(pkg.data.tasks.map((task) => [task.sourceId, task]));
-    const orderedTasks = [...pkg.data.tasks].sort((a, b) => {
-      const depthDiff = sourceDepth(a, taskBySourceId) - sourceDepth(b, taskBySourceId);
-      if (depthDiff !== 0) return depthDiff;
-      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-      return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
-    });
-    const sourceToTargetTaskId = new Map<string, string>();
-    const runtimePathCache = new Map<string, string>();
-    const projectNameById = new Map(existingProjects.map((project) => [project.id, project.name]));
-    for (const [sourceId, targetId] of projectIdMap) {
-      const sourceProject = pkg.data.projects.find((project) => project.sourceId === sourceId);
-      if (sourceProject) projectNameById.set(targetId, sourceProject.name);
+    for (const project of pkg.data.projects) {
+      const targetId = projectIdMap.get(project.sourceId);
+      if (targetId) projectNameById.set(targetId, project.name);
     }
 
+    const taskBySourceId = new Map(pkg.data.tasks.map((task) => [task.sourceId, task]));
+    const orderedTasks = orderedSourceTasks(pkg.data.tasks);
+    const sourceToTargetTaskId = new Map<string, string>();
+    const runtimePathCache = new Map<string, string>();
     const existingSignatureMap = new Map<string, string>();
+
     for (const task of existingTasks) {
       const parentPath = task.parentId ? taskPathForRuntime(task.parentId, existingTasks, runtimePathCache) : "";
       const signature = createTaskImportSignature({
@@ -800,6 +842,7 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
     const repeatGroupMap = new Map<string, string>();
     const importedPathCache = new Map<string, string>();
     options.onProgress?.({ phase: "tasks", current: 0, total: orderedTasks.length, message: "正在导入任务…" });
+
     for (let index = 0; index < orderedTasks.length; index += 1) {
       const task = orderedTasks[index];
       const parentId = task.parentSourceId ? sourceToTargetTaskId.get(task.parentSourceId) || null : null;
@@ -836,6 +879,9 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
       const repeatGeneratedFromId = task.repeatGeneratedFromSourceId
         ? sourceToTargetTaskId.get(task.repeatGeneratedFromSourceId) || null
         : null;
+      if (task.repeatGeneratedFromSourceId && !repeatGeneratedFromId) {
+        warnings.push(`“${task.title}”的循环来源尚未创建，来源关联未恢复`);
+      }
 
       const createdTask = await api.createTask({
         title: task.title,
@@ -846,7 +892,8 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
         dueDate: task.dueDate,
         dueAt: task.dueAt,
         startDate: task.startDate,
-        noteId: task.noteId,
+        // Source note IDs are scoped to another database/workspace and may violate the FK.
+        noteId: null,
         parentId,
         projectId,
         sortOrder: task.sortOrder,
@@ -866,19 +913,24 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
       options.onProgress?.({ phase: "tasks", current: index + 1, total: orderedTasks.length, message: `正在导入任务 ${index + 1}/${orderedTasks.length}` });
     }
 
-    const reorderGroups = new Map<string, Array<{ id: string; sortOrder: number }>>();
+    // Never reorder pre-existing tasks that were only matched as duplicates.
+    const createdTaskIds = new Set(created.tasks);
+    const reorderGroups = new Map<string, Map<string, number>>();
     for (const task of pkg.data.tasks) {
       const id = sourceToTargetTaskId.get(task.sourceId);
-      if (!id) continue;
+      if (!id || !createdTaskIds.has(id)) continue;
       const parentId = task.parentSourceId ? sourceToTargetTaskId.get(task.parentSourceId) || "" : "";
       const key = parentId || "__root__";
-      const group = reorderGroups.get(key) || [];
-      group.push({ id, sortOrder: task.sortOrder });
+      const group = reorderGroups.get(key) || new Map<string, number>();
+      group.set(id, task.sortOrder);
       reorderGroups.set(key, group);
     }
-    for (const items of reorderGroups.values()) {
-      if (items.length > 0 && items.length <= 200) {
-        await api.reorderTasks(items.sort((a, b) => a.sortOrder - b.sortOrder)).catch(() => undefined);
+    for (const group of reorderGroups.values()) {
+      const items = [...group.entries()]
+        .map(([id, sortOrder]) => ({ id, sortOrder }))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      for (const batch of chunks(items, 200)) {
+        await api.reorderTasks(batch).catch(() => undefined);
       }
     }
 
@@ -886,6 +938,7 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
     let relationCurrent = 0;
     options.onProgress?.({ phase: "relations", current: 0, total: relationTotal, message: "正在恢复依赖与提醒…" });
     const existingDependencyKeys = new Set(existingDependencies.map((dependency) => `${dependency.predecessorTaskId}\u001f${dependency.successorTaskId}`));
+
     for (const dependency of pkg.data.dependencies) {
       const predecessorTaskId = sourceToTargetTaskId.get(dependency.predecessorSourceId);
       const successorTaskId = sourceToTargetTaskId.get(dependency.successorSourceId);
@@ -914,18 +967,16 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
         result.skippedReminders += 1;
         continue;
       }
-      if (!reminderCache.has(taskId)) {
-        reminderCache.set(taskId, await api.getTaskReminders(taskId).catch(() => []));
-      }
+      if (!reminderCache.has(taskId)) reminderCache.set(taskId, await api.getTaskReminders(taskId));
       const existing = reminderCache.get(taskId)!;
       if (existing.some((item) => item.offsetMinutes === reminder.offsetMinutes)) {
         result.skippedReminders += 1;
         continue;
       }
-      const createdReminder = await api.createTaskReminder(taskId, reminder.offsetMinutes);
+      let createdReminder = await api.createTaskReminder(taskId, reminder.offsetMinutes);
       created.reminders.push(createdReminder.id);
       if (!reminder.enabled || reminder.snoozedUntil) {
-        await api.updateTaskReminder(createdReminder.id, {
+        createdReminder = await api.updateTaskReminder(createdReminder.id, {
           enabled: !!reminder.enabled,
           snoozedUntil: reminder.snoozedUntil,
         });
