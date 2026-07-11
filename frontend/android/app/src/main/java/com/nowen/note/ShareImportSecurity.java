@@ -96,12 +96,24 @@ public final class ShareImportSecurity {
         return filename.substring(dot + 1).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
+    public static String normalizeMime(String mime) {
+        if (mime == null) return "";
+        String normalized = mime.toLowerCase(Locale.ROOT).trim();
+        // ContentResolver#getType is expected to return only type/subtype. Reject parameters,
+        // whitespace, CR/LF and other delimiter characters before using the value in multipart.
+        if (!normalized.matches("^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,127}$")) {
+            return "";
+        }
+        return normalized;
+    }
+
     public static boolean isBlockedExtension(String filename) {
         return BLOCKED_EXTENSIONS.contains(extensionOf(filename));
     }
 
     public static boolean isBlockedMime(String mime) {
-        return mime != null && BLOCKED_MIMES.contains(mime.toLowerCase(Locale.ROOT).trim());
+        String normalized = normalizeMime(mime);
+        return !normalized.isEmpty() && BLOCKED_MIMES.contains(normalized);
     }
 
     public static boolean hasExecutableMagic(byte[] prefix, int length) {
@@ -144,7 +156,7 @@ public final class ShareImportSecurity {
         if (n >= 6 && (prefix[0] & 0xff) == 0x37 && (prefix[1] & 0xff) == 0x7a && (prefix[2] & 0xff) == 0xbc
             && (prefix[3] & 0xff) == 0xaf && (prefix[4] & 0xff) == 0x27 && (prefix[5] & 0xff) == 0x1c) return "application/x-7z-compressed";
 
-        String declared = declaredMime == null ? "" : declaredMime.toLowerCase(Locale.ROOT).trim();
+        String declared = normalizeMime(declaredMime);
         if (!declared.isEmpty() && !"application/octet-stream".equals(declared) && !"*/*".equals(declared)) {
             return declared;
         }
@@ -171,7 +183,7 @@ public final class ShareImportSecurity {
     public static String storageExtension(String filename, String mime) {
         String ext = extensionOf(filename);
         if (!ext.isEmpty() && ext.length() <= 10 && !BLOCKED_EXTENSIONS.contains(ext)) return ext;
-        String mapped = MIME_EXTENSIONS.get(mime == null ? "" : mime.toLowerCase(Locale.ROOT));
+        String mapped = MIME_EXTENSIONS.get(normalizeMime(mime));
         return mapped == null ? "bin" : mapped;
     }
 
