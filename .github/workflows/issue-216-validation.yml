@@ -25,11 +25,26 @@ jobs:
       - run: npm ci
       - name: TypeScript check
         run: npx tsc --noEmit
-      - name: Shared attachment and media regressions
-        run: >-
-          node --import tsx --test
-          tests/attachment-shared-access.test.ts
-          tests/attachments-inline-video.test.ts
+      - name: Capture shared attachment tests
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test tests/attachment-shared-access.test.ts > shared-access.log 2>&1
+          echo $? > shared-access.status
+          node --import tsx --test tests/attachments-inline-video.test.ts > media-regression.log 2>&1
+          echo $? > media-regression.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-216-backend-logs
+          path: |
+            backend/shared-access.log
+            backend/shared-access.status
+            backend/media-regression.log
+            backend/media-regression.status
+      - name: Enforce backend tests
+        run: test "$(cat shared-access.status)" = "0" && test "$(cat media-regression.status)" = "0"
 
   frontend:
     runs-on: ubuntu-latest
@@ -45,8 +60,22 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Attachment bridge Vitest
-        run: npm run test:run -- src/lib/__tests__/noteAttachmentAccessBridge.test.ts
+      - name: Capture attachment bridge Vitest
+        shell: bash
+        run: |
+          set +e
+          npm run test:run -- src/lib/__tests__/noteAttachmentAccessBridge.test.ts > attachment-bridge.log 2>&1
+          echo $? > attachment-bridge.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-216-frontend-log
+          path: |
+            frontend/attachment-bridge.log
+            frontend/attachment-bridge.status
+      - name: Enforce bridge test
+        run: test "$(cat attachment-bridge.status)" = "0"
       - name: Vite production bundle
         run: npx vite build
 
