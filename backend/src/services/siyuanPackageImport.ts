@@ -56,7 +56,7 @@ export type { SiyuanPackageImportResult };
 const SY_RE = /\.sy$/i;
 const CONF_RE = /(^|\/)\.siyuan\/conf\.json$/i;
 const SORT_RE = /(^|\/)\.siyuan\/sort\.json$/i;
-const FIDELITY_NODE_TYPES = new Set(["NodeHTMLBlock", "NodeInlineHTML", "NodeIFrame"]);
+const FIDELITY_NODE_TYPES = new Set(["NodeInlineHTML"]);
 const DEFAULT_MAX_ZIP_ENTRIES = 50_000;
 const DEFAULT_MAX_SY_FILES = 20_000;
 const DEFAULT_MAX_SINGLE_SY_BYTES = 20 * 1024 * 1024;
@@ -203,7 +203,7 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
             rawDocs.push({ path: entryPath, ast, archiveIndex });
             if (containsFidelityNode(ast)) requiresMarkdown = true;
         } catch {
-            // The mature legacy importer owns parse warnings and skip behavior.
+            // The mature legacy importer owns parse warnings and skip behaviour.
         }
     }
 
@@ -266,7 +266,7 @@ function buildDocRanks(metadata: PackageMetadata): Map<string, number> {
 
 function buildBoxRanks(metadata: PackageMetadata): Map<string, number> {
     const boxes = [...metadata.boxes.values()].sort((a, b) => {
-        if (a.sort !== null || b.sort !== null) {
+        if (a.sort !== null ||b.sort !== null) {
             if (a.sort === null) return 1;
             if (b.sort === null) return -1;
             if (a.sort !== b.sort) return a.sort - b.sort;
