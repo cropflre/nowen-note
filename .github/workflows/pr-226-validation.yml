@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  backend-typecheck:
+  backend-advanced:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -23,9 +23,26 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      - name: Capture advanced fidelity test
+        id: test
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test --test-name-pattern="Rich Text import safely preserves advanced Siyuan nodes without unknown schema" tests/siyuan-package-tiptap-fidelity.test.ts > advanced.log 2>&1
+          code=$?
+          echo "$code" > advanced.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-advanced-log
+          path: |
+            backend/advanced.log
+            backend/advanced.status
+      - name: Enforce result
+        run: test "$(cat advanced.status)" = "0"
 
-  backend-existing-import:
+  backend-safety:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -39,71 +56,23 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: node --import tsx --test tests/siyuan-package-import.test.ts
-
-  backend-existing-fidelity:
-    name: backend fidelity - ${{ matrix.label }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: p0
-            pattern: Rich Text import builds P0 Tiptap nodes and marks from Siyuan AST
-          - label: table
-            pattern: Rich Text import converts Siyuan tables to supported Tiptap table nodes
-          - label: advanced
-            pattern: Rich Text import safely preserves advanced Siyuan nodes without unknown schema
-          - label: markdown
-            pattern: Markdown import keeps advanced Siyuan nodes on the markdown path
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Capture safety test
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test tests/siyuan-tiptap-fidelity-safety.test.ts > safety.log 2>&1
+          code=$?
+          echo "$code" > safety.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-      - run: node --import tsx --test --test-name-pattern="${{ matrix.pattern }}" tests/siyuan-package-tiptap-fidelity.test.ts
-
-  backend-new-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-      - name: Tag invariant tests
-        run: node --import tsx --test tests/siyuan-package-tag-invariants.test.ts
-      - name: Fidelity safety tests
-        run: node --import tsx --test tests/siyuan-tiptap-fidelity-safety.test.ts
-
-  frontend-focused-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts src/lib/__tests__/tableFidelityExtensions.test.ts
+          name: backend-safety-log
+          path: |
+            backend/safety.log
+            backend/safety.status
+      - name: Enforce result
+        run: test "$(cat safety.status)" = "0"
 
   frontend-typecheck:
     runs-on: ubuntu-latest
@@ -119,20 +88,56 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx tsc -b --pretty false
+      - name: Capture TypeScript build
+        shell: bash
+        run: |
+          set +e
+          npx tsc -b --pretty false > typecheck.log 2>&1
+          code=$?
+          echo "$code" > typecheck.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-typecheck-log
+          path: |
+            frontend/typecheck.log
+            frontend/typecheck.status
+      - name: Enforce result
+        run: test "$(cat typecheck.status)" = "0"
 
-  frontend-vite:
+  regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npx vite build
+      - name: Backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit
+      - name: Existing import tests
+        working-directory: backend
+        run: node --import tsx --test tests/siyuan-package-import.test.ts
+      - name: Existing fidelity tests except advanced
+        working-directory: backend
+        run: >-
+          node --import tsx --test
+          --test-name-pattern="Rich Text import builds P0|Rich Text import converts Siyuan tables|Markdown import keeps advanced"
+          tests/siyuan-package-tiptap-fidelity.test.ts
+      - name: Tag invariant tests
+        working-directory: backend
+        run: node --import tsx --test tests/siyuan-package-tag-invariants.test.ts
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend focused tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts src/lib/__tests__/tableFidelityExtensions.test.ts
+      - name: Vite bundle
+        working-directory: frontend
+        run: npx vite build
