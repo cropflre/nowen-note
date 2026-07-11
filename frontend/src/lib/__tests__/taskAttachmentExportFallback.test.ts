@@ -27,7 +27,7 @@ describe("taskAttachmentExportFallback", () => {
     vi.useRealTimers();
   });
 
-  it("replaces a missing task image with a visible SVG so ZIP export can continue", async () => {
+  it("replaces a missing task image with a visible PNG so ZIP export can continue", async () => {
     const upstream = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
     window.fetch = upstream as typeof window.fetch;
     installTaskAttachmentExportFallback();
@@ -35,9 +35,10 @@ describe("taskAttachmentExportFallback", () => {
     const response = await window.fetch("/api/task-attachments/80cedae6-cab6-4925-b69a-3505e68ccb70");
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toContain("image/svg+xml");
+    expect(response.headers.get("Content-Type")).toBe("image/png");
     expect(response.headers.get("X-Nowen-Task-Attachment-Placeholder")).toBe("missing");
-    expect(await response.text()).toContain("原任务图片已丢失");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect([...bytes.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
 
     await vi.runAllTimersAsync();
     expect(toastMock.warning).toHaveBeenCalledWith(
