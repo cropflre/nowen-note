@@ -9,15 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  source-snapshot:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/upload-artifact@v4
-        with:
-          name: siyuan-fidelity-test-source
-          path: backend/tests/siyuan-package-tiptap-fidelity.test.ts
-
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -34,26 +25,13 @@ jobs:
       - run: npm ci
       - name: TypeScript check
         run: npx tsc --noEmit
-      - name: Capture SiYuan tests
-        shell: bash
-        run: |
-          set +e
-          node --import tsx --test \
-            tests/siyuan-package-import.test.ts \
-            tests/siyuan-package-tiptap-fidelity.test.ts \
-            tests/siyuan-package-tag-invariants.test.ts \
-            tests/siyuan-tiptap-fidelity-safety.test.ts > validation.log 2>&1
-          echo $? > validation.status
-          exit 0
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-final-validation-log
-          path: |
-            backend/validation.log
-            backend/validation.status
-      - name: Enforce test result
-        run: test "$(cat validation.status)" = "0"
+      - name: SiYuan import and fidelity tests
+        run: >-
+          node --import tsx --test
+          tests/siyuan-package-import.test.ts
+          tests/siyuan-package-tiptap-fidelity.test.ts
+          tests/siyuan-package-tag-invariants.test.ts
+          tests/siyuan-tiptap-fidelity-safety.test.ts
 
   frontend:
     runs-on: ubuntu-latest
