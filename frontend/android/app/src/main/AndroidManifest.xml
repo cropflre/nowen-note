@@ -61,7 +61,7 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
 
-            <!-- 文件管理器“用其他应用打开”：仅接收授予读取权限的内容 URI。 -->
+            <!-- 文件管理器“用其他应用打开”：接收带 MIME 的 content:// URI。 -->
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -69,12 +69,26 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
 
-            <!-- 兼容少量旧文件管理器仍发送 file:// URI；读取后立即复制到私有目录。 -->
+            <!-- 兼容未声明 MIME 的 content:// 打开请求。 -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+            </intent-filter>
+
+            <!-- 兼容少量旧文件管理器仍发送 file:// URI。 -->
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
+            </intent-filter>
+
+            <!-- 兼容未声明 MIME 的旧 file:// 打开请求。 -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
             </intent-filter>
 
         </activity>
