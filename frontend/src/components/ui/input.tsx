@@ -39,22 +39,12 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     ref,
   ) => {
     const isSidebarSearch = Object.prototype.hasOwnProperty.call(props, "data-sidebar-search")
-    const localRef = React.useRef<HTMLInputElement | null>(null)
     const composingRef = React.useRef(false)
     const awaitingCompositionCommitRef = React.useRef(false)
     const suppressTrustedDuplicateRef = React.useRef<string | null>(null)
     const [sidebarValue, setSidebarValue] = React.useState(() =>
       normalizeInputValue(value ?? defaultValue),
     )
-
-    const assignRef = React.useCallback((node: HTMLInputElement | null) => {
-      localRef.current = node
-      if (typeof ref === "function") {
-        ref(node)
-      } else if (ref) {
-        ref.current = node
-      }
-    }, [ref])
 
     React.useEffect(() => {
       if (!isSidebarSearch || composingRef.current) return
@@ -74,7 +64,12 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       // SearchCenter synchronizes the mounted sidebar input with an untrusted input event.
       // It must update only the visible value: forwarding it to Sidebar's onChange would
       // turn an empty query into viewMode="all" and make the search page disappear.
-      if (!shouldForwardSidebarSearchChange(nativeEvent, composingRef.current)) return
+      if (!shouldForwardSidebarSearchChange(nativeEvent, composingRef.current)) {
+        if (nativeEvent.isTrusted === false) {
+          suppressTrustedDuplicateRef.current = null
+        }
+        return
+      }
 
       if (
         nativeEvent.isTrusted === true
@@ -109,9 +104,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         // Chromium normally emits one final trusted input event after compositionend.
         // Some Windows IME / Electron combinations do not, and React's value tracker can
         // also ignore a synthetic DOM input whose value did not change. Commit through the
-        // original controlled callback as a microtask fallback. A later trusted duplicate
-        // with the same value is suppressed.
-        queueMicrotask(() => {
+        // original controlled callback as a Promise microtask fallback. A later trusted
+        // duplicate with the same value is suppressed.
+        void Promise.resolve().then(() => {
           if (!awaitingCompositionCommitRef.current || !input.isConnected) return
           awaitingCompositionCommitRef.current = false
           suppressTrustedDuplicateRef.current = input.value
@@ -149,7 +144,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           "flex h-9 w-full rounded-md border border-app-border bg-app-surface px-3 py-1 text-sm text-tx-primary shadow-sm transition-colors placeholder:text-tx-tertiary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}
-        ref={assignRef}
+        ref={ref}
         {...props}
         {...(isSidebarSearch
           ? { value: sidebarValue }
