@@ -31,10 +31,16 @@ function seedBase() {
   `).run(NOTE_ID, USER_ID, NOTEBOOK_ID, "Video", "{}", "Video");
 }
 
-async function uploadVideo() {
+async function uploadVideo(options: { type?: string; filename?: string; seed?: number } = {}) {
+  const type = options.type ?? "video/mp4";
+  const filename = options.filename ?? "clip.mp4";
+  const seed = options.seed ?? 7;
   const form = new FormData();
   form.set("noteId", NOTE_ID);
-  form.set("file", new File([new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7])], "clip.mp4", { type: "video/mp4" }));
+  form.set(
+    "file",
+    new File([new Uint8Array([0, 1, 2, 3, 4, 5, 6, seed])], filename, { type }),
+  );
   const res = await app.request("/attachments", {
     method: "POST",
     headers: { "X-User-Id": USER_ID },
@@ -94,8 +100,23 @@ test("video attachments can be uploaded and previewed inline", async () => {
   assert.equal(inlineRes.headers.get("content-disposition"), null);
 });
 
+test("empty Android MIME is normalized from a known video extension", async () => {
+  const uploaded = await uploadVideo({
+    type: "application/octet-stream",
+    filename: "camera-recording.mp4",
+    seed: 21,
+  });
+  assert.equal(uploaded.mimeType, "video/mp4");
+
+  const inlineRes = await app.request(`/attachments/${uploaded.id}?inline=1`, {
+    headers: { "X-User-Id": USER_ID },
+  });
+  assert.equal(inlineRes.status, 200);
+  assert.equal(inlineRes.headers.get("content-type"), "video/mp4");
+});
+
 test("video attachments respond to browser byte ranges for seeking", async () => {
-  const uploaded = await uploadVideo();
+  const uploaded = await uploadVideo({ seed: 22 });
   const rangeRes = await app.request(`/attachments/${uploaded.id}?inline=1`, {
     headers: {
       "X-User-Id": USER_ID,
@@ -111,7 +132,7 @@ test("video attachments respond to browser byte ranges for seeking", async () =>
 });
 
 test("unsatisfiable video ranges return RFC-compatible 416 metadata", async () => {
-  const uploaded = await uploadVideo();
+  const uploaded = await uploadVideo({ seed: 23 });
   const rangeRes = await app.request(`/attachments/${uploaded.id}?inline=1`, {
     headers: {
       "X-User-Id": USER_ID,
@@ -125,7 +146,7 @@ test("unsatisfiable video ranges return RFC-compatible 416 metadata", async () =
 });
 
 test("download=1 keeps video attachments as forced downloads", async () => {
-  const uploaded = await uploadVideo();
+  const uploaded = await uploadVideo({ seed: 24 });
 
   const downloadRes = await app.request(`/attachments/${uploaded.id}?download=1`, {
     headers: { "X-User-Id": USER_ID },
