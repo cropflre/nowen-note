@@ -1,63 +1,40 @@
-/**
- * Options 页：所有配置项 + 登录认证。
- */
-import { getConfig, setConfig, normalizeBaseUrl, type NowenClipperConfig } from "../lib/storage";
-import { login, verify2FA, ping } from "../lib/api";
+import {
+  getConfig,
+  normalizeBaseUrl,
+  resetAccountState,
+  setConfig,
+  type NowenClipperConfig,
+} from "../lib/storage";
+import { login, ping, verify2FA } from "../lib/api";
 import type { AIEnhanceTasks } from "../lib/protocol";
 
-/** 暂存 2FA ticket（登录第一步返回 requires2FA 时保存） */
 let pending2FATicket = "";
 let pending2FAServerUrl = "";
+let currentConfig: NowenClipperConfig;
 
 async function init() {
-  const cfg = await getConfig();
+  currentConfig = await getConfig();
+  fillForm(currentConfig);
 
-  // 基础字段
-  (document.getElementById("serverUrl") as HTMLInputElement).value = cfg.serverUrl;
-  (document.getElementById("username") as HTMLInputElement).value = cfg.username;
-  (document.getElementById("defaultNotebook") as HTMLInputElement).value = cfg.defaultNotebook;
-  (document.getElementById("defaultTags") as HTMLInputElement).value = cfg.defaultTags;
-  (document.getElementById("imageMode") as HTMLSelectElement).value = cfg.imageMode;
-  (document.getElementById("outputFormat") as HTMLSelectElement).value = cfg.outputFormat;
-  (document.getElementById("includeSource") as HTMLInputElement).checked = cfg.includeSource;
-
-  // AI 优化字段
-  (document.getElementById("aiEnhanceEnabled") as HTMLInputElement).checked = cfg.aiEnhanceEnabled;
-  (document.getElementById("aiEnhanceMode") as HTMLSelectElement).value = cfg.aiEnhanceMode;
-  (document.getElementById("aiEnhanceLanguage") as HTMLSelectElement).value = cfg.aiEnhanceLanguage;
-  (document.getElementById("aiMaxInputChars") as HTMLInputElement).value = String(cfg.aiMaxInputChars);
-  (document.getElementById("aiFailureStrategy") as HTMLSelectElement).value = cfg.aiFailureStrategy;
-  (document.getElementById("aiCustomInstruction") as HTMLTextAreaElement).value = cfg.aiCustomInstruction;
-  document
-    .querySelectorAll<HTMLInputElement>('.ai-tasks-grid input[data-task]')
-    .forEach((el) => {
-      const k = el.dataset.task as keyof AIEnhanceTasks;
-      el.checked = !!cfg.aiEnhanceTasks[k];
-    });
-
-  // 密码切换
-  document.getElementById("toggle-password")!.addEventListener("click", () => {
-    const el = document.getElementById("password") as HTMLInputElement;
-    el.type = el.type === "password" ? "text" : "password";
+  byId("toggle-password").addEventListener("click", () => {
+    const element = input("password");
+    element.type = element.type === "password" ? "text" : "password";
   });
+  byId("login-btn").addEventListener("click", () => void onLogin());
+  byId("twofa-btn").addEventListener("click", () => void on2FAVerify());
+  byId("logout-btn").addEventListener("click", () => void onLogout());
+  byId("relogin-btn").addEventListener("click", onRelogin);
+  byId("save").addEventListener("click", () => void onSave());
+  byId("reset-account-preferences").addEventListener("click", () => void onResetAccountPreferences());
 
-  // 登录按钮
-  document.getElementById("login-btn")!.addEventListener("click", onLogin);
-  // 2FA 验证按钮
-  document.getElementById("twofa-btn")!.addEventListener("click", on2FAVerify);
-  // 退出 & 重新登录
-  document.getElementById("logout-btn")!.addEventListener("click", onLogout);
-  document.getElementById("relogin-btn")!.addEventListener("click", onRelogin);
-  // 保存
-  document.getElementById("save")!.addEventListener("click", onSave);
-
-  // 检查现有登录状态
-  if (cfg.token) {
+  if (currentConfig.token) {
     try {
-      const r = await ping(cfg);
-      showLoggedIn(r.username, r.role);
+      const user = await ping(currentConfig);
+      if (user.id && currentConfig.userId !== user.id) {
+        currentConfig = await setConfig({ userId: user.id });
+      }
+      showLoggedIn(user.username, user.role);
     } catch {
-      // token 已失效，显示登录表单
       showLoginForm();
     }
   } else {
@@ -65,157 +42,226 @@ async function init() {
   }
 }
 
-/** 显示登录表单，隐藏状态卡片 */
-function showLoginForm() {
-  document.getElementById("login-card")!.classList.remove("hidden");
-  document.getElementById("status-card")!.classList.add("hidden");
+function fillForm(config: NowenClipperConfig) {
+  input("serverUrl").value = config.serverUrl;
+  input("username").value = config.username;
+  input("defaultNotebook").value = config.defaultNotebook;
+  input("defaultTags").value = config.defaultTags;
+  select("imageMode").value = config.imageMode;
+  select("outputFormat").value = config.outputFormat;
+  checkbox("includeSource").checked = config.includeSource;
+
+  checkbox("lazyLoadScroll").checked = config.lazyLoadScroll;
+  input("maxImageCount").value = String(config.maxImageCount);
+  input("maxSingleImageMb").value = bytesToMegabytes(config.maxSingleImageBytes);
+  input("maxTotalImageMb").value = bytesToMegabytes(config.maxTotalImageBytes);
+  input("imageTimeoutSeconds").value = String(Math.max(1, Math.round(config.imageTimeoutMs / 1000)));
+
+  checkbox("aiEnhanceEnabled").checked = config.aiEnhanceEnabled;
+  select("aiEnhanceMode").value = config.aiEnhanceMode;
+  select("aiEnhanceLanguage").value = config.aiEnhanceLanguage;
+  input("aiMaxInputChars").value = String(config.aiMaxInputChars);
+  select("aiFailureStrategy").value = config.aiFailureStrategy;
+  textarea("aiCustomInstruction").value = config.aiCustomInstruction;
+  document.querySelectorAll<HTMLInputElement>('.ai-tasks-grid input[data-task]').forEach((element) => {
+    const key = element.dataset.task as keyof AIEnhanceTasks;
+    element.checked = !!config.aiEnhanceTasks[key];
+  });
 }
 
-/** 显示已登录状态，隐藏登录表单 */
+function showLoginForm() {
+  byId("login-card").classList.remove("hidden");
+  byId("status-card").classList.add("hidden");
+}
+
 function showLoggedIn(username: string, role: string) {
-  document.getElementById("login-card")!.classList.add("hidden");
-  document.getElementById("status-card")!.classList.remove("hidden");
-  document.getElementById("status-user")!.textContent = `${username}（${role}）`;
+  byId("login-card").classList.add("hidden");
+  byId("status-card").classList.remove("hidden");
+  byId("status-user").textContent = `${username}（${role}）`;
 }
 
 async function onLogin() {
-  const el = document.getElementById("login-result")!;
-  el.className = "test-result";
-  el.textContent = "登录中...";
+  const result = byId("login-result");
+  setInlineStatus(result, "登录中...");
 
-  const serverUrl = normalizeBaseUrl(
-    (document.getElementById("serverUrl") as HTMLInputElement).value,
-  );
-  const username = (document.getElementById("username") as HTMLInputElement).value.trim();
-  const password = (document.getElementById("password") as HTMLInputElement).value;
+  const serverUrl = normalizeBaseUrl(input("serverUrl").value);
+  const username = input("username").value.trim();
+  const password = input("password").value;
 
   if (!serverUrl) {
-    el.classList.add("err");
-    el.textContent = "请先填写服务器地址";
+    setInlineStatus(result, "请先填写服务器地址", "err");
     return;
   }
   if (!username || !password) {
-    el.classList.add("err");
-    el.textContent = "请填写用户名和密码";
+    setInlineStatus(result, "请填写用户名和密码", "err");
     return;
   }
 
   try {
-    const r = await login(serverUrl, username, password);
-
-    // 2FA 拦截
-    if (r.requires2FA && r.ticket) {
-      pending2FATicket = r.ticket;
+    const response = await login(serverUrl, username, password);
+    if (response.requires2FA && response.ticket) {
+      pending2FATicket = response.ticket;
       pending2FAServerUrl = serverUrl;
-      el.classList.add("ok");
-      el.textContent = `密码验证通过，请输入两步验证码（${r.username}）`;
-      document.getElementById("twofa-section")!.classList.remove("hidden");
-      (document.getElementById("twofa-code") as HTMLInputElement).focus();
+      setInlineStatus(result, `密码验证通过，请输入两步验证码（${response.username || username}）`, "ok");
+      byId("twofa-section").classList.remove("hidden");
+      input("twofa-code").focus();
       return;
     }
 
-    // 登录成功
-    await handleLoginSuccess(serverUrl, username, r);
-    el.classList.add("ok");
-    el.textContent = `✅ 登录成功`;
-  } catch (e: any) {
-    el.classList.add("err");
-    el.textContent = `❌ ${String(e?.message || e)}`;
+    await handleLoginSuccess(serverUrl, username, response);
+    setInlineStatus(result, "✅ 登录成功", "ok");
+  } catch (error: any) {
+    setInlineStatus(result, `❌ ${String(error?.message || error)}`, "err");
   }
 }
 
 async function on2FAVerify() {
-  const el = document.getElementById("twofa-result")!;
-  el.className = "test-result";
-  el.textContent = "验证中...";
-
-  const code = (document.getElementById("twofa-code") as HTMLInputElement).value.trim();
+  const result = byId("twofa-result");
+  setInlineStatus(result, "验证中...");
+  const code = input("twofa-code").value.trim();
   if (!code) {
-    el.classList.add("err");
-    el.textContent = "请输入验证码";
+    setInlineStatus(result, "请输入验证码", "err");
     return;
   }
 
   try {
-    const r = await verify2FA(pending2FAServerUrl, pending2FATicket, code);
-    const username = (document.getElementById("username") as HTMLInputElement).value.trim();
-    await handleLoginSuccess(pending2FAServerUrl, username, r);
-    el.classList.add("ok");
-    el.textContent = "✅ 验证成功";
-    document.getElementById("twofa-section")!.classList.add("hidden");
-  } catch (e: any) {
-    el.classList.add("err");
-    el.textContent = `❌ ${String(e?.message || e)}`;
+    const response = await verify2FA(pending2FAServerUrl, pending2FATicket, code);
+    const username = input("username").value.trim();
+    await handleLoginSuccess(pending2FAServerUrl, username, response);
+    setInlineStatus(result, "✅ 验证成功", "ok");
+    byId("twofa-section").classList.add("hidden");
+  } catch (error: any) {
+    setInlineStatus(result, `❌ ${String(error?.message || error)}`, "err");
   }
 }
 
-async function handleLoginSuccess(serverUrl: string, username: string, r: { token: string; user: { role: string; displayName?: string | null } }) {
-  await setConfig({
+async function handleLoginSuccess(
+  serverUrl: string,
+  username: string,
+  response: { token: string; user: { id: string; role: string; displayName?: string | null } },
+) {
+  currentConfig = await setConfig({
     serverUrl,
     username,
-    token: r.token,
-    displayName: r.user.displayName || username,
+    userId: response.user.id,
+    token: response.token,
+    displayName: response.user.displayName || username,
   });
-  showLoggedIn(username, r.user.role);
-  // 清除密码字段
-  (document.getElementById("password") as HTMLInputElement).value = "";
+  showLoggedIn(username, response.user.role);
+  input("password").value = "";
 }
 
 async function onLogout() {
-  await setConfig({ token: "", displayName: "" });
+  currentConfig = await setConfig({ token: "", displayName: "", userId: "" });
   showLoginForm();
-  const el = document.getElementById("login-result")!;
-  el.className = "test-result ok";
-  el.textContent = "已退出登录";
-  setTimeout(() => (el.textContent = ""), 2000);
+  setInlineStatus(byId("login-result"), "已退出登录", "ok");
+  window.setTimeout(() => {
+    byId("login-result").textContent = "";
+  }, 2000);
 }
 
 function onRelogin() {
   showLoginForm();
-  (document.getElementById("login-result")!).textContent = "";
+  byId("login-result").textContent = "";
 }
 
 function readForm(): Partial<NowenClipperConfig> {
-  // 读取 AI 任务勾选
   const aiTasks: AIEnhanceTasks = {};
-  document
-    .querySelectorAll<HTMLInputElement>('.ai-tasks-grid input[data-task]')
-    .forEach((el) => {
-      const k = el.dataset.task as keyof AIEnhanceTasks;
-      if (el.checked) aiTasks[k] = true;
-    });
+  document.querySelectorAll<HTMLInputElement>('.ai-tasks-grid input[data-task]').forEach((element) => {
+    const key = element.dataset.task as keyof AIEnhanceTasks;
+    if (element.checked) aiTasks[key] = true;
+  });
 
-  const maxInputRaw = (document.getElementById("aiMaxInputChars") as HTMLInputElement).value.trim();
-  const maxInputChars = Math.min(Math.max(parseInt(maxInputRaw, 10) || 6000, 1000), 12000);
+  const maxInputChars = clampInt(input("aiMaxInputChars").value, 6000, 1000, 12000);
+  const maxImageCount = clampInt(input("maxImageCount").value, 120, 1, 500);
+  const maxSingleImageMb = clampInt(input("maxSingleImageMb").value, 8, 1, 50);
+  const maxTotalImageMb = clampInt(input("maxTotalImageMb").value, 60, maxSingleImageMb, 250);
+  const imageTimeoutSeconds = clampInt(input("imageTimeoutSeconds").value, 10, 1, 30);
 
   return {
-    serverUrl: normalizeBaseUrl(
-      (document.getElementById("serverUrl") as HTMLInputElement).value,
-    ),
-    defaultNotebook: (document.getElementById("defaultNotebook") as HTMLInputElement).value.trim(),
-    defaultTags: (document.getElementById("defaultTags") as HTMLInputElement).value.trim(),
-    imageMode: (document.getElementById("imageMode") as HTMLSelectElement).value as any,
-    outputFormat: (document.getElementById("outputFormat") as HTMLSelectElement).value as any,
-    includeSource: (document.getElementById("includeSource") as HTMLInputElement).checked,
+    serverUrl: normalizeBaseUrl(input("serverUrl").value),
+    defaultNotebook: input("defaultNotebook").value.trim(),
+    defaultTags: input("defaultTags").value.trim(),
+    imageMode: select("imageMode").value as NowenClipperConfig["imageMode"],
+    outputFormat: select("outputFormat").value as NowenClipperConfig["outputFormat"],
+    includeSource: checkbox("includeSource").checked,
+    lazyLoadScroll: checkbox("lazyLoadScroll").checked,
+    maxImageCount,
+    maxSingleImageBytes: maxSingleImageMb * 1024 * 1024,
+    maxTotalImageBytes: maxTotalImageMb * 1024 * 1024,
+    imageTimeoutMs: imageTimeoutSeconds * 1000,
 
-    aiEnhanceEnabled: (document.getElementById("aiEnhanceEnabled") as HTMLInputElement).checked,
+    aiEnhanceEnabled: checkbox("aiEnhanceEnabled").checked,
     aiEnhanceTasks: aiTasks,
-    aiEnhanceMode: (document.getElementById("aiEnhanceMode") as HTMLSelectElement).value as any,
-    aiEnhanceLanguage: (document.getElementById("aiEnhanceLanguage") as HTMLSelectElement).value as any,
+    aiEnhanceMode: select("aiEnhanceMode").value as NowenClipperConfig["aiEnhanceMode"],
+    aiEnhanceLanguage: select("aiEnhanceLanguage").value as NowenClipperConfig["aiEnhanceLanguage"],
     aiMaxInputChars: maxInputChars,
-    aiFailureStrategy: (document.getElementById("aiFailureStrategy") as HTMLSelectElement).value as any,
-    aiCustomInstruction: (document.getElementById("aiCustomInstruction") as HTMLTextAreaElement).value.trim(),
+    aiFailureStrategy: select("aiFailureStrategy").value as NowenClipperConfig["aiFailureStrategy"],
+    aiCustomInstruction: textarea("aiCustomInstruction").value.trim(),
   };
 }
 
 async function onSave() {
-  const el = document.getElementById("save-result")!;
-  el.className = "save-result";
-  const patch = readForm();
-  await setConfig(patch);
-  el.classList.add("ok");
-  el.textContent = "已保存";
-  setTimeout(() => (el.textContent = ""), 2000);
+  const result = byId("save-result");
+  setInlineStatus(result, "保存中...");
+  try {
+    currentConfig = await setConfig(readForm());
+    fillForm(currentConfig);
+    setInlineStatus(result, "已保存", "ok");
+    window.setTimeout(() => {
+      result.textContent = "";
+    }, 2000);
+  } catch (error: any) {
+    setInlineStatus(result, `保存失败：${String(error?.message || error)}`, "err");
+  }
+}
+
+async function onResetAccountPreferences() {
+  const result = byId("reset-result");
+  if (!currentConfig.serverUrl || (!currentConfig.userId && !currentConfig.username)) {
+    setInlineStatus(result, "请先登录账号", "err");
+    return;
+  }
+  try {
+    await resetAccountState(currentConfig);
+    setInlineStatus(result, "已恢复当前账号默认选择", "ok");
+  } catch (error: any) {
+    setInlineStatus(result, `恢复失败：${String(error?.message || error)}`, "err");
+  }
+}
+
+function setInlineStatus(element: HTMLElement, message: string, tone?: "ok" | "err") {
+  element.className = element.id.includes("result") && element.id !== "login-result" && element.id !== "twofa-result"
+    ? "save-result"
+    : "test-result";
+  if (tone) element.classList.add(tone);
+  element.textContent = message;
+}
+
+function bytesToMegabytes(bytes: number): string {
+  return String(Math.max(1, Math.round(bytes / 1024 / 1024)));
+}
+
+function clampInt(raw: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(raw, 10);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function byId(id: string): HTMLElement {
+  return document.getElementById(id)!;
+}
+function input(id: string): HTMLInputElement {
+  return byId(id) as HTMLInputElement;
+}
+function textarea(id: string): HTMLTextAreaElement {
+  return byId(id) as HTMLTextAreaElement;
+}
+function select(id: string): HTMLSelectElement {
+  return byId(id) as HTMLSelectElement;
+}
+function checkbox(id: string): HTMLInputElement {
+  return byId(id) as HTMLInputElement;
 }
 
 void init();
