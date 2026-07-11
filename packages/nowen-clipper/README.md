@@ -1,86 +1,87 @@
 # Nowen Note Web Clipper
 
-一个基于 MV3 的浏览器扩展，可以把当前网页的正文、图片、链接一键剪藏到你的 **nowen-note** 实例。
+Nowen Note 的 MV3 浏览器扩展，把 **速记、网页正文、当前选区、截图和完整页面** 保存到自己的 Nowen Note 实例。
 
-## 特性
+## 主要能力
 
-- 两种抽取模式：**正文**（Readability）与 **选区**（用户手动选中的内容）
-- 图片可本地下载为 base64 与笔记一起提交，后端会自动抽到 `attachments`；也可以保留原 URL 或忽略
-- 自动把 HTML 转 Markdown（默认）或保留为 HTML
-- 自动按"笔记本 + 标签"归类（笔记本路径不存在会自动创建）
-- 使用 **nowen-note API Token** 鉴权，非登录 JWT，不会 30 天过期
-- 右键菜单 + 弹窗 + 快捷键三种入口
-  - `Alt+Shift+S`：剪藏整页
-  - `Alt+Shift+A`：剪藏选区
-- ✨ **AI 优化**：剪藏后调用 nowen-note 主站的 AI 服务自动整理，单次请求多任务（摘要 / 大纲 / 标签 / 重写标题 / 重点高亮 / 翻译），按"prepend / append / replace"三种方式拼回笔记，默认保留原文不丢信息。API Key 由后端集中托管，扩展零持有。
+- **速记**：直接输入标题与 Markdown 正文，不需要先打开 Nowen 页面。
+- **真实目标选择**：可选择个人空间、工作区和具体笔记本；只读工作区会在保存前提示。
+- **按账号记住选择**：模式、空间、笔记本、图片策略、内容格式和置顶状态按“服务器 + 用户”隔离保存。
+- **懒加载图片抓取**：识别 `src`、`srcset`、`data-src`、`data-original`、`data-lazy-src`、`<picture>/<source>`，并可在限定时间内逐段滚动触发视口外图片。
+- **CSS 背景图兜底**：在限定数量和尺寸范围内，把正文区域的背景图临时转换为可剪藏图片，抽取后立即清理页面临时节点。
+- **图片本地化**：远程图片下载为内联数据，后端自动转存到 Nowen 附件存储，正文不再依赖原网站。
+- **失败不中断**：单张图片失败不会丢掉整篇笔记，结果页会列出失败资源与原因。
+- **资源安全限制**：图片数量、单张大小、总大小、并发和超时均有硬限制；拒绝非 HTTP/HTTPS、localhost、私网 IP、常见内网域名和重定向请求。
+- **标签与置顶**：保存后写入真实 Nowen 标签关系，并可自动置顶，而不是只把标签文本附在正文末尾。
+- **AI 优化**：可选摘要、大纲、自动标签、标题优化、重点提取和翻译，复用主站 AI 配置。
 
-### AI 优化的设计要点
+## 快捷入口
 
-- **复用主站 AI 设置**：扩展不持有 Provider/Key，调用 `POST /api/ai/clip-enhance`（非流式，避免 MV3 service worker 30s 回收）
-- **失败降级**：默认 AI 失败时降级保存原文，剪藏不中断；可在 Options 切换为"整体失败"
-- **单次请求多任务**：用 OpenAI JSON mode 让 LLM 一次返回 `{title?, summary?, outline?, tags?, highlights?, translation?}`
-- **输入截断**：默认 6000 字，超长取头 2/3 + 尾 1/3（标题党正文头部最关键，结尾常有总结）
-- **截图/完全克隆模式自动跳过 AI**（无文本可优化 / 自包含 HTML 不适合处理）
+- 点击扩展图标：打开统一采集面板。
+- `Alt+Shift+S`：剪藏当前页面正文。
+- `Alt+Shift+A`：剪藏当前选区。
+- 页面右键菜单：正文、选区、完全克隆、截图等旧入口继续保留。
 
-## 前置条件
+## 首次使用
 
-你需要先在 nowen-note 里生成一个 API Token：
+1. 安装扩展后打开设置。
+2. 填写 Nowen Note Server URL，例如 `https://note.example.com` 或 `http://localhost:3001`。
+3. 使用 Nowen Note 用户名和密码登录；开启 2FA 的账号会进入验证码步骤。
+4. 回到任意网页，点击扩展图标。
+5. 选择采集模式、空间和笔记本后保存。
 
-1. 登录网页端 → 账号设置 → **API Token** → **新建 Token**
-2. 勾选需要的 scope（剪藏插件只需要 `notes:write` 或不填即全权）
-3. 复制明文 token（以 `nkn_` 开头），只会显示一次
+扩展不会保存主站 AI Provider 的 API Key。登录 Token 和基础配置使用扩展存储；最近目标位置使用本地存储，并按账号隔离。
+
+## 图片抓取边界
+
+设置页可调整：
+
+- 是否主动滚动触发懒加载；
+- 单次最多处理图片数量；
+- 单张图片大小上限；
+- 全部图片总量上限；
+- 单张图片下载超时。
+
+浏览器扩展无法像服务器 DNS 解析器一样完全确认域名最终解析地址，因此安全策略采用保守组合：拦截显式内网地址和常见内网域名，并禁止自动跟随重定向。生产环境仍建议使用受控代理或后端抓取服务进一步实施 DNS 解析后的 SSRF 校验。
 
 ## 开发
 
 ```bash
 cd packages/nowen-clipper
 npm install
-npm run build   # 产物位于 dist/
+npm run lint
+npm run build
 ```
 
-然后在 Chrome / Edge 打开 `chrome://extensions`，打开"开发者模式"，
-点击"加载已解压的扩展程序"，选择 `packages/nowen-clipper/dist`。
-
-## 首次使用
-
-1. 装好扩展后点击工具栏上的 Nowen 图标 → 弹出"未配置"提示 → 打开设置
-2. 填 **Server URL**（例：`https://note.example.com` 或 `http://localhost:3001`）
-3. 填 **API Token**
-4. 点"测试连接"，看到 ✅ 即可
-5. 回到任意网页，打开扩展弹窗 → 选"正文" / "选区" → 剪藏
+构建产物位于 `dist/`。在 Chrome / Edge 的扩展管理页开启开发者模式后，选择“加载已解压的扩展程序”。
 
 ## 目录结构
 
-```
+```text
 src/
-  background/   MV3 service worker：右键菜单、快捷键、剪藏流水线
-  content/      content script：响应抽取请求（Readability / 选区）
-  popup/        弹窗 UI
-  options/      选项页
+  background/
+    index.ts         旧右键、快捷键、截图与兼容流水线
+    enhanced.ts      统一速记/正文/选区流水线
+  content/           Readability、选区和完整页面抽取
+  popup/             统一采集面板
+  options/           登录、默认行为和资源安全限制
   lib/
-    api.ts          与 nowen-note 后端的 HTTP 调用
-    extractor.ts    抽取 article / selection 为结构化 HTML
-    transform.ts    HTML ↔ Markdown + 图片下载内联
-    storage.ts      chrome.storage 封装
-    protocol.ts     进程间消息协议类型
+    api.ts            Nowen API 调用
+    extractor.ts      页面抽取与懒加载 URL 归一化
+    image-localizer.ts 图片下载、去重、预算和 SSRF 防护
+    protocol.ts       扩展消息协议
+    storage.ts        全局配置与账号级最近选择
+    transform.ts      HTML / Markdown 转换
 ```
 
-## 打包分发
+## 打包
 
 ```bash
-npm run pack
-# 产出 releases/nowen-clipper-<version>.zip
+npm run pack:chrome
+npm run pack:edge
+npm run pack:firefox
+# 或
+npm run pack:all
 ```
 
-直接把这个 zip 上传 Chrome Web Store / Edge Add-ons / Firefox AMO。
-
-## 常见问题
-
-**Q: 某些站点剪藏不了，提示"无法运行"？**
-A: 浏览器禁止在 `chrome://`、`edge://`、扩展商店等特权页面运行扩展脚本，属预期行为。
-
-**Q: 剪藏后图片显示不了？**
-A: 可能是站点做了热链接保护（Referer 校验）。扩展选项里切到 "保留原始链接" 模式会保留 `<img src>`，前端打开笔记时浏览器自带的 Referer 策略有时能绕过；如果仍不行，用 "下载并内联" 模式会把图片直接保存进笔记（推荐）。
-
-**Q: Token 失效了怎么办？**
-A: 去 nowen-note 账号设置里吊销旧的、生成新的，填回扩展选项。
+发布压缩包位于 `releases/`。
