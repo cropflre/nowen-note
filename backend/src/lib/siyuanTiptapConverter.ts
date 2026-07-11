@@ -1,804 +1,300 @@
+import {
+    siyuanSyToTiptapJson as convertSiyuanCore,
+    type SiyuanTiptapConvertOptions,
+    type TiptapJsonNode,
+} from "./siyuanTiptapConverterCore";
 import type { SiyuanNode } from "./siyuanSyParser";
 
-export interface TiptapJsonNode {
-    type: string;
-    attrs?: Record<string, unknown>;
-    content?: TiptapJsonNode[];
-    text?: string;
-    marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
-}
+export type { SiyuanTiptapConvertOptions, TiptapJsonNode } from "./siyuanTiptapConverterCore";
 
-export interface SiyuanTiptapConvertOptions {
-    resolveAssetUrl?: (raw: string) => string | null;
-}
+type CellAlign = "left" | "center" | "right";
 
-interface ExtractedInlineStyle {
-    cssText: string;
-    color?: string;
-    backgroundColor?: string;
-    fontSize?: string;
-    extraMarkTypes: string[];
-}
+type TiptapMark = NonNullable<TiptapJsonNode["marks"]>[number];
 
-const MARKER_NODE_TYPES = new Set([
-    "NodeHeadingC8hMarker",
-    "NodeBang",
-    "NodeOpenBracket",
-    "NodeCloseBracket",
-    "NodeOpenParen",
-    "NodeCloseParen",
-    "NodeOpenBrace",
-    "NodeCloseBrace",
-    "NodeKramdownSpanIAL",
-    "NodeBlockquoteMarker",
-    "NodeCodeBlockFenceOpenMarker",
-    "NodeCodeBlockFenceCloseMarker",
-    "NodeCodeBlockFenceInfoMarker",
-    "NodeMathBlockOpenMarker",
-    "NodeMathBlockCloseMarker",
-    "NodeSuperBlockOpenMarker",
-    "NodeSuperBlockLayoutMarker",
-    "NodeSuperBlockCloseMarker",
-    "NodeTaskListItemMarker",
-]);
-
-const MEDIA_BLOCK_NODE_TYPES = new Set(["NodeImage", "NodeVideo", "NodeAudio", "NodeIFrame", "NodeWidget"]);
-
-function getValue(node: SiyuanNode | undefined, keys: string[]): unknown {
-    if (!node) return undefined;
-    for (const key of keys) {
-        if (node[key] !== undefined) return node[key];
-        if (node.Properties?.[key] !== undefined) return node.Properties[key];
-    }
-    const lowerKeys = new Set(keys.map((key) => key.toLowerCase()));
-    for (const [key, value] of Object.entries(node.Properties || {})) {
-        if (lowerKeys.has(key.toLowerCase())) return value;
-    }
-    for (const [key, value] of Object.entries(node)) {
-        if (lowerKeys.has(key.toLowerCase())) return value;
-    }
-    return undefined;
-}
-
-function getString(node: SiyuanNode | undefined, keys: string[]): string {
-    const value = getValue(node, keys);
-    return typeof value === "string" ? value : value == null ? "" : String(value);
-}
+const MAX_METADATA_DEPTH = 4;
+const MAX_METADATA_ITEMS = 128;
+const MAX_METADATA_STRING = 256;
+const MAX_LINK_LENGTH = 4096;
+const MAX_CELL_SPAN = 1000;
+const MAX_COLWIDTH = 4096;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return Object.prototype.toString.call(value) === "[object Object]";
 }
 
-function serializeUnknownValue(value: unknown): unknown | undefined {
-    if (value == null) return undefined;
-    if (typeof value === "string") {
-        const trimmed = value.trim();
-        return trimmed ? trimmed : undefined;
+function normalizeCellAlign(value: unknown): CellAlign | undefined {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        if (value === 1) return "left";
+        if (value === 2) return "center";
+        if (value === 3) return "right";
+        return undefined;
     }
-    if (typeof value === "number" || typeof value === "boolean") return value;
+
+    const text = String(value ?? "").trim().toLowerCase();
+    if (!text || text === "0" || text === "default" || text === "none") return undefined;
+    if (text === "1" || text === "left" || text === "start") return "left";
+    if (text === "2" || text === "center" || text === "centre") return "center";
+    if (text === "3" || text === "right" || text === "end") return "right";
+    return undefined;
+}
+
+function parseMaybeJson(value: unknown): unknown {
+    if (typeof value !== "string") return value;
+    const text = value.trim();
+    if (!text) return undefined;
+    try {
+        return JSON.parse(text);
+    } catch {
+        return text;
+    }
+}
+
+function normalizeTableAligns(value: unknown): Array<CellAlign | null> | undefined {
+    let source = parseMaybeJson(value);
+    if (typeof source === "string") {
+        source = source.split(/[\s,|]+/).filter(Boolean);
+    }
+    if (!Array.isArray(source)) return undefined;
+
+    const aligns = source
+        .slice(0, MAX_METADATA_ITEMS)
+        .map((item) => normalizeCellAlign(item) ?? null);
+    return aligns.some(Boolean) ? aligns : undefined;
+}
+
+function sanitizeMetadata(value: unknown, depth = 0): unknown | undefined {
+    if (depth > MAX_METADATA_DEPTH || value == null) return undefined;
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+    if (typeof value === "string") {
+        const text = value.trim();
+        return text ? text.slice(0, MAX_METADATA_STRING) : undefined;
+    }
     if (Array.isArray(value)) {
-        const out: unknown[] = [];
-        for (const item of value) {
-            const serialized = serializeUnknownValue(item);
-            if (serialized !== undefined) out.push(serialized);
-        }
+        const out = value
+            .slice(0, MAX_METADATA_ITEMS)
+            .map((item) => sanitizeMetadata(item, depth + 1))
+            .filter((item): item is Exclude<unknown, undefined> => item !== undefined);
         return out.length > 0 ? out : undefined;
     }
-    if (isPlainObject(value)) {
-        const out: Record<string, unknown> = {};
-        for (const [key, item] of Object.entries(value)) {
-            const serialized = serializeUnknownValue(item);
-            if (serialized !== undefined) out[key] = serialized;
-        }
-        return Object.keys(out).length > 0 ? out : undefined;
+    if (!isPlainObject(value)) return undefined;
+
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value).slice(0, MAX_METADATA_ITEMS)) {
+        if (!key || key === "__proto__" || key === "prototype" || key === "constructor") continue;
+        const safe = sanitizeMetadata(item, depth + 1);
+        if (safe !== undefined) out[key.slice(0, 64)] = safe;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeColor(value: unknown): string | undefined {
+    const text = String(value ?? "").trim();
+    if (!text || text.length > 64 || /[\u0000-\u001f\u007f;{}]/.test(text)) return undefined;
+    if (/url\s*\(|expression\s*\(|var\s*\(/i.test(text)) return undefined;
+    if (/^#[0-9a-f]{3,4}$/i.test(text) || /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(text)) return text;
+    if (/^(?:rgb|rgba|hsl|hsla)\([\d\s.,%+\-]+\)$/i.test(text)) return text;
+    if (/^(?:transparent|currentcolor|black|white|red|green|blue|gray|grey|yellow|orange|purple|pink)$/i.test(text)) {
+        return text;
     }
     return undefined;
 }
 
-function toStyleString(value: unknown): string {
-    if (typeof value === "string") return value.trim();
-    if (!isPlainObject(value)) return "";
-    const parts: string[] = [];
-    for (const [key, val] of Object.entries(value)) {
-        const text = typeof val === "string" ? val.trim() : val == null ? "" : String(val);
-        if (!key.trim() || !text) continue;
-        parts.push(`${key.trim()}: ${text}`);
+function sanitizeFontSize(value: unknown): string | undefined {
+    const text = String(value ?? "").trim().toLowerCase();
+    if (!/^[\d.]+(?:px|em|rem|%)$/.test(text) || text.length > 12) return undefined;
+    const match = text.match(/^([\d.]+)(px|em|rem|%)$/);
+    if (!match) return undefined;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount <= 0) return undefined;
+
+    switch (match[2]) {
+        case "px":
+            return amount >= 8 && amount <= 96 ? text : undefined;
+        case "em":
+        case "rem":
+            return amount >= 0.5 && amount <= 6 ? text : undefined;
+        case "%":
+            return amount >= 50 && amount <= 600 ? text : undefined;
+        default:
+            return undefined;
     }
-    return parts.join("; ");
 }
 
-function extractStyleFromKramdownData(raw: string): string {
-    const text = raw.trim();
-    if (!text) return "";
-
-    const styleAttr = text.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
-    if (styleAttr) return styleAttr.trim();
-
-    const ialBody = text.match(/^\{:\s*([\s\S]*?)\s*\}$/)?.[1];
-    if (ialBody) {
-        const ialStyle = ialBody.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
-        if (ialStyle) return ialStyle.trim();
-    }
-
-    if (/^[a-zA-Z-]+\s*:/.test(text)) return text;
-    return "";
+function sanitizePositiveInt(value: unknown, max: number): number | undefined {
+    const parsed = typeof value === "number" ? value : Number(String(value ?? "").trim());
+    if (!Number.isFinite(parsed)) return undefined;
+    const rounded = Math.trunc(parsed);
+    return rounded > 0 && rounded <= max ? rounded : undefined;
 }
 
-function mergeCssDeclarations(styleTexts: string[]): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const styleText of styleTexts) {
-        for (const part of styleText.split(";")) {
-            const idx = part.indexOf(":");
-            if (idx <= 0) continue;
-            const key = part.slice(0, idx).trim().toLowerCase();
-            const value = part.slice(idx + 1).trim();
-            if (!key || !value) continue;
-            map.set(key, value);
-        }
-    }
-    return map;
+function sanitizeColwidth(value: unknown): number[] | undefined {
+    const source = Array.isArray(value) ? value : [value];
+    const out = source
+        .slice(0, 32)
+        .map((item) => sanitizePositiveInt(item, MAX_COLWIDTH))
+        .filter((item): item is number => item !== undefined);
+    return out.length > 0 ? out : undefined;
 }
 
-function extractInlineStyle(node: SiyuanNode): ExtractedInlineStyle | null {
-    const candidates: string[] = [];
-
-    const ownStyle = toStyleString(getValue(node, ["style", "Style", "TextMarkStyle"]));
-    if (ownStyle) candidates.push(ownStyle);
-
-    for (const child of node.Children || []) {
-        if (child.Type !== "NodeKramdownSpanIAL") continue;
-        const childStyle = toStyleString(getValue(child, ["style", "Style"]));
-        if (childStyle) candidates.push(childStyle);
-        const fromData = extractStyleFromKramdownData(getString(child, ["Data", "Tokens", "HTML", "html", "Text", "text"]));
-        if (fromData) candidates.push(fromData);
-    }
-
-    const css = mergeCssDeclarations(candidates);
-    if (css.size === 0) return null;
-
-    const extra = new Set<string>();
-    const fontWeight = (css.get("font-weight") || "").toLowerCase();
-    if (/\b(bold|[6-9]00)\b/.test(fontWeight)) extra.add("strong");
-    const fontStyle = (css.get("font-style") || "").toLowerCase();
-    if (fontStyle.includes("italic") || fontStyle.includes("oblique")) extra.add("em");
-    const textDecoration = `${css.get("text-decoration") || ""} ${css.get("text-decoration-line") || ""}`.toLowerCase();
-    if (textDecoration.includes("underline")) extra.add("u");
-    if (textDecoration.includes("line-through")) extra.add("strike");
-
+function sanitizeTextStyleMark(mark: TiptapMark): TiptapMark | null {
+    const color = sanitizeColor(mark.attrs?.color);
+    const fontSize = sanitizeFontSize(mark.attrs?.fontSize);
+    if (!color && !fontSize) return null;
     return {
-        cssText: Array.from(css.entries()).map(([key, value]) => `${key}: ${value}`).join("; "),
-        color: css.get("color"),
-        backgroundColor: css.get("background-color"),
-        fontSize: css.get("font-size"),
-        extraMarkTypes: Array.from(extra),
+        type: "textStyle",
+        attrs: {
+            ...(color ? { color } : {}),
+            ...(fontSize ? { fontSize } : {}),
+        },
     };
 }
 
-function toPositiveInt(value: unknown): number | undefined {
-    const parsed = typeof value === "number" ? value : Number(String(value || "").trim());
-    if (!Number.isFinite(parsed)) return undefined;
-    const rounded = Math.trunc(parsed);
-    return rounded > 0 ? rounded : undefined;
+function sanitizeHighlightMark(mark: TiptapMark): TiptapMark {
+    const color = sanitizeColor(mark.attrs?.color);
+    return color ? { type: "highlight", attrs: { color } } : { type: "highlight" };
 }
 
-function readCellColwidth(node: SiyuanNode): number[] | undefined {
-    const raw = getValue(node, ["colwidth", "ColWidth", "colWidth", "TableCellWidth", "width"]);
-    if (raw == null) return undefined;
-    if (Array.isArray(raw)) {
-        const numbers = raw
-            .map((item) => toPositiveInt(item))
-            .filter((item): item is number => item !== undefined);
-        return numbers.length > 0 ? numbers : undefined;
-    }
-    if (typeof raw === "string") {
-        const numbers = raw
-            .split(/[\s,|]+/)
-            .map((item) => toPositiveInt(item))
-            .filter((item): item is number => item !== undefined);
-        return numbers.length > 0 ? numbers : undefined;
-    }
-    const parsed = toPositiveInt(raw);
-    return parsed ? [parsed] : undefined;
+function sanitizeLinkMark(mark: TiptapMark): TiptapMark | null {
+    const href = String(mark.attrs?.href ?? "").trim();
+    if (!href || href.length > MAX_LINK_LENGTH || /[\u0000-\u001f\u007f]/.test(href)) return null;
+    return { type: "link", attrs: { href } };
 }
 
-function looksLikeAssetOrUrl(value: string): boolean {
-    return /^(https?:|data:|blob:|file:|\/|\.\/|\.\.\/|assets\/)/i.test(value.trim()) ||
-        /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|ogg|ogv|m4v|mov|mp3|wav|m4a|flac|aac)([?#].*)?$/i.test(value);
-}
+function sanitizeMarks(marks: TiptapJsonNode["marks"]): TiptapJsonNode["marks"] {
+    if (!Array.isArray(marks) || marks.length === 0) return undefined;
 
-const VIDEO_FILE_EXT_RE = /\.(mp4|webm|ogg|ogv|m4v|mov)([?#].*)?$/i;
-
-function extractSrc(text: string): string {
-    return text.match(/\bsrc=["']([^"']+)["']/i)?.[1] || text.match(/\(([^)]+)\)/)?.[1] || text.trim();
-}
-
-function parseSupportedVideoUrl(rawUrl: string, resolvedUrl = rawUrl): { src: string; platform: string; kind: "file" | "iframe" } | null {
-    const url = rawUrl.trim();
-    if (!url) return null;
-    if (VIDEO_FILE_EXT_RE.test(url)) return { src: resolvedUrl, platform: "file", kind: "file" };
-
-    let parsed: URL;
-    try {
-        parsed = new URL(url);
-    } catch {
-        return null;
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-
-    const host = parsed.hostname.toLowerCase();
-    if (host.includes("bilibili.com")) {
-        const match = parsed.pathname.match(/\/video\/(BV[0-9A-Za-z]+|av\d+)/i);
-        if (match) {
-            const id = match[1];
-            const param = /^av/i.test(id) ? `aid=${id.slice(2)}` : `bvid=${id}`;
-            const page = parsed.searchParams.get("p");
-            const pageQuery = page ? `&page=${encodeURIComponent(page)}` : "";
-            return {
-                src: `https://player.bilibili.com/player.html?${param}${pageQuery}&autoplay=0&high_quality=1`,
-                platform: "bilibili",
-                kind: "iframe",
-            };
-        }
-        if (host.includes("player.bilibili.com")) return { src: url, platform: "bilibili", kind: "iframe" };
+    // Tiptap's code mark excludes every other mark. Keeping mixed code/link/bold
+    // JSON looks fine immediately after import but is silently rewritten on the
+    // first schema-aware round-trip. Code therefore wins deterministically.
+    if (marks.some((mark) => mark?.type === "code")) {
+        return [{ type: "code" }];
     }
 
-    if (host.includes("youtube.com") || host.includes("youtu.be")) {
-        let videoId = "";
-        if (host.includes("youtu.be")) {
-            videoId = parsed.pathname.replace(/^\//, "").split("/")[0];
-        } else if (parsed.pathname.startsWith("/embed/")) {
-            videoId = parsed.pathname.replace(/^\/embed\//, "").split("/")[0];
-            if (videoId) return { src: url, platform: "youtube", kind: "iframe" };
-        } else {
-            videoId = parsed.searchParams.get("v") || "";
-        }
-        if (videoId) {
-            return {
-                src: `https://www.youtube-nocookie.com/embed/${videoId}`,
-                platform: "youtube",
-                kind: "iframe",
-            };
-        }
-    }
+    const out: TiptapMark[] = [];
+    const seen = new Set<string>();
+    for (const mark of marks) {
+        if (!mark || typeof mark.type !== "string" || seen.has(mark.type)) continue;
 
-    if (host.includes("v.qq.com")) {
-        const match =
-            parsed.pathname.match(/\/(?:cover\/[^/]+|page)\/([A-Za-z0-9]+)\.html/) ||
-            parsed.pathname.match(/\/x\/cover\/[^/]+\/([A-Za-z0-9]+)/);
-        if (match) {
-            return {
-                src: `https://v.qq.com/txp/iframe/player.html?vid=${match[1]}`,
-                platform: "tencent",
-                kind: "iframe",
-            };
-        }
-    }
-
-    if (host.includes("vimeo.com")) {
-        const match = parsed.pathname.match(/\/(\d+)/);
-        if (match) {
-            return {
-                src: `https://player.vimeo.com/video/${match[1]}`,
-                platform: "vimeo",
-                kind: "iframe",
-            };
-        }
-    }
-
-    return null;
-}
-
-function getHeadingLevel(node: SiyuanNode): number {
-    const raw =
-        getString(node, ["HeadingLevel", "headingLevel", "level", "Level"]) ||
-        getString((node.Children || []).find((child) => child.Type === "NodeHeadingC8hMarker"), ["Data"]);
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return 1;
-    return Math.min(3, Math.max(1, parsed));
-}
-
-function isTaskItem(node: SiyuanNode): boolean {
-    return (node.Children || []).some((child) => child.Type === "NodeTaskListItemMarker") ||
-        getString(node, ["TaskChecked", "checked", "Checked"]).trim() !== "";
-}
-
-function isCheckedTask(node: SiyuanNode): boolean {
-    const data = [
-        getString(node, ["Data"]),
-        getString(node, ["TaskChecked", "checked", "Checked"]),
-        ...(node.Children || []).map((child) => getString(child, ["Data"])),
-    ]
-        .join(" ")
-        .toLowerCase();
-    return data.includes("[x]") || data.includes("checked") || data.includes("done") || data.includes("true");
-}
-
-function isOrderedList(node: SiyuanNode): boolean {
-    const hint = [
-        node.Type,
-        getString(node, ["ListData", "SubType", "subType", "listType", "type"]),
-        getString(node, ["Data"]),
-    ].join(" ").toLowerCase();
-    return /\b(ordered|order|ol|number)\b/.test(hint);
-}
-
-function withMark(node: TiptapJsonNode, mark: { type: string; attrs?: Record<string, unknown> }): TiptapJsonNode {
-    if (node.type !== "text") return node;
-    return { ...node, marks: [...(node.marks || []), mark] };
-}
-
-function textNode(text: string, marks?: TiptapJsonNode["marks"]): TiptapJsonNode[] {
-    if (!text) return [];
-    return [{ type: "text", text, ...(marks?.length ? { marks } : {}) }];
-}
-
-function trimParagraphBoundary(content: TiptapJsonNode[]): TiptapJsonNode[] {
-    const next = content.map((item) => ({ ...item }));
-    while (next[0]?.type === "text" && !next[0].marks?.length) {
-        next[0].text = (next[0].text || "").replace(/^\s+/, "");
-        if (next[0].text) break;
-        next.shift();
-    }
-    while (next[next.length - 1]?.type === "text" && !next[next.length - 1].marks?.length) {
-        const last = next[next.length - 1];
-        last.text = (last.text || "").replace(/\s+$/, "");
-        if (last.text) break;
-        next.pop();
-    }
-    return next;
-}
-
-function renderTextMark(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const markTypes = getString(node, ["TextMarkType", "type", "markType"])
-        .toLowerCase()
-        .split(/\s+/)
-        .map((value) => value.trim())
-        .filter(Boolean);
-    const inlineStyle = extractInlineStyle(node);
-    const normalizedMarkTypes = Array.from(new Set([
-        ...markTypes,
-        ...(inlineStyle?.extraMarkTypes || []),
-    ]));
-    const rawText = getString(node, ["TextMarkTextContent", "Text", "text", "Data"]);
-    const inlineMath = getString(node, ["TextMarkInlineMathContent", "inlineMath", "math"]);
-    const inlineMemo = getString(node, ["TextMarkInlineMemoContent", "inlineMemo", "memo"]);
-    const href = getString(node, ["TextMarkAHref", "href", "url", "dest"]);
-    const blockRefId = getString(node, ["TextMarkBlockRefID", "BlockRefID", "id", "ID"]);
-
-    if (normalizedMarkTypes.includes("inline-math")) {
-        const latex = inlineMath || rawText || renderPlainText(node);
-        return latex.trim() ? [{ type: "mathInline", attrs: { latex: latex.trim() } }] : [];
-    }
-
-    let content = rawText ? textNode(rawText) : renderInlineContent(node, options);
-    if (normalizedMarkTypes.includes("inline-memo")) {
-        const memoText = inlineMemo || rawText || renderPlainText(node);
-        content = memoText ? textNode(memoText) : [];
-    }
-    if (normalizedMarkTypes.includes("tag")) {
-        const base = (rawText || renderPlainText(node)).replace(/^#|#$/g, "").trim();
-        content = base ? textNode(`#${base}#`) : [];
-    }
-    if (normalizedMarkTypes.includes("block-ref") && content.length === 0) {
-        content = textNode(blockRefId ? `[块引用:${blockRefId}]` : "[块引用]");
-    }
-    if (normalizedMarkTypes.includes("file-annotation-ref") && content.length === 0) {
-        content = textNode("[文件标注]");
-    }
-
-    for (const markType of normalizedMarkTypes) {
-        switch (markType) {
-            case "strong":
-                content = content.map((item) => withMark(item, { type: "bold" }));
+        let safe: TiptapMark | null = null;
+        switch (mark.type) {
+            case "textStyle":
+                safe = sanitizeTextStyleMark(mark);
                 break;
-            case "em":
-                content = content.map((item) => withMark(item, { type: "italic" }));
+            case "highlight":
+                safe = sanitizeHighlightMark(mark);
                 break;
-            case "s":
+            case "link":
+                safe = sanitizeLinkMark(mark);
+                break;
+            case "bold":
+            case "italic":
             case "strike":
-                content = content.map((item) => withMark(item, { type: "strike" }));
-                break;
-            case "code":
-            case "kbd":
-                content = content.map((item) => withMark(item, { type: "code" }));
-                break;
-            case "u":
-                content = content.map((item) => withMark(item, { type: "underline" }));
-                break;
-            case "mark":
-                content = content.map((item) =>
-                    withMark(item, {
-                        type: "highlight",
-                        attrs: inlineStyle?.backgroundColor ? { color: inlineStyle.backgroundColor } : undefined,
-                    })
-                );
-                break;
-            case "a":
-                if (href) content = content.map((item) => withMark(item, { type: "link", attrs: { href } }));
+            case "underline":
+                safe = { type: mark.type };
                 break;
             default:
                 break;
         }
-    }
 
-    if (inlineStyle?.color || inlineStyle?.fontSize) {
-        const attrs: Record<string, unknown> = {};
-        if (inlineStyle.color) attrs.color = inlineStyle.color;
-        if (inlineStyle.fontSize) attrs.fontSize = inlineStyle.fontSize;
-        content = content.map((item) => withMark(item, { type: "textStyle", attrs }));
-    }
-
-    if (inlineStyle?.backgroundColor && !normalizedMarkTypes.includes("mark")) {
-        content = content.map((item) => withMark(item, { type: "highlight", attrs: { color: inlineStyle.backgroundColor } }));
-    }
-
-    return content;
-}
-
-function renderInlineContent(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const out: TiptapJsonNode[] = [];
-    for (const child of node.Children || []) {
-        out.push(...renderInline(child, options));
-    }
-    return out;
-}
-
-function renderInline(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    if (MARKER_NODE_TYPES.has(node.Type)) return [];
-
-    switch (node.Type) {
-        case "NodeText":
-        case "NodeCodeBlockCode":
-        case "NodeMathBlockContent":
-        case "NodeLinkText":
-        case "NodeLinkDest":
-            return textNode(getString(node, ["Data"]));
-        case "NodeTextMark":
-            return renderTextMark(node, options);
-        case "NodeBr":
-            return [{ type: "hardBreak" }];
-        case "NodeBackslash":
-        case "NodeBlockRef":
-        case "NodeInlineHTML":
-            return textNode(getString(node, ["Data", "Text", "text", "Tokens", "HTML", "html"]) || renderPlainText(node));
-        default:
-            return textNode(getString(node, ["Data"]) || renderPlainText(node));
-    }
-}
-
-function renderParagraphLike(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const blocks: TiptapJsonNode[] = [];
-    let inline: TiptapJsonNode[] = [];
-    const flushParagraph = () => {
-        const content = trimParagraphBoundary(inline);
-        inline = [];
-        if (content.length > 0) {
-            blocks.push({ type: "paragraph", content });
+        if (safe) {
+            seen.add(safe.type);
+            out.push(safe);
         }
+    }
+    return out.length > 0 ? out : undefined;
+}
+
+function normalizeGenericNode(node: TiptapJsonNode): TiptapJsonNode {
+    const normalized: TiptapJsonNode = {
+        type: node.type,
+        ...(node.text !== undefined ? { text: String(node.text) } : {}),
+        ...(node.attrs && isPlainObject(node.attrs) ? { attrs: { ...node.attrs } } : {}),
     };
 
-    for (const child of node.Children || []) {
-        if (MARKER_NODE_TYPES.has(child.Type)) continue;
-        if (MEDIA_BLOCK_NODE_TYPES.has(child.Type)) {
-            flushParagraph();
-            blocks.push(...renderBlock(child, options));
-            continue;
-        }
-        inline.push(...renderInline(child, options));
+    const marks = sanitizeMarks(node.marks);
+    if (marks) normalized.marks = marks;
+    if (Array.isArray(node.content)) {
+        normalized.content = node.content.map(normalizeNode);
     }
-
-    flushParagraph();
-    if (blocks.length === 0) {
-        const data = getString(node, ["Data"]);
-        blocks.push(data ? { type: "paragraph", content: textNode(data) } : { type: "paragraph" });
-    }
-    return blocks;
+    return normalized;
 }
 
-function renderListItemContent(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const content: TiptapJsonNode[] = [];
-    for (const child of node.Children || []) {
-        if (MARKER_NODE_TYPES.has(child.Type)) continue;
-        if (child.Type === "NodeParagraph") {
-            const paragraph = renderParagraphLike(child, options).filter((item) => item.type === "paragraph");
-            content.push(...paragraph);
-            continue;
-        }
-        content.push(...renderBlock(child, options));
-    }
-    return content.length > 0 ? content : [{ type: "paragraph" }];
-}
-
-function renderList(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const items = (node.Children || []).filter((child) => child.Type === "NodeListItem");
-    if (items.length === 0) return [];
-
-    const taskList = items.some(isTaskItem);
-    if (taskList) {
-        return [{
-            type: "taskList",
-            content: items.map((item) => ({
-                type: "taskItem",
-                attrs: { checked: isCheckedTask(item) },
-                content: renderListItemContent(item, options),
-            })),
-        }];
-    }
-
-    return [{
-        type: isOrderedList(node) ? "orderedList" : "bulletList",
-        content: items.map((item) => ({
-            type: "listItem",
-            content: renderListItemContent(item, options),
-        })),
-    }];
-}
-
-function resolveMediaSrc(raw: string, options: SiyuanTiptapConvertOptions): string {
-    return options.resolveAssetUrl?.(raw) || raw;
-}
-
-function renderImage(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const childDest = getString((node.Children || []).find((child) => child.Type === "NodeLinkDest"), ["Data"]);
-    const explicitSrc = getString(node, ["src", "href", "url"]);
-    const data = getString(node, ["Data"]);
-    const src = childDest || explicitSrc || (looksLikeAssetOrUrl(data) ? data : "");
-    const alt =
-        getString(node, ["alt", "title"]) ||
-        getString((node.Children || []).find((child) => child.Type === "NodeLinkText"), ["Data"]) ||
-        renderPlainText((node.Children || []).find((child) => child.Type === "NodeLinkText"));
-    const title = getString((node.Children || []).find((child) => child.Type === "NodeLinkTitle"), ["Data"]);
-    if (!src) return alt ? [{ type: "paragraph", content: textNode(alt) }] : [];
-    return [{
-        type: "image",
-        attrs: {
-            src: resolveMediaSrc(src, options),
-            alt: alt || null,
-            title: title || null,
-        },
-    }];
-}
-
-function renderVideo(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const raw = getString(node, ["src", "href", "url", "Data", "Tokens", "HTML", "html"]) || renderPlainText(node);
-    const src = extractSrc(raw);
-    if (!src) return [];
-    const resolved = resolveMediaSrc(src, options);
-    const parsed = parseSupportedVideoUrl(src, resolved) || { src: resolved, platform: "file", kind: "file" as const };
-    return [{
-        type: "video",
-        attrs: {
-            src: parsed.src,
-            platform: parsed.platform,
-            kind: parsed.kind,
-            originalUrl: src,
-        },
-    }];
-}
-
-function renderIframe(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const raw = getString(node, ["src", "href", "url", "Data", "Tokens", "HTML", "html"]) || renderPlainText(node);
-    const src = extractSrc(raw);
-    if (!src) return [];
-    const resolved = resolveMediaSrc(src, options);
-    const parsed = parseSupportedVideoUrl(src, resolved);
-    if (!parsed) return renderDeferredMedia(node, options, "嵌入内容");
-    return [{
-        type: "video",
-        attrs: {
-            src: parsed.src,
-            platform: parsed.platform,
-            kind: parsed.kind,
-            originalUrl: src,
-        },
-    }];
-}
-
-function renderCodeBlock(node: SiyuanNode): TiptapJsonNode[] {
-    const language =
-        getString(node, ["CodeBlockInfo", "language", "lang"]) ||
-        getString((node.Children || []).find((child) => child.Type === "NodeCodeBlockFenceInfoMarker"), ["Data"]);
-    const code =
-        getString(node, ["CodeBlockCode", "code", "Data"]) ||
-        (node.Children || [])
-            .filter((child) => child.Type === "NodeCodeBlockCode")
-            .map((child) => getString(child, ["Data"]))
-            .join("\n");
-    return [{
-        type: "codeBlock",
-        attrs: { language: language.trim() || null },
-        content: code ? [{ type: "text", text: code.replace(/\n$/, "") }] : undefined,
-    }];
-}
-
-function renderBlockquote(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const content = renderBlocks(node.Children || [], options);
-    return [{ type: "blockquote", content: content.length > 0 ? content : [{ type: "paragraph" }] }];
-}
-
-function renderCallout(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const rawType = getString(node, ["CalloutType", "calloutType", "type"]).toUpperCase();
-    const allowed = new Set(["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]);
-    const type = allowed.has(rawType) ? rawType : "NOTE";
-    const title = getString(node, ["CalloutTitle", "title", "Title"]);
-    const marker = title ? `[!${type}] ${title}` : `[!${type}]`;
-    const body = renderBlocks(node.Children || [], options);
-    return [{
-        type: "blockquote",
-        content: [{ type: "paragraph", content: textNode(marker) }, ...body],
-    }];
-}
-
-function extractMathLatex(node: SiyuanNode): string {
-    return (
-        getString(node, ["Data", "content", "latex"]) ||
-        (node.Children || [])
-            .filter((child) => child.Type === "NodeMathBlockContent")
-            .map((child) => getString(child, ["Data"]))
-            .join("\n")
-    ).trim();
-}
-
-function renderMathBlock(node: SiyuanNode): TiptapJsonNode[] {
-    const latex = extractMathLatex(node);
-    return latex ? [{ type: "mathBlock", attrs: { latex } }] : [];
-}
-
-function renderHtmlBlock(node: SiyuanNode): TiptapJsonNode[] {
-    const raw = getString(node, ["Data", "Tokens", "HTML", "html"]);
-    const mermaid = raw.match(/<pre[^>]*>\s*<code[^>]*(?:language-|lang-)?mermaid[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/i)?.[1] ||
-        raw.match(/<div[^>]*class=["'][^"']*mermaid[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1];
-    if (mermaid?.trim()) {
-        return [{
-            type: "codeBlock",
-            attrs: { language: "mermaid" },
-            content: [{ type: "text", text: mermaid.replace(/<[^>]+>/g, "").trim() }],
-        }];
-    }
-    return raw.trim() ? [{ type: "codeBlock", attrs: { language: "html" }, content: [{ type: "text", text: raw.trim() }] }] : [];
-}
-
-function flattenTableRows(node: SiyuanNode): SiyuanNode[] {
-    const rows: SiyuanNode[] = [];
-    const visit = (current: SiyuanNode) => {
-        if (current.Type === "NodeTableRow") {
-            rows.push(current);
-            return;
-        }
-        for (const child of current.Children || []) visit(child);
-    };
-    visit(node);
-    return rows;
-}
-
-function renderTableCell(node: SiyuanNode, options: SiyuanTiptapConvertOptions, type: "tableHeader" | "tableCell"): TiptapJsonNode {
-    const content = renderBlocks(node.Children || [], options);
-    const attrs: Record<string, unknown> = {};
-    const colspan = toPositiveInt(getValue(node, ["colspan", "ColSpan", "colSpan"]));
-    const rowspan = toPositiveInt(getValue(node, ["rowspan", "RowSpan", "rowSpan"]));
-    const colwidth = readCellColwidth(node);
-    const align = getString(node, ["align", "Align", "TableCellAlign", "tableCellAlign", "Alignment"]).trim();
-
-    if (colspan && colspan > 1) attrs.colspan = colspan;
-    if (rowspan && rowspan > 1) attrs.rowspan = rowspan;
-    if (colwidth && colwidth.length > 0) attrs.colwidth = colwidth;
-    if (align) attrs.align = align;
+function normalizeTableCell(node: TiptapJsonNode, fallbackAlign?: CellAlign): TiptapJsonNode {
+    const attrs = isPlainObject(node.attrs) ? { ...node.attrs } : {};
+    const colspan = sanitizePositiveInt(attrs.colspan, MAX_CELL_SPAN) ?? 1;
+    const rowspan = sanitizePositiveInt(attrs.rowspan, MAX_CELL_SPAN) ?? 1;
+    const colwidth = sanitizeColwidth(attrs.colwidth);
+    const align = normalizeCellAlign(attrs.align) ?? fallbackAlign;
 
     return {
-        type,
-        ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
-        content: content.length > 0 ? content : [{ type: "paragraph" }],
+        type: node.type === "tableHeader" ? "tableHeader" : "tableCell",
+        attrs: {
+            colspan,
+            rowspan,
+            colwidth: colwidth ?? null,
+            ...(align ? { align } : {}),
+        },
+        content: Array.isArray(node.content) && node.content.length > 0
+            ? node.content.map(normalizeNode)
+            : [{ type: "paragraph" }],
     };
 }
 
-function renderTable(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    const rows: TiptapJsonNode[] = [];
-    for (const [rowIndex, row] of flattenTableRows(node).entries()) {
-        const cells = (row.Children || []).filter((cell) => cell.Type === "NodeTableCell");
-        if (cells.length === 0) continue;
-        const cellType = rowIndex === 0 ? "tableHeader" : "tableCell";
-        rows.push({
-            type: "tableRow",
-            content: cells.map((cell) => renderTableCell(cell, options, cellType)),
+function normalizeTableRow(node: TiptapJsonNode, tableAligns?: Array<CellAlign | null>): TiptapJsonNode {
+    let columnIndex = 0;
+    const cells = Array.isArray(node.content) ? node.content : [];
+    const content = cells
+        .filter((cell) => cell?.type === "tableCell" || cell?.type === "tableHeader")
+        .map((cell) => {
+            const span = sanitizePositiveInt(cell.attrs?.colspan, MAX_CELL_SPAN) ?? 1;
+            const fallbackAlign = tableAligns?.[columnIndex] ?? undefined;
+            const normalized = normalizeTableCell(cell, fallbackAlign ?? undefined);
+            columnIndex += span;
+            return normalized;
         });
-    }
-    const attrs: Record<string, unknown> = {};
-    const tableAligns = serializeUnknownValue(getValue(node, ["TableAligns", "tableAligns"]));
-    const colgroup = serializeUnknownValue(getValue(node, ["colgroup", "ColGroup", "tableColgroup", "TableColGroup"]));
-    if (tableAligns !== undefined) attrs.tableAligns = tableAligns;
-    if (colgroup !== undefined) attrs.colgroup = colgroup;
 
-    return rows.length > 0
-        ? [{ type: "table", ...(Object.keys(attrs).length > 0 ? { attrs } : {}), content: rows }]
+    return {
+        type: "tableRow",
+        ...(node.attrs && isPlainObject(node.attrs) ? { attrs: { ...node.attrs } } : {}),
+        content,
+    };
+}
+
+function normalizeTable(node: TiptapJsonNode): TiptapJsonNode {
+    const attrs = isPlainObject(node.attrs) ? node.attrs : {};
+    const tableAligns = normalizeTableAligns(attrs.tableAligns);
+    const colgroup = sanitizeMetadata(attrs.colgroup);
+    const rows = Array.isArray(node.content)
+        ? node.content.filter((row) => row?.type === "tableRow").map((row) => normalizeTableRow(row, tableAligns))
         : [];
+
+    return {
+        type: "table",
+        attrs: {
+            ...(tableAligns ? { tableAligns } : {}),
+            ...(colgroup !== undefined ? { colgroup } : {}),
+        },
+        content: rows,
+    };
 }
 
-function renderPlainText(node: SiyuanNode | undefined): string {
-    if (!node) return "";
-    const data = getString(node, ["Data", "Text", "text", "Tokens", "HTML", "html"]);
-    if (data) return data;
-    return (node.Children || []).map(renderPlainText).join("");
+function normalizeNode(node: TiptapJsonNode): TiptapJsonNode {
+    if (!node || typeof node.type !== "string") return { type: "paragraph" };
+    if (node.type === "table") return normalizeTable(node);
+    return normalizeGenericNode(node);
 }
 
-function renderDeferredMedia(node: SiyuanNode, options: SiyuanTiptapConvertOptions, label: string): TiptapJsonNode[] {
-    const raw = getString(node, ["src", "href", "url", "Data", "Tokens", "HTML", "html"]) || renderPlainText(node);
-    const src = extractSrc(raw);
-    const text = src ? label : renderPlainText(node);
-    if (!src) return text ? [{ type: "paragraph", content: textNode(text) }] : [];
-    return [{
-        type: "paragraph",
-        content: [{
-            type: "text",
-            text: label,
-            marks: [{ type: "link", attrs: { href: resolveMediaSrc(src, options) } }],
-        }],
-    }];
-}
-
-function renderBlock(node: SiyuanNode, options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    if (MARKER_NODE_TYPES.has(node.Type)) return [];
-
-    switch (node.Type) {
-        case "NodeDocument":
-        case "NodeSuperBlock":
-            return renderBlocks(node.Children || [], options);
-        case "NodeHeading": {
-            const content = renderInlineContent(node, options);
-            return [{
-                type: "heading",
-                attrs: { level: getHeadingLevel(node) },
-                content: content.length > 0 ? content : undefined,
-            }];
-        }
-        case "NodeParagraph":
-            return renderParagraphLike(node, options);
-        case "NodeText":
-        case "NodeTextMark":
-        case "NodeBr":
-            return [{ type: "paragraph", content: renderInline(node, options) }];
-        case "NodeList":
-            return renderList(node, options);
-        case "NodeBlockquote":
-            return renderBlockquote(node, options);
-        case "NodeCallout":
-            return renderCallout(node, options);
-        case "NodeCodeBlock":
-            return renderCodeBlock(node);
-        case "NodeMathBlock":
-            return renderMathBlock(node);
-        case "NodeHTMLBlock":
-            return renderHtmlBlock(node);
-        case "NodeThematicBreak":
-            return [{ type: "horizontalRule" }];
-        case "NodeTable":
-            return renderTable(node, options);
-        case "NodeImage":
-            return renderImage(node, options);
-        case "NodeVideo":
-            return renderVideo(node, options);
-        case "NodeAudio":
-            return renderDeferredMedia(node, options, "音频附件");
-        case "NodeIFrame":
-            return renderIframe(node, options);
-        case "NodeWidget":
-            return renderDeferredMedia(node, options, "挂件内容");
-        default: {
-            const childBlocks = renderBlocks(node.Children || [], options);
-            if (childBlocks.length > 0) return childBlocks;
-            const text = getString(node, ["Data"]) || renderPlainText(node);
-            return text ? [{ type: "paragraph", content: textNode(text) }] : [];
-        }
-    }
-}
-
-function renderBlocks(nodes: SiyuanNode[], options: SiyuanTiptapConvertOptions): TiptapJsonNode[] {
-    return nodes.flatMap((node) => renderBlock(node, options));
-}
-
-export function siyuanSyToTiptapJson(doc: SiyuanNode, options: SiyuanTiptapConvertOptions = {}): string {
-    const content = renderBlock(doc, options);
-    return JSON.stringify({
-        type: "doc",
-        content: content.length > 0 ? content : [{ type: "paragraph" }],
-    });
+/**
+ * Convert a SiYuan AST to Tiptap JSON and enforce Nowen's schema/security
+ * invariants before the document reaches storage or the editor.
+ */
+export function siyuanSyToTiptapJson(
+    doc: SiyuanNode,
+    options: SiyuanTiptapConvertOptions = {},
+): string {
+    const raw = convertSiyuanCore(doc, options);
+    const parsed = JSON.parse(raw) as TiptapJsonNode;
+    const normalized = normalizeNode(parsed);
+    return JSON.stringify(normalized);
 }
