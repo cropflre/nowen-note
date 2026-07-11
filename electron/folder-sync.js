@@ -1,35 +1,45 @@
 // electron/folder-sync.js
 //
-// 桌面端文件夹同步：配置 CRUD + 本地扫描 + SHA-256 索引 + 日志。
-//
-// 配置：{userData}/folder-sync.json
-// 索引：{userData}/folder-sync-index-{folderId}.json
-// 日志：{userData}/folder-sync-logs.json
-//
-// Phase C.1：只做本地扫描，不上传、不创建笔记、不改后端。
+// Desktop folder -> Nowen one-way projection.
+// The main process owns filesystem access, scan budgets and the local index.
+// Renderer code only receives bounded metadata/content and performs authenticated uploads.
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 
 let configFilePath = null;
 let dataDir = null;
 
-// 忽略的目录名
+const PREFS_MESSAGE_PREFIX = "__NOWEN_FOLDER_SYNC_PREFS__:";
+const DEFAULT_FILE_TYPES = [".md", ".txt", ".html", ".pdf", ".docx"];
+const DEFAULT_ADVANCED = Object.freeze({
+  conflictPolicy: "protect",
+  deletionPolicy: "keep",
+  extractAttachmentText: true,
+  excludePatterns: [],
+});
+
 const IGNORED_DIRS = new Set([
-  "node_modules", ".git", ".svn", ".hg", "dist", "build",
-  ".next", ".vite", "__pycache__", ".cache", ".turbo",
+  "node_modules", ".git", ".svn", ".hg", "dist", "build", ".next",
+  ".vite", "__pycache__", ".cache", ".turbo",
 ]);
-// 忽略的文件名
-const IGNORED_FILES = new Set([
-  ".DS_Store", "Thumbs.db", "desktop.ini",
-]);
-// 忽略的文件名前缀/后缀
+const IGNORED_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 const IGNORED_PREFIXES = ["~$"];
 const IGNORED_EXTS = [".tmp", ".temp", ".swp", ".swo"];
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const TEXT_EXTS = new Set([".md", ".txt", ".markdown", ".html", ".htm"]);
+const BINARY_UPLOAD_EXTS = new Set([".pdf", ".docx"]);
+const PENDING_STATUSES = new Set(["new", "changed", "renamed", "error", "conflict"]);
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_SCAN_FILES = 10_000;
+const MAX_TOTAL_READ_BYTES = 1024 * 1024 * 1024;
 const MAX_LOG_ENTRIES = 200;
+const MAX_EXCLUDE_PATTERNS = 10;
+const MAX_EXCLUDE_PATTERN_LENGTH = 64;
 
 function setDataDir(dir) {
   dataDir = dir;
@@ -40,61 +50,112 @@ function genId() {
   return crypto.randomBytes(8).toString("hex");
 }
 
-// ---------- 配置 CRUD ----------
+function normalizeSlashes(value) {
+  return String(value || "").replace(/\\/g, "/");
+}
+
+function sanitizeExcludePatterns(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of value) {
+    if (typeof raw !== "string") continue;
+    const pattern = normalizeSlashes(raw.trim()).slice(0, MAX_EXCLUDE_PATTERN_LENGTH);
+    if (!pattern || pattern.startsWith("#") || seen.has(pattern)) continue;
+    seen.add(pattern);
+    out.push(pattern);
+    if (out.length >= MAX_EXCLUDE_PATTERNS) break;
+  }
+  return out;
+}
+
+function normalizeAdvanced(input) {
+  const value = input && typeof input === "object" ? input : {};
+  return {
+    conflictPolicy: ["protect", "copy", "overwrite"].includes(value.conflictPolicy)
+      ? value.conflictPolicy
+      : DEFAULT_ADVANCED.conflictPolicy,
+    deletionPolicy: ["keep", "trash", "detach"].includes(value.deletionPolicy)
+      ? value.deletionPolicy
+      : DEFAULT_ADVANCED.deletionPolicy,
+    extractAttachmentText: typeof value.extractAttachmentText === "boolean"
+      ? value.extractAttachmentText
+      : DEFAULT_ADVANCED.extractAttachmentText,
+    excludePatterns: sanitizeExcludePatterns(value.excludePatterns),
+  };
+}
+
+function normalizeFileTypes(fileTypes) {
+  const source = Array.isArray(fileTypes) && fileTypes.length ? fileTypes : DEFAULT_FILE_TYPES;
+  return [...new Set(source
+    .filter((item) => typeof item === "string")
+    .map((item) => item.toLowerCase().trim())
+    .filter(Boolean)
+    .map((item) => item.startsWith(".") ? item : `.${item}`))];
+}
+
+function normalizeConfig(raw) {
+  const advanced = normalizeAdvanced(raw);
+  return {
+    ...raw,
+    folderId: typeof raw?.folderId === "string" ? raw.folderId : genId(),
+    folderPath: typeof raw?.folderPath === "string" ? raw.folderPath : "",
+    targetNotebookId: typeof raw?.targetNotebookId === "string" ? raw.targetNotebookId : null,
+    includeSubfolders: raw?.includeSubfolders !== false,
+    fileTypes: normalizeFileTypes(raw?.fileTypes),
+    enabled: raw?.enabled !== false,
+    intervalMinutes: Number.isFinite(raw?.intervalMinutes) ? raw.intervalMinutes : null,
+    ...advanced,
+  };
+}
 
 function readConfigs() {
   if (!configFilePath) return [];
   try {
-    if (fs.existsSync(configFilePath)) {
-      const raw = JSON.parse(fs.readFileSync(configFilePath, "utf8"));
-      return Array.isArray(raw) ? raw : [];
-    }
-  } catch (e) {
-    console.warn("[folder-sync] read configs failed:", e?.message || e);
+    if (!fs.existsSync(configFilePath)) return [];
+    const raw = JSON.parse(fs.readFileSync(configFilePath, "utf8"));
+    return Array.isArray(raw) ? raw.map(normalizeConfig) : [];
+  } catch (error) {
+    console.warn("[folder-sync] read configs failed:", error?.message || error);
+    return [];
   }
-  return [];
 }
 
 function writeConfigs(configs) {
   if (!configFilePath) return;
-  try {
-    fs.mkdirSync(path.dirname(configFilePath), { recursive: true });
-    const tmp = configFilePath + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(configs, null, 2), "utf8");
-    fs.renameSync(tmp, configFilePath);
-  } catch (e) {
-    console.error("[folder-sync] write configs failed:", e?.message || e);
-    throw e;
-  }
+  fs.mkdirSync(path.dirname(configFilePath), { recursive: true });
+  const tmp = `${configFilePath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(configs, null, 2), "utf8");
+  fs.renameSync(tmp, configFilePath);
 }
 
 function saveConfig(input) {
   const configs = readConfigs();
   const now = new Date().toISOString();
-
-  if (input.folderId) {
-    const idx = configs.findIndex((c) => c.folderId === input.folderId);
-    if (idx >= 0) {
-      configs[idx] = { ...configs[idx], ...input, updatedAt: now };
+  if (input?.folderId) {
+    const index = configs.findIndex((item) => item.folderId === input.folderId);
+    if (index >= 0) {
+      configs[index] = normalizeConfig({ ...configs[index], ...input, updatedAt: now });
       writeConfigs(configs);
-      return { ok: true, config: configs[idx] };
+      return { ok: true, config: configs[index] };
     }
   }
 
-  const config = {
-    folderId: input.folderId || genId(),
-    folderPath: input.folderPath || "",
-    targetNotebookId: input.targetNotebookId || null,
-    includeSubfolders: input.includeSubfolders !== false,
-    fileTypes: input.fileTypes || [".md", ".txt", ".html", ".pdf", ".docx"],
-    enabled: input.enabled !== false,
-    intervalMinutes: input.intervalMinutes ?? null,
+  const config = normalizeConfig({
+    folderId: input?.folderId || genId(),
+    folderPath: input?.folderPath || "",
+    targetNotebookId: input?.targetNotebookId || null,
+    includeSubfolders: input?.includeSubfolders !== false,
+    fileTypes: input?.fileTypes || DEFAULT_FILE_TYPES,
+    enabled: input?.enabled !== false,
+    intervalMinutes: input?.intervalMinutes ?? null,
     lastSyncedAt: null,
     lastScanAt: null,
     lastScanStats: null,
     createdAt: now,
     updatedAt: now,
-  };
+    ...normalizeAdvanced(input),
+  });
   configs.push(config);
   writeConfigs(configs);
   return { ok: true, config };
@@ -102,653 +163,620 @@ function saveConfig(input) {
 
 function removeConfig(folderId) {
   const configs = readConfigs();
-  const filtered = configs.filter((c) => c.folderId !== folderId);
+  const filtered = configs.filter((item) => item.folderId !== folderId);
   if (filtered.length === configs.length) return { ok: false, error: "Config not found" };
   writeConfigs(filtered);
   if (dataDir) {
     try {
-      const idx = path.join(dataDir, `folder-sync-index-${folderId}.json`);
-      if (fs.existsSync(idx)) fs.unlinkSync(idx);
-    } catch { /* ignore */ }
+      const indexPath = path.join(dataDir, `folder-sync-index-${folderId}.json`);
+      if (fs.existsSync(indexPath)) fs.unlinkSync(indexPath);
+    } catch { /* best effort */ }
   }
   return { ok: true };
 }
 
-// ---------- 安全校验 ----------
+function applyAdvancedPreferences(folderId, input) {
+  const configs = readConfigs();
+  const index = configs.findIndex((item) => item.folderId === folderId);
+  if (index < 0) return { ok: false, error: "Config not found" };
+  configs[index] = normalizeConfig({
+    ...configs[index],
+    ...normalizeAdvanced(input),
+    updatedAt: new Date().toISOString(),
+  });
+  writeConfigs(configs);
+  return { ok: true, config: configs[index] };
+}
 
-function isDangerousRoot(p) {
-  const normalized = path.resolve(p);
-  // Windows: C:\ or D:\
-  if (/^[A-Z]:\\?$/.test(normalized)) return true;
-  // macOS/Linux: /
-  if (normalized === "/") return true;
-  // Home 目录本身
-  const home = require("os").homedir();
-  if (normalized === home || normalized === home.replace(/\/$/, "")) return true;
+function isDangerousRoot(value) {
+  const normalized = path.resolve(value || "");
+  if (/^[A-Za-z]:\\?$/.test(normalized)) return true;
+  if (normalized === path.parse(normalized).root) return true;
+  const home = path.resolve(os.homedir());
+  return normalized === home;
+}
+
+function checkPathBoundary(rootPath, candidatePath, expectDirectory = false) {
+  let rootRealPath;
+  let candidateStat;
+  let candidateRealPath;
+  try {
+    rootRealPath = fs.realpathSync(rootPath);
+    candidateStat = fs.lstatSync(candidatePath);
+    if (candidateStat.isSymbolicLink()) return { ok: false, reason: "Symbolic link or junction is not allowed" };
+    if (expectDirectory ? !candidateStat.isDirectory() : !candidateStat.isFile()) {
+      return { ok: false, reason: expectDirectory ? "Not a directory" : "Not a regular file" };
+    }
+    candidateRealPath = fs.realpathSync(candidatePath);
+  } catch (error) {
+    return { ok: false, reason: error?.message || "Cannot resolve path" };
+  }
+
+  const relative = path.relative(path.normalize(rootRealPath), path.normalize(candidateRealPath));
+  if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    return { ok: false, reason: "Path escapes the configured root" };
+  }
+  return { ok: true, rootRealPath, fileRealPath: candidateRealPath };
+}
+
+function globToRegExp(pattern) {
+  const normalized = normalizeSlashes(pattern).replace(/^\.\//, "");
+  let source = "";
+  for (let i = 0; i < normalized.length; i += 1) {
+    const char = normalized[i];
+    if (char === "*") {
+      if (normalized[i + 1] === "*") {
+        source += ".*";
+        i += 1;
+      } else {
+        source += "[^/]*";
+      }
+    } else if (char === "?") {
+      source += "[^/]";
+    } else {
+      source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+    }
+  }
+  if (normalized.endsWith("/")) return new RegExp(`^${source}.*$`, "i");
+  return new RegExp(`^${source}$`, "i");
+}
+
+function matchesExcludePattern(relativePath, pattern) {
+  const rel = normalizeSlashes(relativePath).replace(/^\/+/, "");
+  const clean = normalizeSlashes(pattern).replace(/^\/+/, "");
+  if (!clean) return false;
+  const regex = globToRegExp(clean);
+  if (regex.test(rel)) return true;
+  if (!clean.includes("/")) {
+    if (regex.test(path.posix.basename(rel))) return true;
+    return rel.split("/").some((part) => regex.test(part));
+  }
   return false;
 }
 
-function shouldIgnoreDir(name) {
-  return IGNORED_DIRS.has(name) || name.startsWith(".");
+function readNowenIgnore(folderPath) {
+  const ignorePath = path.join(folderPath, ".nowenignore");
+  try {
+    const boundary = checkPathBoundary(folderPath, ignorePath);
+    if (!boundary.ok) return [];
+    const stat = fs.statSync(ignorePath);
+    if (stat.size > 32 * 1024) return [];
+    return sanitizeExcludePatterns(fs.readFileSync(ignorePath, "utf8").split(/\r?\n/));
+  } catch {
+    return [];
+  }
 }
 
 function shouldIgnoreFile(name) {
-  if (IGNORED_FILES.has(name)) return true;
-  if (name.startsWith(".")) return true;
-  for (const prefix of IGNORED_PREFIXES) {
-    if (name.startsWith(prefix)) return true;
-  }
-  const ext = path.extname(name).toLowerCase();
-  if (IGNORED_EXTS.includes(ext)) return true;
-  return false;
-}
-
-// ---------- 路径边界安全校验 ----------
-
-/**
- * 检查 candidatePath 的真实路径是否在 rootPath 真实路径内。
- *
- * 用于读取前二次确认，防止 TOCTOU 攻击：
- * - scanFolder 时文件是普通文件，进入 index
- * - 之后文件被替换为 symlink，指向同步根目录外
- * - getPendingUploads / getUploadFile 读取前再次校验
- *
- * @param {string} rootPath 同步根目录路径
- * @param {string} candidatePath 候选文件路径
- * @returns {{ ok: boolean, reason?: string, rootRealPath?: string, fileRealPath?: string }}
- */
-function checkPathBoundary(rootPath, candidatePath) {
-  // 1. 获取 root 的真实路径（解析 symlink）
-  let rootRealPath;
-  try {
-    rootRealPath = fs.realpathSync(rootPath);
-  } catch (e) {
-    return { ok: false, reason: `Cannot resolve root path: ${e.message}` };
-  }
-
-  // 2. lstatSync 检查候选文件是否为 symlink
-  let lstat;
-  try {
-    lstat = fs.lstatSync(candidatePath);
-  } catch (e) {
-    return { ok: false, reason: `Cannot stat file: ${e.message}` };
-  }
-
-  if (lstat.isSymbolicLink()) {
-    return { ok: false, reason: "File is a symlink" };
-  }
-
-  // 3. 检查是否为普通文件（拒绝 socket / fifo / device 等）
-  if (!lstat.isFile()) {
-    return { ok: false, reason: `Not a regular file (mode: ${lstat.mode.toString(8)})` };
-  }
-
-  // 4. 获取候选文件的真实路径
-  let fileRealPath;
-  try {
-    fileRealPath = fs.realpathSync(candidatePath);
-  } catch (e) {
-    return { ok: false, reason: `Cannot resolve file path: ${e.message}` };
-  }
-
-  // 5. 规范化路径（Windows 大小写 + 分隔符）
-  const normalizedRoot = path.normalize(rootRealPath);
-  const normalizedFile = path.normalize(fileRealPath);
-
-  // 6. 使用 path.relative 判断边界
-  const rel = path.relative(normalizedRoot, normalizedFile);
-
-  // relative 为空字符串表示相同路径
-  // relative 以 .. 开头表示在 root 外
-  // relative 为绝对路径表示在不同驱动器（Windows）
-  if (rel === "") {
-    return { ok: true, rootRealPath: normalizedRoot, fileRealPath: normalizedFile };
-  }
-  if (path.isAbsolute(rel)) {
-    return { ok: false, reason: `File is on a different drive: ${fileRealPath}` };
-  }
-  if (rel.startsWith("..")) {
-    return { ok: false, reason: `File is outside root: ${fileRealPath}` };
-  }
-
-  return { ok: true, rootRealPath: normalizedRoot, fileRealPath: normalizedFile };
-}
-
-// ---------- 扫描 ----------
-
-function normalizeFileTypes(fileTypes) {
-  if (!Array.isArray(fileTypes) || fileTypes.length === 0) {
-    return [".md", ".txt", ".html", ".pdf", ".docx"];
-  }
-  return [...new Set(fileTypes.map((e) => {
-    const lower = e.toLowerCase();
-    return lower.startsWith(".") ? lower : `.${lower}`;
-  }))];
-}
-
-function scanFolder(folderPath, fileTypes, includeSubfolders) {
-  const results = [];
-  const typeSet = new Set(normalizeFileTypes(fileTypes));
-
-  function walk(dir, relBase) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (e) {
-      results.push({ relativePath: relBase, error: `Cannot read directory: ${e.message}`, status: "error" });
-      return;
-    }
-
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
-
-      if (entry.isDirectory()) {
-        if (shouldIgnoreDir(entry.name)) continue;
-        if (includeSubfolders) {
-          // 安全检查：不跟随 symlink，避免循环扫描
-          try {
-            const stat = fs.lstatSync(fullPath);
-            if (stat.isSymbolicLink()) continue;
-          } catch { /* ignore */ }
-          walk(fullPath, relPath);
-        }
-      } else if (entry.isFile()) {
-        if (shouldIgnoreFile(entry.name)) continue;
-        // SEC-ELECTRON-01-D4: 跳过 symlink 文件，防止穿透读取任意目标
-        try {
-          const lstat = fs.lstatSync(fullPath);
-          if (lstat.isSymbolicLink()) continue;
-        } catch { /* ignore */ }
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!typeSet.has(ext)) continue;
-
-        try {
-          const stat = fs.statSync(fullPath);
-          if (stat.size > MAX_FILE_SIZE) {
-            results.push({
-              relativePath: relPath,
-              size: stat.size,
-              mtimeMs: stat.mtimeMs,
-              status: "skipped",
-              error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`,
-            });
-            continue;
-          }
-
-          const sha256 = computeHash(fullPath);
-          results.push({
-            relativePath: relPath,
-            size: stat.size,
-            mtimeMs: stat.mtimeMs,
-            sha256,
-            status: "new", // 会在 mergeIndex 里更新
-          });
-        } catch (e) {
-          results.push({
-            relativePath: relPath,
-            status: "error",
-            error: e.message,
-          });
-        }
-      }
-    }
-  }
-
-  walk(folderPath, "");
-  return results;
+  if (IGNORED_FILES.has(name) || name.startsWith(".")) return true;
+  if (IGNORED_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
+  return IGNORED_EXTS.includes(path.extname(name).toLowerCase());
 }
 
 function computeHash(filePath) {
   const hash = crypto.createHash("sha256");
-  const buf = fs.readFileSync(filePath);
-  hash.update(buf);
+  const fd = fs.openSync(filePath, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(fd);
+  }
   return hash.digest("hex");
 }
 
-// ---------- 索引合并 ----------
+function computeSourcePathHash(folderId, relativePath) {
+  return crypto.createHash("sha256").update(`${folderId}:${normalizeSlashes(relativePath)}`).digest("hex");
+}
+
+function scanFolder(config, oldIndex) {
+  const results = [];
+  const oldMap = new Map(oldIndex.map((item) => [normalizeSlashes(item.relativePath), item]));
+  const typeSet = new Set(normalizeFileTypes(config.fileTypes));
+  const patterns = sanitizeExcludePatterns([
+    ...(config.excludePatterns || []),
+    ...readNowenIgnore(config.folderPath),
+  ]);
+  const budget = { files: 0, readBytes: 0, maxFiles: MAX_SCAN_FILES, maxReadBytes: MAX_TOTAL_READ_BYTES };
+  let complete = true;
+  let stopped = false;
+
+  function pushError(relativePath, error) {
+    results.push({ relativePath: normalizeSlashes(relativePath), status: "error", error: String(error || "Unknown scan error").slice(0, 300) });
+  }
+
+  function walk(dir, relBase) {
+    if (stopped) return;
+    let entries;
+    try {
+      const boundary = checkPathBoundary(config.folderPath, dir, true);
+      if (!boundary.ok) {
+        complete = false;
+        pushError(relBase || ".", boundary.reason);
+        return;
+      }
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      complete = false;
+      pushError(relBase || ".", `Cannot read directory: ${error?.message || error}`);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (stopped) break;
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = normalizeSlashes(relBase ? `${relBase}/${entry.name}` : entry.name);
+
+      if (entry.isDirectory()) {
+        if (!config.includeSubfolders || entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name)) continue;
+        if (patterns.some((pattern) => matchesExcludePattern(`${relativePath}/`, pattern))) continue;
+        const boundary = checkPathBoundary(config.folderPath, fullPath, true);
+        if (!boundary.ok) {
+          pushError(relativePath, boundary.reason);
+          continue;
+        }
+        walk(fullPath, relativePath);
+        continue;
+      }
+
+      if (!entry.isFile() || shouldIgnoreFile(entry.name)) continue;
+      if (patterns.some((pattern) => matchesExcludePattern(relativePath, pattern))) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!typeSet.has(ext)) continue;
+
+      budget.files += 1;
+      if (budget.files > MAX_SCAN_FILES) {
+        complete = false;
+        stopped = true;
+        pushError(relativePath, `Scan file limit exceeded (${MAX_SCAN_FILES})`);
+        break;
+      }
+
+      try {
+        const boundary = checkPathBoundary(config.folderPath, fullPath);
+        if (!boundary.ok) {
+          results.push({ relativePath, status: "skipped", error: boundary.reason });
+          continue;
+        }
+        const stat = fs.statSync(boundary.fileRealPath);
+        if (stat.size > MAX_FILE_SIZE) {
+          results.push({
+            relativePath,
+            filename: entry.name,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            status: "skipped",
+            error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`,
+          });
+          continue;
+        }
+
+        const previous = oldMap.get(relativePath);
+        let sha256 = "";
+        if (previous?.sha256 && previous.size === stat.size && previous.mtimeMs === stat.mtimeMs) {
+          sha256 = previous.sha256;
+        } else {
+          if (budget.readBytes + stat.size > MAX_TOTAL_READ_BYTES) {
+            complete = false;
+            stopped = true;
+            pushError(relativePath, "Scan read budget exceeded (1GB)");
+            break;
+          }
+          budget.readBytes += stat.size;
+          sha256 = computeHash(boundary.fileRealPath);
+        }
+
+        results.push({
+          relativePath,
+          filename: entry.name,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          sha256,
+          status: "new",
+          sourcePathHash: previous?.sourcePathHash || computeSourcePathHash(config.folderId, relativePath),
+        });
+      } catch (error) {
+        pushError(relativePath, error?.message || error);
+      }
+    }
+  }
+
+  walk(config.folderPath, "");
+  return { results, complete, budget };
+}
 
 function readIndex(folderId) {
   if (!dataDir) return [];
-  const indexFile = path.join(dataDir, `folder-sync-index-${folderId}.json`);
+  const indexPath = path.join(dataDir, `folder-sync-index-${folderId}.json`);
   try {
-    if (fs.existsSync(indexFile)) {
-      const raw = JSON.parse(fs.readFileSync(indexFile, "utf8"));
-      return Array.isArray(raw) ? raw : [];
-    }
-  } catch { /* ignore */ }
-  return [];
+    if (!fs.existsSync(indexPath)) return [];
+    const raw = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
 }
 
 function writeIndex(folderId, index) {
   if (!dataDir) return;
-  const indexFile = path.join(dataDir, `folder-sync-index-${folderId}.json`);
-  try {
-    fs.mkdirSync(path.dirname(indexFile), { recursive: true });
-    const tmp = indexFile + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(index, null, 2), "utf8");
-    fs.renameSync(tmp, indexFile);
-  } catch (e) {
-    console.error("[folder-sync] write index failed:", e?.message || e);
-  }
+  const indexPath = path.join(dataDir, `folder-sync-index-${folderId}.json`);
+  fs.mkdirSync(path.dirname(indexPath), { recursive: true });
+  const tmp = `${indexPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(index, null, 2), "utf8");
+  fs.renameSync(tmp, indexPath);
 }
 
-function mergeIndex(oldIndex, scanResults) {
-  const oldMap = new Map(oldIndex.map((item) => [item.relativePath, item]));
-  const scannedPaths = new Set(scanResults.map((r) => r.relativePath));
-  const merged = [];
+function mergeIndex(oldIndex, scanResults, options = {}) {
+  const complete = options.complete !== false;
+  const folderId = options.folderId || "legacy";
   const now = new Date().toISOString();
+  const oldByPath = new Map(oldIndex.map((item) => [normalizeSlashes(item.relativePath), item]));
+  const scannedPaths = new Set(scanResults.map((item) => normalizeSlashes(item.relativePath)));
+  const consumedOldPaths = new Set();
+  const renameBuckets = new Map();
 
-  // 处理扫描到的文件
+  for (const old of oldIndex) {
+    const oldPath = normalizeSlashes(old.relativePath);
+    if (scannedPaths.has(oldPath) || !old.sha256) continue;
+    const key = `${old.sha256}:${Number(old.size || 0)}`;
+    const bucket = renameBuckets.get(key) || [];
+    bucket.push(old);
+    renameBuckets.set(key, bucket);
+  }
+
+  const merged = [];
   for (const scan of scanResults) {
-    const old = oldMap.get(scan.relativePath);
+    const relativePath = normalizeSlashes(scan.relativePath);
+    const direct = oldByPath.get(relativePath);
 
     if (scan.status === "skipped" || scan.status === "error") {
-      merged.push({ ...scan, lastScannedAt: now, lastSyncedAt: old?.lastSyncedAt || null, noteId: old?.noteId || null, attachmentId: old?.attachmentId || null });
+      if (direct) consumedOldPaths.add(relativePath);
+      merged.push({
+        ...direct,
+        ...scan,
+        relativePath,
+        sourcePathHash: direct?.sourcePathHash || computeSourcePathHash(folderId, relativePath),
+        lastScannedAt: now,
+        lastSyncedAt: direct?.lastSyncedAt || null,
+        noteId: direct?.noteId || null,
+        attachmentId: direct?.attachmentId || null,
+      });
       continue;
     }
 
-    if (!old) {
-      // 新文件
+    if (direct) {
+      consumedOldPaths.add(relativePath);
+      const sameHash = direct.sha256 === scan.sha256;
+      const keepPending = sameHash && PENDING_STATUSES.has(direct.status);
       merged.push({
-        relativePath: scan.relativePath,
-        size: scan.size,
-        mtimeMs: scan.mtimeMs,
-        sha256: scan.sha256,
-        status: "new",
+        ...direct,
+        ...scan,
+        relativePath,
+        sourcePathHash: direct.sourcePathHash || scan.sourcePathHash || computeSourcePathHash(folderId, relativePath),
+        status: sameHash ? (keepPending ? direct.status : "unchanged") : "changed",
         lastScannedAt: now,
-        lastSyncedAt: null,
-        noteId: null,
-        attachmentId: null,
+        lastSyncedAt: direct.lastSyncedAt || null,
+        noteId: direct.noteId || null,
+        attachmentId: direct.attachmentId || null,
+        error: keepPending ? direct.error : undefined,
       });
-    } else if (old.sha256 === scan.sha256) {
-      // 未变化
-      merged.push({ ...old, status: "unchanged", lastScannedAt: now });
-    } else {
-      // 内容变化
+      continue;
+    }
+
+    const renameKey = `${scan.sha256}:${Number(scan.size || 0)}`;
+    const candidates = (renameBuckets.get(renameKey) || []).filter((old) => !consumedOldPaths.has(normalizeSlashes(old.relativePath)));
+    if (candidates.length === 1) {
+      const old = candidates[0];
+      consumedOldPaths.add(normalizeSlashes(old.relativePath));
       merged.push({
         ...old,
-        size: scan.size,
-        mtimeMs: scan.mtimeMs,
-        sha256: scan.sha256,
-        status: "changed",
+        ...scan,
+        relativePath,
+        filename: scan.filename || path.posix.basename(relativePath),
+        previousRelativePath: normalizeSlashes(old.relativePath),
+        sourcePathHash: old.sourcePathHash || computeSourcePathHash(folderId, old.relativePath),
+        status: "renamed",
         lastScannedAt: now,
+        lastSyncedAt: old.lastSyncedAt || null,
+        error: undefined,
       });
+      continue;
     }
+
+    merged.push({
+      ...scan,
+      relativePath,
+      filename: scan.filename || path.posix.basename(relativePath),
+      sourcePathHash: scan.sourcePathHash || computeSourcePathHash(folderId, relativePath),
+      status: "new",
+      lastScannedAt: now,
+      lastSyncedAt: null,
+      noteId: null,
+      attachmentId: null,
+      error: undefined,
+    });
   }
 
-  // 标记已删除的文件（索引中有但扫描不到）
   for (const old of oldIndex) {
-    if (!scannedPaths.has(old.relativePath)) {
-      merged.push({ ...old, status: "deleted", lastScannedAt: now });
-    }
+    const oldPath = normalizeSlashes(old.relativePath);
+    if (consumedOldPaths.has(oldPath) || scannedPaths.has(oldPath)) continue;
+    merged.push({
+      ...old,
+      relativePath: oldPath,
+      sourcePathHash: old.sourcePathHash || computeSourcePathHash(folderId, oldPath),
+      status: complete ? "deleted" : (old.status === "deleted" ? "deleted" : "unchanged"),
+      lastScannedAt: now,
+      error: complete ? undefined : old.error,
+    });
   }
-
   return merged;
 }
 
-// ---------- 日志 ----------
-
 function readLogs() {
   if (!dataDir) return [];
-  const logFile = path.join(dataDir, "folder-sync-logs.json");
+  const logPath = path.join(dataDir, "folder-sync-logs.json");
   try {
-    if (fs.existsSync(logFile)) {
-      const raw = JSON.parse(fs.readFileSync(logFile, "utf8"));
-      return Array.isArray(raw) ? raw : [];
-    }
-  } catch { /* ignore */ }
-  return [];
+    if (!fs.existsSync(logPath)) return [];
+    const raw = JSON.parse(fs.readFileSync(logPath, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
 }
 
 function writeLogs(logs) {
   if (!dataDir) return;
-  const logFile = path.join(dataDir, "folder-sync-logs.json");
-  try {
-    fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    const trimmed = logs.slice(-MAX_LOG_ENTRIES);
-    const tmp = logFile + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2), "utf8");
-    fs.renameSync(tmp, logFile);
-  } catch (e) {
-    console.error("[folder-sync] write logs failed:", e?.message || e);
-  }
+  const logPath = path.join(dataDir, "folder-sync-logs.json");
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const tmp = `${logPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(logs.slice(-MAX_LOG_ENTRIES), null, 2), "utf8");
+  fs.renameSync(tmp, logPath);
 }
 
 function appendLog(folderId, type, message, detail) {
+  if (typeof message === "string" && message.startsWith(PREFS_MESSAGE_PREFIX)) {
+    try {
+      const payload = JSON.parse(message.slice(PREFS_MESSAGE_PREFIX.length));
+      applyAdvancedPreferences(folderId, payload);
+    } catch (error) {
+      console.warn("[folder-sync] invalid preference control message:", error?.message || error);
+    }
+    return;
+  }
+
   const logs = readLogs();
   logs.push({
     id: genId(),
     folderId,
-    type,
-    message,
+    type: String(type || "info").slice(0, 64),
+    message: String(message || "").slice(0, 1000),
     createdAt: new Date().toISOString(),
-    detail: detail || undefined,
+    detail: typeof detail === "string" ? detail.slice(0, 2000) : undefined,
   });
   writeLogs(logs);
 }
 
 function getLogs(folderId) {
-  const all = readLogs();
-  if (!folderId) return all.slice(-50);
-  return all.filter((l) => l.folderId === folderId).slice(-50);
+  const logs = readLogs();
+  return (folderId ? logs.filter((item) => item.folderId === folderId) : logs).slice(-50);
 }
-
-// ---------- runNow ----------
 
 function runNow(folderId) {
   const configs = readConfigs();
-  const config = configs.find((c) => c.folderId === folderId);
+  const config = configs.find((item) => item.folderId === folderId);
   if (!config) return { ok: false, code: "CONFIG_NOT_FOUND", message: "Sync config not found" };
-
-  const folderPath = config.folderPath;
-  if (!folderPath || !fs.existsSync(folderPath)) {
-    return { ok: false, code: "FOLDER_NOT_FOUND", message: "Folder does not exist: " + folderPath };
+  if (!config.folderPath || !fs.existsSync(config.folderPath)) {
+    return { ok: false, code: "FOLDER_NOT_FOUND", message: "Configured folder does not exist" };
   }
-
-  if (isDangerousRoot(folderPath)) {
-    return { ok: false, code: "DANGEROUS_PATH", message: "Cannot scan system root or home directory" };
+  if (isDangerousRoot(config.folderPath)) {
+    return { ok: false, code: "DANGEROUS_PATH", message: "System root and home directory cannot be scanned" };
   }
+  const rootBoundary = checkPathBoundary(config.folderPath, config.folderPath, true);
+  if (!rootBoundary.ok) return { ok: false, code: "UNSAFE_ROOT", message: rootBoundary.reason };
 
-  const startTime = Date.now();
-  appendLog(folderId, "scan_started", `Scanning ${folderPath}`);
-
+  const startedAt = Date.now();
+  appendLog(folderId, "scan_started", "Folder scan started");
   try {
-    const scanResults = scanFolder(folderPath, config.fileTypes, config.includeSubfolders);
     const oldIndex = readIndex(folderId);
-    const merged = mergeIndex(oldIndex, scanResults);
+    const scan = scanFolder(config, oldIndex);
+    const merged = mergeIndex(oldIndex, scan.results, { complete: scan.complete, folderId });
     writeIndex(folderId, merged);
 
     const stats = {
       total: merged.length,
-      added: merged.filter((i) => i.status === "new").length,
-      changed: merged.filter((i) => i.status === "changed").length,
-      unchanged: merged.filter((i) => i.status === "unchanged").length,
-      deleted: merged.filter((i) => i.status === "deleted").length,
-      skipped: merged.filter((i) => i.status === "skipped").length,
-      errors: merged.filter((i) => i.status === "error").length,
+      added: merged.filter((item) => item.status === "new").length,
+      changed: merged.filter((item) => item.status === "changed" || item.status === "renamed").length,
+      renamed: merged.filter((item) => item.status === "renamed").length,
+      unchanged: merged.filter((item) => item.status === "unchanged" || item.status === "synced").length,
+      deleted: merged.filter((item) => item.status === "deleted").length,
+      skipped: merged.filter((item) => item.status === "skipped").length,
+      conflicts: merged.filter((item) => item.status === "conflict").length,
+      errors: merged.filter((item) => item.status === "error").length,
+      durationMs: Date.now() - startedAt,
+      complete: scan.complete,
+      scannedFiles: scan.budget.files,
+      readBytes: scan.budget.readBytes,
     };
-    const durationMs = Date.now() - startTime;
 
-    // 更新配置的 lastScanAt 和 stats
-    const cfgIdx = configs.findIndex((c) => c.folderId === folderId);
-    if (cfgIdx >= 0) {
-      configs[cfgIdx].lastScanAt = new Date().toISOString();
-      configs[cfgIdx].lastScanStats = { ...stats, durationMs };
+    const configIndex = configs.findIndex((item) => item.folderId === folderId);
+    if (configIndex >= 0) {
+      configs[configIndex] = { ...configs[configIndex], lastScanAt: new Date().toISOString(), lastScanStats: stats };
       writeConfigs(configs);
     }
-
-    appendLog(folderId, "scan_completed",
-      `Scan complete: +${stats.added} ~${stats.changed} =${stats.unchanged} -${stats.deleted} skip${stats.skipped} err${stats.errors} (${durationMs}ms)`,
-      stats
-    );
-
-    // 记录 skipped 和 error 详情
-    for (const item of merged) {
-      if (item.status === "skipped") {
-        appendLog(folderId, "file_skipped", `${item.relativePath}: ${item.error}`);
-      } else if (item.status === "error") {
-        appendLog(folderId, "file_error", `${item.relativePath}: ${item.error}`);
-      }
-    }
-
-    return {
-      ok: true,
-      folderId,
-      scannedAt: new Date().toISOString(),
-      ...stats,
-      durationMs,
-    };
-  } catch (e) {
-    appendLog(folderId, "scan_failed", `Scan failed: ${e.message}`);
-    return { ok: false, code: "SCAN_FAILED", message: e.message };
+    appendLog(folderId, "scan_completed", `Scan complete: ${stats.total} indexed, ${stats.added} new, ${stats.changed} changed, ${stats.deleted} deleted`);
+    return { ok: true, folderId, scannedAt: new Date().toISOString(), ...stats };
+  } catch (error) {
+    appendLog(folderId, "scan_failed", `Scan failed: ${error?.message || error}`);
+    return { ok: false, code: "SCAN_FAILED", message: error?.message || String(error) };
   }
 }
-
-// ---------- 索引读取（给 renderer 用） ----------
 
 function getIndex(folderId) {
   return readIndex(folderId);
 }
 
-// ---------- 待上传文件列表（方案 A：renderer 负责上传） ----------
-
-const TEXT_EXTS = new Set([".md", ".txt", ".markdown", ".html", ".htm"]);
-const BINARY_UPLOAD_EXTS = new Set([".pdf", ".docx"]);
-const MAX_CONTENT_BYTES = 2 * 1024 * 1024; // 2MB
-
-function computeSourcePathHash(folderId, relativePath) {
-  return crypto.createHash("sha256").update(`${folderId}:${relativePath}`).digest("hex");
+function makeCandidate(item, config, extra = {}) {
+  const relativePath = normalizeSlashes(item.relativePath);
+  return {
+    action: extra.action || "upsert",
+    relativePath,
+    previousRelativePath: item.previousRelativePath || null,
+    filename: item.filename || path.posix.basename(relativePath),
+    sha256: item.sha256 || "",
+    sourcePathHash: item.sourcePathHash || computeSourcePathHash(config.folderId, relativePath),
+    size: Number(item.size || 0),
+    mtimeMs: Number(item.mtimeMs || 0),
+    ext: path.extname(relativePath).toLowerCase(),
+    contentText: null,
+    existingNoteId: item.noteId || null,
+    attachmentId: item.attachmentId || null,
+    skipReason: null,
+    ...extra,
+  };
 }
 
-/**
- * 返回需要上传的文件列表（status=new/changed）。
- * 文本文件：md/txt/html，读取 contentText。
- * 附件文件：pdf/docx，contentText=null，通过 getUploadFile 单独读取。
- */
 function getPendingUploads(folderId) {
-  const configs = readConfigs();
-  const config = configs.find((c) => c.folderId === folderId);
+  const config = readConfigs().find((item) => item.folderId === folderId);
   if (!config) return { ok: false, error: "Config not found" };
-
   const index = readIndex(folderId);
   const pending = [];
 
   for (const item of index) {
-    if (item.status !== "new" && item.status !== "changed") continue;
+    if (item.status === "deleted") {
+      pending.push(makeCandidate(item, config, { action: "delete" }));
+      continue;
+    }
+    if (!PENDING_STATUSES.has(item.status)) continue;
 
-    const ext = path.extname(item.relativePath).toLowerCase();
-    const isText = TEXT_EXTS.has(ext);
-    const isBinary = BINARY_UPLOAD_EXTS.has(ext);
+    const candidate = makeCandidate(item, config);
+    const isText = TEXT_EXTS.has(candidate.ext);
+    const isBinary = BINARY_UPLOAD_EXTS.has(candidate.ext);
     if (!isText && !isBinary) continue;
 
-    // 安全校验：确保路径在 folderPath 内
-    const fullPath = path.join(config.folderPath, item.relativePath.replace(/\//g, path.sep));
-    const resolvedPath = path.resolve(fullPath);
-    const resolvedBase = path.resolve(config.folderPath);
-    if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
-      pending.push({
-        relativePath: item.relativePath,
-        filename: path.basename(item.relativePath),
-        sha256: item.sha256,
-        sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-        size: item.size,
-        mtimeMs: item.mtimeMs,
-        ext,
-        contentText: null,
-        existingNoteId: item.noteId || null,
-        skipReason: "Path traversal detected",
-      });
+    const fullPath = path.join(config.folderPath, candidate.relativePath.replace(/\//g, path.sep));
+    const boundary = checkPathBoundary(config.folderPath, fullPath);
+    if (!boundary.ok) {
+      pending.push({ ...candidate, skipReason: boundary.reason });
       continue;
     }
 
-    // 读取前二次确认：lstatSync + realpathSync 边界检查
-    // 防止 TOCTOU：scanFolder 时是普通文件，之后被替换为 symlink
-    const boundaryCheck = checkPathBoundary(config.folderPath, fullPath);
-    if (!boundaryCheck.ok) {
-      pending.push({
-        relativePath: item.relativePath,
-        filename: path.basename(item.relativePath),
-        sha256: item.sha256,
-        sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-        size: item.size,
-        mtimeMs: item.mtimeMs,
-        ext,
-        contentText: null,
-        existingNoteId: item.noteId || null,
-        skipReason: boundaryCheck.reason,
-      });
-      continue;
-    }
-
-    // 附件文件（pdf/docx）：不读取内容，通过 getUploadFile 单独读取
     if (isBinary) {
-      pending.push({
-        relativePath: item.relativePath,
-        filename: path.basename(item.relativePath),
-        sha256: item.sha256,
-        sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-        size: item.size,
-        mtimeMs: item.mtimeMs,
-        ext,
-        contentText: null,
-        existingNoteId: item.noteId || null,
-        skipReason: null,
-      });
+      pending.push(candidate);
       continue;
     }
 
-    // 文本文件：读取内容
-    let contentText;
     try {
-      const stat = fs.statSync(fullPath);
-      if (stat.size > MAX_CONTENT_BYTES) {
-        pending.push({
-          relativePath: item.relativePath,
-          filename: path.basename(item.relativePath),
-          sha256: item.sha256,
-          sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-          size: item.size,
-          mtimeMs: item.mtimeMs,
-          ext,
-          contentText: null,
-          existingNoteId: item.noteId || null,
-          skipReason: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 2MB)`,
-        });
+      const stat = fs.statSync(boundary.fileRealPath);
+      if (stat.size > MAX_TEXT_BYTES) {
+        pending.push({ ...candidate, skipReason: `Text file exceeds 2MB (${(stat.size / 1024 / 1024).toFixed(1)}MB)` });
         continue;
       }
-      contentText = fs.readFileSync(fullPath, "utf8");
-    } catch (e) {
-      pending.push({
-        relativePath: item.relativePath,
-        filename: path.basename(item.relativePath),
-        sha256: item.sha256,
-        sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-        size: item.size,
-        mtimeMs: item.mtimeMs,
-        ext,
-        contentText: null,
-        existingNoteId: item.noteId || null,
-        skipReason: `Read failed: ${e.message}`,
-      });
-      continue;
+      pending.push({ ...candidate, contentText: fs.readFileSync(boundary.fileRealPath, "utf8") });
+    } catch (error) {
+      pending.push({ ...candidate, skipReason: `Read failed: ${error?.message || error}` });
     }
-
-    pending.push({
-      relativePath: item.relativePath,
-      filename: path.basename(item.relativePath),
-      sha256: item.sha256,
-      sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
-      size: item.size,
-      mtimeMs: item.mtimeMs,
-      ext,
-      contentText,
-      existingNoteId: item.noteId || null,
-      skipReason: null,
-    });
   }
 
-  return { ok: true, folderId, config: { targetNotebookId: config.targetNotebookId }, pending };
+  return {
+    ok: true,
+    folderId,
+    config: {
+      targetNotebookId: config.targetNotebookId,
+      conflictPolicy: config.conflictPolicy,
+      deletionPolicy: config.deletionPolicy,
+      extractAttachmentText: config.extractAttachmentText,
+    },
+    pending,
+  };
 }
 
-/**
- * renderer 上传成功后回调，写回 noteId / attachmentId / lastSyncedAt / status。
- *
- * result.skipped === true  → status="skipped"（超限/文件不可读等，非网络错误）
- * result.success === true  → status="synced"
- * 否则                     → status="error"（接口失败/网络失败）
- */
 function markUploadResult(folderId, relativePath, result) {
   const index = readIndex(folderId);
-  const item = index.find((i) => i.relativePath === relativePath);
-  if (!item) return { ok: false, error: "Index entry not found" };
-
+  const itemIndex = index.findIndex((item) => normalizeSlashes(item.relativePath) === normalizeSlashes(relativePath));
+  if (itemIndex < 0) return { ok: false, error: "Index entry not found" };
+  const item = index[itemIndex];
   const now = new Date().toISOString();
-  if (result.skipped) {
+
+  if (item.status === "deleted" && result.success) {
+    index.splice(itemIndex, 1);
+  } else if (result.skipped) {
     item.status = "skipped";
-    item.noteId = result.noteId || item.noteId;
-    item.attachmentId = result.attachmentId || item.attachmentId;
     item.lastSyncedAt = now;
     item.error = result.error || "Skipped";
+    item.noteId = result.noteId || item.noteId;
+    item.attachmentId = result.attachmentId || item.attachmentId;
   } else if (result.success) {
     item.status = "synced";
-    item.noteId = result.noteId;
-    item.attachmentId = result.attachmentId || item.attachmentId;
     item.lastSyncedAt = now;
+    item.noteId = result.noteId || item.noteId;
+    item.attachmentId = result.attachmentId || item.attachmentId;
     item.error = undefined;
+    item.previousRelativePath = undefined;
   } else {
-    item.status = "error";
-    item.error = result.error || "Upload failed";
+    const message = String(result.error || "Upload failed");
+    item.status = message.startsWith("SYNC_CONFLICT:") ? "conflict" : "error";
+    item.error = message.slice(0, 1000);
   }
-
   writeIndex(folderId, index);
 
-  // 日志
-  if (result.success || result.skipped) {
-    appendLog(folderId, "upload_success", `${relativePath} → ${result.noteId || "skipped"}`);
-  } else {
-    appendLog(folderId, "upload_failed", `${relativePath}: ${result.error || "unknown"}`);
+  if (result.success) {
+    const configs = readConfigs();
+    const configIndex = configs.findIndex((config) => config.folderId === folderId);
+    if (configIndex >= 0) {
+      configs[configIndex].lastSyncedAt = now;
+      writeConfigs(configs);
+    }
   }
-
+  appendLog(folderId, result.success ? "upload_success" : "upload_failed", result.success ? `${relativePath} synchronized` : `${relativePath}: ${result.error || "unknown error"}`);
   return { ok: true };
 }
 
-// ---------- 安全文件读取（给 renderer 上传附件用） ----------
-
-const MAX_UPLOAD_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-
 function getUploadFile(folderId, relativePath) {
-  const configs = readConfigs();
-  const config = configs.find((c) => c.folderId === folderId);
+  const config = readConfigs().find((item) => item.folderId === folderId);
   if (!config) return { ok: false, code: "CONFIG_NOT_FOUND", message: "Sync config not found" };
-
-  // 安全校验：relativePath 不能是绝对路径或包含 ..
-  if (!relativePath || relativePath.includes("..") || /^[A-Za-z]:/.test(relativePath) || relativePath.startsWith("/")) {
-    return { ok: false, code: "UNSAFE_PATH", message: "Invalid relativePath" };
+  if (!relativePath || path.isAbsolute(relativePath) || normalizeSlashes(relativePath).split("/").includes("..")) {
+    return { ok: false, code: "UNSAFE_PATH", message: "Invalid relative path" };
   }
+  const item = readIndex(folderId).find((entry) => normalizeSlashes(entry.relativePath) === normalizeSlashes(relativePath));
+  if (!item) return { ok: false, code: "NOT_INDEXED", message: "File is not indexed" };
+  if (!PENDING_STATUSES.has(item.status)) return { ok: false, code: "INVALID_STATUS", message: `File status is ${item.status}` };
 
-  // 校验文件在 index 中存在且状态为 new/changed
-  const index = readIndex(folderId);
-  const item = index.find((i) => i.relativePath === relativePath);
-  if (!item) return { ok: false, code: "NOT_INDEXED", message: "File not found in index" };
-  if (item.status !== "new" && item.status !== "changed" && item.status !== "error") {
-    return { ok: false, code: "INVALID_STATUS", message: `File status is ${item.status}, not pending` };
-  }
-
-  // 构建完整路径并校验在 folderPath 内
-  const fullPath = path.join(config.folderPath, relativePath.replace(/\//g, path.sep));
-  const resolvedPath = path.resolve(fullPath);
-  const resolvedBase = path.resolve(config.folderPath);
-  if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
-    return { ok: false, code: "PATH_TRAVERSAL", message: "Path traversal detected" };
-  }
-
-  // 读取前二次确认：lstatSync + realpathSync 边界检查
-  // 防止 TOCTOU：scanFolder 时是普通文件，之后被替换为 symlink
-  const boundaryCheck = checkPathBoundary(config.folderPath, fullPath);
-  if (!boundaryCheck.ok) {
-    return { ok: false, code: "SYMLINK_DETECTED", message: boundaryCheck.reason };
-  }
-
-  // 检查文件存在和大小
+  const fullPath = path.join(config.folderPath, normalizeSlashes(relativePath).replace(/\//g, path.sep));
+  const boundary = checkPathBoundary(config.folderPath, fullPath);
+  if (!boundary.ok) return { ok: false, code: "UNSAFE_PATH", message: boundary.reason };
   try {
-    const stat = fs.statSync(resolvedPath);
-    if (stat.size > MAX_UPLOAD_FILE_SIZE) {
-      return { ok: false, code: "FILE_TOO_LARGE", message: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)` };
-    }
-
-    const buffer = fs.readFileSync(resolvedPath);
-    const ext = path.extname(item.filename || relativePath).toLowerCase();
+    const stat = fs.statSync(boundary.fileRealPath);
+    if (stat.size > MAX_FILE_SIZE) return { ok: false, code: "FILE_TOO_LARGE", message: "File exceeds 50MB" };
+    const buffer = fs.readFileSync(boundary.fileRealPath);
+    const ext = path.extname(relativePath).toLowerCase();
     const mimeTypes = {
       ".pdf": "application/pdf",
       ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ".doc": "application/msword",
-      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ".xls": "application/vnd.ms-excel",
-      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      ".ppt": "application/vnd.ms-powerpoint",
     };
-
     return {
       ok: true,
       filename: item.filename || path.basename(relativePath),
@@ -756,8 +784,8 @@ function getUploadFile(folderId, relativePath) {
       size: buffer.length,
       buffer: buffer.toString("base64"),
     };
-  } catch (e) {
-    return { ok: false, code: "READ_FAILED", message: `Failed to read file: ${e.message}` };
+  } catch (error) {
+    return { ok: false, code: "READ_FAILED", message: `Failed to read file: ${error?.message || error}` };
   }
 }
 
@@ -773,4 +801,12 @@ module.exports = {
   markUploadResult,
   getUploadFile,
   appendLog,
+  _test: {
+    normalizeAdvanced,
+    sanitizeExcludePatterns,
+    matchesExcludePattern,
+    mergeIndex,
+    computeSourcePathHash,
+    checkPathBoundary,
+  },
 };
