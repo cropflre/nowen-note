@@ -150,9 +150,11 @@ function sanitizeTextStyleMark(mark: TiptapMark): TiptapMark | null {
     };
 }
 
-function sanitizeHighlightMark(mark: TiptapMark): TiptapMark {
-    const color = sanitizeColor(mark.attrs?.color);
-    return color ? { type: "highlight", attrs: { color } } : { type: "highlight" };
+function sanitizeHighlightMark(mark: TiptapMark): TiptapMark | null {
+    const rawColor = mark.attrs?.color;
+    if (rawColor == null || String(rawColor).trim() === "") return { type: "highlight" };
+    const color = sanitizeColor(rawColor);
+    return color ? { type: "highlight", attrs: { color } } : null;
 }
 
 function sanitizeLinkMark(mark: TiptapMark): TiptapMark | null {
