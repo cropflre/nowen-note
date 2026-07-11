@@ -23,8 +23,24 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: TypeScript check
-        run: npx tsc --noEmit
+      - name: Capture TypeScript check
+        shell: bash
+        run: |
+          set +e
+          npx tsc --noEmit --pretty false > "$GITHUB_WORKSPACE/backend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/backend-tsc.status"
+          set -e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-207-backend-tsc
+          path: backend-tsc.log
+      - name: Enforce TypeScript check
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          cat backend-tsc.log
+          exit "$(cat backend-tsc.status)"
       - name: Safe migration regressions
         run: node --import tsx --test tests/user-migration-v2.test.ts
 
