@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  backend:
+  backend-typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -23,20 +23,75 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: TypeScript check
-        run: npx tsc --noEmit
-      - name: Existing package import tests
-        run: node --import tsx --test tests/siyuan-package-import.test.ts
-      - name: Existing Tiptap fidelity tests
-        run: node --import tsx --test tests/siyuan-package-tiptap-fidelity.test.ts
+      - run: npx tsc --noEmit
+
+  backend-existing-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: node --import tsx --test tests/siyuan-package-import.test.ts
+
+  backend-existing-fidelity:
+    name: backend fidelity - ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: p0
+            pattern: Rich Text import builds P0 Tiptap nodes and marks from Siyuan AST
+          - label: table
+            pattern: Rich Text import converts Siyuan tables to supported Tiptap table nodes
+          - label: advanced
+            pattern: Rich Text import safely preserves advanced Siyuan nodes without unknown schema
+          - label: markdown
+            pattern: Markdown import keeps advanced Siyuan nodes on the markdown path
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: node --import tsx --test --test-name-pattern="${{ matrix.pattern }}" tests/siyuan-package-tiptap-fidelity.test.ts
+
+  backend-new-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
       - name: Tag invariant tests
         run: node --import tsx --test tests/siyuan-package-tag-invariants.test.ts
       - name: Fidelity safety tests
         run: node --import tsx --test tests/siyuan-tiptap-fidelity-safety.test.ts
 
-  frontend:
+  frontend-focused-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -48,11 +103,36 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Existing schema repair test
-        run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts
-      - name: Table fidelity extension test
-        run: npm run test:run -- src/lib/__tests__/tableFidelityExtensions.test.ts
-      - name: TypeScript project build
-        run: npx tsc -b
-      - name: Vite production bundle
-        run: npx vite build
+      - run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts src/lib/__tests__/tableFidelityExtensions.test.ts
+
+  frontend-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b --pretty false
+
+  frontend-vite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx vite build
