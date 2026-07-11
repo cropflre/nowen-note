@@ -20,6 +20,8 @@
  *      并加上 Mod-Shift-X 快捷键来一键清除全部 inline 文本格式。
  *   2. 颜色侧由 Color 自身处理；上层 UI 只通过 swatch + `<input type="color">`
  *      注入有限值，安全风险可控。
+ *   3. TableFidelityExtension 只为现有 table 节点补充安全的保真属性，不替换
+ *      原表格扩展，因此主编辑器、导入、导出和 schema repair 可以共享同一 schema。
  *
  * 序列化：
  *   - generateHTML  → `<span style="font-size:20px;color:#ef4444">…</span>`
@@ -38,6 +40,7 @@ import {
   Color,
   FontSize as FontSizeBase,
 } from "@tiptap/extension-text-style";
+import { TableFidelityExtension } from "@/components/extensions/TableFidelityExtensions";
 
 declare module "@tiptap/core" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -117,7 +120,8 @@ const ClearInlineFormatHotkey = Extension.create({
 });
 
 /**
- * 三件套统一导出：TextStyle（容器 mark）+ Color（前景色）+ FontSize（自定义字号）
+ * 共享扩展集合：TextStyle（容器 mark）+ Color（前景色）+ FontSize（自定义字号）
+ * + 安全的表格保真全局属性。
  *
  * 顺序很重要：TextStyle 必须在前，Color / FontSize 都依赖它。
  *
@@ -126,7 +130,13 @@ const ClearInlineFormatHotkey = Extension.create({
  * 编辑器主入口配置过 `multicolor: true`，工具栏只要直接调
  * `setHighlight({ color })` / `unsetHighlight()` 即可。
  */
-export const TextStyleKit = [TextStyle, Color, FontSize, ClearInlineFormatHotkey];
+export const TextStyleKit = [
+  TextStyle,
+  Color,
+  FontSize,
+  ClearInlineFormatHotkey,
+  TableFidelityExtension,
+];
 
 /** 预设字号档位（px） */
 export const FONT_SIZE_PRESETS: { label: string; value: string; key: string }[] = [
