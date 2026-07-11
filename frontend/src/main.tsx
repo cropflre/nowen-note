@@ -14,6 +14,7 @@ import DesktopUpdateCenter from "./components/DesktopUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
 import TaskDataTransferBridgeV2 from "./components/TaskDataTransferBridgeV2";
 import SystemFullDataTransferBridge from "./components/SystemFullDataTransferBridge";
+import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
 import "./index.css";
 import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
@@ -85,6 +86,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <TwoFactorLoginChallengeCenter />
     <TaskDataTransferBridgeV2 />
     <SystemFullDataTransferBridge />
+    <AndroidShareImportCenter />
     <App />
   </React.StrictMode>
 );
