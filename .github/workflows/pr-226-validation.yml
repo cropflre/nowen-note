@@ -25,13 +25,14 @@ jobs:
       - run: npm ci
       - name: TypeScript check
         run: npx tsc --noEmit
-      - name: SiYuan focused tests
-        run: >-
-          node --import tsx --test
-          tests/siyuan-package-import.test.ts
-          tests/siyuan-package-tiptap-fidelity.test.ts
-          tests/siyuan-package-tag-invariants.test.ts
-          tests/siyuan-tiptap-fidelity-safety.test.ts
+      - name: Existing package import tests
+        run: node --import tsx --test tests/siyuan-package-import.test.ts
+      - name: Existing Tiptap fidelity tests
+        run: node --import tsx --test tests/siyuan-package-tiptap-fidelity.test.ts
+      - name: Tag invariant tests
+        run: node --import tsx --test tests/siyuan-package-tag-invariants.test.ts
+      - name: Fidelity safety tests
+        run: node --import tsx --test tests/siyuan-tiptap-fidelity-safety.test.ts
 
   frontend:
     runs-on: ubuntu-latest
@@ -47,10 +48,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Focused Vitest
-        run: >-
-          npm run test:run --
-          src/lib/__tests__/tiptapSchemaRepair.test.ts
-          src/lib/__tests__/tableFidelityExtensions.test.ts
-      - name: Production build
-        run: npm run build
+      - name: Existing schema repair test
+        run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts
+      - name: Table fidelity extension test
+        run: npm run test:run -- src/lib/__tests__/tableFidelityExtensions.test.ts
+      - name: TypeScript project build
+        run: npx tsc -b
+      - name: Vite production bundle
+        run: npx vite build
