@@ -9,6 +9,7 @@
 
 import { api } from "./api";
 import { toast } from "./toast";
+import { emitMediaUploadLifecycle } from "./mediaUploadLifecycle";
 
 export interface ImageUploadOptions {
   /** 图片文件 */
@@ -129,16 +130,52 @@ export async function uploadAndInsertImage(
   insertFn: (url: string, filename: string) => void,
   source: "editor" | "markdown" | "paste" | "drag-drop" = "editor",
 ): Promise<void> {
-  const result = await uploadImage({ file, filename, noteId, source });
+  emitMediaUploadLifecycle({
+    phase: "start",
+    file,
+    filename,
+    mediaType: "image",
+  });
 
-  if (result.success && result.url) {
-    insertFn(result.url, result.filename || filename);
+  try {
+    const result = await uploadImage({ file, filename, noteId, source });
 
-    // 提示 fallback
-    if (result.target === "local") {
-      toast.info("图片已回退到本地存储");
+    if (result.success && result.url) {
+      insertFn(result.url, result.filename || filename);
+      emitMediaUploadLifecycle({
+        phase: "success",
+        file,
+        filename,
+        mediaType: "image",
+        result,
+      });
+
+      // 提示 fallback
+      if (result.target === "local") {
+        toast.info("图片已回退到本地存储");
+      }
+      return;
     }
-  } else {
-    toast.error(result.error || "图片上传失败");
+
+    const message = result.error || "图片上传失败";
+    emitMediaUploadLifecycle({
+      phase: "error",
+      file,
+      filename,
+      mediaType: "image",
+      error: message,
+      result,
+    });
+    toast.error(message);
+  } catch (error: any) {
+    const message = error?.message || "图片上传失败";
+    emitMediaUploadLifecycle({
+      phase: "error",
+      file,
+      filename,
+      mediaType: "image",
+      error: message,
+    });
+    throw error;
   }
 }
