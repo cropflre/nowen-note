@@ -21,6 +21,7 @@
 
 import { getDb } from "../db/schema";
 import { SqliteAdapter } from "../db/adapters";
+import { invalidateUserAuthCache } from "../lib/auth-security";
 
 function getAdapter() {
   return new SqliteAdapter(getDb());
@@ -78,6 +79,9 @@ export const userSessionsRepository = {
       input.deviceLabel || null,
       input.expiresAt || null
     );
+    // 新会话创建后，调用方会立即按数据库里的最新 tokenVersion 签发 JWT。
+    // 清掉 index.ts 的 60 秒用户缓存，避免改密后新 token 被旧缓存误判为 TOKEN_REVOKED。
+    invalidateUserAuthCache(input.userId);
     return input.id;
   },
 
@@ -90,6 +94,9 @@ export const userSessionsRepository = {
    */
   findByDevice(userId: string, deviceLabel: string): { id: string } | undefined {
     const db = getDb();
+    // 登录流程可能复用同设备 session，随后同样会签发一张新 JWT。
+    // 即使没有 INSERT，也必须刷新认证缓存中的 tokenVersion / username。
+    invalidateUserAuthCache(userId);
     return db
       .prepare(
         `SELECT id FROM user_sessions
@@ -258,10 +265,12 @@ export const userSessionsRepository = {
         input.expiresAt || null,
       ],
     );
+    invalidateUserAuthCache(input.userId);
     return input.id;
   },
 
   async findByDeviceAsync(userId: string, deviceLabel: string): Promise<{ id: string } | undefined> {
+    invalidateUserAuthCache(userId);
     return getAdapter().queryOne<{ id: string }>(
       `SELECT id FROM user_sessions
        WHERE "userId" = ? AND "deviceLabel" = ? AND "revokedAt" IS NULL
