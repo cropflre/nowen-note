@@ -722,7 +722,7 @@ router.post("/import", async (c) => {
         Object.entries(idMap.notes)
           .filter(([sourceId, targetId]) => {
             const tracked = getTrackedItem(targetUserId, payload.source, "note", sourceId);
-            return tracked?.migrationId === migrationId && targetId === tracked.targetId;
+            return Boolean(tracked && tracked.migrationId === migrationId && targetId === tracked.targetId);
           })
           .map(([, targetId]) => targetId),
       );
