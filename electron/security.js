@@ -98,10 +98,10 @@ function isAllowedMainWindowNavigation(targetUrl, currentUrl) {
       return target.origin === current.origin;
     }
 
-    // file:// 协议：不泛允许，避免任意本地文件进入主窗口
-    // 生产环境主窗口通过 loadFile 加载本地文件，但不允许跨文件导航
+    // file:// 协议：只允许当前前端入口文件自身重载（query/hash 可变化），
+    // 不泛允许任意本地文件进入主窗口。
     if (target.protocol === "file:") {
-      return false;
+      return current.protocol === "file:" && target.pathname === current.pathname;
     }
 
     // hash 路由变化：允许（同源页面内的 hash 变化）
