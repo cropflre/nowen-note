@@ -56,7 +56,7 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -71,6 +71,26 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Build frontend assets
+        working-directory: frontend
+        run: npx vite build
+      - name: Capture Capacitor Android sync
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          npx cap sync android 2>&1 | tee "$GITHUB_WORKSPACE/issue-221-cap-sync.log"
+          echo "${PIPESTATUS[0]}" > "$GITHUB_WORKSPACE/issue-221-cap-sync.status"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-221-capacitor-sync
+          path: |
+            issue-221-cap-sync.log
+            issue-221-cap-sync.status
+      - name: Enforce Capacitor sync
+        run: test "$(cat issue-221-cap-sync.status)" = "0"
       - name: Capture Android Java compilation
         working-directory: frontend/android
         shell: bash
