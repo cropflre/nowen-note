@@ -25,8 +25,23 @@ jobs:
       - run: npm ci
       - name: Image export regressions
         run: npm run test:run -- src/lib/__tests__/noteImageExportCore.test.ts
-      - name: TypeScript check
-        run: npx tsc -b --pretty false
+      - name: Capture TypeScript check
+        shell: bash
+        run: |
+          set +e
+          npx tsc -b --pretty false 2>&1 | tee "$GITHUB_WORKSPACE/issue-221-tsc.log"
+          echo "${PIPESTATUS[0]}" > "$GITHUB_WORKSPACE/issue-221-tsc.status"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-221-frontend-tsc
+          path: |
+            issue-221-tsc.log
+            issue-221-tsc.status
+      - name: Enforce TypeScript check
+        working-directory: .
+        run: test "$(cat issue-221-tsc.status)" = "0"
       - name: Production bundle
         run: npx vite build
 
@@ -47,6 +62,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Build web assets for Capacitor
+        working-directory: frontend
+        run: npx vite build
       - name: Sync Capacitor Android project
         working-directory: frontend
         run: npx cap sync android
