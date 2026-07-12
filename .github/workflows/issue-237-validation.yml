@@ -1,0 +1,97 @@
+name: Issue 237 Validation
+
+on:
+  pull_request:
+    branches:
+      - implementation/issue-237-android-fast-start
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Mobile startup regressions
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/mobileStartupBridge.test.ts
+      - name: Typecheck proposed frontend
+        shell: bash
+        run: |
+          cd frontend
+          set +e
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/head-frontend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/head-frontend-tsc.status"
+          set -e
+      - name: Typecheck current main frontend
+        shell: bash
+        run: |
+          git fetch origin main
+          git worktree add ../main-worktree origin/main
+          cd ../main-worktree/frontend
+          npm ci
+          set +e
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/main-frontend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/main-frontend-tsc.status"
+          set -e
+      - name: Assert no new frontend TypeScript diagnostics
+        shell: bash
+        run: |
+          grep 'error TS' head-frontend-tsc.log | sort > head-frontend-errors.txt || true
+          grep 'error TS' main-frontend-tsc.log | sort > main-frontend-errors.txt || true
+          diff -u main-frontend-errors.txt head-frontend-errors.txt
+      - name: Production frontend bundle
+        working-directory: frontend
+        run: npx vite build
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Typecheck proposed backend
+        shell: bash
+        run: |
+          cd backend
+          set +e
+          npx tsc --noEmit --pretty false > "$GITHUB_WORKSPACE/head-backend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/head-backend-tsc.status"
+          set -e
+      - name: Typecheck current main backend
+        shell: bash
+        run: |
+          git fetch origin main
+          git worktree add ../main-worktree origin/main
+          cd ../main-worktree/backend
+          npm ci
+          set +e
+          npx tsc --noEmit --pretty false > "$GITHUB_WORKSPACE/main-backend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/main-backend-tsc.status"
+          set -e
+      - name: Assert no new backend TypeScript diagnostics
+        shell: bash
+        run: |
+          grep 'error TS' head-backend-tsc.log | sort > head-backend-errors.txt || true
+          grep 'error TS' main-backend-tsc.log | sort > main-backend-errors.txt || true
+          diff -u main-backend-errors.txt head-backend-errors.txt
+      - name: Backend production bundle
+        working-directory: backend
+        run: npm run build
