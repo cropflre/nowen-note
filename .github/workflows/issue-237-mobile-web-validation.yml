@@ -1,0 +1,56 @@
+name: Issue 237 Mobile Web Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Mobile startup regressions
+        working-directory: frontend
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/mobileStartupBridge.test.ts
+          src/lib/__tests__/mobileWebStartupBridge.test.ts
+      - name: Frontend TypeScript check
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+      - name: Production frontend bundle
+        working-directory: frontend
+        run: npx vite build
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Backend TypeScript check
+        working-directory: backend
+        run: npx tsc --noEmit --pretty false
+      - name: Backend production bundle
+        working-directory: backend
+        run: npm run build
