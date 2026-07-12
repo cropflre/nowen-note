@@ -23,6 +23,7 @@ import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
+import { installMobileWebStartupBridge } from "./lib/mobileWebStartupBridge";
 import { installNoteAttachmentAccessBridge } from "./lib/noteAttachmentAccessBridge";
 import { installShareLightboxRotationGuard } from "./lib/shareLightboxRotationGuard";
 import { installMobileImageFocusGuard } from "./lib/mobileImageFocusGuard";
@@ -54,6 +55,10 @@ installAndroidNativeHttpBridge();
 // Collapse the duplicate Android cold-start collection reads into one compact native response.
 // The bridge is Android-only and transparently falls back to the original APIs when unavailable.
 installMobileStartupBridge();
+// Phones that load the NAS-hosted web bundle (browser, PWA or a remote WebView) do not expose
+// the native Capacitor marker. Give them the same compact startup snapshot while leaving desktop
+// Web and Electron untouched.
+installMobileWebStartupBridge();
 // The attachment bridge wraps the active transport so Web, Electron and Capacitor all exchange
 // note/share read permission for the same revocable signed URLs before content is rendered.
 installNoteAttachmentAccessBridge();
