@@ -71,8 +71,21 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Compile Android Java
+      - name: Capture Android Java compilation
         working-directory: frontend/android
+        shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew compileDebugJavaWithJavac --no-daemon
+          set +e
+          ./gradlew compileDebugJavaWithJavac --no-daemon 2>&1 | tee "$GITHUB_WORKSPACE/issue-221-android.log"
+          echo "${PIPESTATUS[0]}" > "$GITHUB_WORKSPACE/issue-221-android.status"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-221-android-compile
+          path: |
+            issue-221-android.log
+            issue-221-android.status
+      - name: Enforce Android Java compilation
+        run: test "$(cat issue-221-android.status)" = "0"
