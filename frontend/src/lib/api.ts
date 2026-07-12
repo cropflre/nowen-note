@@ -1216,7 +1216,7 @@ export const api = {
   // Notebooks
   getNotebooks: (workspaceId?: string) => {
     const ws = workspaceId ?? getCurrentWorkspace();
-    const qs = ws ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     // Phase C: 网络失败时回退到 localStore 缓存
     return _readNotebooks(() => request<Notebook[]>(`/notebooks${qs}`));
   },
@@ -1274,20 +1274,22 @@ export const api = {
 
   // Notes
   getNotes: (params?: Record<string, string>) => {
-    // 自动注入 workspaceId（除非调用方显式传入）
+    // 个人空间不传 workspaceId，兼容未支持 "personal" 标识的旧服务端。
     const finalParams: Record<string, string> = { ...(params || {}) };
-    if (!("workspaceId" in finalParams)) {
-      finalParams.workspaceId = getCurrentWorkspace();
+    const currentWorkspace = getCurrentWorkspace();
+    if (!("workspaceId" in finalParams) && currentWorkspace !== "personal") {
+      finalParams.workspaceId = currentWorkspace;
     }
-    const qs = "?" + new URLSearchParams(finalParams).toString();
+    const query = new URLSearchParams(finalParams).toString();
+    const qs = query ? `?${query}` : "";
     // Phase C: 网络失败 -> 本地缓存 + 在客户端复刻主要 filter
     //   只覆盖三个高频场景：notebookId / isFavorite / isTrashed；
     //   其他复杂 query（全文搜索 / sort / page 等）离线不支持，让上层报错。
+    const offlineWorkspace = finalParams.workspaceId ?? currentWorkspace;
     const offlineFilter = (n: any): boolean => {
-      const wsMatch = ("workspaceId" in finalParams)
-        ? (n.workspaceId === finalParams.workspaceId
-          || (finalParams.workspaceId === "personal" && !n.workspaceId))
-        : true;
+      const wsMatch = offlineWorkspace === "personal"
+        ? !n.workspaceId
+        : n.workspaceId === offlineWorkspace;
       if (!wsMatch) return false;
       if (finalParams.notebookId && n.notebookId !== finalParams.notebookId) return false;
       if (finalParams.isFavorite === "1" && !n.isFavorite) return false;
@@ -1409,12 +1411,12 @@ export const api = {
   // Tags
   // -----------------------------------------------------------------
   // 与 notebooks / notes 一致的工作区隔离：
-  //   - getTags 自动带当前 workspaceId（'personal' | <uuid>）
+  //   - getTags 仅在工作区模式带 workspaceId；个人空间沿用服务端默认 scope
   //   - createTag 自动落到当前空间（除非调用方显式覆盖）
   //   - update / delete / attach 由后端按 tag.id 反查空间做 ACL，前端无需传
   getTags: (workspaceId?: string) => {
     const ws = workspaceId ?? getCurrentWorkspace();
-    const qs = ws ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     // Phase C: 网络失败时回退到 localStore 缓存
     return _readTags(() => request<Tag[]>(`/tags${qs}`));
   },
@@ -1435,8 +1437,9 @@ export const api = {
   removeTagFromNote: (noteId: string, tagId: string) => request(`/tags/note/${noteId}/tag/${tagId}`, { method: "DELETE" }),
   getNotesWithTag: (tagId: string, params?: Record<string, string>) => {
     const finalParams: Record<string, string> = { tagId, ...(params || {}) };
-    if (!("workspaceId" in finalParams)) {
-      finalParams.workspaceId = getCurrentWorkspace();
+    const currentWorkspace = getCurrentWorkspace();
+    if (!("workspaceId" in finalParams) && currentWorkspace !== "personal") {
+      finalParams.workspaceId = currentWorkspace;
     }
     const qs = "?" + new URLSearchParams(finalParams).toString();
     return request<NoteListItem[]>(`/notes${qs}`);
@@ -1450,8 +1453,9 @@ export const api = {
       tagMode: "and",
       ...(params || {}),
     };
-    if (!("workspaceId" in finalParams)) {
-      finalParams.workspaceId = getCurrentWorkspace();
+    const currentWorkspace = getCurrentWorkspace();
+    if (!("workspaceId" in finalParams) && currentWorkspace !== "personal") {
+      finalParams.workspaceId = currentWorkspace;
     }
     const qs = "?" + new URLSearchParams(finalParams).toString();
     return request<NoteListItem[]>(`/notes${qs}`);
@@ -1461,7 +1465,8 @@ export const api = {
   search: (q: string) => {
     const params = new URLSearchParams();
     params.set("q", q);
-    params.set("workspaceId", getCurrentWorkspace());
+    const workspaceId = getCurrentWorkspace();
+    if (workspaceId !== "personal") params.set("workspaceId", workspaceId);
     return request<SearchResult[]>(`/search?${params.toString()}`);
   },
 
@@ -4144,4 +4149,3 @@ export async function fetchRegisterConfig(baseUrlOverride?: string): Promise<{ a
     return { allowRegistration: true };
   }
 }
-
