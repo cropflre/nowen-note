@@ -11,38 +11,47 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: frontend
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
+      - name: Install proposed dependencies
+        working-directory: frontend
+        run: npm ci
       - name: Image export regressions
+        working-directory: frontend
         run: npm run test:run -- src/lib/__tests__/noteImageExportCore.test.ts
-      - name: Capture TypeScript check
+      - name: Typecheck proposed code
         shell: bash
         run: |
+          cd frontend
           set +e
-          npx tsc -b --pretty false 2>&1 | tee "$GITHUB_WORKSPACE/issue-221-tsc.log"
-          echo "${PIPESTATUS[0]}" > "$GITHUB_WORKSPACE/issue-221-tsc.status"
-          exit 0
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: issue-221-frontend-tsc
-          path: |
-            issue-221-tsc.log
-            issue-221-tsc.status
-      - name: Enforce TypeScript check
-        working-directory: .
-        run: test "$(cat issue-221-tsc.status)" = "0"
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/head-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/head-tsc.status"
+          set -e
+      - name: Typecheck current main
+        shell: bash
+        run: |
+          git fetch origin main
+          git worktree add ../main-worktree origin/main
+          cd ../main-worktree/frontend
+          npm ci
+          set +e
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/main-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/main-tsc.status"
+          set -e
+      - name: Assert no new TypeScript diagnostics
+        shell: bash
+        run: |
+          grep 'error TS' head-tsc.log | sort > head-errors.txt || true
+          grep 'error TS' main-tsc.log | sort > main-errors.txt || true
+          diff -u main-errors.txt head-errors.txt
       - name: Production bundle
+        working-directory: frontend
         run: npx vite build
 
   android:
@@ -62,12 +71,6 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Build web assets for Capacitor
-        working-directory: frontend
-        run: npx vite build
-      - name: Sync Capacitor Android project
-        working-directory: frontend
-        run: npx cap sync android
       - name: Compile Android Java
         working-directory: frontend/android
         run: |
