@@ -77,6 +77,9 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
   Italic,
   Link as LinkIcon,
   List,
@@ -146,6 +149,11 @@ import {
   emptySlashState,
   getDefaultMdSlashItems,
 } from "@/components/MarkdownSlashMenu";
+
+export function normalizeFormatHeadingLevel(level: number): 1 | 2 | 3 | 4 | 5 | 6 {
+  const normalized = Number.isFinite(level) ? Math.trunc(level) : 1;
+  return Math.min(6, Math.max(1, normalized)) as 1 | 2 | 3 | 4 | 5 | 6;
+}
 
 
 import { redo, undo } from "@codemirror/commands";
@@ -1347,9 +1355,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         return;
       }
       if (detail.node === "heading" && detail.level) {
-        // MarkdownEditor ��֧�� h1..h3���� extractHeadings ��ٶ��룩��
-        // �����ļ����� h3 ���ף��Ⱦ�Ĭ���Ը������û�Ԥ�ڡ�
-        const lv = (detail.level <= 3 ? detail.level : 3) as 1 | 2 | 3;
+        const lv = normalizeFormatHeadingLevel(detail.level);
         toggleHeading(view, lv);
         view.focus();
         return;
@@ -1498,6 +1504,24 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             title={tr("tiptap.heading3") || "��������"}
           >
             <Heading3 size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => withView((v) => toggleHeading(v, 4))}
+            title={tr("tiptap.heading4") || "�ļ�����"}
+          >
+            <Heading4 size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => withView((v) => toggleHeading(v, 5))}
+            title={tr("tiptap.heading5") || "�������"}
+          >
+            <Heading5 size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => withView((v) => toggleHeading(v, 6))}
+            title={tr("tiptap.heading6") || "�������"}
+          >
+            <Heading6 size={iconSize} />
           </ToolbarButton>
 
           <ToolbarDivider />

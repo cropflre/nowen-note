@@ -130,13 +130,13 @@ export function detectFormat(content: string | null | undefined): ContentFormat 
 // ---------- Tiptap → MD 转换（惰性初始化） ----------
 
 let _extensions: any[] | null = null;
-function getTiptapExtensions() {
+export function getTiptapExtensions() {
   if (_extensions) return _extensions;
   const lowlight = createLowlight(common);
   _extensions = [
     StarterKit.configure({
       codeBlock: false,
-      heading: { levels: [1, 2, 3] },
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
     }),
     Image.extend({
       addAttributes() {

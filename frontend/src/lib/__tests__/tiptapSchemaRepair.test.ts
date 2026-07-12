@@ -91,4 +91,23 @@ describe("repairTiptapJson", () => {
     expect(roundTrip.content?.[0]?.content?.[0]?.content?.[1]?.attrs?.align).toBe("right");
     editor.destroy();
   });
+
+  it("preserves H4-H6 heading nodes through repair round-trip", () => {
+    const input = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 4 }, content: [{ type: "text", text: "H4" }] },
+        { type: "heading", attrs: { level: 5 }, content: [{ type: "text", text: "H5" }] },
+        { type: "heading", attrs: { level: 6 }, content: [{ type: "text", text: "H6" }] },
+      ],
+    } as any;
+
+    const repaired = repairTiptapJson(input) as any;
+    expect(repaired.content?.map((node: any) => node.attrs?.level)).toEqual([4, 5, 6]);
+
+    const editor = new Editor({ extensions: tiptapExtensions, content: repaired });
+    const roundTrip = editor.getJSON() as any;
+    expect(roundTrip.content?.map((node: any) => node.attrs?.level)).toEqual([4, 5, 6]);
+    editor.destroy();
+  });
 });

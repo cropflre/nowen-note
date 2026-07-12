@@ -10,8 +10,10 @@
  *   - RTE→MD→RTE 回路上关键结构（高亮颜色 / 段落对齐）不丢失
  */
 import { describe, expect, it } from "vitest";
+import { generateJSON } from "@tiptap/core";
 import {
   detectFormat,
+  getTiptapExtensions,
   markdownToHtml,
   markdownToPlainText,
   markdownToTiptapJSON,
@@ -64,6 +66,14 @@ describe("detectFormat", () => {
   it("普通文本 → md", () => {
     expect(detectFormat("# Heading\n\nSome *text*")).toBe("md");
     expect(detectFormat("just text")).toBe("md");
+  });
+});
+
+describe("shared tiptap schema", () => {
+  it("preserves h4-h6 when parsing html to tiptap json", () => {
+    const json = generateJSON("<h4>Deep</h4><h5>Deeper</h5><h6>Deepest</h6>", getTiptapExtensions()) as any;
+    expect(json.content?.map((node: any) => node.type)).toEqual(["heading", "heading", "heading"]);
+    expect(json.content?.map((node: any) => node.attrs?.level)).toEqual([4, 5, 6]);
   });
 });
 
@@ -224,6 +234,22 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     // 预期形如 <p style="text-align:center">hi</p>
     expect(md).toMatch(/<p[^>]*text-align:\s*center/i);
     expect(md).toContain("hi");
+  });
+
+  it("Tiptap→MD：保留 H4-H6 标题级别", () => {
+    const json = JSON.stringify({
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 4 }, content: [{ type: "text", text: "H4" }] },
+        { type: "heading", attrs: { level: 5 }, content: [{ type: "text", text: "H5" }] },
+        { type: "heading", attrs: { level: 6 }, content: [{ type: "text", text: "H6" }] },
+      ],
+    });
+
+    const md = tiptapJsonToMarkdown(json);
+    expect(md).toMatch(/^#### H4$/m);
+    expect(md).toMatch(/^##### H5$/m);
+    expect(md).toMatch(/^###### H6$/m);
   });
 
   it("MD → Tiptap JSON：标题 / 任务列表结构正确", () => {

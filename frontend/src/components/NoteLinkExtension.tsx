@@ -18,7 +18,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
-import { FileText, Search, Loader2, ArrowLeft, Heading1, Heading2, Heading3 } from "lucide-react";
+import { FileText, Search, Loader2, ArrowLeft, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6 } from "lucide-react";
 
 // 笔记搜索结果
 interface NoteSearchResult {
@@ -185,6 +185,9 @@ function NoteLinkMenu({ editor, position, query, onSelect, onClose }: NoteLinkMe
       case 1: return <Heading1 size={14} />;
       case 2: return <Heading2 size={14} />;
       case 3: return <Heading3 size={14} />;
+      case 4: return <Heading4 size={14} />;
+      case 5: return <Heading5 size={14} />;
+      case 6: return <Heading6 size={14} />;
       default: return <Heading3 size={14} />;
     }
   };

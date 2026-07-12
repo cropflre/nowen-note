@@ -117,6 +117,9 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
    *   heading1?: boolean,
    *   heading2?: boolean,
    *   heading3?: boolean,
+  *   heading4?: boolean,
+  *   heading5?: boolean,
+  *   heading6?: boolean,
    *   paragraph?: boolean,
    * }} state
    *   null 表示"无可用编辑器"（编辑器销毁 / 焦点离开 / MD 模式未命中），
@@ -131,7 +134,7 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     }
     const allowed = [
       "bold", "italic", "underline", "strike", "code",
-      "heading1", "heading2", "heading3", "paragraph",
+      "heading1", "heading2", "heading3", "heading4", "heading5", "heading6", "paragraph",
     ];
     const safe = {};
     for (const key of allowed) {

@@ -47,7 +47,7 @@ const lowlight = createLowlight(common);
 export const tiptapExtensions = [
   StarterKit.configure({
     codeBlock: false,
-    heading: { levels: [1, 2, 3] },
+    heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   // BLOCK-LINKS-UI-01-RV3: 显式配置 Link 扩展，允许 note: 协议
   // 避免 repairTiptapJson round-trip 时丢失 note link

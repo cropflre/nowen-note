@@ -1,7 +1,7 @@
 import type { NoteEditorHeading } from "@/components/editors/types";
 import { ensureUniqueHeadingIds } from "@/lib/shareOutline";
 
-const HTML_PREVIEW_HEADING_SELECTOR = "h1, h2, h3, h4";
+const HTML_PREVIEW_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 
 function getHeadingElements(root: ParentNode | null | undefined): HTMLElement[] {
   if (!root) return [];

@@ -233,6 +233,30 @@ function buildMenu({
           click: () => send("menu:format", { node: "heading", level: 3 }),
         },
         {
+          id: "fmt:h4",
+          label: "标题 4",
+          type: "checkbox",
+          checked: false,
+          accelerator: "CmdOrCtrl+Alt+4",
+          click: () => send("menu:format", { node: "heading", level: 4 }),
+        },
+        {
+          id: "fmt:h5",
+          label: "标题 5",
+          type: "checkbox",
+          checked: false,
+          accelerator: "CmdOrCtrl+Alt+5",
+          click: () => send("menu:format", { node: "heading", level: 5 }),
+        },
+        {
+          id: "fmt:h6",
+          label: "标题 6",
+          type: "checkbox",
+          checked: false,
+          accelerator: "CmdOrCtrl+Alt+6",
+          click: () => send("menu:format", { node: "heading", level: 6 }),
+        },
+        {
           id: "fmt:paragraph",
           label: "正文",
           type: "checkbox",
@@ -352,7 +376,7 @@ function buildMenu({
  *   fmt:underline  ← state.underline
  *   fmt:strike     ← state.strike
  *   fmt:code       ← state.code
- *   fmt:h1/h2/h3   ← state.heading1/2/3
+ *   fmt:h1..h6     ← state.heading1..heading6
  *   fmt:paragraph  ← state.paragraph
  *
  * @param {null | Record<string, boolean>} state
@@ -372,6 +396,9 @@ function applyFormatState(state) {
     ["fmt:h1", "heading1"],
     ["fmt:h2", "heading2"],
     ["fmt:h3", "heading3"],
+    ["fmt:h4", "heading4"],
+    ["fmt:h5", "heading5"],
+    ["fmt:h6", "heading6"],
     ["fmt:paragraph", "paragraph"],
   ];
 

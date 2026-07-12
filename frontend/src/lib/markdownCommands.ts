@@ -156,7 +156,7 @@ export function toggleLinePrefix(
 }
 
 /** 标题 */
-export function toggleHeading(view: EditorView, level: 1 | 2 | 3): boolean {
+export function toggleHeading(view: EditorView, level: 1 | 2 | 3 | 4 | 5 | 6): boolean {
   const prefix = "#".repeat(level) + " ";
   return toggleLinePrefix(view, prefix, [/^#{1,6}\s+/]);
 }

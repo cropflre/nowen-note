@@ -4,7 +4,7 @@ export interface ShareOutlineItem {
   text: string;
 }
 
-const MAX_HEADING_LEVEL = 4;
+const MAX_HEADING_LEVEL = 6;
 
 export function createHeadingId(text: string): string {
   const normalized = text
@@ -87,7 +87,7 @@ export function extractOutlineFromMarkdown(markdown: string | null | undefined):
 
     if (inFence) continue;
 
-    const match = line.match(/^(#{1,4})(?!#)\s+(.+?)\s*#*\s*$/);
+    const match = line.match(/^(#{1,6})(?!#)\s+(.+?)\s*#*\s*$/);
     if (!match) continue;
 
     const text = stripMarkdownInline(match[2]).trim().replace(/\s+/g, " ");
@@ -101,7 +101,7 @@ export function extractOutlineFromHtml(html: string | null | undefined): ShareOu
   if (!html || typeof DOMParser === "undefined") return [];
 
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const headings = Array.from(doc.body.querySelectorAll("h1, h2, h3, h4"))
+  const headings = Array.from(doc.body.querySelectorAll("h1, h2, h3, h4, h5, h6"))
     .map((el) => ({
       level: Number(el.tagName.slice(1)),
       text: (el.textContent || "").trim().replace(/\s+/g, " "),
@@ -116,7 +116,7 @@ export function addHeadingIdsToHtml(html: string | null | undefined): string {
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const outline = extractOutlineFromHtml(html);
-  const headings = Array.from(doc.body.querySelectorAll("h1, h2, h3, h4"))
+  const headings = Array.from(doc.body.querySelectorAll("h1, h2, h3, h4, h5, h6"))
     .filter((el) => (el.textContent || "").trim().length > 0);
 
   headings.forEach((heading, index) => {

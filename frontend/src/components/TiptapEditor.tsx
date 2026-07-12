@@ -50,7 +50,7 @@ import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
-  List, ListOrdered, Heading1, Heading2, Heading3,
+  List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
   Code, FileCode, Sparkles, X, ZoomIn, ZoomOut, RotateCcw,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
@@ -1710,7 +1710,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         //   - Markdown 序列化为 `text`
         // 之前显式置 false 是为了配合 codeBlock 一起关，但代码里 IPC "code" 分支、
         // editor.isActive("code")、工具栏按钮都依赖这个 mark，缺失会导致空跑。
-        heading: { levels: [1, 2, 3] },
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         // 链接：禁止点击自动打开（尤其是 mailto: / tel: 会唤起邮件/电话客户端
         // 造成误触）。保留自动识别 URL、粘贴自动链接等能力；新窗口目标仍通过
         // HTMLAttributes 指定，导出/分享页也沿用。
@@ -3699,9 +3699,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         heading1: editor.isActive("heading", { level: 1 }),
         heading2: editor.isActive("heading", { level: 2 }),
         heading3: editor.isActive("heading", { level: 3 }),
+        heading4: editor.isActive("heading", { level: 4 }),
+        heading5: editor.isActive("heading", { level: 5 }),
+        heading6: editor.isActive("heading", { level: 6 }),
         paragraph: editor.isActive("paragraph"),
       };
-      // 浅去重：把布尔值串成 9-bit 字符串，相等则不发 IPC
+      // 浅去重：把布尔值串成 bit 字符串，相等则不发 IPC
       const key = Object.values(state).map((v) => (v ? "1" : "0")).join("");
       if (key === lastKey) return;
       lastKey = key;
@@ -4298,6 +4301,27 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           title={t('tiptap.heading3')}
         >
           <Heading3 size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => toggleHeadingSmart(editor, 4)}
+          isActive={editor.isActive("heading", { level: 4 })}
+          title={t('tiptap.heading4')}
+        >
+          <Heading4 size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => toggleHeadingSmart(editor, 5)}
+          isActive={editor.isActive("heading", { level: 5 })}
+          title={t('tiptap.heading5')}
+        >
+          <Heading5 size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => toggleHeadingSmart(editor, 6)}
+          isActive={editor.isActive("heading", { level: 6 })}
+          title={t('tiptap.heading6')}
+        >
+          <Heading6 size={iconSize} />
         </ToolbarButton>
 
         <ToolbarDivider />

@@ -24,7 +24,7 @@ const lowlight = createLowlight(common);
 const tiptapExtensions = [
   StarterKit.configure({
     codeBlock: false,
-    heading: { levels: [1, 2, 3] },
+    heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   Image.configure({ inline: false, allowBase64: true }),
   CodeBlockLowlight.configure({ lowlight }),

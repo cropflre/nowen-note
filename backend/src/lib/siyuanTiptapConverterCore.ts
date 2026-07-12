@@ -294,7 +294,7 @@ function getHeadingLevel(node: SiyuanNode): number {
         getString((node.Children || []).find((child) => child.Type === "NodeHeadingC8hMarker"), ["Data"]);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return 1;
-    return Math.min(3, Math.max(1, parsed));
+    return Math.min(6, Math.max(1, parsed));
 }
 
 function isTaskItem(node: SiyuanNode): boolean {

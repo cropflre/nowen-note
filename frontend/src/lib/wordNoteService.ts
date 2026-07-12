@@ -20,38 +20,10 @@ import { api } from "./api";
 import { createBlankDocx, blankDocxFile, tiptapToIr, createDocx } from "@/office";
 import type { Note } from "@/types";
 import { generateJSON } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import Underline from "@tiptap/extension-underline";
-import Highlight from "@tiptap/extension-highlight";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
-import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
-import { common, createLowlight } from "lowlight";
-import { TextStyleKit } from "@/components/FontSizeExtension";
-import { Video as VideoExtension } from "@/components/VideoExtension";
+import { getTiptapExtensions } from "./contentFormat";
 
 // Tiptap 扩展集：与 TiptapEditor / importService 保持一致，否则带颜色 / 字号 /
 // 表格 / 任务列表的 HTML 在 generateJSON 阶段会被 schema 过滤掉。
-const lowlight = createLowlight(common);
-const tiptapExtensions = [
-  StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3] } }),
-  Image.configure({ inline: false, allowBase64: true }),
-  CodeBlockLowlight.configure({ lowlight }),
-  Underline,
-  Highlight.configure({ multicolor: true }),
-  TaskList,
-  TaskItem.configure({ nested: true }),
-  Table.configure({ resizable: false }),
-  TableRowWithHeight,
-  TableHeader,
-  TableCell,
-  ...TextStyleKit,
-  VideoExtension,
-];
-
 export interface CreateWordNoteResult {
   /** 后端返回的最终 Note（已带附件链接的 content）。 */
   note: Note;
@@ -488,7 +460,7 @@ function htmlToPlainText(html: string): string {
  */
 function htmlToTiptapJsonString(html: string): string {
   try {
-    const json = generateJSON(html, tiptapExtensions);
+    const json = generateJSON(html, getTiptapExtensions());
     const looksEmpty =
       json &&
       json.type === "doc" &&

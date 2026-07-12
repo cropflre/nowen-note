@@ -8,7 +8,7 @@ import {
 } from "@/lib/shareOutline";
 
 describe("shareOutline", () => {
-  it("extracts h1-h3 from TipTap JSON and ignores h5-h6", () => {
+  it("extracts h1-h6 from TipTap JSON", () => {
     const doc = {
       type: "doc",
       content: [
@@ -32,6 +32,11 @@ describe("shareOutline", () => {
           attrs: { level: 5 },
           content: [{ type: "text", text: "Too deep" }],
         },
+        {
+          type: "heading",
+          attrs: { level: 6 },
+          content: [{ type: "text", text: "Deepest" }],
+        },
       ],
     };
 
@@ -39,16 +44,19 @@ describe("shareOutline", () => {
       { id: "intro", level: 1, text: "Intro" },
       { id: "nested-topic", level: 2, text: "Nested Topic" },
       { id: "details", level: 3, text: "Details" },
+      { id: "too-deep", level: 5, text: "Too deep" },
+      { id: "deepest", level: 6, text: "Deepest" },
     ]);
   });
 
   it("creates stable unique ids for duplicate headings", () => {
-    const md = ["# Intro", "## Intro", "### Intro"].join("\n\n");
+    const md = ["# Intro", "## Intro", "### Intro", "##### Intro"].join("\n\n");
 
     expect(extractOutlineFromMarkdown(md).map((item) => item.id)).toEqual([
       "intro",
       "intro-2",
       "intro-3",
+      "intro-4",
     ]);
   });
 
@@ -74,17 +82,21 @@ describe("shareOutline", () => {
     ]);
   });
 
-  it("extracts HTML h1-h4 and can add matching ids", () => {
-    const html = "<h1>Intro</h1><p>x</p><h2>Intro</h2><h4>Deep</h4><h5>Ignored</h5>";
+  it("extracts HTML h1-h6 and can add matching ids", () => {
+    const html = "<h1>Intro</h1><p>x</p><h2>Intro</h2><h4>Deep</h4><h5>Deeper</h5><h6>Deepest</h6>";
 
     expect(extractOutlineFromHtml(html)).toEqual([
       { id: "intro", level: 1, text: "Intro" },
       { id: "intro-2", level: 2, text: "Intro" },
       { id: "deep", level: 4, text: "Deep" },
+      { id: "deeper", level: 5, text: "Deeper" },
+      { id: "deepest", level: 6, text: "Deepest" },
     ]);
     expect(addHeadingIdsToHtml(html)).toContain('<h1 id="intro"');
     expect(addHeadingIdsToHtml(html)).toContain('<h2 id="intro-2"');
     expect(addHeadingIdsToHtml(html)).toContain('<h4 id="deep"');
+    expect(addHeadingIdsToHtml(html)).toContain('<h5 id="deeper"');
+    expect(addHeadingIdsToHtml(html)).toContain('<h6 id="deepest"');
   });
 
   it("normalizes heading ids with a fallback for punctuation-only headings", () => {

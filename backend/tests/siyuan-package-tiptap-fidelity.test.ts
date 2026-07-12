@@ -224,6 +224,8 @@ test("Rich Text import builds P0 Tiptap nodes and marks from Siyuan AST", async 
     "doc.sy": JSON.stringify(syDoc("doc", "P0 保真", [
       heading(1, [text("一级标题")]),
       heading(4, [text("四级标题")]),
+      heading(5, [text("五级标题")]),
+      heading(6, [text("六级标题")]),
       paragraph([
         text("普通"),
         hardBreak(),
@@ -290,9 +292,11 @@ test("Rich Text import builds P0 Tiptap nodes and marks from Siyuan AST", async 
   assert.ok(Array.isArray(parsed.content));
 
   const headings = parsed.content!.filter((node) => node.type === "heading");
-  assert.deepEqual(headings.map((node) => node.attrs?.level), [1, 3]);
+  assert.deepEqual(headings.map((node) => node.attrs?.level), [1, 4, 5, 6]);
   assert.equal(headings[0].content?.[0].text, "一级标题");
   assert.equal(headings[1].content?.[0].text, "四级标题");
+  assert.equal(headings[2].content?.[0].text, "五级标题");
+  assert.equal(headings[3].content?.[0].text, "六级标题");
 
   assert.ok(flattenNodes(parsed).some((node) => node.type === "hardBreak"));
   assert.ok(textNodeWithMark(parsed, "加粗", "bold"));
@@ -471,6 +475,10 @@ test("Rich Text import safely preserves advanced Siyuan nodes without unknown sc
 test("Markdown import keeps advanced Siyuan nodes on the markdown path", async () => {
   const zipPath = await writeZip("advanced-markdown.zip", {
     "advanced-md.sy": JSON.stringify(syDoc("advanced-md-doc", "高级节点 Markdown", [
+      heading(1, [text("一级标题")]),
+      heading(4, [text("四级标题")]),
+      heading(5, [text("五级标题")]),
+      heading(6, [text("六级标题")]),
       paragraph([text("行内公式 "), textMark("inline-math", "x+y")]),
       mathBlock("E=mc^2"),
       callout("note", "备注", [paragraph([text("保留为引用")])]),
@@ -491,6 +499,10 @@ test("Markdown import keeps advanced Siyuan nodes on the markdown path", async (
   const note = getNoteByTitle("高级节点 Markdown");
   assert.ok(note);
   assert.equal(note.contentFormat, "markdown");
+  assert.match(note.content, /^# 一级标题$/m);
+  assert.match(note.content, /^#### 四级标题$/m);
+  assert.match(note.content, /^##### 五级标题$/m);
+  assert.match(note.content, /^###### 六级标题$/m);
   assert.match(note.content, /\$x\+y\$/);
   assert.match(note.content, /\$\$\s*E=mc\^2\s*\$\$/s);
   assert.match(note.content, /> \[!NOTE] 备注/);

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperat
 import { Editor, Extension } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import {
-  Heading1, Heading2, Heading3, List, ListOrdered, CheckSquare,
+  Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
   Quote, FileCode, Minus, ImagePlus, Sparkles,
   Bold, Italic, Highlighter, Table2,
   Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film
@@ -190,6 +190,33 @@ export function getDefaultSlashCommands(t: (key: string) => string, onImageUploa
       category: t("slash.catHeadings"),
       keywords: ["h3", "heading", "标题", "三级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+    },
+    {
+      id: "heading4",
+      label: t("slash.heading4"),
+      description: t("slash.heading4Desc"),
+      icon: <Heading4 size={16} />,
+      category: t("slash.catHeadings"),
+      keywords: ["h4", "heading", "标题", "四级"],
+      action: (editor) => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+    },
+    {
+      id: "heading5",
+      label: t("slash.heading5"),
+      description: t("slash.heading5Desc"),
+      icon: <Heading5 size={16} />,
+      category: t("slash.catHeadings"),
+      keywords: ["h5", "heading", "标题", "五级"],
+      action: (editor) => editor.chain().focus().toggleHeading({ level: 5 }).run(),
+    },
+    {
+      id: "heading6",
+      label: t("slash.heading6"),
+      description: t("slash.heading6Desc"),
+      icon: <Heading6 size={16} />,
+      category: t("slash.catHeadings"),
+      keywords: ["h6", "heading", "标题", "六级"],
+      action: (editor) => editor.chain().focus().toggleHeading({ level: 6 }).run(),
     },
     // 列表
     {
