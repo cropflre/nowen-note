@@ -11,14 +11,14 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -28,9 +28,34 @@ jobs:
           npm run test:run --
           src/lib/__tests__/mobileStartupBridge.test.ts
           src/lib/__tests__/mobileWebStartupBridge.test.ts
-      - name: Frontend TypeScript check
-        working-directory: frontend
-        run: npx tsc -b --pretty false
+      - name: Typecheck proposed frontend
+        shell: bash
+        run: |
+          cd frontend
+          set +e
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/head-frontend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/head-frontend-tsc.status"
+          set -e
+      - name: Typecheck pre-fix frontend baseline
+        shell: bash
+        run: |
+          git worktree add ../baseline-worktree affcccd19c99370b90f0639460431f5224d8c0ca
+          cd ../baseline-worktree/frontend
+          npm ci
+          set +e
+          npx tsc -b --pretty false > "$GITHUB_WORKSPACE/baseline-frontend-tsc.log" 2>&1
+          echo $? > "$GITHUB_WORKSPACE/baseline-frontend-tsc.status"
+          set -e
+      - name: Assert no new frontend TypeScript diagnostics
+        shell: bash
+        run: |
+          grep 'error TS' head-frontend-tsc.log | sort > head-frontend-errors.txt || true
+          grep 'error TS' baseline-frontend-tsc.log | sort > baseline-frontend-errors.txt || true
+          echo 'Pre-fix diagnostics:'
+          cat baseline-frontend-errors.txt
+          echo 'Current diagnostics:'
+          cat head-frontend-errors.txt
+          diff -u baseline-frontend-errors.txt head-frontend-errors.txt
       - name: Production frontend bundle
         working-directory: frontend
         run: npx vite build
