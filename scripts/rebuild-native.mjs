@@ -362,27 +362,29 @@ async function main() {
       `(${(stat.size / 1024 / 1024).toFixed(1)} MB, detected=${detected.platform}-${detected.arch})`
   );
 
-  // ===== 写 stamp =====
-  fs.writeFileSync(
-    stampPath,
-    JSON.stringify(
-      {
-        electronVersion,
-        platform: targetPlatform,
-        arch: targetArch,
-        detectedPlatform: detected.platform,
-        detectedArch: detected.arch,
-        rebuiltAt: new Date().toISOString(),
-        nodeMtime: stat.mtime.toISOString(),
-        mode: usedPrebuild ? "prebuild" : "native-rebuild",
-        hostPlatform,
-        hostArch,
-      },
-      null,
-      2
-    )
-  );
-  console.log(`[rebuild-native] ✓ stamped: ${stampPath}`);
+  // 已验证的产物不重写 stamp，避免此前由管理员账号构建时普通开发账号因权限失败。
+  if (!canReuseExisting) {
+    fs.writeFileSync(
+      stampPath,
+      JSON.stringify(
+        {
+          electronVersion,
+          platform: targetPlatform,
+          arch: targetArch,
+          detectedPlatform: detected.platform,
+          detectedArch: detected.arch,
+          rebuiltAt: new Date().toISOString(),
+          nodeMtime: stat.mtime.toISOString(),
+          mode: usedPrebuild ? "prebuild" : "native-rebuild",
+          hostPlatform,
+          hostArch,
+        },
+        null,
+        2
+      )
+    );
+    console.log(`[rebuild-native] ✓ stamped: ${stampPath}`);
+  }
 }
 
 main().catch((err) => {
