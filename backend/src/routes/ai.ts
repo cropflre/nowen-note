@@ -250,17 +250,10 @@ ai.post("/test", async (c) => {
       timeout_ms: 15000,
     });
 
-    if (!text) {
-      return c.json({
-        success: false,
-        error: `连接成功但 AI 未返回文本（provider: ${settings.ai_provider}, model: ${settings.ai_model}）。请检查模型名称和接口格式是否正确。`,
-      }, 400);
-    }
-
     return c.json({
       success: true,
-      message: "连接成功",
-      preview: text.slice(0, 100),
+      message: text ? "连接成功" : "连接成功（模型未在本次测试中返回可展示文本）",
+      ...(text ? { preview: text.slice(0, 100) } : {}),
     });
   } catch (err: any) {
     const msg = err?.message || "连接失败";
@@ -2527,5 +2520,4 @@ ai.post("/notebook-mermaid", async (c) => {
   }
 });
 export default ai;
-
 
