@@ -1,5 +1,14 @@
 export type ReadingDensity = "cozy" | "compact";
 export type MarkdownViewMode = "source" | "preview" | "split";
+export type EditorMode = "md" | "tiptap";
+export type CodeBlockThemeId =
+  | "github-dark"
+  | "github-light"
+  | "dracula"
+  | "monokai"
+  | "solarized-light"
+  | "one-dark"
+  | "nord";
 
 export interface UserPreferences {
   noteTitleAsAppTitle: boolean;
@@ -10,6 +19,9 @@ export interface UserPreferences {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  defaultEditorMode: EditorMode;
+  codeBlockTheme: CodeBlockThemeId;
+  noteListTitleOnly: boolean;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -37,14 +49,29 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  defaultEditorMode: "tiptap",
+  codeBlockTheme: "github-dark",
+  noteListTitleOnly: false,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
 export const LEGACY_USER_PREFERENCES_OWNER_KEY = "nowen.user-prefs.v1.migrated-user";
+export const LEGACY_EDITOR_MODE_KEY = "nowen.editor_mode";
+export const LEGACY_CODE_BLOCK_THEME_KEY = "nowen.codeBlockTheme";
+export const LEGACY_NOTE_LIST_TITLE_ONLY_KEY = "nowen.noteList.titleOnly";
 const ACCOUNT_CACHE_PREFIX = "nowen.user-prefs.v2:";
 const LEGACY_SHOW_TIME_KEY = "nowen.noteList.showTime";
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_USER_PREFERENCES) as Array<keyof UserPreferences>;
+const CODE_BLOCK_THEMES = new Set<CodeBlockThemeId>([
+  "github-dark",
+  "github-light",
+  "dracula",
+  "monokai",
+  "solarized-light",
+  "one-dark",
+  "nord",
+]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -84,6 +111,16 @@ export function normalizeUserPreferences(
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : fallback.markdownDefaultViewMode,
+    defaultEditorMode: raw.defaultEditorMode === "md" || raw.defaultEditorMode === "tiptap"
+      ? raw.defaultEditorMode
+      : fallback.defaultEditorMode,
+    codeBlockTheme:
+      typeof raw.codeBlockTheme === "string" && CODE_BLOCK_THEMES.has(raw.codeBlockTheme as CodeBlockThemeId)
+        ? raw.codeBlockTheme as CodeBlockThemeId
+        : fallback.codeBlockTheme,
+    noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
+      ? raw.noteListTitleOnly
+      : fallback.noteListTitleOnly,
   };
 }
 
@@ -172,7 +209,12 @@ export function claimLegacyUserPreferences(
 
     const raw = storage.getItem(LEGACY_USER_PREFERENCES_KEY);
     const legacyShowTimeRaw = storage.getItem(LEGACY_SHOW_TIME_KEY);
-    if (!raw && legacyShowTimeRaw === null) return null;
+    const editorMode = storage.getItem(LEGACY_EDITOR_MODE_KEY);
+    const codeBlockTheme = storage.getItem(LEGACY_CODE_BLOCK_THEME_KEY);
+    const titleOnly = storage.getItem(LEGACY_NOTE_LIST_TITLE_ONLY_KEY);
+    if (!raw && legacyShowTimeRaw === null && editorMode === null && codeBlockTheme === null && titleOnly === null) {
+      return null;
+    }
 
     let parsed: unknown = {};
     if (raw) {
@@ -181,10 +223,16 @@ export function claimLegacyUserPreferences(
     const legacyShowTime = legacyShowTimeRaw === null
       ? undefined
       : legacyShowTimeRaw === "true";
+    const legacy = isObject(parsed) ? { ...parsed } : {};
+    if (editorMode === "md" || editorMode === "tiptap") legacy.defaultEditorMode = editorMode;
+    if (codeBlockTheme && CODE_BLOCK_THEMES.has(codeBlockTheme as CodeBlockThemeId)) {
+      legacy.codeBlockTheme = codeBlockTheme;
+    }
+    if (titleOnly !== null) legacy.noteListTitleOnly = titleOnly === "true";
 
     // 第一个登录并发现旧缓存的账号获得迁移所有权，避免之后切换账号时重复上传。
     storage.setItem(LEGACY_USER_PREFERENCES_OWNER_KEY, userId);
-    return normalizeUserPreferences(parsed, DEFAULT_USER_PREFERENCES, legacyShowTime);
+    return normalizeUserPreferences(legacy, DEFAULT_USER_PREFERENCES, legacyShowTime);
   } catch {
     return null;
   }
