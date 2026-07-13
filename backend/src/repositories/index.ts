@@ -37,6 +37,7 @@ export { workspaceInvitesRepository } from "./workspaceInvitesRepository";
 export { notebookShareLinksRepository } from "./notebookShareLinksRepository";
 export { noteAclRepository } from "./noteAclRepository";
 export { taskAttachmentsRepository } from "./taskAttachmentsRepository";
+export { taskAttachmentOperationsRepository } from "./taskAttachmentOperationsRepository";
 export { attachmentReferencesRepository } from "./attachmentReferencesRepository";
 export { noteYsnapshotsRepository } from "./noteYsnapshotsRepository";
 export { attachmentChunksRepository } from "./attachmentChunksRepository";
