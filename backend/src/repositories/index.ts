@@ -22,6 +22,7 @@ export { noteVersionsRepository } from "./noteVersionsRepository";
 export { favoritesRepository } from "./favoritesRepository";
 export { userSessionsRepository } from "./userSessionsRepository";
 export { userSecurityRepository } from "./userSecurityRepository";
+export { automationScannerRepository } from "./automationScannerRepository";
 export { taskRemindersRepository } from "./taskRemindersRepository";
 export { taskProjectsRepository } from "./taskProjectsRepository";
 export { taskTemplatesRepository } from "./taskTemplatesRepository";
