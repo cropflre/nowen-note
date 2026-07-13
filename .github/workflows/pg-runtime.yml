@@ -1,6 +1,18 @@
 name: PostgreSQL Runtime
 
 on:
+  push:
+    branches:
+      - issue-247-pg-runtime
+    paths:
+      - "backend/src/db/**"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/**"
+      - "backend/tests/**"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - ".github/workflows/pg-runtime.yml"
   pull_request:
     paths:
       - "backend/src/db/**"
