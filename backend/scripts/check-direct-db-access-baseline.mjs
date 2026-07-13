@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const baselinePath = path.join(__dirname, "direct-db-access-baseline.json");
+const deferredExceptionsPath = path.join(
+  __dirname,
+  "direct-db-access-deferred-exceptions.json",
+);
 const reportPath = process.argv[2];
 
 if (!reportPath) {
@@ -14,25 +18,43 @@ if (!reportPath) {
   process.exit(2);
 }
 
-const [baseline, report] = await Promise.all([
+const [baseline, deferred, report] = await Promise.all([
   fs.readFile(baselinePath, "utf8").then(JSON.parse),
+  fs.readFile(deferredExceptionsPath, "utf8").then(JSON.parse),
   fs.readFile(path.resolve(reportPath), "utf8").then(JSON.parse),
 ]);
 
 const violations = [];
 const currentFiles = new Map(report.files.map((entry) => [entry.file, entry]));
 
+for (const [file, exception] of Object.entries(deferred.files || {})) {
+  if (!baseline.files[file]) {
+    violations.push(`${file}: deferred exception must reference an existing baseline file`);
+  }
+  if (!/^#\d+$/.test(exception.owner || "")) {
+    violations.push(`${file}: deferred exception must name an owning issue`);
+  }
+  if (!exception.reason || !String(exception.reason).trim()) {
+    violations.push(`${file}: deferred exception must explain why it is outside #248`);
+  }
+}
+
 for (const entry of report.files) {
-  const allowedKinds = baseline.files[entry.file];
-  if (!allowedKinds) {
+  const baselineKinds = baseline.files[entry.file];
+  if (!baselineKinds) {
     violations.push(`${entry.file}: new direct database access file`);
     continue;
   }
 
+  const deferredKinds = deferred.files?.[entry.file]?.counts || {};
   for (const [kind, count] of Object.entries(entry.counts)) {
-    const allowed = allowedKinds[kind] ?? 0;
+    const allowed = Math.max(baselineKinds[kind] ?? 0, deferredKinds[kind] ?? 0);
     if (count > allowed) {
-      violations.push(`${entry.file}: ${kind} increased from ${allowed} to ${count}`);
+      const owner = deferred.files?.[entry.file]?.owner;
+      violations.push(
+        `${entry.file}: ${kind} increased from ${allowed} to ${count}` +
+        (owner ? ` (owned by ${owner})` : ""),
+      );
     }
   }
 }
@@ -49,7 +71,9 @@ for (const [file, allowedKinds] of Object.entries(baseline.files)) {
 if (violations.length > 0) {
   console.error("Direct database access baseline check failed:\n");
   for (const violation of violations) console.error(`- ${violation}`);
-  console.error("\nMigrate the access, or deliberately review and update the baseline in #248.");
+  console.error(
+    "\nMigrate the access, or deliberately register a temporary exception with its owning issue.",
+  );
   process.exit(1);
 }
 
@@ -59,5 +83,5 @@ const baselineOccurrences = Object.values(baseline.files)
 const reducedBy = baselineOccurrences - report.summary.occurrences;
 console.log(
   `Direct database access baseline passed: ${report.summary.files} file(s), ` +
-  `${report.summary.occurrences} occurrence(s), reduced by ${reducedBy}.`,
+  `${report.summary.occurrences} occurrence(s), net change ${reducedBy <= 0 ? "+" : "-"}${Math.abs(reducedBy)} from the reviewed #248 baseline.`,
 );
