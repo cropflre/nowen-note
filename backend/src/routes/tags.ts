@@ -1,8 +1,11 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { getUserWorkspaceRole, hasRole } from "../middleware/acl";
-import { tagsRepository, noteTagsRepository } from "../repositories";
+import {
+  noteTagsRepository,
+  tagOperationsRepository,
+  tagsRepository,
+} from "../repositories";
 
 /**
  * Tags 路由 —— 支持工作区隔离
@@ -31,10 +34,10 @@ function normalizeWorkspaceId(raw: string | null | undefined): string | null {
 }
 
 /** 查标签 owner + workspace（用于 update/delete/attach 的 ACL 校验） */
-function getTagOwner(
+async function getTagOwner(
   tagId: string,
-): { userId: string; workspaceId: string | null } | undefined {
-  return tagsRepository.getOwner(tagId);
+): Promise<{ userId: string; workspaceId: string | null } | undefined> {
+  return tagsRepository.getOwnerAsync(tagId);
 }
 
 /**
@@ -60,7 +63,7 @@ function canWriteTag(
  *   默认只返回 noteCount > 0 的标签（隐藏未使用的标签）。
  *   传 includeEmpty=true 可返回所有标签（用于标签管理页）。
  */
-app.get("/", (c) => {
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id") || "demo";
   const ws = normalizeWorkspaceId(c.req.query("workspaceId"));
   const includeEmpty = c.req.query("includeEmpty") === "true";
@@ -71,7 +74,7 @@ app.get("/", (c) => {
     if (!role) return c.json({ error: "无权访问该工作区" }, 403);
   }
 
-  const rows = tagsRepository.listByUser(userId, ws, includeEmpty);
+  const rows = await tagsRepository.listByUserAsync(userId, ws, includeEmpty);
   return c.json(rows);
 });
 
@@ -81,7 +84,6 @@ app.get("/", (c) => {
  *   workspaceId 为 'personal'/缺省 → 个人空间；为 uuid → 工作区（要求 editor+）
  */
 app.post("/", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "demo";
   const body = await c.req.json();
 
@@ -104,7 +106,7 @@ app.post("/", async (c) => {
 
   const id = uuid();
   try {
-    tagsRepository.create({
+    await tagsRepository.createAsync({
       id,
       userId,
       workspaceId: ws,
@@ -112,8 +114,8 @@ app.post("/", async (c) => {
       color: body.color || "#58a6ff",
     });
   } catch (err: any) {
-    // UNIQUE(userId, name) 冲突 → 当前账号已有同名标签（可能在其他空间）
-    if (String(err?.message || err).includes("UNIQUE")) {
+    // SQLite UNIQUE / PostgreSQL 23505 → 当前账号已有同名标签（可能在其他空间）
+    if (err?.code === "23505" || String(err?.message || err).includes("UNIQUE")) {
       return c.json(
         {
           error:
@@ -124,13 +126,12 @@ app.post("/", async (c) => {
     }
     throw err;
   }
-  const tag = tagsRepository.getById(id);
+  const tag = await tagsRepository.getByIdAsync(id);
   return c.json(tag, 201);
 });
 
 // 更新标签（名称/颜色）
 app.put("/:id", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
   const body = await c.req.json();
@@ -147,7 +148,7 @@ app.put("/:id", async (c) => {
     body.name = name;
   }
 
-  const owner = getTagOwner(id);
+  const owner = await getTagOwner(id);
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
@@ -160,60 +161,54 @@ app.put("/:id", async (c) => {
   }
   if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
 
-  tagsRepository.updateById(id, patch);
-  const tag = tagsRepository.getByIdWithCount(id);
+  await tagsRepository.updateByIdAsync(id, patch);
+  const tag = await tagsRepository.getByIdWithCountAsync(id);
   return c.json(tag);
 });
 
-app.delete("/:id", (c) => {
-  const db = getDb();
+app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const owner = getTagOwner(id);
+  const owner = await getTagOwner(id);
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
-  tagsRepository.deleteTagLinks(id);
-  tagsRepository.deleteById(id);
+  await tagOperationsRepository.deleteTagWithLinksAsync(id);
   return c.json({ success: true });
 });
 
 // 给笔记添加标签
 // 校验：标签必须与笔记处于同一空间，且当前用户对标签有写权限
-app.post("/note/:noteId/tag/:tagId", (c) => {
-  const db = getDb();
+app.post("/note/:noteId/tag/:tagId", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const { noteId, tagId } = c.req.param();
 
-  const owner = getTagOwner(tagId);
+  const owner = await getTagOwner(tagId);
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
   // 笔记的 workspaceId 必须与标签一致，避免跨空间挂标签
-  const note = db
-    .prepare("SELECT workspaceId FROM notes WHERE id = ?")
-    .get(noteId) as { workspaceId: string | null } | undefined;
+  const note = await tagOperationsRepository.getNoteWorkspaceByIdAsync(noteId);
   if (!note) return c.json({ error: "note not found" }, 404);
   if ((note.workspaceId || null) !== (owner.workspaceId || null)) {
     return c.json({ error: "tag and note must belong to the same workspace" }, 400);
   }
 
-  noteTagsRepository.addTagToNote(noteId, tagId);
+  await noteTagsRepository.addTagToNoteAsync(noteId, tagId);
   return c.json({ success: true });
 });
 
 // 移除笔记标签
-app.delete("/note/:noteId/tag/:tagId", (c) => {
-  const db = getDb();
+app.delete("/note/:noteId/tag/:tagId", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const { noteId, tagId } = c.req.param();
 
-  const owner = getTagOwner(tagId);
+  const owner = await getTagOwner(tagId);
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
-  noteTagsRepository.removeTagFromNote(noteId, tagId);
+  await noteTagsRepository.removeTagFromNoteAsync(noteId, tagId);
   return c.json({ success: true });
 });
 
