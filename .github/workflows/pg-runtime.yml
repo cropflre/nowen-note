@@ -31,7 +31,7 @@ permissions:
 jobs:
   runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -78,6 +78,13 @@ jobs:
           node --import tsx --test --test-concurrency=1
           tests/database-runtime.test.ts
           tests/repository-runtime-provider.test.ts
+
+      - name: Full SQLite regression suite
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        run: npm test
 
       - name: Real PostgreSQL adapter and pilot tests
         run: >-
