@@ -8,7 +8,7 @@ function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
   return adapter ?? getDatabaseAdapter();
 }
 
-function resolveNowExpr(nowExpr?: string): string {
+function resolveAsyncNowExpr(nowExpr?: string): string {
   if (nowExpr) return nowExpr;
   try {
     return nowExpression(getDatabaseDialect());
@@ -28,7 +28,8 @@ export function createSystemSettingsRepository(
   nowExpr?: string,
 ) {
   const getAdapter = () => resolveAdapter(adapter);
-  const getNowExpr = () => resolveNowExpr(nowExpr);
+  const syncNowExpr = nowExpr ?? nowExpression("sqlite");
+  const getAsyncNowExpr = () => resolveAsyncNowExpr(nowExpr);
 
   return {
     // ---- 同步方法（仅 SQLite） ----
@@ -81,22 +82,20 @@ export function createSystemSettingsRepository(
 
     set(key: string, value: string): void {
       const db = getDb();
-      const currentNowExpr = getNowExpr();
       db.prepare(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${currentNowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
+         VALUES (?, ?, ${syncNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${syncNowExpr}`,
       ).run(key, value);
     },
 
     setMany(entries: Array<{ key: string; value: string }>): void {
       if (entries.length === 0) return;
       const db = getDb();
-      const currentNowExpr = getNowExpr();
       const upsert = db.prepare(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${currentNowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
+         VALUES (?, ?, ${syncNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${syncNowExpr}`,
       );
       const tx = db.transaction(() => {
         for (const { key, value } of entries) {
@@ -169,7 +168,7 @@ export function createSystemSettingsRepository(
     },
 
     async setAsync(key: string, value: string): Promise<void> {
-      const currentNowExpr = getNowExpr();
+      const currentNowExpr = getAsyncNowExpr();
       await getAdapter().execute(
         `INSERT INTO system_settings (key, value, "updatedAt")
          VALUES (?, ?, ${currentNowExpr})
@@ -203,7 +202,7 @@ export function createSystemSettingsRepository(
 
     async setManyAsync(entries: Array<{ key: string; value: string }>): Promise<void> {
       if (entries.length === 0) return;
-      const currentNowExpr = getNowExpr();
+      const currentNowExpr = getAsyncNowExpr();
       await getAdapter().executeBatch(
         `INSERT INTO system_settings (key, value, "updatedAt")
          VALUES (?, ?, ${currentNowExpr})
