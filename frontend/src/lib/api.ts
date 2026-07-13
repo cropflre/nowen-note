@@ -82,7 +82,16 @@ api.createTask = (async (data: Partial<Task>) => {
   if (!created.isCompleted || !data.completedAt) return created;
   const parsed = new Date(data.completedAt);
   if (Number.isNaN(parsed.getTime())) return created;
-  return api.restoreTaskCompletedAt(created.id, parsed.toISOString());
+  try {
+    return await api.restoreTaskCompletedAt(created.id, parsed.toISOString());
+  } catch (error) {
+    const status = (error as { status?: number })?.status;
+    if (status === 404 || status === 405 || status === 501) {
+      console.warn("[task-import] old backend cannot restore completedAt; keeping imported task", error);
+      return created;
+    }
+    throw error;
+  }
 }) as typeof baseApi.createTask;
 
 // Statistics only render the current year. Bound the collection request when callers
