@@ -13,7 +13,7 @@ const port = Number(process.env.PORT) || 3001;
 app.get("/api/health", async (c) => {
   const database = await checkDatabaseHealth();
   const runtime = getDatabaseRuntimeStatus();
-  const status = database.ok ? 200 : 503;
+  const status: 200 | 503 = database.ok ? 200 : 503;
 
   return c.json({
     status: database.ok ? "ok" : "error",
