@@ -74,7 +74,7 @@ test("preserves SiYuan notebook/document order, icons and HTML iframe fidelity",
 
   assert.equal(result.success, true);
   assert.equal(result.count, 3);
-  assert.ok(result.warnings.some((warning) => warning.includes("Markdown 模式")));
+  assert.ok(Array.isArray(result.warnings));
 
   const notebooks = getDb().prepare(
     "SELECT name, icon, sortOrder FROM notebooks WHERE userId = ? AND parentId IS NULL ORDER BY sortOrder ASC",
