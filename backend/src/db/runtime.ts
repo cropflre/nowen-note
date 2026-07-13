@@ -246,8 +246,26 @@ function requireRuntimeState(): DatabaseRuntimeState {
   return runtimeState;
 }
 
+function createLegacySqliteAdapter(): DatabaseAdapter {
+  // Legacy repository tests and scripts historically call async repository methods
+  // without bootstrapping the HTTP entrypoint. Preserve that SQLite behavior through
+  // the provider while keeping PostgreSQL mode strict and free of silent fallback.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { SqliteAdapter } = require("./adapters/sqliteAdapter") as typeof import("./adapters/sqliteAdapter");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getDb } = require("./schema") as typeof import("./schema");
+  return new SqliteAdapter(getDb());
+}
+
 export function getDatabaseAdapter(): DatabaseAdapter {
-  return requireRuntimeState().adapter;
+  if (runtimeState) return runtimeState.adapter;
+
+  const config = resolveDatabaseRuntimeConfig(process.env);
+  if (config.driver === "sqlite") {
+    return createLegacySqliteAdapter();
+  }
+
+  throw new Error("[db] database runtime has not been initialized");
 }
 
 export function getDatabaseDriver(): DatabaseDriver {
