@@ -4,11 +4,21 @@ on:
   push:
     branches:
       - issue-247-pg-runtime
+      - issue-248-direct-db-audit
     paths:
       - "backend/src/db/**"
+      - "backend/src/routes/**"
+      - "backend/src/services/**"
+      - "backend/src/queries/**"
+      - "backend/src/lib/**"
+      - "backend/src/middleware/**"
+      - "backend/src/runtime/**"
+      - "backend/src/index.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
+      - "backend/scripts/check-sqlite-boundaries.mjs"
+      - "backend/scripts/sqlite-boundary-baseline.json"
       - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -16,9 +26,18 @@ on:
   pull_request:
     paths:
       - "backend/src/db/**"
+      - "backend/src/routes/**"
+      - "backend/src/services/**"
+      - "backend/src/queries/**"
+      - "backend/src/lib/**"
+      - "backend/src/middleware/**"
+      - "backend/src/runtime/**"
+      - "backend/src/index.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
+      - "backend/scripts/check-sqlite-boundaries.mjs"
+      - "backend/scripts/sqlite-boundary-baseline.json"
       - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -72,6 +91,18 @@ jobs:
 
       - name: TypeScript check
         run: npm run build:tsc -- --noEmit
+
+      - name: SQLite direct-access boundary audit
+        run: npm run audit:sqlite-boundaries -- --report=/tmp/sqlite-boundary-report.json
+
+      - name: Upload SQLite boundary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-boundary-${{ github.run_id }}
+          path: /tmp/sqlite-boundary-report.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Runtime unit tests
         run: >-
