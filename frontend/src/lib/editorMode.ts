@@ -18,6 +18,7 @@
 export type EditorMode = "md" | "tiptap";
 
 export const EDITOR_MODE_KEY = "nowen.editor_mode";
+export const EDITOR_MODE_CHANGE_EVENT = "nowen:editor-mode-change";
 
 /** URL 查询参数 key；`?md=1` 强制启用 MD，`?md=0` 强制启用 Tiptap */
 const URL_FORCE_KEY = "md";
@@ -49,12 +50,17 @@ export function resolveEditorMode(defaultMode: EditorMode = "tiptap"): EditorMod
 }
 
 /**
- * 把当前选择持久化到 localStorage。失败时静默（隐私模式 / quota）。
- * 调用方应在成功切换后调用。
+ * 把当前选择持久化到 localStorage，并广播给账号偏好同步层。失败时静默
+ * （隐私模式 / quota）。调用方应在成功切换后调用。
  */
 export function persistEditorMode(mode: EditorMode): void {
   try {
     localStorage.setItem(EDITOR_MODE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent<EditorMode>(EDITOR_MODE_CHANGE_EVENT, { detail: mode }));
   } catch {
     /* ignore */
   }
