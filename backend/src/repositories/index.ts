@@ -29,6 +29,7 @@ export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
 export { taskDependenciesRepository } from "./taskDependenciesRepository";
+export { taskDependencyOperationsRepository } from "./taskDependencyOperationsRepository";
 export { workspaceInvitesRepository } from "./workspaceInvitesRepository";
 export { notebookShareLinksRepository } from "./notebookShareLinksRepository";
 export { noteAclRepository } from "./noteAclRepository";
