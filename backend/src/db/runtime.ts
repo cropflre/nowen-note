@@ -45,6 +45,14 @@ let runtimeState: DatabaseRuntimeState | undefined;
 let initializationPromise: Promise<DatabaseRuntimeState> | undefined;
 let initializationDriver: DatabaseDriver | undefined;
 
+function defaultPostgresSettings(): DatabaseRuntimeConfig["postgres"] {
+  return {
+    max: DEFAULT_PG_POOL_MAX,
+    connectionTimeoutMillis: DEFAULT_PG_CONNECTION_TIMEOUT_MS,
+    idleTimeoutMillis: DEFAULT_PG_IDLE_TIMEOUT_MS,
+  };
+}
+
 function parseIntegerSetting(
   rawValue: string | undefined,
   name: string,
@@ -89,7 +97,18 @@ export function resolveDatabaseRuntimeConfig(
   const config: DatabaseRuntimeConfig = {
     driver: rawDriver,
     sqlitePath: env.DB_PATH?.trim() || undefined,
-    postgres: {
+    postgres: defaultPostgresSettings(),
+  };
+
+  // PostgreSQL-only settings must not affect the default SQLite startup path.
+  // This keeps existing deployments working even when unrelated PG variables are stale.
+  if (config.driver === "postgres") {
+    const databaseUrl = env.DATABASE_URL?.trim();
+    if (!databaseUrl) {
+      throw new Error("[db] DATABASE_URL is required when DB_DRIVER=postgres");
+    }
+    config.databaseUrl = validateDatabaseUrl(databaseUrl);
+    config.postgres = {
       max: parseIntegerSetting(env.PG_POOL_MAX, "PG_POOL_MAX", DEFAULT_PG_POOL_MAX, 1, 100),
       connectionTimeoutMillis: parseIntegerSetting(
         env.PG_CONNECTION_TIMEOUT_MS,
@@ -105,15 +124,7 @@ export function resolveDatabaseRuntimeConfig(
         1_000,
         600_000,
       ),
-    },
-  };
-
-  if (config.driver === "postgres") {
-    const databaseUrl = env.DATABASE_URL?.trim();
-    if (!databaseUrl) {
-      throw new Error("[db] DATABASE_URL is required when DB_DRIVER=postgres");
-    }
-    config.databaseUrl = validateDatabaseUrl(databaseUrl);
+    };
   }
 
   return config;
@@ -155,7 +166,7 @@ async function createSqliteRuntime(
   // Keep PostgreSQL startup independent from the better-sqlite3 native module.
   // These modules are loaded only after DB_DRIVER has resolved to sqlite.
   const [{ SqliteAdapter }, { getDb, closeDb }] = await Promise.all([
-    import("./adapters/index.js"),
+    import("./adapters/sqliteAdapter.js"),
     import("./schema.js"),
   ]);
 
