@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import syncRoutes from "./user-preferences-sync";
 import legacyRoutes from "./user-preferences-legacy";
 import reliableAIRoutes from "./ai-reliable";
 import mobileBootstrapRoutes from "./mobile-bootstrap";
@@ -10,7 +11,10 @@ import mobileBootstrapRoutes from "./mobile-bootstrap";
  */
 const app = new Hono();
 
-// Must be mounted before `/`: the legacy router also owns the root preference route.
+// Root preference GET/PUT/PATCH must be mounted before the legacy router. The new
+// implementation keeps the old flat response fields while adding account-scoped
+// revision metadata and field-level merge semantics.
+app.route("/", syncRoutes);
 app.route("/mobile-bootstrap", mobileBootstrapRoutes);
 app.route("/ai-reliable", reliableAIRoutes);
 app.route("/", legacyRoutes);
