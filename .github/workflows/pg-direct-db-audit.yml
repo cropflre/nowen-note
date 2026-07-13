@@ -7,12 +7,14 @@ on:
     paths:
       - "backend/src/**"
       - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/direct-db-access-baseline.json"
       - ".github/workflows/pg-direct-db-audit.yml"
   pull_request:
     paths:
       - "backend/src/**"
       - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/direct-db-access-baseline.json"
       - ".github/workflows/pg-direct-db-audit.yml"
   workflow_dispatch:
@@ -38,12 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           node backend/scripts/audit-direct-db-access.mjs \
-            --write-baseline \
             --report-json /tmp/direct-db-access-report.json \
             --report-md /tmp/direct-db-access-report.md \
             > /tmp/direct-db-access-console.txt
 
+      - name: Enforce reviewed baseline
+        run: node backend/scripts/check-direct-db-access-baseline.mjs /tmp/direct-db-access-report.json
+
       - name: Upload audit inventory
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: direct-db-access-${{ github.run_id }}
@@ -52,5 +57,5 @@ jobs:
             /tmp/direct-db-access-report.md
             /tmp/direct-db-access-console.txt
             backend/scripts/direct-db-access-baseline.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
