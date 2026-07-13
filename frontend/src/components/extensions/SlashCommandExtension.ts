@@ -192,7 +192,14 @@ export function createSlashExtension(
           props: {
             handleTextInput(view, from, to, text) {
               const current = slashPluginKey.getState(view.state);
-              if (text !== "/" || current?.active || !isSlashTriggerContext(view.state, from)) {
+              // Do not interrupt an in-progress IME composition. Let the DOM
+              // commit finish; stateAfterTransaction will detect the new slash.
+              if (
+                view.composing ||
+                text !== "/" ||
+                current?.active ||
+                !isSlashTriggerContext(view.state, from)
+              ) {
                 return false;
               }
 
