@@ -122,8 +122,10 @@ export function readPreferenceState(userId: string): PreferenceState {
     const parsed = JSON.parse(row.preferencesJson) as unknown;
     const raw = isObject(parsed) ? parsed : {};
     const meta = isObject(raw.__meta) ? raw.__meta : {};
-    const revision = Number.isInteger(meta.revision) && Number(meta.revision) > 0
-      ? Number(meta.revision)
+    const revision = typeof meta.revision === "number" &&
+      Number.isInteger(meta.revision) &&
+      meta.revision > 0
+      ? meta.revision
       : 1;
 
     return {
@@ -214,7 +216,9 @@ async function writePreferences(c: any) {
   }
 
   const current = readPreferenceState(userId);
-  const baseRevision = Number.isInteger(raw._baseRevision) ? Number(raw._baseRevision) : null;
+  const baseRevision = typeof raw._baseRevision === "number" && Number.isInteger(raw._baseRevision)
+    ? raw._baseRevision
+    : null;
   const migration = raw._migration === true;
   const conflict = baseRevision !== null && baseRevision !== current.revision;
 
