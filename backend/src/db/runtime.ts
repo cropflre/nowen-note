@@ -1,9 +1,7 @@
 import { Pool, type PoolConfig } from "pg";
-import { SqliteAdapter } from "./adapters";
 import type { DatabaseAdapter } from "./adapters/types";
 import type { DatabaseDialect } from "./dialect";
 import { PostgresAdapter } from "./postgresAdapter";
-import { closeDb, getDb } from "./schema";
 
 export type DatabaseDriver = "sqlite" | "postgres";
 
@@ -45,6 +43,7 @@ const DEFAULT_PG_IDLE_TIMEOUT_MS = 30_000;
 
 let runtimeState: DatabaseRuntimeState | undefined;
 let initializationPromise: Promise<DatabaseRuntimeState> | undefined;
+let initializationDriver: DatabaseDriver | undefined;
 
 function parseIntegerSetting(
   rawValue: string | undefined,
@@ -141,6 +140,32 @@ function describePostgresTarget(databaseUrl: string): string {
   }
 }
 
+async function createSqliteRuntime(
+  config: DatabaseRuntimeConfig,
+  dependencies: DatabaseRuntimeDependencies,
+): Promise<DatabaseRuntimeState> {
+  if (dependencies.createSqliteAdapter) {
+    return {
+      config,
+      adapter: dependencies.createSqliteAdapter(),
+      closeSqlite: dependencies.closeSqlite ?? (() => undefined),
+    };
+  }
+
+  // Keep PostgreSQL startup independent from the better-sqlite3 native module.
+  // These modules are loaded only after DB_DRIVER has resolved to sqlite.
+  const [{ SqliteAdapter }, { getDb, closeDb }] = await Promise.all([
+    import("./adapters/index.js"),
+    import("./schema.js"),
+  ]);
+
+  return {
+    config,
+    adapter: new SqliteAdapter(getDb()),
+    closeSqlite: dependencies.closeSqlite ?? closeDb,
+  };
+}
+
 async function initializeRuntime(
   config: DatabaseRuntimeConfig,
   dependencies: DatabaseRuntimeDependencies,
@@ -148,18 +173,13 @@ async function initializeRuntime(
   const logger = dependencies.logger ?? console;
 
   if (config.driver === "sqlite") {
-    const adapter = dependencies.createSqliteAdapter?.() ?? new SqliteAdapter(getDb());
-    const state: DatabaseRuntimeState = {
-      config,
-      adapter,
-      closeSqlite: dependencies.closeSqlite ?? closeDb,
-    };
+    const state = await createSqliteRuntime(config, dependencies);
     logger.log(`[db] runtime initialized: sqlite${config.sqlitePath ? ` (${config.sqlitePath})` : ""}`);
     return state;
   }
 
-  const pool = dependencies.createPostgresPool?.(buildPostgresPoolConfig(config))
-    ?? new Pool(buildPostgresPoolConfig(config));
+  const poolConfig = buildPostgresPoolConfig(config);
+  const pool = dependencies.createPostgresPool?.(poolConfig) ?? new Pool(poolConfig);
 
   try {
     await pool.query("SELECT 1 AS ok");
@@ -172,7 +192,7 @@ async function initializeRuntime(
     config,
     adapter: new PostgresAdapter(pool),
     pool,
-    closeSqlite: dependencies.closeSqlite ?? closeDb,
+    closeSqlite: () => undefined,
   };
   logger.log(`[db] runtime initialized: postgres (${describePostgresTarget(config.databaseUrl!)})`);
   return state;
@@ -191,7 +211,12 @@ export async function initializeDatabase(options: {
     return;
   }
 
+  if (initializationPromise && initializationDriver !== config.driver) {
+    throw new Error("[db] database runtime is already initializing with a different driver");
+  }
+
   if (!initializationPromise) {
+    initializationDriver = config.driver;
     initializationPromise = initializeRuntime(config, options.dependencies ?? {});
   }
 
@@ -199,6 +224,7 @@ export async function initializeDatabase(options: {
     runtimeState = await initializationPromise;
   } finally {
     initializationPromise = undefined;
+    initializationDriver = undefined;
   }
 }
 
@@ -262,10 +288,11 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealth> {
 }
 
 export async function closeDatabase(): Promise<void> {
-  if (initializationPromise) {
-    try { await initializationPromise; } catch { /* initialization already failed */ }
-    initializationPromise = undefined;
+  if (initializationPromise && !runtimeState) {
+    try { runtimeState = await initializationPromise; } catch { /* initialization already failed */ }
   }
+  initializationPromise = undefined;
+  initializationDriver = undefined;
 
   const state = runtimeState;
   runtimeState = undefined;
