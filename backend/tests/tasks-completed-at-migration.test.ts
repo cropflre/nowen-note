@@ -44,7 +44,7 @@ function createLegacyDb() {
   return db;
 }
 
-test("tasks-completed-at migration adds column and backfills completed rows", () => {
+test("tasks-completed-at migration adds the column without inventing history", () => {
   const migration = MIGRATIONS.find((m) => m.name === "tasks-completed-at");
   assert.ok(migration, "tasks-completed-at migration should be registered");
 
@@ -61,10 +61,9 @@ test("tasks-completed-at migration adds column and backfills completed rows", ()
   }>;
 
   assert.deepEqual(rows, [
-    { id: "task-done", isCompleted: 1, completedAt: "2026-07-08T09:30:00" },
+    { id: "task-done", isCompleted: 1, completedAt: null },
     { id: "task-open", isCompleted: 0, completedAt: null },
   ]);
-
   db.close();
 });
 
@@ -75,7 +74,6 @@ test("tasks-completed-at migration clears stale completedAt on incomplete rows",
   const db = createLegacyDb();
   db.prepare("ALTER TABLE tasks ADD COLUMN completedAt TEXT").run();
   db.prepare("UPDATE tasks SET completedAt = ? WHERE id = 'task-open'").run("2026-07-01T08:00:00");
-
   migration.up(db);
 
   const row = db.prepare("SELECT isCompleted, completedAt FROM tasks WHERE id = 'task-open'").get() as {
@@ -84,6 +82,5 @@ test("tasks-completed-at migration clears stale completedAt on incomplete rows",
   };
   assert.equal(row.isCompleted, 0);
   assert.equal(row.completedAt, null);
-
   db.close();
 });
