@@ -43,6 +43,7 @@ import {
   getImageDownloadFilename,
   getImageToolbarPosition,
   isImageReplaceTargetNode,
+  shouldKeepImageActionsOpenOnBlur,
   type ImageNodeAttrs,
 } from "@/lib/imageToolbar";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
@@ -3469,7 +3470,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           const ae = document.activeElement;
           if (ae && ae !== document.body && (ae as Element).closest?.('[data-popover]')) return;
           setBubble(b => b.open ? { ...b, open: false } : b);
-          setImageBubble(b => b.open ? { ...b, open: false } : b);
+          if (!shouldKeepImageActionsOpenOnBlur(editor.state.selection)) {
+            setImageBubble(b => b.open ? { ...b, open: false } : b);
+          }
           // 只关 caret 触发的链接气泡；hover 气泡不依赖编辑器 focus
           setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
           setTableBubble(b => b.open ? { ...b, open: false } : b);

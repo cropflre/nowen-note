@@ -248,7 +248,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     // 旧版 preload 不支持 mode IPC 时的兜底：只做 renderer 级清理并刷新。
     clearQueue();
     clearLocalIdMap();
-    broadcastLogout("switch_to_local");
+    await broadcastLogout("switch_to_local");
     try {
       clearServerUrl();
       localStorage.removeItem("nowen-token");
@@ -266,14 +266,14 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     try {
       localStorage.setItem("nowen-prefer-cloud", "1");
     } catch { /* ignore */ }
-    broadcastLogout("desktop_logout_session");
+    await broadcastLogout("desktop_logout_session");
     window.location.reload();
   }, []);
 
   const handleDesktopCloudLogout = useCallback(async () => {
     setAccountMenuOpen(false);
     await clearRememberedCredentials();
-    broadcastLogout("user_logout");
+    await broadcastLogout("user_logout");
     window.location.reload();
   }, []);
 
@@ -615,7 +615,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
             // 否则 reload 后 LoginPage 会读取 SecureStorage 并再次自动登录，表现为"退出不了"。
             await clearRememberedCredentials();
             // L10: 广播给其他 tab 一起下线，与 Sidebar Footer 保持一致
-            broadcastLogout("user_logout");
+            await broadcastLogout("user_logout");
             window.location.reload();
           }}
           title={showLabel ? undefined : t('sidebar.logout')}

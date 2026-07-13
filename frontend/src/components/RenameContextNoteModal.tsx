@@ -5,11 +5,19 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "react-i18next";
+import type { Note } from "@/types";
 
 interface RenameContextNoteModalProps {
   noteId: string | null;
   initialTitle?: string;
   onClose: () => void;
+}
+
+export function buildRenameNoteMutation(
+  note: Pick<Note, "version">,
+  title: string,
+): Pick<Note, "title" | "version"> {
+  return { title, version: note.version };
 }
 
 export default function RenameContextNoteModal({
@@ -21,7 +29,7 @@ export default function RenameContextNoteModal({
   const actions = useAppActions();
   const { t, i18n } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [note, setNote] = useState<any | null>(null);
+  const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState(initialTitle);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -127,7 +135,10 @@ export default function RenameContextNoteModal({
     setSaving(true);
     setError("");
     try {
-      const updated = await api.updateNote(note.id, { title: normalizedTitle } as any);
+      const updated = await api.updateNote(
+        note.id,
+        buildRenameNoteMutation(note, normalizedTitle),
+      );
       const nextTitle = updated?.title || normalizedTitle;
       const listPatch = {
         id: note.id,

@@ -40,6 +40,15 @@ describe("noteAttachmentAccessBridge", () => {
     expect(merged.searchParams.get("scope")).toBe("v2.scope");
   });
 
+  it("resolves a relative signature against the attachment server origin", () => {
+    const raw = `https://notes-api.example.com/api/attachments/${ATTACHMENT_ID}?w=240`;
+    const signed = `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=server-value&scope=v2.scope`;
+    const merged = new URL(mergeSignedAttachmentUrl(raw, signed));
+
+    expect(merged.origin).toBe("https://notes-api.example.com");
+    expect(merged.searchParams.get("w")).toBe("240");
+  });
+
   it("resolves image, media and download requests from the same access map", () => {
     const signed = `https://api.example.com/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=server-value&scope=v2.scope`;
     expect(registerAttachmentAccessUrls({ [ATTACHMENT_ID]: signed })).toBe(1);

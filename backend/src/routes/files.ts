@@ -59,6 +59,7 @@ import {
   getUserWorkspaceRole,
   requireWorkspaceFeature,
 } from "../middleware/acl";
+import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 
 const app = new Hono();
 
@@ -561,6 +562,7 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
 
   return c.json({
     items: rows.map(toFileOut),
+    accessUrls: createUserAttachmentAccessUrls(userId, rows),
     total: totalRow.c,
     page,
     pageSize,
@@ -780,6 +782,7 @@ app.get("/:id", (c) => {
   return c.json({
     ...toFileOut(base),
     references,
+    accessUrls: createUserAttachmentAccessUrls(userId, [base]),
   });
 });
 
@@ -1218,16 +1221,16 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   const dedupRow = db
     .prepare(
       scope.workspaceId
-        ? `SELECT id, mimeType, size, filename FROM attachments
+        ? `SELECT id, noteId, mimeType, size, filename FROM attachments
             WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id, mimeType, size, filename FROM attachments
+        : `SELECT id, noteId, mimeType, size, filename FROM attachments
             WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
     )
     .get(
       ...(scope.workspaceId
         ? [userId, scope.workspaceId, sha256]
         : [userId, sha256]),
-    ) as { id: string; mimeType: string; size: number; filename: string } | undefined;
+    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string } | undefined;
 
   if (dedupRow) {
     // v12：dedup 命中老行时把 uploadSource 升级到 'file_manager'——
@@ -1258,6 +1261,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
         category: isImage(dedupRow.mimeType) ? "image" : "file",
         createdAt: new Date().toISOString(),
         deduplicated: true,
+        accessUrls: createUserAttachmentAccessUrls(userId, [{ id: dedupRow.id, noteId: dedupRow.noteId }]),
       },
       200,
     );
@@ -1307,6 +1311,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       filename: file.name || `${id}.${ext}`,
       category: isImage(mime) ? "image" : "file",
       createdAt: new Date().toISOString(),
+      accessUrls: createUserAttachmentAccessUrls(userId, [{ id, noteId }]),
     },
     201,
   );

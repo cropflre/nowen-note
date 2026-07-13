@@ -1516,7 +1516,7 @@ export default function NoteList() {
     await import("@/lib/rememberLogin")
       .then((m) => m.clearRememberedCredentials())
       .catch(() => {});
-    broadcastLogout("android_server_unreachable");
+    await broadcastLogout("android_server_unreachable");
     window.location.reload();
   }, []);
 

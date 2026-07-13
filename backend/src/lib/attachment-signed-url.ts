@@ -149,6 +149,29 @@ export function createAttachmentSignedUrl(
   return `${baseUrl}${sep}exp=${params.exp}&sig=${params.sig}&scope=${encodeURIComponent(params.scope)}`;
 }
 
+/**
+ * 为已经通过接口可见性校验的附件生成当前用户可用的展示地址。
+ *
+ * 原始 `/api/attachments/:id` 仍用于持久化；该映射只随响应下发给前端，
+ * 避免把会过期的签名写入笔记正文或文件元数据。
+ */
+export function createUserAttachmentAccessUrls(
+  userId: string,
+  attachments: Array<{ id: string; noteId: string }>,
+): Record<string, string> {
+  const urls: Record<string, string> = {};
+  for (const attachment of attachments) {
+    if (!attachment.id || !attachment.noteId) continue;
+    const scope = createUserAttachmentScope(userId, attachment.noteId);
+    urls[attachment.id] = createAttachmentSignedUrl(
+      `/api/attachments/${attachment.id}`,
+      attachment.id,
+      scope,
+    );
+  }
+  return urls;
+}
+
 export function verifyAttachmentSignature(
   attachmentId: string,
   exp: string,

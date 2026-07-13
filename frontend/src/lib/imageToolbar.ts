@@ -41,6 +41,16 @@ export function isImageReplaceTargetNode(
   return node?.type?.name === "image";
 }
 
+export function shouldKeepImageActionsOpenOnBlur(
+  selection: unknown,
+): boolean {
+  if (!selection || typeof selection !== "object" || !("node" in selection)) return false;
+  const node = selection.node;
+  if (!node || typeof node !== "object" || !("type" in node)) return false;
+  const type = node.type;
+  return Boolean(type && typeof type === "object" && "name" in type && type.name === "image");
+}
+
 export function getImageCopySource(attrs: ImageNodeAttrs, origin?: string): string {
   const src = typeof attrs.src === "string" ? attrs.src.trim() : "";
   if (!src) return "";

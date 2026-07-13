@@ -5,6 +5,7 @@ import {
   getImageDownloadFilename,
   getImageToolbarPosition,
   isImageReplaceTargetNode,
+  shouldKeepImageActionsOpenOnBlur,
 } from "@/lib/imageToolbar";
 
 describe("imageToolbar", () => {
@@ -100,5 +101,11 @@ describe("imageToolbar", () => {
         { width: 1200, height: 800 },
       ),
     ).toEqual({ top: 432, left: 360 });
+  });
+
+  it("keeps mobile image actions open when blur only dismisses the keyboard", () => {
+    expect(shouldKeepImageActionsOpenOnBlur({ node: { type: { name: "image" } } })).toBe(true);
+    expect(shouldKeepImageActionsOpenOnBlur({ node: { type: { name: "paragraph" } } })).toBe(false);
+    expect(shouldKeepImageActionsOpenOnBlur(null)).toBe(false);
   });
 });

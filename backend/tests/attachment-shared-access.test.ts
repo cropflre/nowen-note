@@ -24,6 +24,7 @@ let app: Hono;
 let getDb: () => Database.Database;
 let closeDb: () => void;
 let attachmentId = "";
+let uploadAccessUrl = "";
 
 function db() {
   return getDb();
@@ -39,8 +40,9 @@ async function responseJson<T>(response: Response): Promise<T> {
 }
 
 test.before(async () => {
-  const [attachmentsModule, schemaModule] = await Promise.all([
+  const [attachmentsModule, filesModule, schemaModule] = await Promise.all([
     import("../src/routes/attachments"),
+    import("../src/routes/files"),
     import("../src/db/schema"),
   ]);
   getDb = schemaModule.getDb;
@@ -49,6 +51,7 @@ test.before(async () => {
   app = new Hono();
   app.get("/attachments/:id", attachmentsModule.handleDownloadAttachment);
   app.route("/attachments", attachmentsModule.default);
+  app.route("/files", filesModule.default);
 
   const database = db();
   const insertUser = database.prepare(
@@ -91,13 +94,24 @@ test.before(async () => {
     body: form,
   });
   assert.equal(upload.status, 201);
-  attachmentId = (await responseJson<{ id: string }>(upload)).id;
+  const uploadPayload = await responseJson<{
+    id: string;
+    accessUrls?: Record<string, string>;
+  }>(upload);
+  attachmentId = uploadPayload.id;
+  uploadAccessUrl = uploadPayload.accessUrls?.[attachmentId] || "";
   assert.ok(attachmentId);
 });
 
 test.after(() => {
   closeDb();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch (error) {
+    // tsx 在 Windows 下可能让同一测试依赖保留第二个 SQLite 模块实例，
+    // 进程退出前主库仍被占用；清理竞争不应掩盖接口断言结果。
+    if ((error as NodeJS.ErrnoException).code !== "EBUSY") throw error;
+  }
 });
 
 test("specific-user notebook share receives a revocable attachment URL", async () => {
@@ -127,6 +141,28 @@ test("specific-user notebook share receives a revocable attachment URL", async (
   const denied = await responseJson<{ code: string; reason: string }>(afterRemoval);
   assert.equal(denied.code, "ATTACHMENT_ACCESS_REVOKED");
   assert.equal(denied.reason, "user_access_revoked");
+});
+
+test("authenticated upload immediately returns a signed display URL", async () => {
+  assert.ok(uploadAccessUrl);
+  assert.match(uploadAccessUrl, /[?&]sig=/);
+
+  const response = await app.request(signedRoute(uploadAccessUrl));
+  assert.equal(response.status, 200);
+});
+
+test("file list returns signed display URLs for thumbnails and previews", async () => {
+  const response = await app.request("/files", {
+    headers: { "X-User-Id": OWNER_ID },
+  });
+  assert.equal(response.status, 200);
+
+  const payload = await responseJson<{
+    items: Array<{ id: string; url: string }>;
+    accessUrls?: Record<string, string>;
+  }>(response);
+  assert.equal(payload.items.some((item) => item.id === attachmentId), true);
+  assert.match(payload.accessUrls?.[attachmentId] || "", /[?&]sig=/);
 });
 
 test("unrelated users cannot exchange a guessed note id for attachment URLs", async () => {
