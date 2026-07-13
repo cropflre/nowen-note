@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { getDb } from "../db/schema.js";
 import {
   canManageResource,
@@ -140,7 +141,7 @@ export function installTaskStatsRoutes(router: Hono<any>): void {
   router.get(
     "/stats/activity-events",
     requireWorkspaceFeature("tasks"),
-    (c) => {
+    (c: Context) => {
       ensureTaskStatsSchema();
       const userId = c.req.header("X-User-Id")!;
       const scope = resolveTaskScope(c.req.query("workspaceId"), userId);
@@ -192,7 +193,7 @@ export function installTaskStatsRoutes(router: Hono<any>): void {
     },
   );
 
-  router.patch("/:id/completed-at", async (c) => {
+  router.patch("/:id/completed-at", async (c: Context) => {
     ensureTaskStatsSchema();
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
@@ -215,8 +216,8 @@ export function installTaskStatsRoutes(router: Hono<any>): void {
       return c.json({ error: "Only completed tasks can restore completedAt", code: "TASK_NOT_COMPLETED" }, 409);
     }
 
-    const body = await c.req.json().catch(() => ({}));
-    const completedAt = normalizeIsoTimestamp(body?.completedAt);
+    const body = await c.req.json().catch(() => ({})) as { completedAt?: unknown };
+    const completedAt = normalizeIsoTimestamp(body.completedAt);
     if (!completedAt) {
       return c.json({ error: "completedAt must be a valid ISO timestamp", code: "INVALID_COMPLETED_AT" }, 400);
     }
@@ -260,11 +261,12 @@ export function installTaskStatsRoutes(router: Hono<any>): void {
 
 if (!globals[ROUTE_PATCH_FLAG]) {
   globals[ROUTE_PATCH_FLAG] = true;
-  const nativeRoute = Hono.prototype.route;
-  Hono.prototype.route = function patchedRoute(path: string, subApp: Hono<any>) {
+  const prototype = Hono.prototype as any;
+  const nativeRoute = prototype.route as (this: Hono<any>, path: string, subApp: Hono<any>) => Hono<any>;
+  prototype.route = function patchedRoute(this: Hono<any>, path: string, subApp: Hono<any>) {
     if (path === "/api/tasks") installTaskStatsRoutes(subApp);
     return nativeRoute.call(this, path, subApp);
-  } as typeof Hono.prototype.route;
+  };
 }
 
 // Ensure direct route imports and production startup both see the same schema.
