@@ -121,10 +121,22 @@ const activityMigration: Migration = {
   up: ensureTaskActivitySchema,
 };
 
+const repairNotesFtsMigration: Migration = {
+  version: 46,
+  name: "repair-notes-fts-index",
+  up: (db) => {
+    // External-content FTS tables can drift after interrupted historical imports
+    // or old trigger versions. Rebuild from notes once during upgrade; the live
+    // insert/update/delete triggers keep it synchronized afterwards.
+    db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
+  },
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
   activityMigration,
+  repairNotesFtsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
