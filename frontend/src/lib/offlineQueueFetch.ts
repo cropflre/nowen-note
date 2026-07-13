@@ -3,7 +3,6 @@
  * the normal API wrapper so a failed replay cannot enqueue itself again.
  */
 import { getBaseUrl } from "@/lib/api";
-import type { OfflineQueueFetchContext } from "@/lib/offlineQueue";
 
 function getToken(): string | null {
   return localStorage.getItem("nowen-token");
@@ -13,7 +12,6 @@ export async function offlineQueueFetch(
   url: string,
   method: string,
   body: Record<string, unknown> | null,
-  context?: OfflineQueueFetchContext,
 ): Promise<{ ok: boolean; status: number; data?: any }> {
   const token = getToken();
   const fullUrl = `${getBaseUrl()}${url}`;
@@ -23,12 +21,6 @@ export async function offlineQueueFetch(
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(context?.idempotencyKey
-        ? {
-            "X-Idempotency-Key": context.idempotencyKey,
-            "X-Nowen-Mutation-Id": context.idempotencyKey,
-          }
-        : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
