@@ -17,8 +17,9 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
-      - "backend/scripts/check-sqlite-boundaries.mjs"
-      - "backend/scripts/sqlite-boundary-baseline.json"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
       - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -36,8 +37,9 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
-      - "backend/scripts/check-sqlite-boundaries.mjs"
-      - "backend/scripts/sqlite-boundary-baseline.json"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
       - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -93,14 +95,14 @@ jobs:
         run: npm run build:tsc -- --noEmit
 
       - name: SQLite direct-access boundary audit
-        run: npm run audit:sqlite-boundaries -- --report=/tmp/sqlite-boundary-report.json
+        run: npm run audit:sqlite-boundaries
 
       - name: Upload SQLite boundary report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-boundary-${{ github.run_id }}
-          path: /tmp/sqlite-boundary-report.json
+          path: /tmp/direct-db-access-report.json
           if-no-files-found: warn
           retention-days: 7
 
