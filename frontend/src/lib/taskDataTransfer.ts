@@ -16,7 +16,7 @@ import {
   type TaskBackupPackage as BaseTaskBackupPackage,
   type TaskBackupTask as BaseTaskBackupTask,
   type TaskImportOptions,
-  type TaskImportPreview,
+  type TaskImportPreview as BaseTaskImportPreview,
   type TaskImportResult,
 } from "./taskDataTransfer.impl";
 
@@ -31,6 +31,10 @@ export type TaskBackupPackage = Omit<BaseTaskBackupPackage, "version" | "data"> 
   data: Omit<BaseTaskBackupPackage["data"], "tasks"> & {
     tasks: TaskBackupTask[];
   };
+};
+
+export type TaskImportPreview = Omit<BaseTaskImportPreview, "pkg"> & {
+  pkg: TaskBackupPackage;
 };
 
 function normalizeCompletedAt(value: unknown, completed: boolean): string | null {
@@ -216,6 +220,10 @@ export function taskBackupFromCsv(text: string): TaskBackupPackage {
   });
 }
 
+export function summarizeTaskBackup(pkg: TaskBackupPackage): ReturnType<typeof summarizeTaskBackupImpl> {
+  return summarizeTaskBackupImpl({ ...pkg, version: 1 } as unknown as BaseTaskBackupPackage);
+}
+
 export async function parseTaskImportFile(file: File): Promise<TaskImportPreview> {
   if (file.size > TASK_IMPORT_MAX_FILE_BYTES) throw new Error("文件超过 10MB，无法导入");
   const text = await file.text();
@@ -234,8 +242,8 @@ export async function parseTaskImportFile(file: File): Promise<TaskImportPreview
   return {
     format: isCsv ? "csv" : "json",
     fileName: file.name,
-    pkg: pkg as unknown as BaseTaskBackupPackage,
-    ...summarizeTaskBackupImpl(pkg as unknown as BaseTaskBackupPackage),
+    pkg,
+    ...summarizeTaskBackup(pkg),
   };
 }
 
