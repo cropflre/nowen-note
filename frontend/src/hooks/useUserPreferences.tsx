@@ -8,120 +8,41 @@ import React, {
   useState,
 } from "react";
 import { api } from "@/lib/api";
+import {
+  DEFAULT_USER_PREFERENCES,
+  accountPreferenceStorageKey,
+  claimLegacyUserPreferences,
+  decodeUserIdFromToken,
+  mergePendingPreferences,
+  normalizeUserPreferences,
+  readAccountPreferenceCache,
+  sanitizeUserPreferencePatch,
+  writeAccountPreferenceCache,
+  type MarkdownViewMode,
+  type ReadingDensity,
+  type UserPreferenceCache,
+  type UserPreferencePatch,
+  type UserPreferences,
+} from "@/lib/userPreferenceAccountCache";
+
+export type { MarkdownViewMode, ReadingDensity, UserPreferences } from "@/lib/userPreferenceAccountCache";
 
 /**
  * 用户级 UI 偏好（per-user, synced）
  *
- * 与 useSiteSettings 的区别：
- *   - useSiteSettings  → 站点级配置（site_title / favicon / 字体），走后端 API，
- *     全站共享，**只有管理员能改**；
- *   - useUserPreferences（本 hook）→ 当前用户的私人偏好，优先同步到后端，
- *     localStorage 仅作为启动缓存和离线兜底。
- *
- * 这里收纳的是"看起来该跟用户走，但又不该污染笔记数据本身"的开关，例如：
- *   - 标签页/窗口标题是显示笔记标题还是软件名；
- *   - 进入笔记后大纲面板默认开/关；
- *   - 进入笔记后是否进入"视图层只读"（不改库 isLocked，仅本会话只读）。
- *
- * 设计选择：
- *   - 单例 Provider + Context，避免每个组件各自 useState 导致跨组件不同步。
- *   - 持久化失败（隐身模式 / 配额满）静默回退到内存态，UI 仍可用。
- *   - 字段类型显式 boolean，不用 unknown JSON——以后加新字段就在这里加 key。
+ * 账号级偏好以服务端为准，并在浏览器中使用 userId 隔离的缓存作为启动/离线兜底。
+ * 窗口位置、下载目录、缓存大小等设备级配置不进入这里；API Key、Token 等敏感信息
+ * 也不属于普通偏好白名单。
  */
 
-const STORAGE_KEY = "nowen.user-prefs.v1";
-
-/** 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高。
- *   - "cozy"   ：默认宽松（保持历史观感）
- *   - "compact"：紧凑——减少 ~30% 纵向空间，长笔记翻屏更省力
- * 仅影响 .ProseMirror 下的 p / li，不动标题/代码块/表格，避免破坏视觉锚点。 */
-export type ReadingDensity = "cozy" | "compact";
-export type MarkdownViewMode = "source" | "preview" | "split";
-
-export interface UserPreferences {
-  /** 标签页/Electron 窗口标题是否跟随当前笔记标题（关闭则用站点名）。默认 false。 */
-  noteTitleAsAppTitle: boolean;
-  /** 进入任意笔记时大纲面板是否默认展开。默认 false。 */
-  outlineDefaultOpen: boolean;
-  /** 进入任意笔记时是否默认进入"视图层只读"。默认 false。
-   *  注意：这不会修改笔记自身的 isLocked 字段，只影响本会话该笔记的编辑权限。 */
-  lockOnOpen: boolean;
-  /** 笔记本目录是否在展开节点下显示直属笔记。默认 false。 */
-  showNotesInNotebookTree: boolean;
-  /** 阅读密度（cozy/compact）。默认 cozy，即与历史一致的宽松排版。 */
-  readingDensity: ReadingDensity;
-  /** 笔记列表是否显示更新时间。默认 true。 */
-  showNoteListUpdatedTime: boolean;
-  /** 是否启用编辑区顶部多笔记标签页。默认 false。 */
-  enableNoteTabs: boolean;
-  /** Markdown 笔记默认打开视图。默认 source，保持历史行为。 */
-  markdownDefaultViewMode: MarkdownViewMode;
-}
-
-const DEFAULT_PREFS: UserPreferences = {
-  noteTitleAsAppTitle: false,
-  outlineDefaultOpen: false,
-  lockOnOpen: false,
-  showNotesInNotebookTree: false,
-  readingDensity: "cozy",
-  showNoteListUpdatedTime: true,
-  enableNoteTabs: false,
-  markdownDefaultViewMode: "source",
+type RemotePreferences = UserPreferences & {
+  hasPreferences?: boolean;
+  userId?: string;
+  revision?: number;
+  fieldUpdatedAt?: Partial<Record<keyof UserPreferences, string>>;
+  updatedAt?: string | null;
+  conflict?: boolean;
 };
-
-function normalizeUserPreferences(parsed: Partial<UserPreferences>): UserPreferences {
-  return {
-    noteTitleAsAppTitle: typeof parsed.noteTitleAsAppTitle === "boolean"
-      ? parsed.noteTitleAsAppTitle
-      : DEFAULT_PREFS.noteTitleAsAppTitle,
-    outlineDefaultOpen: typeof parsed.outlineDefaultOpen === "boolean"
-      ? parsed.outlineDefaultOpen
-      : DEFAULT_PREFS.outlineDefaultOpen,
-    lockOnOpen: typeof parsed.lockOnOpen === "boolean"
-      ? parsed.lockOnOpen
-      : DEFAULT_PREFS.lockOnOpen,
-    showNotesInNotebookTree: typeof parsed.showNotesInNotebookTree === "boolean"
-      ? parsed.showNotesInNotebookTree
-      : DEFAULT_PREFS.showNotesInNotebookTree,
-    readingDensity: parsed.readingDensity === "compact" || parsed.readingDensity === "cozy"
-      ? parsed.readingDensity
-      : DEFAULT_PREFS.readingDensity,
-    showNoteListUpdatedTime: typeof parsed.showNoteListUpdatedTime === "boolean"
-      ? parsed.showNoteListUpdatedTime
-      : (localStorage.getItem("nowen.noteList.showTime") !== null
-        ? localStorage.getItem("nowen.noteList.showTime") === "true"
-        : DEFAULT_PREFS.showNoteListUpdatedTime),
-    enableNoteTabs: typeof parsed.enableNoteTabs === "boolean"
-      ? parsed.enableNoteTabs
-      : DEFAULT_PREFS.enableNoteTabs,
-    markdownDefaultViewMode:
-      parsed.markdownDefaultViewMode === "source" ||
-      parsed.markdownDefaultViewMode === "preview" ||
-      parsed.markdownDefaultViewMode === "split"
-        ? parsed.markdownDefaultViewMode
-        : DEFAULT_PREFS.markdownDefaultViewMode,
-  };
-}
-
-function readFromStorage(): UserPreferences {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_PREFS;
-    const parsed = JSON.parse(raw) as Partial<UserPreferences>;
-    // 字段做白名单 + 类型校验，防止旧版本 / 手改 localStorage 把布尔变成字符串
-    return normalizeUserPreferences(parsed);
-  } catch {
-    return DEFAULT_PREFS;
-  }
-}
-
-function writeToStorage(prefs: UserPreferences): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // 隐身模式 / quota exceeded 时静默丢弃；UI 仍能正常运行（只是下次启动复位）
-  }
-}
 
 interface UserPreferencesContextValue {
   prefs: UserPreferences;
@@ -129,57 +50,198 @@ interface UserPreferencesContextValue {
 }
 
 const UserPreferencesContext = createContext<UserPreferencesContextValue>({
-  prefs: DEFAULT_PREFS,
+  prefs: DEFAULT_USER_PREFERENCES,
   setPref: () => {},
 });
 
+function currentIdentity(): { token: string; userId: string } | null {
+  try {
+    const token = localStorage.getItem("nowen-token") || "";
+    const userId = decodeUserIdFromToken(token);
+    return token && userId ? { token, userId } : null;
+  } catch {
+    return null;
+  }
+}
+
+function initialPreferences(): UserPreferences {
+  const identity = currentIdentity();
+  if (!identity) return DEFAULT_USER_PREFERENCES;
+  return readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
+}
+
+function samePreferenceValue<K extends keyof UserPreferences>(
+  left: UserPreferences[K] | undefined,
+  right: UserPreferences[K] | undefined,
+): boolean {
+  return left === right;
+}
+
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
-  const [prefs, setPrefs] = useState<UserPreferences>(() => readFromStorage());
+  const [prefs, setPrefs] = useState<UserPreferences>(initialPreferences);
   const prefsRef = useRef(prefs);
+  const activeUserIdRef = useRef<string | null>(currentIdentity()?.userId || null);
+  const revisionRef = useRef(0);
+  const pendingRef = useRef<UserPreferencePatch>({});
+  const syncSequenceRef = useRef(0);
 
   useEffect(() => {
     prefsRef.current = prefs;
   }, [prefs]);
 
-  // 阅读密度作用到全局：通过 body class 触发 CSS 变量切换，从而影响 .ProseMirror p/li 的间距。
-  // 放在 Provider 而非具体组件里，是因为编辑器并不一定挂载（设置弹窗也要能预览到效果）。
+  // 阅读密度作用到全局：通过 body class 触发 CSS 变量切换。
   useEffect(() => {
     const cls = "density-compact";
-    if (prefs.readingDensity === "compact") {
-      document.body.classList.add(cls);
-    } else {
-      document.body.classList.remove(cls);
-    }
+    document.body.classList.toggle(cls, prefs.readingDensity === "compact");
   }, [prefs.readingDensity]);
 
-  // 多标签页 / 多窗口同步：监听 storage 事件，让另一个 tab 改了开关后这个 tab 也跟上。
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== STORAGE_KEY) return;
-      setPrefs(readFromStorage());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+  const applyCache = useCallback((cache: UserPreferenceCache) => {
+    activeUserIdRef.current = cache.userId;
+    revisionRef.current = cache.revision;
+    pendingRef.current = cache.pending;
+    prefsRef.current = cache.prefs;
+    setPrefs(cache.prefs);
+    writeAccountPreferenceCache(localStorage, cache);
   }, []);
 
-  const syncFromServer = useCallback(async () => {
+  const resetForIdentity = useCallback((userId: string | null) => {
+    activeUserIdRef.current = userId;
+    revisionRef.current = 0;
+    pendingRef.current = {};
+
+    if (!userId) {
+      prefsRef.current = DEFAULT_USER_PREFERENCES;
+      setPrefs(DEFAULT_USER_PREFERENCES);
+      return null;
+    }
+
+    const cached = readAccountPreferenceCache(localStorage, userId);
+    const next: UserPreferenceCache = cached || {
+      version: 2,
+      userId,
+      prefs: DEFAULT_USER_PREFERENCES,
+      revision: 0,
+      pending: {},
+    };
+    applyCache(next);
+    return cached;
+  }, [applyCache]);
+
+  const persistPatch = useCallback(async (
+    userId: string,
+    changes: UserPreferencePatch,
+    migration = false,
+  ) => {
+    const sanitized = sanitizeUserPreferencePatch(changes);
+    const keys = Object.keys(sanitized) as Array<keyof UserPreferences>;
+    if (keys.length === 0) return;
+
+    const sentRevision = revisionRef.current;
     try {
-      if (!localStorage.getItem("nowen-token")) return;
-      const remote = await api.getUserPreferences();
+      const remote = await api.updateUserPreferences({
+        ...sanitized,
+        _baseRevision: sentRevision,
+        _migration: migration,
+      } as any) as RemotePreferences;
+
+      const identity = currentIdentity();
+      if (!identity || identity.userId !== userId || activeUserIdRef.current !== userId) return;
+
+      const latestCache = readAccountPreferenceCache(localStorage, userId) || {
+        version: 2 as const,
+        userId,
+        prefs: prefsRef.current,
+        revision: revisionRef.current,
+        pending: pendingRef.current,
+      };
+      const pending = { ...latestCache.pending };
+      for (const key of keys) {
+        if (samePreferenceValue(pending[key], sanitized[key])) delete pending[key];
+      }
+
       const remotePrefs = normalizeUserPreferences(remote);
+      const merged = mergePendingPreferences(remotePrefs, pending);
+      applyCache({
+        version: 2,
+        userId,
+        prefs: merged,
+        revision: Math.max(latestCache.revision, Number(remote.revision) || 0),
+        pending,
+      });
+    } catch {
+      // 网络失败不回滚 UI；pending 会保存在账号隔离缓存中，下次聚焦/登录时重试。
+    }
+  }, [applyCache]);
+
+  const syncFromServer = useCallback(async () => {
+    const sequence = ++syncSequenceRef.current;
+    const identity = currentIdentity();
+    if (!identity) {
+      resetForIdentity(null);
+      return;
+    }
+
+    const { userId } = identity;
+    const cachedAtStart = resetForIdentity(userId);
+
+    try {
+      const remote = await api.getUserPreferences() as RemotePreferences;
+      const latestIdentity = currentIdentity();
+      if (
+        sequence !== syncSequenceRef.current ||
+        !latestIdentity ||
+        latestIdentity.userId !== userId ||
+        (remote.userId && remote.userId !== userId)
+      ) return;
+
+      const latestCache = readAccountPreferenceCache(localStorage, userId) || cachedAtStart;
+      const latestPending = latestCache?.pending || pendingRef.current;
 
       if (remote.hasPreferences) {
-        setPrefs(remotePrefs);
-        writeToStorage(remotePrefs);
+        const remotePrefs = normalizeUserPreferences(remote);
+        const merged = mergePendingPreferences(remotePrefs, latestPending);
+        applyCache({
+          version: 2,
+          userId,
+          prefs: merged,
+          revision: Number(remote.revision) || 0,
+          pending: latestPending,
+        });
+        if (Object.keys(latestPending).length > 0) {
+          void persistPatch(userId, latestPending);
+        }
         return;
       }
 
-      // 旧版本的开关只存在当前浏览器。服务器还没有记录时，先把本地值迁移上去。
-      await api.updateUserPreferences(prefsRef.current);
+      // 首次升级：优先使用当前账号自己的 v2 缓存；没有时才认领一次旧版全局缓存。
+      // 认领标记确保同一浏览器切换到第二个账号时不会重复迁移上一账号的偏好。
+      const legacy = cachedAtStart ? null : claimLegacyUserPreferences(localStorage, userId);
+      const seed = latestCache?.prefs || legacy || DEFAULT_USER_PREFERENCES;
+      const pending = sanitizeUserPreferencePatch({ ...seed, ...latestPending });
+      applyCache({
+        version: 2,
+        userId,
+        prefs: normalizeUserPreferences({ ...seed, ...latestPending }),
+        revision: 0,
+        pending,
+      });
+      void persistPatch(userId, pending, true);
     } catch {
-      // 未登录、离线或旧后端时保留 localStorage 行为，避免设置页不可用。
+      // 未登录、离线或旧后端时继续使用当前账号自己的缓存，绝不回退到其它账号缓存。
     }
-  }, []);
+  }, [applyCache, persistPatch, resetForIdentity]);
+
+  // 多标签页/多窗口同步：只监听当前账号自己的缓存 key。
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      const identity = currentIdentity();
+      if (!identity || event.key !== accountPreferenceStorageKey(identity.userId)) return;
+      const cache = readAccountPreferenceCache(localStorage, identity.userId);
+      if (cache) applyCache(cache);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [applyCache]);
 
   useEffect(() => {
     void syncFromServer();
@@ -192,18 +254,34 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   }, [syncFromServer]);
 
   const setPref = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-    setPrefs((prev) => {
-      if (prev[key] === value) return prev;
-      const next = { ...prev, [key]: value };
-      writeToStorage(next);
-      if (localStorage.getItem("nowen-token")) {
-        api.updateUserPreferences(next).catch(() => {
-          // 网络失败不回滚 UI；localStorage 仍作为离线兜底。
-        });
-      }
+    setPrefs((previous) => {
+      if (previous[key] === value) return previous;
+      const next = { ...previous, [key]: value };
+      prefsRef.current = next;
+
+      const identity = currentIdentity();
+      if (!identity) return next;
+
+      const existing = readAccountPreferenceCache(localStorage, identity.userId);
+      const pending: UserPreferencePatch = {
+        ...(existing?.pending || pendingRef.current),
+        [key]: value,
+      };
+      const cache: UserPreferenceCache = {
+        version: 2,
+        userId: identity.userId,
+        prefs: next,
+        revision: existing?.revision ?? revisionRef.current,
+        pending,
+      };
+      writeAccountPreferenceCache(localStorage, cache);
+      activeUserIdRef.current = identity.userId;
+      revisionRef.current = cache.revision;
+      pendingRef.current = pending;
+      void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
       return next;
     });
-  }, []);
+  }, [persistPatch]);
 
   const value = useMemo(() => ({ prefs, setPref }), [prefs, setPref]);
 
