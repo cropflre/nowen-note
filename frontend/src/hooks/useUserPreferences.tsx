@@ -10,6 +10,9 @@ import React, {
 import { api } from "@/lib/api";
 import {
   DEFAULT_USER_PREFERENCES,
+  LEGACY_CODE_BLOCK_THEME_KEY,
+  LEGACY_EDITOR_MODE_KEY,
+  LEGACY_NOTE_LIST_TITLE_ONLY_KEY,
   accountPreferenceStorageKey,
   claimLegacyUserPreferences,
   decodeUserIdFromToken,
@@ -18,12 +21,20 @@ import {
   readAccountPreferenceCache,
   sanitizeUserPreferencePatch,
   writeAccountPreferenceCache,
+  type CodeBlockThemeId,
+  type EditorMode,
   type UserPreferenceCache,
   type UserPreferencePatch,
   type UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
 
-export type { MarkdownViewMode, ReadingDensity, UserPreferences } from "@/lib/userPreferenceAccountCache";
+export type {
+  CodeBlockThemeId,
+  EditorMode,
+  MarkdownViewMode,
+  ReadingDensity,
+  UserPreferences,
+} from "@/lib/userPreferenceAccountCache";
 
 /**
  * 用户级 UI 偏好（per-user, synced）
@@ -62,10 +73,33 @@ function currentIdentity(): { token: string; userId: string } | null {
   }
 }
 
+function applyLegacyPreferenceBridges(prefs: UserPreferences, notify = true): void {
+  try {
+    localStorage.setItem(LEGACY_EDITOR_MODE_KEY, prefs.defaultEditorMode);
+    localStorage.setItem(LEGACY_CODE_BLOCK_THEME_KEY, prefs.codeBlockTheme);
+    localStorage.setItem(LEGACY_NOTE_LIST_TITLE_ONLY_KEY, String(prefs.noteListTitleOnly));
+    document.documentElement.setAttribute("data-code-theme", prefs.codeBlockTheme);
+    if (!notify) return;
+    window.dispatchEvent(new CustomEvent<EditorMode>("nowen:editor-mode-change", {
+      detail: prefs.defaultEditorMode,
+    }));
+    window.dispatchEvent(new CustomEvent<CodeBlockThemeId>("nowen:codeblock-theme-change", {
+      detail: prefs.codeBlockTheme,
+    }));
+    window.dispatchEvent(new CustomEvent<boolean>("nowen:note-list-title-only-change", {
+      detail: prefs.noteListTitleOnly,
+    }));
+  } catch {
+    // localStorage / document 在隐私模式或测试环境不可用时，账号偏好内存态仍然有效。
+  }
+}
+
 function initialPreferences(): UserPreferences {
   const identity = currentIdentity();
   if (!identity) return DEFAULT_USER_PREFERENCES;
-  return readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
+  const prefs = readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
+  applyLegacyPreferenceBridges(prefs, false);
+  return prefs;
 }
 
 function samePreferenceValue<K extends keyof UserPreferences>(
@@ -93,6 +127,12 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     document.body.classList.toggle(cls, prefs.readingDensity === "compact");
   }, [prefs.readingDensity]);
 
+  // 兼容已经存在的编辑器模式、代码块主题和标题列表模块。它们继续使用原来的
+  // localStorage key，但值由账号偏好回填；用户在旧入口修改时由下方事件监听反向同步。
+  useEffect(() => {
+    applyLegacyPreferenceBridges(prefs);
+  }, [prefs.defaultEditorMode, prefs.codeBlockTheme, prefs.noteListTitleOnly]);
+
   const applyCache = useCallback((cache: UserPreferenceCache) => {
     activeUserIdRef.current = cache.userId;
     revisionRef.current = cache.revision;
@@ -110,6 +150,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     if (!userId) {
       prefsRef.current = DEFAULT_USER_PREFERENCES;
       setPrefs(DEFAULT_USER_PREFERENCES);
+      applyLegacyPreferenceBridges(DEFAULT_USER_PREFERENCES);
       return null;
     }
 
@@ -241,7 +282,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       const identity = currentIdentity();
       if (!identity || event.key !== accountPreferenceStorageKey(identity.userId)) return;
       const cache = readAccountPreferenceCache(localStorage, identity.userId);
-      if (cache) applyCache(cache);
+      if (cache && cache.revision >= revisionRef.current) applyCache(cache);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -286,6 +327,30 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       return next;
     });
   }, [persistPatch]);
+
+  // 旧入口反向桥接：不改它们的 UI 结构，只把用户操作转换成账号级偏好字段。
+  useEffect(() => {
+    const onEditorMode = (event: Event) => {
+      const mode = (event as CustomEvent<EditorMode>).detail;
+      if (mode === "md" || mode === "tiptap") setPref("defaultEditorMode", mode);
+    };
+    const onCodeTheme = (event: Event) => {
+      const theme = (event as CustomEvent<CodeBlockThemeId>).detail;
+      if (theme) setPref("codeBlockTheme", theme);
+    };
+    const onTitleOnly = (event: Event) => {
+      const enabled = (event as CustomEvent<boolean>).detail;
+      if (typeof enabled === "boolean") setPref("noteListTitleOnly", enabled);
+    };
+    window.addEventListener("nowen:editor-mode-change", onEditorMode);
+    window.addEventListener("nowen:codeblock-theme-change", onCodeTheme);
+    window.addEventListener("nowen:note-list-title-only-change", onTitleOnly);
+    return () => {
+      window.removeEventListener("nowen:editor-mode-change", onEditorMode);
+      window.removeEventListener("nowen:codeblock-theme-change", onCodeTheme);
+      window.removeEventListener("nowen:note-list-title-only-change", onTitleOnly);
+    };
+  }, [setPref]);
 
   const value = useMemo(() => ({ prefs, setPref }), [prefs, setPref]);
 
