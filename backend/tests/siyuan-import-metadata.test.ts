@@ -14,6 +14,17 @@ let getDb: typeof import("../src/db/schema").getDb;
 let closeDb: typeof import("../src/db/schema").closeDb;
 let importPackage: typeof import("../src/services/siyuanPackageImport").importSiyuanPackageFromZipFile;
 
+type TiptapNode = {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: TiptapNode[];
+  text?: string;
+};
+
+function flattenNodes(node: TiptapNode): TiptapNode[] {
+  return [node, ...(node.content || []).flatMap((child) => flattenNodes(child))];
+}
+
 function doc(id: string, title: string, icon: string, children: any[] = []) {
   return {
     ID: id,
@@ -67,8 +78,6 @@ test("preserves SiYuan notebook/document order, icons and HTML iframe fidelity",
   const result = await importPackage(zipPath, {
     userId: USER_ID,
     workspaceId: null,
-    // HTML/iframe cannot be represented safely by the Tiptap schema, so the enhanced
-    // importer must transparently select Markdown for this package.
     contentFormat: "tiptap-json",
   });
 
@@ -103,9 +112,20 @@ test("preserves SiYuan notebook/document order, icons and HTML iframe fidelity",
 
   const htmlNote = orderedNotes.find((item) => item.title === "HTML 与嵌入");
   assert.ok(htmlNote);
-  assert.equal(htmlNote.contentFormat, "markdown");
-  assert.match(htmlNote.content, /<mark>保留 HTML<\/mark>/);
-  assert.match(htmlNote.content, /<iframe[^>]+youtube-nocookie\.com\/embed\/demo/);
+  assert.equal(htmlNote.contentFormat, "tiptap-json");
+
+  const parsed = JSON.parse(htmlNote.content) as TiptapNode;
+  const allNodes = flattenNodes(parsed);
+  const htmlBlock = allNodes.find((node) => node.type === "codeBlock" && node.attrs?.language === "html");
+  assert.ok(htmlBlock, "raw HTML must be represented as a non-executable HTML code block");
+  assert.match(htmlBlock.content?.[0]?.text || "", /<mark>保留 HTML<\/mark>/);
+  assert.match(htmlBlock.content?.[0]?.text || "", /<script>alert\('xss'\)<\/script>/);
+
+  const video = allNodes.find((node) => node.type === "video");
+  assert.ok(video, "supported YouTube iframe must become a video node");
+  assert.equal(video.attrs?.platform, "youtube");
+  assert.equal(video.attrs?.kind, "iframe");
+  assert.match(String(video.attrs?.src), /^https:\/\/www\.youtube-nocookie\.com\/embed\/demo/);
 
   const icons = getDb().prepare(`
     SELECT n.title, ni.icon
