@@ -28,6 +28,7 @@ export { folderSyncFilesRepository } from "./folderSyncFilesRepository";
 export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { attachmentFolderOperationsRepository } from "./attachmentFolderOperationsRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
+export { mindmapFolderOperationsRepository } from "./mindmapFolderOperationsRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
 export { taskDependenciesRepository } from "./taskDependenciesRepository";
 export { taskDependencyOperationsRepository } from "./taskDependencyOperationsRepository";
