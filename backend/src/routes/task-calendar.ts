@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import crypto from "crypto";
-import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { taskCalendarFeedsRepository } from "../repositories";
+import {
+  taskCalendarOperationsRepository,
+  type TaskCalendarReminderRecord,
+  type TaskCalendarTaskRecord,
+} from "../repositories/taskCalendarOperationsRepository";
+import type { TaskCalendarFeedRecord } from "../repositories/taskCalendarFeedsRepository";
 
 const taskCalendar = new Hono();
 
@@ -89,7 +94,11 @@ function toIcsDate(dateStr: string): { value: string; isDateTime: boolean } {
   return { value: normalized.replace(/-/g, ""), isDateTime: false };
 }
 
-function buildVEvent(task: any, feed: any, reminders: any[]): string {
+function buildVEvent(
+  task: TaskCalendarTaskRecord,
+  feed: TaskCalendarFeedRecord,
+  reminders: TaskCalendarReminderRecord[],
+): string {
   const lines: string[] = [];
   lines.push("BEGIN:VEVENT");
   lines.push(icsFold(`UID:task-${task.id}@nowen-note`));
@@ -99,7 +108,7 @@ function buildVEvent(task: any, feed: any, reminders: any[]): string {
     lines.push(icsFold(`DESCRIPTION:${icsEscape(task.description)}`));
   }
 
-  const dt = toIcsDate(task.dueAt || task.dueDate);
+  const dt = toIcsDate(task.dueAt || task.dueDate!);
   if (dt.isDateTime) {
     lines.push(icsFold(`DTSTART:${dt.value}`));
     lines.push(icsFold(`DTEND:${addMinutesToIcsDateTime(dt.value, 1)}`));
@@ -116,11 +125,11 @@ function buildVEvent(task: any, feed: any, reminders: any[]): string {
   lines.push("STATUS:CONFIRMED");
 
   // VALARM per enabled reminder
-  const enabledReminders = reminders.filter((r) => r.enabled === 1);
+  const enabledReminders = reminders.filter((reminder) => Boolean(reminder.enabled));
   if (enabledReminders.length > 0) {
-    for (const r of enabledReminders) {
+    for (const reminder of enabledReminders) {
       lines.push("BEGIN:VALARM");
-      lines.push(icsFold(`TRIGGER:-PT${r.offsetMinutes}M`));
+      lines.push(icsFold(`TRIGGER:-PT${reminder.offsetMinutes}M`));
       lines.push("ACTION:DISPLAY");
       lines.push(icsFold(`DESCRIPTION:${icsEscape(task.title)}`));
       lines.push("END:VALARM");
@@ -138,10 +147,30 @@ function buildVEvent(task: any, feed: any, reminders: any[]): string {
   return lines.join("\r\n");
 }
 
+function buildCalendarBody(
+  feed: TaskCalendarFeedRecord,
+  tasks: TaskCalendarTaskRecord[],
+  remindersByTask: Map<string, TaskCalendarReminderRecord[]>,
+): string {
+  const calLines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Nowen Note//Tasks//CN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    icsFold("X-WR-CALNAME:Nowen Tasks"),
+  ];
+  for (const task of tasks) {
+    calLines.push(buildVEvent(task, feed, remindersByTask.get(task.id) || []));
+  }
+  calLines.push("END:VCALENDAR");
+  return calLines.join("\r\n") + "\r\n";
+}
+
 // GET /feed — 获取当前用户的订阅配置
-taskCalendar.get("/feed", (c) => {
+taskCalendar.get("/feed", async (c) => {
   const userId = getUserId(c);
-  const row = taskCalendarFeedsRepository.getByUser(userId);
+  const row = await taskCalendarFeedsRepository.getByUserAsync(userId);
   if (!row) {
     return c.json({ feed: null });
   }
@@ -161,12 +190,12 @@ taskCalendar.get("/feed", (c) => {
 });
 
 // POST /feed — 创建或启用订阅
-taskCalendar.post("/feed", (c) => {
+taskCalendar.post("/feed", async (c) => {
   const userId = getUserId(c);
-  const existing = taskCalendarFeedsRepository.getByUser(userId);
+  const existing = await taskCalendarFeedsRepository.getByUserAsync(userId);
   if (existing) {
     if (!existing.enabled) {
-      taskCalendarFeedsRepository.enable(existing.id);
+      await taskCalendarFeedsRepository.enableAsync(existing.id);
     }
     return c.json({
       feed: {
@@ -181,7 +210,7 @@ taskCalendar.post("/feed", (c) => {
   }
   const id = crypto.randomUUID();
   const token = generateToken();
-  taskCalendarFeedsRepository.create({ id, userId, token });
+  await taskCalendarFeedsRepository.createAsync({ id, userId, token });
   return c.json({
     feed: {
       id,
@@ -198,17 +227,17 @@ taskCalendar.post("/feed", (c) => {
 taskCalendar.patch("/feed", async (c) => {
   const userId = getUserId(c);
   const body = await c.req.json().catch(() => ({}));
-  const existing = taskCalendarFeedsRepository.getByUser(userId);
+  const existing = await taskCalendarFeedsRepository.getByUserAsync(userId);
   if (!existing) {
     return c.json({ error: "Feed not found" }, 404);
   }
-  taskCalendarFeedsRepository.update(existing.id, {
+  await taskCalendarFeedsRepository.updateAsync(existing.id, {
     enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : undefined,
     includeCompleted: body.includeCompleted !== undefined ? (body.includeCompleted ? 1 : 0) : undefined,
     includeDescription: body.includeDescription !== undefined ? (body.includeDescription ? 1 : 0) : undefined,
     defaultAlarmMinutes: body.defaultAlarmMinutes !== undefined ? (Number(body.defaultAlarmMinutes) || 30) : undefined,
   });
-  const updated = taskCalendarFeedsRepository.getById(existing.id);
+  const updated = await taskCalendarFeedsRepository.getByIdAsync(existing.id);
   if (!updated) {
     return c.json({ error: "Feed not found" }, 404);
   }
@@ -225,86 +254,36 @@ taskCalendar.patch("/feed", async (c) => {
 });
 
 // POST /feed/rotate-token — 重新生成 token
-taskCalendar.post("/feed/rotate-token", (c) => {
+taskCalendar.post("/feed/rotate-token", async (c) => {
   const userId = getUserId(c);
-  const existing = taskCalendarFeedsRepository.getByUser(userId);
+  const existing = await taskCalendarFeedsRepository.getByUserAsync(userId);
   if (!existing) {
     return c.json({ error: "Feed not found" }, 404);
   }
   const newToken = generateToken();
-  taskCalendarFeedsRepository.regenerateToken(existing.id, newToken);
+  await taskCalendarFeedsRepository.regenerateTokenAsync(existing.id, newToken);
   return c.json({ success: true });
 });
 
 // GET /feed/:token.ics — 公开 ICS 订阅
-taskCalendar.get("/feed/:token", (c) => {
+taskCalendar.get("/feed/:token", async (c) => {
   const token = c.req.param("token");
   if (!token || !token.endsWith(".ics")) {
     return c.json({ error: "Not found" }, 404);
   }
   const rawToken = token.replace(/\.ics$/, "");
-  const feed = taskCalendarFeedsRepository.getByToken(rawToken);
+  const feed = await taskCalendarFeedsRepository.getByTokenAsync(rawToken);
   if (!feed) {
     return c.json({ error: "Not found" }, 404);
   }
   if (!feed.enabled) {
     return c.json({ error: "Feed disabled" }, 403);
   }
-  const db = getDb();
 
-  // Update lastAccessedAt
-  taskCalendarFeedsRepository.updateLastAccessedAt(feed.id);
+  await taskCalendarFeedsRepository.updateLastAccessedAtAsync(feed.id);
+  const { tasks, remindersByTask } = await taskCalendarOperationsRepository.loadFeedDataAsync(feed);
+  const body = buildCalendarBody(feed, tasks, remindersByTask);
 
-  // Query tasks
-  let sql = `
-    SELECT t.id, t.title, t.description, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
-    FROM tasks t
-    WHERE t.userId = ?
-      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
-  `;
-  const params: any[] = [feed.userId];
-
-  if (!feed.includeCompleted) {
-    sql += " AND t.isCompleted = 0";
-  }
-  if (feed.workspaceId) {
-    sql += " AND t.workspaceId = ?";
-    params.push(feed.workspaceId);
-  }
-  sql += " ORDER BY COALESCE(t.dueAt, t.dueDate) ASC";
-
-  const tasks = db.prepare(sql).all(...params) as any[];
-
-  // Get reminders for these tasks
-  const taskIds = tasks.map((t) => t.id);
-  let remindersByTask = new Map<string, any[]>();
-  if (taskIds.length > 0) {
-    const placeholders = taskIds.map(() => "?").join(",");
-    const reminders = db.prepare(
-      `SELECT * FROM task_reminders WHERE taskId IN (${placeholders}) AND enabled = 1`
-    ).all(...taskIds) as any[];
-    for (const r of reminders) {
-      const arr = remindersByTask.get(r.taskId) || [];
-      arr.push(r);
-      remindersByTask.set(r.taskId, arr);
-    }
-  }
-
-  // Build ICS
-  const calLines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Nowen Note//Tasks//CN",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    icsFold("X-WR-CALNAME:Nowen Tasks"),
-  ];
-  for (const task of tasks) {
-    calLines.push(buildVEvent(task, feed, remindersByTask.get(task.id) || []));
-  }
-  calLines.push("END:VCALENDAR");
-
-  const body = calLines.join("\r\n") + "\r\n";
   return new Response(body, {
     status: 200,
     headers: {
@@ -401,50 +380,17 @@ taskCalendar.post("/export-targets/:id/export-now", async (c) => {
 export function buildIcsForToken(token: string): { body: string; feedId: string } | null {
   const feed = taskCalendarFeedsRepository.getEnabledByToken(token);
   if (!feed) return null;
-  const db = getDb();
 
-  // Update lastAccessedAt（fire and forget）
+  // 保持现有同步导出 API；HTTP 路由使用异步 Adapter 路径。
   try {
     taskCalendarFeedsRepository.updateLastAccessedAt(feed.id);
   } catch { /* ignore */ }
 
-  let sql = `
-    SELECT t.id, t.title, t.description, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
-    FROM tasks t
-    WHERE t.userId = ?
-      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
-  `;
-  const params: any[] = [feed.userId];
-  if (!feed.includeCompleted) sql += " AND t.isCompleted = 0";
-  if (feed.workspaceId) { sql += " AND t.workspaceId = ?"; params.push(feed.workspaceId); }
-  sql += " ORDER BY COALESCE(t.dueAt, t.dueDate) ASC";
-
-  const tasks = db.prepare(sql).all(...params) as any[];
-
-  const taskIds = tasks.map((t) => t.id);
-  const remindersByTask = new Map<string, any[]>();
-  if (taskIds.length > 0) {
-    const placeholders = taskIds.map(() => "?").join(",");
-    const reminders = db.prepare(
-      `SELECT * FROM task_reminders WHERE taskId IN (${placeholders}) AND enabled = 1`
-    ).all(...taskIds) as any[];
-    for (const r of reminders) {
-      const arr = remindersByTask.get(r.taskId) || [];
-      arr.push(r);
-      remindersByTask.set(r.taskId, arr);
-    }
-  }
-
-  const calLines = [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Nowen Note//Tasks//CN",
-    "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
-    icsFold("X-WR-CALNAME:Nowen Tasks"),
-  ];
-  for (const task of tasks) {
-    calLines.push(buildVEvent(task, feed, remindersByTask.get(task.id) || []));
-  }
-  calLines.push("END:VCALENDAR");
-  return { body: calLines.join("\r\n") + "\r\n", feedId: feed.id };
+  const { tasks, remindersByTask } = taskCalendarOperationsRepository.loadFeedData(feed);
+  return {
+    body: buildCalendarBody(feed, tasks, remindersByTask),
+    feedId: feed.id,
+  };
 }
 
 export default taskCalendar;
