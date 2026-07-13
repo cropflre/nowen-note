@@ -6,7 +6,7 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev:backend": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./backend/node_modules/tsx/dist/cli.mjs watch ./backend/src/index.ts",
+    "dev:backend": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./backend/node_modules/tsx/dist/cli.mjs watch ./backend/src/index.hardened.ts",
     "dev:frontend": "cd frontend && npx vite",
     "install:all": "cd backend && npm install && cd ../frontend && npm install && cd .. && npm run rebuild:native",
     "fetch:node": "node scripts/fetch-node.mjs",
