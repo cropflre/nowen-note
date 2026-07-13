@@ -15,6 +15,7 @@ export { calendarExportTargetsRepository } from "./calendarExportTargetsReposito
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
 export { noteTagsRepository } from "./noteTagsRepository";
+export { tagOperationsRepository } from "./tagOperationsRepository";
 export { aiCustomPromptsRepository } from "./aiCustomPromptsRepository";
 export { noteVersionsRepository } from "./noteVersionsRepository";
 export { favoritesRepository } from "./favoritesRepository";
