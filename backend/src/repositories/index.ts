@@ -27,6 +27,7 @@ export { taskTemplateApplyRepository } from "./taskTemplateApplyRepository";
 export { folderSyncFilesRepository } from "./folderSyncFilesRepository";
 export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { attachmentFolderOperationsRepository } from "./attachmentFolderOperationsRepository";
+export { attachmentMediaRepository } from "./attachmentMediaRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
 export { mindmapFolderOperationsRepository } from "./mindmapFolderOperationsRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
