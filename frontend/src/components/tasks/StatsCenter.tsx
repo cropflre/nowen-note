@@ -1,808 +1,108 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  addDays,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
-  endOfYear,
-  format,
-  isSameMonth,
-  isToday,
-  startOfMonth,
-  startOfWeek,
-  startOfYear,
-  subWeeks,
-} from "date-fns";
+import { addDays, eachDayOfInterval, endOfMonth, endOfWeek, endOfYear, format, isSameMonth, isToday, startOfMonth, startOfWeek, startOfYear, subWeeks } from "date-fns";
 import { enUS, zhCN } from "date-fns/locale";
-import {
-  Activity,
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
-  Flame,
-  FolderOpen,
-  ListChecks,
-  RefreshCw,
-  SquareCheckBig,
-  TrendingUp,
-} from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock3, Flame, FolderOpen, ListChecks, RefreshCw, SquareCheckBig, TrendingUp } from "lucide-react";
+import { api, type TaskActivityEvent } from "@/lib/api";
 import type { Habit, HabitCheckinListItem, HabitStats, Task, TaskProject, TaskStats } from "@/types";
 import { cn } from "@/lib/utils";
 
-type StatsPrimaryTab = "overview" | "tasks" | "habits";
-type TaskStatsTab = "overview" | "details" | "records" | "trends" | "heatmap";
-type HabitStatsTab = "overview" | "log" | "week" | "month" | "year";
-
-type Props = {
-  tasks: Task[];
-  projects: TaskProject[];
-  taskStats: TaskStats | null;
-  habits: Habit[];
-  habitStats: HabitStats | null;
-  checkins: HabitCheckinListItem[];
-  loading: boolean;
-  onRefresh: () => void;
-};
-
-type TaskRecord = {
-  id: string;
-  kind: "created" | "completed";
-  at: Date;
-  task: Task;
-};
+type Primary = "overview" | "tasks" | "habits";
+type TaskTab = "overview" | "details" | "records" | "trends" | "heatmap";
+type HabitTab = "overview" | "log" | "week" | "month" | "year";
+type Props = { tasks: Task[]; projects: TaskProject[]; taskStats: TaskStats | null; habits: Habit[]; habitStats: HabitStats | null; checkins: HabitCheckinListItem[]; loading: boolean; onRefresh: () => void };
 
 function parseDateValue(value?: string | null): Date | null {
   if (!value) return null;
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value.replace(" ", "T");
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const normalized = value.replace(" ", "T");
+  const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
+const keyOf = (date: Date) => format(date, "yyyy-MM-dd");
+const pct = (part: number, total: number) => total ? Math.round(part / total * 100) : 0;
+const heat = (n: number) => n <= 0 ? "bg-app-border/60" : n === 1 ? "bg-emerald-200" : n === 2 ? "bg-emerald-300" : n === 3 ? "bg-emerald-400" : "bg-emerald-600";
+const statusClass = (s?: string | null) => s === "success" ? "bg-emerald-500/15 text-emerald-700" : s === "partial" ? "bg-amber-500/15 text-amber-700" : s === "failure" ? "bg-rose-500/15 text-rose-700" : "bg-app-hover text-tx-tertiary";
 
-function toDateKey(date: Date): string {
-  return format(date, "yyyy-MM-dd");
+function Tabs<T extends string>({ value, values, onChange }: { value: T; values: Array<[T, string]>; onChange: (v: T) => void }) {
+  return <div className="flex flex-wrap gap-2">{values.map(([v, label]) => <button key={v} onClick={() => onChange(v)} className={cn("rounded-full px-3 py-1.5 text-xs", value === v ? "bg-accent-primary text-white" : "bg-app-hover text-tx-secondary")}>{label}</button>)}</div>;
 }
-
-function percentage(part: number, total: number): number {
-  if (!total) return 0;
-  return Math.round((part / total) * 100);
+function Card({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: React.ReactNode; hint?: string }) {
+  return <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"><div className="flex justify-between gap-3"><div><div className="text-xs text-tx-tertiary">{label}</div><div className="mt-1 text-2xl font-semibold text-tx-primary">{value}</div>{hint && <div className="mt-1 text-xs text-tx-tertiary">{hint}</div>}</div><div className="text-accent-primary">{icon}</div></div></div>;
 }
-
-function getHeatColor(count: number): string {
-  if (count <= 0) return "bg-app-border/60";
-  if (count === 1) return "bg-emerald-200 text-emerald-900";
-  if (count === 2) return "bg-emerald-300 text-emerald-950";
-  if (count === 3) return "bg-emerald-400 text-white";
-  return "bg-emerald-600 text-white";
-}
-
-function getHabitStatusClass(status?: string | null): string {
-  if (status === "success") return "bg-emerald-500/15 text-emerald-700";
-  if (status === "partial") return "bg-amber-500/15 text-amber-700";
-  if (status === "failure") return "bg-rose-500/15 text-rose-700";
-  return "bg-app-hover text-tx-tertiary";
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  hint,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[11px] text-tx-tertiary">{label}</div>
-          <div className="mt-1 text-2xl font-semibold text-tx-primary">{value}</div>
-          {hint ? <div className="mt-1 text-xs text-tx-tertiary">{hint}</div> : null}
-        </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SectionTabs<T extends string>({
-  value,
-  items,
-  onChange,
-}: {
-  value: T;
-  items: Array<{ value: T; label: string }>;
-  onChange: (next: T) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <button
-          key={item.value}
-          onClick={() => onChange(item.value)}
-          className={cn(
-            "rounded-full px-3 py-1.5 text-xs transition-colors",
-            value === item.value
-              ? "bg-accent-primary text-white"
-              : "bg-app-hover text-tx-secondary hover:bg-app-active",
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function EmptyPanel({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-52 items-center justify-center rounded-xl border border-dashed border-app-border bg-app-surface text-sm text-tx-tertiary">
-      {text}
-    </div>
-  );
+const Empty = ({ text }: { text: string }) => <div className="flex min-h-52 items-center justify-center rounded-xl border border-dashed border-app-border text-sm text-tx-tertiary">{text}</div>;
+function snapshotEvents(tasks: Task[]): TaskActivityEvent[] {
+  return tasks.flatMap((task) => [
+    task.createdAt ? { id: `created-${task.id}`, taskId: task.id, taskTitle: task.title, eventType: "created" as const, userId: task.userId, workspaceId: task.workspaceId, projectId: task.projectId, occurredAt: task.createdAt, createdAt: task.createdAt } : null,
+    task.completedAt ? { id: `completed-${task.id}`, taskId: task.id, taskTitle: task.title, eventType: "completed" as const, userId: task.userId, workspaceId: task.workspaceId, projectId: task.projectId, occurredAt: task.completedAt, createdAt: task.completedAt } : null,
+  ].filter(Boolean) as TaskActivityEvent[]);
 }
 
 export function StatsCenter({ tasks, projects, taskStats, habits, habitStats, checkins, loading, onRefresh }: Props) {
   const { t, i18n } = useTranslation();
-  const dateLocale = i18n.language === "zh-CN" ? zhCN : enUS;
-  const [primaryTab, setPrimaryTab] = useState<StatsPrimaryTab>("overview");
-  const [taskTab, setTaskTab] = useState<TaskStatsTab>("overview");
-  const [habitTab, setHabitTab] = useState<HabitStatsTab>("overview");
-
+  const locale = i18n.language === "zh-CN" ? zhCN : enUS;
+  const [primary, setPrimary] = useState<Primary>("overview");
+  const [taskTab, setTaskTab] = useState<TaskTab>("overview");
+  const [habitTab, setHabitTab] = useState<HabitTab>("overview");
+  const [remoteEvents, setRemoteEvents] = useState<TaskActivityEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const requestId = useRef(0);
   const today = new Date();
+  const year = today.getFullYear();
 
-  const taskRecords = useMemo<TaskRecord[]>(() => {
-    return tasks
-      .flatMap((task) => {
-        const records: TaskRecord[] = [];
-        const createdAt = parseDateValue(task.createdAt);
-        const completedAt = parseDateValue(task.completedAt);
-        if (createdAt) records.push({ id: `${task.id}-created`, kind: "created", at: createdAt, task });
-        if (completedAt) records.push({ id: `${task.id}-completed`, kind: "completed", at: completedAt, task });
-        return records;
-      })
-      .sort((a, b) => b.at.getTime() - a.at.getTime());
-  }, [tasks]);
-
-  const taskOverview = useMemo(() => {
-    const overdue = tasks.filter((task) => !task.isCompleted && !!task.dueDate && parseDateValue(task.dueAt || task.dueDate) && parseDateValue(task.dueAt || `${task.dueDate}T23:59:59`)!.getTime() < Date.now()).length;
-    const withProject = tasks.filter((task) => !!task.projectId).length;
-    const statusCounts = tasks.reduce<Record<string, number>>((acc, task) => {
-      acc[task.status] = (acc[task.status] || 0) + 1;
-      return acc;
-    }, {});
-    const priorityCounts = tasks.reduce<Record<number, number>>((acc, task) => {
-      acc[task.priority] = (acc[task.priority] || 0) + 1;
-      return acc;
-    }, {});
-    return {
-      overdue,
-      withProject,
-      statusCounts,
-      priorityCounts,
-      completionRate: percentage(taskStats?.completed || 0, taskStats?.total || 0),
-    };
-  }, [taskStats, tasks]);
-
-  const trendRows = useMemo(() => {
-    const weekStarts = Array.from({ length: 12 }, (_, index) => startOfWeek(subWeeks(today, 11 - index), { weekStartsOn: 1 }));
-    return weekStarts.map((weekStart) => {
-      const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-      const created = tasks.filter((task) => {
-        const at = parseDateValue(task.createdAt);
-        return at && at >= weekStart && at <= weekEnd;
-      }).length;
-      const completed = tasks.filter((task) => {
-        const at = parseDateValue(task.completedAt);
-        return at && at >= weekStart && at <= weekEnd;
-      }).length;
-      return {
-        key: format(weekStart, "yyyy-MM-dd"),
-        label: format(weekStart, "MM/dd", { locale: dateLocale }),
-        created,
-        completed,
-      };
-    });
-  }, [dateLocale, tasks, today]);
-
-  const yearHeatmap = useMemo(() => {
-    const start = startOfWeek(startOfYear(today), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfYear(today), { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start, end });
-    const byDate = new Map<string, number>();
-    tasks.forEach((task) => {
-      const completedAt = parseDateValue(task.completedAt);
-      if (!completedAt) return;
-      const key = toDateKey(completedAt);
-      byDate.set(key, (byDate.get(key) || 0) + 1);
-    });
-    const weeks: Array<Array<{ date: Date; count: number; inYear: boolean }>> = [];
-    days.forEach((date, index) => {
-      const weekIndex = Math.floor(index / 7);
-      if (!weeks[weekIndex]) weeks[weekIndex] = [];
-      weeks[weekIndex].push({
-        date,
-        count: byDate.get(toDateKey(date)) || 0,
-        inYear: date.getFullYear() === today.getFullYear(),
-      });
-    });
-    return weeks;
-  }, [tasks, today]);
-
-  const activeHabits = useMemo(() => habits.filter((habit) => !habit.archivedAt), [habits]);
-  const archivedHabits = useMemo(() => habits.filter((habit) => !!habit.archivedAt), [habits]);
-
-  const habitLogByDay = useMemo(() => {
-    const map = new Map<string, HabitCheckinListItem[]>();
-    checkins.forEach((checkin) => {
-      const current = map.get(checkin.checkinDate) || [];
-      current.push(checkin);
-      map.set(checkin.checkinDate, current);
-    });
-    return map;
-  }, [checkins]);
-
-  const habitMonthCalendar = useMemo(() => {
-    const start = startOfWeek(startOfMonth(today), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(today), { weekStartsOn: 1 });
-    return eachDayOfInterval({ start, end }).map((date) => {
-      const key = toDateKey(date);
-      const rows = habitLogByDay.get(key) || [];
-      const success = rows.filter((row) => row.status === "success").length;
-      const partial = rows.filter((row) => row.status === "partial").length;
-      const failure = rows.filter((row) => row.status === "failure").length;
-      return { date, rows, success, partial, failure };
-    });
-  }, [habitLogByDay, today]);
-
-  const habitWeekDates = useMemo(() => {
-    const start = startOfWeek(today, { weekStartsOn: 1 });
-    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
-  }, [today]);
-
-  const habitYearSummary = useMemo(() => {
-    const rows = new Map<string, { label: string; total: number; success: number; partial: number; failure: number }>();
-    checkins.forEach((checkin) => {
-      const date = parseDateValue(checkin.checkinDate);
-      if (!date) return;
-      const key = format(date, "yyyy-MM");
-      const current = rows.get(key) || {
-        label: format(date, "MMM", { locale: dateLocale }),
-        total: 0,
-        success: 0,
-        partial: 0,
-        failure: 0,
-      };
-      current.total += 1;
-      if (checkin.status === "success") current.success += 1;
-      if (checkin.status === "partial") current.partial += 1;
-      if (checkin.status === "failure") current.failure += 1;
-      rows.set(key, current);
-    });
-    const months = [] as Array<{ key: string; label: string; total: number; success: number; partial: number; failure: number }>;
-    for (let month = 0; month < 12; month += 1) {
-      const date = new Date(today.getFullYear(), month, 1);
-      const key = format(date, "yyyy-MM");
-      const current = rows.get(key) || {
-        label: format(date, "MMM", { locale: dateLocale }),
-        total: 0,
-        success: 0,
-        partial: 0,
-        failure: 0,
-      };
-      months.push({ key, ...current });
+  const loadEvents = useCallback(async () => {
+    const id = ++requestId.current;
+    setEventsLoading(true);
+    try {
+      const rows = await api.getTaskActivityEvents({ from: `${year}-01-01`, to: `${year}-12-31`, limit: 10000 });
+      if (id === requestId.current) setRemoteEvents(rows);
+    } catch (error) {
+      if (id === requestId.current) setRemoteEvents([]);
+      console.warn("[stats] activity history fallback", error);
+    } finally {
+      if (id === requestId.current) setEventsLoading(false);
     }
-    return months;
-  }, [checkins, dateLocale, today]);
+  }, [year]);
+  useEffect(() => { void loadEvents(); return () => { requestId.current += 1; }; }, [loadEvents]);
 
-  const topProjectRows = useMemo(() => {
-    const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
-    const groups = new Map<string, { key: string; label: string; total: number; completed: number }>();
-    tasks.forEach((task) => {
-      const key = task.projectId || "__none__";
-      const label = task.projectId
-        ? projectNameById.get(task.projectId) || t("stats.task.projectAssigned", { defaultValue: "已归类项目" })
-        : t("tasks.noProject");
-      const current = groups.get(key) || { key, label, total: 0, completed: 0 };
-      current.total += 1;
-      if (task.isCompleted) current.completed += 1;
-      groups.set(key, current);
-    });
-    return [...groups.values()].sort((a, b) => b.total - a.total);
-  }, [projects, t, tasks]);
+  const events = useMemo(() => {
+    const rows = [...remoteEvents];
+    const seen = new Set(rows.map((e) => `${e.taskId}\u001f${e.eventType}`));
+    snapshotEvents(tasks).forEach((e) => { if (!seen.has(`${e.taskId}\u001f${e.eventType}`)) rows.push(e); });
+    return rows.filter((e) => parseDateValue(e.occurredAt)).sort((a, b) => parseDateValue(b.occurredAt)!.getTime() - parseDateValue(a.occurredAt)!.getTime());
+  }, [remoteEvents, tasks]);
+  const recentEvents = events.slice(0, 80);
+  const activeHabits = habits.filter((h) => !h.archivedAt);
+  const archivedHabits = habits.filter((h) => h.archivedAt);
+  const byDay = useMemo(() => { const map = new Map<string, HabitCheckinListItem[]>(); checkins.forEach((c) => map.set(c.checkinDate, [...(map.get(c.checkinDate) || []), c])); return map; }, [checkins]);
+  const overdue = tasks.filter((task) => { const due = parseDateValue(task.dueAt || (task.dueDate ? `${task.dueDate}T23:59:59` : null)); return !task.isCompleted && !!due && due < today; }).length;
+  const completionRate = pct(taskStats?.completed || 0, taskStats?.total || 0);
+  const projectRows = useMemo(() => { const names = new Map(projects.map((p) => [p.id, p.name])); const groups = new Map<string, { label: string; total: number; done: number }>(); tasks.forEach((task) => { const id = task.projectId || "none"; const row = groups.get(id) || { label: task.projectId ? names.get(task.projectId) || t("stats.task.projectAssigned", { defaultValue: "已归类项目" }) : t("tasks.noProject"), total: 0, done: 0 }; row.total++; if (task.isCompleted) row.done++; groups.set(id, row); }); return [...groups.entries()]; }, [projects, tasks, t]);
+  const trends = useMemo(() => Array.from({ length: 12 }, (_, i) => { const start = startOfWeek(subWeeks(today, 11 - i), { weekStartsOn: 1 }); const end = endOfWeek(start, { weekStartsOn: 1 }); const rows = events.filter((e) => { const d = parseDateValue(e.occurredAt); return d && d >= start && d <= end; }); return { key: keyOf(start), label: format(start, "MM/dd", { locale }), created: rows.filter((e) => e.eventType === "created").length, completed: rows.filter((e) => e.eventType === "completed").length }; }), [events, locale, year]);
+  const heatmap = useMemo(() => { const counts = new Map<string, number>(); events.filter((e) => e.eventType === "completed").forEach((e) => { const d = parseDateValue(e.occurredAt); if (d?.getFullYear() === year) counts.set(keyOf(d), (counts.get(keyOf(d)) || 0) + 1); }); const days = eachDayOfInterval({ start: startOfWeek(startOfYear(today), { weekStartsOn: 1 }), end: endOfWeek(endOfYear(today), { weekStartsOn: 1 }) }); return Array.from({ length: Math.ceil(days.length / 7) }, (_, i) => days.slice(i * 7, i * 7 + 7).map((date) => ({ date, count: counts.get(keyOf(date)) || 0 }))); }, [events, year]);
+  const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(today, { weekStartsOn: 1 }), i));
+  const month = eachDayOfInterval({ start: startOfWeek(startOfMonth(today), { weekStartsOn: 1 }), end: endOfWeek(endOfMonth(today), { weekStartsOn: 1 }) });
+  const months = Array.from({ length: 12 }, (_, i) => { const d = new Date(year, i, 1); const key = format(d, "yyyy-MM"); const rows = checkins.filter((c) => c.checkinDate.startsWith(key)); return { key, label: format(d, "MMM", { locale }), rows }; });
 
-  const recentHabitLogs = checkins.slice(0, 80);
-  const recentTaskRecords = taskRecords.slice(0, 80);
+  const overview = <div className="space-y-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><Card icon={<SquareCheckBig />} label={t("stats.overview.totalTasks")} value={taskStats?.total ?? tasks.length} hint={t("stats.overview.taskCompletion", { percent: completionRate })} /><Card icon={<Clock3 />} label={t("stats.overview.pendingTasks")} value={taskStats?.pending ?? tasks.filter((x) => !x.isCompleted).length} hint={t("stats.overview.overdueTasks", { count: overdue })} /><Card icon={<ListChecks />} label={t("stats.overview.activeHabits")} value={activeHabits.length} hint={t("stats.overview.archivedHabits", { count: archivedHabits.length })} /><Card icon={<Flame />} label={t("stats.overview.currentHabitStreak")} value={habitStats?.currentStreak ?? 0} hint={t("stats.overview.totalCheckins", { count: habitStats?.totalCheckins ?? 0 })} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-xl border border-app-border p-4"><h3>{t("stats.overview.recentTaskActivity")}</h3>{recentEvents.slice(0, 6).map((e) => <div key={e.id} className="mt-2 flex justify-between rounded-lg bg-app-bg p-2"><span>{e.taskTitle}</span><span className="text-xs text-tx-tertiary">{e.eventType === "completed" ? t("stats.task.recordCompleted") : t("stats.task.recordCreated")}</span></div>)}</div><div className="rounded-xl border border-app-border p-4"><h3>{t("stats.overview.recentHabitActivity")}</h3>{checkins.slice(0, 6).map((c) => <div key={c.id} className="mt-2 flex justify-between rounded-lg bg-app-bg p-2"><span>{c.habitTitle}</span><span>{c.checkinDate}</span></div>)}</div></div></div>;
 
-  const renderOverview = () => (
-    <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          icon={<SquareCheckBig size={18} />}
-          label={t("stats.overview.totalTasks")}
-          value={taskStats?.total ?? tasks.length}
-          hint={t("stats.overview.taskCompletion", { percent: taskOverview.completionRate })}
-        />
-        <MetricCard
-          icon={<Clock3 size={18} />}
-          label={t("stats.overview.pendingTasks")}
-          value={taskStats?.pending ?? tasks.filter((task) => !task.isCompleted).length}
-          hint={t("stats.overview.overdueTasks", { count: taskOverview.overdue })}
-        />
-        <MetricCard
-          icon={<ListChecks size={18} />}
-          label={t("stats.overview.activeHabits")}
-          value={activeHabits.length}
-          hint={t("stats.overview.archivedHabits", { count: archivedHabits.length })}
-        />
-        <MetricCard
-          icon={<Flame size={18} />}
-          label={t("stats.overview.currentHabitStreak")}
-          value={habitStats?.currentStreak ?? 0}
-          hint={t("stats.overview.totalCheckins", { count: habitStats?.totalCheckins ?? 0 })}
-        />
-      </div>
+  const taskOverview = <div className="space-y-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><Card icon={<SquareCheckBig />} label={t("stats.task.total")} value={taskStats?.total ?? tasks.length} /><Card icon={<TrendingUp />} label={t("stats.task.completionRate")} value={`${completionRate}%`} /><Card icon={<Clock3 />} label={t("stats.task.overdue")} value={overdue} /><Card icon={<FolderOpen />} label={t("stats.task.projectCoverage")} value={`${pct(tasks.filter((x) => x.projectId).length, tasks.length)}%`} /></div><div className="rounded-xl border border-app-border p-4"><h3>{t("stats.task.projectBreakdown")}</h3>{projectRows.map(([id, row]) => <div key={id} className="mt-2 flex justify-between rounded-lg bg-app-bg p-2"><span>{row.label}</span><span>{row.done}/{row.total}</span></div>)}</div></div>;
+  const details = tasks.length ? <div className="overflow-x-auto rounded-xl border"><table className="min-w-full text-sm"><thead><tr><th>{t("tasks.taskTitle")}</th><th>{t("tasks.status")}</th><th>{t("stats.task.completedAt")}</th></tr></thead><tbody>{tasks.slice(0, 200).map((x) => <tr key={x.id}><td>{x.title}</td><td>{x.status}</td><td>{x.completedAt || "-"}</td></tr>)}</tbody></table></div> : <Empty text={t("stats.task.empty")} />;
+  const records = recentEvents.length ? <div className="space-y-2">{recentEvents.map((e) => <div key={e.id} className="flex justify-between rounded-xl border p-3"><div><div>{e.taskTitle}</div><div className="text-xs text-tx-tertiary">{e.eventType === "completed" ? t("stats.task.recordCompleted") : t("stats.task.recordCreated")}</div></div><span className="text-xs">{format(parseDateValue(e.occurredAt)!, "yyyy-MM-dd HH:mm", { locale })}</span></div>)}</div> : <Empty text={t("stats.task.noRecords")} />;
+  const trendView = <div className="rounded-xl border p-4"><h3>{t("stats.task.trendTitle")}</h3>{trends.map((row) => <div key={row.key} className="mt-3 flex justify-between"><span>{row.label}</span><span>{t("stats.task.trendLegend", { created: row.created, completed: row.completed })}</span></div>)}</div>;
+  const heatView = <div className="rounded-xl border p-4"><h3>{t("stats.task.heatmapTitle")}</h3><div className="mt-4 flex gap-1 overflow-x-auto">{heatmap.map((week, i) => <div key={i} className="grid grid-rows-7 gap-1">{week.map((cell) => <div key={cell.date.toISOString()} title={`${keyOf(cell.date)} · ${cell.count}`} className={cn("h-3 w-3 rounded", cell.date.getFullYear() === year ? heat(cell.count) : "bg-transparent")} />)}</div>)}</div></div>;
 
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-tx-primary">{t("stats.overview.recentTaskActivity")}</h3>
-              <p className="text-xs text-tx-tertiary">{t("stats.overview.recentTaskActivityDesc")}</p>
-            </div>
-            <Activity size={16} className="text-tx-tertiary" />
-          </div>
-          <div className="mt-4 space-y-2">
-            {recentTaskRecords.slice(0, 6).map((record) => (
-              <div key={record.id} className="flex items-center justify-between gap-3 rounded-lg bg-app-bg px-3 py-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-tx-primary">{record.task.title}</div>
-                  <div className="text-xs text-tx-tertiary">
-                    {record.kind === "completed" ? t("stats.task.recordCompleted") : t("stats.task.recordCreated")}
-                  </div>
-                </div>
-                <div className="shrink-0 text-xs text-tx-tertiary">
-                  {format(record.at, "MM/dd HH:mm", { locale: dateLocale })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+  const habitOverview = <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><Card icon={<ListChecks />} label={t("stats.habit.habitCount")} value={habits.length} /><Card icon={<Flame />} label={t("stats.habit.currentStreak")} value={habitStats?.currentStreak ?? 0} /><Card icon={<CheckCircle2 />} label={t("stats.habit.successRate")} value={`${pct((habitStats?.successCount || 0) + (habitStats?.partialCount || 0), habitStats?.totalCheckins || 0)}%`} /><Card icon={<CalendarDays />} label={t("stats.habit.todayCheckins")} value={byDay.get(keyOf(today))?.length || 0} /></div>;
+  const log = checkins.length ? <div className="space-y-2">{checkins.slice(0, 80).map((c) => <div key={c.id} className="flex justify-between rounded-xl border p-3"><div><div>{c.habitTitle}</div><div className="text-xs">{c.note || t("stats.habit.emptyNote")}</div></div><span className={cn("rounded-full px-2 py-1 text-xs", statusClass(c.status))}>{t(`habits.status.${c.status}`)}</span></div>)}</div> : <Empty text={t("stats.habit.noLogs")} />;
+  const weekView = activeHabits.length ? <div className="overflow-x-auto"><table className="min-w-full"><thead><tr><th>{t("habits.title")}</th>{week.map((d) => <th key={d.toISOString()}>{format(d, "EE dd", { locale })}</th>)}</tr></thead><tbody>{activeHabits.map((h) => <tr key={h.id}><td>{h.title}</td>{week.map((d) => { const c = (byDay.get(keyOf(d)) || []).find((x) => x.habitId === h.id); return <td key={d.toISOString()}>{c ? t(`habits.status.${c.status}`) : t("stats.habit.noCheckin")}</td>; })}</tr>)}</tbody></table></div> : <Empty text={t("stats.habit.noActiveHabits")} />;
+  const monthView = <div className="rounded-xl border p-4"><h3>{t("stats.habit.monthTitle")}</h3><p>{format(today, "yyyy MMMM", { locale })}</p><div className="mt-3 grid grid-cols-7 gap-2">{month.map((d) => { const rows = byDay.get(keyOf(d)) || []; return <div key={d.toISOString()} title={`${keyOf(d)} · ${rows.length}`} className={cn("min-h-20 rounded-lg border p-2", !isSameMonth(d, today) && "opacity-40", isToday(d) && "ring-1 ring-accent-primary")}><div>{format(d, "d")}</div><div>{rows.length}</div></div>; })}</div></div>;
+  const yearView = <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{months.map((m) => <div key={m.key} className="rounded-xl border p-4"><div>{m.label}</div><div className="text-2xl">{m.rows.length}</div><div className="grid grid-cols-3 text-xs"><span>{m.rows.filter((x) => x.status === "success").length}</span><span>{m.rows.filter((x) => x.status === "partial").length}</span><span>{m.rows.filter((x) => x.status === "failure").length}</span></div></div>)}</div>;
 
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-tx-primary">{t("stats.overview.recentHabitActivity")}</h3>
-              <p className="text-xs text-tx-tertiary">{t("stats.overview.recentHabitActivityDesc")}</p>
-            </div>
-            <CalendarDays size={16} className="text-tx-tertiary" />
-          </div>
-          <div className="mt-4 space-y-2">
-            {recentHabitLogs.slice(0, 6).map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg bg-app-bg px-3 py-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-tx-primary">{item.habitTitle}</div>
-                  <div className="truncate text-xs text-tx-tertiary">{item.note || t("stats.habit.emptyNote")}</div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className={cn("rounded-full px-2 py-0.5 text-[10px]", getHabitStatusClass(item.status))}>
-                    {t(`habits.status.${item.status}`)}
-                  </div>
-                  <div className="mt-1 text-[11px] text-tx-tertiary">{item.checkinDate}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderTaskOverview = () => (
-    <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<SquareCheckBig size={18} />} label={t("stats.task.total")} value={taskStats?.total ?? tasks.length} hint={t("stats.task.completed", { count: taskStats?.completed ?? 0 })} />
-        <MetricCard icon={<TrendingUp size={18} />} label={t("stats.task.completionRate")} value={`${taskOverview.completionRate}%`} hint={t("stats.task.pending", { count: taskStats?.pending ?? 0 })} />
-        <MetricCard icon={<Clock3 size={18} />} label={t("stats.task.overdue")} value={taskOverview.overdue} hint={t("stats.task.today", { count: taskStats?.today ?? 0 })} />
-        <MetricCard icon={<FolderOpen size={18} />} label={t("stats.task.projectCoverage")} value={`${percentage(taskOverview.withProject, tasks.length)}%`} hint={t("stats.task.projectCoverageHint", { count: taskOverview.withProject })} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-tx-primary">{t("stats.task.statusBreakdown")}</h3>
-          <div className="mt-4 space-y-3">
-            {(["todo", "doing", "blocked", "done"] as const).map((status) => {
-              const count = taskOverview.statusCounts[status] || 0;
-              return (
-                <div key={status}>
-                  <div className="mb-1 flex items-center justify-between text-xs text-tx-secondary">
-                    <span>{t(`tasks.status${status.charAt(0).toUpperCase()}${status.slice(1)}`)}</span>
-                    <span>{count}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-app-bg">
-                    <div className="h-full rounded-full bg-accent-primary" style={{ width: `${percentage(count, tasks.length)}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-tx-primary">{t("stats.task.projectBreakdown")}</h3>
-          <div className="mt-4 space-y-3">
-            {topProjectRows.slice(0, 6).map((row) => (
-              <div key={row.key} className="rounded-lg bg-app-bg px-3 py-2">
-                <div className="flex items-center justify-between text-sm text-tx-primary">
-                  <span>{row.label}</span>
-                  <span>{row.completed}/{row.total}</span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-app-border">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percentage(row.completed, row.total)}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderTaskDetails = () => {
-    if (!tasks.length) return <EmptyPanel text={t("stats.task.empty")} />;
-    return (
-      <div className="overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-app-bg text-xs text-tx-tertiary">
-              <tr>
-                <th className="px-4 py-3">{t("tasks.taskTitle")}</th>
-                <th className="px-4 py-3">{t("tasks.status")}</th>
-                <th className="px-4 py-3">{t("tasks.priority")}</th>
-                <th className="px-4 py-3">{t("tasks.createdAt")}</th>
-                <th className="px-4 py-3">{t("tasks.dueDate")}</th>
-                <th className="px-4 py-3">{t("stats.task.completedAt")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...tasks]
-                .sort((a, b) => (parseDateValue(b.completedAt)?.getTime() || parseDateValue(b.createdAt)?.getTime() || 0) - (parseDateValue(a.completedAt)?.getTime() || parseDateValue(a.createdAt)?.getTime() || 0))
-                .slice(0, 120)
-                .map((task) => (
-                  <tr key={task.id} className="border-t border-app-border/70">
-                    <td className="px-4 py-3 text-tx-primary">{task.title}</td>
-                    <td className="px-4 py-3 text-tx-secondary">{t(`tasks.status${task.status.charAt(0).toUpperCase()}${task.status.slice(1)}`)}</td>
-                    <td className="px-4 py-3 text-tx-secondary">{task.priority === 3 ? t("tasks.high") : task.priority === 1 ? t("tasks.low") : t("tasks.medium")}</td>
-                    <td className="px-4 py-3 text-tx-secondary">{parseDateValue(task.createdAt) ? format(parseDateValue(task.createdAt)!, "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}</td>
-                    <td className="px-4 py-3 text-tx-secondary">{task.dueAt || task.dueDate || "-"}</td>
-                    <td className="px-4 py-3 text-tx-secondary">{parseDateValue(task.completedAt) ? format(parseDateValue(task.completedAt)!, "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderTaskRecords = () => {
-    if (!recentTaskRecords.length) return <EmptyPanel text={t("stats.task.noRecords")} />;
-    return (
-      <div className="space-y-2">
-        {recentTaskRecords.map((record) => (
-          <div key={record.id} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-tx-primary">{record.task.title}</div>
-                <div className="mt-1 text-xs text-tx-tertiary">{record.kind === "completed" ? t("stats.task.recordCompleted") : t("stats.task.recordCreated")}</div>
-              </div>
-              <div className="shrink-0 text-xs text-tx-tertiary">{format(record.at, "yyyy-MM-dd HH:mm", { locale: dateLocale })}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderTaskTrends = () => {
-    const maxValue = Math.max(1, ...trendRows.map((row) => Math.max(row.created, row.completed)));
-    return (
-      <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-tx-primary">{t("stats.task.trendTitle")}</h3>
-            <p className="text-xs text-tx-tertiary">{t("stats.task.trendDesc")}</p>
-          </div>
-        </div>
-        <div className="space-y-3">
-          {trendRows.map((row) => (
-            <div key={row.key}>
-              <div className="mb-1 flex items-center justify-between text-xs text-tx-secondary">
-                <span>{row.label}</span>
-                <span>{t("stats.task.trendLegend", { created: row.created, completed: row.completed })}</span>
-              </div>
-              <div className="grid grid-cols-[1fr_1fr] gap-2">
-                <div className="h-2 rounded-full bg-app-bg">
-                  <div className="h-full rounded-full bg-sky-500" style={{ width: `${(row.created / maxValue) * 100}%` }} />
-                </div>
-                <div className="h-2 rounded-full bg-app-bg">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(row.completed / maxValue) * 100}%` }} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderTaskHeatmap = () => (
-    <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-tx-primary">{t("stats.task.heatmapTitle")}</h3>
-          <p className="text-xs text-tx-tertiary">{t("stats.task.heatmapDesc")}</p>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <div className="flex gap-1 pb-2">
-          {yearHeatmap.map((week, index) => (
-            <div key={`week-${index}`} className="grid grid-rows-7 gap-1">
-              {week.map((cell) => (
-                <div
-                  key={cell.date.toISOString()}
-                  title={`${toDateKey(cell.date)} · ${cell.count}`}
-                  className={cn(
-                    "h-3 w-3 rounded-[4px]",
-                    cell.inYear ? getHeatColor(cell.count) : "bg-transparent",
-                  )}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderHabitOverview = () => (
-    <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<ListChecks size={18} />} label={t("stats.habit.habitCount")} value={habits.length} hint={t("stats.habit.activeArchived", { active: activeHabits.length, archived: archivedHabits.length })} />
-        <MetricCard icon={<Flame size={18} />} label={t("stats.habit.currentStreak")} value={habitStats?.currentStreak ?? 0} hint={t("stats.habit.checkinDays", { count: habitStats?.checkinDays ?? 0 })} />
-        <MetricCard icon={<CheckCircle2 size={18} />} label={t("stats.habit.successRate")} value={`${percentage((habitStats?.successCount ?? 0) + (habitStats?.partialCount ?? 0), habitStats?.totalCheckins ?? 0)}%`} hint={t("stats.habit.totalCheckins", { count: habitStats?.totalCheckins ?? 0 })} />
-        <MetricCard icon={<CalendarDays size={18} />} label={t("stats.habit.todayCheckins")} value={habitLogByDay.get(toDateKey(today))?.length ?? 0} hint={t("stats.habit.todayCheckinsHint", { count: activeHabits.filter((habit) => !!habit.todayStatus).length })} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-tx-primary">{t("stats.habit.statusBreakdown")}</h3>
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            <div className="rounded-lg bg-emerald-500/10 px-3 py-3">
-              <div className="text-[11px] text-emerald-700">{t("habits.status.success")}</div>
-              <div className="mt-1 text-xl font-semibold text-emerald-700">{habitStats?.successCount ?? 0}</div>
-            </div>
-            <div className="rounded-lg bg-amber-500/10 px-3 py-3">
-              <div className="text-[11px] text-amber-700">{t("habits.status.partial")}</div>
-              <div className="mt-1 text-xl font-semibold text-amber-700">{habitStats?.partialCount ?? 0}</div>
-            </div>
-            <div className="rounded-lg bg-rose-500/10 px-3 py-3">
-              <div className="text-[11px] text-rose-700">{t("habits.status.failure")}</div>
-              <div className="mt-1 text-xl font-semibold text-rose-700">{habitStats?.failureCount ?? 0}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-tx-primary">{t("stats.habit.archivedVisibility")}</h3>
-          <div className="mt-4 space-y-3 text-sm text-tx-secondary">
-            <div className="rounded-lg bg-app-bg px-3 py-2">{t("stats.habit.archivedHint1")}</div>
-            <div className="rounded-lg bg-app-bg px-3 py-2">{t("stats.habit.archivedHint2")}</div>
-            <div className="rounded-lg bg-app-bg px-3 py-2">{t("stats.habit.archivedHint3")}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderHabitLog = () => {
-    if (!recentHabitLogs.length) return <EmptyPanel text={t("stats.habit.noLogs")} />;
-    return (
-      <div className="space-y-2">
-        {recentHabitLogs.map((item) => (
-          <div key={item.id} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.habitColor || "#10b981" }} />
-                  <div className="truncate text-sm font-medium text-tx-primary">{item.habitTitle}</div>
-                </div>
-                <div className="mt-1 truncate text-xs text-tx-tertiary">{item.note || t("stats.habit.emptyNote")}</div>
-              </div>
-              <div className="shrink-0 text-right">
-                <div className={cn("rounded-full px-2 py-0.5 text-[10px]", getHabitStatusClass(item.status))}>{t(`habits.status.${item.status}`)}</div>
-                <div className="mt-1 text-[11px] text-tx-tertiary">{item.checkinDate}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderHabitWeek = () => {
-    if (!activeHabits.length) return <EmptyPanel text={t("stats.habit.noActiveHabits")} />;
-    return (
-      <div className="overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-app-bg text-xs text-tx-tertiary">
-              <tr>
-                <th className="px-4 py-3">{t("habits.title")}</th>
-                {habitWeekDates.map((date) => (
-                  <th key={date.toISOString()} className="px-3 py-3 text-center">{format(date, "EE dd", { locale: dateLocale })}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeHabits.map((habit) => (
-                <tr key={habit.id} className="border-t border-app-border/70">
-                  <td className="px-4 py-3 text-tx-primary">{habit.title}</td>
-                  {habitWeekDates.map((date) => {
-                    const item = (habitLogByDay.get(toDateKey(date)) || []).find((row) => row.habitId === habit.id);
-                    return (
-                      <td key={`${habit.id}-${date.toISOString()}`} className="px-3 py-3 text-center">
-                        <span className={cn("inline-flex min-w-14 items-center justify-center rounded-full px-2 py-1 text-[10px]", getHabitStatusClass(item?.status))}>
-                          {item ? t(`habits.status.${item.status}`) : t("stats.habit.noCheckin")}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderHabitMonth = () => (
-    <div className="rounded-xl border border-app-border bg-app-surface p-4 shadow-sm">
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-tx-primary">{t("stats.habit.monthTitle")}</h3>
-        <p className="text-xs text-tx-tertiary">{format(today, "yyyy MMMM", { locale: dateLocale })}</p>
-      </div>
-      <div className="grid grid-cols-7 gap-2 text-center text-xs text-tx-tertiary">
-        {Array.from({ length: 7 }, (_, index) => (
-          <div key={`weekday-${index}`}>{format(addDays(startOfWeek(today, { weekStartsOn: 1 }), index), "EE", { locale: dateLocale })}</div>
-        ))}
-      </div>
-      <div className="mt-2 grid grid-cols-7 gap-2">
-        {habitMonthCalendar.map((cell) => (
-          <div
-            key={cell.date.toISOString()}
-            title={`${toDateKey(cell.date)} · ${cell.rows.length}`}
-            className={cn(
-              "min-h-24 rounded-xl border px-2 py-2 text-xs",
-              isSameMonth(cell.date, today) ? "border-app-border bg-app-bg" : "border-transparent bg-app-hover/40 text-tx-tertiary",
-              isToday(cell.date) && "ring-1 ring-accent-primary/50",
-            )}
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-tx-primary">{format(cell.date, "d")}</span>
-              <span className="text-[10px] text-tx-tertiary">{cell.rows.length}</span>
-            </div>
-            <div className="mt-2 space-y-1">
-              <div className="h-1.5 rounded-full bg-app-border">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percentage(cell.success, Math.max(cell.rows.length, 1))}%` }} />
-              </div>
-              <div className="h-1.5 rounded-full bg-app-border">
-                <div className="h-full rounded-full bg-amber-500" style={{ width: `${percentage(cell.partial, Math.max(cell.rows.length, 1))}%` }} />
-              </div>
-              <div className="h-1.5 rounded-full bg-app-border">
-                <div className="h-full rounded-full bg-rose-500" style={{ width: `${percentage(cell.failure, Math.max(cell.rows.length, 1))}%` }} />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderHabitYear = () => (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      {habitYearSummary.map((month) => (
-        <div key={month.key} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-          <div className="text-sm font-semibold text-tx-primary">{month.label}</div>
-          <div className="mt-1 text-2xl font-semibold text-tx-primary">{month.total}</div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
-            <div className="rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-700">{month.success}</div>
-            <div className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-700">{month.partial}</div>
-            <div className="rounded-md bg-rose-500/10 px-2 py-1 text-rose-700">{month.failure}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-5 py-3">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-        <div>
-          <h2 className="text-lg font-bold text-tx-primary">{t("stats.title")}</h2>
-          <p className="text-xs text-tx-tertiary">{t("stats.subtitle")}</p>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-secondary transition-colors hover:bg-app-hover disabled:opacity-60"
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          {t("stats.refresh")}
-        </button>
-      </div>
-
-      <div className="space-y-4">
-        <SectionTabs
-          value={primaryTab}
-          onChange={setPrimaryTab}
-          items={[
-            { value: "overview", label: t("stats.tabs.overview") },
-            { value: "tasks", label: t("stats.tabs.tasks") },
-            { value: "habits", label: t("stats.tabs.habits") },
-          ]}
-        />
-
-        {loading ? (
-          <EmptyPanel text={t("stats.loading")} />
-        ) : primaryTab === "overview" ? (
-          renderOverview()
-        ) : primaryTab === "tasks" ? (
-          <div className="space-y-4">
-            <SectionTabs
-              value={taskTab}
-              onChange={setTaskTab}
-              items={[
-                { value: "overview", label: t("stats.task.tabs.overview") },
-                { value: "details", label: t("stats.task.tabs.details") },
-                { value: "records", label: t("stats.task.tabs.records") },
-                { value: "trends", label: t("stats.task.tabs.trends") },
-                { value: "heatmap", label: t("stats.task.tabs.heatmap") },
-              ]}
-            />
-            {taskTab === "overview" && renderTaskOverview()}
-            {taskTab === "details" && renderTaskDetails()}
-            {taskTab === "records" && renderTaskRecords()}
-            {taskTab === "trends" && renderTaskTrends()}
-            {taskTab === "heatmap" && renderTaskHeatmap()}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <SectionTabs
-              value={habitTab}
-              onChange={setHabitTab}
-              items={[
-                { value: "overview", label: t("stats.habit.tabs.overview") },
-                { value: "log", label: t("stats.habit.tabs.log") },
-                { value: "week", label: t("stats.habit.tabs.week") },
-                { value: "month", label: t("stats.habit.tabs.month") },
-                { value: "year", label: t("stats.habit.tabs.year") },
-              ]}
-            />
-            {habitTab === "overview" && renderHabitOverview()}
-            {habitTab === "log" && renderHabitLog()}
-            {habitTab === "week" && renderHabitWeek()}
-            {habitTab === "month" && renderHabitMonth()}
-            {habitTab === "year" && renderHabitYear()}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const refresh = () => { onRefresh(); void loadEvents(); };
+  return <div className="flex-1 overflow-y-auto px-4 py-3 md:px-5"><div className="mb-4 flex justify-between rounded-xl border p-4"><div><h2 className="text-lg font-bold">{t("stats.title")}</h2><p className="text-xs text-tx-tertiary">{t("stats.subtitle")}</p></div><button onClick={refresh} disabled={loading || eventsLoading}><RefreshCw className={eventsLoading ? "animate-spin" : ""} />{t("stats.refresh")}</button></div><div className="space-y-4"><Tabs value={primary} onChange={setPrimary} values={[["overview", t("stats.tabs.overview")], ["tasks", t("stats.tabs.tasks")], ["habits", t("stats.tabs.habits")]]} />{loading ? <Empty text={t("stats.loading")} /> : primary === "overview" ? overview : primary === "tasks" ? <div className="space-y-4"><Tabs value={taskTab} onChange={setTaskTab} values={[["overview", t("stats.task.tabs.overview")], ["details", t("stats.task.tabs.details")], ["records", t("stats.task.tabs.records")], ["trends", t("stats.task.tabs.trends")], ["heatmap", t("stats.task.tabs.heatmap")]]} />{taskTab === "overview" ? taskOverview : taskTab === "details" ? details : taskTab === "records" ? records : taskTab === "trends" ? trendView : heatView}</div> : <div className="space-y-4"><Tabs value={habitTab} onChange={setHabitTab} values={[["overview", t("stats.habit.tabs.overview")], ["log", t("stats.habit.tabs.log")], ["week", t("stats.habit.tabs.week")], ["month", t("stats.habit.tabs.month")], ["year", t("stats.habit.tabs.year")]]} />{habitTab === "overview" ? habitOverview : habitTab === "log" ? log : habitTab === "week" ? weekView : habitTab === "month" ? monthView : yearView}</div>}</div></div>;
 }
+
+export const statsCenterTestUtils = { parseDateValue, snapshotEvents };
