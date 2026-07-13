@@ -20,6 +20,32 @@ import { apiTokensRepository } from "../repositories";
 import { logAudit } from "../services/audit";
 
 const app = new Hono();
+let pruneUsagePromise: Promise<void> | undefined;
+
+/**
+ * 原路由在模块导入阶段直接打开 SQLite 并清理 usage。现在改为首次请求时
+ * 通过异步 Repository 执行一次，避免 import-time 数据库副作用，同时保留
+ * 90 天保留策略。失败属于非关键维护任务，不阻断 Token API。
+ */
+async function ensureTokenUsageMaintenance(): Promise<void> {
+  if (!pruneUsagePromise) {
+    const cutoffDay = new Date(Date.now() - 90 * 86400_000)
+      .toISOString()
+      .slice(0, 10);
+    pruneUsagePromise = apiTokensRepository
+      .pruneUsageBeforeAsync(cutoffDay)
+      .catch((error) => {
+        pruneUsagePromise = undefined;
+        console.warn("[tokens] prune token usage failed:", error);
+      });
+  }
+  await pruneUsagePromise;
+}
+
+app.use("*", async (_c, next) => {
+  await ensureTokenUsageMaintenance();
+  await next();
+});
 
 /** 列出当前用户的 token（明文字段永远不返回） */
 app.get("/", async (c) => {
