@@ -50,7 +50,7 @@ async function writeFixture(): Promise<string> {
   ])));
   zip.file("data/box-b/doc-html.sy", JSON.stringify(doc("doc-html", "HTML 与嵌入", "1f9e9", [
     { Type: "NodeHTMLBlock", Data: "<mark>保留 HTML</mark><script>alert('xss')</script>" },
-    { Type: "NodeIFrame", Data: `<iframe src="https://www.youtube-nocookie.com/embed/${YOUTUBE_VIDEO_ID}"></iframe>` },
+    { Type: "NodeIFrame", Data: `<iframe src="https://www.youtube.com/watch?v=${YOUTUBE_VIDEO_ID}"></iframe>` },
   ])));
 
   const output = path.join(tmpDir, "metadata.zip");
@@ -127,6 +127,7 @@ test("preserves SiYuan notebook/document order, icons and HTML iframe fidelity",
   assert.equal(video.attrs?.platform, "youtube");
   assert.equal(video.attrs?.kind, "iframe");
   assert.equal(video.attrs?.src, `https://www.youtube-nocookie.com/embed/${YOUTUBE_VIDEO_ID}`);
+  assert.equal(video.attrs?.originalUrl, `https://www.youtube.com/watch?v=${YOUTUBE_VIDEO_ID}`);
 
   const icons = getDb().prepare(`
     SELECT n.title, ni.icon
