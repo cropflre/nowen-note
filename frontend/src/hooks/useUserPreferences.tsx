@@ -18,8 +18,6 @@ import {
   readAccountPreferenceCache,
   sanitizeUserPreferencePatch,
   writeAccountPreferenceCache,
-  type MarkdownViewMode,
-  type ReadingDensity,
   type UserPreferenceCache,
   type UserPreferencePatch,
   type UserPreferences,
@@ -159,13 +157,19 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
         if (samePreferenceValue(pending[key], sanitized[key])) delete pending[key];
       }
 
-      const remotePrefs = normalizeUserPreferences(remote);
-      const merged = mergePendingPreferences(remotePrefs, pending);
+      const remoteRevision = Number(remote.revision) || 0;
+      // 并发保存可能乱序返回。旧 revision 只能确认对应 pending 已送达，不能再用
+      // 旧响应的整包值覆盖较新的本地缓存。
+      const responseIsStale = remoteRevision < latestCache.revision;
+      const basePrefs = responseIsStale
+        ? latestCache.prefs
+        : normalizeUserPreferences(remote);
+      const merged = mergePendingPreferences(basePrefs, pending);
       applyCache({
         version: 2,
         userId,
         prefs: merged,
-        revision: Math.max(latestCache.revision, Number(remote.revision) || 0),
+        revision: Math.max(latestCache.revision, remoteRevision),
         pending,
       });
     } catch {
@@ -204,7 +208,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
           version: 2,
           userId,
           prefs: merged,
-          revision: Number(remote.revision) || 0,
+          revision: Math.max(latestCache?.revision || 0, Number(remote.revision) || 0),
           pending: latestPending,
         });
         if (Object.keys(latestPending).length > 0) {
@@ -213,10 +217,10 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
         return;
       }
 
-      // 首次升级：优先使用当前账号自己的 v2 缓存；没有时才认领一次旧版全局缓存。
-      // 认领标记确保同一浏览器切换到第二个账号时不会重复迁移上一账号的偏好。
+      // 首次升级：优先使用启动时已经存在的当前账号 v2 缓存；没有时才认领一次
+      // 旧版全局缓存。resetForIdentity 创建的默认空缓存不能抢占旧缓存迁移来源。
       const legacy = cachedAtStart ? null : claimLegacyUserPreferences(localStorage, userId);
-      const seed = latestCache?.prefs || legacy || DEFAULT_USER_PREFERENCES;
+      const seed = cachedAtStart?.prefs || legacy || latestCache?.prefs || DEFAULT_USER_PREFERENCES;
       const pending = sanitizeUserPreferencePatch({ ...seed, ...latestPending });
       applyCache({
         version: 2,
