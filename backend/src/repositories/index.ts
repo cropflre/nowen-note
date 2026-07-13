@@ -9,6 +9,7 @@ import "./noteWriteSafety";
  */
 
 export { systemSettingsRepository } from "./systemSettingsRepository";
+export { serverInstanceRepository } from "./serverInstanceRepository";
 export { customFontsRepository } from "./customFontsRepository";
 export { apiTokensRepository } from "./apiTokensRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
