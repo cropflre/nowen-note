@@ -11,6 +11,7 @@ import { headingDataAttrs } from "@/lib/markdownPreviewOutline";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
 import { MarkdownCodeBlock, isMarkdownBlockCode } from "@/components/MarkdownCodeBlock";
+import { MathView } from "@/components/MathView";
 
 interface MarkdownPreviewProps {
   markdown: string;
@@ -21,6 +22,41 @@ interface MarkdownPreviewProps {
 }
 
 const RAW_HTML_RE = /<\/?[a-z][^>]*>/i;
+
+function preprocessMarkdownMath(markdown: string): string {
+  const fencedCode: string[] = [];
+  let text = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (match) => {
+    const index = fencedCode.push(match) - 1;
+    return `\u0000NOWEN_MATH_CODE_${index}\u0000`;
+  });
+
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_match, source) => {
+    const encoded = encodeURIComponent(String(source).trim());
+    return `\n\n<div data-nowen-math-source="${encoded}" data-nowen-math-display="1"></div>\n\n`;
+  });
+
+  text = text.replace(
+    /(^|[^\\$\w])\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$(?=$|[^\w$])/g,
+    (_match, prefix, source) => {
+      const encoded = encodeURIComponent(String(source));
+      return `${prefix}<span data-nowen-math-source="${encoded}" data-nowen-math-display="0"></span>`;
+    },
+  );
+
+  return text.replace(/\u0000NOWEN_MATH_CODE_(\d+)\u0000/g, (_match, index) => {
+    return fencedCode[Number(index)] || "";
+  });
+}
+
+function getMathSource(props: Record<string, unknown>): string | null {
+  const encoded = props["data-nowen-math-source"] ?? props.dataNowenMathSource;
+  if (typeof encoded !== "string") return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+}
 
 const safeHtmlSchema = {
   ...defaultSchema,
@@ -40,6 +76,11 @@ const safeHtmlSchema = {
   ])),
   attributes: {
     ...(defaultSchema.attributes || {}),
+    "*": [
+      ...((defaultSchema.attributes || {})["*"] || []),
+      "dataNowenMathSource",
+      "dataNowenMathDisplay",
+    ],
     iframe: ["src", "title", "width", "height", "loading", "allow", "allowFullScreen", "referrerPolicy"],
     video: ["src", "controls", "poster", "preload", "width", "height"],
     audio: ["src", "controls", "preload"],
@@ -216,6 +257,16 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
     mark: ({ children }) => <mark className="rounded bg-yellow-200/80 px-0.5 text-inherit dark:bg-yellow-500/30">{children}</mark>,
     kbd: ({ children }) => <kbd className="rounded border border-app-border bg-app-hover px-1.5 py-0.5 font-mono text-xs shadow-sm">{children}</kbd>,
     u: ({ children }) => <u className="underline underline-offset-2">{children}</u>,
+    span: ({ children, ...props }) => {
+      const source = getMathSource(props);
+      return source === null ? <span {...props}>{children}</span> : <MathView source={source} />;
+    },
+    div: ({ children, ...props }) => {
+      const source = getMathSource(props);
+      return source === null
+        ? <div {...props}>{children}</div>
+        : <MathView source={source} display />;
+    },
     code: ({ className, children }: any) => {
       const raw = String(children ?? "");
       const isBlock = isMarkdownBlockCode(className) || raw.endsWith("\n");
@@ -253,10 +304,10 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
 
 export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange }: MarkdownPreviewProps) {
   const { t } = useTranslation();
-  const containsRawHtml = RAW_HTML_RE.test(markdown || "");
-  const renderedMarkdown = useMemo(() => preprocessMarkdownVideos((markdown || "")
+  const renderedMarkdown = useMemo(() => preprocessMarkdownMath(preprocessMarkdownVideos((markdown || "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[\u00A0\u3000]/g, " ")), [markdown]);
+    .replace(/[\u00A0\u3000]/g, " "))), [markdown]);
+  const containsRawHtml = RAW_HTML_RE.test(renderedMarkdown);
   const components = useMemo(() => createComponents(onTaskCheckboxChange), [onTaskCheckboxChange]);
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];
 

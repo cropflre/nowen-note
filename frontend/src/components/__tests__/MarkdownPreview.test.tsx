@@ -9,6 +9,12 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+vi.mock("@/components/MathView", () => ({
+  MathView: ({ source, display }: { source: string; display?: boolean }) => (
+    <span data-math-preview={display ? "block" : "inline"}>{source}</span>
+  ),
+}));
+
 describe("MarkdownPreview task checkboxes", () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -48,5 +54,28 @@ describe("MarkdownPreview task checkboxes", () => {
     });
 
     expect(onTaskCheckboxChange).toHaveBeenCalledWith(1, true);
+  });
+
+  it("renders inline and block LaTeX while preserving fenced code", async () => {
+    const markdown = [
+      "行内公式 $E = mc^2$",
+      "",
+      "$$",
+      String.raw`\frac{-b \pm \sqrt{b^2-4ac}}{2a}`,
+      "$$",
+      "",
+      "```tex",
+      "$not_math$",
+      "```",
+    ].join("\n");
+
+    await act(async () => {
+      root.render(<MarkdownPreview markdown={markdown} />);
+    });
+
+    expect(host.querySelector('[data-math-preview="inline"]')?.textContent).toBe("E = mc^2");
+    expect(host.querySelector('[data-math-preview="block"]')?.textContent).toBe("\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}");
+    expect(host.querySelectorAll("[data-math-preview]")).toHaveLength(2);
+    expect(host.textContent).toContain("not_math");
   });
 });
