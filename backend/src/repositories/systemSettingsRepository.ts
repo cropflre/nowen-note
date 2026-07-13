@@ -1,35 +1,35 @@
-/**
- * System Settings Repository
- *
- * 职责：
- * - 封装 system_settings 表的所有数据库操作
- * - 提供类型安全的接口
- * - 保持现有 SQLite 行为不变
- * - 支持 adapter 注入（PG-PILOT-01 双库试点）
- */
-
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
 import type { DatabaseAdapter } from "../db/adapters/types";
+import { nowExpression } from "../db/dialect";
+import { getDatabaseAdapter, getDatabaseDialect } from "../db/runtime";
 import type { SystemSetting } from "./types";
 
-/** 创建轻量 adapter 实例（每次调用新建，无全局生命周期） */
-function getAdapter() {
-  return new SqliteAdapter(getDb());
+function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
+  return adapter ?? getDatabaseAdapter();
+}
+
+function resolveNowExpr(nowExpr?: string): string {
+  if (nowExpr) return nowExpr;
+  try {
+    return nowExpression(getDatabaseDialect());
+  } catch {
+    return nowExpression("sqlite");
+  }
 }
 
 /**
  * 创建 systemSettingsRepository 实例。
  *
- * 默认使用 SQLite adapter。测试中可注入 PostgresAdapter 进行双库验证。
- *
- * @param adapter 数据库适配器（默认 SQLite）
- * @param nowExpr 当前时间表达式（SQLite: datetime('now'), PostgreSQL: NOW()）
+ * 未显式注入 adapter 时，异步方法从统一数据库运行时获取 Adapter；
+ * 同步方法继续仅支持 SQLite，以保持现有调用兼容。
  */
 export function createSystemSettingsRepository(
-  adapter: DatabaseAdapter = getAdapter(),
-  nowExpr = "datetime('now')",
+  adapter?: DatabaseAdapter,
+  nowExpr?: string,
 ) {
+  const getAdapter = () => resolveAdapter(adapter);
+  const getNowExpr = () => resolveNowExpr(nowExpr);
+
   return {
     // ---- 同步方法（仅 SQLite） ----
 
@@ -81,20 +81,22 @@ export function createSystemSettingsRepository(
 
     set(key: string, value: string): void {
       const db = getDb();
+      const currentNowExpr = getNowExpr();
       db.prepare(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${nowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${nowExpr}`,
+         VALUES (?, ?, ${currentNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
       ).run(key, value);
     },
 
     setMany(entries: Array<{ key: string; value: string }>): void {
       if (entries.length === 0) return;
       const db = getDb();
+      const currentNowExpr = getNowExpr();
       const upsert = db.prepare(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${nowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${nowExpr}`,
+         VALUES (?, ?, ${currentNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
       );
       const tx = db.transaction(() => {
         for (const { key, value } of entries) {
@@ -125,10 +127,10 @@ export function createSystemSettingsRepository(
       );
     },
 
-    // ---- Async 方法（支持 adapter 注入） ----
+    // ---- Async 方法（支持运行时 Adapter / 显式注入） ----
 
     async getAsync(key: string): Promise<SystemSetting | undefined> {
-      return adapter.queryOne<SystemSetting>(
+      return getAdapter().queryOne<SystemSetting>(
         'SELECT key, value, "updatedAt" FROM system_settings WHERE key = ?',
         [key],
       );
@@ -137,20 +139,20 @@ export function createSystemSettingsRepository(
     async getManyAsync(keys: string[]): Promise<SystemSetting[]> {
       if (keys.length === 0) return [];
       const placeholders = keys.map(() => "?").join(",");
-      return adapter.queryMany<SystemSetting>(
+      return getAdapter().queryMany<SystemSetting>(
         `SELECT key, value, "updatedAt" FROM system_settings WHERE key IN (${placeholders})`,
         keys,
       );
     },
 
     async getAllAsync(): Promise<SystemSetting[]> {
-      return adapter.queryMany<SystemSetting>(
+      return getAdapter().queryMany<SystemSetting>(
         'SELECT key, value, "updatedAt" FROM system_settings',
       );
     },
 
     async getByPrefixAsync(prefix: string): Promise<SystemSetting[]> {
-      return adapter.queryMany<SystemSetting>(
+      return getAdapter().queryMany<SystemSetting>(
         'SELECT key, value, "updatedAt" FROM system_settings WHERE key LIKE ?',
         [`${prefix}%`],
       );
@@ -160,23 +162,24 @@ export function createSystemSettingsRepository(
       if (prefixes.length === 0) return [];
       const conditions = prefixes.map(() => "key LIKE ?").join(" OR ");
       const params = prefixes.map((p) => `${p}%`);
-      return adapter.queryMany<SystemSetting>(
+      return getAdapter().queryMany<SystemSetting>(
         `SELECT key, value, "updatedAt" FROM system_settings WHERE ${conditions}`,
         params,
       );
     },
 
     async setAsync(key: string, value: string): Promise<void> {
-      await adapter.execute(
+      const currentNowExpr = getNowExpr();
+      await getAdapter().execute(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${nowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${nowExpr}`,
+         VALUES (?, ?, ${currentNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
         [key, value],
       );
     },
 
     async deleteAsync(key: string): Promise<void> {
-      await adapter.execute(
+      await getAdapter().execute(
         "DELETE FROM system_settings WHERE key = ?",
         [key],
       );
@@ -185,14 +188,14 @@ export function createSystemSettingsRepository(
     async deleteManyAsync(keys: string[]): Promise<void> {
       if (keys.length === 0) return;
       const placeholders = keys.map(() => "?").join(",");
-      await adapter.execute(
+      await getAdapter().execute(
         `DELETE FROM system_settings WHERE key IN (${placeholders})`,
         keys,
       );
     },
 
     async deleteByPrefixAsync(prefix: string): Promise<void> {
-      await adapter.execute(
+      await getAdapter().execute(
         "DELETE FROM system_settings WHERE key LIKE ?",
         [`${prefix}%`],
       );
@@ -200,15 +203,16 @@ export function createSystemSettingsRepository(
 
     async setManyAsync(entries: Array<{ key: string; value: string }>): Promise<void> {
       if (entries.length === 0) return;
-      await adapter.executeBatch(
+      const currentNowExpr = getNowExpr();
+      await getAdapter().executeBatch(
         `INSERT INTO system_settings (key, value, "updatedAt")
-         VALUES (?, ?, ${nowExpr})
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${nowExpr}`,
+         VALUES (?, ?, ${currentNowExpr})
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, "updatedAt" = ${currentNowExpr}`,
         entries.map((e) => [e.key, e.value]),
       );
     },
   };
 }
 
-/** 默认实例（SQLite，保持向后兼容） */
+/** 默认实例：同步方法仍为 SQLite；异步方法使用统一运行时 Adapter。 */
 export const systemSettingsRepository = createSystemSettingsRepository();
