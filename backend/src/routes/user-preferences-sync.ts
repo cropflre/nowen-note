@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
+import { userPreferencesSyncRepository } from "../repositories/userPreferencesSyncRepository";
 
 type MarkdownViewMode = "source" | "preview" | "split";
 type ReadingDensity = "cozy" | "compact";
@@ -136,10 +136,8 @@ function parseFieldUpdatedAt(value: unknown): FieldUpdatedAt {
   return result;
 }
 
-export function readPreferenceState(userId: string): PreferenceState {
-  const row = getDb()
-    .prepare("SELECT preferencesJson, updatedAt FROM user_preferences WHERE userId = ?")
-    .get(userId) as { preferencesJson: string; updatedAt: string } | undefined;
+export async function readPreferenceState(userId: string): Promise<PreferenceState> {
+  const row = await userPreferencesSyncRepository.getByUserAsync(userId);
 
   if (!row) {
     return {
@@ -248,7 +246,7 @@ async function writePreferences(c: any) {
     }, 400);
   }
 
-  const current = readPreferenceState(userId);
+  const current = await readPreferenceState(userId);
   const baseRevision = typeof raw._baseRevision === "number" && Number.isInteger(raw._baseRevision)
     ? raw._baseRevision
     : null;
@@ -278,17 +276,11 @@ async function writePreferences(c: any) {
   const fieldUpdatedAt = { ...current.fieldUpdatedAt };
   for (const key of changedKeys) fieldUpdatedAt[key] = now;
 
-  getDb().prepare(`
-    INSERT INTO user_preferences (userId, preferencesJson, updatedAt)
-    VALUES (?, ?, ?)
-    ON CONFLICT(userId) DO UPDATE SET
-      preferencesJson = excluded.preferencesJson,
-      updatedAt = excluded.updatedAt
-  `).run(
+  await userPreferencesSyncRepository.upsertAsync({
     userId,
-    serializeStoredPreferences(nextPrefs, nextRevision, fieldUpdatedAt),
-    now,
-  );
+    preferencesJson: serializeStoredPreferences(nextPrefs, nextRevision, fieldUpdatedAt),
+    updatedAt: now,
+  });
 
   return c.json(responsePayload(userId, {
     prefs: nextPrefs,
@@ -301,10 +293,10 @@ async function writePreferences(c: any) {
 
 const app = new Hono();
 
-app.get("/", (c) => {
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id");
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(responsePayload(userId, readPreferenceState(userId)));
+  return c.json(responsePayload(userId, await readPreferenceState(userId)));
 });
 
 // PUT 保持旧客户端兼容；PATCH 为新客户端提供明确的增量语义。
