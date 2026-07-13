@@ -50,6 +50,22 @@ test("database runtime defaults to SQLite", () => {
   assert.equal(config.postgres.idleTimeoutMillis, 30_000);
 });
 
+test("SQLite startup ignores invalid PostgreSQL-only settings", () => {
+  const config = resolveDatabaseRuntimeConfig({
+    DB_DRIVER: "sqlite",
+    DATABASE_URL: "not-a-postgres-url",
+    PG_POOL_MAX: "invalid",
+    PG_CONNECTION_TIMEOUT_MS: "-1",
+    PG_IDLE_TIMEOUT_MS: "0",
+  });
+
+  assert.equal(config.driver, "sqlite");
+  assert.equal(config.databaseUrl, undefined);
+  assert.equal(config.postgres.max, 10);
+  assert.equal(config.postgres.connectionTimeoutMillis, 5_000);
+  assert.equal(config.postgres.idleTimeoutMillis, 30_000);
+});
+
 test("database runtime rejects unsupported DB_DRIVER", () => {
   assert.throws(
     () => resolveDatabaseRuntimeConfig({ DB_DRIVER: "mysql" }),
@@ -64,6 +80,23 @@ test("PostgreSQL requires DATABASE_URL and does not use test-only URL", () => {
       TEST_PG_DATABASE_URL: "postgres://test:test@localhost:5432/test",
     }),
     /DATABASE_URL is required/,
+  );
+});
+
+test("PostgreSQL validates connection URL protocol and target", () => {
+  assert.throws(
+    () => resolveDatabaseRuntimeConfig({
+      DB_DRIVER: "postgres",
+      DATABASE_URL: "mysql://user:secret@localhost:3306/nowen",
+    }),
+    /postgres:\/\/ or postgresql:\/\//,
+  );
+  assert.throws(
+    () => resolveDatabaseRuntimeConfig({
+      DB_DRIVER: "postgres",
+      DATABASE_URL: "postgres://user:secret@localhost",
+    }),
+    /host and database name/,
   );
 });
 
