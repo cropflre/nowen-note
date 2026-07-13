@@ -21,7 +21,7 @@ import { syncNow } from "@/lib/syncEngine"
 import { deleteNote as deleteLocalNote, getNote as getLocalNote, putNote as putLocalNote } from "@/lib/localStore"
 import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
-import { getNoteListDragHint, reorderNotesWithinNotebook } from "@/lib/noteManualSort";
+import { getNoteListDragHint, reorderNotesWithinNotebook, shouldUseHtmlNoteDragging } from "@/lib/noteManualSort";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -47,6 +47,12 @@ function loadSortPref(): { by: SortBy; dir: SortDir } {
 
 function saveSortPref(pref: { by: SortBy; dir: SortDir }) {
   try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(pref)); } catch {}
+}
+
+function isCoarsePointer(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(pointer: coarse)").matches;
 }
 
 const TIME_VISIBILITY_STORAGE_KEY = "nowen.noteList.showTime";
@@ -1187,7 +1193,7 @@ function VirtualNoteList({
   selectedIds,
   onSelectNote,
   onContextMenu,
-  canDragSort,
+  useHtmlNoteDragging,
   dragOverNoteId,
   onDragStart,
   onDragOver,
@@ -1210,7 +1216,7 @@ function VirtualNoteList({
   selectedIds: Set<string>;
   onSelectNote: (noteId: string, e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent, noteId: string) => void;
-  canDragSort?: boolean;
+  useHtmlNoteDragging?: boolean;
   dragOverNoteId?: string | null;
   onDragStart?: (e: React.DragEvent, noteId: string) => void;
   onDragOver?: (e: React.DragEvent, noteId: string) => void;
@@ -1290,7 +1296,7 @@ function VirtualNoteList({
               isSelected={selectedIds.has(note.id)}
               onClick={(e) => onSelectNote(note.id, e)}
               onContextMenu={(e) => onContextMenu(e, note.id)}
-              draggable={canDragSort}
+              draggable={useHtmlNoteDragging}
               onDragStart={(e) => onDragStart?.(e, note.id)}
               onDragOver={(e) => onDragOver?.(e, note.id)}
               onDragEnd={() => onDragEnd?.()}
@@ -2708,6 +2714,7 @@ export default function NoteList() {
   const canDragSort = sortPref.by === "manual" && (
     state.viewMode === "notebook" || state.viewMode === "all" || state.viewMode === "favorites" || state.viewMode === "tag"
   );
+  const useHtmlNoteDragging = shouldUseHtmlNoteDragging(canDragSort, isCoarsePointer());
   const noteDragHint = getNoteListDragHint(canDragSort);
 
   // 判别 DataTransfer 是否带"操作系统外部文件"——
@@ -3463,7 +3470,7 @@ export default function NoteList() {
             selectedIds={selectedIds}
             onSelectNote={handleSelectNote}
             onContextMenu={(e, noteId) => openMenu(e, noteId, "note")}
-            canDragSort={canDragSort}
+            useHtmlNoteDragging={useHtmlNoteDragging}
             dragOverNoteId={dragOverNoteId}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
@@ -3497,7 +3504,7 @@ export default function NoteList() {
                 isSelected={selectedIds.has(note.id)}
                 onClick={(e) => handleSelectNote(note.id, e)}
                 onContextMenu={(e) => openMenu(e, note.id, "note")}
-                draggable={canDragSort}
+                draggable={useHtmlNoteDragging}
                 onDragStart={(e) => handleDragStart(e, note.id)}
                 onDragOver={(e) => handleDragOver(e, note.id)}
                 onDragEnd={handleDragEnd}

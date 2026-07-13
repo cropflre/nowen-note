@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getNoteListDragHint,
   reorderNotesWithinNotebook,
+  shouldUseHtmlNoteDragging,
 } from "@/lib/noteManualSort";
 
 const note = (id: string, notebookId = "nb", isLocked = 0) => ({
@@ -67,5 +68,13 @@ describe("getNoteListDragHint", () => {
 
   it("手动排序时提示可拖动", () => {
     expect(getNoteListDragHint(true)).toBe("拖动调整笔记顺序");
+  });
+});
+
+describe("shouldUseHtmlNoteDragging", () => {
+  it("在粗指针触摸设备上禁用 HTML 拖拽", () => {
+    expect(shouldUseHtmlNoteDragging(true, true)).toBe(false);
+    expect(shouldUseHtmlNoteDragging(true, false)).toBe(true);
+    expect(shouldUseHtmlNoteDragging(false, false)).toBe(false);
   });
 });

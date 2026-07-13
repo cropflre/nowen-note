@@ -10,6 +10,10 @@ export function getNoteListDragHint(canDragSort: boolean): string {
   return canDragSort ? "拖动调整笔记顺序" : "切换到手动排序后可拖动调整顺序";
 }
 
+export function shouldUseHtmlNoteDragging(canDragSort: boolean, coarsePointer: boolean): boolean {
+  return canDragSort && !coarsePointer;
+}
+
 export function getDropZoneFromClientY(clientY: number, rect: Pick<DOMRect, "top" | "height">): NoteDropZone {
   return clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
