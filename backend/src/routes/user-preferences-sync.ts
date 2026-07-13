@@ -3,6 +3,15 @@ import { getDb } from "../db/schema";
 
 type MarkdownViewMode = "source" | "preview" | "split";
 type ReadingDensity = "cozy" | "compact";
+type EditorMode = "md" | "tiptap";
+type CodeBlockTheme =
+  | "github-dark"
+  | "github-light"
+  | "dracula"
+  | "monokai"
+  | "solarized-light"
+  | "one-dark"
+  | "nord";
 
 export interface SyncedUserPreferences {
   noteTitleAsAppTitle: boolean;
@@ -13,6 +22,9 @@ export interface SyncedUserPreferences {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  defaultEditorMode: EditorMode;
+  codeBlockTheme: CodeBlockTheme;
+  noteListTitleOnly: boolean;
 }
 
 type PreferenceKey = keyof SyncedUserPreferences;
@@ -46,10 +58,22 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  defaultEditorMode: "tiptap",
+  codeBlockTheme: "github-dark",
+  noteListTitleOnly: false,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
 const PREFERENCE_KEY_SET = new Set<string>(PREFERENCE_KEYS);
+const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
+  "github-dark",
+  "github-light",
+  "dracula",
+  "monokai",
+  "solarized-light",
+  "one-dark",
+  "nord",
+]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -67,12 +91,21 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "showNotesInNotebookTree":
     case "showNoteListUpdatedTime":
     case "enableNoteTabs":
+    case "noteListTitleOnly":
       return (typeof value === "boolean" ? value : fallback) as SyncedUserPreferences[K];
     case "readingDensity":
       return (value === "cozy" || value === "compact" ? value : fallback) as SyncedUserPreferences[K];
     case "markdownDefaultViewMode":
       return (
         value === "source" || value === "preview" || value === "split"
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
+    case "defaultEditorMode":
+      return (value === "md" || value === "tiptap" ? value : fallback) as SyncedUserPreferences[K];
+    case "codeBlockTheme":
+      return (
+        typeof value === "string" && CODE_BLOCK_THEMES.has(value as CodeBlockTheme)
           ? value
           : fallback
       ) as SyncedUserPreferences[K];
