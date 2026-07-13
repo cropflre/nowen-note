@@ -170,6 +170,19 @@ interface MarkdownEditorProps extends NoteEditorProps {
   onAIAssistant?: () => void;
 }
 
+export function normalizeMarkdownViewModeForMobile(
+  viewMode: MarkdownViewMode,
+  isMobile: boolean,
+): MarkdownViewMode {
+  return isMobile && viewMode === "split" ? "source" : viewMode;
+}
+
+function isMobileMarkdownViewport(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(max-width: 639px)").matches;
+}
+
 // ---------------------------------------------------------------------------
 // ��������С��ť + �ָ���
 // ---------------------------------------------------------------------------
@@ -399,7 +412,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // MARKDOWN-PREVIEW-MODE-01: 源码/预览/分屏模式
   const defaultViewMode = userPrefs.markdownDefaultViewMode;
-  const [viewMode, setViewMode] = useState<MarkdownViewMode>(defaultViewMode);
+  const [viewMode, setViewMode] = useState<MarkdownViewMode>(() =>
+    normalizeMarkdownViewModeForMobile(defaultViewMode, isMobileMarkdownViewport()),
+  );
   const [previewMarkdown, setPreviewMarkdown] = useState(() =>
     normalizeToMarkdown(note.content, note.contentText)
   );
@@ -410,6 +425,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   useEffect(() => {
     viewModeRef.current = viewMode;
   }, [viewMode]);
+
+  const setMarkdownViewMode = useCallback((nextViewMode: MarkdownViewMode) => {
+    const nextMode = normalizeMarkdownViewModeForMobile(nextViewMode, isMobileMarkdownViewport());
+    if (nextMode !== "source") {
+      const view = viewRef.current;
+      if (view) setPreviewMarkdown(view.state.doc.toString());
+    }
+    setViewMode(nextMode);
+  }, []);
 
   /**
    * ���༭�����һ���ɷ��� onUpdate �� markdown �ַ�����
@@ -1485,6 +1509,40 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             <Redo size={iconSize} />
           </ToolbarButton>
 
+          {/* MARKDOWN-MOBILE-PREVIEW-01: 预览入口前置，避免被横向工具栏遮挡。 */}
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-app-border sm:hidden">
+            <button
+              type="button"
+              onClick={() => setMarkdownViewMode("source")}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors",
+                viewMode === "source"
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary active:bg-app-hover",
+              )}
+              title={tr("markdown.view.source") || "源码"}
+              aria-label={tr("markdown.view.source") || "源码"}
+              aria-pressed={viewMode === "source"}
+            >
+              <FileCode size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarkdownViewMode("preview")}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors",
+                viewMode === "preview"
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary active:bg-app-hover",
+              )}
+              title={tr("markdown.view.preview") || "预览"}
+              aria-label={tr("markdown.view.preview") || "预览"}
+              aria-pressed={viewMode === "preview"}
+            >
+              <Eye size={14} />
+            </button>
+          </div>
+
           <ToolbarDivider />
 
           <ToolbarButton
@@ -1622,10 +1680,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )}
 
           {/* MARKDOWN-PREVIEW-MODE-01: 视图模式切换 */}
-          <div className="ml-auto flex items-center gap-0.5 rounded-md border border-app-border overflow-hidden">
+          <div className="ml-auto hidden items-center gap-0.5 overflow-hidden rounded-md border border-app-border sm:flex">
             <button
               type="button"
-              onClick={() => setViewMode("source")}
+              onClick={() => setMarkdownViewMode("source")}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "source"
@@ -1639,12 +1697,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
             <button
               type="button"
-              onClick={() => {
-                // 切换到预览时同步当前内容
-                const view = viewRef.current;
-                if (view) setPreviewMarkdown(view.state.doc.toString());
-                setViewMode("preview");
-              }}
+              onClick={() => setMarkdownViewMode("preview")}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "preview"
@@ -1658,12 +1711,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
             <button
               type="button"
-              onClick={() => {
-                // 切换到分屏时同步当前内容到预览
-                const view = viewRef.current;
-                if (view) setPreviewMarkdown(view.state.doc.toString());
-                setViewMode("split");
-              }}
+              onClick={() => setMarkdownViewMode("split")}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "split"
