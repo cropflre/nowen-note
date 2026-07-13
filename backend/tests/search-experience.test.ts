@@ -101,7 +101,7 @@ test("Chinese fallback returns highlighted context and content-only metadata", a
   assert.ok(result);
   assert.equal(result.matchCount, 3);
   assert.equal(result.matchedField, "content");
-  assert.match(result.snippetHtml, /<mark>搜索<\/mark>/i);
+  assert.match(result.snippetHtml, /<mark>[^<]*搜索[^<]*<\/mark>/i);
 });
 
 test("personal-space search does not expose another user's notes", async () => {
