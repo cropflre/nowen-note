@@ -8,7 +8,7 @@ function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
   return adapter ?? getDatabaseAdapter();
 }
 
-function resolveNowExpr(nowExpr?: string): string {
+function resolveAsyncNowExpr(nowExpr?: string): string {
   if (nowExpr) return nowExpr;
   try {
     return nowExpression(getDatabaseDialect());
@@ -28,7 +28,8 @@ export function createCustomFontsRepository(
   nowExpr?: string,
 ) {
   const getAdapter = () => resolveAdapter(adapter);
-  const getNowExpr = () => resolveNowExpr(nowExpr);
+  const syncNowExpr = nowExpr ?? nowExpression("sqlite");
+  const getAsyncNowExpr = () => resolveAsyncNowExpr(nowExpr);
 
   return {
     // ---- 同步方法（仅 SQLite） ----
@@ -92,7 +93,7 @@ export function createCustomFontsRepository(
       const db = getDb();
       db.prepare(
         `INSERT INTO custom_fonts (id, name, "fileName", format, "fileSize", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ${getNowExpr()})`,
+         VALUES (?, ?, ?, ?, ?, ${syncNowExpr})`,
       ).run(font.id, font.name, font.fileName, font.format, font.fileSize);
     },
 
@@ -159,7 +160,7 @@ export function createCustomFontsRepository(
     ): Promise<void> {
       await getAdapter().execute(
         `INSERT INTO custom_fonts (id, name, "fileName", format, "fileSize", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ${getNowExpr()})`,
+         VALUES (?, ?, ?, ?, ?, ${getAsyncNowExpr()})`,
         [font.id, font.name, font.fileName, font.format, font.fileSize],
       );
     },
@@ -172,8 +173,8 @@ export function createCustomFontsRepository(
     },
 
     async existsByFileNameAsync(fileName: string): Promise<boolean> {
-      const result = await getAdapter().queryOne<{ id: string }>(
-        'SELECT 1 FROM custom_fonts WHERE "fileName" = ? LIMIT 1',
+      const result = await getAdapter().queryOne<{ present: number }>(
+        'SELECT 1 AS present FROM custom_fonts WHERE "fileName" = ? LIMIT 1',
         [fileName],
       );
       return !!result;
