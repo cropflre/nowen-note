@@ -84,42 +84,7 @@ jobs:
           DB_DRIVER: sqlite
           DATABASE_URL: ""
           TEST_PG_DATABASE_URL: ""
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run test:serial 2>&1 | tee /tmp/sqlite-regression.log
-
-      - name: Diagnose remaining SQLite failures
-        if: failure()
-        env:
-          DB_DRIVER: sqlite
-          DATABASE_URL: ""
-          TEST_PG_DATABASE_URL: ""
-        shell: bash
-        run: |
-          set +e
-          : > /tmp/sqlite-failures.log
-          for file in \
-            api-tokens-repository-async.test.ts \
-            search-experience.test.ts \
-            siyuan-import-metadata.test.ts
-          do
-            echo "===== $file =====" | tee -a /tmp/sqlite-failures.log
-            node --import tsx --test "tests/$file" 2>&1 | tee -a /tmp/sqlite-failures.log
-            echo | tee -a /tmp/sqlite-failures.log
-          done
-          exit 0
-
-      - name: Upload SQLite regression diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-regression-${{ github.run_id }}
-          path: |
-            /tmp/sqlite-regression.log
-            /tmp/sqlite-failures.log
-          if-no-files-found: warn
-          retention-days: 7
+        run: npm run test:serial
 
       - name: Real PostgreSQL adapter and pilot tests
         run: >-
