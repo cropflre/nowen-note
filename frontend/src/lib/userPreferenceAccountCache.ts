@@ -128,13 +128,16 @@ export function readAccountPreferenceCache(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isObject(parsed) || parsed.version !== 2 || parsed.userId !== userId) return null;
+    const revision = typeof parsed.revision === "number" &&
+      Number.isInteger(parsed.revision) &&
+      parsed.revision >= 0
+      ? parsed.revision
+      : 0;
     return {
       version: 2,
       userId,
       prefs: normalizeUserPreferences(parsed.prefs),
-      revision: Number.isInteger(parsed.revision) && Number(parsed.revision) >= 0
-        ? Number(parsed.revision)
-        : 0,
+      revision,
       pending: sanitizeUserPreferencePatch(parsed.pending),
     };
   } catch {
