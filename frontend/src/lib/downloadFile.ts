@@ -1,3 +1,5 @@
+import { resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
+
 /**
  * downloadFile —— 通用附件下载工具
  * ---------------------------------------------------------------------------
@@ -30,7 +32,7 @@ export async function downloadAttachment(url: string, filename: string): Promise
   // 这会让浏览器复用预览缓存的响应，<a download> 在同源下也可能被绕过去预览，造成
   // "点了一下没反应、第二次才下载"的现象。带上 ?download=1 后服务器始终回 attachment，
   // 浏览器一次性、稳定地走下载流。
-  const downloadUrl = withDownloadFlag(url);
+  const downloadUrl = withDownloadFlag(resolveAttachmentAccessUrl(url));
 
   // 移动端统一走 fetch+blob：<a download> 在 iOS Safari 上基本不生效，
   // 直接导航到 URL 会打开预览而非下载。fetch+blob + objectURL 是移动端最可靠的方案。
