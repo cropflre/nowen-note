@@ -54,4 +54,26 @@ describe("ImageExperienceBridge 移动端图片菜单", () => {
     expect(document.body.textContent).toContain("删除图片");
     expect(document.body.textContent).toContain("原始");
   });
+
+  it("使用迷你密度减少移动端图片菜单占用空间", async () => {
+    await act(async () => {
+      root.render(<ImageExperienceBridge />);
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 30));
+    });
+
+    const sheet = document.querySelector<HTMLElement>('[data-nowen-image-density="mini"]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.querySelector('[data-nowen-image-visible-title="true"]')).toBeNull();
+
+    const primaryButton = sheet?.querySelector<HTMLElement>('[data-nowen-image-primary-action="true"]');
+    expect(primaryButton?.className).toContain("h-11");
+    expect(primaryButton?.className).toContain("text-[9px]");
+
+    const moreButton = sheet?.querySelector<HTMLButtonElement>('[data-nowen-image-more-trigger="true"]');
+    act(() => moreButton?.click());
+    const morePanel = sheet?.querySelector<HTMLElement>('[data-nowen-image-more-panel="true"]');
+    expect(morePanel?.className).toContain("p-2");
+  });
 });

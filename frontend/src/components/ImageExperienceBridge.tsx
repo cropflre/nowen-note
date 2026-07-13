@@ -15,7 +15,6 @@ import {
   RotateCw,
   Trash2,
   Upload,
-  X,
 } from "lucide-react";
 import {
   findMobileImageSheet,
@@ -372,36 +371,22 @@ export default function ImageExperienceBridge() {
       <button
         type="button"
         aria-label={isEnglishUi() ? "Close image actions" : "关闭图片操作"}
-        className="fixed inset-0 z-[69] cursor-default bg-black/20 backdrop-blur-[1px]"
+        className="fixed inset-0 z-[69] cursor-default bg-transparent"
         onClick={closeMobileSheet}
       />
       <section
         role="dialog"
         aria-modal="true"
         aria-label={isEnglishUi() ? "Image actions" : "图片操作"}
-        className="fixed inset-x-0 bottom-0 z-[70] overflow-y-auto rounded-t-2xl border-t border-app-border bg-app-elevated px-3 pt-2 shadow-[0_-12px_32px_rgba(15,23,42,0.18)]"
+        data-nowen-image-density="mini"
+        className="fixed inset-x-3 z-[70] mx-auto max-w-[420px] overflow-y-auto rounded-2xl border border-app-border bg-app-elevated p-2 shadow-[0_8px_28px_rgba(15,23,42,0.18)]"
         style={{
-          maxHeight: "min(42dvh, 360px)",
-          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          bottom: "max(0.5rem, env(safe-area-inset-bottom))",
+          maxHeight: "min(36dvh, 260px)",
         }}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-tx-tertiary/30" />
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold text-tx-primary">
-            {isEnglishUi() ? "Image actions" : "图片操作"}
-          </span>
-          <button
-            type="button"
-            className="rounded-lg p-2 text-tx-secondary active:bg-app-hover"
-            onClick={closeMobileSheet}
-            aria-label={isEnglishUi() ? "Close" : "关闭"}
-          >
-            <X size={17} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-5 gap-1">
           {[
             { index: 0, icon: ExternalLink, fallback: isEnglishUi() ? "View" : "查看大图" },
             { index: 1, icon: Download, fallback: isEnglishUi() ? "Download" : "下载图片" },
@@ -417,9 +402,9 @@ export default function ImageExperienceBridge() {
                 disabled={original?.disabled}
                 onClick={() => runOriginalImageAction(item.index)}
                 data-nowen-image-primary-action="true"
-                className="flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-app-border bg-app-surface px-1 py-2 text-[10px] leading-tight text-tx-secondary active:bg-app-hover disabled:opacity-40"
+                className="flex h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-app-border bg-app-surface px-0.5 text-[9px] leading-tight text-tx-secondary active:bg-app-hover disabled:opacity-40"
               >
-                <Icon size={17} />
+                <Icon size={15} />
                 <span className="max-w-full truncate">{buttonLabel(original, item.fallback)}</span>
               </button>
             );
@@ -429,30 +414,31 @@ export default function ImageExperienceBridge() {
             onClick={() => setMoreOpen((open) => !open)}
             data-nowen-image-primary-action="true"
             data-nowen-image-more-trigger="true"
-            className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[10px] leading-tight active:bg-app-hover ${moreOpen ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary"}`}
+            className={`flex h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border px-0.5 text-[9px] leading-tight active:bg-app-hover ${moreOpen ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary"}`}
             aria-expanded={moreOpen}
           >
-            <MoreHorizontal size={17} />
+            <MoreHorizontal size={15} />
             {isEnglishUi() ? "More" : "更多"}
           </button>
         </div>
 
         {moreOpen && (
           <div
-            className="mt-3 rounded-xl border border-app-border bg-app-hover/40 p-2.5"
+            className="mt-2 rounded-lg border border-app-border bg-app-hover/40 p-2"
             data-nowen-image-more-panel="true"
           >
-            <div className="mb-1.5 text-xs font-medium text-tx-tertiary">
-              {isEnglishUi() ? "Image size" : "图片尺寸"}
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+            <div
+              role="group"
+              aria-label={isEnglishUi() ? "Image size" : "图片尺寸"}
+              className="flex gap-1.5 overflow-x-auto hide-scrollbar"
+            >
               {mobileSheet.sizeButtons.map((button, index) => (
                 <button
                   key={index}
                   type="button"
                   disabled={button.disabled}
                   onClick={() => runOriginalSizeAction(index)}
-                  className="h-10 shrink-0 rounded-lg border border-app-border bg-app-surface px-3 text-xs text-tx-secondary active:bg-app-hover disabled:opacity-40"
+                  className="h-8 shrink-0 rounded-md border border-app-border bg-app-surface px-2.5 text-[11px] text-tx-secondary active:bg-app-hover disabled:opacity-40"
                 >
                   {buttonLabel(button, index === 4 ? (isEnglishUi() ? "Original" : "原始") : `${(index + 1) * 25}%`)}
                 </button>
@@ -461,21 +447,21 @@ export default function ImageExperienceBridge() {
 
             <div data-nowen-image-transform-slot="true" />
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => runOriginalImageAction(3)}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg border border-app-border bg-app-surface text-xs text-tx-secondary active:bg-app-hover"
+                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-secondary active:bg-app-hover"
               >
-                <Copy size={15} />
+                <Copy size={14} />
                 {buttonLabel(mobileSheet.actionButtons[3], isEnglishUi() ? "Copy address" : "复制图片地址")}
               </button>
               <button
                 type="button"
                 onClick={() => runOriginalImageAction(4)}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 text-xs text-red-500 active:bg-red-500/20"
+                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-[11px] text-red-500 active:bg-red-500/20"
               >
-                <Trash2 size={15} />
+                <Trash2 size={14} />
                 {buttonLabel(mobileSheet.actionButtons[4], isEnglishUi() ? "Delete" : "删除图片")}
               </button>
             </div>

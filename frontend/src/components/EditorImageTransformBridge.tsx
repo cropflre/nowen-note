@@ -170,7 +170,7 @@ function TransformButton({
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
       className={mobile
-        ? `flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-xs ${active ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary active:bg-app-hover"}`
+        ? `flex h-9 min-w-0 items-center justify-center gap-1 rounded-md border px-1.5 text-[11px] ${active ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary active:bg-app-hover"}`
         : `shrink-0 rounded-md p-1.5 transition-colors ${active ? "bg-accent-primary/20 text-accent-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"}`}
     >
       {children}
@@ -313,12 +313,11 @@ export default function EditorImageTransformBridge() {
   ) : null;
 
   const mobilePortal = target.mobileSheet ? createPortal(
-    <div className="mt-3" data-nowen-editor-image-transforms="true">
-      <div className="mb-1.5 text-xs font-medium text-tx-tertiary">{labels.group}</div>
-      <div className="grid grid-cols-3 gap-2">
-        <TransformButton mobile label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={16} />{isEnglishUi() ? "Left" : "左转"}</TransformButton>
-        <TransformButton mobile label={labels.right} onClick={() => rotate(90)}><RotateCw size={16} />{isEnglishUi() ? "Right" : "右转"}</TransformButton>
-        <TransformButton mobile label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={16} />{isEnglishUi() ? "Flip" : "翻转"}</TransformButton>
+    <div className="mt-2" data-nowen-editor-image-transforms="true" role="group" aria-label={labels.group}>
+      <div className="grid grid-cols-3 gap-1.5">
+        <TransformButton mobile label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} />{isEnglishUi() ? "Left" : "左转"}</TransformButton>
+        <TransformButton mobile label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} />{isEnglishUi() ? "Right" : "右转"}</TransformButton>
+        <TransformButton mobile label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} />{isEnglishUi() ? "Flip" : "翻转"}</TransformButton>
       </div>
     </div>,
     target.mobileSheet,
