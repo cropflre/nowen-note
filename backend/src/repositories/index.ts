@@ -23,6 +23,7 @@ export { userSessionsRepository } from "./userSessionsRepository";
 export { taskRemindersRepository } from "./taskRemindersRepository";
 export { taskProjectsRepository } from "./taskProjectsRepository";
 export { taskTemplatesRepository } from "./taskTemplatesRepository";
+export { taskTemplateApplyRepository } from "./taskTemplateApplyRepository";
 export { folderSyncFilesRepository } from "./folderSyncFilesRepository";
 export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
