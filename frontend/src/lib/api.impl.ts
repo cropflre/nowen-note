@@ -17,6 +17,10 @@ import {
 } from "@/lib/offlineRead";
 
 import { normalizeServerBaseUrl as _normalizeBase } from "@/lib/serverUrl";
+import {
+  registerAttachmentAccessUrls,
+  resolveAttachmentAccessUrl,
+} from "@/lib/noteAttachmentAccessBridge";
 
 // 服务器地址管理
 const SERVER_URL_KEY = "nowen-server-url";
@@ -476,15 +480,25 @@ function extractContentChunks(
  */
 export function resolveAttachmentUrl(src: string | null | undefined): string {
   if (!src) return "";
-  // 已经是绝对 URL 或 data / blob / file 协议，原样返回
-  if (/^(https?:|data:|blob:|file:|capacitor:)/i.test(src)) return src;
+  // 已经是绝对 URL 或 data / blob / file 协议时不补 origin；附件裸链仍需换成签名地址。
+  if (/^(https?:|data:|blob:|file:|capacitor:)/i.test(src)) {
+    return resolveAttachmentAccessUrl(src);
+  }
 
   const server = getServerUrl() || (typeof window !== "undefined" ? window.location.origin : "");
   const base = server.replace(/\/+$/, "");
 
   // 归一化：确保以 / 开头
   const normalized = src.startsWith("/") ? src : `/${src}`;
-  return `${base}${normalized}`;
+  return resolveAttachmentAccessUrl(`${base}${normalized}`);
+}
+
+interface AttachmentAccessResponse {
+  accessUrls?: Record<string, string>;
+}
+
+function registerAttachmentAccessResponse(payload: AttachmentAccessResponse | null | undefined): void {
+  registerAttachmentAccessUrls(payload?.accessUrls);
 }
 
 /**
@@ -2220,11 +2234,8 @@ export const api = {
   //   - "image" → 插 <img>
   //   - "file"  → 插「附件链接」（<a download="原文件名">📎 文件名 (大小)</a>）
   //
-  // 返回的 url 是**相对 URL**（/api/attachments/<id>），浏览器直接用作 img.src
-  // 能正确带上 Authorization（fetch）……不过 <img> 标签的 HTTP 请求不会带
-  // Authorization header。为此 attachments 下载接口不依赖 JWT，而是靠
-  // "noteId 的 read 权限"做 ACL；客户端本地（同源）可以直接访问。
-  // 若以后部署到不同域 + cookie 鉴权不可用，需改造为签名 URL。
+  // 返回的 url 是用于持久化的相对裸链；accessUrls 是仅供当前会话展示的短期签名。
+  // 前端先注册 accessUrls，再由渲染桥替换真实网络请求，避免把过期签名写进笔记。
   attachments: {
     /**
      * 上传一份附件（任意格式）。
@@ -2248,6 +2259,7 @@ export const api = {
       size: number;
       filename: string;
       category: "image" | "file";
+      accessUrls?: Record<string, string>;
     }> => {
       const token = getToken();
       const form = new FormData();
@@ -2262,7 +2274,9 @@ export const api = {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `附件上传失败: ${res.status}`);
       }
-      return res.json();
+      const payload = await res.json();
+      registerAttachmentAccessResponse(payload);
+      return payload;
     },
 
     /**
@@ -2631,11 +2645,17 @@ export const api = {
       const ws = getCurrentWorkspace();
       if (ws && ws !== "personal") qs.set("workspaceId", ws);
       const s = qs.toString();
-      return request<FileListResponse>(`/files${s ? `?${s}` : ""}`);
+      return request<FileListResponse>(`/files${s ? `?${s}` : ""}`).then((payload) => {
+        registerAttachmentAccessResponse(payload);
+        return payload;
+      });
     },
 
     /** 取单个文件详情，含反向引用的笔记列表。按 id 查，无需 workspaceId。 */
-    get: (id: string) => request<FileDetail>(`/files/${id}`),
+    get: (id: string) => request<FileDetail>(`/files/${id}`).then((payload) => {
+      registerAttachmentAccessResponse(payload);
+      return payload;
+    }),
 
     /** 删除单个附件（含磁盘文件）。会做 ACL 校验，被别的笔记引用也一并断链。 */
     remove: (id: string) =>
@@ -2695,7 +2715,9 @@ export const api = {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `文件上传失败: ${res.status}`);
       }
-      return res.json();
+      const payload = await res.json();
+      registerAttachmentAccessResponse(payload);
+      return payload;
     },
   },
 

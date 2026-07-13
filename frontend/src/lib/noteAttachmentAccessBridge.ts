@@ -36,8 +36,15 @@ export function extractAttachmentId(value: string | null | undefined): string | 
 export function mergeSignedAttachmentUrl(raw: string, signed: string): string {
   if (!raw || !signed) return raw;
   const rawUrl = asAbsoluteUrl(raw);
-  const signedUrl = asAbsoluteUrl(signed);
-  if (!rawUrl || !signedUrl) return signed;
+  if (!rawUrl) return signed;
+  let signedUrl: URL;
+  try {
+    // 服务端允许返回相对签名地址；客户端连接独立后端时应沿用裸链的后端 origin，
+    // 不能错误地解析到前端页面（或 capacitor://localhost）所在的 origin。
+    signedUrl = new URL(signed, rawUrl.origin);
+  } catch {
+    return signed;
+  }
 
   rawUrl.searchParams.forEach((value, key) => {
     if (!ACCESS_QUERY_KEYS.has(key) && !signedUrl.searchParams.has(key)) {

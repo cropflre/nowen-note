@@ -299,6 +299,8 @@ export interface FileItem {
   createdAt: string;
   category: FileCategory;
   url: string;
+  /** 当前会话展示使用的短期签名地址；持久化时仍使用 url 裸链。 */
+  accessUrls?: Record<string, string>;
   /**
    * v12：图片缩略图 URL（可选）。
    * - 仅 category === "image" 且 MIME 是 raster（png/jpeg/webp/bmp/gif）时由后端下发；
@@ -346,6 +348,8 @@ export interface FileDetail extends FileItem {
 
 export interface FileListResponse {
   items: FileItem[];
+  /** 本页附件对应的短期签名地址。 */
+  accessUrls?: Record<string, string>;
   total: number;
   page: number;
   pageSize: number;

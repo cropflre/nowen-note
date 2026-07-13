@@ -52,6 +52,7 @@ import { attachmentQueryService } from "../queries";
 import { resolveNotePermission, hasPermission } from "../middleware/acl";
 import { enqueueAttachment } from "../services/embedding-worker";
 import { verifySudoFromRequest } from "../lib/auth-security";
+import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs";
 import {
   checkAttachmentObjectExists,
@@ -631,6 +632,7 @@ app.post("/", async (c) => {
         filename: clone.filename,
         category: isImageMime(clone.mimeType) ? "image" : "file",
         deduplicated: true,
+        accessUrls: createUserAttachmentAccessUrls(userId, [{ id: clone.id, noteId }]),
       },
       201,
     );
@@ -689,6 +691,7 @@ app.post("/", async (c) => {
       filename: file.name || storagePath,
       // category 供前端决定「作为图片 <img> 还是附件链接 <a>」插入编辑器
       category: isImageMime(mime) ? "image" : "file",
+      accessUrls: createUserAttachmentAccessUrls(userId, [{ id, noteId }]),
     },
     201,
   );
