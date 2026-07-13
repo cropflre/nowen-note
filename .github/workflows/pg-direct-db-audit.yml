@@ -1,0 +1,56 @@
+name: PostgreSQL Direct DB Audit
+
+on:
+  push:
+    branches:
+      - issue-248-direct-db-audit
+    paths:
+      - "backend/src/**"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
+      - ".github/workflows/pg-direct-db-audit.yml"
+  pull_request:
+    paths:
+      - "backend/src/**"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
+      - ".github/workflows/pg-direct-db-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate direct access inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          node backend/scripts/audit-direct-db-access.mjs \
+            --write-baseline \
+            --report-json /tmp/direct-db-access-report.json \
+            --report-md /tmp/direct-db-access-report.md \
+            > /tmp/direct-db-access-console.txt
+
+      - name: Upload audit inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-db-access-${{ github.run_id }}
+          path: |
+            /tmp/direct-db-access-report.json
+            /tmp/direct-db-access-report.md
+            /tmp/direct-db-access-console.txt
+            backend/scripts/direct-db-access-baseline.json
+          if-no-files-found: error
+          retention-days: 7
