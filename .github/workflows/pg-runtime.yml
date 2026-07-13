@@ -75,13 +75,13 @@ jobs:
 
       - name: Runtime unit tests
         run: >-
-          node --import tsx --test
+          node --import tsx --test --test-concurrency=1
           tests/database-runtime.test.ts
           tests/repository-runtime-provider.test.ts
 
       - name: Real PostgreSQL adapter and pilot tests
         run: >-
-          node --import tsx --test
+          node --import tsx --test --test-concurrency=1
           tests/postgres-adapter.test.ts
           tests/system-settings-repository-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
