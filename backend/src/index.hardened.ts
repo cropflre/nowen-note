@@ -1,8 +1,7 @@
-// Install schema/route hardening before the main backend module evaluates.
-import "./runtime/task-stats-hardening.js";
 import { getDatabaseDriver, initializeDatabase } from "./db/runtime.js";
 
 async function bootstrap(): Promise<void> {
+  // Select and verify the database before importing modules with SQLite side effects.
   await initializeDatabase();
 
   if (getDatabaseDriver() === "postgres") {
@@ -10,6 +9,8 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  // index.ts imports task-stats-hardening before registering routes, preserving the
+  // existing SQLite startup order without evaluating it in PostgreSQL mode.
   await import("./index.js");
 }
 
