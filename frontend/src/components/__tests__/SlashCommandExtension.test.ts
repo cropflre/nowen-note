@@ -11,7 +11,13 @@ import {
 
 function dispatchTextInput(editor: Editor, text: string): boolean {
   const { from, to } = editor.state.selection;
-  return editor.view.someProp("handleTextInput", (handler) => handler(editor.view, from, to, text)) === true;
+  return editor.view.someProp("handleTextInput", (handler) => handler(
+    editor.view,
+    from,
+    to,
+    text,
+    () => editor.state.tr.insertText(text, from, to).scrollIntoView(),
+  )) === true;
 }
 
 function createEditor() {
