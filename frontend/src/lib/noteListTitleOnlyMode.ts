@@ -1,4 +1,5 @@
 const STORAGE_KEY = "nowen.noteList.titleOnly";
+const CHANGE_EVENT = "nowen:note-list-title-only-change";
 const BODY_CLASS = "note-list-title-only";
 const STYLE_ID = "nowen-note-list-title-only-style";
 const BUTTON_ATTR = "data-note-list-title-only-toggle";
@@ -14,6 +15,9 @@ function readEnabled(): boolean {
 
 function writeEnabled(value: boolean) {
   try { localStorage.setItem(STORAGE_KEY, String(value)); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent<boolean>(CHANGE_EVENT, { detail: value }));
+  } catch {}
 }
 
 function ensureStyle() {
@@ -80,12 +84,16 @@ function patchVirtualLists() {
   });
 }
 
+function refreshMode() {
+  applyBodyClass();
+  updateToggleLabels();
+  patchVirtualLists();
+}
+
 function toggleMode() {
   const next = !readEnabled();
   writeEnabled(next);
-  applyBodyClass(next);
-  updateToggleLabels();
-  patchVirtualLists();
+  refreshMode();
 }
 
 function shouldUseSortButton(button: HTMLButtonElement): boolean {
@@ -134,10 +142,9 @@ export function initNoteListTitleOnlyMode() {
   });
   window.addEventListener("storage", (event) => {
     if (event.key !== STORAGE_KEY) return;
-    applyBodyClass();
-    updateToggleLabels();
-    patchVirtualLists();
+    refreshMode();
   });
+  window.addEventListener(CHANGE_EVENT, refreshMode);
   window.addEventListener("resize", scheduleSync);
   document.addEventListener("scroll", scheduleSync, true);
 }
