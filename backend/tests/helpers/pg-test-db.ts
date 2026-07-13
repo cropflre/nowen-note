@@ -17,7 +17,7 @@ export async function getPgPool() {
 }
 
 function readPgSchema(schemaPath: string): string {
-  const source = readFileSync(schemaPath, "utf-8");
+  const source = readFileSync(schemaPath, "utf-8").replace(/^\\set.*$/gm, "");
   return source.replace(/^\\ir\s+(.+)$/gm, (_line, relativePath: string) => {
     const clean = relativePath.trim().replace(/^['"]|['"]$/g, "");
     return readFileSync(join(dirname(schemaPath), clean), "utf-8");
