@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-07-13T09:45:35.051Z",
+  "generatedAt": "2026-07-14T03:04:16.675Z",
   "entries": [
+    {
+      "version": "1.3.6",
+      "date": "2026-07-14",
+      "body": "### 🐛 修复\n\n- 完成版本冲突处理闭环并停止重复弹窗 (#274) (b10c2cb)\n- 简化全局同步状态，隐藏普通用户队列概念 (#275) (c222bfb)\n- 修复安卓主题切换抖动与图片旋转缩放 (#270) (7510060)"
+    },
     {
       "version": "1.3.5",
       "date": "2026-07-13",
@@ -45,11 +50,6 @@
       "version": "1.2.7",
       "date": "2026-07-06",
       "body": "### ✨ 新增\n\n- HTML 预览资源/大纲提取与编辑器联动优化 (8f46ae0)\n- 任务重复/到期计算、导入导出、编辑器与任务面板优化 (25c6050)"
-    },
-    {
-      "version": "1.2.6",
-      "date": "2026-07-06",
-      "body": "### ✨ 新增\n\n- add EditorSplitView component (e574cbd)\n- add NoteTabsBar and tab navigation system (b4dbfe9)\n- add SiYuan SY parser and enhance import service (7d5d4c9)\n- add SiYuan note import service (28cd137)\n\n### 🐛 修复\n\n- support manual note sorting (510bed7)\n- 修复安全设置、任务中心及分享笔记等问题 (8f2565d)\n- 优化登录页组件 (4c8be41)\n- 优化登录页组件与国际化 (797be4c)\n- 优化桌面端登录与导航组件 (539faf9)\n- 优化Electron构建、日记中心及笔记列表 (865dc02)\n- 优化笔记列表与标签页组件 (adec6f1)\n- improve NoteTabsBar and AppContext integration (6a589a8)\n- update Sidebar component (8b0ece9)\n- update DataManager and i18n (aea3ac0)\n- handle deleted notebooks in export/import flow (bf74ff9)\n- enhance SiYuan import media asset handling (dd1d64a)\n- improve SiYuan import service and i18n (ad29c60)"
     }
   ]
 }
