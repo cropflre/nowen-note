@@ -24,10 +24,24 @@
 
 const ATTACHMENT_PATH_PREFIXES = ["/api/attachments/", "/api/task-attachments/"];
 
+function isLoopbackHost(host: string): boolean {
+  const lowered = host.toLowerCase();
+  return lowered === "localhost"
+    || lowered.startsWith("localhost:")
+    || lowered.startsWith("127.")
+    || lowered.startsWith("0.0.0.0")
+    || lowered.startsWith("[::1]");
+}
+
 /**
  * 根据请求头推断 "公网访问本服务时" 应使用的 origin。
  * 优先使用反代/网关注入的 X-Forwarded-Proto / X-Forwarded-Host，
  * 退化到 Host 头并据 Host 自身格式猜测协议（127.x、localhost、:80 用 http，否则 https）。
+ *
+ * 重要：当只有 Host 且 Host 是 localhost / 127.0.0.1 / 0.0.0.0 时返回 null。
+ * 这通常是 NAS、隧道或 Docker 反代传给上游的内部地址，不是用户浏览器可访问的地址。
+ * 调用方此时应返回相对 URL，由客户端以真实 API 请求 origin 解析；绝不能把容器回环地址
+ * 签发给外部客户端，否则图片上传后刷新就会指向用户自己设备的 127.0.0.1。
  *
  * 返回形如 "https://notes.example.com"，不带末尾斜杠。
  * 解析失败返回 null，调用方应放弃改写并保持相对路径。
@@ -39,6 +53,10 @@ export function resolvePublicOrigin(getHeader: (name: string) => string | undefi
 
   const finalHost = xfHost || host;
   if (!finalHost) return null;
+
+  // 没有可信 forwarded host 时，回环 Host 只代表反代到容器的内部连接。
+  // 相对 URL 比错误的绝对 URL 安全，且 Web / Capacitor 客户端都能用自己的 API origin 补全。
+  if (!xfHost && isLoopbackHost(finalHost)) return null;
 
   let proto = xfProto;
   if (!proto) {
@@ -55,13 +73,8 @@ export function resolvePublicOrigin(getHeader: (name: string) => string | undefi
     const hasExplicitPort = /:\d+$/.test(lowered) && !lowered.endsWith(":443");
     const isIpLiteral = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(lowered)
       || lowered.startsWith("[");           // IPv6 字面量 [::1]:xxxx
-    const isLocal = lowered === "localhost"
-      || lowered.startsWith("localhost:")
-      || lowered.startsWith("127.")
-      || lowered.startsWith("0.0.0.0")
-      || lowered.startsWith("[::1]");
 
-    if (isLocal || isIpLiteral || hasExplicitPort) {
+    if (isLoopbackHost(lowered) || isIpLiteral || hasExplicitPort) {
       proto = "http";
     } else {
       proto = "https";
