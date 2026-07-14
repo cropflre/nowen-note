@@ -7,6 +7,7 @@ import {
   normalizeImageRotation,
   type ImageRotation,
 } from "@/lib/imageNodeTransformBootstrap";
+import { computeEditorImageTransformLayout } from "@/lib/editorImageTransformLayout";
 
 interface TiptapEditorLike {
   state: any;
@@ -26,8 +27,19 @@ interface ImageTarget {
   mobileSheet: HTMLElement | null;
 }
 
+const MOBILE_BACKDROP_SELECTOR = [
+  'button[aria-label="关闭图片操作"]',
+  'button[aria-label="Close image actions"]',
+].join(",");
+const originalBackdropPointerEvents = new WeakMap<HTMLButtonElement, string>();
+const imageLoadListeners = new WeakSet<HTMLImageElement>();
+
 function isEnglishUi(): boolean {
   return document.documentElement.lang?.toLowerCase().startsWith("en") ?? false;
+}
+
+function isCoarsePointer(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches === true;
 }
 
 function findDesktopImageToolbar(): HTMLElement | null {
@@ -78,38 +90,152 @@ function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileShee
   };
 }
 
-function applyWrapperTransform(wrapper: HTMLElement, rotation: ImageRotation, flipX: boolean): void {
-  const transform = getPersistentImageTransform(rotation, flipX);
-  if (wrapper.style.transform !== transform) wrapper.style.transform = transform;
-  if (wrapper.style.transformOrigin !== "center center") wrapper.style.transformOrigin = "center center";
+function positive(value: unknown): number | null {
+  const numeric = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function setStyle(element: HTMLElement, property: keyof CSSStyleDeclaration, value: string): void {
+  if (element.style[property] !== value) {
+    (element.style[property] as string) = value;
+  }
+}
+
+function availableImageWidth(wrapper: HTMLElement, fallback: number): number {
+  const parent = wrapper.parentElement;
+  const parentWidth = parent?.clientWidth
+    || wrapper.closest<HTMLElement>(".ProseMirror")?.clientWidth
+    || fallback;
+  const style = getComputedStyle(wrapper);
+  const margins = (positive(style.marginLeft) || 0) + (positive(style.marginRight) || 0);
+  return Math.max(1, parentWidth - margins);
+}
+
+/**
+ * Keep the editor's selection frame in normal document flow and rotate only the visual image.
+ * This prevents 90°/270° images from painting over the following paragraph, and keeps handles
+ * plus the live `px` badge readable instead of rotating them with the bitmap.
+ */
+export function applyImageTransformLayout(
+  wrapper: HTMLElement,
+  rotation: ImageRotation,
+  flipX: boolean,
+): boolean {
+  const image = wrapper.querySelector<HTMLImageElement>("img");
+  if (!image) return false;
+
+  const measuredWidth = image.offsetWidth;
+  const measuredHeight = image.offsetHeight;
+  const naturalWidth = image.naturalWidth
+    || positive(image.getAttribute("width"))
+    || measuredWidth;
+  const naturalHeight = image.naturalHeight
+    || (measuredWidth > 0 && measuredHeight > 0 && naturalWidth > 0
+      ? naturalWidth * measuredHeight / measuredWidth
+      : measuredHeight);
+
+  if (!naturalWidth || !naturalHeight) {
+    if (!imageLoadListeners.has(image)) {
+      imageLoadListeners.add(image);
+      image.addEventListener("load", () => {
+        imageLoadListeners.delete(image);
+        requestAnimationFrame(syncAllImageWrappers);
+      }, { once: true });
+    }
+    return false;
+  }
+
+  const attributeWidth = positive(image.getAttribute("width"));
+  let requestedWidth = attributeWidth
+    || positive(image.dataset.nowenRequestedImageWidth)
+    || measuredWidth
+    || naturalWidth;
+  if (!attributeWidth && !image.dataset.nowenRequestedImageWidth) {
+    image.dataset.nowenRequestedImageWidth = String(requestedWidth);
+  }
+
+  const layout = computeEditorImageTransformLayout({
+    requestedWidth,
+    naturalWidth,
+    naturalHeight,
+    availableWidth: availableImageWidth(wrapper, requestedWidth),
+    rotation,
+  });
+  if (!layout) return false;
+
   wrapper.dataset.imageRotation = String(rotation);
   wrapper.dataset.imageFlipX = flipX ? "true" : "false";
-  if (wrapper.style.transition !== "transform 160ms ease") {
-    wrapper.style.transition = "transform 160ms ease";
-  }
-  const sideways = rotation === 90 || rotation === 270;
+  wrapper.dataset.nowenRotationLayout = "frame";
+
+  // React's NodeView historically wrote the transform on this wrapper. Explicitly neutralize
+  // it because wrapper children include the selection outline, four handles and size tooltip.
+  setStyle(wrapper, "transform", "none");
+  setStyle(wrapper, "transformOrigin", "center center");
+  setStyle(wrapper, "transition", "none");
+  setStyle(wrapper, "width", `${layout.frameWidth}px`);
+  setStyle(wrapper, "height", `${layout.frameHeight}px`);
+  setStyle(wrapper, "maxWidth", "100%");
+  setStyle(wrapper, "overflow", "visible");
+  setStyle(wrapper, "verticalAlign", "middle");
+
+  const persistentTransform = getPersistentImageTransform(rotation, flipX);
+  const visualTransform = `translate(-50%, -50%)${persistentTransform ? ` ${persistentTransform}` : ""}`;
+  image.dataset.nowenImageVisual = "true";
+  setStyle(image, "position", "absolute");
+  setStyle(image, "left", "50%");
+  setStyle(image, "top", "50%");
+  setStyle(image, "width", `${layout.imageWidth}px`);
+  setStyle(image, "height", `${layout.imageHeight}px`);
+  setStyle(image, "maxWidth", "none");
+  setStyle(image, "transform", visualTransform);
+  setStyle(image, "transformOrigin", "center center");
+  setStyle(image, "transition", isCoarsePointer() ? "none" : "transform 160ms ease");
+
+  // Old bridge versions swapped cursors because the entire wrapper rotated. Handles are now
+  // axis-aligned, so restore their original cursor direction.
   wrapper.querySelectorAll<HTMLElement>('span[style*="resize"]').forEach((handle) => {
-    const current = handle.dataset.originalResizeCursor || handle.style.cursor;
-    if (!current) return;
-    if (!handle.dataset.originalResizeCursor) handle.dataset.originalResizeCursor = current;
-    const next = sideways
-      ? current === "nwse-resize" ? "nesw-resize" : current === "nesw-resize" ? "nwse-resize" : current
-      : current;
-    if (handle.style.cursor !== next) handle.style.cursor = next;
+    const original = handle.dataset.originalResizeCursor || handle.style.cursor;
+    if (!original) return;
+    handle.dataset.originalResizeCursor = original;
+    if (handle.style.cursor !== original) handle.style.cursor = original;
   });
+  return true;
 }
 
 function syncAllImageWrappers(): void {
   document.querySelectorAll<HTMLElement>(".resizable-image-wrapper").forEach((wrapper) => {
-    const desc = (wrapper as HTMLElement & {
-      pmViewDesc?: { node?: { type?: { name?: string }; attrs?: Record<string, unknown> } };
-    }).pmViewDesc;
-    if (desc?.node?.type?.name !== "image") return;
-    applyWrapperTransform(
+    applyImageTransformLayout(
       wrapper,
-      normalizeImageRotation(desc.node.attrs?.rotation),
-      normalizeImageFlipX(desc.node.attrs?.flipX),
+      normalizeImageRotation(wrapper.dataset.imageRotation),
+      normalizeImageFlipX(wrapper.dataset.imageFlipX),
     );
+  });
+}
+
+/**
+ * The compact Android image menu renders a transparent fixed backdrop above the editor.
+ * Let pointer/touch events pass through that backdrop so a visible resize handle works on the
+ * first drag. The action sheet itself remains interactive because it is a separate z-70 node.
+ */
+export function allowImageResizeThroughMobileBackdrop(root: ParentNode = document): number {
+  const backdrops = Array.from(root.querySelectorAll<HTMLButtonElement>(MOBILE_BACKDROP_SELECTOR));
+  backdrops.forEach((button) => {
+    if (!originalBackdropPointerEvents.has(button)) {
+      originalBackdropPointerEvents.set(button, button.style.pointerEvents || "");
+    }
+    button.dataset.nowenImageBackdropPassthrough = "true";
+    if (button.style.pointerEvents !== "none") button.style.pointerEvents = "none";
+  });
+  return backdrops.length;
+}
+
+function restoreMobileBackdropPointerCapture(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-nowen-image-backdrop-passthrough="true"]').forEach((button) => {
+    const original = originalBackdropPointerEvents.get(button) ?? "";
+    if (original) button.style.pointerEvents = original;
+    else button.style.removeProperty("pointer-events");
+    delete button.dataset.nowenImageBackdropPassthrough;
+    originalBackdropPointerEvents.delete(button);
   });
 }
 
@@ -186,26 +312,29 @@ export default function EditorImageTransformBridge() {
     syncAllImageWrappers();
     const selected = selectedImageTarget();
     if (!selected) {
+      restoreMobileBackdropPointerCapture();
       targetRef.current = null;
       setTarget(null);
       return;
     }
+
+    allowImageResizeThroughMobileBackdrop();
     const next: ImageTarget = {
       ...selected,
       desktopToolbar: findDesktopImageToolbar(),
       mobileSheet: findCompactMobileSheet(),
     };
-    applyWrapperTransform(next.wrapper, next.rotation, next.flipX);
+    applyImageTransformLayout(next.wrapper, next.rotation, next.flipX);
     if (next.desktopToolbar) positionDesktopToolbar(next.desktopToolbar, next.wrapper);
     const previous = targetRef.current;
-    const changed = !previous ||
-      previous.editor !== next.editor ||
-      previous.pos !== next.pos ||
-      previous.wrapper !== next.wrapper ||
-      previous.rotation !== next.rotation ||
-      previous.flipX !== next.flipX ||
-      previous.desktopToolbar !== next.desktopToolbar ||
-      previous.mobileSheet !== next.mobileSheet;
+    const changed = !previous
+      || previous.editor !== next.editor
+      || previous.pos !== next.pos
+      || previous.wrapper !== next.wrapper
+      || previous.rotation !== next.rotation
+      || previous.flipX !== next.flipX
+      || previous.desktopToolbar !== next.desktopToolbar
+      || previous.mobileSheet !== next.mobileSheet;
     targetRef.current = next;
     if (changed) setTarget(next);
   }, []);
@@ -213,26 +342,36 @@ export default function EditorImageTransformBridge() {
   useEffect(() => {
     let frame = 0;
     let attachedEditor: TiptapEditorLike | null = null;
+    let observedEditorDom: HTMLElement | null = null;
     const schedule = () => {
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(reconcile);
     };
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(schedule)
+      : null;
     const attachEditor = () => {
       const editorDom = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"]');
       const editor = (editorDom as (HTMLElement & { editor?: TiptapEditorLike }) | null)?.editor || null;
-      if (editor === attachedEditor) return;
-      if (attachedEditor) {
-        attachedEditor.off("selectionUpdate", schedule);
-        attachedEditor.off("transaction", schedule);
-        attachedEditor.off("focus", schedule);
-        attachedEditor.off("blur", schedule);
+      if (editor !== attachedEditor) {
+        if (attachedEditor) {
+          attachedEditor.off("selectionUpdate", schedule);
+          attachedEditor.off("transaction", schedule);
+          attachedEditor.off("focus", schedule);
+          attachedEditor.off("blur", schedule);
+        }
+        attachedEditor = editor;
+        if (attachedEditor) {
+          attachedEditor.on("selectionUpdate", schedule);
+          attachedEditor.on("transaction", schedule);
+          attachedEditor.on("focus", schedule);
+          attachedEditor.on("blur", schedule);
+        }
       }
-      attachedEditor = editor;
-      if (attachedEditor) {
-        attachedEditor.on("selectionUpdate", schedule);
-        attachedEditor.on("transaction", schedule);
-        attachedEditor.on("focus", schedule);
-        attachedEditor.on("blur", schedule);
+      if (editorDom !== observedEditorDom) {
+        if (observedEditorDom) resizeObserver?.unobserve(observedEditorDom);
+        observedEditorDom = editorDom;
+        if (observedEditorDom) resizeObserver?.observe(observedEditorDom);
       }
     };
     const observe = () => {
@@ -243,22 +382,36 @@ export default function EditorImageTransformBridge() {
       const handle = event.target instanceof HTMLElement ? event.target : null;
       if (!handle?.style.cursor.includes("resize")) return;
       const wrapper = handle.closest<HTMLElement>(".resizable-image-wrapper");
-      const transform = wrapper?.style.transform || "";
-      if (!wrapper || !transform) return;
-      // Existing NodeView drag code measures getBoundingClientRect().width. Temporarily remove
-      // rotation during the same pointer event so 90° images still resize from their real width.
-      wrapper.style.transform = "";
+      const image = wrapper?.querySelector<HTMLImageElement>('img[data-nowen-image-visual="true"]');
+      const transform = image?.style.transform || "";
+      if (!image || !transform) return;
+      const transition = image.style.transition;
+      // ResizableImageView reads getBoundingClientRect().width on pointer down. Remove only the
+      // bitmap transform during that synchronous event so it receives the unrotated image width.
+      image.style.transition = "none";
+      image.style.transform = "none";
       queueMicrotask(() => {
-        if (wrapper.isConnected) wrapper.style.transform = transform;
+        if (!image.isConnected) return;
+        image.style.transform = transform;
+        image.style.transition = transition;
       });
     };
+
     observe();
     const observer = new MutationObserver(observe);
     observer.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["class", "style", "aria-label"],
+      attributeFilter: [
+        "class",
+        "style",
+        "aria-label",
+        "width",
+        "src",
+        "data-image-rotation",
+        "data-image-flip-x",
+      ],
     });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
@@ -267,10 +420,12 @@ export default function EditorImageTransformBridge() {
     return () => {
       if (frame) cancelAnimationFrame(frame);
       observer.disconnect();
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       document.removeEventListener("mousedown", prepareResizeMeasurement, true);
       document.removeEventListener("touchstart", prepareResizeMeasurement, true);
+      restoreMobileBackdropPointerCapture();
       if (attachedEditor) {
         attachedEditor.off("selectionUpdate", schedule);
         attachedEditor.off("transaction", schedule);
