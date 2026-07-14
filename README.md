@@ -246,6 +246,14 @@ QQ 群：`1093473044`
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.3.6 - 2026-07-14
+
+### 🐛 修复
+
+- 完成版本冲突处理闭环并停止重复弹窗 (#274) (b10c2cb)
+- 简化全局同步状态，隐藏普通用户队列概念 (#275) (c222bfb)
+- 修复安卓主题切换抖动与图片旋转缩放 (#270) (7510060)
+
 ### v1.3.5 - 2026-07-13
 
 ### ✨ 新增
@@ -720,56 +728,5 @@ QQ 群：`1093473044`
 - remove unused issue #171 apply workflow (26dc740)
 - add one-shot PR trigger for issue #171 (659a4c2)
 - apply issue #171 implementation (8743075)
-
-### v1.3.1 - 2026-07-09
-
-### ✨ 新增
-
-- **editor**: 优化分屏拖拽 UI 并添加国际化支持 (b0fd101)
-- **editor**: 支持分屏宽度拖拽调整、GFM任务复选框交互，优化标题保存逻辑 (96fe728)
-- **editor**: 新增分屏拖拽和GFM任务复选框工具模块及测试 (da43c6f)
-- **notebooks**: support drag reorder and per-level sort in notebook tree (50eeb2b)
-- **notebooks**: add notebook tree sorting (c5b33ec)
-- **tasks**: support delayed quick-add reminders (ff023b7)
-- **editor**: add canvas image editor (62e627a)
-- **editor**: add image action toolbar (a4e62b1)
-- **tasks**: smart quick-add recognition (2e0ea40)
-- **import**: safely preserve advanced Siyuan rich-text nodes (62e10c2)
-- **import**: preserve Siyuan tables in rich-text import (19aab69)
-- **import**: improve Siyuan rich-text tiptap fidelity (696e2c4)
-- prompt for desktop data directory on first run (#168) (eab97d2)
-
-### 🐛 修复
-
-- **editor**: support line breaks in code blocks (d03a828)
-- **editor**: copy image address with origin (c9e0852)
-- **editor**: place image toolbar outside image (c179ae9)
-- **editor**: keep note sort menu content aligned (327f392)
-- **editor**: harden canvas image loading (57bf39c)
-- **editor**: guard image replace target (f60fd65)
-- **tasks**: require separators for smart recognition (a01d99c)
-- 优化思源包导入服务与测试 (a88eb1f)
-- guard siyuan zip entry and decompressed size budgets (4418a2c)
-- add upload size limits for siyuan package import (891953a)
-- keep backend bundle compatible with unzipper s3 helper (c3ed8c3)
-- **import**: surface siyuan downgrade report and clean temp artifacts (9d81832)
-- **import**: improve md rendering and downgrade reporting (a6c9781)
-- **import**: support RT/MD siyuan media rendering (0305b28)
-- **ci**: sync backend lockfile for npm ci (0b8551b)
-
-### ✅ 测试
-
-- cover backend siyuan package import (b5fe890)
-
-### 🔧 其他
-
-- 将开发期错误日志加入忽略列表 (84547a1)
-- commit all local changes (b80bc3b)
-
-### 📌 杂项
-
-- 功能: 新增用户偏好设置接口与前端集成 (37a24b2)
-- 功能: 接口层增加 Android 原生 HTTP 回退机制 (1a08701)
-- 功能: AI 设置面板新增自定义 API 预设并优化 Ollama 预设 (8682237)
 
 <!-- CHANGELOG:END -->
