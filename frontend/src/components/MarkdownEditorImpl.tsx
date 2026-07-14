@@ -983,6 +983,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         highlightActiveLine(),
         highlightSelectionMatches(),
         EditorView.lineWrapping,
+        EditorView.contentAttributes.of({ spellcheck: "false" }),
         placeholder(tr("tiptap.placeholder") || "��ʼд��ʲô..."),
 
         // MD �﷨ + �����Ƕ�׸���
@@ -1737,6 +1738,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           onCompositionStart={handleTitleCompositionStart}
           onCompositionEnd={handleTitleCompositionEnd}
           onKeyDown={handleTitleKeyDown}
+          spellCheck={false}
           readOnly={!editable}
           className="w-full bg-transparent outline-none text-2xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60"
         />

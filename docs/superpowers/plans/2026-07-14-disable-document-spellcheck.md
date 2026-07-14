@@ -24,7 +24,7 @@
 - 修改：`frontend/src/components/TiptapEditor.tsx:1847-1851,4585-4592`
 - 修改：`frontend/src/components/MarkdownEditorImpl.tsx:1040-1120,1732-1741`
 
-- [ ] **步骤 1：编写失败的回归测试**
+- [x] **步骤 1：编写失败的回归测试**
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -47,13 +47,13 @@ describe("editor spellcheck", () => {
 });
 ```
 
-- [ ] **步骤 2：运行测试并验证因缺少属性而失败**
+- [x] **步骤 2：运行测试并验证因缺少属性而失败**
 
 运行：`npm run test:run -- src/components/__tests__/EditorSpellcheck.test.ts`
 
 预期：2 个测试失败，分别报告缺少 `spellCheck={false}`、`spellcheck: "false"` 或 `EditorView.contentAttributes`。
 
-- [ ] **步骤 3：编写最少实现**
+- [x] **步骤 3：编写最少实现**
 
 在 Tiptap 的 `editorProps.attributes` 中加入：
 
@@ -79,19 +79,19 @@ EditorView.contentAttributes.of({ spellcheck: "false" }),
 spellCheck={false}
 ```
 
-- [ ] **步骤 4：运行新增测试并验证通过**
+- [x] **步骤 4：运行新增测试并验证通过**
 
 运行：`npm run test:run -- src/components/__tests__/EditorSpellcheck.test.ts`
 
 预期：1 个测试文件、2 个测试全部通过。
 
-- [ ] **步骤 5：运行前端构建**
+- [x] **步骤 5：运行前端构建**
 
 运行：`npm run build`
 
 预期：TypeScript 检查和 Vite 构建退出码为 0。
 
-- [ ] **步骤 6：检查差异并提交**
+- [x] **步骤 6：检查差异并提交**
 
 ```powershell
 git diff --check

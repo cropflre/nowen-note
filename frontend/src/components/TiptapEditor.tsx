@@ -1847,6 +1847,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editorProps: {
       attributes: {
         class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
+        spellcheck: "false",
       },
       clipboardTextSerializer: (slice) => serializeProseMirrorPlainText(slice.content),
       // 拦截 mailto: / tel: / sms: 链接的默认点击行为：
@@ -4589,6 +4590,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           onCompositionStart={handleTitleCompositionStart}
           onCompositionEnd={handleTitleCompositionEnd}
           placeholder={t('tiptap.titlePlaceholder')}
+          spellCheck={false}
           readOnly={!editable}
           className={cn(
             "w-full bg-transparent text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
