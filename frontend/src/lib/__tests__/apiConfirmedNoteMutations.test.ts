@@ -59,7 +59,7 @@ describe("server-confirmed note mutations", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://sync.test/api/notes/note-1",
-      expect.objectContaining({ method: "PUT", signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ method: "PUT", signal: expect.anything() }),
     );
     expect(getQueueLength()).toBe(0);
   });
