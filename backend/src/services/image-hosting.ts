@@ -6,7 +6,7 @@
  */
 
 import crypto from "crypto";
-import { getDb } from "../db/schema";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 const SETTING_KEY = "imageHosting:config";
 
@@ -133,9 +133,7 @@ function decryptSecret(encoded: string): string {
 
 function readPersistedConfig(): (ImageHostingConfig & { updatedAt: string | null }) | null {
   try {
-    const row = getDb()
-      .prepare("SELECT value, updatedAt FROM system_settings WHERE key = ?")
-      .get(SETTING_KEY) as { value: string; updatedAt: string } | undefined;
+    const row = systemSettingsRepository.get(SETTING_KEY);
     if (!row) return null;
     const parsed = JSON.parse(row.value || "{}") as Record<string, any>;
     return {
@@ -223,17 +221,13 @@ export function writeImageHostingConfig(input: WriteImageHostingConfigInput): Im
     allowedTypes: input.allowedTypes || ["image/png", "image/jpeg", "image/gif", "image/webp"],
   };
 
-  getDb().prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt
-  `).run(SETTING_KEY, JSON.stringify(config));
+  systemSettingsRepository.set(SETTING_KEY, JSON.stringify(config));
 
   return readImageHostingConfigPublic();
 }
 
 export function deleteImageHostingConfig(): ImageHostingConfigPublic {
-  getDb().prepare("DELETE FROM system_settings WHERE key = ?").run(SETTING_KEY);
+  systemSettingsRepository.delete(SETTING_KEY);
   return readImageHostingConfigPublic();
 }
 
