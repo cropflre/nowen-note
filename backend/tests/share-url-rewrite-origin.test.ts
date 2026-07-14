@@ -11,6 +11,11 @@ test("container loopback Host is never advertised as a public attachment origin"
   assert.equal(resolvePublicOrigin(headers({ host: "localhost:3001" })), null);
   assert.equal(resolvePublicOrigin(headers({ host: "0.0.0.0:3001" })), null);
   assert.equal(resolvePublicOrigin(headers({ host: "[::1]:3001" })), null);
+  assert.equal(resolvePublicOrigin(headers({
+    host: "notes.example.com",
+    "x-forwarded-host": "127.0.0.1:3001",
+    "x-forwarded-proto": "https",
+  })), null);
 });
 
 test("trusted reverse-proxy headers remain authoritative", () => {
