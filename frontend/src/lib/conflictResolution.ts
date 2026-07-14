@@ -6,10 +6,7 @@ import {
 } from "@/lib/offlineQueue";
 import { clearDraft, loadDraft } from "@/lib/draftStorage";
 import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
-import {
-  clearNoteSyncConflict,
-  runWithNoteConflictResolution,
-} from "@/lib/noteSyncSafety";
+import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
 export type ConflictResolutionChoice = "keep-local" | "use-server";
 
@@ -64,6 +61,30 @@ function formatConflictCopyTitle(title: string, now = new Date()): string {
   return `${title || "未命名笔记"}（冲突副本 ${stamp}）`;
 }
 
+/**
+ * Generate a stable RFC4122-shaped UUID from the queue item id. If a request reaches the server
+ * but the response is lost, a retry addresses the same copy instead of creating duplicates.
+ */
+export function getConflictCopyId(itemId: string): string {
+  const bytes = new Uint8Array(16);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let index = 0; index < itemId.length; index += 1) {
+    const code = itemId.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (code + index), 0x85ebca6b) >>> 0;
+  }
+  for (let index = 0; index < 16; index += 1) {
+    h1 = Math.imul(h1 ^ (h1 >>> 13), 0x5bd1e995) >>> 0;
+    h2 = Math.imul(h2 ^ (h2 >>> 15), 0x27d4eb2d) >>> 0;
+    bytes[index] = ((index % 2 === 0 ? h1 : h2) >>> ((index % 4) * 8)) & 0xff;
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function clearResolvedConflict(noteId: string): void {
   discardNoteQueueItems([noteId]);
   clearDraft(noteId);
@@ -76,18 +97,43 @@ async function keepLocalVersion(
   remote: Note,
   local: ConflictPayload,
 ): Promise<ConflictResolutionResult> {
-  const updated = await runWithNoteConflictResolution(item.noteId, () => api.updateNote(item.noteId, {
+  const updated = await api.updateNoteConfirmed(item.noteId, {
     title: local.title,
     content: local.content,
     contentText: local.contentText,
     contentFormat: local.contentFormat || remote.contentFormat,
     version: remote.version,
-  }));
+  });
   if (typeof updated.version !== "number" || updated.version <= remote.version) {
     throw new Error("服务器尚未确认此设备版本，请保持页面打开后重试。");
   }
   clearResolvedConflict(item.noteId);
   return { note: updated };
+}
+
+async function createOrLoadConflictCopy(
+  item: OfflineQueueItem,
+  remote: Note,
+  local: ConflictPayload,
+): Promise<Note> {
+  const copyId = getConflictCopyId(item.id);
+  try {
+    return await api.createNoteConfirmed({
+      id: copyId,
+      notebookId: remote.notebookId,
+      workspaceId: remote.workspaceId,
+      title: formatConflictCopyTitle(local.title),
+      content: local.content,
+      contentText: local.contentText,
+      contentFormat: local.contentFormat || remote.contentFormat,
+    });
+  } catch (error) {
+    const details = error as { status?: number; code?: string };
+    if (details.status !== 409 || details.code !== "NOTE_ID_CONFLICT") throw error;
+    // The previous request may have committed successfully while its response was lost. Because
+    // the id is deterministic for this conflict, loading it is safe and makes retry idempotent.
+    return api.getNote(copyId);
+  }
 }
 
 async function useServerVersion(
@@ -97,21 +143,7 @@ async function useServerVersion(
 ): Promise<ConflictResolutionResult> {
   let conflictCopy: Note | undefined;
   if (!sameContent(local, remote)) {
-    // The local copy must be acknowledged by the server before the conflict marker is removed.
-    // getNoteSlim does not fall back to IndexedDB, so it distinguishes a real server ACK from
-    // an optimistic offline create returned by the normal mutation queue.
-    conflictCopy = await api.createNote({
-      notebookId: remote.notebookId,
-      workspaceId: remote.workspaceId,
-      title: formatConflictCopyTitle(local.title),
-      content: local.content,
-      contentText: local.contentText,
-      contentFormat: local.contentFormat || remote.contentFormat,
-    });
-    const confirmedCopy = await api.getNoteSlim(conflictCopy.id);
-    if (!confirmedCopy?.id || confirmedCopy.id !== conflictCopy.id) {
-      throw new Error("本地冲突副本尚未得到服务器确认，请稍后重试。");
-    }
+    conflictCopy = await createOrLoadConflictCopy(item, remote, local);
   }
   clearResolvedConflict(item.noteId);
   return { note: remote, conflictCopy };
