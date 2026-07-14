@@ -15,13 +15,15 @@ test("workspace notebook transfer service delegates database access", () => {
   assert.doesNotMatch(serviceSource, /\.\.\/db\/schema/);
   assert.doesNotMatch(serviceSource, /\bgetDb\s*\(/);
   assert.doesNotMatch(serviceSource, /\.prepare\s*\(/);
+  assert.doesNotMatch(serviceSource, /\.transaction\s*\(/);
   assert.match(
     serviceSource,
-    /workspaceNotebookTransferRepository\.transaction\(\(\) =>/,
+    /workspaceNotebookTransferRepository\.runAtomically\(\(\) =>/,
   );
 });
 
 test("repository owns the complete transfer transaction and persistence", () => {
+  assert.match(repositorySource, /runAtomically<T>/);
   assert.match(repositorySource, /getDb\(\)\.transaction\(work\)\(\)/);
   assert.match(repositorySource, /INSERT INTO notebooks/);
   assert.match(repositorySource, /INSERT INTO notes/);
