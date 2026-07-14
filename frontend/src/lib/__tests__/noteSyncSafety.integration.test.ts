@@ -3,7 +3,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
 import { markOfflineNoteSnapshot, clearOfflineNoteSnapshot } from "@/lib/offlineRead";
-import { installNoteSyncSafety, NOTE_SYNC_PENDING_EVENT } from "@/lib/noteSyncSafety";
+import {
+  installNoteSyncSafety,
+  NOTE_SYNC_PENDING_EVENT,
+} from "@/lib/noteSyncSafety";
+import {
+  getQueue,
+  OFFLINE_QUEUE_CONFLICT_EVENT,
+} from "@/lib/offlineQueue";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__";
 const realGetNote = api.getNote;
@@ -98,6 +105,49 @@ describe("installed note sync safety", () => {
     expect(transportGet).toHaveBeenCalledTimes(1);
     expect(transportUpdate).not.toHaveBeenCalled();
     expect(localStorage.getItem("nowen-note-sync-conflicts:v1")).toContain("new server body");
+  });
+
+  it("pauses later writes after one conflict and only refreshes the preserved local payload", async () => {
+    const transportGet = vi.fn().mockResolvedValue(note(9, "new server body"));
+    const transportUpdate = vi.fn();
+    (api as any).getNote = transportGet;
+    (api as any).updateNote = transportUpdate;
+    markOfflineNoteSnapshot(note(4, "old cached body"));
+    installNoteSyncSafety();
+
+    const conflictEvents = vi.fn();
+    window.addEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, conflictEvents);
+    await expect(api.updateNote("note-1", {
+      version: 4,
+      title: "Title",
+      content: "first local body",
+      contentText: "first local body",
+      contentFormat: "markdown",
+    } as any)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+
+    await expect(api.updateNote("note-1", {
+      version: 4,
+      title: "Title",
+      content: "latest local body",
+      contentText: "latest local body",
+      contentFormat: "markdown",
+    } as any)).resolves.toMatchObject({
+      id: "note-1",
+      version: 9,
+      content: "latest local body",
+    });
+    window.removeEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, conflictEvents);
+
+    expect(transportGet).toHaveBeenCalledTimes(1);
+    expect(transportUpdate).not.toHaveBeenCalled();
+    expect(conflictEvents).toHaveBeenCalledTimes(1);
+    expect(getQueue()).toEqual([
+      expect.objectContaining({
+        noteId: "note-1",
+        conflict: true,
+        localPayload: expect.objectContaining({ content: "latest local body" }),
+      }),
+    ]);
   });
 
   it("blocks same-version writes when the cached base body differs from the server", async () => {
