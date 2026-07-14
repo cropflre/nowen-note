@@ -31,11 +31,22 @@ function isLoopbackHostname(hostname: string): boolean {
   return value === "localhost"
     || value === "0.0.0.0"
     || value === "::1"
+    || value === "[::1]"
     || value.startsWith("127.");
 }
 
 function isKnownNowenApiUrl(url: URL): boolean {
   return /\/api\/(?:notes|attachments|files|shared)(?:\/|$)/.test(url.pathname);
+}
+
+function currentWindowHttpOrigin(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const parsed = new URL(window.location.href);
+    return isHttpUrl(parsed) ? parsed.origin : "";
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -48,18 +59,25 @@ function isKnownNowenApiUrl(url: URL): boolean {
 export function rememberAttachmentApiOrigin(value: string | URL): string {
   const parsed = value instanceof URL ? value : asAbsoluteUrl(value);
   if (!isHttpUrl(parsed) || !isKnownNowenApiUrl(parsed)) return attachmentApiOrigin;
+
+  if (isLoopbackHostname(parsed.hostname)) {
+    const remembered = asAbsoluteUrl(attachmentApiOrigin);
+    if (remembered && isHttpUrl(remembered) && !isLoopbackHostname(remembered.hostname)) {
+      return attachmentApiOrigin;
+    }
+
+    // Web 页面本身运行在公网 / NAS origin 时，127.0.0.1 只可能是正文或反代泄漏的旧地址。
+    // Electron file:// 与 Capacitor 自定义协议没有 HTTP window origin，此时仍允许真实本地后端。
+    const windowOrigin = currentWindowHttpOrigin();
+    const windowUrl = asAbsoluteUrl(windowOrigin);
+    if (windowUrl && isHttpUrl(windowUrl) && !isLoopbackHostname(windowUrl.hostname)) {
+      attachmentApiOrigin = windowOrigin;
+      return attachmentApiOrigin;
+    }
+  }
+
   attachmentApiOrigin = parsed.origin;
   return attachmentApiOrigin;
-}
-
-function currentWindowHttpOrigin(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const parsed = new URL(window.location.href);
-    return isHttpUrl(parsed) ? parsed.origin : "";
-  } catch {
-    return "";
-  }
 }
 
 function trustedOriginFor(rawUrl?: URL | null): string {
