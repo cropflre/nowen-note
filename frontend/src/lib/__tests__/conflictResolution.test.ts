@@ -4,24 +4,25 @@ import type { OfflineQueueItem } from "@/lib/offlineQueue";
 
 const apiMock = vi.hoisted(() => ({
   getNote: vi.fn(),
-  getNoteSlim: vi.fn(),
-  updateNote: vi.fn(),
-  createNote: vi.fn(),
+  updateNoteConfirmed: vi.fn(),
+  createNoteConfirmed: vi.fn(),
 }));
 const discardNoteQueueItems = vi.hoisted(() => vi.fn());
 const clearDraft = vi.hoisted(() => vi.fn());
 const loadDraft = vi.hoisted(() => vi.fn());
 const clearOfflineNoteSnapshot = vi.hoisted(() => vi.fn());
 const clearNoteSyncConflict = vi.hoisted(() => vi.fn());
-const runWithNoteConflictResolution = vi.hoisted(() => vi.fn(async (_id: string, task: () => Promise<unknown>) => task()));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/offlineQueue", () => ({ discardNoteQueueItems }));
 vi.mock("@/lib/draftStorage", () => ({ clearDraft, loadDraft }));
 vi.mock("@/lib/offlineRead", () => ({ clearOfflineNoteSnapshot }));
-vi.mock("@/lib/noteSyncSafety", () => ({ clearNoteSyncConflict, runWithNoteConflictResolution }));
+vi.mock("@/lib/noteSyncSafety", () => ({ clearNoteSyncConflict }));
 
-import { resolveNoteConflict } from "@/lib/conflictResolution";
+import {
+  getConflictCopyId,
+  resolveNoteConflict,
+} from "@/lib/conflictResolution";
 
 function remoteNote(overrides: Partial<Note> = {}): Note {
   return {
@@ -41,6 +42,7 @@ function remoteNote(overrides: Partial<Note> = {}): Note {
     isLocked: 0,
     isArchived: 0,
     isTrashed: 0,
+    trashedAt: null,
     sortOrder: 0,
     ...overrides,
   } as Note;
@@ -82,22 +84,20 @@ describe("resolveNoteConflict", () => {
     vi.clearAllMocks();
     loadDraft.mockReturnValue(null);
     apiMock.getNote.mockResolvedValue(remoteNote());
-    apiMock.getNoteSlim.mockImplementation(async (id: string) => ({ id, version: 1 }));
   });
 
-  it("keeps the local version using the latest server revision and clears artifacts only after ACK", async () => {
+  it("keeps the local version using a non-queued confirmed write and clears only after ACK", async () => {
     const updated = remoteNote({
       title: "本地标题",
       content: "本地正文",
       contentText: "本地正文",
       version: 9,
     });
-    apiMock.updateNote.mockResolvedValue(updated);
+    apiMock.updateNoteConfirmed.mockResolvedValue(updated);
 
     await expect(resolveNoteConflict(conflictItem(), "keep-local")).resolves.toEqual({ note: updated });
 
-    expect(runWithNoteConflictResolution).toHaveBeenCalledWith("note-1", expect.any(Function));
-    expect(apiMock.updateNote).toHaveBeenCalledWith("note-1", expect.objectContaining({
+    expect(apiMock.updateNoteConfirmed).toHaveBeenCalledWith("note-1", expect.objectContaining({
       title: "本地标题",
       content: "本地正文",
       version: 8,
@@ -108,32 +108,55 @@ describe("resolveNoteConflict", () => {
   });
 
   it("does not clear a keep-local conflict until the server increments the revision", async () => {
-    apiMock.updateNote.mockResolvedValue(remoteNote({ version: 8 }));
+    apiMock.updateNoteConfirmed.mockResolvedValue(remoteNote({ version: 8 }));
 
     await expect(resolveNoteConflict(conflictItem(), "keep-local")).rejects.toThrow("服务器尚未确认");
     expect(discardNoteQueueItems).not.toHaveBeenCalled();
   });
 
-  it("creates and confirms a recoverable conflict copy before accepting the server version", async () => {
-    const copy = remoteNote({ id: "copy-1", title: "本地标题（冲突副本 2026-07-14 10:00）", version: 1 });
-    apiMock.createNote.mockResolvedValue(copy);
+  it("creates a recoverable conflict copy with a stable id before accepting the server version", async () => {
+    const item = conflictItem();
+    const copyId = getConflictCopyId(item.id);
+    const copy = remoteNote({ id: copyId, title: "本地标题（冲突副本 2026-07-14 10:00）", version: 1 });
+    apiMock.createNoteConfirmed.mockResolvedValue(copy);
 
-    const result = await resolveNoteConflict(conflictItem(), "use-server");
+    const result = await resolveNoteConflict(item, "use-server");
 
-    expect(apiMock.createNote).toHaveBeenCalledWith(expect.objectContaining({
+    expect(copyId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(getConflictCopyId(item.id)).toBe(copyId);
+    expect(apiMock.createNoteConfirmed).toHaveBeenCalledWith(expect.objectContaining({
+      id: copyId,
       notebookId: "book-1",
       title: expect.stringContaining("本地标题（冲突副本"),
       content: "本地正文",
     }));
-    expect(apiMock.getNoteSlim).toHaveBeenCalledWith("copy-1");
     expect(result.note.id).toBe("note-1");
     expect(result.conflictCopy).toBe(copy);
     expect(discardNoteQueueItems).toHaveBeenCalledWith(["note-1"]);
   });
 
-  it("keeps every local artifact when creating or confirming the conflict copy fails", async () => {
-    apiMock.createNote.mockResolvedValue(remoteNote({ id: "copy-1" }));
-    apiMock.getNoteSlim.mockRejectedValue(new Error("offline"));
+  it("recovers an already committed deterministic conflict copy after a lost response", async () => {
+    const item = conflictItem();
+    const copyId = getConflictCopyId(item.id);
+    const conflictError = Object.assign(new Error("duplicate"), {
+      status: 409,
+      code: "NOTE_ID_CONFLICT",
+    });
+    const existingCopy = remoteNote({ id: copyId, title: "已存在的冲突副本", version: 1 });
+    apiMock.createNoteConfirmed.mockRejectedValue(conflictError);
+    apiMock.getNote
+      .mockResolvedValueOnce(remoteNote())
+      .mockResolvedValueOnce(existingCopy);
+
+    const result = await resolveNoteConflict(item, "use-server");
+
+    expect(apiMock.getNote).toHaveBeenNthCalledWith(2, copyId);
+    expect(result.conflictCopy).toBe(existingCopy);
+    expect(discardNoteQueueItems).toHaveBeenCalledWith(["note-1"]);
+  });
+
+  it("keeps every local artifact when the confirmed copy write fails", async () => {
+    apiMock.createNoteConfirmed.mockRejectedValue(new Error("offline"));
 
     await expect(resolveNoteConflict(conflictItem(), "use-server")).rejects.toThrow("offline");
     expect(discardNoteQueueItems).not.toHaveBeenCalled();
