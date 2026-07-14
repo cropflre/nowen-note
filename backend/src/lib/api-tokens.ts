@@ -24,8 +24,11 @@
  */
 
 import crypto from "crypto";
-import type { Database as BetterSqliteDB } from "better-sqlite3";
-import { apiTokensRepository } from "../repositories";
+import {
+  apiTokenSchemaRepository,
+  apiTokensRepository,
+  type ApiTokenSchemaDatabase,
+} from "../repositories";
 
 export const API_TOKEN_PREFIX = "nkn_"; // "nowen note key"
 const TOKEN_RAW_BYTES = 32;
@@ -47,36 +50,9 @@ export function isValidScope(s: string): s is ApiTokenScope {
   return (API_TOKEN_SCOPES as readonly string[]).includes(s);
 }
 
-/** 建表（幂等） */
-export function initApiTokensTable(db: BetterSqliteDB) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS api_tokens (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL,
-      name TEXT NOT NULL,
-      tokenHash TEXT NOT NULL UNIQUE,
-      scopes TEXT NOT NULL DEFAULT '[]',  -- JSON array
-      expiresAt TEXT,                      -- NULL = never
-      lastUsedAt TEXT,
-      lastUsedIp TEXT,
-      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-      revokedAt TEXT,
-      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(userId, revokedAt);
-    CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(tokenHash);
-
-    -- 【使用量统计】按 (token, day) 聚合调用次数，远低于原始调用日志的存储开销。
-    -- day 统一用 UTC YYYY-MM-DD；90 天后由后台清理。
-    CREATE TABLE IF NOT EXISTS api_token_usage (
-      tokenId TEXT NOT NULL,
-      day TEXT NOT NULL,
-      count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (tokenId, day),
-      FOREIGN KEY (tokenId) REFERENCES api_tokens(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_api_token_usage_day ON api_token_usage(day);
-  `);
+/** 建表（幂等）；驱动级 exec 由 Repository 边界承接。 */
+export function initApiTokensTable(db: ApiTokenSchemaDatabase): void {
+  apiTokenSchemaRepository.initialize(db);
 }
 
 /**
@@ -85,7 +61,7 @@ export function initApiTokensTable(db: BetterSqliteDB) {
  * - day 用 UTC，避免服务器跨时区部署导致的漂移。
  * - 用 try/catch 包装，走错不影响主鉴权路径。
  */
-export function recordTokenUsage(db: BetterSqliteDB, tokenId: string): void {
+export function recordTokenUsage(_db: unknown, tokenId: string): void {
   try {
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
     apiTokensRepository.recordUsage(tokenId, today);
@@ -98,7 +74,7 @@ export function recordTokenUsage(db: BetterSqliteDB, tokenId: string): void {
  * 清理超过 retentionDays 天的 usage 数据（启动时 / 定期调用）。
  * 给 90 天额度已是 “多于任何选择期” 的冲量，避免表不限制增长。
  */
-export function pruneTokenUsage(db: BetterSqliteDB, retentionDays = 90): void {
+export function pruneTokenUsage(_db: unknown, retentionDays = 90): void {
   try {
     const cutoff = new Date(Date.now() - retentionDays * 86400_000)
       .toISOString()
@@ -136,7 +112,7 @@ export interface ResolvedApiToken {
  * 成功返回用户信息；失败返回 null。副作用：更新 lastUsedAt / lastUsedIp（节流：60s 一次）。
  */
 export function resolveApiToken(
-  db: BetterSqliteDB,
+  db: unknown,
   raw: string,
   ip?: string,
 ): ResolvedApiToken | null {
