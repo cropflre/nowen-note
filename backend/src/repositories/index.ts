@@ -23,6 +23,7 @@ export { favoritesRepository } from "./favoritesRepository";
 export { userSessionsRepository } from "./userSessionsRepository";
 export { userSecurityRepository } from "./userSecurityRepository";
 export { taskRemindersRepository } from "./taskRemindersRepository";
+export { taskReminderOperationsRepository } from "./taskReminderOperationsRepository";
 export { taskProjectsRepository } from "./taskProjectsRepository";
 export { taskTemplatesRepository } from "./taskTemplatesRepository";
 export { taskTemplateApplyRepository } from "./taskTemplateApplyRepository";
