@@ -4,6 +4,7 @@ import type { OfflineQueueItem } from "@/lib/offlineQueue";
 
 const apiMock = vi.hoisted(() => ({
   getNote: vi.fn(),
+  getNoteSlim: vi.fn(),
   updateNote: vi.fn(),
   createNote: vi.fn(),
 }));
@@ -81,6 +82,7 @@ describe("resolveNoteConflict", () => {
     vi.clearAllMocks();
     loadDraft.mockReturnValue(null);
     apiMock.getNote.mockResolvedValue(remoteNote());
+    apiMock.getNoteSlim.mockImplementation(async (id: string) => ({ id, version: 1 }));
   });
 
   it("keeps the local version using the latest server revision and clears artifacts only after ACK", async () => {
@@ -105,7 +107,14 @@ describe("resolveNoteConflict", () => {
     expect(clearNoteSyncConflict).toHaveBeenCalledWith("note-1");
   });
 
-  it("creates a recoverable conflict copy before accepting the server version", async () => {
+  it("does not clear a keep-local conflict until the server increments the revision", async () => {
+    apiMock.updateNote.mockResolvedValue(remoteNote({ version: 8 }));
+
+    await expect(resolveNoteConflict(conflictItem(), "keep-local")).rejects.toThrow("服务器尚未确认");
+    expect(discardNoteQueueItems).not.toHaveBeenCalled();
+  });
+
+  it("creates and confirms a recoverable conflict copy before accepting the server version", async () => {
     const copy = remoteNote({ id: "copy-1", title: "本地标题（冲突副本 2026-07-14 10:00）", version: 1 });
     apiMock.createNote.mockResolvedValue(copy);
 
@@ -116,15 +125,17 @@ describe("resolveNoteConflict", () => {
       title: expect.stringContaining("本地标题（冲突副本"),
       content: "本地正文",
     }));
+    expect(apiMock.getNoteSlim).toHaveBeenCalledWith("copy-1");
     expect(result.note.id).toBe("note-1");
     expect(result.conflictCopy).toBe(copy);
     expect(discardNoteQueueItems).toHaveBeenCalledWith(["note-1"]);
   });
 
-  it("keeps every local artifact when creating the conflict copy fails", async () => {
-    apiMock.createNote.mockRejectedValue(new Error("create failed"));
+  it("keeps every local artifact when creating or confirming the conflict copy fails", async () => {
+    apiMock.createNote.mockResolvedValue(remoteNote({ id: "copy-1" }));
+    apiMock.getNoteSlim.mockRejectedValue(new Error("offline"));
 
-    await expect(resolveNoteConflict(conflictItem(), "use-server")).rejects.toThrow("create failed");
+    await expect(resolveNoteConflict(conflictItem(), "use-server")).rejects.toThrow("offline");
     expect(discardNoteQueueItems).not.toHaveBeenCalled();
     expect(clearDraft).not.toHaveBeenCalled();
     expect(clearNoteSyncConflict).not.toHaveBeenCalled();
