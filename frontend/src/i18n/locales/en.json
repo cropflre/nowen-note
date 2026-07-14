@@ -2324,6 +2324,8 @@
     }
   },
   "note": {
+    "print": "Print",
+    "printFailed": "Unable to open the system print service",
     "exportAsPng": "Export as PNG",
     "exportAsJpg": "Export as JPG",
     "exportImageExporting": "Exporting image…",

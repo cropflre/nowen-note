@@ -1499,6 +1499,20 @@ async function buildPrintableHtml(note: {
 </html>`;
 }
 
+/** 打印当前笔记，浏览器与 Android 原生端共用同一份排版 HTML。 */
+export async function printNote(note: {
+  title: string;
+  content: string;
+  contentText: string;
+  contentFormat?: string;
+  createdAt: string;
+  updatedAt: string;
+}) {
+  const docHtml = await buildPrintableHtml(note);
+  const { requestNotePrint } = await import("./notePrintBridge");
+  return requestNotePrint(docHtml, note.title || i18n.t("common.untitledNote"));
+}
+
 /**
  * 把可打印 HTML 渲染到离屏 iframe，再用 html2canvas 截图 → jsPDF 按 A4 分页塞图，
  * 最终产出 PDF Blob。供纯浏览器 / Electron 降级路径使用。

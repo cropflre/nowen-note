@@ -65,7 +65,7 @@ import {
   type NotebookSortBy,
   type NotebookSortPref,
 } from "@/lib/notebookSort";
-import { SIDEBAR_TREE_INDENT, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
+import { SIDEBAR_TREE_INDENT, sidebarNotebookDisclosureChrome, sidebarNotebookPaddingLeft, sidebarNotebookRowPaddingY, sidebarNotebookShowsDragHandle, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
 
 const NOTEBOOK_SORT_STORAGE_KEY = "nowen.notebookTree.sort";
 const ROOT_NOTEBOOK_SORT_KEY = "__root__";
@@ -628,6 +628,7 @@ function NotebookItem({
     }
     return { top: 100, left: 100 };
   };
+  const disclosureChrome = sidebarNotebookDisclosureChrome(constrainWidth);
 
   return (
     <>
@@ -642,7 +643,7 @@ function NotebookItem({
         initial={{ opacity: 0, x: -8 }}
         animate={{ opacity: 1, x: 0 }}
         className={cn(
-          "relative flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors",
+          "relative flex items-center gap-1 px-2 rounded-md cursor-pointer text-sm group transition-colors",
           constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
           sortMenuOpenId === notebook.id && "z-[80]",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -651,7 +652,9 @@ function NotebookItem({
           isNoteDragOver && "outline outline-2 outline-accent-primary bg-accent-primary/10"
         )}
         style={{
-          paddingLeft: `${depth === 0 ? 8 : depth * SIDEBAR_TREE_INDENT + 20}px`,
+          paddingLeft: `${sidebarNotebookPaddingLeft(depth, constrainWidth)}px`,
+          paddingTop: `${sidebarNotebookRowPaddingY(constrainWidth)}px`,
+          paddingBottom: `${sidebarNotebookRowPaddingY(constrainWidth)}px`,
           minWidth: constrainWidth ? undefined : `${sidebarTreeRowMinWidth(depth)}px`,
         }}
         onClick={() => onSelect(notebook.id)}
@@ -716,7 +719,7 @@ function NotebookItem({
             style={{ left: `${(depth - 1) * SIDEBAR_TREE_INDENT + 35}px`, width: "14px" }}
           />
         )}
-        {(rowDraggable || dragHint) && (
+        {sidebarNotebookShowsDragHandle(constrainWidth) && (rowDraggable || dragHint) && (
           <GripVertical
             size={12}
             className={cn(
@@ -725,24 +728,33 @@ function NotebookItem({
             )}
           />
         )}
-        {hasExpandableContent ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggle(notebook.id); }}
-            className="p-0.5 rounded hover:bg-app-border transition-colors"
-          >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
-        ) : (
-          <span className="w-4" />
-        )}
-        <button
-          ref={iconRef}
-          onClick={(e) => { e.stopPropagation(); setShowIconPicker(true); }}
-          className="text-base hover:scale-125 transition-transform shrink-0"
-          title={t("sidebar.changeIcon")}
+        <span
+          className="flex items-center shrink-0"
+          style={{ columnGap: `${disclosureChrome.gap}px` }}
         >
-          {notebook.icon}
-        </button>
+          {hasExpandableContent ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggle(notebook.id); }}
+              className="flex items-center justify-center rounded hover:bg-app-border transition-colors shrink-0"
+              style={{ width: `${disclosureChrome.size}px`, height: `${disclosureChrome.size}px` }}
+            >
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          ) : (
+            <span
+              className="shrink-0"
+              style={{ width: `${disclosureChrome.size}px`, height: `${disclosureChrome.size}px` }}
+            />
+          )}
+          <button
+            ref={iconRef}
+            onClick={(e) => { e.stopPropagation(); setShowIconPicker(true); }}
+            className="text-base hover:scale-125 transition-transform shrink-0"
+            title={t("sidebar.changeIcon")}
+          >
+            {notebook.icon}
+          </button>
+        </span>
         <AnimatePresence>
           {showIconPicker && (
             <EmojiIconPicker
