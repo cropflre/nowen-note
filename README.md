@@ -246,6 +246,39 @@ QQ 群：`1093473044`
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.3.5 - 2026-07-13
+
+### ✨ 新增
+
+- 用户偏好跟随账号同步 (#209) (1cc78c6)
+- **移动端**: 优化图片操作菜单（任务 2/3） (bd6b701)
+
+### 🐛 修复
+
+- **Android**: 修复笔记列表轻触无响应 (f0ad5ce)
+- **search**: rebuild stale FTS index on upgrade (#212) (1d1ab84)
+- **search**: require explainable matches and cover metadata (#212) (a0bb18a)
+- **search**: normalize literal query terms (#212) (8e32aeb)
+- **移动端**: 提供 Markdown 预览入口 (b1da1f0)
+- **Markdown**: 渲染行内与块级公式 (e70c612)
+- **移动端**: 消除图片菜单切换闪烁 (04b3629)
+- **移动端**: 兼容通用编辑器选区类型（任务 3/3） (ed0a91c)
+- **移动端**: 保持图片操作菜单可见（任务 1/3） (3749ece)
+
+### 📝 文档
+
+- **移动端**: 记录图片菜单实现计划 (c633e03)
+- **移动端**: 记录图片操作菜单设计 (c51c5fe)
+
+### 💄 样式
+
+- **移动端**: 缩小图片操作面板 (6f77dc6)
+
+### ✅ 测试
+
+- **search**: cover query normalization (#212) (b6168da)
+- **search**: cover reliable full-text retrieval (#212) (ee6ddde)
+
 ### v1.3.4 - 2026-07-13
 
 ### 🐛 修复
@@ -738,9 +771,5 @@ QQ 群：`1093473044`
 - 功能: 新增用户偏好设置接口与前端集成 (37a24b2)
 - 功能: 接口层增加 Android 原生 HTTP 回退机制 (1a08701)
 - 功能: AI 设置面板新增自定义 API 预设并优化 Ollama 预设 (8682237)
-
-### v1.3.0 - 2026-07-07
-
-_本版本无可展示的 commit 变更（可能全部是合并 / 工作流修改）_
 
 <!-- CHANGELOG:END -->
