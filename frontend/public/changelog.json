@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-07-13T07:12:34.053Z",
+  "generatedAt": "2026-07-13T09:45:35.051Z",
   "entries": [
+    {
+      "version": "1.3.5",
+      "date": "2026-07-13",
+      "body": "### ✨ 新增\n\n- 用户偏好跟随账号同步 (#209) (1cc78c6)\n- **移动端**: 优化图片操作菜单（任务 2/3） (bd6b701)\n\n### 🐛 修复\n\n- **Android**: 修复笔记列表轻触无响应 (f0ad5ce)\n- **search**: rebuild stale FTS index on upgrade (#212) (1d1ab84)\n- **search**: require explainable matches and cover metadata (#212) (a0bb18a)\n- **search**: normalize literal query terms (#212) (8e32aeb)\n- **移动端**: 提供 Markdown 预览入口 (b1da1f0)\n- **Markdown**: 渲染行内与块级公式 (e70c612)\n- **移动端**: 消除图片菜单切换闪烁 (04b3629)\n- **移动端**: 兼容通用编辑器选区类型（任务 3/3） (ed0a91c)\n- **移动端**: 保持图片操作菜单可见（任务 1/3） (3749ece)\n\n### 📝 文档\n\n- **移动端**: 记录图片菜单实现计划 (c633e03)\n- **移动端**: 记录图片操作菜单设计 (c51c5fe)\n\n### 💄 样式\n\n- **移动端**: 缩小图片操作面板 (6f77dc6)\n\n### ✅ 测试\n\n- **search**: cover query normalization (#212) (b6168da)\n- **search**: cover reliable full-text retrieval (#212) (ee6ddde)"
+    },
     {
       "version": "1.3.4",
       "date": "2026-07-13",
@@ -45,11 +50,6 @@
       "version": "1.2.6",
       "date": "2026-07-06",
       "body": "### ✨ 新增\n\n- add EditorSplitView component (e574cbd)\n- add NoteTabsBar and tab navigation system (b4dbfe9)\n- add SiYuan SY parser and enhance import service (7d5d4c9)\n- add SiYuan note import service (28cd137)\n\n### 🐛 修复\n\n- support manual note sorting (510bed7)\n- 修复安全设置、任务中心及分享笔记等问题 (8f2565d)\n- 优化登录页组件 (4c8be41)\n- 优化登录页组件与国际化 (797be4c)\n- 优化桌面端登录与导航组件 (539faf9)\n- 优化Electron构建、日记中心及笔记列表 (865dc02)\n- 优化笔记列表与标签页组件 (adec6f1)\n- improve NoteTabsBar and AppContext integration (6a589a8)\n- update Sidebar component (8b0ece9)\n- update DataManager and i18n (aea3ac0)\n- handle deleted notebooks in export/import flow (bf74ff9)\n- enhance SiYuan import media asset handling (dd1d64a)\n- improve SiYuan import service and i18n (ad29c60)"
-    },
-    {
-      "version": "1.2.5",
-      "date": "2026-07-03",
-      "body": "### ✨ 新增\n\n- 添加笔记本创建笔记功能 (6fe2abd)\n- 添加任务日期 SQL 模块和附件 API 测试 (34b9ccd)\n- add task calendar feed settings (6934d39)\n\n### 🐛 修复\n\n- 修复任务日历订阅带时间事件无法显示 (08b33b6)\n- update Capacitor config (8ffe1a1)\n\n### 📝 文档\n\n- clarify arm64 docker and desktop support status (e59b3ee)\n\n### 📦 构建\n\n- add experimental linux arm64 desktop packaging entry (f86ff27)\n\n### 📌 杂项\n\n- Fix packaged app startup and client connectivity (f9befe7)"
     }
   ]
 }
