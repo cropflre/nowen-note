@@ -18,6 +18,7 @@ export { aclQueryRepository } from "./aclQueryRepository";
 export { auditRepository } from "./auditRepository";
 export { webhookRepository } from "./webhookRepository";
 export { yjsPersistenceRepository } from "./yjsPersistenceRepository";
+export { workspaceNotebookTransferRepository } from "./workspaceNotebookTransferRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
