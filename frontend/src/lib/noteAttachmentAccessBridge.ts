@@ -4,6 +4,7 @@ const INSTALL_KEY = "__NOWEN_NOTE_ATTACHMENT_ACCESS_BRIDGE_V1__";
 const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACCESS_QUERY_KEYS = new Set(["exp", "sig", "scope"]);
 const accessUrls = new Map<string, string>();
+let attachmentApiOrigin = "";
 let scanQueued = false;
 let lastDeniedToastAt = 0;
 
@@ -12,11 +13,67 @@ interface AccessUrlPayload {
   urls?: Record<string, string>;
 }
 
-function asAbsoluteUrl(value: string): URL | null {
+function asAbsoluteUrl(value: string, base?: string): URL | null {
   try {
-    return new URL(value, typeof window !== "undefined" ? window.location.href : "http://localhost/");
+    const fallback = typeof window !== "undefined" ? window.location.href : "http://localhost/";
+    return new URL(value, base || fallback);
   } catch {
     return null;
+  }
+}
+
+function isHttpUrl(url: URL | null): url is URL {
+  return !!url && (url.protocol === "http:" || url.protocol === "https:");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const value = hostname.toLowerCase();
+  return value === "localhost"
+    || value === "0.0.0.0"
+    || value === "::1"
+    || value.startsWith("127.");
+}
+
+function isKnownNowenApiUrl(url: URL): boolean {
+  return /\/api\/(?:notes|attachments|files|shared)(?:\/|$)/.test(url.pathname);
+}
+
+/**
+ * 记住本次页面真实访问的 API origin。
+ *
+ * 不能使用签名响应里的绝对地址作为真相：NAS / Docker 反代经常把上游 Host 设为
+ * 127.0.0.1:3001，后端若据此生成绝对 URL，外部浏览器会错误访问自己的回环地址。
+ * 真实请求 URL 才是客户端实际可达的来源。
+ */
+export function rememberAttachmentApiOrigin(value: string | URL): string {
+  const parsed = value instanceof URL ? value : asAbsoluteUrl(value);
+  if (!isHttpUrl(parsed) || !isKnownNowenApiUrl(parsed)) return attachmentApiOrigin;
+  attachmentApiOrigin = parsed.origin;
+  return attachmentApiOrigin;
+}
+
+function currentWindowHttpOrigin(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const parsed = new URL(window.location.href);
+    return isHttpUrl(parsed) ? parsed.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function trustedOriginFor(rawUrl?: URL | null): string {
+  if (attachmentApiOrigin) return attachmentApiOrigin;
+  if (rawUrl && isHttpUrl(rawUrl) && !isLoopbackHostname(rawUrl.hostname)) return rawUrl.origin;
+  return currentWindowHttpOrigin() || (rawUrl && isHttpUrl(rawUrl) ? rawUrl.origin : "");
+}
+
+function moveUrlToOrigin(url: URL, origin: string): URL {
+  if (!origin) return url;
+  try {
+    return new URL(`${url.pathname}${url.search}${url.hash}`, `${origin.replace(/\/+$/, "")}/`);
+  } catch {
+    return url;
   }
 }
 
@@ -29,6 +86,26 @@ export function extractAttachmentId(value: string | null | undefined): string | 
   return ATTACHMENT_ID_RE.test(id) ? id : null;
 }
 
+function normalizeRegisteredAccessUrl(
+  id: string,
+  value: string,
+  sourceUrl?: string | URL,
+): string | null {
+  let trustedOrigin = attachmentApiOrigin;
+  if (sourceUrl) {
+    trustedOrigin = rememberAttachmentApiOrigin(sourceUrl);
+  }
+
+  const sourceBase = trustedOrigin ? `${trustedOrigin}/` : undefined;
+  let parsed = asAbsoluteUrl(value, sourceBase);
+  if (!parsed || extractAttachmentId(parsed.toString()) !== id) return null;
+
+  // 签名绑定的是 attachmentId + exp + scope，不绑定 host。即使服务端错误返回
+  // http://127.0.0.1:3001，也必须把 path/query 搬到发起该接口请求的真实 origin。
+  if (trustedOrigin) parsed = moveUrlToOrigin(parsed, trustedOrigin);
+  return parsed.toString();
+}
+
 /**
  * 将原 URL 上的功能参数（download/inline/w 等）合并到服务端签发的访问 URL。
  * exp/sig/scope 始终以服务端最新版本为准，因此权限上下文切换或续签后旧 URL 会被替换。
@@ -37,13 +114,12 @@ export function mergeSignedAttachmentUrl(raw: string, signed: string): string {
   if (!raw || !signed) return raw;
   const rawUrl = asAbsoluteUrl(raw);
   if (!rawUrl) return signed;
-  let signedUrl: URL;
-  try {
-    // 服务端允许返回相对签名地址；客户端连接独立后端时应沿用裸链的后端 origin，
-    // 不能错误地解析到前端页面（或 capacitor://localhost）所在的 origin。
-    signedUrl = new URL(signed, rawUrl.origin);
-  } catch {
-    return signed;
+
+  const trustedOrigin = trustedOriginFor(rawUrl);
+  let signedUrl = asAbsoluteUrl(signed, trustedOrigin ? `${trustedOrigin}/` : rawUrl.origin);
+  if (!signedUrl) return signed;
+  if (trustedOrigin && extractAttachmentId(signedUrl.toString())) {
+    signedUrl = moveUrlToOrigin(signedUrl, trustedOrigin);
   }
 
   rawUrl.searchParams.forEach((value, key) => {
@@ -55,12 +131,24 @@ export function mergeSignedAttachmentUrl(raw: string, signed: string): string {
   return signedUrl.toString();
 }
 
-export function registerAttachmentAccessUrls(urls: Record<string, string> | null | undefined): number {
+/**
+ * 注册附件签名映射。
+ * sourceUrl 应传产生该响应的真实 API 请求 URL；相对签名和错误的容器内网绝对地址
+ * 都会被规范到这个 origin。旧调用方不传时，使用最近一次已观察到的 API origin。
+ */
+export function registerAttachmentAccessUrls(
+  urls: Record<string, string> | null | undefined,
+  sourceUrl?: string | URL,
+): number {
   if (!urls) return 0;
+  if (sourceUrl) rememberAttachmentApiOrigin(sourceUrl);
+
   let count = 0;
   for (const [id, url] of Object.entries(urls)) {
     if (!ATTACHMENT_ID_RE.test(id) || typeof url !== "string" || !url.includes("sig=")) continue;
-    accessUrls.set(id, url);
+    const normalized = normalizeRegisteredAccessUrl(id, url, sourceUrl);
+    if (!normalized) continue;
+    accessUrls.set(id, normalized);
     count += 1;
   }
   if (count > 0) queueDomScan();
@@ -71,7 +159,32 @@ export function resolveAttachmentAccessUrl(raw: string): string {
   const id = extractAttachmentId(raw);
   if (!id) return raw;
   const signed = accessUrls.get(id);
-  return signed ? mergeSignedAttachmentUrl(raw, signed) : raw;
+  if (signed) return mergeSignedAttachmentUrl(raw, signed);
+
+  // 旧正文可能已被污染为 http://127.0.0.1:3001/api/attachments/...
+  // 即使签名映射尚未返回，只要本会话已经观察到真实 API origin，就先修正 host。
+  const parsed = asAbsoluteUrl(raw);
+  if (
+    parsed
+    && attachmentApiOrigin
+    && isLoopbackHostname(parsed.hostname)
+    && parsed.origin !== attachmentApiOrigin
+  ) {
+    return moveUrlToOrigin(parsed, attachmentApiOrigin).toString();
+  }
+  return raw;
+}
+
+/** 测试隔离；生产代码无需调用。 */
+export function resetAttachmentAccessStateForTests(): void {
+  accessUrls.clear();
+  attachmentApiOrigin = "";
+  scanQueued = false;
+  lastDeniedToastAt = 0;
+}
+
+function isEditableDocumentElement(element: Element): boolean {
+  return Boolean(element.closest('[contenteditable="true"], .ProseMirror'));
 }
 
 function rewriteElementAttribute(element: Element, attribute: string): void {
@@ -98,6 +211,9 @@ function rewriteSrcset(element: Element): void {
 }
 
 function rewriteElement(element: Element): void {
+  // 编辑器正文必须继续持有稳定 `/api/attachments/<id>`，不能把会过期的签名 URL
+  // 写入 ProseMirror DOM。各 NodeView 在渲染时自行调用 resolveAttachmentUrl。
+  if (isEditableDocumentElement(element)) return;
   rewriteElementAttribute(element, "src");
   rewriteElementAttribute(element, "href");
   rewriteElementAttribute(element, "poster");
@@ -176,6 +292,7 @@ async function fetchAccessUrls(
   credentials: RequestCredentials,
 ): Promise<void> {
   try {
+    rememberAttachmentApiOrigin(url);
     const response = await originalFetch(url.toString(), {
       method: "GET",
       headers,
@@ -184,7 +301,7 @@ async function fetchAccessUrls(
     });
     if (!response.ok) return;
     const payload = await response.json() as AccessUrlPayload;
-    registerAttachmentAccessUrls(payload.urls);
+    registerAttachmentAccessUrls(payload.urls, url);
   } catch (error) {
     console.warn("[attachment-access] failed to refresh signed URLs", error);
   }
@@ -233,7 +350,7 @@ async function showAttachmentDenied(response: Response): Promise<void> {
  * 安装附件访问桥：
  * 1. 打开普通/协作笔记时，使用当前 JWT 换取按用户 scope 签名的附件 URL；
  * 2. 打开公开分享时，在正文计数前先换取按 share scope 签名的 URL；
- * 3. 不改写笔记 JSON/Markdown，只在 DOM 属性和真实 fetch 请求发出前替换 URL，
+ * 3. 不改写笔记 JSON/Markdown，只在非编辑态 DOM 属性和真实 fetch 请求发出前替换 URL，
  *    因此编辑保存、导出和同步仍保留原始 `/api/attachments/<id>`。
  */
 export function installNoteAttachmentAccessBridge(): void {
@@ -249,6 +366,7 @@ export function installNoteAttachmentAccessBridge(): void {
     const url = requestUrl(input);
     const method = requestMethod(input, init);
     if (!url) return originalFetch(input, init);
+    if (isKnownNowenApiUrl(url)) rememberAttachmentApiOrigin(url);
 
     // fetch 下载、Android blob 图片、音视频预览等请求统一换成当前有效签名。
     if (method === "GET" && extractAttachmentId(url.toString())) {
