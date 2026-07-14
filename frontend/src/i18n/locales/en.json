@@ -627,6 +627,8 @@
     "closeAll": "Close all tabs",
     "noTitle": "Untitled note",
     "openedTabs": "Open notes",
+    "allOpenedTabs": "All open tabs",
+    "openedTabCount": "{{count}} open tabs",
     "closeOtherTabs": "Close other tabs",
     "closeTabsToRight": "Close tabs to the right",
     "closeTabsToLeft": "Close tabs to the left",
