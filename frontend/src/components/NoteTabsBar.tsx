@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, FileCode, FileText, Folder, List, Lock, Pin, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -123,6 +123,7 @@ export default function NoteTabsBar() {
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const createNotebookMenuRef = useRef<HTMLDivElement | null>(null);
   const tabListMenuRef = useRef<HTMLDivElement | null>(null);
+  const tabListTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = useRef(false);
 
   const notebookOptions = useMemo(() => {
@@ -363,6 +364,7 @@ export default function NoteTabsBar() {
       if (createMenuRef.current?.contains(event.target as Node)) return;
       if (createNotebookMenuRef.current?.contains(event.target as Node)) return;
       if (tabListMenuRef.current?.contains(event.target as Node)) return;
+      if (tabListTriggerRef.current?.contains(event.target as Node)) return;
       setContextMenu(null);
       setCreateMenu(null);
       setCreateNotebookMenu(null);
@@ -374,6 +376,9 @@ export default function NoteTabsBar() {
         setCreateMenu(null);
         setCreateNotebookMenu(null);
         setTabListMenu(null);
+        if (tabListMenu) {
+          window.requestAnimationFrame(() => tabListTriggerRef.current?.focus());
+        }
       }
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -387,6 +392,13 @@ export default function NoteTabsBar() {
   useEffect(() => {
     if (contextMenu && !targetTab) setContextMenu(null);
   }, [contextMenu, targetTab]);
+
+  useLayoutEffect(() => {
+    if (!tabListMenu) return;
+    const activeItem = tabListMenuRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]');
+    const firstItem = tabListMenuRef.current?.querySelector<HTMLButtonElement>("[data-note-tab-id]");
+    (activeItem || firstItem)?.focus();
+  }, [tabListMenu]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -545,6 +557,7 @@ export default function NoteTabsBar() {
       <div className="pointer-events-none w-8 bg-gradient-to-r from-transparent to-app-surface/80" />
       <div className="flex shrink-0 items-center border-l border-app-border/70 px-1">
         <button
+          ref={tabListTriggerRef}
           type="button"
           className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
           onClick={(event) => {
@@ -559,7 +572,7 @@ export default function NoteTabsBar() {
           }}
           aria-label={t("editorTabs.allOpenedTabs")}
           title={t("editorTabs.openedTabCount", { count: openNoteTabs.length })}
-          aria-haspopup="menu"
+          aria-haspopup="dialog"
           aria-expanded={!!tabListMenu}
         >
           <List size={14} />
@@ -628,7 +641,9 @@ export default function NoteTabsBar() {
           ref={tabListMenuRef}
           className="fixed z-[80] w-72 overflow-hidden rounded-xl border border-app-border bg-white shadow-xl dark:bg-zinc-950"
           style={{ left: tabListMenuX, top: tabListMenuY }}
-          role="menu"
+          role="dialog"
+          aria-modal="false"
+          aria-label={t("editorTabs.allOpenedTabs")}
           data-testid="note-tabs-switcher"
         >
           <div className="border-b border-app-border px-3 py-2 text-xs font-medium text-tx-tertiary">
@@ -653,7 +668,6 @@ export default function NoteTabsBar() {
                       setTabListMenu(null);
                       void openNote(tab.id);
                     }}
-                    role="menuitem"
                     aria-current={active ? "page" : undefined}
                     data-note-tab-id={tab.id}
                     title={title}
