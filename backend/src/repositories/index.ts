@@ -13,6 +13,7 @@ export { serverInstanceRepository } from "./serverInstanceRepository";
 export { customFontsRepository } from "./customFontsRepository";
 export { apiTokensRepository } from "./apiTokensRepository";
 export { apiTokenSchemaRepository } from "./apiTokenSchemaRepository";
+export { authSecurityRepository } from "./authSecurityRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
@@ -74,5 +75,6 @@ export type {
   UpdateTagInput,
 } from "./types";
 export type { ApiTokenSchemaDatabase } from "./apiTokenSchemaRepository";
+export type { AuthSecurityDatabase } from "./authSecurityRepository";
 export type { AiCustomPromptRecord } from "./aiCustomPromptsRepository";
 export type { NoteVersionListItem, NoteVersionRecord } from "./noteVersionsRepository";
