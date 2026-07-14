@@ -644,6 +644,8 @@
     "closeAll": "关闭全部标签",
     "noTitle": "无标题笔记",
     "openedTabs": "已打开笔记",
+    "allOpenedTabs": "全部已打开标签",
+    "openedTabCount": "已打开 {{count}} 个标签",
     "closeOtherTabs": "关闭其他标签",
     "closeTabsToRight": "关闭右侧标签",
     "closeTabsToLeft": "关闭左侧标签",
