@@ -6,140 +6,369 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const filePath = path.resolve(here, "../src/services/workspaceNotebookTransfer.ts");
 let source = fs.readFileSync(filePath, "utf8");
 
-function exact(from, to, label) {
-  if (!source.includes(from)) throw new Error(`missing expected fragment: ${label}`);
-  source = source.replace(from, to);
+const oldImports = `import type Database from "better-sqlite3";
+import { getDb } from "../db/schema";
+import { getUserWorkspaceRole, hasPermission, hasRole, resolveNotebookPermission } from "../middleware/acl";
+import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
+import { syncNoteLinks } from "../lib/noteLinks";`;
+const newImports = `import { getUserWorkspaceRole, hasPermission, hasRole, resolveNotebookPermission } from "../middleware/acl";
+import { workspaceNotebookTransferRepository } from "../repositories/workspaceNotebookTransferRepository";`;
+if (!source.includes(oldImports)) {
+  throw new Error("workspaceNotebookTransfer.ts imports no longer match expected source");
 }
+source = source.replace(oldImports, newImports);
+source = source.replace(
+  'import { ensureAttachmentsDir, getAttachmentsDir, getUploadMonthPath } from "./attachment-storage";',
+  'import { ensureAttachmentsDir, getUploadMonthPath } from "./attachment-storage";',
+);
 
-function regex(pattern, to, label) {
-  const matches = source.match(pattern);
-  if (!matches || matches.length !== 1) {
-    throw new Error(`${label}: expected one match, got ${matches?.length || 0}`);
+const treePattern = /function collectNotebookTree\([\s\S]*?\n}\n\n(?=function copyAttachmentFile)/;
+const treeMatches = source.match(treePattern);
+if (!treeMatches || treeMatches.length !== 1) {
+  throw new Error(`collectNotebookTree: expected one block, got ${treeMatches?.length || 0}`);
+}
+source = source.replace(
+  treePattern,
+  `function collectNotebookTree(source: NotebookRow): NotebookRow[] {
+  const all = workspaceNotebookTransferRepository.listPersonalNotebooks<NotebookRow>(source.userId);
+  const byParent = new Map<string | null, NotebookRow[]>();
+  for (const nb of all) {
+    const list = byParent.get(nb.parentId ?? null) || [];
+    list.push(nb);
+    byParent.set(nb.parentId ?? null, list);
   }
-  source = source.replace(pattern, to);
+
+  const out: NotebookRow[] = [];
+  const visit = (nb: NotebookRow) => {
+    out.push(nb);
+    const children = (byParent.get(nb.id) || []).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    for (const child of children) visit(child);
+  };
+  visit(source);
+  return out;
 }
 
-exact(
-  'import type Database from "better-sqlite3";\nimport { getDb } from "../db/schema";',
-  'import { workspaceNotebookTransferRepository } from "../repositories/workspaceNotebookTransferRepository";',
-  "database imports",
-);
-exact(
-  'import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";\nimport { syncNoteLinks } from "../lib/noteLinks";\n',
-  "",
-  "reference helper imports",
+`,
 );
 
-exact(
-  `function collectNotebookTree(db: Database.Database, source: NotebookRow): NotebookRow[] {\n  const all = db\n    .prepare("SELECT * FROM notebooks WHERE userId = ? AND workspaceId IS NULL AND isDeleted = 0")\n    .all(source.userId) as NotebookRow[];`,
-  `function collectNotebookTree(source: NotebookRow): NotebookRow[] {\n  const all = workspaceNotebookTransferRepository.listPersonalNotebooks<NotebookRow>(source.userId);`,
-  "collect notebook tree",
-);
+const functionStart = source.indexOf("export function copyPersonalNotebookToWorkspace(");
+if (functionStart < 0) {
+  throw new Error("copyPersonalNotebookToWorkspace function not found");
+}
 
-exact("  const db = getDb();\n", "", "root database handle");
-exact(
-  "    const result = db.transaction(() => {",
-  "    const result = workspaceNotebookTransferRepository.transaction(() => {",
-  "transaction start",
-);
-exact("    })();\n", "    });\n", "transaction end");
+const replacement = `export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput): CopyPersonalNotebookResult {
+  const mode = input.mode || "copy";
+  if (mode === "move") {
+    fail(400, "MOVE_NOT_SUPPORTED", "mode move is not supported yet");
+  }
+  if (mode !== "copy") {
+    fail(400, "INVALID_MODE", "mode must be copy");
+  }
+  if (input.includeVersions === true) {
+    fail(400, "VERSIONS_NOT_SUPPORTED", "includeVersions is not supported in V1");
+  }
+  if (!input.targetWorkspaceId) {
+    fail(400, "TARGET_WORKSPACE_REQUIRED", "targetWorkspaceId is required");
+  }
 
-exact(
-  `      const source = db\n        .prepare("SELECT * FROM notebooks WHERE id = ?")\n        .get(input.sourceNotebookId) as NotebookRow | undefined;`,
-  `      const source = workspaceNotebookTransferRepository.findNotebook<NotebookRow>(\n        input.sourceNotebookId,\n      );`,
-  "source notebook query",
-);
-exact(
-  `        const parent = db\n          .prepare("SELECT id, workspaceId, isDeleted FROM notebooks WHERE id = ?")\n          .get(targetParentId) as { id: string; workspaceId: string | null; isDeleted: number } | undefined;`,
-  `        const parent = workspaceNotebookTransferRepository.findTargetParent<{\n          id: string;\n          workspaceId: string | null;\n          isDeleted: number;\n        }>(targetParentId);`,
-  "target parent query",
-);
-exact(
-  "      const notebookTree = collectNotebookTree(db, source);",
-  "      const notebookTree = collectNotebookTree(source);",
-  "notebook tree call",
-);
+  const actorUserId = input.actorUserId;
+  const targetWorkspaceId = input.targetWorkspaceId;
+  const includeTags = input.includeTags !== false;
+  const includeAttachments = input.includeAttachments !== false;
+  const targetParentId = input.targetParentId ?? null;
+  const createdFiles: string[] = [];
 
-regex(
-  /\n      const insertNotebook = db\.prepare\(`\n        INSERT INTO notebooks[\s\S]*?\n      `\);\n      for \(const nb of notebookTree\) \{\n        const newId = notebookIdMap\.get\(nb\.id\)!;\n        const newParentId = nb\.id === source\.id \? targetParentId : notebookIdMap\.get\(nb\.parentId \|\| ""\) \|\| null;\n        insertNotebook\.run\(\n          newId,\n          actorUserId,\n          targetWorkspaceId,\n          newParentId,\n          nb\.name,\n          nb\.description,\n          nb\.icon,\n          nb\.color,\n          nb\.sortOrder \|\| 0,\n          nb\.isExpanded \?\? 1,\n        \);\n      \}/,
-  `\n      for (const nb of notebookTree) {\n        const newId = notebookIdMap.get(nb.id)!;\n        const newParentId = nb.id === source.id ? targetParentId : notebookIdMap.get(nb.parentId || "") || null;\n        workspaceNotebookTransferRepository.insertNotebook({\n          id: newId,\n          userId: actorUserId,\n          workspaceId: targetWorkspaceId,\n          parentId: newParentId,\n          name: nb.name,\n          description: nb.description,\n          icon: nb.icon,\n          color: nb.color,\n          sortOrder: nb.sortOrder || 0,\n          isExpanded: nb.isExpanded ?? 1,\n        });\n      }`,
-  "notebook inserts",
-);
+  try {
+    return workspaceNotebookTransferRepository.transaction(() => {
+      const warnings: string[] = [];
+      const sourceNotebook = workspaceNotebookTransferRepository.findNotebook<NotebookRow>(
+        input.sourceNotebookId,
+      );
+      if (!sourceNotebook || sourceNotebook.isDeleted === 1) {
+        fail(404, "SOURCE_NOTEBOOK_NOT_FOUND", "source notebook not found");
+      }
+      if (sourceNotebook.workspaceId !== null) {
+        fail(400, "SOURCE_MUST_BE_PERSONAL", "source notebook must be in personal workspace");
+      }
+      if (sourceNotebook.userId !== actorUserId) {
+        fail(403, "SOURCE_FORBIDDEN", "source notebook is not owned by actor");
+      }
 
-regex(
-  /      const oldNotebookIds = notebookTree\.map\(\(nb\) => nb\.id\);\n      const notebookPlaceholders = oldNotebookIds\.map\(\(\) => "\?"\)\.join\(","\);\n      const sourceNotes = oldNotebookIds\.length\n        \? db[\s\S]*?\n        : \[\];/,
-  `      const oldNotebookIds = notebookTree.map((nb) => nb.id);\n      const sourceNotes = workspaceNotebookTransferRepository.listSourceNotes<NoteRow>(\n        oldNotebookIds,\n        actorUserId,\n      );`,
-  "source notes query",
-);
+      const targetRole = getUserWorkspaceRole(targetWorkspaceId, actorUserId);
+      if (!hasRole(targetRole, "editor")) {
+        fail(403, "TARGET_WORKSPACE_FORBIDDEN", "target workspace requires editor permission");
+      }
 
-regex(
-  /        const oldNoteIds = sourceNotes\.map\(\(n\) => n\.id\);\n        const notePlaceholders = oldNoteIds\.map\(\(\) => "\?"\)\.join\(","\);\n        const rows = db\n          \.prepare\(`SELECT \* FROM attachments WHERE noteId IN \(\$\{notePlaceholders\}\)`\)\n          \.all\(\.\.\.oldNoteIds\) as AttachmentRow\[\];/,
-  `        const oldNoteIds = sourceNotes.map((n) => n.id);\n        const rows = workspaceNotebookTransferRepository.listAttachmentsByNoteIds<AttachmentRow>(\n          oldNoteIds,\n        );`,
-  "attachments query",
-);
+      if (targetParentId) {
+        const parent = workspaceNotebookTransferRepository.findTargetParent<{
+          id: string;
+          workspaceId: string | null;
+          isDeleted: number;
+        }>(targetParentId);
+        if (!parent || parent.isDeleted === 1) {
+          fail(404, "TARGET_PARENT_NOT_FOUND", "target parent notebook not found");
+        }
+        if ((parent.workspaceId || null) !== targetWorkspaceId) {
+          fail(400, "TARGET_PARENT_WORKSPACE_MISMATCH", "target parent must belong to target workspace");
+        }
+        const parentPerm = resolveNotebookPermission(targetParentId, actorUserId);
+        if (!hasPermission(parentPerm.permission, "write")) {
+          fail(403, "TARGET_PARENT_FORBIDDEN", "target parent requires write permission");
+        }
+      }
 
-regex(
-  /\n      const insertAttachment = db\.prepare\(`\n        INSERT INTO attachments[\s\S]*?\n      `\);\n/,
-  "\n",
-  "attachment statement",
-);
+      const notebookTree = collectNotebookTree(sourceNotebook);
+      const notebookIdMap = new Map<string, string>();
+      const noteIdMap = new Map<string, string>();
+      const attachmentIdMap = new Map<string, string>();
+      const tagIdMap = new Map<string, string>();
 
-regex(
-  /\n      const insertNote = db\.prepare\(`\n        INSERT INTO notes[\s\S]*?\n      `\);\n      for \(const item of pendingNotes\) \{\n        insertNote\.run\(\n          item\.newId,\n          actorUserId,\n          targetWorkspaceId,\n          notebookIdMap\.get\(item\.oldNote\.notebookId\)!,\n          item\.oldNote\.title,\n          item\.content,\n          item\.contentText,\n          item\.oldNote\.contentFormat \|\| "tiptap-json",\n          item\.oldNote\.isPinned \|\| 0,\n          item\.oldNote\.sortOrder \|\| 0,\n        \);\n      \}/,
-  `\n      for (const item of pendingNotes) {\n        workspaceNotebookTransferRepository.insertNote({\n          id: item.newId,\n          userId: actorUserId,\n          workspaceId: targetWorkspaceId,\n          notebookId: notebookIdMap.get(item.oldNote.notebookId)!,\n          title: item.oldNote.title,\n          content: item.content,\n          contentText: item.contentText,\n          contentFormat: item.oldNote.contentFormat || "tiptap-json",\n          isPinned: item.oldNote.isPinned || 0,\n          sortOrder: item.oldNote.sortOrder || 0,\n        });\n      }`,
-  "note inserts",
-);
+      for (const notebook of notebookTree) {
+        notebookIdMap.set(notebook.id, uuid());
+      }
 
-regex(
-  /      for \(const att of pendingAttachments\) \{\n        insertAttachment\.run\(\n          att\.id,\n          att\.noteId,\n          actorUserId,\n          att\.filename,\n          att\.mimeType,\n          att\.size,\n          att\.path,\n          targetWorkspaceId,\n          att\.hash,\n        \);\n      \}/,
-  `      for (const att of pendingAttachments) {\n        workspaceNotebookTransferRepository.insertAttachment({\n          ...att,\n          userId: actorUserId,\n          workspaceId: targetWorkspaceId,\n        });\n      }`,
-  "attachment inserts",
-);
+      for (const notebook of notebookTree) {
+        const newId = notebookIdMap.get(notebook.id)!;
+        const newParentId =
+          notebook.id === sourceNotebook.id
+            ? targetParentId
+            : notebookIdMap.get(notebook.parentId || "") || null;
+        workspaceNotebookTransferRepository.insertNotebook({
+          id: newId,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+          parentId: newParentId,
+          name: notebook.name,
+          description: notebook.description,
+          icon: notebook.icon,
+          color: notebook.color,
+          sortOrder: notebook.sortOrder || 0,
+          isExpanded: notebook.isExpanded ?? 1,
+        });
+      }
 
-regex(
-  /        const oldNoteIds = sourceNotes\.map\(\(n\) => n\.id\);\n        const notePlaceholders = oldNoteIds\.map\(\(\) => "\?"\)\.join\(","\);\n        const noteTags = db\n          \.prepare\(`SELECT noteId, tagId FROM note_tags WHERE noteId IN \(\$\{notePlaceholders\}\)`\)\n          \.all\(\.\.\.oldNoteIds\) as Array<\{ noteId: string; tagId: string \}>;\n        const oldTagIds = Array\.from\(new Set\(noteTags\.map\(\(nt\) => nt\.tagId\)\)\);\n        const selectTargetTag = db\.prepare\([\s\S]*?\n        const insertTag = db\.prepare\(\n          "INSERT INTO tags \(id, userId, workspaceId, name, color\) VALUES \(\?, \?, \?, \?, \?\)",\n        \);/,
-  `        const oldNoteIds = sourceNotes.map((n) => n.id);\n        const noteTags = workspaceNotebookTransferRepository.listNoteTags(oldNoteIds);\n        const oldTagIds = Array.from(new Set(noteTags.map((nt) => nt.tagId)));`,
-  "tag query setup",
-);
+      const oldNotebookIds = notebookTree.map((notebook) => notebook.id);
+      const sourceNotes = workspaceNotebookTransferRepository.listSourceNotes<NoteRow>(
+        oldNotebookIds,
+        actorUserId,
+      );
+      for (const note of sourceNotes) {
+        noteIdMap.set(note.id.toLowerCase(), uuid());
+      }
 
-regex(
-  /          const tagPlaceholders = oldTagIds\.map\(\(\) => "\?"\)\.join\(","\);\n          const tags = db\n            \.prepare\(`SELECT \* FROM tags WHERE id IN \(\$\{tagPlaceholders\}\)`\)\n            \.all\(\.\.\.oldTagIds\) as TagRow\[\];/,
-  `          const tags = workspaceNotebookTransferRepository.listTagsByIds<TagRow>(oldTagIds);`,
-  "tag list query",
-);
+      const attachmentsByOldNote = new Map<string, AttachmentRow[]>();
+      if (sourceNotes.length > 0 && includeAttachments) {
+        const oldNoteIds = sourceNotes.map((note) => note.id);
+        const rows = workspaceNotebookTransferRepository.listAttachmentsByNoteIds<AttachmentRow>(
+          oldNoteIds,
+        );
+        for (const row of rows) {
+          const list = attachmentsByOldNote.get(row.noteId) || [];
+          list.push(row);
+          attachmentsByOldNote.set(row.noteId, list);
+        }
+      }
 
-exact(
-  `            let targetTag = targetWorkspaceId\n              ? (selectTargetTag.get(actorUserId, tag.name, targetWorkspaceId) as TagRow | undefined)\n              : (selectPersonalTargetTag.get(actorUserId, tag.name) as TagRow | undefined);`,
-  `            let targetTag = targetWorkspaceId\n              ? workspaceNotebookTransferRepository.findWorkspaceTagByName<TagRow>(\n                  actorUserId,\n                  tag.name,\n                  targetWorkspaceId,\n                )\n              : workspaceNotebookTransferRepository.findPersonalTagByName<TagRow>(\n                  actorUserId,\n                  tag.name,\n                );`,
-  "target tag lookup",
-);
+      const pendingNotes: Array<{
+        oldNote: NoteRow;
+        newId: string;
+        content: string;
+        contentText: string;
+      }> = [];
+      const pendingAttachments: Array<{
+        id: string;
+        noteId: string;
+        filename: string;
+        mimeType: string;
+        size: number;
+        path: string;
+        hash: string | null;
+      }> = [];
 
-exact(
-  `                insertTag.run(newTagId, actorUserId, targetWorkspaceId, tag.name, tag.color || "#58a6ff");`,
-  `                workspaceNotebookTransferRepository.insertTag({\n                  id: newTagId,\n                  userId: actorUserId,\n                  workspaceId: targetWorkspaceId,\n                  name: tag.name,\n                  color: tag.color || "#58a6ff",\n                });`,
-  "tag insert",
-);
-exact(
-  `                targetTag = selectAnyTagByName.get(actorUserId, tag.name) as TagRow | undefined;`,
-  `                targetTag = workspaceNotebookTransferRepository.findAnyTagByName<TagRow>(\n                  actorUserId,\n                  tag.name,\n                );`,
-  "fallback tag lookup",
-);
+      for (const note of sourceNotes) {
+        const newNoteId = noteIdMap.get(note.id.toLowerCase())!;
+        const sourceAttachments = attachmentsByOldNote.get(note.id) || [];
 
-exact(
-  `        const insertNoteTag = db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)");\n        for (const nt of noteTags) {\n          const newNoteId = noteIdMap.get(nt.noteId.toLowerCase());\n          const targetTagId = tagIdMap.get(nt.tagId);\n          if (newNoteId && targetTagId) insertNoteTag.run(newNoteId, targetTagId);\n        }`,
-  `        for (const nt of noteTags) {\n          const newNoteId = noteIdMap.get(nt.noteId.toLowerCase());\n          const targetTagId = tagIdMap.get(nt.tagId);\n          if (newNoteId && targetTagId) {\n            workspaceNotebookTransferRepository.insertNoteTag(newNoteId, targetTagId);\n          }\n        }`,
-  "note tag inserts",
-);
+        for (const attachment of sourceAttachments) {
+          const newAttachmentId = uuid();
+          const newPath = copyAttachmentFile(
+            attachment.path,
+            newAttachmentId,
+            attachment.filename,
+            createdFiles,
+          );
+          attachmentIdMap.set(attachment.id.toLowerCase(), newAttachmentId);
+          pendingAttachments.push({
+            id: newAttachmentId,
+            noteId: newNoteId,
+            filename: attachment.filename,
+            mimeType: attachment.mimeType,
+            size: attachment.size,
+            path: newPath,
+            hash: attachment.hash || null,
+          });
+        }
 
-exact(
-  `      for (const item of pendingNotes) {\n        if (item.content.indexOf("/api/attachments/") >= 0) {\n          syncAttachmentReferences(db, item.newId, item.content);\n        }\n        syncNoteLinks(db, actorUserId, item.newId, item.content);\n      }`,
-  `      for (const item of pendingNotes) {\n        workspaceNotebookTransferRepository.syncDerivedReferences(\n          actorUserId,\n          item.newId,\n          item.content,\n        );\n      }`,
-  "derived references",
-);
+        let content = note.content || "";
+        let contentText = note.contentText || "";
+        if (includeAttachments) {
+          content = rewriteAttachmentUrls(content, attachmentIdMap);
+          contentText = rewriteAttachmentUrls(contentText, attachmentIdMap);
+        } else if (
+          content.indexOf("/api/attachments/") >= 0 ||
+          contentText.indexOf("/api/attachments/") >= 0
+        ) {
+          warnings.push(\`attachments_not_copied_for_note:\${note.id}\`);
+        }
 
-if (/\bgetDb\s*\(|\.prepare\s*\(|\.transaction\s*\(|better-sqlite3/.test(source)) {
+        const rewritten = rewriteInternalNoteLinks(content, noteIdMap);
+        content = rewritten.content;
+        if (rewritten.externalNoteLinkCount > 0) {
+          warnings.push(
+            \`external_note_links_preserved:\${note.id}:\${rewritten.externalNoteLinkCount}\`,
+          );
+        }
+        contentText = rewriteInternalNoteLinks(contentText, noteIdMap).content;
+        pendingNotes.push({ oldNote: note, newId: newNoteId, content, contentText });
+      }
+
+      for (const item of pendingNotes) {
+        workspaceNotebookTransferRepository.insertNote({
+          id: item.newId,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+          notebookId: notebookIdMap.get(item.oldNote.notebookId)!,
+          title: item.oldNote.title,
+          content: item.content,
+          contentText: item.contentText,
+          contentFormat: item.oldNote.contentFormat || "tiptap-json",
+          isPinned: item.oldNote.isPinned || 0,
+          sortOrder: item.oldNote.sortOrder || 0,
+        });
+      }
+
+      for (const attachment of pendingAttachments) {
+        workspaceNotebookTransferRepository.insertAttachment({
+          ...attachment,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+        });
+      }
+
+      let tagCount = 0;
+      if (includeTags && sourceNotes.length > 0) {
+        const oldNoteIds = sourceNotes.map((note) => note.id);
+        const noteTags = workspaceNotebookTransferRepository.listNoteTags(oldNoteIds);
+        const oldTagIds = Array.from(new Set(noteTags.map((noteTag) => noteTag.tagId)));
+
+        if (oldTagIds.length > 0) {
+          const tags = workspaceNotebookTransferRepository.listTagsByIds<TagRow>(oldTagIds);
+          for (const tag of tags) {
+            let targetTag = workspaceNotebookTransferRepository.findWorkspaceTagByName<TagRow>(
+              actorUserId,
+              tag.name,
+              targetWorkspaceId,
+            );
+            if (!targetTag) {
+              const newTagId = uuid();
+              try {
+                workspaceNotebookTransferRepository.insertTag({
+                  id: newTagId,
+                  userId: actorUserId,
+                  workspaceId: targetWorkspaceId,
+                  name: tag.name,
+                  color: tag.color || "#58a6ff",
+                });
+                targetTag = {
+                  ...tag,
+                  id: newTagId,
+                  userId: actorUserId,
+                  workspaceId: targetWorkspaceId,
+                };
+                tagCount++;
+              } catch (error) {
+                targetTag = workspaceNotebookTransferRepository.findAnyTagByName<TagRow>(
+                  actorUserId,
+                  tag.name,
+                );
+                if (!targetTag) throw error;
+                warnings.push(\`tag_reused_due_unique_constraint:\${tag.name}\`);
+              }
+            }
+            tagIdMap.set(tag.id, targetTag.id);
+          }
+        }
+
+        for (const noteTag of noteTags) {
+          const newNoteId = noteIdMap.get(noteTag.noteId.toLowerCase());
+          const targetTagId = tagIdMap.get(noteTag.tagId);
+          if (newNoteId && targetTagId) {
+            workspaceNotebookTransferRepository.insertNoteTag(newNoteId, targetTagId);
+          }
+        }
+      }
+
+      for (const item of pendingNotes) {
+        workspaceNotebookTransferRepository.syncDerivedReferences(
+          actorUserId,
+          item.newId,
+          item.content,
+        );
+      }
+
+      const targetNotebookId = notebookIdMap.get(sourceNotebook.id)!;
+      const result: CopyPersonalNotebookResult = {
+        success: true,
+        mode: "copy",
+        targetNotebookId,
+        notebookCount: notebookTree.length,
+        noteCount: pendingNotes.length,
+        attachmentCount: attachmentIdMap.size,
+        tagCount,
+        warnings,
+      };
+
+      logAudit(
+        actorUserId,
+        "notebook",
+        "notebook.transfer_copy",
+        {
+          sourceNotebookId: sourceNotebook.id,
+          targetWorkspaceId,
+          targetParentId,
+          targetNotebookId,
+          notebookCount: result.notebookCount,
+          noteCount: result.noteCount,
+          attachmentCount: result.attachmentCount,
+          tagCount: result.tagCount,
+          includeTags,
+          includeAttachments,
+          includeVersions: false,
+          warnings,
+        },
+        { targetType: "notebook", targetId: targetNotebookId },
+      );
+
+      return result;
+    });
+  } catch (error) {
+    cleanupCreatedFiles(createdFiles);
+    throw error;
+  }
+}
+`;
+
+source = source.slice(0, functionStart) + replacement;
+
+if (/better-sqlite3|\.\.\/db\/schema|\bgetDb\s*\(|\.prepare\s*\(|\.transaction\s*\(/.test(source)) {
   throw new Error("database driver access remains in workspaceNotebookTransfer.ts");
+}
+if (!source.includes("workspaceNotebookTransferRepository.transaction")) {
+  throw new Error("repository transaction delegation missing");
+}
+if (!source.includes("cleanupCreatedFiles(createdFiles)")) {
+  throw new Error("filesystem rollback cleanup missing");
 }
 
 fs.writeFileSync(filePath, source);
-console.log("Applied workspace notebook transfer database boundary codemod.");
+console.log("Applied deterministic workspace notebook transfer database boundary codemod.");
