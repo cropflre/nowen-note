@@ -134,9 +134,7 @@ function loadDocFromDb(noteId: string): Y.Doc {
     // 会重新进入本分支再 seed 一次，保持幂等。
     const ytext = doc.getText("content");
     if (ytext.length === 0) {
-      const note = db.prepare("SELECT content, contentText FROM notes WHERE id = ?").get(noteId) as
-        | { content: string; contentText: string }
-        | undefined;
+      const note = yjsPersistenceRepository.getNoteSeed(noteId);
       if (note) {
         const seed = inferMarkdownSeed(note.content, note.contentText);
         if (seed) {
