@@ -1,6 +1,6 @@
 export interface AuthSecurityStatement {
-  get(...params: unknown[]): unknown;
-  run(...params: unknown[]): unknown;
+  get(...params: any[]): unknown;
+  run(...params: any[]): unknown;
 }
 
 export interface AuthSecurityDatabase {
