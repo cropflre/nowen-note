@@ -57,8 +57,10 @@ describe("OfflineIndicator conflict presentation", () => {
     expect(getQueueItemNotePreview(conflictItem())).toBe("同步冲突处理方案");
   });
 
-  it("replaces persisted English conflict errors with a clear user-facing explanation", () => {
-    expect(getQueueItemStatusMessage(conflictItem())).toBe("两个版本均已保留，请确认最终使用的内容。");
+  it("explains the two explicit resolution choices", () => {
+    expect(getQueueItemStatusMessage(conflictItem())).toBe(
+      "两个版本均已保留。请选择保留此设备内容，或使用服务器内容。",
+    );
   });
 
   it("falls back safely when old queue data has no title or content", () => {
@@ -131,7 +133,7 @@ describe("OfflineIndicator status information architecture", () => {
     });
   });
 
-  it("uses an explicit conflict message instead of a generic queue state", () => {
+  it("opens the real conflict resolution flow instead of a dead-end queue state", () => {
     expect(getSyncIndicatorPresentation({
       ...basePresentationInput,
       pendingCount: 3,
@@ -141,9 +143,9 @@ describe("OfflineIndicator status information architecture", () => {
     })).toMatchObject({
       tone: "error",
       label: "3 篇笔记存在版本冲突",
-      description: "两个版本均已保留，请查看后确认最终内容。",
+      description: "本地和服务器内容都已保留，请选择最终版本。",
       action: "details",
-      actionLabel: "查看冲突",
+      actionLabel: "处理冲突",
     });
   });
 

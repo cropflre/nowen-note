@@ -1,7 +1,7 @@
 export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace } from "./api.impl";
-import type { Task } from "@/types";
+import type { Note, Task } from "@/types";
 
 export type TaskActivityEvent = {
   id: string;
@@ -24,6 +24,13 @@ type TaskActivityQuery = {
 type EnhancedApi = typeof baseApi & {
   getTaskActivityEvents: (params?: TaskActivityQuery) => Promise<TaskActivityEvent[]>;
   restoreTaskCompletedAt: (taskId: string, completedAt: string) => Promise<Task>;
+  /**
+   * Conflict resolution writes must be confirmed by the server immediately. Unlike the normal
+   * note mutation methods, these calls never turn a network failure into an optimistic offline
+   * queue item, because doing so would make the UI claim that a conflict was resolved too early.
+   */
+  createNoteConfirmed: (data: Partial<Note>) => Promise<Note>;
+  updateNoteConfirmed: (id: string, data: Partial<Note>) => Promise<Note>;
 };
 
 async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -48,12 +55,34 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
   if (!response.ok) {
     const error = new Error(
       typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`,
-    ) as Error & { code?: string; status?: number };
+    ) as Error & { code?: string; status?: number; currentVersion?: number };
     error.code = payload?.code;
     error.status = response.status;
+    if (typeof payload?.currentVersion === "number") error.currentVersion = payload.currentVersion;
     throw error;
   }
   return payload as T;
+}
+
+function generateConfirmedNoteId(): string {
+  const randomUUID = typeof crypto !== "undefined" ? (crypto as any).randomUUID : undefined;
+  if (typeof randomUUID === "function") return randomUUID.call(crypto);
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}-4${Math.random().toString(16).slice(2, 5)}-${Math.random().toString(16).slice(2, 6)}-${Math.random().toString(16).slice(2, 14)}`;
+}
+
+async function confirmedNoteJson<T>(path: string, init: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    return await authenticatedJson<T>(path, { ...init, signal: controller.signal });
+  } catch (error) {
+    if ((error as { name?: string })?.name === "AbortError") {
+      throw new Error("服务器确认超时，请检查网络后重试。");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 const api = baseApi as EnhancedApi;
@@ -74,6 +103,28 @@ api.restoreTaskCompletedAt = (taskId: string, completedAt: string) =>
     method: "PATCH",
     body: JSON.stringify({ completedAt }),
   });
+
+api.createNoteConfirmed = async (data: Partial<Note>) => {
+  const payload: Partial<Note> & { id: string } = {
+    ...data,
+    id: data.id || generateConfirmedNoteId(),
+  };
+  const created = await confirmedNoteJson<Note>("/notes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(created)).catch(() => {});
+  return created;
+};
+
+api.updateNoteConfirmed = async (id: string, data: Partial<Note>) => {
+  const updated = await confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated)).catch(() => {});
+  return updated;
+};
 
 // Preserve real completion time when a caller (notably task backup import) supplies it.
 const nativeCreateTask = baseApi.createTask.bind(baseApi);
