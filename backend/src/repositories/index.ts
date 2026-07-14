@@ -32,6 +32,7 @@ export { folderSyncFilesRepository } from "./folderSyncFilesRepository";
 export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { attachmentFolderOperationsRepository } from "./attachmentFolderOperationsRepository";
 export { attachmentMediaRepository } from "./attachmentMediaRepository";
+export { attachmentSignedAccessRepository } from "./attachmentSignedAccessRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
 export { mindmapFolderOperationsRepository } from "./mindmapFolderOperationsRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
