@@ -259,7 +259,7 @@ export function copyPersonalNotebookToWorkspace(
   const createdFiles: string[] = [];
 
   try {
-    return workspaceNotebookTransferRepository.transaction(() => {
+    return workspaceNotebookTransferRepository.runAtomically(() => {
       const warnings: string[] = [];
       const sourceNotebook =
         workspaceNotebookTransferRepository.findNotebook<NotebookRow>(
