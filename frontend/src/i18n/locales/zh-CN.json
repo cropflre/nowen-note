@@ -2488,6 +2488,8 @@
     }
   },
   "note": {
+    "print": "打印",
+    "printFailed": "无法打开系统打印服务",
     "exportAsPng": "导出为 PNG",
     "exportAsJpg": "导出为 JPG",
     "exportImageExporting": "正在导出图片…",

@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2 } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -16,7 +16,7 @@ import { Tag, Notebook, MindMapData, MindMapNode, type Note } from "@/types";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
-import { exportNoteAsImage } from "@/lib/exportService";
+import { exportNoteAsImage, printNote } from "@/lib/exportService";
 
 import { extractFinalAnswer, parseAiTags } from "@/lib/aiOutput";
 
@@ -1577,6 +1577,25 @@ export default function EditorPane() {
       toast.error(t("note.exportImageFailed"));
     }
   }, [activeNote, t]);
+
+  const handlePrintNote = useCallback(async () => {
+    if (!activeNote) return;
+    haptic.medium();
+    try {
+      const snapshot = editorHandleRef.current?.getSnapshot?.();
+      const result = await printNote({
+        title: activeNote.title,
+        content: snapshot?.content ?? activeNote.content,
+        contentText: snapshot?.contentText ?? activeNote.contentText,
+        contentFormat: activeNote.contentFormat,
+        createdAt: activeNote.createdAt,
+        updatedAt: activeNote.updatedAt,
+      });
+      if (!result.ok) toast.error(t("note.printFailed"));
+    } catch {
+      toast.error(t("note.printFailed"));
+    }
+  }, [activeNote, t]);
 const moveToTrash = useCallback(async () => {
     // ������������Ự�����ʼǲ�����������վ������"�������ʼ�"����ɾ��
     if (!activeNote || activeNote.isLocked || activeNote.isTrashed || viewLockedIdsRef.current.has(activeNote.id)) return;
@@ -2409,6 +2428,13 @@ const moveToTrash = useCallback(async () => {
                     </>
                   )}
                   <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { setShowMobileMenu(false); handlePrintNote(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Printer size={15} className="text-tx-tertiary" />
+                    <span>{t("note.print")}</span>
+                  </button>
                   {/* NOTE-IMAGE-EXPORT-01: 导出为图片 */}
                   <button
                     onClick={() => { setShowMobileMenu(false); handleExportNoteImage("png"); }}
@@ -2876,6 +2902,13 @@ const moveToTrash = useCallback(async () => {
                   </button>
 
                   <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { handlePrintNote(); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <Printer size={15} className="text-tx-tertiary" />
+                    <span>{t("note.print")}</span>
+                  </button>
                   <button
                     onClick={() => { handleExportNoteImage("png"); setShowDesktopMoreMenu(false); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"

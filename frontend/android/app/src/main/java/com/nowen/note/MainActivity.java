@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
   public void onCreate(Bundle savedInstanceState) {
     registerPlugin(MediaStoreSavePlugin.class);
     registerPlugin(ShareImportPlugin.class);
+    registerPlugin(NativePrintPlugin.class);
     super.onCreate(savedInstanceState);
     ShareImportPlugin.captureIntent(this, getIntent());
   }

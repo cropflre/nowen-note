@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exportSingleNote, noteContentToExportHtml } from "@/lib/exportService";
+const { requestNotePrint } = vi.hoisted(() => ({ requestNotePrint: vi.fn() }));
+
+vi.mock("@/lib/notePrintBridge", () => ({ requestNotePrint }));
+
+import { exportSingleNote, noteContentToExportHtml, printNote } from "@/lib/exportService";
 import { api } from "@/lib/api";
 
 afterEach(() => {
@@ -79,5 +83,26 @@ describe("exportSingleNote", () => {
       expect.objectContaining({ layout: "flat", filenameBase: "资料分析模块" }),
     );
     expect(download).toHaveBeenCalledWith("token-1", "资料分析模块.zip");
+  });
+});
+
+describe("printNote", () => {
+  it("renders the current note and sends it to the platform print bridge", async () => {
+    requestNotePrint.mockResolvedValue({ ok: true, mode: "web" });
+
+    await expect(printNote({
+      title: "打印测试",
+      content: "# 正文标题",
+      contentText: "正文标题",
+      contentFormat: "markdown",
+      createdAt: "2026-07-14 10:00:00",
+      updatedAt: "2026-07-14 11:00:00",
+    })).resolves.toEqual({ ok: true, mode: "web" });
+
+    expect(requestNotePrint).toHaveBeenCalledWith(
+      expect.stringContaining("<h1 class=\"title\">打印测试</h1>"),
+      "打印测试",
+    );
+    expect(requestNotePrint.mock.calls[0][0]).toContain("<h1>正文标题</h1>");
   });
 });
