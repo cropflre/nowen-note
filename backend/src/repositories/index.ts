@@ -15,6 +15,7 @@ export { apiTokensRepository } from "./apiTokensRepository";
 export { apiTokenSchemaRepository } from "./apiTokenSchemaRepository";
 export { authSecurityRepository } from "./authSecurityRepository";
 export { aclQueryRepository } from "./aclQueryRepository";
+export { auditRepository } from "./auditRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
