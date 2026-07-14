@@ -32,12 +32,20 @@ function getEditorState(source: EditorView | EditorState): EditorState {
   return source instanceof EditorView ? source.state : source;
 }
 
+function expandToWholeLines(state: EditorState, from: number, to: number): { from: number; to: number } {
+  const startLine = state.doc.lineAt(Math.max(0, Math.min(from, state.doc.length)));
+  const inclusiveEnd = Math.max(from, to - 1);
+  const endLine = state.doc.lineAt(Math.max(0, Math.min(inclusiveEnd, state.doc.length)));
+  return { from: startLine.from, to: endLine.to };
+}
+
 /**
  * Collect top-level blocks that do not intersect the current selection.
  *
- * Accepting both EditorView and EditorState keeps the helper useful to callers while
- * allowing the decorations to be produced by a StateField. CodeMirror requires block
- * decorations to come directly from state rather than a ViewPlugin decorations facet.
+ * CodeMirror syntax nodes may begin after a quote/list marker. Expanding every
+ * top-level node to complete source lines keeps live preview input identical to
+ * the full preview input, which is especially important for `[!TIP]` callouts,
+ * tables, fenced code and raw HTML blocks.
  */
 export function collectMarkdownLivePreviewBlocks(
   source: EditorView | EditorState,
@@ -46,17 +54,23 @@ export function collectMarkdownLivePreviewBlocks(
   const selection = state.selection.main;
   const cursor = syntaxTree(state).cursor();
   const blocks: MarkdownLivePreviewBlock[] = [];
+  const seen = new Set<string>();
   if (!cursor.firstChild()) return blocks;
 
   do {
     const node = cursor.node;
     if (!BLOCK_NODE_RE.test(node.name) || node.from >= node.to) continue;
-    const intersectsSelection = selection.from <= node.to && selection.to >= node.from;
+    const range = expandToWholeLines(state, node.from, node.to);
+    const key = `${range.from}:${range.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const intersectsSelection = selection.from <= range.to && selection.to >= range.from;
     if (intersectsSelection) continue;
     blocks.push({
-      from: node.from,
-      to: node.to,
-      markdown: state.doc.sliceString(node.from, node.to),
+      from: range.from,
+      to: range.to,
+      markdown: state.doc.sliceString(range.from, range.to),
     });
   } while (cursor.nextSibling());
 

@@ -8,6 +8,7 @@ import App from "./App";
 import NoteIconBridge from "./components/NoteIconBridge";
 import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge";
 import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";
+import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import ImageExperienceBridge from "./components/ImageExperienceBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
@@ -100,6 +101,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <NoteIconBridge />
     <AIProfileSwitcherBridge />
     <MarkdownExperienceBridge />
+    <EmbedPasswordBridge />
     <ImageExperienceBridge />
     <MediaExperienceBridge />
     <EditorImageTransformBridge />

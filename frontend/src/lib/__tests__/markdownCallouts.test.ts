@@ -62,6 +62,22 @@ describe("markdownCallouts", () => {
     });
   });
 
+  it("accepts collapsible callout markers", () => {
+    expect(parseSiyuanCalloutMarker("[!TIP]+ 可展开提示")).toEqual({
+      type: "tip",
+      title: "可展开提示",
+      rest: "",
+    });
+  });
+
+  it("keeps same-paragraph body text after the marker line", () => {
+    expect(parseSiyuanCalloutMarker("[!TIP]\n提示正文")).toEqual({
+      type: "tip",
+      title: "Tip",
+      rest: "提示正文",
+    });
+  });
+
   it("marks callout blockquotes and removes the marker paragraph", () => {
     const tree = runPlugin(calloutTree("[!TIP]", "支持 **Markdown**"));
     const blockquote = tree.children[0];
@@ -78,6 +94,15 @@ describe("markdownCallouts", () => {
         ],
       },
     ]);
+  });
+
+  it("preserves content stored in the marker paragraph", () => {
+    const tree = runPlugin(calloutTree("[!TIP]\n同段提示正文", "下一段"));
+    const blockquote = tree.children[0];
+
+    expect(blockquote.data.hProperties["data-callout-type"]).toBe("tip");
+    expect(blockquote.children[0].children[0].value).toBe("同段提示正文");
+    expect(blockquote.children[1].children[0].value).toBe("下一段");
   });
 
   it("keeps marker line trailing body text", () => {

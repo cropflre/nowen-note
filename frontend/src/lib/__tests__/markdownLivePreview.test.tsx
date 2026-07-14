@@ -12,7 +12,10 @@ vi.mock("@/components/MarkdownPreview", () => ({
   ),
 }));
 
-import { markdownLivePreviewExtension } from "@/lib/markdownLivePreview";
+import {
+  collectMarkdownLivePreviewBlocks,
+  markdownLivePreviewExtension,
+} from "@/lib/markdownLivePreview";
 
 beforeAll(() => {
   if (!(globalThis as any).ResizeObserver) {
@@ -34,6 +37,19 @@ afterEach(() => {
 });
 
 describe("markdownLivePreviewExtension", () => {
+  it("keeps complete quote lines so live callouts receive the same markdown as full preview", () => {
+    const doc = "编辑中的段落\n\n> [!TIP]\n> 提示正文\n\n尾部段落";
+    const state = EditorState.create({
+      doc,
+      selection: { anchor: 1 },
+      extensions: [markdown()],
+    });
+
+    const callout = collectMarkdownLivePreviewBlocks(state).find((block) => block.markdown.includes("[!TIP]"));
+    expect(callout?.markdown).toBe("> [!TIP]\n> 提示正文");
+    expect(callout?.from).toBe(doc.indexOf("> [!TIP]"));
+  });
+
   it("installs block replacements without using a ViewPlugin decoration source", () => {
     const parent = document.createElement("div");
     document.body.appendChild(parent);

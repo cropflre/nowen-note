@@ -24,7 +24,11 @@ const CALLOUT_TITLES: Record<SiyuanCalloutType, string> = {
   caution: "Caution",
 };
 
-const CALLOUT_MARKER_RE = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+(.+?))?\s*$/i;
+// SiYuan exports both the GitHub-style form (`[!TIP]`) and the collapsible
+// variants used by Obsidian-compatible Markdown (`[!TIP]+` / `[!TIP]-`).
+// The body may stay in the same mdast text node when there is no blank quote
+// line, so keep everything after the first newline as paragraph content.
+const CALLOUT_MARKER_RE = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[+-])?(?:[ \t]+([^\r\n]*?))?(?:\r?\n([\s\S]*))?\s*$/i;
 
 export function parseSiyuanCalloutMarker(value: string): SiyuanCalloutMarker | null {
   const match = value.match(CALLOUT_MARKER_RE);
@@ -36,7 +40,7 @@ export function parseSiyuanCalloutMarker(value: string): SiyuanCalloutMarker | n
   return {
     type,
     title: customTitle || CALLOUT_TITLES[type],
-    rest: "",
+    rest: match[3] || "",
   };
 }
 
@@ -47,12 +51,26 @@ function visit(node: MarkdownNode, visitor: (node: MarkdownNode) => void) {
   }
 }
 
-function readFirstParagraphText(node: MarkdownNode): string | null {
-  const firstChild = node.children?.[0];
-  if (firstChild?.type !== "paragraph") return null;
-  const firstInline = firstChild.children?.[0];
+function extractMarker(node: MarkdownNode): SiyuanCalloutMarker | null {
+  const firstParagraph = node.children?.[0];
+  if (firstParagraph?.type !== "paragraph") return null;
+  const firstInline = firstParagraph.children?.[0];
   if (firstInline?.type !== "text") return null;
-  return firstInline.value ?? "";
+
+  const marker = parseSiyuanCalloutMarker(firstInline.value ?? "");
+  if (!marker) return null;
+
+  if (marker.rest) {
+    firstInline.value = marker.rest;
+  } else {
+    firstParagraph.children = firstParagraph.children?.slice(1) || [];
+  }
+
+  if ((firstParagraph.children || []).length === 0) {
+    node.children = node.children?.slice(1) || [];
+  }
+
+  return marker;
 }
 
 export function remarkSiyuanCallouts() {
@@ -60,10 +78,7 @@ export function remarkSiyuanCallouts() {
     visit(tree, (node) => {
       if (node.type !== "blockquote") return;
 
-      const firstText = readFirstParagraphText(node);
-      if (firstText === null) return;
-
-      const marker = parseSiyuanCalloutMarker(firstText);
+      const marker = extractMarker(node);
       if (!marker) return;
 
       node.data = {
@@ -74,7 +89,6 @@ export function remarkSiyuanCallouts() {
           "data-callout-title": marker.title,
         },
       };
-      node.children = node.children?.slice(1) || [];
     });
   };
 }
