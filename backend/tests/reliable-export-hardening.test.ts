@@ -4,7 +4,6 @@ import { Hono } from "hono";
 
 import {
   handleReliableExportDownload,
-  reliableExportTestUtils,
   stageReliableGeneratedExport,
   validatePreparedMarkdownNotes,
 } from "../src/services/reliableExportJobs";
@@ -29,7 +28,7 @@ test("cumulative inline asset quota is enforced", () => {
   );
 });
 
-test("download capability token is one-time and removes its temporary job", async () => {
+test("download capability token can be retried before expiry", async () => {
   const body = new Response(new TextEncoder().encode("markdown")).body;
   assert.ok(body);
   const staged = await stageReliableGeneratedExport({
@@ -46,8 +45,27 @@ test("download capability token is one-time and removes its temporary job", asyn
   assert.equal(first.headers.get("x-nowen-reliable-export"), "1");
   assert.equal(await first.text(), "markdown");
 
-  const replay = await app.request(`/download/${staged.downloadToken}`);
-  assert.equal(replay.status, 404);
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(reliableExportTestUtils.getJobCount(), 0);
+  const retry = await app.request(`/download/${staged.downloadToken}`);
+  assert.equal(retry.status, 200);
+  assert.equal(await retry.text(), "markdown");
+});
+
+test("download response keeps binary content uncompressed", async () => {
+  const body = new Response(new TextEncoder().encode("zip-content")).body;
+  assert.ok(body);
+  const staged = await stageReliableGeneratedExport({
+    userId: "user-export-identity",
+    filename: "notes.zip",
+    contentType: "application/zip",
+    body,
+  });
+
+  const app = new Hono();
+  app.get("/download/:token", handleReliableExportDownload);
+  const response = await app.request(`/download/${staged.downloadToken}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), "identity");
+  assert.equal(Number(response.headers.get("content-length")), "zip-content".length);
+  assert.equal(await response.text(), "zip-content");
 });

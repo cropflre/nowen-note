@@ -16,7 +16,6 @@ import {
 const EXPORT_TMP_PREFIX = "nowen-reliable-export-";
 const EXPORT_TTL_MS = 30 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-const DOWNLOAD_CLEANUP_FALLBACK_MS = 5 * 60 * 1000;
 
 export const MAX_MARKDOWN_EXPORT_REQUEST_BYTES = 256 * 1024 * 1024;
 export const MAX_MARKDOWN_EXPORT_NOTES = 10_000;
@@ -595,26 +594,14 @@ export function handleReliableExportDownload(c: Context): Response {
     });
   }
 
-  downloadTokens.delete(token);
-  job.downloadToken = undefined;
-
   const stat = fs.statSync(job.tmpPath);
   const stream = fs.createReadStream(job.tmpPath);
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    disposeJob(job.id, job);
-  };
-  stream.once("close", cleanup);
-  stream.once("error", cleanup);
-  const fallbackTimer = setTimeout(cleanup, DOWNLOAD_CLEANUP_FALLBACK_MS);
-  fallbackTimer.unref?.();
 
   return new Response(Readable.toWeb(stream) as ReadableStream, {
     headers: {
       "Content-Type": job.contentType,
       "Content-Length": String(stat.size),
+      "Content-Encoding": "identity",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(job.filename || "nowen-note-export.bin")}`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
