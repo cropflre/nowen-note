@@ -55,6 +55,13 @@ describe("noteAttachmentAccessBridge", () => {
     expect(merged.searchParams.get("w")).toBe("240");
   });
 
+  it("does not let a later stale loopback request replace a trusted API origin", () => {
+    expect(rememberAttachmentApiOrigin("https://notes.example.com/api/notes/note-1"))
+      .toBe("https://notes.example.com");
+    expect(rememberAttachmentApiOrigin(`http://127.0.0.1:3001/api/attachments/${ATTACHMENT_ID}`))
+      .toBe("https://notes.example.com");
+  });
+
   it("rebases an absolute loopback signed URL to the request origin", () => {
     const badSigned = `http://127.0.0.1:3001/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=server-value&scope=v2.scope`;
     const accessEndpoint = "https://notes.example.com/api/attachments/access/urls?noteId=note-1";
