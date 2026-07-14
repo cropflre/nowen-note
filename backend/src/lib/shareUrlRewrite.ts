@@ -24,10 +24,24 @@
 
 const ATTACHMENT_PATH_PREFIXES = ["/api/attachments/", "/api/task-attachments/"];
 
+function isLoopbackHost(host: string): boolean {
+  const lowered = host.toLowerCase();
+  return lowered === "localhost"
+    || lowered.startsWith("localhost:")
+    || lowered.startsWith("127.")
+    || lowered.startsWith("0.0.0.0")
+    || lowered.startsWith("[::1]");
+}
+
 /**
  * 根据请求头推断 "公网访问本服务时" 应使用的 origin。
  * 优先使用反代/网关注入的 X-Forwarded-Proto / X-Forwarded-Host，
  * 退化到 Host 头并据 Host 自身格式猜测协议（127.x、localhost、:80 用 http，否则 https）。
+ *
+ * 重要：最终 Host 是 localhost / 127.0.0.1 / 0.0.0.0 时一律返回 null。
+ * 这通常是 NAS、隧道或 Docker 反代传给上游的内部地址，不是用户浏览器可访问的地址；
+ * 即使它来自 X-Forwarded-Host，也不能把回环地址签发给外部客户端。调用方此时应返回
+ * 相对 URL，由客户端以真实 API 请求 origin 解析。
  *
  * 返回形如 "https://notes.example.com"，不带末尾斜杠。
  * 解析失败返回 null，调用方应放弃改写并保持相对路径。
@@ -38,7 +52,7 @@ export function resolvePublicOrigin(getHeader: (name: string) => string | undefi
   const host = (getHeader("host") || "").trim();
 
   const finalHost = xfHost || host;
-  if (!finalHost) return null;
+  if (!finalHost || isLoopbackHost(finalHost)) return null;
 
   let proto = xfProto;
   if (!proto) {
@@ -55,13 +69,8 @@ export function resolvePublicOrigin(getHeader: (name: string) => string | undefi
     const hasExplicitPort = /:\d+$/.test(lowered) && !lowered.endsWith(":443");
     const isIpLiteral = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(lowered)
       || lowered.startsWith("[");           // IPv6 字面量 [::1]:xxxx
-    const isLocal = lowered === "localhost"
-      || lowered.startsWith("localhost:")
-      || lowered.startsWith("127.")
-      || lowered.startsWith("0.0.0.0")
-      || lowered.startsWith("[::1]");
 
-    if (isLocal || isIpLiteral || hasExplicitPort) {
+    if (isIpLiteral || hasExplicitPort) {
       proto = "http";
     } else {
       proto = "https";
