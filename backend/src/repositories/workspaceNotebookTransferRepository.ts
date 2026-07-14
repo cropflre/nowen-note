@@ -58,7 +58,7 @@ function placeholders(values: unknown[]): string {
  * repository owns the single database transaction and all SQL used by that workflow.
  */
 export const workspaceNotebookTransferRepository = {
-  transaction<T>(work: () => T): T {
+  runAtomically<T>(work: () => T): T {
     return getDb().transaction(work)();
   },
 
