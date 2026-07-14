@@ -65,9 +65,8 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
 }
 
 function generateConfirmedNoteId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  const randomUUID = typeof crypto !== "undefined" ? (crypto as any).randomUUID : undefined;
+  if (typeof randomUUID === "function") return randomUUID.call(crypto);
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}-4${Math.random().toString(16).slice(2, 5)}-${Math.random().toString(16).slice(2, 6)}-${Math.random().toString(16).slice(2, 14)}`;
 }
 
