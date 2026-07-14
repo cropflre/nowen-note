@@ -8,13 +8,19 @@ import {
   isOfflineNoteSnapshot,
   markOfflineNoteSnapshot,
 } from "@/lib/offlineRead";
-import { OFFLINE_QUEUE_CONFLICT_EVENT } from "@/lib/offlineQueue";
+import {
+  OFFLINE_QUEUE_CONFLICT_EVENT,
+  enqueue,
+  getQueue,
+  updateItem,
+} from "@/lib/offlineQueue";
 import { saveDraft } from "@/lib/draftStorage";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__" as const;
 const CONFLICT_STORAGE_KEY = "nowen-note-sync-conflicts:v1";
 const MAX_CONFLICTS = 20;
 const MAX_SNAPSHOT_CHARS = 500_000;
+const resolvingNoteIds = new Set<string>();
 
 export const NOTE_SYNC_PENDING_EVENT = "nowen:note-sync-pending";
 
@@ -66,19 +72,51 @@ function readConflictRecords(): NoteSyncConflictRecord[] {
   }
 }
 
+function conflictSignature(record: NoteSyncConflictRecord): string {
+  return JSON.stringify([
+    record.noteId,
+    record.baseVersion,
+    record.serverVersion ?? null,
+    record.localTitle ?? "",
+    record.localContent ?? "",
+    record.localContentText ?? "",
+    record.reason,
+  ]);
+}
+
 export function listNoteSyncConflicts(): NoteSyncConflictRecord[] {
   return readConflictRecords();
 }
 
-export function recordNoteSyncConflict(record: NoteSyncConflictRecord): void {
+export function getNoteSyncConflict(noteId: string): NoteSyncConflictRecord | null {
+  return readConflictRecords().find((record) => record.noteId === noteId) || null;
+}
+
+export function clearNoteSyncConflict(noteId: string): void {
   try {
-    const records = readConflictRecords()
-      .filter((item) => item.noteId !== record.noteId || item.createdAt !== record.createdAt);
+    const next = readConflictRecords().filter((record) => record.noteId !== noteId);
+    if (next.length === 0) localStorage.removeItem(CONFLICT_STORAGE_KEY);
+    else localStorage.setItem(CONFLICT_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    /* keep queue/draft as the durable fallback */
+  }
+}
+
+/**
+ * Persist one current record per note. Returning false means the exact same conflict was
+ * already known, allowing callers to suppress duplicate toasts without losing the payload.
+ */
+export function recordNoteSyncConflict(record: NoteSyncConflictRecord): boolean {
+  const previous = getNoteSyncConflict(record.noteId);
+  const changed = !previous || conflictSignature(previous) !== conflictSignature(record);
+  try {
+    const records = readConflictRecords().filter((item) => item.noteId !== record.noteId);
     records.unshift(record);
     localStorage.setItem(CONFLICT_STORAGE_KEY, JSON.stringify(records.slice(0, MAX_CONFLICTS)));
   } catch {
-    // The complete local edit remains in draftStorage even if conflict metadata hits quota.
+    // The complete local edit remains in draftStorage and offlineQueue even if metadata hits quota.
   }
+  return changed;
 }
 
 function persistLocalDraft(
@@ -156,6 +194,66 @@ function buildConflictRecord(
   };
 }
 
+function isConflictQueueItem(item: { conflict?: boolean; errorCode?: string }): boolean {
+  return item.conflict === true || item.errorCode === "VERSION_CONFLICT";
+}
+
+function upsertConflictQueueItem(
+  noteId: string,
+  data: NoteMutation,
+  serverVersion?: number,
+): void {
+  const body = { ...data } as Record<string, unknown>;
+  const existing = getQueue().find(
+    (item) => item.noteId === noteId && item.type === "updateNote",
+  );
+  const patch = {
+    body,
+    localPayload: body,
+    conflict: true,
+    blocked: true,
+    retryable: false,
+    errorCode: "VERSION_CONFLICT",
+    serverVersion,
+    failedAt: Date.now(),
+    lastAttemptAt: Date.now(),
+    lastHttpStatus: 409,
+    message: "版本冲突：本地内容已保留，等待用户选择最终版本。",
+  } as const;
+
+  if (existing) {
+    updateItem(existing.id, patch);
+    return;
+  }
+
+  enqueue({
+    type: "updateNote",
+    noteId,
+    url: `/notes/${noteId}`,
+    method: "PUT",
+    ...patch,
+  });
+}
+
+export function hasPendingNoteSyncConflict(noteId: string): boolean {
+  if (getNoteSyncConflict(noteId)) return true;
+  return getQueue().some(
+    (item) => item.noteId === noteId && item.type === "updateNote" && isConflictQueueItem(item),
+  );
+}
+
+export async function runWithNoteConflictResolution<T>(
+  noteId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  resolvingNoteIds.add(noteId);
+  try {
+    return await task();
+  } finally {
+    resolvingNoteIds.delete(noteId);
+  }
+}
+
 function preserveConflict(
   noteId: string,
   data: NoteMutation,
@@ -165,9 +263,41 @@ function preserveConflict(
 ): NoteSyncConflictRecord {
   const record = buildConflictRecord(noteId, data, baseVersion, server, reason);
   persistLocalDraft(noteId, data, baseVersion, { serverVersion: record.serverVersion });
-  recordNoteSyncConflict(record);
-  dispatchConflict(record, data);
+  upsertConflictQueueItem(noteId, data, record.serverVersion);
+  const shouldNotify = recordNoteSyncConflict(record);
+  if (shouldNotify) dispatchConflict(record, data);
   return record;
+}
+
+function pausedConflictResponse(
+  noteId: string,
+  data: NoteMutation,
+  baseVersion: number,
+): Note {
+  const record = getNoteSyncConflict(noteId);
+  const queued = getQueue().find(
+    (item) => item.noteId === noteId && item.type === "updateNote" && isConflictQueueItem(item),
+  );
+  const serverVersion = record?.serverVersion ?? queued?.serverVersion ?? baseVersion;
+  const updatedAt = record?.serverUpdatedAt || new Date().toISOString();
+
+  persistLocalDraft(noteId, data, baseVersion, { serverVersion });
+  upsertConflictQueueItem(noteId, data, serverVersion);
+  // EditorPane clears drafts after every resolved update. Restore the conflicted draft after that
+  // success bookkeeping finishes, while deliberately avoiding another network request.
+  window.setTimeout(() => {
+    persistLocalDraft(noteId, data, baseVersion, { serverVersion });
+  }, 0);
+
+  return {
+    id: noteId,
+    title: typeof data.title === "string" ? data.title : record?.localTitle || "",
+    content: typeof data.content === "string" ? data.content : record?.localContent || "",
+    contentText: typeof data.contentText === "string" ? data.contentText : record?.localContentText || "",
+    contentFormat: (data.contentFormat || "markdown") as Note["contentFormat"],
+    version: serverVersion,
+    updatedAt,
+  } as Note;
 }
 
 export function installNoteSyncSafety(): void {
@@ -194,6 +324,10 @@ export function installNoteSyncSafety(): void {
         "缺少服务端版本，已阻止不安全保存。请重新加载笔记后重试。",
         400,
       );
+    }
+
+    if (versioned && !resolvingNoteIds.has(noteId) && hasPendingNoteSyncConflict(noteId)) {
+      return pausedConflictResponse(noteId, data, baseVersion);
     }
 
     if (versioned) persistLocalDraft(noteId, data, baseVersion);
@@ -277,6 +411,7 @@ export function installNoteSyncSafety(): void {
   guardedWindow[INSTALL_KEY] = () => {
     (api as any).getNote = originalGetNote;
     (api as any).updateNote = originalUpdateNote;
+    resolvingNoteIds.clear();
     delete guardedWindow[INSTALL_KEY];
   };
 }
