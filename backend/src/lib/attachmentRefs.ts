@@ -44,7 +44,6 @@
  *   - 不分定界（引号 / 括号 / 反引号），uuid 严格匹配本身已经足够防误。
  */
 
-import type Database from "better-sqlite3";
 import { attachmentReferencesRepository } from "../repositories";
 
 // 严格 UUID v4 形态：8-4-4-4-12 hex
@@ -100,7 +99,7 @@ export function extractAttachmentIdsFromContent(
  *     在用户编辑器里也会渲染成"裂图"，不索引才是正确行为。
  */
 export function syncReferences(
-  db: Database.Database,
+  _db: unknown,
   noteId: string,
   content: string | null | undefined,
 ): { added: number; removed: number } {
