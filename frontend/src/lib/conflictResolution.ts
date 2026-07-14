@@ -83,6 +83,9 @@ async function keepLocalVersion(
     contentFormat: local.contentFormat || remote.contentFormat,
     version: remote.version,
   }));
+  if (typeof updated.version !== "number" || updated.version <= remote.version) {
+    throw new Error("服务器尚未确认此设备版本，请保持页面打开后重试。");
+  }
   clearResolvedConflict(item.noteId);
   return { note: updated };
 }
@@ -95,7 +98,8 @@ async function useServerVersion(
   let conflictCopy: Note | undefined;
   if (!sameContent(local, remote)) {
     // The local copy must be acknowledged by the server before the conflict marker is removed.
-    // If creation fails, every local artifact remains intact and the user can retry safely.
+    // getNoteSlim does not fall back to IndexedDB, so it distinguishes a real server ACK from
+    // an optimistic offline create returned by the normal mutation queue.
     conflictCopy = await api.createNote({
       notebookId: remote.notebookId,
       workspaceId: remote.workspaceId,
@@ -104,6 +108,10 @@ async function useServerVersion(
       contentText: local.contentText,
       contentFormat: local.contentFormat || remote.contentFormat,
     });
+    const confirmedCopy = await api.getNoteSlim(conflictCopy.id);
+    if (!confirmedCopy?.id || confirmedCopy.id !== conflictCopy.id) {
+      throw new Error("本地冲突副本尚未得到服务器确认，请稍后重试。");
+    }
   }
   clearResolvedConflict(item.noteId);
   return { note: remote, conflictCopy };
