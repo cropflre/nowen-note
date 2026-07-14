@@ -3,6 +3,7 @@ import type { Notebook } from "@/types";
 export type NotebookSortBy = "manual" | "name" | "createdAt" | "updatedAt";
 export type NotebookSortDir = "asc" | "desc";
 export type NotebookSortPref = { by: NotebookSortBy; dir: NotebookSortDir };
+export type NotebookSortPrefMap = Record<string, NotebookSortPref>;
 export type NotebookSortResolver = NotebookSortPref | ((parentId: string | null) => NotebookSortPref);
 export type NotebookDropZone = "before" | "inside" | "after";
 export type NotebookReorderItem = { id: string; sortOrder: number };
@@ -15,12 +16,26 @@ export type NotebookDropResult = {
 };
 
 export const DEFAULT_NOTEBOOK_SORT_PREF: NotebookSortPref = { by: "manual", dir: "desc" };
+export const ROOT_NOTEBOOK_SORT_KEY = "__root__";
+
+export function notebookSortKey(parentId: string | null): string {
+  return parentId ?? ROOT_NOTEBOOK_SORT_KEY;
+}
 
 export function resolveNotebookSortPref(
   explicitPref: NotebookSortPref | undefined,
   rootPref: NotebookSortPref,
 ): NotebookSortPref {
   return explicitPref ?? rootPref;
+}
+
+export function getNotebookSortPrefForParent(
+  prefMap: NotebookSortPrefMap,
+  parentId: string | null,
+): NotebookSortPref {
+  const rootPref = prefMap[ROOT_NOTEBOOK_SORT_KEY] ?? DEFAULT_NOTEBOOK_SORT_PREF;
+  if (parentId === null) return rootPref;
+  return resolveNotebookSortPref(prefMap[notebookSortKey(parentId)], rootPref);
 }
 
 export function normalizeNotebookSortPref(raw: unknown): NotebookSortPref {

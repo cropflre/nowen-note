@@ -59,22 +59,19 @@ import {
   DEFAULT_NOTEBOOK_SORT_PREF,
   getNotebookDropZone,
   getNotebookDragHint,
+  getNotebookSortPrefForParent,
+  notebookSortKey,
   normalizeNotebookSortPref,
-  resolveNotebookSortPref,
   reorderNotebooksForDrop,
+  ROOT_NOTEBOOK_SORT_KEY,
   type NotebookDropZone,
   type NotebookSortBy,
   type NotebookSortPref,
+  type NotebookSortPrefMap,
 } from "@/lib/notebookSort";
 import { SIDEBAR_TREE_INDENT, sidebarNotebookDisclosureChrome, sidebarNotebookPaddingLeft, sidebarNotebookRowPaddingY, sidebarNotebookShowsDragHandle, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
 
 const NOTEBOOK_SORT_STORAGE_KEY = "nowen.notebookTree.sort";
-const ROOT_NOTEBOOK_SORT_KEY = "__root__";
-type NotebookSortPrefMap = Record<string, NotebookSortPref>;
-
-function notebookSortKey(parentId: string | null): string {
-  return parentId ?? ROOT_NOTEBOOK_SORT_KEY;
-}
 
 function loadNotebookSortPrefs(): NotebookSortPrefMap {
   try {
@@ -99,12 +96,6 @@ function loadNotebookSortPrefs(): NotebookSortPrefMap {
 
 function saveNotebookSortPrefs(prefMap: NotebookSortPrefMap) {
   try { localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, JSON.stringify(prefMap)); } catch {}
-}
-
-function getNotebookSortPrefForParent(prefMap: NotebookSortPrefMap, parentId: string | null): NotebookSortPref {
-  const rootPref = prefMap[ROOT_NOTEBOOK_SORT_KEY] ?? DEFAULT_NOTEBOOK_SORT_PREF;
-  if (parentId === null) return rootPref;
-  return resolveNotebookSortPref(prefMap[notebookSortKey(parentId)], rootPref);
 }
 
 /* ===== 移动笔记本：树形选择器条目 ===== */

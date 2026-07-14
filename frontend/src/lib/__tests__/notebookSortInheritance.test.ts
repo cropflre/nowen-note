@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { NoteListItem, Notebook } from "@/types";
 import {
   buildNotebookTree,
-  resolveNotebookSortPref,
+  getNotebookSortPrefForParent,
+  ROOT_NOTEBOOK_SORT_KEY,
   type NotebookSortPref,
 } from "@/lib/notebookSort";
 import { sortNotebookNotes } from "@/lib/notebookNoteCache";
@@ -44,10 +45,9 @@ function inheritedResolver(
   rootPref: NotebookSortPref,
   overrides: Record<string, NotebookSortPref> = {},
 ) {
-  return (parentId: string | null): NotebookSortPref => {
-    if (parentId === null) return rootPref;
-    return resolveNotebookSortPref(overrides[parentId], rootPref);
-  };
+  const prefMap = { [ROOT_NOTEBOOK_SORT_KEY]: rootPref, ...overrides };
+  return (parentId: string | null): NotebookSortPref =>
+    getNotebookSortPrefForParent(prefMap, parentId);
 }
 
 describe("notebook sort inheritance", () => {
@@ -88,22 +88,23 @@ describe("notebook sort inheritance", () => {
     const explicitManual: NotebookSortPref = { by: "manual", dir: "desc" };
     const resolvePref = inheritedResolver(
       { by: "name", dir: "asc" },
-      { root: explicitManual },
+      { "child-a": explicitManual },
     );
     const tree = buildNotebookTree(
       [
         notebook("root"),
-        notebook("child-z", { parentId: "root", name: "Zulu", sortOrder: 0 }),
-        notebook("child-a", { parentId: "root", name: "Alpha", sortOrder: 1 }),
+        notebook("child-a", { parentId: "root" }),
+        notebook("grand-z", { parentId: "child-a", name: "Zulu", sortOrder: 0 }),
+        notebook("grand-a", { parentId: "child-a", name: "Alpha", sortOrder: 1 }),
       ],
       resolvePref,
     );
 
-    expect(tree[0].children?.map((item) => item.id)).toEqual(["child-z", "child-a"]);
+    expect(tree[0].children?.[0].children?.map((item) => item.id)).toEqual(["grand-z", "grand-a"]);
     expect(
       sortNotebookNotes(
         [note("z", "Zulu note"), note("a", "Alpha note")],
-        resolvePref("root"),
+        resolvePref("child-a"),
       ).map((item) => item.id),
     ).toEqual(["z", "a"]);
   });
