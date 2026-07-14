@@ -34,6 +34,7 @@ export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
 export { attachmentFolderOperationsRepository } from "./attachmentFolderOperationsRepository";
 export { attachmentMediaRepository } from "./attachmentMediaRepository";
 export { attachmentSignedAccessRepository } from "./attachmentSignedAccessRepository";
+export { mindmapSchemaRepository } from "./mindmapSchemaRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
 export { mindmapFolderOperationsRepository } from "./mindmapFolderOperationsRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
@@ -76,5 +77,6 @@ export type {
 } from "./types";
 export type { ApiTokenSchemaDatabase } from "./apiTokenSchemaRepository";
 export type { AuthSecurityDatabase } from "./authSecurityRepository";
+export type { MindmapSchemaDatabase } from "./mindmapSchemaRepository";
 export type { AiCustomPromptRecord } from "./aiCustomPromptsRepository";
 export type { NoteVersionListItem, NoteVersionRecord } from "./noteVersionsRepository";
