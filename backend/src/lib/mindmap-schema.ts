@@ -9,7 +9,7 @@
  *
  * 设计：
  *   导出单个 ensureMindmapSchema(db?) 函数，两个路由文件共用同一份逻辑。
- *   SQLite DDL、PRAGMA 探测和补列逻辑集中到 Repository 边界；
+ *   SQLite DDL、列信息探测和补列逻辑集中到 Repository 边界；
  *   PostgreSQL Schema parity 与迁移机制由 #250 负责。
  */
 
