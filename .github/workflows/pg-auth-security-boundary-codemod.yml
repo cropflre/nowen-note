@@ -1,0 +1,37 @@
+name: PostgreSQL Auth Security Boundary Codemod
+
+on:
+  push:
+    branches:
+      - issue-248-direct-db-audit
+    paths:
+      - .github/workflows/pg-auth-security-boundary-codemod.yml
+      - backend/scripts/apply-auth-security-boundary-codemod.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: issue-248-direct-db-audit
+          fetch-depth: 0
+
+      - name: Apply codemod
+        run: node backend/scripts/apply-auth-security-boundary-codemod.mjs
+
+      - name: Commit generated auth security boundary changes
+        run: |
+          if git diff --quiet; then
+            echo "No codemod changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/lib/auth-security.ts
+          git commit -m "refactor(db): move auth security SQL behind repository (#248)"
+          git push origin HEAD:issue-248-direct-db-audit
