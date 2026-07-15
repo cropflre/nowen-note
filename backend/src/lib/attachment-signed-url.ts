@@ -6,7 +6,8 @@
  *
  * v2 scope 不再只是一个不可解释的字符串，而是携带可重新校验的授权上下文：
  *   - user：某个已登录用户读取某篇笔记；
- *   - share：某个仍有效的公开分享读取某篇笔记。
+ *   - share：某个仍有效的单篇公开分享读取某篇笔记；
+ *   - publication：某个仍有效的笔记本发布读取目录树中的笔记。
  *
  * 每次附件请求都会重新检查当前 ACL / 分享状态，因此成员移除、分享撤销或过期后，
  * 已经签发的 URL 也会立即失效，而不是只能等待 exp 到期。
@@ -22,7 +23,8 @@ const MAX_SCOPE_LENGTH = 1024;
 
 export type AttachmentAccessScope =
   | { version: 2; kind: "user"; subjectId: string; noteId: string }
-  | { version: 2; kind: "share"; subjectId: string; noteId: string };
+  | { version: 2; kind: "share"; subjectId: string; noteId: string }
+  | { version: 2; kind: "publication"; subjectId: string; noteId: string };
 
 export interface AttachmentSignatureVerification {
   valid: boolean;
@@ -50,13 +52,17 @@ export function createShareAttachmentScope(shareId: string, noteId: string): str
   return encodeScope({ version: 2, kind: "share", subjectId: shareId, noteId });
 }
 
+export function createPublicationAttachmentScope(publicationId: string, noteId: string): string {
+  return encodeScope({ version: 2, kind: "publication", subjectId: publicationId, noteId });
+}
+
 export function parseAttachmentAccessScope(raw: string): AttachmentAccessScope | null {
   if (!raw || raw.length > MAX_SCOPE_LENGTH || !raw.startsWith(SCOPE_PREFIX)) return null;
   try {
     const decoded = Buffer.from(raw.slice(SCOPE_PREFIX.length), "base64url").toString("utf8");
     const parsed = JSON.parse(decoded) as Partial<AttachmentAccessScope>;
     if (parsed.version !== 2) return null;
-    if (parsed.kind !== "user" && parsed.kind !== "share") return null;
+    if (parsed.kind !== "user" && parsed.kind !== "share" && parsed.kind !== "publication") return null;
     if (typeof parsed.subjectId !== "string" || !parsed.subjectId.trim()) return null;
     if (typeof parsed.noteId !== "string" || !parsed.noteId.trim()) return null;
     if (parsed.subjectId.length > 256 || parsed.noteId.length > 256) return null;
@@ -110,18 +116,58 @@ export function verifyAttachmentAccessScope(
     return { valid: true, accessKind: "user" };
   }
 
-  const share = db
-    .prepare("SELECT noteId, isActive, expiresAt FROM shares WHERE id = ?")
-    .get(scope.subjectId) as
-    | { noteId: string; isActive: number; expiresAt: string | null }
-    | undefined;
-  if (!share || share.noteId !== scope.noteId || !share.isActive) {
-    return { valid: false, reason: "share_access_revoked", accessKind: "share" };
+  if (scope.kind === "share") {
+    const share = db
+      .prepare("SELECT noteId, isActive, expiresAt FROM shares WHERE id = ?")
+      .get(scope.subjectId) as
+      | { noteId: string; isActive: number; expiresAt: string | null }
+      | undefined;
+    if (!share || share.noteId !== scope.noteId || !share.isActive) {
+      return { valid: false, reason: "share_access_revoked", accessKind: "share" };
+    }
+    if (isExpiredDate(share.expiresAt)) {
+      return { valid: false, reason: "share_expired", accessKind: "share" };
+    }
+    return { valid: true, accessKind: "share" };
   }
-  if (isExpiredDate(share.expiresAt)) {
-    return { valid: false, reason: "share_expired", accessKind: "share" };
+
+  // 笔记本发布：必须仍处于启用、未过期状态，且目标笔记仍位于发布目录树中。
+  // 锁定笔记、回收站笔记和已删除目录不允许通过旧签名继续访问。
+  try {
+    const publication = db.prepare(`
+      WITH RECURSIVE published_tree(id) AS (
+        SELECT p.notebookId
+        FROM notebook_publications p
+        JOIN notebooks root ON root.id = p.notebookId
+        WHERE p.id = ? AND root.isDeleted = 0
+        UNION ALL
+        SELECT child.id
+        FROM notebooks child
+        JOIN published_tree tree ON child.parentId = tree.id
+        WHERE child.isDeleted = 0
+      )
+      SELECT p.isActive, p.expiresAt
+      FROM notebook_publications p
+      JOIN notes n ON n.id = ?
+      WHERE p.id = ?
+        AND n.notebookId IN (SELECT id FROM published_tree)
+        AND n.isTrashed = 0
+        AND n.isLocked = 0
+    `).get(scope.subjectId, scope.noteId, scope.subjectId) as
+      | { isActive: number; expiresAt: string | null }
+      | undefined;
+
+    if (!publication || !publication.isActive) {
+      return { valid: false, reason: "publication_access_revoked", accessKind: "publication" };
+    }
+    if (isExpiredDate(publication.expiresAt)) {
+      return { valid: false, reason: "publication_expired", accessKind: "publication" };
+    }
+    return { valid: true, accessKind: "publication" };
+  } catch {
+    // 老数据库尚未创建发布表时，publication scope 一律拒绝。
+    return { valid: false, reason: "publication_access_revoked", accessKind: "publication" };
   }
-  return { valid: true, accessKind: "share" };
 }
 
 export function createAttachmentSignedParams(
