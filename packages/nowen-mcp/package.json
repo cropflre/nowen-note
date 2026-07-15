@@ -3,14 +3,15 @@
   "version": "1.0.0",
   "description": "Nowen Note MCP Server — 让 AI 工具直接操作笔记系统",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/scoped-entry.js",
   "bin": {
-    "nowen-mcp": "./dist/index.js"
+    "nowen-mcp": "./dist/scoped-entry.js"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/scoped-entry.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/scoped-entry.js",
+    "test": "npm run build && node --test dist/scope-policy.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

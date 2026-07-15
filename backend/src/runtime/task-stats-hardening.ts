@@ -162,31 +162,33 @@ export function installTaskStatsRoutes(router: Hono<any>): void {
       const limit = Number.isFinite(requestedLimit)
         ? Math.max(1, Math.min(10_000, Math.trunc(requestedLimit)))
         : 5000;
-      const where: string[] = [];
+      const where: string[] = [
+        "EXISTS (SELECT 1 FROM tasks AS live_task WHERE live_task.id = e.taskId)",
+      ];
       const params: unknown[] = [];
       if (scope.kind === "workspace") {
-        where.push("workspaceId = ?");
+        where.push("e.workspaceId = ?");
         params.push(scope.workspaceId);
       } else {
-        where.push("userId = ?", "workspaceId IS NULL");
+        where.push("e.userId = ?", "e.workspaceId IS NULL");
         params.push(userId);
       }
       if (from) {
-        where.push("occurredAt >= ?");
+        where.push("e.occurredAt >= ?");
         params.push(`${from}T00:00:00.000Z`);
       }
       if (to) {
-        where.push("occurredAt <= ?");
+        where.push("e.occurredAt <= ?");
         params.push(`${to}T23:59:59.999Z`);
       }
       params.push(limit);
 
       const rows = getDb().prepare(`
-        SELECT id, taskId, taskTitle, eventType, userId, workspaceId, projectId,
-               occurredAt, createdAt
-        FROM task_activity_events
+        SELECT e.id, e.taskId, e.taskTitle, e.eventType, e.userId, e.workspaceId, e.projectId,
+               e.occurredAt, e.createdAt
+        FROM task_activity_events AS e
         WHERE ${where.join(" AND ")}
-        ORDER BY occurredAt DESC, createdAt DESC
+        ORDER BY e.occurredAt DESC, e.createdAt DESC
         LIMIT ?
       `).all(...params);
       return c.json(rows);
