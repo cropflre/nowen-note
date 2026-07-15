@@ -1,0 +1,196 @@
+name: Apply MCP Phase 2-3 Closeout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/mcp-phase23-closeout-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply closeout patches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) MCP API client: pass notebook knowledge scope.
+          path = Path('packages/nowen-mcp/src/api-client.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '''  /** 知识库问答（非流式，收集完整响应） */
+  async askKnowledge(question: string): Promise<{ answer: string; references: { id: string; title: string }[] }> {
+    await this.ensureAuth();
+
+    const res = await fetch(`${this.baseUrl}/api/ai/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ question }),
+    });
+'''
+          new = '''  /** 知识库问答（非流式，收集完整响应） */
+  async askKnowledge(
+    question: string,
+    options?: { notebookId?: string; includeChildren?: boolean },
+  ): Promise<{ answer: string; references: { id: string; title: string }[] }> {
+    await this.ensureAuth();
+
+    const res = await fetch(`${this.baseUrl}/api/ai/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({
+        question,
+        notebookId: options?.notebookId,
+        includeChildren: options?.includeChildren === true,
+      }),
+    });
+'''
+          if old not in text:
+              raise SystemExit('api-client askKnowledge target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 2) MCP tool: expose notebookId/includeChildren.
+          path = Path('packages/nowen-mcp/src/index.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '''  {
+    question: z.string().describe("要提问的问题"),
+  },
+  async ({ question }) => {
+    try {
+      const { answer, references } = await api.askKnowledge(question);
+'''
+          new = '''  {
+    question: z.string().describe("要提问的问题"),
+    notebookId: z.string().optional().describe("限定知识库问答的笔记本 ID；restricted Token 必填"),
+    includeChildren: z.boolean().optional().describe("是否同时检索授权范围内的子笔记本"),
+  },
+  async ({ question, notebookId, includeChildren }) => {
+    try {
+      const { answer, references } = await api.askKnowledge(question, { notebookId, includeChildren });
+'''
+          if old not in text:
+              raise SystemExit('MCP nowen_ai_ask target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 3) Local MCP scope wrapper: allow scoped knowledge ask only inside whitelist.
+          path = Path('packages/nowen-mcp/src/scoped-entry.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '''    if (url.pathname === "/api/ai/ask") {
+      throw new ScopeDeniedError("scoped MCP 暂不启用全知识库问答，避免回答内容跨越笔记本白名单");
+    }
+'''
+          new = '''    if (url.pathname === "/api/ai/ask") {
+      await ensureDescendantsHydrated(request);
+      const body = await readJson(request);
+      const notebookId = typeof body.notebookId === "string" ? body.notebookId : "";
+      if (!notebookId) {
+        throw new ScopeDeniedError("scoped MCP 调用知识库问答时必须提供 notebookId");
+      }
+      policy.assertNotebookAllowed(notebookId, "知识库问答");
+      if (body.includeChildren === true && !policy.includeDescendants) {
+        throw new ScopeDeniedError("当前 MCP 未启用 MCP_INCLUDE_DESCENDANTS，不能检索子笔记本");
+      }
+      return originalFetch(request);
+    }
+'''
+          if old not in text:
+              raise SystemExit('scoped-entry AI ask target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 4) Existing frontend ES2020 test compatibility blocker.
+          path = Path('frontend/src/components/__tests__/TaskCenterQuickAddIntegration.test.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = 'apiMocks.statsCenterProps.at(-1)'
+          if old not in text:
+              raise SystemExit('frontend Array.at targets not found')
+          text = text.replace(old, 'apiMocks.statsCenterProps[apiMocks.statsCenterProps.length - 1]')
+          path.write_text(text, encoding='utf-8')
+
+          # 5) PostgreSQL schema parity for Token resource grants.
+          path = Path('backend/src/db/postgres/schema.base.sql')
+          text = path.read_text(encoding='utf-8')
+          old = '''CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    "tokenId" TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "lastUsedAt" TIMESTAMPTZ,
+    "lastUsedIp" TEXT,
+    "expiresAt" TIMESTAMPTZ,
+    "revokedAt" TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens("userId");
+'''
+          new = '''CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL UNIQUE,
+    scopes TEXT NOT NULL DEFAULT '[]',
+    "resourceMode" TEXT NOT NULL DEFAULT 'unrestricted',
+    "expiresAt" TIMESTAMPTZ,
+    "lastUsedAt" TIMESTAMPTZ,
+    "lastUsedIp" TEXT,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "revokedAt" TIMESTAMPTZ,
+    CHECK ("resourceMode" IN ('unrestricted', 'restricted'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens("userId", "revokedAt");
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens("tokenHash");
+
+CREATE TABLE IF NOT EXISTS api_token_usage (
+    "tokenId" TEXT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY ("tokenId", day)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_token_usage_day ON api_token_usage(day);
+
+CREATE TABLE IF NOT EXISTS api_token_resources (
+    id TEXT PRIMARY KEY,
+    "tokenId" TEXT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+    "resourceType" TEXT NOT NULL DEFAULT 'notebook',
+    "resourceId" TEXT NOT NULL,
+    permission TEXT NOT NULL DEFAULT 'read',
+    "includeDescendants" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE ("tokenId", "resourceType", "resourceId"),
+    CHECK ("resourceType" IN ('notebook')),
+    CHECK (permission IN ('read', 'write'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_token_resources_token
+    ON api_token_resources("tokenId", "resourceType");
+CREATE INDEX IF NOT EXISTS idx_api_token_resources_resource
+    ON api_token_resources("resourceType", "resourceId");
+'''
+          if old not in text:
+              raise SystemExit('PostgreSQL api_tokens schema target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          rm -f .github/mcp-phase23-closeout-trigger
+          rm -f .github/workflows/apply-mcp-phase23-closeout.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat(mcp): complete resource-scoped token workflow"
+          git push origin HEAD:main
