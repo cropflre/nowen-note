@@ -9,6 +9,12 @@ on:
       - "backend/src/**"
       - "backend/package.json"
       - "backend/package-lock.json"
+  pull_request:
+    paths:
+      - ".github/workflows/pg-unified-tsc-diagnostics.yml"
+      - "backend/src/**"
+      - "backend/package.json"
+      - "backend/package-lock.json"
 
 permissions:
   contents: read
