@@ -4,11 +4,16 @@
  * Complex member and inherited ACL queries are delegated to a Repository boundary.
  */
 import {
+  ensureNotebookAclOverridesTable as ensureNotebookAclOverridesTableRepository,
   memberQueryRepository,
   type NotebookMemberAccessRow,
 } from "../repositories/memberQueryRepository";
 
 export type { NotebookMemberAccessRow } from "../repositories/memberQueryRepository";
+
+export function ensureNotebookAclOverridesTable(): void {
+  ensureNotebookAclOverridesTableRepository();
+}
 
 export const memberQueryService = {
   getNotebookMemberAccess(
