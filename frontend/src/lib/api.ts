@@ -1,6 +1,7 @@
 export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace } from "./api.impl";
+import { invalidateNotebooks } from "./notebookInvalidation";
 import type { Note, Task } from "@/types";
 
 export type TaskActivityEvent = {
@@ -86,6 +87,21 @@ async function confirmedNoteJson<T>(path: string, init: RequestInit): Promise<T>
 }
 
 const api = baseApi as EnhancedApi;
+
+const nativeMoveNotebook = baseApi.moveNotebook.bind(baseApi);
+const nativeReorderNotebooks = baseApi.reorderNotebooks.bind(baseApi);
+
+api.moveNotebook = (async (...args: Parameters<typeof baseApi.moveNotebook>) => {
+  const moved = await nativeMoveNotebook(...args);
+  invalidateNotebooks("move");
+  return moved;
+}) as typeof baseApi.moveNotebook;
+
+api.reorderNotebooks = (async (...args: Parameters<typeof baseApi.reorderNotebooks>) => {
+  const reordered = await nativeReorderNotebooks(...args);
+  invalidateNotebooks("reorder");
+  return reordered;
+}) as typeof baseApi.reorderNotebooks;
 
 api.getTaskActivityEvents = (params: TaskActivityQuery = {}) => {
   const search = new URLSearchParams();
