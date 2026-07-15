@@ -1,0 +1,73 @@
+name: Apply Issue 165 Markdown HTML Follow-up
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/issue-165-followup-trigger]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Apply and validate follow-up
+        shell: bash
+        run: |
+          set +e
+          LOG=/tmp/issue-165-followup.log
+          : > "$LOG"
+          python3 .github/issue-165-markdown-followup.py >> "$LOG" 2>&1
+          PATCH=$?
+          INSTALL=99
+          TYPECHECK=99
+          TEST=99
+          if [ "$PATCH" -eq 0 ]; then
+            cd backend
+            npm ci >> "$LOG" 2>&1
+            INSTALL=$?
+            if [ "$INSTALL" -eq 0 ]; then
+              npm run build:tsc >> "$LOG" 2>&1
+              TYPECHECK=$?
+              node --import tsx --test tests/knowledge-blocks.test.ts >> "$LOG" 2>&1
+              TEST=$?
+            fi
+            cd ..
+          fi
+          python3 - <<PY
+          import json
+          from pathlib import Path
+          statuses = {"patch": int("$PATCH"), "install": int("$INSTALL"), "typecheck": int("$TYPECHECK"), "test": int("$TEST")}
+          log = Path("/tmp/issue-165-followup.log").read_text(encoding="utf-8", errors="replace")
+          result = {"ok": all(value == 0 for value in statuses.values()), "statuses": statuses, "log": "\n".join(log.splitlines()[-700:])}
+          Path("/tmp/issue-165-followup-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+          OK=$(python3 -c "import json; print('1' if json.load(open('/tmp/issue-165-followup-result.json'))['ok'] else '0')")
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if [ "$OK" = "1" ]; then
+            rm -f .github/issue-165-markdown-followup.py
+            rm -f .github/issue-165-followup-trigger
+            rm -f .github/issue-165-followup-result.json
+            rm -f .github/workflows/apply-issue-165-followup.yml
+            git add -A
+            git commit -m "fix(knowledge): preserve markdown block links and HTML notes (#165)"
+            git push origin HEAD:main
+            exit $?
+          fi
+          git reset --hard HEAD
+          cp /tmp/issue-165-followup-result.json .github/issue-165-followup-result.json
+          rm -f .github/issue-165-followup-trigger
+          rm -f .github/workflows/apply-issue-165-followup.yml
+          git add -A
+          git commit -m "test(knowledge): record issue 165 follow-up diagnostics"
+          git push origin HEAD:main
+          exit 1
