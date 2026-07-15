@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import MarkdownPreview from "@/components/MarkdownPreview";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import TiptapEditor from "@/components/TiptapEditor";
 import type { Note } from "@/types";
 import { cn } from "@/lib/utils";
