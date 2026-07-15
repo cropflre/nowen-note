@@ -15,6 +15,7 @@ let getDb: () => Database.Database;
 let closeDb: () => void;
 const USER_ID = "ai-toggle-user";
 const OTHER_ID = "ai-toggle-other";
+const DEFAULTS_ID = "ai-toggle-defaults";
 
 function setSetting(key: string, value: string, userId = USER_ID): void {
   getDb().prepare(`
@@ -28,11 +29,11 @@ function getSetting(key: string, userId = USER_ID): string {
   return (getDb().prepare("SELECT value FROM user_ai_settings WHERE userId = ? AND key = ?").get(userId, key) as { value?: string } | undefined)?.value || "";
 }
 
-async function jsonRequest(method: string, route: string, body?: unknown) {
+async function jsonRequest(method: string, route: string, body?: unknown, userId = USER_ID) {
   const response = await app.request(route, {
     method,
     headers: {
-      "X-User-Id": USER_ID,
+      "X-User-Id": userId,
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -54,6 +55,8 @@ test.before(async () => {
     .run(USER_ID, USER_ID, "hash");
   getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run(OTHER_ID, OTHER_ID, "hash");
+  getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
+    .run(DEFAULTS_ID, DEFAULTS_ID, "hash");
 
   const now = new Date().toISOString();
   setSetting("ai_profiles_v1", JSON.stringify([
@@ -140,4 +143,22 @@ test("disabled AI configuration cannot be reactivated by profile switching", asy
   assert.equal(getSetting("ai_embedding_url"), "https://embedding.example/v1");
   assert.equal(getSetting("ai_embedding_key"), "embedding-secret");
   assert.equal(getSetting("ai_embedding_model"), "embedding-model");
+});
+
+test("disabling and enabling preserves effective default settings", async () => {
+  setSetting("ai_api_key", "defaults-secret", DEFAULTS_ID);
+
+  const before = await jsonRequest("GET", "/user-preferences/ai-reliable/status", undefined, DEFAULTS_ID);
+  assert.equal(before.json.provider, "openai");
+  assert.equal(before.json.model, "gpt-4o-mini");
+  assert.equal(before.json.apiHost, "api.openai.com");
+
+  await jsonRequest("PUT", "/user-preferences/ai-reliable/config-enabled", { enabled: false }, DEFAULTS_ID);
+  await jsonRequest("PUT", "/user-preferences/ai-reliable/config-enabled", { enabled: true }, DEFAULTS_ID);
+  const after = await jsonRequest("GET", "/user-preferences/ai-reliable/status", undefined, DEFAULTS_ID);
+
+  assert.equal(after.json.provider, "openai");
+  assert.equal(after.json.model, "gpt-4o-mini");
+  assert.equal(after.json.apiHost, "api.openai.com");
+  assert.equal(getSetting("ai_api_key", DEFAULTS_ID), "defaults-secret");
 });

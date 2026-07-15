@@ -32,6 +32,7 @@ function createLegacyDb() {
       ('ai_model', 'legacy-model'),
       ('ai_profiles_v1', '[{"id":"legacy-profile"}]'),
       ('ai_disabled_backup_ai_api_key', 'backup-secret'),
+      ('aiXdisabledYbackupZsite', 'must-stay'),
       ('site_title', 'Nowen');
 
     CREATE TRIGGER ai_manual_config_guard_insert
@@ -75,12 +76,16 @@ test("user AI settings migration copies legacy AI config only to admins", () => 
     SELECT COUNT(*) AS count
     FROM system_settings
     WHERE key IN ('ai_provider', 'ai_api_url', 'ai_api_key', 'ai_model', 'ai_profiles_v1')
-       OR key LIKE 'ai_disabled_backup_%'
+       OR substr(key, 1, 19) = 'ai_disabled_backup_'
   `).get() as { count: number };
   assert.equal(legacyAI.count, 0);
   assert.equal(
     (db.prepare("SELECT value FROM system_settings WHERE key = 'site_title'").get() as { value: string }).value,
     "Nowen",
+  );
+  assert.equal(
+    (db.prepare("SELECT value FROM system_settings WHERE key = 'aiXdisabledYbackupZsite'").get() as { value: string }).value,
+    "must-stay",
   );
 
   const guards = db.prepare(`

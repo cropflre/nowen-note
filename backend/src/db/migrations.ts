@@ -144,6 +144,7 @@ const LEGACY_AI_SETTING_KEYS = [
   "ai_active_profile_id",
   "ai_manual_enabled",
 ] as const;
+const LEGACY_AI_BACKUP_PREFIX = "ai_disabled_backup_";
 
 const userAISettingsMigration: Migration = {
   version: 47,
@@ -167,8 +168,12 @@ const userAISettingsMigration: Migration = {
     const legacySettings = db.prepare(`
       SELECT key, value
       FROM system_settings
-      WHERE key IN (${placeholders}) OR key LIKE 'ai_disabled_backup_%'
-    `).all(...LEGACY_AI_SETTING_KEYS) as Array<{ key: string; value: string }>;
+      WHERE key IN (${placeholders}) OR substr(key, 1, ?) = ?
+    `).all(
+      ...LEGACY_AI_SETTING_KEYS,
+      LEGACY_AI_BACKUP_PREFIX.length,
+      LEGACY_AI_BACKUP_PREFIX,
+    ) as Array<{ key: string; value: string }>;
     const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as Array<{ id: string }>;
     const upsert = db.prepare(`
       INSERT INTO user_ai_settings (userId, key, value, updatedAt)
@@ -186,8 +191,12 @@ const userAISettingsMigration: Migration = {
 
     db.prepare(`
       DELETE FROM system_settings
-      WHERE key IN (${placeholders}) OR key LIKE 'ai_disabled_backup_%'
-    `).run(...LEGACY_AI_SETTING_KEYS);
+      WHERE key IN (${placeholders}) OR substr(key, 1, ?) = ?
+    `).run(
+      ...LEGACY_AI_SETTING_KEYS,
+      LEGACY_AI_BACKUP_PREFIX.length,
+      LEGACY_AI_BACKUP_PREFIX,
+    );
     db.exec(`
       DROP TRIGGER IF EXISTS ai_manual_config_guard_insert;
       DROP TRIGGER IF EXISTS ai_manual_config_guard_update;

@@ -125,10 +125,11 @@ function setManualAIEnabled(userId: string, enabled: boolean): void {
   if (isUserManualAIEnabled(userId) === enabled) return;
 
   if (!enabled) {
+    const effectiveSettings = getUserAISettings(userId) as unknown as Record<string, string>;
     setUserAISettings(userId, [
       ...GUARDED_AI_KEYS.map((key) => ({
         key: `ai_disabled_backup_${key}`,
-        value: getUserAISetting(userId, key),
+        value: effectiveSettings[key] || "",
       })),
       ...GUARDED_AI_KEYS.map((key) => ({ key, value: "" })),
       { key: "ai_manual_enabled", value: "false" },

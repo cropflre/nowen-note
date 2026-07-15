@@ -425,7 +425,8 @@ async function tick(): Promise<void> {
   try {
     const db = getDb();
 
-    // 只领取配置完整用户的任务，避免未配置用户长期占满批次。
+    // 只领取已配置 embedding 模型的用户任务；URL 的默认/回退规则统一由
+    // readEmbeddingConfig 处理，避免队列与查询路径对同一配置得出不同结论。
     const tasks = db.prepare(`
       SELECT q.noteId, q.userId, q.retries
       FROM embedding_queue q
@@ -435,12 +436,6 @@ async function tick(): Promise<void> {
           WHERE model.userId = q.userId
             AND model.key = 'ai_embedding_model'
             AND trim(model.value) <> ''
-        )
-        AND EXISTS (
-          SELECT 1 FROM user_ai_settings url
-          WHERE url.userId = q.userId
-            AND url.key IN ('ai_embedding_url', 'ai_api_url')
-            AND trim(url.value) <> ''
         )
       ORDER BY q.enqueuedAt ASC
       LIMIT ?
@@ -489,12 +484,6 @@ async function tickAttachments(): Promise<void> {
               WHERE model.userId = q.userId
                 AND model.key = 'ai_embedding_model'
                 AND trim(model.value) <> ''
-            )
-            AND EXISTS (
-              SELECT 1 FROM user_ai_settings url
-              WHERE url.userId = q.userId
-                AND url.key IN ('ai_embedding_url', 'ai_api_url')
-                AND trim(url.value) <> ''
             )
           ORDER BY q.enqueuedAt ASC
           LIMIT ?`,
