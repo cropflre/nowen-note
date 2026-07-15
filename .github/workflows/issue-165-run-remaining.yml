@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: codex/issue-165-finish
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -28,8 +28,17 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
             packages/nowen-mcp/package-lock.json
-      - name: Capture main parent
-        run: git rev-parse origin/main > /tmp/issue165-main-parent
+      - name: Load patch scripts from isolated branch
+        run: |
+          git fetch origin codex/issue-165-finish
+          git rev-parse HEAD > /tmp/issue165-main-parent
+          for file in \
+            .github/issue-165-phase1-normalize.py \
+            .github/issue-165-phase1-backend.py \
+            .github/issue-165-phase1-frontend-files.py \
+            .github/issue-165-phase1-frontend-existing.py; do
+            git show origin/codex/issue-165-finish:$file > $file
+          done
       - name: Apply deterministic patches
         id: apply
         shell: bash
@@ -74,7 +83,7 @@ jobs:
           run_step frontend_unit bash -lc 'cd frontend && npx vitest run src/lib/__tests__/noteLinkSyntax.test.ts'
           run_step frontend_build bash -lc 'cd frontend && npm run build'
           if grep -qE '=[1-9][0-9]*$' /tmp/issue165.status; then echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
-      - name: Record diagnostics
+      - name: Record diagnostics on isolated branch
         if: steps.apply.outputs.ok != 'true' || steps.validate.outputs.ok != 'true'
         run: |
           python - <<'PY'
@@ -84,8 +93,10 @@ jobs:
           for line in Path('/tmp/issue165.status').read_text().splitlines():
               key, value = line.split('=', 1)
               statuses[key] = int(value)
-          Path('.github/issue-165-phase1-result.json').write_text(json.dumps({'ok': False, 'statuses': statuses, 'log': Path('/tmp/issue165.log').read_text()[-60000:]}, ensure_ascii=False, indent=2) + '\n')
+          Path('/tmp/issue-165-phase1-result.json').write_text(json.dumps({'ok': False, 'statuses': statuses, 'log': Path('/tmp/issue165.log').read_text()[-60000:]}, ensure_ascii=False, indent=2) + '\n')
           PY
+          git reset --hard origin/codex/issue-165-finish
+          cp /tmp/issue-165-phase1-result.json .github/issue-165-phase1-result.json
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add .github/issue-165-phase1-result.json
@@ -99,13 +110,10 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           rm -f \
-            .github/issue-165-phase1-trigger \
             .github/issue-165-phase1-normalize.py \
             .github/issue-165-phase1-backend.py \
             .github/issue-165-phase1-frontend-files.py \
             .github/issue-165-phase1-frontend-existing.py \
-            .github/issue-165-phase1-result.json \
-            .github/workflows/issue-165-phase1.yml \
             .github/issue-165-main-trigger \
             .github/workflows/issue-165-run-remaining.yml
           git add -A
