@@ -12,13 +12,13 @@ process.env.ELECTRON_USER_DATA = tmpDir;
 
 let app: Hono;
 let getDb: () => Database.Database;
-let closeDb: () => void;
+let closeDb: (() => void) | undefined;
 
 test.before(async () => {
-  const [honoModule, statsModule, schemaModule] = await Promise.all([
+  const schemaModule = await import("../src/db/schema.js");
+  const [honoModule, statsModule] = await Promise.all([
     import("hono"),
     import("../src/runtime/task-stats-hardening"),
-    import("../src/db/schema"),
   ]);
   app = new honoModule.Hono();
   statsModule.installTaskStatsRoutes(app);
@@ -52,16 +52,16 @@ test.before(async () => {
   db.prepare("DELETE FROM tasks WHERE id = ?").run("task-deleted");
 });
 
-test.after(async () => {
-  closeDb();
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-      return;
-    } catch (error: any) {
-      if (error?.code !== "EBUSY" || attempt === 4) return;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+test.after(() => {
+  try {
+    closeDb?.();
+  } finally {
+    fs.rmSync(tmpDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   }
 });
 
