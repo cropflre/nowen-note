@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Database, Loader2, Power, RefreshCw, ShieldCheck } from "lucide-react";
 import OriginalAISettingsPanel from "./AISettingsPanel";
+import EmbeddingSettingsPanel from "./EmbeddingSettingsPanel";
 import { getReliableAIStatus, setReliableAIEnabled, type ReliableStatus } from "@/lib/aiReliable";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,16 @@ export default function AISettingsReliabilityShell() {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const handleSettingsChanged = () => void refresh();
+    window.addEventListener("nowen:ai-settings-changed", handleSettingsChanged);
+    window.addEventListener("nowen:ai-profiles-changed", handleSettingsChanged);
+    return () => {
+      window.removeEventListener("nowen:ai-settings-changed", handleSettingsChanged);
+      window.removeEventListener("nowen:ai-profiles-changed", handleSettingsChanged);
+    };
+  }, [refresh]);
 
   const toggle = async () => {
     if (!status || saving) return;
@@ -129,6 +139,10 @@ export default function AISettingsReliabilityShell() {
 
       <div className={cn(!status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
         <OriginalAISettingsPanel />
+      </div>
+
+      <div className={cn(!status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
+        <EmbeddingSettingsPanel />
       </div>
     </div>
   );
