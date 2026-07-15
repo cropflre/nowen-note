@@ -1,0 +1,44 @@
+/*
+ * Issue #287: code blocks should keep long lines inside the reading column.
+ *
+ * `pre-wrap` preserves source indentation and explicit newlines while allowing
+ * the browser to wrap a visual line at the available width. `anywhere` covers
+ * minified code, long URLs and tokens that do not contain normal break points.
+ *
+ * Keep these rules in a late-loaded override file so they apply consistently
+ * to the rich-text editor, Markdown preview, shared notes and legacy fallback
+ * code blocks without changing the stored note content.
+ */
+.ProseMirror .code-block-wrapper .code-block-content,
+.ProseMirror pre:not(.code-block-pre) > code,
+.nowen-md-preview pre > code,
+.shared-note-content .shared-code-content,
+.shared-note-content pre > code {
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Syntax highlighters split a line into nested spans. Let every token inherit
+ * the wrapping behavior instead of becoming an unbreakable inline fragment. */
+.ProseMirror .code-block-wrapper .code-block-content span,
+.ProseMirror pre:not(.code-block-pre) > code span,
+.nowen-md-preview pre > code span,
+.shared-note-content .shared-code-content span,
+.shared-note-content pre > code span {
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+
+/* The previous layout deliberately exposed horizontal scrolling. Once code is
+ * wrapped, hide the empty horizontal gutter on the dedicated code containers. */
+.ProseMirror .code-block-pre,
+.ProseMirror pre:not(.code-block-pre),
+.nowen-md-preview pre,
+.shared-note-content .shared-code-pre {
+  max-width: 100%;
+  overflow-x: hidden !important;
+}
