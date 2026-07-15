@@ -16,4 +16,15 @@ describe("realtime note pin synchronization", () => {
       "actions.setActiveNote({ ...state.activeNote, isPinned: newVal });",
     );
   });
+
+  it("persists manual drag order from the displayed pinned-first order", () => {
+    expect(noteListSource).not.toContain("reorderNotesWithinNotebook(state.notes");
+    expect(noteListSource.match(/reorderNotesWithinNotebook\(sortedNotes/g)).toHaveLength(2);
+    expect(sidebarSource).toContain(
+      "sortNotebookNotes(currentNotes, getNotebookSortPref(notebookId))",
+    );
+    expect(sidebarSource).toContain(
+      'getNotebookSortPref(target.notebookId).by !== "manual"',
+    );
+  });
 });

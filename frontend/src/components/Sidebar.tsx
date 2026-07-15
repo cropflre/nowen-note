@@ -1471,7 +1471,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     const sourceId = e.dataTransfer.getData("application/x-nowen-note") || dragNoteId;
     const source = getCachedNote(sourceId);
     const target = getCachedNote(targetNoteId);
-    if (!source || !target || source.id === target.id || source.isLocked === 1 || target.isLocked === 1 || source.notebookId !== target.notebookId) {
+    if (!source || !target || source.id === target.id || source.isLocked === 1 || target.isLocked === 1 || source.notebookId !== target.notebookId || (source.isPinned === 1) !== (target.isPinned === 1) || getNotebookSortPref(target.notebookId).by !== "manual") {
       e.dataTransfer.dropEffect = "none";
       setDragOverSidebarNoteId(null);
       setDragOverSidebarNoteZone(null);
@@ -1483,7 +1483,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragOverNoteNotebookId(null);
     setDragOverSidebarNoteId(targetNoteId);
     setDragOverSidebarNoteZone(zone);
-  }, [dragNoteId, getCachedNote]);
+  }, [dragNoteId, getCachedNote, getNotebookSortPref]);
 
   const handleSidebarNoteItemDrop = useCallback(async (e: React.DragEvent, targetNoteId: string) => {
     e.preventDefault();
@@ -1496,10 +1496,12 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragOverSidebarNoteId(null);
     setDragOverSidebarNoteZone(null);
     if (!sourceId || !target) return;
+    if (getNotebookSortPref(target.notebookId).by !== "manual") return;
 
     const notebookId = target.notebookId;
     const currentNotes = notesByNotebookIdRef.current.get(notebookId) || [];
-    const result = reorderNotesWithinNotebook(currentNotes, sourceId, targetNoteId, zone);
+    const displayedNotes = sortNotebookNotes(currentNotes, getNotebookSortPref(notebookId));
+    const result = reorderNotesWithinNotebook(displayedNotes, sourceId, targetNoteId, zone);
     if (!result) return;
 
     setNotesByNotebookId((prev) => new Map(prev).set(notebookId, result.notes));
@@ -1519,6 +1521,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     dragNoteId,
     dragOverSidebarNoteZone,
     getCachedNote,
+    getNotebookSortPref,
     loadNotesForNotebook,
   ]);
 

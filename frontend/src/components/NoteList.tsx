@@ -2858,11 +2858,18 @@ export default function NoteList() {
       if (dragOverNoteId) setDragOverNoteId(null);
       return;
     }
+    const source = sortedNotes.find((note) => note.id === dragNoteId);
+    const target = sortedNotes.find((note) => note.id === noteId);
+    if (!source || !target || (source.isPinned === 1) !== (target.isPinned === 1)) {
+      e.dataTransfer.dropEffect = "none";
+      if (dragOverNoteId) setDragOverNoteId(null);
+      return;
+    }
     e.dataTransfer.dropEffect = "move";
     if (noteId !== dragNoteId) {
       setDragOverNoteId(noteId);
     }
-  }, [dragNoteId, dragOverNoteId]);
+  }, [dragNoteId, dragOverNoteId, sortedNotes]);
 
   const handleDragEnd = useCallback(() => {
     setDragNoteId(null);
@@ -2897,10 +2904,10 @@ export default function NoteList() {
     setDragOverNoteId(null);
     if (!sourceId || sourceId === targetNoteId) return;
 
-    const result = reorderNotesWithinNotebook(state.notes, sourceId, targetNoteId, "before");
+    const result = reorderNotesWithinNotebook(sortedNotes, sourceId, targetNoteId, "before");
     if (!result) {
-      const source = state.notes.find((n) => n.id === sourceId);
-      const target = state.notes.find((n) => n.id === targetNoteId);
+      const source = sortedNotes.find((n) => n.id === sourceId);
+      const target = sortedNotes.find((n) => n.id === targetNoteId);
       if (source && target && source.notebookId !== target.notebookId) {
         toast.warning("不同笔记本内的笔记不能直接排序");
       }
@@ -2917,7 +2924,7 @@ export default function NoteList() {
       toast.error("排序保存失败");
       await fetchNotes(); // 回滚
     }
-  }, [dragNoteId, state.notes, actions, fetchNotes]);
+  }, [dragNoteId, sortedNotes, actions, fetchNotes]);
 
   // 移动端触摸拖拽处理
   const handleTouchStart = useCallback((noteId: string, e: React.TouchEvent) => {
@@ -2979,7 +2986,7 @@ export default function NoteList() {
 
     if (!targetId || sourceId === targetId) return;
 
-    const result = reorderNotesWithinNotebook(state.notes, sourceId, targetId, "before");
+    const result = reorderNotesWithinNotebook(sortedNotes, sourceId, targetId, "before");
     if (!result) return;
 
     actions.setNotes(result.notes);
@@ -2993,7 +3000,7 @@ export default function NoteList() {
       toast.error("排序保存失败");
       await fetchNotes();
     }
-  }, [dragOverNoteId, state.notes, actions, fetchNotes]);
+  }, [dragOverNoteId, sortedNotes, actions, fetchNotes]);
 
   const viewTitles: Record<string, string> = {
     all: t('noteList.allNotes'),

@@ -308,3 +308,11 @@ if (state.activeNote?.id === targetId) {
 git add frontend/src/lib/notebookNoteCache.ts frontend/src/lib/__tests__/notebookNoteCache.test.ts frontend/src/components/Sidebar.tsx frontend/src/components/NoteList.tsx frontend/src/components/__tests__/NotePinRealtimeSync.test.ts
 git commit -m "fix(notes): 同步置顶状态到所有视图（任务 2）"
 ```
+
+### 审查补充：保持手动拖拽与置顶分组一致
+
+- [x] 列表 API 返回持久化的 `sortOrder`，并新增真实路由回归测试。
+- [x] 目录列表和树形列表均从当前显示顺序计算拖拽结果。
+- [x] 拖拽仅在同一置顶分组内生效，只持久化当前分组并同步本地 `sortOrder`。
+- [x] 树形列表仅在手动排序时允许同目录重排，保留跨目录移动能力。
+- [x] 重新运行相关回归测试、前端构建和后端 TypeScript 构建。

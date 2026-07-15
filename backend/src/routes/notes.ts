@@ -75,7 +75,8 @@ app.get("/", (c) => {
   let query = `SELECT notes.id, notes.userId, notes.notebookId, notes.workspaceId, notes.title,
     notes.contentText, notes.isPinned,
     CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-    notes.isLocked, notes.isArchived, notes.isTrashed, notes.version, notes.createdAt, notes.updatedAt,
+    notes.isLocked, notes.isArchived, notes.isTrashed, notes.version, notes.sortOrder,
+    notes.createdAt, notes.updatedAt,
     notes.contentFormat,
     users.username AS creatorName
     FROM notes

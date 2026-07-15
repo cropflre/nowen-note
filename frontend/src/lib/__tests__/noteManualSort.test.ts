@@ -59,6 +59,37 @@ describe("reorderNotesWithinNotebook", () => {
       { id: "b", sortOrder: 2 },
     ]);
   });
+
+  it("置顶分组存在时只持久化当前分组的手动顺序", () => {
+    const result = reorderNotesWithinNotebook(
+      [
+        { ...note("pinned"), isPinned: 1, sortOrder: 9 },
+        { ...note("a"), isPinned: 0, sortOrder: 0 },
+        { ...note("b"), isPinned: 0, sortOrder: 1 },
+        { ...note("c"), isPinned: 0, sortOrder: 2 },
+      ],
+      "c",
+      "a",
+      "before",
+    );
+
+    expect(result?.notes.map((n) => n.id)).toEqual(["pinned", "c", "a", "b"]);
+    expect(result?.notes.map((n) => n.sortOrder)).toEqual([9, 0, 1, 2]);
+    expect(result?.items).toEqual([
+      { id: "c", sortOrder: 0 },
+      { id: "a", sortOrder: 1 },
+      { id: "b", sortOrder: 2 },
+    ]);
+  });
+
+  it("不允许把笔记拖到另一个置顶分组", () => {
+    expect(reorderNotesWithinNotebook(
+      [{ ...note("pinned"), isPinned: 1 }, { ...note("normal"), isPinned: 0 }],
+      "pinned",
+      "normal",
+      "before",
+    )).toBeNull();
+  });
 });
 
 describe("getNoteListDragHint", () => {
