@@ -1,0 +1,33 @@
+name: Bootstrap PostgreSQL Unified Branch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/pg-unified-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Rebuild unified branch from latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main issue-247-pg-runtime issue-248-direct-db-audit pg-migration-unified
+          git checkout -B pg-migration-unified origin/main
+          git merge --no-ff -X theirs origin/issue-248-direct-db-audit \
+            -m "merge(db): consolidate PostgreSQL migration stack on latest main"
+          git push --force-with-lease origin pg-migration-unified
