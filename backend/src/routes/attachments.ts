@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import attachmentsCoreRouter, {
   handleDownloadAttachment as handleFullAttachmentDownload,
 } from "./attachments-core";
+import remoteImageImportRouter from "./remote-image-import";
 import { handleAttachmentMediaRange } from "./attachment-media-range";
 import { getDb } from "../db/schema";
 import { inferVideoMime } from "../lib/media-mime";
@@ -228,6 +229,7 @@ attachmentsRouter.get("/access/urls", (c) => {
   });
 });
 
+attachmentsRouter.route("/", remoteImageImportRouter);
 attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;

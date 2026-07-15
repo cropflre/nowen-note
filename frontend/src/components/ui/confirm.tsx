@@ -58,6 +58,16 @@ export interface PromptOptions extends ConfirmOptions {
   allowEmpty?: boolean;
 }
 
+export interface ChoiceOption {
+  value: string;
+  label: string;
+  variant?: "default" | "outline" | "destructive";
+}
+
+export interface ChoiceOptions extends Omit<ConfirmOptions, "confirmText"> {
+  choices: ChoiceOption[];
+}
+
 type StackItem =
   | {
       kind: "confirm";
