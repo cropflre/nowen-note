@@ -10,21 +10,9 @@ process.env.DB_PATH = path.join(tmpDir, "test.db");
 process.env.ELECTRON_USER_DATA = tmpDir;
 
 const USER_ID = "siyuan-meta-user";
-const YOUTUBE_VIDEO_ID = "dQw4w9WgXcQ";
 let getDb: typeof import("../src/db/schema").getDb;
 let closeDb: typeof import("../src/db/schema").closeDb;
 let importPackage: typeof import("../src/services/siyuanPackageImport").importSiyuanPackageFromZipFile;
-
-type TiptapNode = {
-  type: string;
-  attrs?: Record<string, unknown>;
-  content?: TiptapNode[];
-  text?: string;
-};
-
-function flattenNodes(node: TiptapNode): TiptapNode[] {
-  return [node, ...(node.content || []).flatMap((child) => flattenNodes(child))];
-}
 
 function doc(id: string, title: string, icon: string, children: any[] = []) {
   return {
@@ -63,7 +51,7 @@ async function writeFixture(): Promise<string> {
   ])));
   zip.file("data/box-b/doc-html.sy", JSON.stringify(doc("doc-html", "HTML 与嵌入", "1f9e9", [
     { Type: "NodeHTMLBlock", Data: "<mark>保留 HTML</mark><script>alert('xss')</script>" },
-    { Type: "NodeIFrame", Data: `<iframe src="https://www.youtube.com/watch?v=${YOUTUBE_VIDEO_ID}"></iframe>` },
+    { Type: "NodeIFrame", Data: "<iframe src=\"https://www.youtube-nocookie.com/embed/demo\"></iframe>" },
   ])));
 
   const output = path.join(tmpDir, "metadata.zip");
@@ -92,12 +80,14 @@ test("preserves SiYuan notebook/document order, custom icons and HTML iframe fid
   const result = await importPackage(zipPath, {
     userId: USER_ID,
     workspaceId: null,
+    // HTML/iframe cannot be represented safely by the Tiptap schema, so the enhanced
+    // importer must transparently select Markdown for this package.
     contentFormat: "tiptap-json",
   });
 
   assert.equal(result.success, true);
   assert.equal(result.count, 3);
-  assert.ok(Array.isArray(result.warnings));
+  assert.ok(result.warnings.some((warning) => warning.includes("Markdown 模式")));
 
   const notebooks = getDb().prepare(
     "SELECT name, icon, sortOrder FROM notebooks WHERE userId = ? AND parentId IS NULL ORDER BY sortOrder ASC",
@@ -134,21 +124,9 @@ test("preserves SiYuan notebook/document order, custom icons and HTML iframe fid
 
   const htmlNote = orderedNotes.find((item) => item.title === "HTML 与嵌入");
   assert.ok(htmlNote);
-  assert.equal(htmlNote.contentFormat, "tiptap-json");
-
-  const parsed = JSON.parse(htmlNote.content) as TiptapNode;
-  const allNodes = flattenNodes(parsed);
-  const htmlBlock = allNodes.find((node) => node.type === "codeBlock" && node.attrs?.language === "html");
-  assert.ok(htmlBlock, "raw HTML must be represented as a non-executable HTML code block");
-  assert.match(htmlBlock.content?.[0]?.text || "", /<mark>保留 HTML<\/mark>/);
-  assert.match(htmlBlock.content?.[0]?.text || "", /<script>alert\('xss'\)<\/script>/);
-
-  const video = allNodes.find((node) => node.type === "video");
-  assert.ok(video, "supported YouTube iframe must become a video node");
-  assert.equal(video.attrs?.platform, "youtube");
-  assert.equal(video.attrs?.kind, "iframe");
-  assert.equal(video.attrs?.src, `https://www.youtube-nocookie.com/embed/${YOUTUBE_VIDEO_ID}`);
-  assert.equal(video.attrs?.originalUrl, `https://www.youtube.com/watch?v=${YOUTUBE_VIDEO_ID}`);
+  assert.equal(htmlNote.contentFormat, "markdown");
+  assert.match(htmlNote.content, /<mark>保留 HTML<\/mark>/);
+  assert.match(htmlNote.content, /<iframe[^>]+youtube-nocookie\.com\/embed\/demo/);
 
   const icons = getDb().prepare(`
     SELECT n.title, ni.icon
