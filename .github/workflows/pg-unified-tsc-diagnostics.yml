@@ -1,4 +1,4 @@
-name: PostgreSQL Unified TypeScript Diagnostics
+name: PostgreSQL Unified Merge Diagnostics
 
 on:
   push:
@@ -7,12 +7,14 @@ on:
     paths:
       - ".github/workflows/pg-unified-tsc-diagnostics.yml"
       - "backend/src/**"
+      - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
   pull_request:
     paths:
       - ".github/workflows/pg-unified-tsc-diagnostics.yml"
       - "backend/src/**"
+      - "backend/tests/**"
       - "backend/package.json"
       - "backend/package-lock.json"
 
@@ -20,7 +22,7 @@ permissions:
   contents: read
 
 jobs:
-  tsc:
+  diagnostics:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,10 +41,25 @@ jobs:
         run: |
           set -o pipefail
           npm run build:tsc -- --noEmit 2>&1 | tee /tmp/pg-unified-tsc.log
-      - name: Upload TypeScript diagnostics
+      - name: Capture notebook transfer regression
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test tests/notebook-transfer-copy.test.ts 2>&1 | tee /tmp/notebook-transfer-copy.log
+      - name: Capture SiYuan metadata regression
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test tests/siyuan-import-metadata.test.ts 2>&1 | tee /tmp/siyuan-import-metadata.log
+      - name: Upload merge diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: pg-unified-tsc-${{ github.run_id }}
-          path: /tmp/pg-unified-tsc.log
+          name: pg-unified-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/pg-unified-tsc.log
+            /tmp/notebook-transfer-copy.log
+            /tmp/siyuan-import-metadata.log
           if-no-files-found: error
           retention-days: 2
