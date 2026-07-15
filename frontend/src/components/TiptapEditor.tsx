@@ -99,6 +99,13 @@ import {
   toggleBulletListSmart,
   toggleOrderedListSmart,
 } from "@/lib/tiptapEditorCommands";
+import {
+  captureAsyncInsertAnchor,
+  mapAsyncInsertAnchors,
+  releaseAsyncInsertAnchor,
+  restoreAsyncInsertAnchor,
+  type AsyncInsertAnchor,
+} from "@/lib/asyncEditorInsert";
 
 import { useTranslation } from "react-i18next";
 
@@ -992,6 +999,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact }
     <button
       type="button"
       onClick={onClick}
+      onMouseDown={(event) => event.preventDefault()}
       disabled={disabled}
       title={title}
       className={cn(
@@ -1689,6 +1697,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   // 稳定的键盘扩展引用（Tab/Shift-Tab/Mod-s）
   const keyboardExtension = useRef(createKeyboardExtension(flushSaveRef));
+  // Native file/image pickers blur the editor. Keep insertion anchors outside the DOM
+  // selection and map them through every document transaction until upload completes.
+  const asyncInsertAnchorsRef = useRef(new Set<AsyncInsertAnchor>());
 
   const computeStats = useCallback((text: string) => {
     const chars = text.length;
@@ -2488,7 +2499,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           /* ignore */
         }
 
+        const dropInsertAnchor = captureAsyncInsertAnchor(view);
+        asyncInsertAnchorsRef.current.add(dropInsertAnchor);
+
         const insertAttachmentToView = (filename: string, url: string, size: number) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const html = buildAttachmentLinkHtml(filename, url, size);
           const dom = document.createElement("div");
           dom.innerHTML = html;
@@ -2498,10 +2513,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           view.dispatch(view.state.tr.replaceSelection(slice));
         };
         const insertImageToView = (src: string) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const node = view.state.schema.nodes.image?.create({ src });
           if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
         };
         const insertVideoToView = (result: MediaUploadResult) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const node = view.state.schema.nodes.video?.create(
             createVideoFileAttrs({
               previewUrl: result.previewUrl,
@@ -2517,34 +2534,41 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         showPasteToast("converting", t("tiptap.attachmentUploading"));
         (async () => {
-          for (const file of files) {
-            try {
-              const isImage = file.type.startsWith("image/");
-              if (isImage) {
-                // 图片文件：优先走图床
-                await uploadAndInsertImage(
-                  file,
-                  file.name,
-                  currentNote.id,
-                  (url) => insertImageToView(url),
-                  "drag-drop",
-                );
-              } else if (isVideoFile(file)) {
-                const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "drag-drop" });
-                insertVideoToView(res);
-              } else {
-                // 非图片文件：走本地附件
-                const res = await api.attachments.upload(currentNote.id, file);
-                insertAttachmentToView(res.filename, res.url, res.size);
+          try {
+            for (const file of files) {
+              try {
+                const isImage = file.type.startsWith("image/");
+                if (isImage) {
+                  // 图片文件：优先走图床
+                  await uploadAndInsertImage(
+                    file,
+                    file.name,
+                    currentNote.id,
+                    (url) => insertImageToView(url),
+                    "drag-drop",
+                  );
+                } else if (isVideoFile(file)) {
+                  const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "drag-drop" });
+                  insertVideoToView(res);
+                } else {
+                  // 非图片文件：走本地附件
+                  const res = await api.attachments.upload(currentNote.id, file);
+                  insertAttachmentToView(res.filename, res.url, res.size);
+                }
+              } catch (err) {
+                console.error("Drop attachment upload failed:", err);
               }
-            } catch (err) {
-              console.error("Drop attachment upload failed:", err);
             }
+            showPasteToast("success", t("tiptap.attachmentUploaded"));
+          } finally {
+            releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, dropInsertAnchor);
           }
-          showPasteToast("success", t("tiptap.attachmentUploaded"));
         })();
         return true;
       },
+    },
+    onTransaction: ({ transaction }) => {
+      mapAsyncInsertAnchors(asyncInsertAnchorsRef.current, transaction);
     },
     onUpdate: ({ editor }) => {
       // setContent 触发的 onUpdate 不应该保存（防止死循环）
@@ -3783,20 +3807,55 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     isTitleComposingRef.current = false;
   }, []);
 
+  const captureEditorInsertAnchor = useCallback(() => {
+    if (!editor || editor.isDestroyed) return null;
+    const anchor = captureAsyncInsertAnchor(editor.view);
+    asyncInsertAnchorsRef.current.add(anchor);
+    return anchor;
+  }, [editor]);
+
+  const restoreEditorInsertAnchor = useCallback((anchor: AsyncInsertAnchor | null) => {
+    if (!editor || editor.isDestroyed || !anchor) return false;
+    return restoreAsyncInsertAnchor(editor.view, anchor);
+  }, [editor]);
+
+  const releaseEditorInsertAnchor = useCallback((anchor: AsyncInsertAnchor | null) => {
+    if (!anchor) return;
+    releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor);
+  }, []);
+
   const handleImageUpload = useCallback(() => {
     if (!editor) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       const currentNote = noteRef.current;
       const insertAtSrc = (src: string) => {
-        editor.chain().focus().setImage({ src }).run();
+        if (restoreEditorInsertAnchor(insertAnchor)) {
+          editor.chain().focus().setImage({ src }).run();
+        }
+        releaseAnchor();
+      };
+      const insertBase64Fallback = () => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const src = event.target?.result as string;
+          if (src) insertAtSrc(src);
+          else releaseAnchor();
+        };
+        reader.onerror = releaseAnchor;
+        reader.readAsDataURL(file);
       };
       if (currentNote?.id) {
-        // 走 /api/attachments：写磁盘 + 记录 attachments 表，编辑器只引用 URL
         toast.info(t("tiptap.imageUploading") || "Uploading image...");
         api.attachments
           .upload(currentNote.id, file)
@@ -3807,63 +3866,65 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           .catch((err) => {
             console.error("Attachment upload failed, falling back to base64:", err);
             toast.error(t("tiptap.imageUploadFailed") || "Image upload failed");
-            // 兜底：失败时退回 base64，保证用户仍可插图
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const src = e.target?.result as string;
-              if (src) insertAtSrc(src);
-            };
-            reader.readAsDataURL(file);
+            insertBase64Fallback();
           });
       } else {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const src = e.target?.result as string;
-          if (src) insertAtSrc(src);
-        };
-        reader.readAsDataURL(file);
+        insertBase64Fallback();
       }
     };
     input.click();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleImageUrlInsert = useCallback(async () => {
     if (!editor) return;
-    const url = await promptDialog({
-      title: t("tiptap.insertImageUrl") || "Insert image URL",
-      placeholder: t("tiptap.imageUrlPlaceholder") || "https://example.com/image.png",
-      defaultValue: "",
-      confirmText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      allowEmpty: false,
-    });
-    if (!url) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    try {
+      const url = await promptDialog({
+        title: t("tiptap.insertImageUrl") || "Insert image URL",
+        placeholder: t("tiptap.imageUrlPlaceholder") || "https://example.com/image.png",
+        defaultValue: "",
+        confirmText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        allowEmpty: false,
+      });
+      if (!url) return;
 
-    const src = url.trim();
-    if (!isAllowedRemoteImageUrl(src)) {
-      toast.error(t("tiptap.invalidImageUrl") || "Only http and https image URLs are allowed");
-      return;
+      const src = url.trim();
+      if (!isAllowedRemoteImageUrl(src)) {
+        toast.error(t("tiptap.invalidImageUrl") || "Only http and https image URLs are allowed");
+        return;
+      }
+
+      if (restoreEditorInsertAnchor(insertAnchor)) {
+        editor.chain().focus().setImage({ src }).run();
+      }
+    } finally {
+      releaseEditorInsertAnchor(insertAnchor);
     }
-
-    editor.chain().focus().setImage({ src }).run();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleVideoUrlInsert = useCallback(async () => {
     if (!editor) return;
-    const url = await promptDialog({
-      title: t("tiptap.insertVideoLink") || t("tiptap.insertVideo") || "Insert video link",
-      placeholder: "https://www.bilibili.com/video/BV... or .mp4",
-      defaultValue: "",
-      confirmText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      allowEmpty: false,
-    });
-    if (!url) return;
-    const ok = (editor.commands as any).setVideo(url.trim());
-    if (!ok) {
-      toast.error(t("tiptap.videoUrlInvalid") || "Cannot recognize this video URL");
+    const insertAnchor = captureEditorInsertAnchor();
+    try {
+      const url = await promptDialog({
+        title: t("tiptap.insertVideoLink") || t("tiptap.insertVideo") || "Insert video link",
+        placeholder: "https://www.bilibili.com/video/BV... or .mp4",
+        defaultValue: "",
+        confirmText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        allowEmpty: false,
+      });
+      if (!url) return;
+      if (!restoreEditorInsertAnchor(insertAnchor)) return;
+      const ok = (editor.commands as any).setVideo(url.trim());
+      if (!ok) {
+        toast.error(t("tiptap.videoUrlInvalid") || "Cannot recognize this video URL");
+      }
+    } finally {
+      releaseEditorInsertAnchor(insertAnchor);
     }
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleVideoUpload = useCallback(() => {
     if (!editor) return;
@@ -3872,19 +3933,27 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
       return;
     }
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "video/*";
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       if (!isVideoFile(file)) {
+        releaseAnchor();
         toast.error(t("tiptap.videoFileInvalid") || "请选择视频文件");
         return;
       }
       toast.info(t("tiptap.videoUploading") || "Uploading video...");
       uploadMediaAttachment({ noteId: currentNote.id, file, source: "editor" })
         .then((res) => {
+          if (!restoreEditorInsertAnchor(insertAnchor)) return;
           const ok = (editor.commands as any).setVideoFile({
             previewUrl: res.previewUrl,
             url: res.url,
@@ -3907,35 +3976,30 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           } else {
             toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
           }
-        });
+        })
+        .finally(releaseAnchor);
     };
     input.click();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   /**
-   * 任意格式附件上传 → 在编辑器当前位置插入：
-   *   - 图片（image/*）：当作 <img> 插入，与 handleImageUpload 一致路径
-   *   - 其它：插入一段「附件链接」HTML：
-   *       <a href="/api/attachments/<id>" download="<原文件名>"
-   *          data-attachment="1" data-size="<bytes>">📎 文件名 (大小)</a>
-   *     - data-attachment / data-size 用于将来识别 / 二次渲染（如换图标）；
-   *     - download 属性 + 后端 Content-Disposition 双保险触发下载；
-   *     - 链接由 StarterKit 默认 Link mark 承载（v3 starter-kit 默认含 link），
-   *       即便没有 link mark 也能作为普通 <a> 文本节点存活下来。
-   *
-   * 与 handleImageUpload 解耦的好处：
-   *   - 工具栏可以同时存在「插入图片」（仅图片文件 picker）和「插入附件」（任意），
-   *     两个入口语义清晰；
-   *   - 粘贴 / 拖拽路径只调本函数即可（已自动按 mime 分流）。
+   * 任意格式附件上传 → 在编辑器当前位置插入。
+   * Native picker 打开前先保存插入锚点，上传完成后显式恢复，避免 selection
+   * 在 horizontalRule 等原子块节点附近 blur 后回退到前面的段落。
    */
   const handleAttachmentUpload = useCallback(() => {
     if (!editor) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
-    // 不设 accept：放开任意格式
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       uploadAndInsertAttachment(file);
     };
     input.click();
@@ -3943,6 +4007,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     function uploadAndInsertAttachment(file: File) {
       const currentNote = noteRef.current;
       if (!currentNote?.id) {
+        releaseAnchor();
         toast.error(t("tiptap.attachmentUploadFailed") || "Attachment upload failed");
         return;
       }
@@ -3950,8 +4015,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       api.attachments
         .upload(currentNote.id, file)
         .then((res) => {
+          if (!restoreEditorInsertAnchor(insertAnchor)) return;
           if (res.category === "image") {
-            // 图片：与 handleImageUpload 一致，走 setImage
             editor!.chain().focus().setImage({ src: res.url }).run();
           } else if (isVideoFile(file)) {
             const ok = (editor!.commands as any).setVideoFile({
@@ -3980,9 +4045,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           } else {
             toast.error(t("tiptap.attachmentUploadFailed") || "Attachment upload failed");
           }
-        });
+        })
+        .finally(releaseAnchor);
     }
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   /**
    * 严格作用于当前选区的代码块切换：
