@@ -9,7 +9,7 @@ export interface NotebookMemberAccessRow {
   allowReshare?: number;
 }
 
-function ensureNotebookAclOverridesTable(): void {
+export function ensureNotebookAclOverridesTable(): void {
   getDb().exec(`
     CREATE TABLE IF NOT EXISTS notebook_acl_overrides (
       notebookId TEXT NOT NULL,
