@@ -1,0 +1,47 @@
+name: Validate Token Boundaries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/token-boundary-validation-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Build backend and run token boundary tests
+        shell: bash
+        run: |
+          set +e
+          cd backend
+          npm ci > /tmp/token-boundary.log 2>&1
+          INSTALL=$?
+          npm run build >> /tmp/token-boundary.log 2>&1
+          BUILD=$?
+          node --import tsx --test tests/api-token-resource-scope.test.ts >> /tmp/token-boundary.log 2>&1
+          TEST=$?
+          cd ..
+          python3 - <<PY
+          import json
+          from pathlib import Path
+          statuses = {"install": int("$INSTALL"), "build": int("$BUILD"), "test": int("$TEST")}
+          text = Path('/tmp/token-boundary.log').read_text(encoding='utf-8', errors='replace')
+          Path('.github/token-boundary-validation.json').write_text(
+              json.dumps({"ok": all(v == 0 for v in statuses.values()), "statuses": statuses, "log": "\n".join(text.splitlines()[-220:])}, ensure_ascii=False, indent=2) + "\n",
+              encoding='utf-8',
+          )
+          PY
+          rm -f .github/token-boundary-validation-trigger
+          rm -f .github/workflows/validate-token-boundaries.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "test(auth): record final token boundary validation"
+          git push origin HEAD:main
