@@ -242,6 +242,19 @@ function initSchema(db: Database.Database) {
       updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- 用户级 AI 配置（每个用户完全隔离）
+    CREATE TABLE IF NOT EXISTS user_ai_settings (
+      userId TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (userId, key),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_ai_settings_user
+      ON user_ai_settings(userId);
+
     -- 用户级 UI 偏好（跨浏览器 / 跨设备同步）
     CREATE TABLE IF NOT EXISTS user_preferences (
       userId TEXT PRIMARY KEY,

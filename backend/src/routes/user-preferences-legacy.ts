@@ -3,6 +3,11 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
+import {
+  getUserAISetting,
+  setGuardedUserAISettings,
+  setUserAISettings,
+} from "../services/user-ai-settings";
 
 type MarkdownViewMode = "source" | "preview" | "split";
 type ReadingDensity = "cozy" | "compact";
@@ -97,8 +102,8 @@ function readStoredPreferences(userId: string): { prefs: UserPreferences; hasPre
   }
 }
 
-// AI profiles are stored as versioned JSON. Activating one mirrors its values to
-// the legacy ai_* settings so all existing AI routes keep working unchanged.
+// AI profiles are stored as user-scoped versioned JSON. Activating one mirrors
+// its values to the same user's effective AI settings.
 interface AIProfile {
   id: string;
   name: string;
@@ -113,11 +118,6 @@ interface AIProfile {
 const AI_PROFILES_KEY = "ai_profiles_v1";
 const AI_ACTIVE_PROFILE_KEY = "ai_active_profile_id";
 const MAX_AI_PROFILES = 30;
-
-function readSystemSetting(key: string): string {
-  const row = getDb().prepare("SELECT value FROM system_settings WHERE key = ?").get(key) as { value: string } | undefined;
-  return row?.value || "";
-}
 
 function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = true): AIProfile {
   const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -145,18 +145,18 @@ function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = tru
   };
 }
 
-function legacyProfile(): AIProfile {
+function legacyProfile(userId: string): AIProfile {
   return normalizeProfile({
     name: "默认配置",
-    provider: readSystemSetting("ai_provider") || "openai",
-    apiUrl: readSystemSetting("ai_api_url") || "https://api.openai.com/v1",
-    apiKey: readSystemSetting("ai_api_key"),
-    model: readSystemSetting("ai_model") || "gpt-4o-mini",
+    provider: getUserAISetting(userId, "ai_provider") || "openai",
+    apiUrl: getUserAISetting(userId, "ai_api_url") || "https://api.openai.com/v1",
+    apiKey: getUserAISetting(userId, "ai_api_key"),
+    model: getUserAISetting(userId, "ai_model") || "gpt-4o-mini",
   });
 }
 
-function parseStoredProfiles(): AIProfile[] {
-  const raw = readSystemSetting(AI_PROFILES_KEY);
+function parseStoredProfiles(userId: string): AIProfile[] {
+  const raw = getUserAISetting(userId, AI_PROFILES_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -172,44 +172,34 @@ function parseStoredProfiles(): AIProfile[] {
   }
 }
 
-function saveAIProfiles(profiles: AIProfile[], activeProfileId: string): void {
-  const upsert = getDb().prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-  `);
-  getDb().transaction(() => {
-    upsert.run(AI_PROFILES_KEY, JSON.stringify(profiles));
-    upsert.run(AI_ACTIVE_PROFILE_KEY, activeProfileId);
-  })();
+function saveAIProfiles(userId: string, profiles: AIProfile[], activeProfileId: string): void {
+  setUserAISettings(userId, [
+    { key: AI_PROFILES_KEY, value: JSON.stringify(profiles) },
+    { key: AI_ACTIVE_PROFILE_KEY, value: activeProfileId },
+  ]);
 }
 
-function syncLegacyAISettings(profile: AIProfile): void {
-  const upsert = getDb().prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-  `);
-  getDb().transaction(() => {
-    upsert.run("ai_provider", profile.provider);
-    upsert.run("ai_api_url", profile.apiUrl);
-    upsert.run("ai_api_key", profile.apiKey);
-    upsert.run("ai_model", profile.model);
-  })();
+function syncEffectiveAISettings(userId: string, profile: AIProfile): void {
+  setGuardedUserAISettings(userId, [
+    { key: "ai_provider", value: profile.provider },
+    { key: "ai_api_url", value: profile.apiUrl },
+    { key: "ai_api_key", value: profile.apiKey },
+    { key: "ai_model", value: profile.model },
+  ]);
 }
 
-function ensureAIProfiles(): { profiles: AIProfile[]; activeProfileId: string } {
-  let profiles = parseStoredProfiles();
-  let activeProfileId = readSystemSetting(AI_ACTIVE_PROFILE_KEY);
+function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
+  let profiles = parseStoredProfiles(userId);
+  let activeProfileId = getUserAISetting(userId, AI_ACTIVE_PROFILE_KEY);
   if (profiles.length === 0) {
-    const initial = legacyProfile();
+    const initial = legacyProfile(userId);
     profiles = [initial];
     activeProfileId = initial.id;
-    saveAIProfiles(profiles, activeProfileId);
+    saveAIProfiles(userId, profiles, activeProfileId);
   }
   if (!profiles.some((profile) => profile.id === activeProfileId)) {
     activeProfileId = profiles[0].id;
-    saveAIProfiles(profiles, activeProfileId);
+    saveAIProfiles(userId, profiles, activeProfileId);
   }
   return { profiles, activeProfileId };
 }
@@ -254,14 +244,24 @@ function extractModels(data: any): Array<{ id: string; name: string }> {
 
 const app = new Hono();
 
+const requireAIProfileUser = async (c: any, next: () => Promise<void>) => {
+  if (!c.req.header("X-User-Id")) return c.json({ error: "Unauthorized" }, 401);
+  await next();
+};
+
+app.use("/ai-profiles", requireAIProfileUser);
+app.use("/ai-profiles/*", requireAIProfileUser);
+
 app.get("/ai-profiles", (c) => {
-  const { profiles, activeProfileId } = ensureAIProfiles();
+  const userId = c.req.header("X-User-Id")!;
+  const { profiles, activeProfileId } = ensureAIProfiles(userId);
   return c.json({ profiles: profiles.map(publicAIProfile), activeProfileId });
 });
 
 app.post("/ai-profiles", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-  const state = ensureAIProfiles();
+  const state = ensureAIProfiles(userId);
   if (state.profiles.length >= MAX_AI_PROFILES) {
     return c.json({ error: `最多保存 ${MAX_AI_PROFILES} 个 AI 配置` }, 400);
   }
@@ -279,14 +279,15 @@ app.post("/ai-profiles", async (c) => {
   const profiles = [...state.profiles, profile];
   const activate = body.activate !== false;
   const activeProfileId = activate ? profile.id : state.activeProfileId;
-  saveAIProfiles(profiles, activeProfileId);
-  if (activate) syncLegacyAISettings(profile);
+  saveAIProfiles(userId, profiles, activeProfileId);
+  if (activate) syncEffectiveAISettings(userId, profile);
   return c.json({ profile: publicAIProfile(profile), activeProfileId }, 201);
 });
 
 app.post("/ai-profiles/discover-models", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-  const state = ensureAIProfiles();
+  const state = ensureAIProfiles(userId);
   const stored = typeof body.profileId === "string"
     ? state.profiles.find((profile) => profile.id === body.profileId)
     : undefined;
@@ -345,19 +346,21 @@ app.post("/ai-profiles/discover-models", async (c) => {
 });
 
 app.put("/ai-profiles/:profileId/activate", (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const profileId = c.req.param("profileId");
-  const state = ensureAIProfiles();
+  const state = ensureAIProfiles(userId);
   const profile = state.profiles.find((item) => item.id === profileId);
   if (!profile) return c.json({ error: "AI 配置不存在" }, 404);
-  saveAIProfiles(state.profiles, profile.id);
-  syncLegacyAISettings(profile);
+  saveAIProfiles(userId, state.profiles, profile.id);
+  syncEffectiveAISettings(userId, profile);
   return c.json({ profile: publicAIProfile(profile), activeProfileId: profile.id });
 });
 
 app.put("/ai-profiles/:profileId", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const profileId = c.req.param("profileId");
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-  const state = ensureAIProfiles();
+  const state = ensureAIProfiles(userId);
   const index = state.profiles.findIndex((item) => item.id === profileId);
   if (index < 0) return c.json({ error: "AI 配置不存在" }, 404);
 
@@ -375,14 +378,15 @@ app.put("/ai-profiles/:profileId", async (c) => {
 
   const profiles = [...state.profiles];
   profiles[index] = updated;
-  saveAIProfiles(profiles, state.activeProfileId);
-  if (state.activeProfileId === updated.id) syncLegacyAISettings(updated);
+  saveAIProfiles(userId, profiles, state.activeProfileId);
+  if (state.activeProfileId === updated.id) syncEffectiveAISettings(userId, updated);
   return c.json({ profile: publicAIProfile(updated), activeProfileId: state.activeProfileId });
 });
 
 app.delete("/ai-profiles/:profileId", (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const profileId = c.req.param("profileId");
-  const state = ensureAIProfiles();
+  const state = ensureAIProfiles(userId);
   if (state.profiles.length <= 1) return c.json({ error: "至少需要保留一个 AI 配置" }, 400);
   if (!state.profiles.some((item) => item.id === profileId)) {
     return c.json({ error: "AI 配置不存在" }, 404);
@@ -390,8 +394,8 @@ app.delete("/ai-profiles/:profileId", (c) => {
 
   const profiles = state.profiles.filter((item) => item.id !== profileId);
   const activeProfileId = state.activeProfileId === profileId ? profiles[0].id : state.activeProfileId;
-  saveAIProfiles(profiles, activeProfileId);
-  if (state.activeProfileId === profileId) syncLegacyAISettings(profiles[0]);
+  saveAIProfiles(userId, profiles, activeProfileId);
+  if (state.activeProfileId === profileId) syncEffectiveAISettings(userId, profiles[0]);
   return c.json({ success: true, activeProfileId });
 });
 

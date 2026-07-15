@@ -34,6 +34,7 @@ import {
 } from "./vec-store";
 import { extractAttachmentText, chunkAttachmentText } from "./attachment-indexer";
 import { attachmentChunksRepository, embeddingQueueRepository } from "../repositories";
+import { getUserAISettings } from "./user-ai-settings";
 
 // ====== 调参 ======
 const POLL_INTERVAL_MS = 5_000;          // 轮询间隔（无任务时）
@@ -54,8 +55,8 @@ let stopped = false;            // 是否已 stop（防止 tick 在 stop 后再�
 // 配置读取
 // ============================================================
 //
-// 复用 system_settings 表，与 ai_provider/ai_api_url/ai_api_key 同表。
-// 新增三个 key：
+// 每次按任务或请求的 userId 读取配置，禁止后台任务借用其他用户的 Key。
+// 三个 embedding key：
 //   ai_embedding_url    — embedding 接口 base url（不含 /embeddings 后缀，去尾斜杠）
 //                         留空时回退到 ai_api_url
 //   ai_embedding_model  — embedding 模型名，例如 "text-embedding-3-small"、"bge-m3"
@@ -68,23 +69,19 @@ interface EmbeddingConfig {
   provider: string;       // 透传 ai_provider，用于潜在 provider-specific 适配
 }
 
-function readEmbeddingConfig(db: Database.Database): EmbeddingConfig | null {
-  const rows = db
-    .prepare(
-      "SELECT key, value FROM system_settings WHERE key IN ('ai_provider','ai_api_url','ai_api_key','ai_embedding_url','ai_embedding_model','ai_embedding_key')",
-    )
-    .all() as { key: string; value: string }[];
-  const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
-
-  const model = (map.ai_embedding_model || "").trim();
+function readEmbeddingConfig(userId: string): EmbeddingConfig | null {
+  const settings = getUserAISettings(userId);
+  const model = settings.ai_embedding_model.trim();
   if (!model) return null;
 
-  const url = ((map.ai_embedding_url || map.ai_api_url || "").trim()).replace(/\/+$/, "");
+  const embeddingUrl = settings.ai_embedding_url.trim();
+  const apiUrl = settings.ai_api_url.trim();
+  const url = (embeddingUrl || apiUrl).replace(/\/+$/, "");
   if (!url) return null;
 
-  const apiKey = (map.ai_embedding_key || map.ai_api_key || "").trim();
-  const provider = (map.ai_provider || "").trim();
+  const embeddingKey = settings.ai_embedding_key.trim();
+  const apiKey = embeddingKey || settings.ai_api_key.trim();
+  const provider = settings.ai_provider.trim();
 
   // Ollama 是少数允许空 key 的 provider；其它 provider 一般必须给 key
   if (!apiKey && provider !== "ollama") {
@@ -431,21 +428,47 @@ async function tick(): Promise<void> {
   try {
     const db = getDb();
 
-    const cfg = readEmbeddingConfig(db);
-    if (!cfg) {
-      // 没配模型 → 啥也不做（下次轮询再试）
-      return;
-    }
-
-    // 拉一批 pending（排除已超过最大重试的）
-    const tasks = embeddingQueueRepository.listPending(MAX_RETRIES, BATCH_SIZE);
+    // 只领取已配置 embedding 模型的用户任务；URL 的默认/回退规则统一由
+    // readEmbeddingConfig 处理，避免队列与查询路径对同一配置得出不同结论。
+    const tasks = db.prepare(`
+      SELECT q.noteId, q.userId, q.retries
+      FROM embedding_queue q
+      WHERE q.status = 'pending' AND q.retries < ?
+        AND EXISTS (
+          SELECT 1 FROM user_ai_settings model
+          WHERE model.userId = q.userId
+            AND model.key = 'ai_embedding_model'
+            AND trim(model.value) <> ''
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM user_ai_settings embedding_url
+            WHERE embedding_url.userId = q.userId
+              AND embedding_url.key = 'ai_embedding_url'
+              AND trim(embedding_url.value) <> ''
+          )
+          OR EXISTS (
+            SELECT 1 FROM user_ai_settings api_url
+            WHERE api_url.userId = q.userId
+              AND api_url.key = 'ai_api_url'
+              AND trim(api_url.value) <> ''
+          )
+          OR NOT EXISTS (
+            SELECT 1 FROM user_ai_settings explicit_api_url
+            WHERE explicit_api_url.userId = q.userId
+              AND explicit_api_url.key = 'ai_api_url'
+          )
+        )
+      ORDER BY q.enqueuedAt ASC
+      LIMIT ?
+    `).all(MAX_RETRIES, BATCH_SIZE) as Array<{ noteId: string; userId: string; retries: number }>;
 
     if (tasks.length === 0) return;
 
-    // 标 processing（防止重复领取——单进程不严格需要，但 future-proof）
-    for (const t of tasks) embeddingQueueRepository.markProcessing(t.noteId);
-
     for (const task of tasks) {
+      const cfg = readEmbeddingConfig(task.userId);
+      if (!cfg) continue;
+      embeddingQueueRepository.markProcessing(task.noteId);
       try {
         await processOne(db, cfg, task);
       } catch (e: any) {
@@ -472,19 +495,43 @@ async function tickAttachments(): Promise<void> {
   if (stopped) return;
   try {
     const db = getDb();
-    const cfg = readEmbeddingConfig(db);
-    if (!cfg) return;
 
     const tasks = db
       .prepare(
-        `SELECT attachmentId, retries
-           FROM attachment_embedding_queue
-          WHERE status = 'pending' AND retries < ?
-          ORDER BY enqueuedAt ASC
+        `SELECT q.attachmentId, q.userId, q.retries
+           FROM attachment_embedding_queue q
+          WHERE q.status = 'pending' AND q.retries < ?
+            AND EXISTS (
+              SELECT 1 FROM user_ai_settings model
+              WHERE model.userId = q.userId
+                AND model.key = 'ai_embedding_model'
+                AND trim(model.value) <> ''
+            )
+            AND (
+              EXISTS (
+                SELECT 1 FROM user_ai_settings embedding_url
+                WHERE embedding_url.userId = q.userId
+                  AND embedding_url.key = 'ai_embedding_url'
+                  AND trim(embedding_url.value) <> ''
+              )
+              OR EXISTS (
+                SELECT 1 FROM user_ai_settings api_url
+                WHERE api_url.userId = q.userId
+                  AND api_url.key = 'ai_api_url'
+                  AND trim(api_url.value) <> ''
+              )
+              OR NOT EXISTS (
+                SELECT 1 FROM user_ai_settings explicit_api_url
+                WHERE explicit_api_url.userId = q.userId
+                  AND explicit_api_url.key = 'ai_api_url'
+              )
+            )
+          ORDER BY q.enqueuedAt ASC
           LIMIT ?`,
       )
       .all(MAX_RETRIES, BATCH_SIZE) as {
       attachmentId: string;
+      userId: string;
       retries: number;
     }[];
 
@@ -493,9 +540,10 @@ async function tickAttachments(): Promise<void> {
     const markProcessing = db.prepare(
       "UPDATE attachment_embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE attachmentId = ?",
     );
-    for (const t of tasks) markProcessing.run(t.attachmentId);
-
     for (const task of tasks) {
+      const cfg = readEmbeddingConfig(task.userId);
+      if (!cfg) continue;
+      markProcessing.run(task.attachmentId);
       try {
         await processAttachmentOne(db, cfg, task);
       } catch (e: any) {
@@ -723,8 +771,8 @@ function rebuildAttachmentEmbeddingsInternal(
  *   - workspaceId === string (uuid)   →  指定工作区（不限作者，全工作区成员共享）
  *   - 都不传                            →  全库（运维 / 管理员视角）
  */
-export function getEmbeddingStats(opts?: {
-  userId?: string;
+export function getEmbeddingStats(opts: {
+  userId: string;
   workspaceId?: string | null;
 }): {
   totalNotes: number;
@@ -744,15 +792,15 @@ export function getEmbeddingStats(opts?: {
   vecDim: number | null;
 } {
   const db = getDb();
-  const cfg = readEmbeddingConfig(db);
+  const cfg = readEmbeddingConfig(opts.userId);
 
   const conds: string[] = [];
   const params: any[] = [];
-  if (opts?.userId !== undefined) {
+  if (opts.userId !== undefined) {
     conds.push(`userId = ?`);
     params.push(opts.userId);
   }
-  if (opts?.workspaceId !== undefined) {
+  if (opts.workspaceId !== undefined) {
     if (opts.workspaceId === null || opts.workspaceId === "") {
       conds.push(`workspaceId IS NULL`);
     } else {
@@ -784,11 +832,11 @@ export function getEmbeddingStats(opts?: {
   // 上已经有（v5 backfill 已完成）。
   const attachConds: string[] = [];
   const attachParams: any[] = [];
-  if (opts?.userId !== undefined) {
+  if (opts.userId !== undefined) {
     attachConds.push(`a.userId = ?`);
     attachParams.push(opts.userId);
   }
-  if (opts?.workspaceId !== undefined) {
+  if (opts.workspaceId !== undefined) {
     if (opts.workspaceId === null || opts.workspaceId === "") {
       attachConds.push(`a.workspaceId IS NULL`);
     } else {
@@ -881,12 +929,11 @@ export function enqueueAttachment(att: {
   }
 }
 
-export async function embedQuery(text: string): Promise<number[] | null> {
+export async function embedQuery(userId: string, text: string): Promise<number[] | null> {
   const t = (text || "").trim();
   if (t.length < 2) return null;
 
-  const db = getDb();
-  const cfg = readEmbeddingConfig(db);
+  const cfg = readEmbeddingConfig(userId);
   if (!cfg) return null;
 
   try {

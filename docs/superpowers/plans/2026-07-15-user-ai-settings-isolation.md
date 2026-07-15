@@ -19,7 +19,7 @@
 - 创建 `backend/tests/embedding-user-ai-settings.test.ts`：验证查询向量化使用指定用户配置。
 - 创建 `backend/tests/task-ai-settings-isolation.test.ts`：验证任务拆解使用请求用户配置。
 - 修改 `backend/src/db/schema.ts`：初始 SQLite schema 增加 `user_ai_settings`。
-- 修改 `backend/src/db/migrations.impl.ts`：增加 v45 迁移、管理员复制和旧全局 key 清理。
+- 修改 `backend/src/db/migrations.ts`：增加 v47 迁移、管理员复制和旧全局 key 清理。
 - 修改 `backend/src/db/postgres/schema.base.sql`：增加相同 PostgreSQL 表与索引。
 - 修改 `backend/src/repositories/index.ts`：导出新仓库。
 - 修改 `backend/src/routes/ai.ts`：全部 AI 设置与调用按请求用户读取。
@@ -36,7 +36,7 @@
 - 创建：`backend/tests/user-ai-settings-migration.test.ts`
 - 创建：`backend/tests/user-ai-settings-isolation.test.ts`
 - 修改：`backend/src/db/schema.ts`
-- 修改：`backend/src/db/migrations.impl.ts`
+- 修改：`backend/src/db/migrations.ts`
 - 修改：`backend/src/db/postgres/schema.base.sql`
 - 修改：`backend/src/repositories/index.ts`
 
@@ -72,7 +72,7 @@ node --import tsx --test tests/user-ai-settings-migration.test.ts
 
 预期：FAIL，找不到 `user-ai-settings` 迁移。
 
-- [ ] **步骤 3：实现 schema 与 v45 迁移**
+- [ ] **步骤 3：实现 schema 与 v47 迁移**
 
 SQLite 表结构：
 
@@ -135,7 +135,7 @@ node --import tsx --test tests/user-ai-settings-migration.test.ts tests/user-ai-
 - [ ] **步骤 6：提交数据层**
 
 ```powershell
-git add backend/src/db/schema.ts backend/src/db/migrations.impl.ts backend/src/db/postgres/schema.base.sql backend/src/repositories/userAISettingsRepository.ts backend/src/repositories/index.ts backend/tests/user-ai-settings-migration.test.ts backend/tests/user-ai-settings-isolation.test.ts
+git add backend/src/db/schema.ts backend/src/db/migrations.ts backend/src/db/postgres/schema.base.sql backend/src/repositories/userAISettingsRepository.ts backend/src/repositories/index.ts backend/tests/user-ai-settings-migration.test.ts backend/tests/user-ai-settings-isolation.test.ts
 git commit -m "feat(ai): add per-user AI settings storage"
 ```
 

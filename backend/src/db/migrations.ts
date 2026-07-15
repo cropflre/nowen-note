@@ -132,11 +132,84 @@ const repairNotesFtsMigration: Migration = {
   },
 };
 
+const LEGACY_AI_SETTING_KEYS = [
+  "ai_provider",
+  "ai_api_url",
+  "ai_api_key",
+  "ai_model",
+  "ai_embedding_url",
+  "ai_embedding_key",
+  "ai_embedding_model",
+  "ai_profiles_v1",
+  "ai_active_profile_id",
+  "ai_manual_enabled",
+] as const;
+const LEGACY_AI_BACKUP_PREFIX = "ai_disabled_backup_";
+
+const userAISettingsMigration: Migration = {
+  version: 47,
+  name: "user-ai-settings",
+  up: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_ai_settings (
+        userId TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (userId, key),
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_ai_settings_user
+        ON user_ai_settings(userId);
+    `);
+
+    const placeholders = LEGACY_AI_SETTING_KEYS.map(() => "?").join(",");
+    const legacySettings = db.prepare(`
+      SELECT key, value
+      FROM system_settings
+      WHERE key IN (${placeholders}) OR substr(key, 1, ?) = ?
+    `).all(
+      ...LEGACY_AI_SETTING_KEYS,
+      LEGACY_AI_BACKUP_PREFIX.length,
+      LEGACY_AI_BACKUP_PREFIX,
+    ) as Array<{ key: string; value: string }>;
+    const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as Array<{ id: string }>;
+    const upsert = db.prepare(`
+      INSERT INTO user_ai_settings (userId, key, value, updatedAt)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(userId, key) DO UPDATE SET
+        value = excluded.value,
+        updatedAt = datetime('now')
+    `);
+
+    for (const admin of admins) {
+      for (const setting of legacySettings) {
+        upsert.run(admin.id, setting.key, setting.value);
+      }
+    }
+
+    db.prepare(`
+      DELETE FROM system_settings
+      WHERE key IN (${placeholders}) OR substr(key, 1, ?) = ?
+    `).run(
+      ...LEGACY_AI_SETTING_KEYS,
+      LEGACY_AI_BACKUP_PREFIX.length,
+      LEGACY_AI_BACKUP_PREFIX,
+    );
+    db.exec(`
+      DROP TRIGGER IF EXISTS ai_manual_config_guard_insert;
+      DROP TRIGGER IF EXISTS ai_manual_config_guard_update;
+    `);
+  },
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
   activityMigration,
   repairNotesFtsMigration,
+  userAISettingsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

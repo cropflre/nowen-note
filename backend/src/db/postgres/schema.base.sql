@@ -693,6 +693,16 @@ CREATE TABLE IF NOT EXISTS system_settings (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+    "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '',
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("userId", key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_ai_settings_user ON user_ai_settings("userId");
+
 CREATE TABLE IF NOT EXISTS user_sessions (
     id TEXT PRIMARY KEY,
     "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

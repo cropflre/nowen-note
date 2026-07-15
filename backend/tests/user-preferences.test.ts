@@ -37,16 +37,16 @@ async function requestJson(method: string, url: string, body?: unknown, userId =
   return { status: res.status, json: await res.json() as any };
 }
 
-function writeSetting(key: string, value: string) {
+function writeSetting(key: string, value: string, userId = USER_ID) {
   db().prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-  `).run(key, value);
+    INSERT INTO user_ai_settings (userId, key, value, updatedAt)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(userId, key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
+  `).run(userId, key, value);
 }
 
-function readSetting(key: string): string {
-  const row = db().prepare("SELECT value FROM system_settings WHERE key = ?").get(key) as { value: string } | undefined;
+function readSetting(key: string, userId = USER_ID): string {
+  const row = db().prepare("SELECT value FROM user_ai_settings WHERE userId = ? AND key = ?").get(userId, key) as { value: string } | undefined;
   return row?.value || "";
 }
 
@@ -65,6 +65,7 @@ test.before(async () => {
 test.beforeEach(() => {
   db().prepare("DELETE FROM user_preferences").run();
   db().prepare("DELETE FROM system_settings WHERE key LIKE 'ai_%'").run();
+  db().prepare("DELETE FROM user_ai_settings").run();
 });
 
 test.after(async () => {
@@ -111,7 +112,7 @@ test("does not leak preferences across users", async () => {
   assert.equal(other.json.enableNoteTabs, false);
 });
 
-test("migrates the legacy AI settings into one masked default profile", async () => {
+test("creates one masked default profile from the user's AI settings", async () => {
   writeSetting("ai_provider", "deepseek");
   writeSetting("ai_api_url", "https://api.deepseek.com/v1");
   writeSetting("ai_api_key", "secret-key-1234");
@@ -146,6 +147,24 @@ test("creates and activates a profile while keeping legacy AI callers compatible
   assert.equal(readSetting("ai_api_url"), "https://dashscope.aliyuncs.com/compatible-mode/v1");
   assert.equal(readSetting("ai_api_key"), "dash-key-5678");
   assert.equal(readSetting("ai_model"), "qwen-plus");
+});
+
+test("does not leak AI profiles or active settings across users", async () => {
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "User A only",
+    provider: "deepseek",
+    apiUrl: "https://user-a.example/v1",
+    apiKey: "user-a-secret",
+    model: "user-a-model",
+    activate: true,
+  }, USER_ID);
+  assert.equal(created.status, 201);
+
+  const other = await requestJson("GET", "/user-preferences/ai-profiles", undefined, OTHER_ID);
+  assert.equal(other.status, 200);
+  assert.equal(other.json.profiles.some((profile: any) => profile.name === "User A only"), false);
+  assert.equal(readSetting("ai_api_key", USER_ID), "user-a-secret");
+  assert.equal(readSetting("ai_api_key", OTHER_ID), "");
 });
 
 test("updating a profile with its masked key preserves the stored secret", async () => {

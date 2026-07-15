@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { callAIChat } from "../services/ai-client";
+import { getUserAISettings } from "../services/user-ai-settings";
 import crypto from "crypto";
 import {
   getUserWorkspaceRole,
@@ -906,10 +907,7 @@ tasks.post("/:id/ai-breakdown", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const lang = body.lang || "zh-CN";
 
-  // Get AI settings
-  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'ai_%'").all() as any[];
-  const settings: any = { ai_provider: "", ai_api_url: "", ai_api_key: "", ai_model: "", ai_embedding_url: "", ai_embedding_key: "", ai_embedding_model: "" };
-  for (const row of rows) settings[row.key] = row.value;
+  const settings = getUserAISettings(userId);
 
   if (!settings.ai_api_url) {
     return c.json({ error: "AI not configured", code: "AI_NOT_CONFIGURED" }, 400);

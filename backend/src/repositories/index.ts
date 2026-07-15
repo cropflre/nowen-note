@@ -9,6 +9,7 @@ import "./noteWriteSafety";
  */
 
 export { systemSettingsRepository } from "./systemSettingsRepository";
+export { userAISettingsRepository } from "./userAISettingsRepository";
 export { customFontsRepository } from "./customFontsRepository";
 export { apiTokensRepository } from "./apiTokensRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
@@ -62,4 +63,5 @@ export type {
   UpdateTagInput,
 } from "./types";
 export type { AiCustomPromptRecord } from "./aiCustomPromptsRepository";
+export type { UserAISetting } from "./userAISettingsRepository";
 export type { NoteVersionListItem, NoteVersionRecord } from "./noteVersionsRepository";

@@ -12,10 +12,16 @@ import {
   reindexAllVectors,
 } from "../services/vec-store";
 import { getUserWorkspaceRole } from "../middleware/acl";
-import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError } from "../services/ai-client";
+import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
+import { getUserAISettings, setGuardedUserAISettings } from "../services/user-ai-settings";
 
 const ai = new Hono();
+
+ai.use("*", async (c, next) => {
+  if (!c.req.header("X-User-Id")) return c.json({ error: "Unauthorized" }, 401);
+  await next();
+});
 
 // ============================================================
 // scope 解析：把 ?workspaceId=xxx 归一成 (userId, workspaceId|null)
@@ -130,53 +136,16 @@ function resolveKnowledgeScope(
 
 // ===== AI 设置管理 =====
 
-export interface AISettings {
-  ai_provider: string;       // "openai" | "ollama" | "custom" | "qwen" | "deepseek" | "gemini" | "doubao"
-  ai_api_url: string;        // 对话 API 端点
-  ai_api_key: string;        // API Key（Ollama 可为空）
-  ai_model: string;          // 对话模型名称
-  // RAG Phase 1：embedding 配置（独立于对话模型）。
-  //   - 三个字段全空 → embedding-worker 直接 noop，不做向量化（行为兼容老版）
-  //   - ai_embedding_url / ai_embedding_key 留空时回退到 ai_api_url / ai_api_key
-  //   - 推荐模型：text-embedding-3-small (OpenAI)、bge-m3 (Ollama)、text-embedding-v3 (通义)
-  ai_embedding_url: string;
-  ai_embedding_key: string;
-  ai_embedding_model: string;
-}
-
-const AI_DEFAULTS: AISettings = {
-  ai_provider: "openai",
-  ai_api_url: "https://api.openai.com/v1",
-  ai_api_key: "",
-  ai_model: "gpt-4o-mini",
-  ai_embedding_url: "",
-  ai_embedding_key: "",
-  ai_embedding_model: "",
-};
-
 // 不需要 API Key 的 Provider
 const NO_KEY_PROVIDERS = ["ollama"];
 
-// Docker 环境下 Ollama 使用内部 URL
-const OLLAMA_DOCKER_URL = process.env.OLLAMA_URL || "";
-
-function getAISettings(): AISettings {
-  const db = getDb();
-  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'ai_%'").all() as { key: string; value: string }[];
-  const result: AISettings = { ...AI_DEFAULTS };
-  for (const row of rows) {
-    (result as any)[row.key] = row.value;
-  }
-  // Docker 环境下自动替换 Ollama localhost URL 为内部容器 URL
-  if (OLLAMA_DOCKER_URL && result.ai_provider === "ollama" && result.ai_api_url.includes("localhost:11434")) {
-    result.ai_api_url = result.ai_api_url.replace(/http:\/\/localhost:11434/, OLLAMA_DOCKER_URL);
-  }
-  return result;
+function getAISettings(c: any): AISettings {
+  return getUserAISettings(c.req.header("X-User-Id")!);
 }
 
 // GET /api/ai/settings
 ai.get("/settings", (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   // 不返回完整 API Key，只返回掩码
   return c.json({
     ...settings,
@@ -189,42 +158,19 @@ ai.get("/settings", (c) => {
 
 // PUT /api/ai/settings
 ai.put("/settings", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json() as Partial<AISettings>;
-  const db = getDb();
+  const entries: Array<{ key: string; value: string }> = [];
+  if (body.ai_provider !== undefined) entries.push({ key: "ai_provider", value: body.ai_provider });
+  if (body.ai_api_url !== undefined) entries.push({ key: "ai_api_url", value: body.ai_api_url.replace(/\/+$/, "") });
+  if (body.ai_api_key !== undefined && !body.ai_api_key.includes("****")) entries.push({ key: "ai_api_key", value: body.ai_api_key });
+  if (body.ai_model !== undefined) entries.push({ key: "ai_model", value: body.ai_model });
+  if (body.ai_embedding_url !== undefined) entries.push({ key: "ai_embedding_url", value: body.ai_embedding_url.replace(/\/+$/, "") });
+  if (body.ai_embedding_key !== undefined && !body.ai_embedding_key.includes("****")) entries.push({ key: "ai_embedding_key", value: body.ai_embedding_key });
+  if (body.ai_embedding_model !== undefined) entries.push({ key: "ai_embedding_model", value: body.ai_embedding_model });
+  setGuardedUserAISettings(userId, entries);
 
-  const upsert = db.prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-  `);
-
-  const tx = db.transaction(() => {
-    if (body.ai_provider !== undefined) {
-      upsert.run("ai_provider", body.ai_provider);
-    }
-    if (body.ai_api_url !== undefined) {
-      upsert.run("ai_api_url", body.ai_api_url.replace(/\/+$/, ""));
-    }
-    if (body.ai_api_key !== undefined && !body.ai_api_key.includes("****")) {
-      upsert.run("ai_api_key", body.ai_api_key);
-    }
-    if (body.ai_model !== undefined) {
-      upsert.run("ai_model", body.ai_model);
-    }
-    // Embedding 三件套：URL 同样去尾斜杠；带掩码（****）的 key 视作"未修改"，不覆盖
-    if (body.ai_embedding_url !== undefined) {
-      upsert.run("ai_embedding_url", body.ai_embedding_url.replace(/\/+$/, ""));
-    }
-    if (body.ai_embedding_key !== undefined && !body.ai_embedding_key.includes("****")) {
-      upsert.run("ai_embedding_key", body.ai_embedding_key);
-    }
-    if (body.ai_embedding_model !== undefined) {
-      upsert.run("ai_embedding_model", body.ai_embedding_model);
-    }
-  });
-  tx();
-
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   return c.json({
     ...settings,
     ai_api_key: settings.ai_api_key ? "sk-****" + settings.ai_api_key.slice(-4) : "",
@@ -236,7 +182,7 @@ ai.put("/settings", async (c) => {
 
 // ===== AI 连接测试 =====
 ai.post("/test", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ success: false, error: "未配置 API 地址" }, 400);
   }
@@ -280,7 +226,7 @@ ai.post("/test", async (c) => {
 
 // ===== 获取模型列表 =====
 ai.get("/models", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ models: [] });
   }
@@ -336,7 +282,7 @@ const ACTION_PROMPTS: Record<AIAction, string> = {
 };
 
 ai.post("/chat", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
@@ -492,7 +438,7 @@ function extractKeywords(question: string): string[] {
 }
 
 ai.post("/ask", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
@@ -554,7 +500,7 @@ ai.post("/ask", async (c) => {
   // ---- 路径 A：向量召回 ----
   if (isVecAvailable()) {
     try {
-      const qvec = await embedQuery(question);
+      const qvec = await embedQuery(userId, question);
       if (qvec) {
         // maxNotes 从 5 提到 8：附件 + 笔记混排时，让两类各自都能出现
         const hits = knnSearch(qvec, userId, workspaceId, notebookIds ? 300 : 30, 8, notebookIds);
@@ -763,7 +709,7 @@ ai.post("/ask", async (c) => {
 
 // ===== ③ 文档智能解析 =====
 ai.post("/parse-document", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
@@ -964,7 +910,7 @@ ai.post("/parse-document", async (c) => {
 //   }
 //   或：{ ok: false, error: string }
 ai.post("/clip-enhance", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ ok: false, error: "未配置 AI 服务" }, 400);
   }
@@ -1247,7 +1193,7 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
 
 // ===== ⑤ 批量 Markdown 格式化 =====
 ai.post("/batch-format", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
@@ -1350,7 +1296,7 @@ ai.post("/batch-format", async (c) => {
 //   - 工作区（workspaceId=<uuid>）：按 workspaceId 维度共享一个"知识库文档"笔记本，
 //     不限作者（与 stats 的"工作区不限 userId"语义一致），创建时 owner 记当前用户。
 ai.post("/import-to-knowledge", async (c) => {
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   const scope = resolveScope(c);
   if ("error" in scope) return scope.error;
   const { userId, workspaceId } = scope;
@@ -1612,7 +1558,7 @@ ai.get("/embeddings/stats", (c) => {
   if ("error" in scope) return scope.error;
   const { userId, workspaceId } = scope;
   const stats = getEmbeddingStats({
-    userId: workspaceId === null ? userId : undefined,
+    userId,
     workspaceId,
   });
   return c.json(stats);
@@ -2228,7 +2174,7 @@ ai.post("/classify", async (c) => {
   if ("error" in scope) return scope.error;
   const { userId, workspaceId } = scope;
 
-  const settings = getAISettings();
+  const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
@@ -2467,7 +2413,7 @@ ai.post("/notebook-summary", async (c) => {
   const prompt = "请总结以下笔记本中的笔记内容，要求：\n1. 先给出笔记本整体主题\n2. 列出 5-10 条核心要点\n3. 给出一段简洁总结\n4. 不要编造原文没有的信息\n5. 用中文输出\n\n笔记列表：\n" + noteBlock;
 
   try {
-    const settings = getAISettings();
+    const settings = getAISettings(c);
     const text = await callAIChat(settings, [
       { role: "system", content: "你是一个知识库分析助手。" },
       { role: "user", content: prompt },
@@ -2498,7 +2444,7 @@ ai.post("/notebook-mermaid", async (c) => {
     : "请根据以下笔记列表生成一个 Mermaid flowchart 流程图，展示笔记本的知识结构和笔记间关系。要求：只输出 Mermaid 源码，不要代码围栏，不要解释，第一行必须是 flowchart TD，节点不超过 50 个。\n\n笔记列表：\n" + noteBlock;
 
   try {
-    const settings = getAISettings();
+    const settings = getAISettings(c);
     let mermaid = await callAIChat(settings, [
       { role: "system", content: "你是一个知识库可视化助手。只输出合法的 Mermaid 源码。" },
       { role: "user", content: prompt },
