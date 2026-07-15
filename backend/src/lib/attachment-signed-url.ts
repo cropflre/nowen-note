@@ -113,36 +113,24 @@ export function verifyAttachmentAccessScope(
     return { valid: true, accessKind: "user" };
   }
 
-  const share = attachmentSignedAccessRepository.findShare(scope.subjectId);
-  if (!share || share.noteId !== scope.noteId || !share.isActive) {
-    return { valid: false, reason: "share_access_revoked", accessKind: "share" };
+  if (scope.kind === "share") {
+    const share = attachmentSignedAccessRepository.findShare(scope.subjectId);
+    if (!share || share.noteId !== scope.noteId || !share.isActive) {
+      return { valid: false, reason: "share_access_revoked", accessKind: "share" };
+    }
+    if (isExpiredDate(share.expiresAt)) {
+      return { valid: false, reason: "share_expired", accessKind: "share" };
+    }
+    return { valid: true, accessKind: "share" };
   }
 
   // 笔记本发布：必须仍处于启用、未过期状态，且目标笔记仍位于发布目录树中。
   // 锁定笔记、回收站笔记和已删除目录不允许通过旧签名继续访问。
   try {
-    const publication = db.prepare(`
-      WITH RECURSIVE published_tree(id) AS (
-        SELECT p.notebookId
-        FROM notebook_publications p
-        JOIN notebooks root ON root.id = p.notebookId
-        WHERE p.id = ? AND root.isDeleted = 0
-        UNION ALL
-        SELECT child.id
-        FROM notebooks child
-        JOIN published_tree tree ON child.parentId = tree.id
-        WHERE child.isDeleted = 0
-      )
-      SELECT p.isActive, p.expiresAt
-      FROM notebook_publications p
-      JOIN notes n ON n.id = ?
-      WHERE p.id = ?
-        AND n.notebookId IN (SELECT id FROM published_tree)
-        AND n.isTrashed = 0
-        AND n.isLocked = 0
-    `).get(scope.subjectId, scope.noteId, scope.subjectId) as
-      | { isActive: number; expiresAt: string | null }
-      | undefined;
+    const publication = attachmentSignedAccessRepository.findPublication(
+      scope.subjectId,
+      scope.noteId,
+    );
 
     if (!publication || !publication.isActive) {
       return { valid: false, reason: "publication_access_revoked", accessKind: "publication" };
