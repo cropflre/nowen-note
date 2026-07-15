@@ -51,7 +51,7 @@ test("retention only removes old automatic backups of the selected type", () => 
 test("automatic tick creates an attachment-safe full backup and prunes only old automatic full archives", async () => {
   const created: Array<{ type?: "full" | "db-only"; description?: string }> = [];
   const deleted: string[] = [];
-  const manager = Object.create(BackupManager.prototype) as BackupManager & Record<string | symbol, any>;
+  const manager: any = Object.create(BackupManager.prototype);
 
   manager.autoBackupConfig = {
     enabled: true,
@@ -61,7 +61,7 @@ test("automatic tick creates an attachment-safe full backup and prunes only old 
     emailOnSuccess: false,
     emailTo: "",
   };
-  manager.createBackup = async (options = {}) => {
+  manager.createBackup = async (options: { type?: "full" | "db-only"; description?: string } = {}) => {
     created.push(options);
     return backup("auto-full-new.zip", "full", "2026-07-15T03:00:00.000Z", options.description);
   };
@@ -87,7 +87,7 @@ test("automatic tick creates an attachment-safe full backup and prunes only old 
 test("automatic tick skips overlap while a full archive is still being generated", async () => {
   let resolveCreate!: (value: BackupInfo) => void;
   let createCalls = 0;
-  const manager = Object.create(BackupManager.prototype) as BackupManager & Record<string | symbol, any>;
+  const manager: any = Object.create(BackupManager.prototype);
   manager.autoBackupConfig = { enabled: true, keepCount: 2, backupType: "full" };
   manager.createBackup = () => {
     createCalls += 1;
