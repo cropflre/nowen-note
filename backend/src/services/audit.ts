@@ -6,7 +6,8 @@
  * 日志类别：
  *  - auth    — 登录/登出/密码修改
  *  - note    — 笔记 CRUD
- *  - share   — 分享创建/访问
+ *  - share   — 单篇分享创建/访问
+ *  - notebook_publication — 笔记本知识站发布/撤销
  *  - ai      — AI 调用
  *  - plugin  — 插件执行
  *  - system  — 设置修改/备份恢复
@@ -17,7 +18,7 @@ import crypto from "crypto";
 
 // ===== 类型 =====
 
-export type AuditCategory = "auth" | "note" | "notebook" | "tag" | "task" | "share" | "ai" | "plugin" | "system";
+export type AuditCategory = "auth" | "note" | "notebook" | "notebook_publication" | "tag" | "task" | "share" | "ai" | "plugin" | "system";
 export type AuditLevel = "info" | "warn" | "error";
 
 export interface AuditEntry {
@@ -103,7 +104,7 @@ class AuditLogger {
         params.level || "info",
         params.targetType || "",
         params.targetId || "",
-        details.slice(0, 5000), // 限制大小
+        details.slice(0, 5000),
         params.ip || "",
         params.userAgent || "",
       );
