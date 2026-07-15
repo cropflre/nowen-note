@@ -90,6 +90,7 @@ const api = baseApi as EnhancedApi;
 
 const nativeMoveNotebook = baseApi.moveNotebook.bind(baseApi);
 const nativeReorderNotebooks = baseApi.reorderNotebooks.bind(baseApi);
+const nativeUpdateNotebook = baseApi.updateNotebook.bind(baseApi);
 
 api.moveNotebook = (async (...args: Parameters<typeof baseApi.moveNotebook>) => {
   const moved = await nativeMoveNotebook(...args);
@@ -102,6 +103,15 @@ api.reorderNotebooks = (async (...args: Parameters<typeof baseApi.reorderNoteboo
   invalidateNotebooks("reorder");
   return reordered;
 }) as typeof baseApi.reorderNotebooks;
+
+api.updateNotebook = (async (...args: Parameters<typeof baseApi.updateNotebook>) => {
+  const updated = await nativeUpdateNotebook(...args);
+  const patch = args[1] as Record<string, unknown> | undefined;
+  if (patch && Object.prototype.hasOwnProperty.call(patch, "parentId")) {
+    invalidateNotebooks("move");
+  }
+  return updated;
+}) as typeof baseApi.updateNotebook;
 
 api.getTaskActivityEvents = (params: TaskActivityQuery = {}) => {
   const search = new URLSearchParams();
