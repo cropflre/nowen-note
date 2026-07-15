@@ -1,0 +1,67 @@
+name: Delete stale branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/delete-stale-branches-trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: delete-stale-branches
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Delete confirmed stale branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            "codex/issue-165-finish"
+            "codex/issue-165-finish-v2"
+            "codex/issue-165-patch-scripts"
+            "issue-247-pg-runtime"
+            "issue-248-direct-db-audit"
+            "ci/issue-237-validation"
+            "ci/issue-237-mobile-web-validation"
+          )
+
+          for branch in "${branches[@]}"; do
+            if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
+              echo "Deleting ${branch}"
+              git push origin --delete "${branch}"
+            else
+              echo "Already absent: ${branch}"
+            fi
+          done
+
+          for branch in "${branches[@]}"; do
+            if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
+              echo "Branch still exists after deletion: ${branch}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Remove one-shot cleanup files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/delete-stale-branches-trigger
+          rm -f .github/workflows/delete-stale-branches.yml
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(ci): remove stale branch cleanup workflow"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
