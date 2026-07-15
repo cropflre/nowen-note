@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - issue-248-direct-db-audit
+      - pg-migration-unified
     paths:
       - "backend/src/**"
       - "backend/scripts/audit-direct-db-access.mjs"
