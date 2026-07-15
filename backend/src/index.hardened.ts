@@ -9,8 +9,10 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  // index.ts imports task-stats-hardening before registering routes, preserving the
-  // existing SQLite startup order without evaluating it in PostgreSQL mode.
+  // Preserve the current SQLite startup hardening order without evaluating it in PostgreSQL mode.
+  await import("./runtime/task-stats-hardening.js");
+  await import("./runtime/auto-full-backup.js");
+  await import("./runtime/notebook-publication.js");
   await import("./index.js");
 }
 
