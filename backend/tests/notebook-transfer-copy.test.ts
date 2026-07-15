@@ -225,8 +225,8 @@ test("attachments are copied and content urls are rewritten", () => {
   assert.equal(fs.existsSync(path.join(getAttachmentsDir(), newAttachment.path)), true);
 
   const newNote = getDb().prepare("SELECT * FROM notes WHERE id = ?").get(newAttachment.noteId) as any;
-  assert.match(newNote.content, new RegExp(`/api/attachments/${newAttachment.id}\?inline=1`));
-  assert.match(newNote.contentText, new RegExp(`/api/attachments/${newAttachment.id}\?download=1`));
+  assert.equal(newNote.content, `/api/attachments/${newAttachment.id}?inline=1`);
+  assert.equal(newNote.contentText, `/api/attachments/${newAttachment.id}?download=1`);
 
   const ref = getDb().prepare("SELECT * FROM attachment_references WHERE attachmentId = ? AND noteId = ?")
     .get(newAttachment.id, newAttachment.noteId);
