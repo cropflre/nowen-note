@@ -338,7 +338,17 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
       return originalFetch(request);
     }
     if (url.pathname === "/api/ai/ask") {
-      throw new ScopeDeniedError("scoped MCP 暂不启用全知识库问答，避免回答内容跨越笔记本白名单");
+      await ensureDescendantsHydrated(request);
+      const body = await readJson(request);
+      const notebookId = typeof body.notebookId === "string" ? body.notebookId : "";
+      if (!notebookId) {
+        throw new ScopeDeniedError("scoped MCP 调用知识库问答时必须提供 notebookId");
+      }
+      policy.assertNotebookAllowed(notebookId, "知识库问答");
+      if (body.includeChildren === true && !policy.includeDescendants) {
+        throw new ScopeDeniedError("当前 MCP 未启用 MCP_INCLUDE_DESCENDANTS，不能检索子笔记本");
+      }
+      return originalFetch(request);
     }
 
     throw new ScopeDeniedError(`scoped MCP 未授权访问端点: ${url.pathname}`);
