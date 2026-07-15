@@ -9,32 +9,48 @@
  */
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
-import { getDb } from "../db/schema";
 import {
   API_TOKEN_SCOPES,
   generateApiTokenRaw,
   hashApiToken,
-  initApiTokensTable,
   isValidScope,
   API_TOKEN_PREFIX,
-  pruneTokenUsage,
 } from "../lib/api-tokens";
 import { apiTokensRepository } from "../repositories";
 import { logAudit } from "../services/audit";
 
 const app = new Hono();
+let pruneUsagePromise: Promise<void> | undefined;
 
-// 保证表存在（幂等）
-initApiTokensTable(getDb());
+/**
+ * 原路由在模块导入阶段直接打开 SQLite 并清理 usage。现在改为首次请求时
+ * 通过异步 Repository 执行一次，避免 import-time 数据库副作用，同时保留
+ * 90 天保留策略。失败属于非关键维护任务，不阻断 Token API。
+ */
+async function ensureTokenUsageMaintenance(): Promise<void> {
+  if (!pruneUsagePromise) {
+    const cutoffDay = new Date(Date.now() - 90 * 86400_000)
+      .toISOString()
+      .slice(0, 10);
+    pruneUsagePromise = apiTokensRepository
+      .pruneUsageBeforeAsync(cutoffDay)
+      .catch((error) => {
+        pruneUsagePromise = undefined;
+        console.warn("[tokens] prune token usage failed:", error);
+      });
+  }
+  await pruneUsagePromise;
+}
 
-// 启动时顶掏一次超过 90 天的 usage 记录。
-// 个人部署场景下表增长极慢，启动时调用一次已足够。
-pruneTokenUsage(getDb());
+app.use("*", async (_c, next) => {
+  await ensureTokenUsageMaintenance();
+  await next();
+});
 
 /** 列出当前用户的 token（明文字段永远不返回） */
-app.get("/", (c) => {
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id")!;
-  const rows = apiTokensRepository.listByUser(userId);
+  const rows = await apiTokensRepository.listByUserAsync(userId);
 
   return c.json({
     tokens: rows.map((r) => ({
@@ -101,7 +117,7 @@ app.post("/", async (c) => {
   const hash = hashApiToken(raw);
   const id = uuid();
 
-  apiTokensRepository.create({
+  await apiTokensRepository.createAsync({
     id,
     userId,
     name,
@@ -140,7 +156,7 @@ app.post("/", async (c) => {
  *
  * 只会返回当前用户名下的 token 数据，不包含其他用户。
  */
-app.get("/usage", (c) => {
+app.get("/usage", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const daysParam = parseInt(c.req.query("days") || "7", 10);
   // 限制在 1–90，超出范围默认 7
@@ -160,14 +176,11 @@ app.get("/usage", (c) => {
     .toISOString()
     .slice(0, 10);
 
-  // 近 days 天逐日聚合（仅本用户的 token）
-  const dailyRows = apiTokensRepository.getDailyUsage(userId, startDay, todayDay);
-
-  // 上期总量（环比计算用）
-  const prevTotal = apiTokensRepository.getPrevPeriodTotal(userId, prevStartDay, prevEndDay);
-
-  // 按 token 聚合（仅本用户的 token）
-  const byTokenRows = apiTokensRepository.getUsageByToken(userId, startDay, todayDay);
+  const [dailyRows, prevTotal, byTokenRows] = await Promise.all([
+    apiTokensRepository.getDailyUsageAsync(userId, startDay, todayDay),
+    apiTokensRepository.getPrevPeriodTotalAsync(userId, prevStartDay, prevEndDay),
+    apiTokensRepository.getUsageByTokenAsync(userId, startDay, todayDay),
+  ]);
 
   // 将 dailyRows 按 day 建索引，然后连续补零
   const dailyMap = new Map<string, number>();
@@ -190,17 +203,17 @@ app.get("/usage", (c) => {
   });
 });
 
-/** 吵销 token（软删，保留审计） */
-app.delete("/:id", (c) => {
+/** 吊销 token（软删，保留审计） */
+app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
 
-  const row = apiTokensRepository.getByIdAndUser(id, userId);
+  const row = await apiTokensRepository.getByIdAndUserAsync(id, userId);
   if (!row) return c.json({ error: "token 不存在" }, 404);
   if (row.userId !== userId) return c.json({ error: "无权操作该 token" }, 403);
   if (row.revokedAt) return c.json({ success: true, alreadyRevoked: true });
 
-  apiTokensRepository.revokeById(id);
+  await apiTokensRepository.revokeByIdAsync(id);
 
   // SEC-AUDIT-01: 记录 token 吊销
   logAudit(userId, "system", "api_token_revoked", {

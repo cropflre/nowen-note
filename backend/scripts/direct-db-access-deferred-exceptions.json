@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "Temporary direct-access allowances caused by stacked-base drift. Every entry must name the owning follow-up issue and may only decrease.",
+  "files": {
+    "routes/search.ts": {
+      "owner": "#252",
+      "reason": "The #247 base added SQLite FTS fallback work after the #248 baseline was recorded. Search and vector migration are explicitly owned by PG-SEARCH-01; #248 must not remove or redesign that behavior.",
+      "counts": {
+        "better-sqlite3": 1,
+        "getDb-call": 3,
+        "prepare-call": 5,
+        "transaction-call": 1
+      }
+    }
+  }
+}

@@ -13,7 +13,7 @@
  * 已经签发的 URL 也会立即失效，而不是只能等待 exp 到期。
  */
 import crypto from "crypto";
-import { getDb } from "../db/schema";
+import { attachmentSignedAccessRepository } from "../repositories/attachmentSignedAccessRepository";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时：覆盖长时间编辑会话
@@ -99,10 +99,7 @@ export function verifyAttachmentAccessScope(
     return { valid: false, reason: "unsupported_scope" };
   }
 
-  const db = getDb();
-  const attachment = db
-    .prepare("SELECT noteId FROM attachments WHERE id = ?")
-    .get(attachmentId) as { noteId: string } | undefined;
+  const attachment = attachmentSignedAccessRepository.findAttachmentNote(attachmentId);
   if (!attachment) return { valid: false, reason: "attachment_not_found", accessKind: scope.kind };
   if (!attachment.noteId || attachment.noteId !== scope.noteId) {
     return { valid: false, reason: "note_mismatch", accessKind: scope.kind };
@@ -116,19 +113,9 @@ export function verifyAttachmentAccessScope(
     return { valid: true, accessKind: "user" };
   }
 
-  if (scope.kind === "share") {
-    const share = db
-      .prepare("SELECT noteId, isActive, expiresAt FROM shares WHERE id = ?")
-      .get(scope.subjectId) as
-      | { noteId: string; isActive: number; expiresAt: string | null }
-      | undefined;
-    if (!share || share.noteId !== scope.noteId || !share.isActive) {
-      return { valid: false, reason: "share_access_revoked", accessKind: "share" };
-    }
-    if (isExpiredDate(share.expiresAt)) {
-      return { valid: false, reason: "share_expired", accessKind: "share" };
-    }
-    return { valid: true, accessKind: "share" };
+  const share = attachmentSignedAccessRepository.findShare(scope.subjectId);
+  if (!share || share.noteId !== scope.noteId || !share.isActive) {
+    return { valid: false, reason: "share_access_revoked", accessKind: "share" };
   }
 
   // 笔记本发布：必须仍处于启用、未过期状态，且目标笔记仍位于发布目录树中。

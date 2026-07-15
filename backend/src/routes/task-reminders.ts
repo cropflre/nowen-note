@@ -1,16 +1,18 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { getDb } from "../db/schema";
 import crypto from "crypto";
+import { getUserWorkspaceRole } from "../middleware/acl";
 import {
-  getUserWorkspaceRole,
-  canManageResource,
-} from "../middleware/acl";
-import { taskRemindersRepository } from "../repositories";
+  taskReminderOperationsRepository,
+  taskRemindersRepository,
+} from "../repositories";
+import type {
+  TaskReminderDueCandidate,
+  TaskReminderOverviewRow,
+} from "../repositories/taskReminderOperationsRepository";
 
 const taskReminders = new Hono();
 
-// 解析任务 scope（与 tasks.ts 一致）
 function resolveScope(
   c: Context,
   userId: string,
@@ -26,12 +28,28 @@ function resolveScope(
   return { workspaceId: raw };
 }
 
-// 获取某任务的所有提醒配置
-// ---------------------------------------------------------------------------
-// GET /overview  -- reminder overview grouped by missed/today/upcoming/disabled
-// ---------------------------------------------------------------------------
-taskReminders.get("/overview", (c) => {
-  const db = getDb();
+function toIntegerBoolean(value: number | boolean): number {
+  return value === true || value === 1 ? 1 : 0;
+}
+
+function resolveReminderAt(row: TaskReminderOverviewRow): string | null {
+  if (row.snoozedUntil) return row.snoozedUntil;
+
+  if (row.dueAt) {
+    const dueMs = new Date(row.dueAt).getTime();
+    return new Date(dueMs - row.offsetMinutes * 60_000).toISOString();
+  }
+
+  if (row.dueDate) {
+    const dueMs = new Date(`${row.dueDate}T23:59:59`).getTime();
+    return new Date(dueMs - row.offsetMinutes * 60_000).toISOString();
+  }
+
+  return null;
+}
+
+// GET /overview -- reminder overview grouped by missed/today/upcoming/disabled
+taskReminders.get("/overview", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
@@ -39,36 +57,17 @@ taskReminders.get("/overview", (c) => {
   if (scope.error) return c.json({ error: scope.error }, 403);
 
   const rawDays = Number(c.req.query("days") || "7");
-  const days = Math.min(Math.max(1, isNaN(rawDays) ? 7 : rawDays), 30);
+  const days = Math.min(Math.max(1, Number.isNaN(rawDays) ? 7 : rawDays), 30);
+  const rows = await taskReminderOperationsRepository.listOverviewAsync(
+    userId,
+    scope.workspaceId,
+  );
 
   const now = Date.now();
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
   const todayEndMs = todayEnd.getTime();
-  const horizonMs = todayEndMs + days * 86400000;
-
-  let rows: any[];
-  if (scope.workspaceId) {
-    rows = db.prepare(`
-      SELECT r.id AS reminderId, r.taskId, r.offsetMinutes, r.enabled, r.lastNotifiedAt, r.snoozedUntil,
-             t.title AS taskTitle, t.status AS taskStatus, t.isCompleted,
-             t.dueDate, t.dueAt
-      FROM task_reminders r
-      JOIN tasks t ON t.id = r.taskId
-      WHERE r.userId = ? AND t.workspaceId = ?
-      ORDER BY r.createdAt DESC
-    `).all(userId, scope.workspaceId) as any[];
-  } else {
-    rows = db.prepare(`
-      SELECT r.id AS reminderId, r.taskId, r.offsetMinutes, r.enabled, r.lastNotifiedAt, r.snoozedUntil,
-             t.title AS taskTitle, t.status AS taskStatus, t.isCompleted,
-             t.dueDate, t.dueAt
-      FROM task_reminders r
-      JOIN tasks t ON t.id = r.taskId
-      WHERE r.userId = ? AND t.workspaceId IS NULL
-      ORDER BY r.createdAt DESC
-    `).all(userId) as any[];
-  }
+  const horizonMs = todayEndMs + days * 86_400_000;
 
   const missed: any[] = [];
   const today: any[] = [];
@@ -76,133 +75,45 @@ taskReminders.get("/overview", (c) => {
   const disabled: any[] = [];
 
   for (const row of rows) {
-    let reminderAt: string | null = null;
-    if (row.snoozedUntil) {
-      reminderAt = row.snoozedUntil;
-    } else if (row.dueAt) {
-      const dueMs = new Date(row.dueAt).getTime();
-      const rMs = dueMs - row.offsetMinutes * 60000;
-      reminderAt = new Date(rMs).toISOString();
-    } else if (row.dueDate) {
-      const dueMs = new Date(row.dueDate + "T23:59:59").getTime();
-      const rMs = dueMs - row.offsetMinutes * 60000;
-      reminderAt = new Date(rMs).toISOString();
-    }
-
+    const enabled = toIntegerBoolean(row.enabled);
+    const isCompleted = toIntegerBoolean(row.isCompleted);
+    const reminderAt = resolveReminderAt(row);
     const item: any = {
       reminderId: row.reminderId,
       taskId: row.taskId,
       taskTitle: row.taskTitle,
       taskStatus: row.taskStatus,
-      isCompleted: row.isCompleted,
+      isCompleted,
       dueDate: row.dueDate,
       dueAt: row.dueAt,
       offsetMinutes: row.offsetMinutes,
-      enabled: row.enabled,
+      enabled,
       lastNotifiedAt: row.lastNotifiedAt,
       snoozedUntil: row.snoozedUntil,
       reminderAt,
       group: "",
     };
 
-    if (row.enabled !== 1 || row.isCompleted === 1) {
-      item.group = "disabled";
-      disabled.push(item);
-      continue;
-    }
-
-    if (!reminderAt) {
+    if (enabled !== 1 || isCompleted === 1 || !reminderAt) {
       item.group = "disabled";
       disabled.push(item);
       continue;
     }
 
     const reminderMs = new Date(reminderAt).getTime();
-
     if (reminderMs < now) {
       item.group = "missed";
       missed.push(item);
-      continue;
-    }
-
-    if (reminderMs <= todayEndMs) {
+    } else if (reminderMs <= todayEndMs) {
       item.group = "today";
       today.push(item);
-      continue;
-    }
-
-    if (reminderMs <= horizonMs) {
+    } else if (reminderMs <= horizonMs) {
       item.group = "upcoming";
       upcoming.push(item);
-      continue;
     }
   }
 
   return c.json({ missed, today, upcoming, disabled });
-});
-
-taskReminders.get("/:taskId", (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id")!;
-  const taskId = c.req.param("taskId");
-
-  const task = db.prepare("SELECT id, userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as any;
-  if (!task) return c.json({ error: "Task not found" }, 404);
-
-  const rows = taskRemindersRepository.listByTaskId(taskId, userId);
-  return c.json(rows);
-});
-
-// 创建提醒
-taskReminders.post("/:taskId", async (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id")!;
-  const taskId = c.req.param("taskId");
-  const body = await c.req.json();
-
-  const task = db.prepare("SELECT id, userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as any;
-  if (!task) return c.json({ error: "Task not found" }, 404);
-
-  const offsetMinutes = body.offsetMinutes ?? 30;
-  const id = crypto.randomUUID();
-
-  taskRemindersRepository.create({ id, taskId, userId, offsetMinutes });
-  const reminder = taskRemindersRepository.getById(id);
-  return c.json(reminder, 201);
-});
-
-// 更新提醒（启用/禁用、修改 offset）
-taskReminders.put("/:reminderId", async (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id")!;
-  const reminderId = c.req.param("reminderId");
-
-  const existing = taskRemindersRepository.getById(reminderId);
-  if (!existing) return c.json({ error: "Reminder not found" }, 404);
-  if (existing.userId !== userId) return c.json({ error: "无权修改", code: "FORBIDDEN" }, 403);
-
-  const body = await c.req.json();
-  const offsetMinutes = body.offsetMinutes ?? existing.offsetMinutes;
-  const enabled = body.enabled ?? existing.enabled;
-  const hasSnoozedUntil = Object.prototype.hasOwnProperty.call(body, "snoozedUntil");
-  const snoozedUntil = hasSnoozedUntil ? body.snoozedUntil : existing.snoozedUntil;
-
-  taskRemindersRepository.update(reminderId, { offsetMinutes, enabled: !!enabled, snoozedUntil });
-  const updated = taskRemindersRepository.getById(reminderId);
-  return c.json(updated);
-});
-
-// 删除提醒
-taskReminders.delete("/:reminderId", (c) => {
-  const userId = c.req.header("X-User-Id")!;
-  const reminderId = c.req.param("reminderId");
-
-  const existing = taskRemindersRepository.getById(reminderId);
-  if (!existing) return c.json({ error: "Reminder not found" }, 404);
-  if (existing.userId !== userId) return c.json({ error: "无权删除", code: "FORBIDDEN" }, 403);
-
-  taskRemindersRepository.delete(reminderId);
-  return c.json({ success: true });
 });
 
 // 立即提醒（测试用）— 返回应该提醒的任务列表
@@ -211,9 +122,81 @@ taskReminders.post("/test-now", (c) => {
   return c.json({ count: result.length, reminders: result });
 });
 
-// ---------------------------------------------------------------------------
-// 提醒扫描器：后端定时运行，查找所有到期的提醒
-// ---------------------------------------------------------------------------
+// 获取某任务的所有提醒配置
+taskReminders.get("/:taskId", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const taskId = c.req.param("taskId");
+
+  const task = await taskReminderOperationsRepository.getTaskScopeAsync(taskId);
+  if (!task) return c.json({ error: "Task not found" }, 404);
+
+  const rows = await taskReminderOperationsRepository.listByTaskIdAsync(taskId, userId);
+  return c.json(rows);
+});
+
+// 创建提醒
+taskReminders.post("/:taskId", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const taskId = c.req.param("taskId");
+  const body = await c.req.json();
+
+  const task = await taskReminderOperationsRepository.getTaskScopeAsync(taskId);
+  if (!task) return c.json({ error: "Task not found" }, 404);
+
+  const offsetMinutes = body.offsetMinutes ?? 30;
+  const id = crypto.randomUUID();
+
+  await taskReminderOperationsRepository.createAsync({
+    id,
+    taskId,
+    userId,
+    offsetMinutes,
+  });
+  const reminder = await taskReminderOperationsRepository.getByIdAsync(id);
+  return c.json(reminder, 201);
+});
+
+// 更新提醒（启用/禁用、修改 offset）
+taskReminders.put("/:reminderId", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const reminderId = c.req.param("reminderId");
+
+  const existing = await taskReminderOperationsRepository.getByIdAsync(reminderId);
+  if (!existing) return c.json({ error: "Reminder not found" }, 404);
+  if (existing.userId !== userId) {
+    return c.json({ error: "无权修改", code: "FORBIDDEN" }, 403);
+  }
+
+  const body = await c.req.json();
+  const offsetMinutes = body.offsetMinutes ?? existing.offsetMinutes;
+  const enabled = body.enabled ?? existing.enabled;
+  const hasSnoozedUntil = Object.prototype.hasOwnProperty.call(body, "snoozedUntil");
+  const snoozedUntil = hasSnoozedUntil ? body.snoozedUntil : existing.snoozedUntil;
+
+  await taskReminderOperationsRepository.updateAsync(reminderId, {
+    offsetMinutes,
+    enabled: !!enabled,
+    snoozedUntil,
+  });
+  const updated = await taskReminderOperationsRepository.getByIdAsync(reminderId);
+  return c.json(updated);
+});
+
+// 删除提醒
+taskReminders.delete("/:reminderId", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const reminderId = c.req.param("reminderId");
+
+  const existing = await taskReminderOperationsRepository.getByIdAsync(reminderId);
+  if (!existing) return c.json({ error: "Reminder not found" }, 404);
+  if (existing.userId !== userId) {
+    return c.json({ error: "无权删除", code: "FORBIDDEN" }, 403);
+  }
+
+  await taskReminderOperationsRepository.deleteAsync(reminderId);
+  return c.json({ success: true });
+});
+
 export interface PendingReminder {
   reminderId: string;
   taskId: string;
@@ -225,50 +208,19 @@ export interface PendingReminder {
   snoozedUntil: string | null;
 }
 
-/**
- * 扫描所有到期的提醒。
- * 规则：
- *   - 任务未完成
- *   - 提醒启用
- *   - 任务有 dueAt 或 dueDate
- *   - 提醒时间 = 截止时间 - offsetMinutes
- *   - 提醒时间 <= 当前时间
- *   - 本轮未通知过（lastNotifiedAt 为空 或 < 本次提醒时间）
- */
-export function scanDueReminders(): PendingReminder[] {
-  const db = getDb();
-
-  // 查找所有启用的提醒，关联未完成的任务
-  const rows = db.prepare(`
-    SELECT
-      r.id AS reminderId,
-      r.taskId,
-      r.userId,
-      r.offsetMinutes,
-      r.lastNotifiedAt,
-      r.snoozedUntil,
-      t.title AS taskTitle,
-      t.dueAt,
-      t.dueDate,
-      t.isCompleted
-    FROM task_reminders r
-    JOIN tasks t ON t.id = r.taskId
-    WHERE r.enabled = 1
-      AND t.isCompleted = 0
-      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
-  `).all() as any[];
-
-  const now = Date.now();
+function collectPendingReminders(
+  rows: TaskReminderDueCandidate[],
+  now = Date.now(),
+): PendingReminder[] {
   const pending: PendingReminder[] = [];
 
   for (const row of rows) {
-    const dueStr = row.dueAt || (row.dueDate ? row.dueDate + "T23:59:59" : null);
+    const dueStr = row.dueAt || (row.dueDate ? `${row.dueDate}T23:59:59` : null);
     if (!dueStr) continue;
 
     const dueMs = new Date(dueStr).getTime();
-    const reminderMs = dueMs - row.offsetMinutes * 60 * 1000;
+    const reminderMs = dueMs - row.offsetMinutes * 60_000;
 
-    // snooze override
     if (row.snoozedUntil) {
       const snoozeMs = new Date(row.snoozedUntil).getTime();
       if (snoozeMs > now) continue;
@@ -285,9 +237,7 @@ export function scanDueReminders(): PendingReminder[] {
       continue;
     }
 
-    // Normal path
     if (reminderMs > now) continue;
-
     if (row.lastNotifiedAt) {
       const lastNotifiedMs = new Date(row.lastNotifiedAt).getTime();
       if (lastNotifiedMs >= reminderMs) continue;
@@ -308,10 +258,12 @@ export function scanDueReminders(): PendingReminder[] {
   return pending;
 }
 
-/**
- * 标记提醒已通知。
- */
-export function markReminderNotified(reminderId: string) {
+/** SQLite compatibility path used by the existing synchronous notification loop. */
+export function scanDueReminders(): PendingReminder[] {
+  return collectPendingReminders(taskReminderOperationsRepository.listDueCandidates());
+}
+
+export function markReminderNotified(reminderId: string): void {
   taskRemindersRepository.markNotified(reminderId);
 }
 

@@ -28,7 +28,6 @@
  *   - HTML 中可能被渲染为 `<a href="note:UUID">标题</a>`
  */
 
-import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { noteLinksRepository } from "../repositories";
 import type { NoteLinkEntry } from "../repositories";
@@ -108,7 +107,7 @@ export function extractNoteLinksFromContent(content: string): NoteLinkEntry[] {
  * 失败仅打日志，不阻断保存（与 attachmentReferences 一致）。
  */
 export function syncNoteLinks(
-  _db: Database.Database,
+  _db: unknown,
   userId: string,
   sourceNoteId: string,
   content: string,
@@ -146,7 +145,7 @@ export function syncNoteLinks(
  *   - 无权限的来源笔记（调用方应已做过权限校验）
  */
 export function getBacklinks(
-  _db: Database.Database,
+  _db: unknown,
   userId: string,
   targetNoteId: string,
   limit: number = 50,

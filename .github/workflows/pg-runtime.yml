@@ -1,0 +1,195 @@
+name: PostgreSQL Runtime
+
+on:
+  push:
+    branches:
+      - issue-247-pg-runtime
+      - issue-248-direct-db-audit
+    paths:
+      - "backend/src/db/**"
+      - "backend/src/routes/**"
+      - "backend/src/services/**"
+      - "backend/src/queries/**"
+      - "backend/src/lib/**"
+      - "backend/src/middleware/**"
+      - "backend/src/runtime/**"
+      - "backend/src/index.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/**"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
+      - "backend/tests/**"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - ".github/workflows/pg-runtime.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/**"
+      - "backend/src/routes/**"
+      - "backend/src/services/**"
+      - "backend/src/queries/**"
+      - "backend/src/lib/**"
+      - "backend/src/middleware/**"
+      - "backend/src/runtime/**"
+      - "backend/src/index.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/**"
+      - "backend/scripts/audit-direct-db-access.mjs"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
+      - "backend/scripts/direct-db-access-baseline.json"
+      - "backend/tests/**"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - ".github/workflows/pg-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+
+      - name: SQLite direct-access boundary audit
+        run: npm run audit:sqlite-boundaries
+
+      - name: Upload SQLite boundary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-boundary-${{ github.run_id }}
+          path: /tmp/direct-db-access-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Runtime unit tests
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/database-runtime.test.ts
+          tests/repository-runtime-provider.test.ts
+
+      - name: Full SQLite regression suite
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:serial 2>&1 | tee /tmp/sqlite-regression.log
+
+      - name: Upload SQLite regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-regression-${{ github.run_id }}
+          path: /tmp/sqlite-regression.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Real PostgreSQL adapter and pilot tests
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-adapter.test.ts
+          tests/system-settings-repository-pg.test.ts
+          tests/custom-fonts-repository-pg.test.ts
+          tests/favorites-repository-pg.test.ts
+          tests/note-tags-repository-pg.test.ts
+
+      - name: Build production backend bundle
+        run: npm run build
+
+      - name: PostgreSQL runtime-only smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DB_DRIVER=postgres
+          export PORT=3101
+          export DB_PATH=/tmp/nowen-pg-runtime-must-not-create-sqlite.db
+          rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
+
+          node dist/index.js > /tmp/nowen-pg-runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true; wait "$runtime_pid" 2>/dev/null || true; cat /tmp/nowen-pg-runtime.log' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3101/api/health > /tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          node -e '
+            const fs = require("node:fs");
+            const health = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
+            if (health.status !== "ok") throw new Error(`unexpected health status: ${health.status}`);
+            if (health.database?.driver !== "postgres" || health.database?.ok !== true) {
+              throw new Error(`unexpected database health: ${JSON.stringify(health.database)}`);
+            }
+            if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) {
+              throw new Error(`unexpected runtime mode: ${JSON.stringify(health.runtime)}`);
+            }
+          '
+
+          status=$(curl --silent --output /tmp/pending.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
+          test "$status" = "503"
+          node -e '
+            const fs = require("node:fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/pending.json", "utf8"));
+            if (body.code !== "POSTGRES_RUNTIME_MIGRATION_PENDING") {
+              throw new Error(`unexpected pending response: ${JSON.stringify(body)}`);
+            }
+          '
+
+          test ! -e "$DB_PATH"
+          test ! -e "$DB_PATH-wal"
+          test ! -e "$DB_PATH-shm"
+
+          kill -TERM "$runtime_pid"
+          wait "$runtime_pid"
+          trap - EXIT
+          cat /tmp/nowen-pg-runtime.log

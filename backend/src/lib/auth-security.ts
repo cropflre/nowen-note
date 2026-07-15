@@ -17,6 +17,7 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import type { Context } from "hono";
+import { authSecurityRepository, type AuthSecurityDatabase } from "../repositories/authSecurityRepository";
 
 // ========== JWT Secret 初始化 ==========
 
@@ -315,14 +316,10 @@ export interface AccountLockRow {
  * 会自动清理过期锁和过期的失败计数。
  */
 export function checkAccountLock(
-  db: import("better-sqlite3").Database,
+  db: AuthSecurityDatabase,
   userId: string,
 ): { lockedUntil: string; remainingSec: number } | null {
-  const row = db
-    .prepare(
-      "SELECT id, failedLoginAttempts, lastFailedLoginAt, lockedUntil FROM users WHERE id = ?",
-    )
-    .get(userId) as AccountLockRow | undefined;
+  const row = authSecurityRepository.getAccountLock(db, userId);
   if (!row) return null;
 
   const now = Date.now();
@@ -337,9 +334,7 @@ export function checkAccountLock(
       };
     }
     // 锁已过期，清除锁
-    db.prepare("UPDATE users SET lockedUntil = NULL, failedLoginAttempts = 0 WHERE id = ?").run(
-      userId,
-    );
+    authSecurityRepository.clearExpiredLock(db, userId);
     return null;
   }
 
@@ -347,7 +342,7 @@ export function checkAccountLock(
   if (row.failedLoginAttempts > 0 && row.lastFailedLoginAt) {
     const lastTs = Date.parse(row.lastFailedLoginAt);
     if (!isNaN(lastTs) && now - lastTs > ACCOUNT_FAIL_WINDOW_MS) {
-      db.prepare("UPDATE users SET failedLoginAttempts = 0 WHERE id = ?").run(userId);
+      authSecurityRepository.clearFailedAttempts(db, userId);
     }
   }
   return null;
@@ -358,53 +353,46 @@ export function checkAccountLock(
  * 返回：本次处理后的计数与锁定信息（如果刚刚触发锁定）。
  */
 export function recordLoginFailure(
-  db: import("better-sqlite3").Database,
+  db: AuthSecurityDatabase,
   userId: string,
 ): { attempts: number; lockedUntil: string | null } {
-  const row = db
-    .prepare("SELECT failedLoginAttempts FROM users WHERE id = ?")
-    .get(userId) as { failedLoginAttempts: number } | undefined;
-  if (!row) return { attempts: 0, lockedUntil: null };
+  const failedLoginAttempts = authSecurityRepository.getFailedLoginAttempts(db, userId);
+  if (failedLoginAttempts === null) return { attempts: 0, lockedUntil: null };
 
-  const nextAttempts = row.failedLoginAttempts + 1;
+  const nextAttempts = failedLoginAttempts + 1;
   const nowIso = new Date().toISOString();
 
   if (nextAttempts >= ACCOUNT_MAX_FAIL) {
     const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MS).toISOString();
-    db.prepare(
-      `UPDATE users
-       SET failedLoginAttempts = ?, lastFailedLoginAt = ?, lockedUntil = ?
-       WHERE id = ?`,
-    ).run(nextAttempts, nowIso, lockedUntil, userId);
+    authSecurityRepository.recordLoginFailure(db, {
+      userId,
+      attempts: nextAttempts,
+      failedAt: nowIso,
+      lockedUntil,
+    });
     return { attempts: nextAttempts, lockedUntil };
   }
 
-  db.prepare(
-    `UPDATE users
-     SET failedLoginAttempts = ?, lastFailedLoginAt = ?
-     WHERE id = ?`,
-  ).run(nextAttempts, nowIso, userId);
+  authSecurityRepository.recordLoginFailure(db, {
+    userId,
+    attempts: nextAttempts,
+    failedAt: nowIso,
+    lockedUntil: null,
+  });
   return { attempts: nextAttempts, lockedUntil: null };
 }
 
 /** 登录成功后重置失败计数与锁定 */
-export function resetLoginFailure(db: import("better-sqlite3").Database, userId: string) {
-  db.prepare(
-    `UPDATE users
-     SET failedLoginAttempts = 0, lastFailedLoginAt = NULL, lockedUntil = NULL
-     WHERE id = ?`,
-  ).run(userId);
+export function resetLoginFailure(db: AuthSecurityDatabase, userId: string) {
+  authSecurityRepository.resetLoginFailure(db, userId);
 }
 
 /** 使该用户所有已签发的 JWT 立即失效（tokenVersion++）。返回新的 tokenVersion */
-export function bumpTokenVersion(db: import("better-sqlite3").Database, userId: string): number {
-  db.prepare("UPDATE users SET tokenVersion = tokenVersion + 1 WHERE id = ?").run(userId);
-  const row = db.prepare("SELECT tokenVersion FROM users WHERE id = ?").get(userId) as
-    | { tokenVersion: number }
-    | undefined;
+export function bumpTokenVersion(db: AuthSecurityDatabase, userId: string): number {
+  const tokenVersion = authSecurityRepository.bumpTokenVersion(db, userId);
   // 同时清理 JWT 中间件的缓存，确保新状态立即生效
   invalidateUserAuthCache(userId);
-  return row?.tokenVersion ?? 0;
+  return tokenVersion;
 }
 
 // ========== JWT 中间件的用户态缓存 ==========

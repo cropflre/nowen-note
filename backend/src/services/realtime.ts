@@ -18,7 +18,7 @@ import type { IncomingMessage } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { URL } from "url";
 import { verifyLoginToken } from "../lib/auth-security";
-import { getDb } from "../db/schema";
+import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";
 import {
   getUserAccessibleWorkspaceIds,
   resolveNotePermission,
@@ -227,12 +227,7 @@ export function attachRealtimeServer(server: import("http").Server) {
     }
 
     // 验证用户仍然存在、未被禁用、tokenVersion 一致
-    const db = getDb();
-    const user = db
-      .prepare("SELECT id, username, isDisabled, tokenVersion FROM users WHERE id = ?")
-      .get(payload.userId) as
-      | { id: string; username: string; isDisabled: number; tokenVersion: number }
-      | undefined;
+    const user = realtimeAuthRepository.findById(payload.userId);
     if (!user || user.isDisabled || (payload.tver ?? 0) !== (user.tokenVersion ?? 0)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();

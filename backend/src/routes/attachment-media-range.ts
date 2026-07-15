@@ -1,25 +1,17 @@
 import type { Context, Next } from "hono";
-import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { parseSingleHttpRange } from "../lib/http-range";
 import { inferVideoMime } from "../lib/media-mime";
+import { attachmentMediaRepository } from "../repositories";
+import type { MediaAttachmentRecord } from "../repositories/attachmentMediaRepository";
 import { getAttachmentSize, readAttachmentRange } from "../services/attachment-storage";
-
-interface MediaAttachmentRow {
-  id: string;
-  noteId: string;
-  mimeType: string;
-  path: string;
-  filename: string;
-  size: number;
-}
 
 function isSeekableMediaMime(mimeType: string): boolean {
   const mime = (mimeType || "").toLowerCase();
   return mime.startsWith("video/") || mime.startsWith("audio/");
 }
 
-async function authorizeMediaRange(c: Context, row: MediaAttachmentRow): Promise<Response | null> {
+async function authorizeMediaRange(c: Context, row: MediaAttachmentRecord): Promise<Response | null> {
   const exp = c.req.query("exp");
   const sig = c.req.query("sig");
   const scope = c.req.query("scope");
@@ -65,12 +57,7 @@ async function authorizeMediaRange(c: Context, row: MediaAttachmentRow): Promise
  */
 export async function handleAttachmentMediaRange(c: Context, next: Next): Promise<Response | void> {
   const id = c.req.param("id");
-  const db = getDb();
-  const row = db
-    .prepare(
-      "SELECT id, noteId, mimeType, path, filename, size FROM attachments WHERE id = ?",
-    )
-    .get(id) as MediaAttachmentRow | undefined;
+  const row = await attachmentMediaRepository.getByIdAsync(id);
 
   // Let the canonical handler produce the existing 404 shape for unknown attachments.
   if (!row) {
@@ -88,9 +75,7 @@ export async function handleAttachmentMediaRange(c: Context, next: Next): Promis
       return;
     }
     try {
-      db.prepare(
-        "UPDATE attachments SET mimeType = ? WHERE id = ? AND (mimeType IS NULL OR mimeType = '' OR mimeType = 'application/octet-stream')",
-      ).run(inferred, row.id);
+      await attachmentMediaRepository.repairGenericMimeAsync(row.id, inferred);
       row.mimeType = inferred;
     } catch {
       // The response can still use the inferred MIME even if a read-only database blocks repair.

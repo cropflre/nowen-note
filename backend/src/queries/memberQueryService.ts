@@ -4,17 +4,17 @@
  * 职责：
  * - 承接成员 / 权限相关复杂查询（notebook_members / notebook_acl_overrides / notes / notebooks）
  * - 不处理 HTTP / 鉴权 / 业务日志
- * - 使用 getDb() 获取数据库实例
+ * - 数据库访问统一委托给 Repository 边界
+ * - 返回与原 SQL 一致的数据结构
  *
- * Issue #215：目录权限采用“最近的显式规则优先”。从目标目录向根目录回溯：
- * 1. 当前目录的用户覆盖规则；
- * 2. 当前目录的成员规则；
- * 3. 父目录重复以上顺序。
- *
- * 因此根目录成员会自动继承到全部子目录，而子目录上的覆盖规则可以收紧或放宽权限。
+ * 设计原则：
+ * - 单表 CRUD 仍由各 Repository 负责
+ * - 跨表权限查询归 QueryService
+ * - notebook-permissions.ts 作为服务层薄包装，内部调用 memberQueryService
+ * - PostgreSQL 同步/异步双库实现由 #249 统一推进
  */
 
-import { getDb } from "../db/schema";
+import { memberQueryRepository } from "../repositories/memberQueryRepository";
 
 export interface NotebookMemberAccessRow {
   role: string;
@@ -97,57 +97,24 @@ function getNotebookMemberAccess(notebookId: string, userId: string): NotebookMe
 }
 
 export const memberQueryService = {
-  /** 返回最近命中的目录成员/覆盖规则及其来源。 */
-  getNotebookMemberAccess,
-
-  /** 兼容旧调用：只返回角色/权限字符串。 */
+  /** 获取用户在指定笔记本中的角色。 */
   getNotebookMemberRole(
     notebookId: string,
     userId: string,
   ): { role: string } | undefined {
-    const access = getNotebookMemberAccess(notebookId, userId);
-    return access ? { role: access.role } : undefined;
+    return memberQueryRepository.getNotebookMemberRole(notebookId, userId);
   },
 
-  /** 获取笔记所属目录的最近有效成员/覆盖规则。 */
-  getNoteNotebookMemberAccess(
-    noteId: string,
-    userId: string,
-  ): NotebookMemberAccessRow | undefined {
-    const note = getDb()
-      .prepare("SELECT notebookId FROM notes WHERE id = ? AND isTrashed = 0")
-      .get(noteId) as { notebookId: string } | undefined;
-    if (!note?.notebookId) return undefined;
-    return getNotebookMemberAccess(note.notebookId, userId);
-  },
-
-  /** 兼容旧调用：只返回角色/权限字符串。 */
+  /** 获取用户在指定笔记所属笔记本中的角色。 */
   getNoteNotebookMemberRole(
     noteId: string,
     userId: string,
   ): { role: string } | undefined {
-    const access = this.getNoteNotebookMemberAccess(noteId, userId);
-    return access ? { role: access.role } : undefined;
+    return memberQueryRepository.getNoteNotebookMemberRole(noteId, userId);
   },
 
-  /**
-   * 列出用户直接参与的共享根目录。子目录权限通过继承解析，不重复出现在“共享给我”根列表中。
-   */
+  /** 列出用户参与的共享笔记本 ID。 */
   listSharedNotebookIds(userId: string): string[] {
-    const db = getDb();
-    return (
-      db
-        .prepare(
-          `SELECT nm.notebookId
-             FROM notebook_members nm
-             JOIN notebooks nb ON nb.id = nm.notebookId
-            WHERE nm.userId = ?
-              AND nm.status = 'active'
-              AND nb.userId <> ?
-              AND nb.isDeleted = 0
-            ORDER BY nb.updatedAt DESC, nb.id ASC`,
-        )
-        .all(userId, userId) as { notebookId: string }[]
-    ).map((row) => row.notebookId);
+    return memberQueryRepository.listSharedNotebookIds(userId);
   },
 };
