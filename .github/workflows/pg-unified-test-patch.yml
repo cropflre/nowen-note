@@ -6,6 +6,9 @@ on:
       - pg-migration-unified
     paths:
       - .github/workflows/pg-unified-test-patch.yml
+  pull_request:
+    paths:
+      - .github/workflows/pg-unified-test-patch.yml
 
 permissions:
   contents: write
