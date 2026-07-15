@@ -11,6 +11,13 @@
         "prepare-call": 5,
         "transaction-call": 1
       }
+    },
+    "services/embedding-worker.ts": {
+      "owner": "#252",
+      "reason": "Latest main added user-scoped AI settings isolation while the embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by PG-SEARCH-01.",
+      "counts": {
+        "prepare-call": 15
+      }
     }
   }
 }
