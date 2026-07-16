@@ -1,0 +1,61 @@
+name: Validate issue 76
+
+on:
+  push:
+    paths:
+      - .github/issue-76-trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Test and build frontend
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          LOG=/tmp/issue-76-validation.log
+          exec > >(tee "$LOG") 2>&1
+
+          cleanup() {
+            status=$?
+            trap - EXIT
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            rm -f .github/workflows/issue-76-validate.yml .github/issue-76-trigger.txt
+            if [ "$status" -ne 0 ]; then
+              {
+                echo "Issue #76 validation failed at $(date -u +%FT%TZ)"
+                echo
+                tail -n 400 "$LOG"
+              } > .github/issue-76-validation-failure.log
+              git add -A
+              git commit -m "test(import): record issue 76 validation failure" || true
+              git push origin HEAD:main || true
+              exit "$status"
+            fi
+            rm -f .github/issue-76-validation-failure.log
+            git add -A
+            git commit -m "chore(issue-76): complete DOCX import validation" || true
+            git push origin HEAD:main
+          }
+          trap cleanup EXIT
+
+          cd frontend
+          npm ci
+          npm run test:run -- src/lib/__tests__/docxImportService.test.ts
+          npm run build
