@@ -29,6 +29,8 @@ test("PG Batch A repositories use the runtime adapter", { skip }, async () => {
   const feedId = `${userId}-feed`;
   const promptId = `${userId}-prompt`;
   const targetId = `${userId}-target`;
+  const tokenId = `${userId}-api-token`;
+  const usageDay = "2026-07-16";
 
   await pool.query(
     `INSERT INTO users (id, username, "passwordHash") VALUES ($1, $2, $3)`,
@@ -82,9 +84,35 @@ test("PG Batch A repositories use the runtime adapter", { skip }, async () => {
     assert.equal(target?.enabled, false);
     assert.equal(target?.name, "Disabled target");
 
+    const { apiTokensRepository } = await import("../src/repositories/apiTokensRepository");
+    await apiTokensRepository.createAsync({
+      id: tokenId,
+      userId,
+      name: "PG API token",
+      tokenHash: `${tokenId}-hash`,
+      scopes: ["notes:read"],
+      expiresAt: null,
+    });
+
+    const token = await apiTokensRepository.getByIdAndUserAsync(tokenId, userId);
+    assert.equal(token?.userId, userId);
+    await apiTokensRepository.recordUsageAsync(tokenId, usageDay);
+    await apiTokensRepository.recordUsageAsync(tokenId, usageDay);
+    assert.deepEqual(
+      await apiTokensRepository.getDailyUsageAsync(userId, usageDay, usageDay),
+      [{ day: usageDay, count: 2 }],
+    );
+    assert.equal(await apiTokensRepository.getPrevPeriodTotalAsync(userId, usageDay, usageDay), 2);
+
+    await apiTokensRepository.revokeByIdAsync(tokenId);
+    const revoked = await apiTokensRepository.getByIdAndUserAsync(tokenId, userId);
+    assert.ok(revoked?.revokedAt);
+
     assert.equal(await calendarExportTargetsRepository.deleteByIdAndUserAsync(targetId, userId), true);
     assert.equal(await aiCustomPromptsRepository.deleteByIdAndUserAsync(promptId, userId), true);
   } finally {
+    await pool.query(`DELETE FROM api_token_usage WHERE "tokenId" = $1`, [tokenId]);
+    await pool.query(`DELETE FROM api_tokens WHERE id = $1`, [tokenId]);
     await pool.query(`DELETE FROM calendar_export_targets WHERE id = $1`, [targetId]);
     await pool.query(`DELETE FROM ai_custom_prompts WHERE id = $1`, [promptId]);
     await pool.query(`DELETE FROM task_calendar_feeds WHERE id = $1`, [feedId]);
