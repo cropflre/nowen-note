@@ -162,7 +162,8 @@ jobs:
           test -f dist/postgres/schema.sql &&
           test -f dist/postgres/schema.base.sql &&
           test -f dist/postgres/migrations/0001_migration_state.sql &&
-          test -f dist/postgres/migrations/0002_api_tokens_parity.sql
+          test -f dist/postgres/migrations/0002_api_tokens_parity.sql &&
+          test -f dist/postgres/migrations/0003_runtime_tables_parity.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
