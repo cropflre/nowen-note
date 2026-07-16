@@ -6,6 +6,7 @@ import {
   serializeCustomRepeatRule,
   type CustomRepeatRuleDraft,
 } from "../customRepeatRule";
+import { normalizeTaskRepeatRequest } from "@/lib/taskUpdateSafetyBridge";
 
 const draft: CustomRepeatRuleDraft = {
   calendar: "gregorian",
@@ -81,7 +82,20 @@ describe("custom repeat rule request construction", () => {
     const rule = buildCustomRepeatRule(draft, { interval: 3 });
     const serialized = serializeCustomRepeatRule(rule);
     expect(parseRepeatRuleRequestValue(serialized)).toEqual(rule);
+    expect(normalizeTaskRepeatRequest({
+      repeatRule: "custom",
+      repeatRuleJson: serialized,
+    }).repeatRuleJson).toEqual(rule);
     expect(parseRepeatRuleRequestValue(null)).toBeNull();
     expect(parseRepeatRuleRequestValue("not-json")).toBe("not-json");
+  });
+
+  it("keeps cancellation explicit and does not mutate patches without a custom rule", () => {
+    expect(normalizeTaskRepeatRequest({ repeatRule: "none", repeatRuleJson: null })).toEqual({
+      repeatRule: "none",
+      repeatRuleJson: null,
+    });
+    const patch = { title: "保持普通更新" };
+    expect(normalizeTaskRepeatRequest(patch)).toBe(patch);
   });
 });
