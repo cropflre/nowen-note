@@ -7,7 +7,7 @@ import { useAppActions } from "@/store/AppContext";
 
 type Phase = "idle" | "scanning" | "ready" | "importing" | "done" | "error";
 
-export default function YoudaoImportLegacy() {
+export default function YoudaoImport() {
   const actions = useAppActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>("idle");
