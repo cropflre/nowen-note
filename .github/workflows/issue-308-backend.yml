@@ -7,6 +7,7 @@ on:
       - scripts/issue-308-backend.py
       - scripts/issue-308-fix1.py
       - scripts/issue-308-fix2.py
+      - scripts/issue-308-post1.py
       - .github/workflows/issue-308-backend.yml
   workflow_dispatch:
 
@@ -58,6 +59,11 @@ jobs:
             python scripts/issue-308-backend.py >>"$LOG" 2>&1 || status=$?
           fi
           if [ "$status" -eq 0 ]; then
+            phase="post_patch"
+            echo "## $phase" | tee -a "$LOG"
+            python scripts/issue-308-post1.py >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
             phase="npm_ci"
             echo "## $phase" | tee -a "$LOG"
             (cd backend && npm ci) >>"$LOG" 2>&1 || status=$?
@@ -106,7 +112,7 @@ jobs:
           fi
 
           rm -f .github/issue-308-backend-result.json
-          rm -f scripts/issue-308-backend.py scripts/issue-308-fix1.py scripts/issue-308-fix2.py .github/workflows/issue-308-backend.yml
+          rm -f scripts/issue-308-backend.py scripts/issue-308-fix1.py scripts/issue-308-fix2.py scripts/issue-308-post1.py .github/workflows/issue-308-backend.yml
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
