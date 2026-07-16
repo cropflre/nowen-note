@@ -35,30 +35,65 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Apply backend patch
-        run: python scripts/issue-308-backend.py
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci
-
-      - name: Backend TypeScript check
-        working-directory: backend
-        run: npm run build:tsc
-
-      - name: Share security regression tests
-        working-directory: backend
-        run: node --import tsx --test tests/share-security-capabilities.test.ts tests/attachment-shared-access.test.ts tests/notebook-directory-permissions.test.ts
-
-      - name: Backend production bundle
-        working-directory: backend
-        run: npm run build
-
-      - name: Commit validated implementation
+      - name: Apply, validate and commit
+        shell: bash
         run: |
-          rm -f scripts/issue-308-backend.py .github/workflows/issue-308-backend.yml
+          set +e
+          LOG=/tmp/issue-308-backend.log
+          : > "$LOG"
+          phase="apply_patch"
+          status=0
+
+          echo "## $phase" | tee -a "$LOG"
+          python scripts/issue-308-backend.py >>"$LOG" 2>&1 || status=$?
+
+          if [ "$status" -eq 0 ]; then
+            phase="npm_ci"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm ci) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="typescript"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm run build:tsc) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="tests"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && node --import tsx --test tests/share-security-capabilities.test.ts tests/attachment-shared-access.test.ts tests/notebook-directory-permissions.test.ts) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="bundle"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm run build) >>"$LOG" 2>&1 || status=$?
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ "$status" -ne 0 ]; then
+            tail -n 350 "$LOG" >/tmp/issue-308-backend-tail.log
+            git reset --hard HEAD
+            python - "$phase" "$status" <<'PY'
+          import json
+          import pathlib
+          import sys
+          phase, status = sys.argv[1], int(sys.argv[2])
+          tail = pathlib.Path('/tmp/issue-308-backend-tail.log').read_text(encoding='utf-8', errors='replace')
+          pathlib.Path('.github/issue-308-backend-result.json').write_text(
+              json.dumps({'ok': False, 'phase': phase, 'status': status, 'logTail': tail}, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+            git add .github/issue-308-backend-result.json
+            git commit -m "chore(issue-308): record backend validation failure"
+            git push origin HEAD:main
+            cat /tmp/issue-308-backend-tail.log
+            exit "$status"
+          fi
+
+          rm -f .github/issue-308-backend-result.json
+          rm -f scripts/issue-308-backend.py .github/workflows/issue-308-backend.yml
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
