@@ -6,6 +6,7 @@ import {
   DOCX_IMPORT_LIMITS,
   getDocxFileViolation,
   getImportedNoteIntegrityError,
+  getImportedNoteSemanticError,
   type DocxArchiveStats,
 } from "@/lib/docxImportSafety";
 import type {
@@ -136,10 +137,10 @@ async function confirmedJson<T>(
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload: Record<string, unknown> = await response.json().catch(() => ({}));
     if (!response.ok) {
       const status = response.status;
-      const message = typeof payload?.error === "string" ? payload.error : `HTTP ${status}`;
+      const message = typeof payload.error === "string" ? payload.error : `HTTP ${status}`;
       if (status === 409) {
         throw new DocxImportError("SAVE_CONFLICT", `保存时检测到版本冲突：${message}`, {
           status,
@@ -166,9 +167,11 @@ async function confirmedJson<T>(
       );
     }
     if (error instanceof DocxImportError) throw error;
-    throw new DocxImportError("SAVE_FAILED", error instanceof Error ? error.message : String(error), {
-      cause: error,
-    });
+    throw new DocxImportError(
+      "SAVE_FAILED",
+      error instanceof Error ? error.message : String(error),
+      { cause: error },
+    );
   } finally {
     window.clearTimeout(timeoutId);
     externalSignal?.removeEventListener("abort", onAbort);
@@ -186,6 +189,21 @@ function workerErrorCode(code: string | undefined): DocxImportErrorCode {
     "EXPANSION_RATIO_TOO_HIGH",
   ].includes(code)) return "DOCX_UNSAFE";
   return "DOCX_PARSE_FAILED";
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function readWorkerImages(value: unknown): WorkerImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is WorkerImage => {
+    if (!item || typeof item !== "object") return false;
+    const candidate = item as Partial<WorkerImage>;
+    return typeof candidate.id === "string"
+      && typeof candidate.contentType === "string"
+      && candidate.buffer instanceof ArrayBuffer;
+  });
 }
 
 async function parseDocxInWorker(
@@ -253,7 +271,7 @@ async function parseDocxInWorker(
       }
       if (message.type === "error") {
         finishReject(new DocxImportError(
-          workerErrorCode(message.code as string | undefined),
+          workerErrorCode(typeof message.code === "string" ? message.code : undefined),
           String(message.message || "Word 文档解析失败"),
           {
             details: {
@@ -265,13 +283,16 @@ async function parseDocxInWorker(
         return;
       }
       if (message.type === "result") {
+        const archiveStats = message.archiveStats as DocxArchiveStats | undefined;
+        if (!archiveStats) {
+          finishReject(new DocxImportError("DOCX_PARSE_FAILED", "Worker 未返回 DOCX 预检结果"));
+          return;
+        }
         finishResolve({
           html: String(message.html || ""),
-          images: (message.images || []) as unknown as WorkerImage[],
-          archiveStats: message.archiveStats as unknown as DocxArchiveStats,
-          mammothWarnings: Array.isArray(message.mammothWarnings)
-            ? message.mammothWarnings.map(String)
-            : [],
+          images: readWorkerImages(message.images),
+          archiveStats,
+          mammothWarnings: readStringArray(message.mammothWarnings),
           parseDurationMs: Number(message.parseDurationMs || 0),
         });
       }
@@ -346,9 +367,7 @@ export function convertDocxHtmlToTiptap(html: string): string {
       && content[0]?.type === "paragraph"
       && !content[0]?.content
     );
-    if (looksEmpty && sourceText.length > 0) {
-      throw new Error("Tiptap 转换结果为空");
-    }
+    if (looksEmpty && sourceText.length > 0) throw new Error("Tiptap 转换结果为空");
     const serialized = JSON.stringify(json);
     if (!serialized || serialized === "{}") throw new Error("Tiptap JSON 无效");
     return serialized;
@@ -395,7 +414,7 @@ async function uploadImages(
   let completed = 0;
   const concurrency = Math.min(2, Math.max(1, images.length));
 
-  const worker = async () => {
+  const uploadWorker = async () => {
     while (cursor < images.length) {
       throwIfAborted(signal);
       const index = cursor;
@@ -429,7 +448,7 @@ async function uploadImages(
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  await Promise.all(Array.from({ length: concurrency }, () => uploadWorker()));
   return urls;
 }
 
@@ -442,12 +461,9 @@ async function rollbackImport(noteId: string | null, attachmentIds: string[]): P
     });
     return;
   } catch {
-    // 工作区 editor 可能没有永久删除权限；退化为移入回收站。
+    // Workspace editors may not have permanent-delete permission.
   }
-
-  await Promise.allSettled(
-    attachmentIds.map((id) => api.attachments.remove(id)),
-  );
+  await Promise.allSettled(attachmentIds.map((id) => api.attachments.remove(id)));
   try {
     await confirmedJson(`/notes/${encodeURIComponent(noteId)}`, {
       method: "PUT",
@@ -455,7 +471,7 @@ async function rollbackImport(noteId: string | null, attachmentIds: string[]): P
       body: { isTrashed: 1 },
     });
   } catch {
-    // 回滚是 best-effort；主错误仍由调用方展示，诊断中不记录正文。
+    // Best-effort rollback; diagnostics deliberately exclude note content.
   }
 }
 
@@ -489,7 +505,9 @@ export async function importDocxAsNoteSafe(
   const violation = getDocxFileViolation(params.file);
   if (violation) {
     throw new DocxImportError(
-      violation.code === "FILE_TOO_LARGE" ? "DOCX_INVALID" : "DOCX_UNSAFE",
+      violation.code === "UNSUPPORTED_FILE" || violation.code === "FILE_TOO_LARGE"
+        ? "DOCX_INVALID"
+        : "DOCX_UNSAFE",
       violation.message,
     );
   }
@@ -562,6 +580,7 @@ export async function importDocxAsNoteSafe(
     }
 
     let html = parsed.html;
+    let imageUrls = new Map<string, string>();
     if (parsed.images.length > 0) {
       report(params.onProgress, {
         stage: "upload",
@@ -569,7 +588,7 @@ export async function importDocxAsNoteSafe(
         message: `正在把 ${parsed.images.length} 张图片存入附件库…`,
         metrics: { imageCount: parsed.images.length, uploadedImages: 0 },
       });
-      const imageUrls = await uploadImages(
+      imageUrls = await uploadImages(
         noteId,
         parsed.images,
         params.signal,
@@ -618,11 +637,11 @@ export async function importDocxAsNoteSafe(
         version: baseNote.version,
       },
     });
-    const responseIntegrityError = getImportedNoteIntegrityError({
+    const responseIntegrityError = getImportedNoteSemanticError({
       expectedId: noteId,
-      expectedContent: content,
       expectedContentText: contentText,
       expectedContentFormat: "tiptap-json",
+      expectedAttachmentUrls: Array.from(imageUrls.values()),
       minimumVersion: baseNote.version + 1,
       actual: updated,
     });
@@ -642,9 +661,9 @@ export async function importDocxAsNoteSafe(
     });
     const persistedIntegrityError = getImportedNoteIntegrityError({
       expectedId: noteId,
-      expectedContent: content,
-      expectedContentText: contentText,
-      expectedContentFormat: "tiptap-json",
+      expectedContent: updated.content,
+      expectedContentText: updated.contentText,
+      expectedContentFormat: updated.contentFormat,
       minimumVersion: updated.version,
       actual: persisted,
     });
