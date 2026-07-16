@@ -30,21 +30,7 @@ function isEphemeralMigrationTable(table) {
   return table === "if" || /_(?:new|old|backup|temp|tmp)$/i.test(table);
 }
 
-function extractCreatedTables(source) {
-  const tables = new Set();
-  const pattern = /\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?)/gi;
-  for (const match of source.matchAll(pattern)) {
-    const table = normalizeIdentifier(match[1]);
-    if (!isEphemeralMigrationTable(table)) tables.add(table);
-  }
-  return tables;
-}
-
-/**
- * Repository 文件同时包含 import 路径、注释和普通业务文字。
- * 只在 JS/TS 字符串字面量内部查 SQL，避免把 `from "uuid"` 等 import
- * 误判为数据库表。
- */
+/** Extract JavaScript / TypeScript string literals without evaluating code. */
 function extractStringLiterals(source) {
   const literals = [];
   let index = 0;
@@ -78,6 +64,25 @@ function extractStringLiterals(source) {
   return literals;
 }
 
+function extractCreatedTables(source, { code = false } = {}) {
+  const tables = new Set();
+  const pattern = /\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?)/gi;
+  const inputs = code ? extractStringLiterals(source) : [source];
+
+  for (const input of inputs) {
+    for (const match of input.matchAll(pattern)) {
+      const table = normalizeIdentifier(match[1]);
+      if (!isEphemeralMigrationTable(table)) tables.add(table);
+    }
+  }
+  return tables;
+}
+
+/**
+ * Repository 文件同时包含 import 路径、注释和普通业务文字。
+ * 只在 JS/TS 字符串字面量内部查 SQL，避免把 `from "uuid"` 等 import
+ * 误判为数据库表。
+ */
 function extractRepositoryTables(source) {
   const tables = new Set();
   const patterns = [
@@ -117,7 +122,7 @@ const sqliteSources = [
   join(backendDir, "src", "db", "migrations.impl.ts"),
   join(backendDir, "src", "services", "vec-store.ts"),
 ].filter(existsSync);
-const sqliteTables = union(...sqliteSources.map((path) => extractCreatedTables(read(path))));
+const sqliteTables = union(...sqliteSources.map((path) => extractCreatedTables(read(path), { code: true })));
 
 const postgresDir = join(backendDir, "src", "db", "postgres");
 const postgresSources = walk(postgresDir, (path) => extname(path) === ".sql");
