@@ -22,6 +22,7 @@ on:
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/direct-db-access-baseline.json"
       - "backend/tests/**"
+      - "backend/build.bundle.mjs"
       - "backend/package.json"
       - "backend/package-lock.json"
       - ".github/workflows/pg-runtime.yml"
@@ -42,6 +43,7 @@ on:
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/direct-db-access-baseline.json"
       - "backend/tests/**"
+      - "backend/build.bundle.mjs"
       - "backend/package.json"
       - "backend/package-lock.json"
       - ".github/workflows/pg-runtime.yml"
@@ -107,11 +109,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Runtime unit tests
+      - name: Runtime and SQL dialect unit tests
         run: >-
           node --import tsx --test --test-concurrency=1
           tests/database-runtime.test.ts
           tests/repository-runtime-provider.test.ts
+          tests/sql-dialect.test.ts
 
       - name: Full SQLite regression suite
         env:
@@ -132,10 +135,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Real PostgreSQL adapter and pilot tests
+      - name: Real PostgreSQL adapter, migrations and repository tests
         run: >-
           node --import tsx --test --test-concurrency=1
           tests/postgres-adapter.test.ts
+          tests/postgres-migrations.test.ts
+          tests/repository-batch-a-pg.test.ts
           tests/system-settings-repository-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
           tests/favorites-repository-pg.test.ts
@@ -143,6 +148,13 @@ jobs:
 
       - name: Build production backend bundle
         run: npm run build
+
+      - name: Verify PostgreSQL runtime resources are packaged
+        run: >-
+          test -f dist/postgres/schema.sql &&
+          test -f dist/postgres/schema.base.sql &&
+          test -f dist/postgres/migrations/0001_migration_state.sql &&
+          test -f dist/postgres/migrations/0002_api_tokens_parity.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
