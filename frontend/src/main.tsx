@@ -40,6 +40,7 @@ import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
 import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportFallback";
 import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
 import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
+import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
 
 function removeBootSplash() {
   try {
@@ -60,6 +61,10 @@ function BootSplashRemover() {
   return null;
 }
 
+// Tiptap's editable=false blocks DOM input but not NodeView methods such as
+// updateAttributes/deleteNode. Install the process-wide guard before rendering
+// any editor so locked notebooks cannot be mutated by NodeView toolbars.
+installNodeViewMutationGuard();
 installAndroidNativeHttpBridge();
 // Collapse the duplicate Android cold-start collection reads into one compact native response.
 // The bridge is Android-only and transparently falls back to the original APIs when unavailable.
