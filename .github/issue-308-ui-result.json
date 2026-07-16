@@ -2,5 +2,5 @@
   "ok": false,
   "phase": "prepare_patch",
   "status": 1,
-  "logTail": "## prepare_patch\nIssue #308 share-link async repository API preserved\n  File \"/home/runner/work/nowen-note/nowen-note/scripts/issue-308-ui-post2.py\", line 7\n    '''  expiresAt: string | null;\\n  createdBy: string;''',\n         ^^^^^^^^^\nSyntaxError: invalid syntax\n"
+  "logTail": "## prepare_patch\nIssue #308 share-link async repository API preserved\nTraceback (most recent call last):\n  File \"/home/runner/work/nowen-note/nowen-note/scripts/issue-308-ui-post3.py\", line 16, in <module>\n    raise RuntimeError(\"ambiguous NotebookShareLink type patch marker missing\")\nRuntimeError: ambiguous NotebookShareLink type patch marker missing\n"
 }
