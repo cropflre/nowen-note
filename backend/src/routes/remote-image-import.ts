@@ -23,6 +23,7 @@ import {
   sanitizeRemoteImageFilename,
   sniffRemoteImageMime,
 } from "../lib/remote-image-security";
+import wechatFavoritesImportRouter from "./wechat-favorites-import";
 
 const router = new Hono();
 const MAX_REDIRECTS = 3;
@@ -305,5 +306,7 @@ router.post("/import-remote-image", async (c) => {
     accessUrls: createUserAttachmentAccessUrls(userId, [{ id, noteId }]),
   }, 201);
 });
+
+router.route("/", wechatFavoritesImportRouter);
 
 export default router;
