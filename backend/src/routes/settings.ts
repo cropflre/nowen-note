@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { isSystemAdmin } from "../middleware/acl";
 import { invalidateFilesQueryDebugCache } from "./files";
 import { systemSettingsRepository } from "../repositories";
+import {
+  resolvePublicWebOriginSettingUpdate,
+  syncRuntimePublicWebOriginSetting,
+} from "../lib/public-web-origin";
 
 const settings = new Hono();
 
@@ -10,6 +14,10 @@ export interface SiteSettings {
   site_favicon: string;
   /** ICP 备案号由 Docker/运行时环境变量 NOWEN_ICP_BEIAN 驱动，设置页不可编辑。 */
   site_icp_beian: string;
+  /** 访客最终打开的公开 Web 根地址；空串表示沿用当前浏览器 origin。 */
+  site_public_web_origin: string;
+  /** 地址来源，仅用于 UI 解释：settings / environment / current。 */
+  site_public_web_origin_source: string;
   editor_font_family: string;
   /**
    * @deprecated v6 起弃用——个人空间导出开关已下沉为 users.personalExportEnabled，
@@ -28,6 +36,8 @@ const DEFAULTS: SiteSettings = {
   site_title: "nowen-note",
   site_favicon: "",
   site_icp_beian: "",
+  site_public_web_origin: "",
+  site_public_web_origin_source: "current",
   editor_font_family: "",
   feature_personal_export_enabled: "true",
   feature_personal_import_enabled: "true",
@@ -35,8 +45,16 @@ const DEFAULTS: SiteSettings = {
   web_ui_enabled: "true",
 };
 
-// 获取所有站点设置
-settings.get("/", (c) => {
+// settingsRouter is imported before backend/src/index.ts registers the public GET /api/settings
+// endpoint. Materialize the runtime environment value now so both the public endpoint and the
+// authenticated settings route expose the same origin without rebuilding the frontend bundle.
+try {
+  syncRuntimePublicWebOriginSetting();
+} catch (error) {
+  console.warn("[settings] failed to initialize PUBLIC_WEB_ORIGIN:", error);
+}
+
+function readSettings(): Record<string, string> {
   const rows = systemSettingsRepository.getByPrefixes([
     "site_",
     "editor_",
@@ -52,13 +70,16 @@ settings.get("/", (c) => {
   if (webUiSetting) {
     result[webUiSetting.key] = webUiSetting.value;
   }
-  return c.json(result);
-});
+  return result;
+}
+
+// 获取所有站点设置
+settings.get("/", (c) => c.json(readSettings()));
 
 // 更新站点设置
 //
 // 字段级权限：
-//   - site_title / site_favicon 是「站点标识」，全站所有用户共享同一份，只允许系统管理员写。
+//   - site_title / site_favicon / site_public_web_origin 是全站共享设置，只允许系统管理员写。
 //   - site_icp_beian 不再接受 API 写入；请通过 Docker/运行时环境变量 NOWEN_ICP_BEIAN 配置。
 //   - editor_font_family 是字体偏好，目前也是站点级，按现状保留为所有登录用户均可改。
 settings.put("/", async (c) => {
@@ -66,7 +87,9 @@ settings.put("/", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
 
   const wantsSiteIdentity =
-    body.site_title !== undefined || body.site_favicon !== undefined;
+    body.site_title !== undefined ||
+    body.site_favicon !== undefined ||
+    body.site_public_web_origin !== undefined;
   if (wantsSiteIdentity && !isSystemAdmin(userId)) {
     return c.json(
       { error: "仅管理员可修改该设置", code: "FORBIDDEN" },
@@ -90,6 +113,13 @@ settings.put("/", async (c) => {
   }
   if (body.site_favicon !== undefined) {
     entries.push({ key: "site_favicon", value: body.site_favicon });
+  }
+  if (body.site_public_web_origin !== undefined) {
+    const resolved = resolvePublicWebOriginSettingUpdate(body.site_public_web_origin);
+    if ("error" in resolved) {
+      return c.json({ error: resolved.error, code: "INVALID_PUBLIC_WEB_ORIGIN" }, 400);
+    }
+    entries.push(...resolved.entries);
   }
   // site_icp_beian deliberately ignored: env NOWEN_ICP_BEIAN is the only supported source.
   if (body.editor_font_family !== undefined) {
@@ -117,22 +147,7 @@ settings.put("/", async (c) => {
     systemSettingsRepository.setMany(entries);
   }
 
-  const rows = systemSettingsRepository.getByPrefixes([
-    "site_",
-    "editor_",
-    "feature_",
-    "debug_",
-  ]);
-  const webUiSetting = systemSettingsRepository.get("web_ui_enabled");
-
-  const result: Record<string, string> = { ...DEFAULTS };
-  for (const row of rows) {
-    result[row.key] = row.value;
-  }
-  if (webUiSetting) {
-    result[webUiSetting.key] = webUiSetting.value;
-  }
-  return c.json(result);
+  return c.json(readSettings());
 });
 
 export default settings;

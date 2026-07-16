@@ -12,6 +12,7 @@ import {
 import MermaidView from "@/components/MermaidView";
 import { isMermaidLang } from "@/lib/mermaidRenderer";
 import { replaceCodeBlockWithPlainText } from "@/lib/tiptapEditorCommands";
+import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
 
 /**
  * 自定义代码块视图：
@@ -53,6 +54,28 @@ export function CodeBlockView(props: NodeViewProps) {
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [activeTheme, setActiveTheme] = useState<CodeBlockThemeId>(getSavedCodeBlockTheme);
   const [collapsed, setCollapsed] = useState(false);
+  // editor.isEditable 是可变 getter。订阅 editor 事件只用于触发 React 重渲染，
+  // 实际权限每次都从当前 editor 状态重新计算，确保锁定/解锁立即反映到 NodeView。
+  const [, setEditorPermissionVersion] = useState(0);
+  const canChangeLanguage = canUseCodeBlockToolbarAction("language", editor);
+  const canDissolve = canUseCodeBlockToolbarAction("dissolve", editor);
+
+  useEffect(() => {
+    const syncPermission = () => setEditorPermissionVersion((value) => value + 1);
+    editor.on("update", syncPermission);
+    editor.on("transaction", syncPermission);
+    return () => {
+      editor.off("update", syncPermission);
+      editor.off("transaction", syncPermission);
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (canChangeLanguage) return;
+    setShowLangPicker(false);
+    setLangFilter("");
+  }, [canChangeLanguage]);
+
   // mermaid 块的"源码 / 预览"切换：
   //  - 已有内容（从文档加载、或用户已经输完）默认进入预览态，方便阅读
   //  - 空内容（刚通过工具栏/slash 插入）默认进入源码态，让用户立刻能输入
@@ -169,18 +192,20 @@ export function CodeBlockView(props: NodeViewProps) {
 
   const handleSelectLanguage = useCallback(
     (lang: string) => {
+      // disabled 只保护鼠标交互；handler 仍需防御测试调用、键盘事件和未来重构。
+      if (!canUseCodeBlockToolbarAction("language", editor)) return;
       updateAttributes({ language: lang === "auto" ? null : lang });
       setShowLangPicker(false);
       setLangFilter("");
     },
-    [updateAttributes],
+    [editor, updateAttributes],
   );
 
   const handleDissolveToText = useCallback(() => {
-    if (!editor || typeof getPos !== "function") return;
+    if (!canUseCodeBlockToolbarAction("dissolve", editor) || typeof getPos !== "function") return;
     const pos = getPos();
     if (typeof pos !== "number") return;
-    replaceCodeBlockWithPlainText(editor.view, pos, node);
+    replaceCodeBlockWithPlainText(editor, pos, node);
   }, [editor, getPos, node]);
 
   // 点击外部关闭语言选择器
@@ -300,19 +325,25 @@ export function CodeBlockView(props: NodeViewProps) {
             <button
               ref={langBtnRef}
               type="button"
+              disabled={!canChangeLanguage}
+              aria-disabled={!canChangeLanguage}
               onClick={(e) => {
                 e.stopPropagation();
+                if (!canUseCodeBlockToolbarAction("language", editor)) return;
                 setShowLangPicker((v) => !v);
                 setShowThemePicker(false);
               }}
-              className="code-block-tool-btn flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors"
-              title="切换语言"
+              className={cn(
+                "code-block-tool-btn flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors",
+                !canChangeLanguage && "opacity-40 cursor-not-allowed",
+              )}
+              title={canChangeLanguage ? "切换语言" : "笔记本已锁定，不能修改代码语言"}
             >
               <span>{formatLanguageLabel(currentLang)}</span>
               <ChevronDown size={11} />
             </button>
 
-            {showLangPicker && langPopupPos && createPortal(
+            {canChangeLanguage && showLangPicker && langPopupPos && createPortal(
               <div
                 data-codeblock-langpicker
                 className="code-block-popup border rounded-md shadow-xl overflow-hidden"
@@ -466,10 +497,15 @@ export function CodeBlockView(props: NodeViewProps) {
           </button>
           <button
             type="button"
+            disabled={!canDissolve}
+            aria-disabled={!canDissolve}
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleDissolveToText}
-            className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
-            title="解散为文本"
+            className={cn(
+              "code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+              !canDissolve && "opacity-40 cursor-not-allowed",
+            )}
+            title={canDissolve ? "解散为文本" : "笔记本已锁定，不能解散代码块"}
           >
             <FileText size={12} />
             <span className="hidden sm:inline">解散</span>

@@ -22,6 +22,14 @@ import { calculateTaskProgress } from "./taskProgress";
 import { insertTaskTitleSnippet, parseTaskTitle, TitleView } from "./taskTitleTokens";
 import { buildDueAtFromDateAndTime, buildDueDatePatch, getDueTimeValue } from "./taskDateUtils";
 import { buildCustomReminderOffset, sortRemindersByOffset } from "./taskReminderUtils";
+import {
+  buildCustomRepeatRule,
+  parseStoredCustomRepeatRule,
+  serializeCustomRepeatRule,
+  type CustomRepeatCalendar,
+  type CustomRepeatFrequency,
+  type CustomRepeatRuleDraft,
+} from "./customRepeatRule";
 
 /** Shows a warning badge if notifications are not available */
 function NotificationStatusBadge({ t }: { t: (key: string) => string }) {
@@ -176,17 +184,17 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [repeatEndMode, setRepeatEndMode] = useState<RepeatEndMode>(getRepeatEndMode(task));
   const [repeatEndCount, setRepeatEndCount] = useState(task.repeatEndCount ? String(task.repeatEndCount) : "");
   // TASK-RECURRENCE-CUSTOM-01: 自定义循环规则
-  const existingRuleJson = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
-  const [customFrequency, setCustomFrequency] = useState<string>(existingRuleJson.frequency || "day");
-  const [customInterval, setCustomInterval] = useState<number>(existingRuleJson.interval || 2);
-  const [customWeekdays, setCustomWeekdays] = useState<number[]>(existingRuleJson.weekdays || []);
-  const [customMonthDay, setCustomMonthDay] = useState<number>(existingRuleJson.monthDay || new Date().getDate());
-  const [customYearMonth, setCustomYearMonth] = useState<number>(existingRuleJson.yearMonth || (new Date().getMonth() + 1));
-  const [customYearDay, setCustomYearDay] = useState<number>(existingRuleJson.yearDay || new Date().getDate());
+  const existingRuleJson = parseStoredCustomRepeatRule(task.repeatRuleJson);
+  const [customFrequency, setCustomFrequency] = useState<CustomRepeatFrequency>(existingRuleJson.frequency);
+  const [customInterval, setCustomInterval] = useState<number>(existingRuleJson.interval);
+  const [customWeekdays, setCustomWeekdays] = useState<number[]>(existingRuleJson.weekdays);
+  const [customMonthDay, setCustomMonthDay] = useState<number>(existingRuleJson.monthDay);
+  const [customYearMonth, setCustomYearMonth] = useState<number>(existingRuleJson.yearMonth);
+  const [customYearDay, setCustomYearDay] = useState<number>(existingRuleJson.yearDay);
   // TASK-RECURRENCE-LUNAR-01
-  const [customCalendar, setCustomCalendar] = useState<string>(existingRuleJson.calendar || "gregorian");
-  const [customLunarMonth, setCustomLunarMonth] = useState<number>(existingRuleJson.lunarMonth || 1);
-  const [customLunarDay, setCustomLunarDay] = useState<number>(existingRuleJson.lunarDay || 1);
+  const [customCalendar, setCustomCalendar] = useState<CustomRepeatCalendar>(existingRuleJson.calendar);
+  const [customLunarMonth, setCustomLunarMonth] = useState<number>(existingRuleJson.lunarMonth);
+  const [customLunarDay, setCustomLunarDay] = useState<number>(existingRuleJson.lunarDay);
   const [uploadingTitleAttachment, setUploadingTitleAttachment] = useState(false);
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
@@ -217,18 +225,24 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setRepeatEndDate(task.repeatEndDate || "");
     setRepeatEndMode(getRepeatEndMode(task));
     setRepeatEndCount(task.repeatEndCount ? String(task.repeatEndCount) : "");
-    // TASK-RECURRENCE-CUSTOM-01
-    const rj = (() => { try { return JSON.parse(task.repeatRuleJson || "{}"); } catch { return {}; } })();
-    setCustomFrequency(rj.frequency || "day");
-    setCustomInterval(rj.interval || 2);
-    setCustomWeekdays(rj.weekdays || []);
-    setCustomMonthDay(rj.monthDay || new Date().getDate());
-    setCustomYearMonth(rj.yearMonth || (new Date().getMonth() + 1));
-    setCustomYearDay(rj.yearDay || new Date().getDate());
-    setCustomCalendar(rj.calendar || "gregorian");
-    setCustomLunarMonth(rj.lunarMonth || 1);
-    setCustomLunarDay(rj.lunarDay || 1);
-  }, [task.id]);
+    const rj = parseStoredCustomRepeatRule(task.repeatRuleJson);
+    setCustomFrequency(rj.frequency);
+    setCustomInterval(rj.interval);
+    setCustomWeekdays(rj.weekdays);
+    setCustomMonthDay(rj.monthDay);
+    setCustomYearMonth(rj.yearMonth);
+    setCustomYearDay(rj.yearDay);
+    setCustomCalendar(rj.calendar);
+    setCustomLunarMonth(rj.lunarMonth);
+    setCustomLunarDay(rj.lunarDay);
+  }, [
+    task.id,
+    task.repeatRule,
+    task.repeatInterval,
+    task.repeatEndDate,
+    task.repeatEndCount,
+    task.repeatRuleJson,
+  ]);
 
   // load reminders for this task
   const loadReminders = useCallback(async () => {
@@ -316,22 +330,26 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     onReminderCountChange?.(task.id, nextReminders.filter((r) => r.enabled === 1).length);
   }, [onReminderCountChange, task.id]);
 
-  // TASK-RECURRENCE-LUNAR-01: 构建 repeatRuleJson 的辅助函数
-  const buildRepeatRuleJson = () => {
-    if (customCalendar === "lunar") {
-      return { calendar: "lunar", frequency: "year", interval: customInterval, lunarMonth: customLunarMonth, lunarDay: customLunarDay };
-    }
-    return {
-      calendar: "gregorian",
-      frequency: customFrequency,
-      interval: customInterval,
-      weekdays: customFrequency === "week" ? customWeekdays : undefined,
-      monthDay: customFrequency === "month" ? customMonthDay : undefined,
-      yearMonth: customFrequency === "year" ? customYearMonth : undefined,
-      yearDay: customFrequency === "year" ? customYearDay : undefined,
-    };
-  };
-  const pushRepeatJson = () => onUpdate(task.id, { repeatRuleJson: JSON.stringify(buildRepeatRuleJson()) });
+  const currentCustomRepeatDraft = (): CustomRepeatRuleDraft => ({
+    calendar: customCalendar,
+    frequency: customFrequency,
+    interval: customInterval,
+    weekdays: customWeekdays,
+    monthDay: customMonthDay,
+    yearMonth: customYearMonth,
+    yearDay: customYearDay,
+    lunarMonth: customLunarMonth,
+    lunarDay: customLunarDay,
+  });
+
+  // Always pass the value from the current event as an override. React state updates are async;
+  // rebuilding only from state here would submit the previous value (for example 9 instead of 3).
+  const buildRepeatRuleJson = (overrides: Partial<CustomRepeatRuleDraft> = {}) => (
+    buildCustomRepeatRule(currentCustomRepeatDraft(), overrides)
+  );
+  const pushRepeatJson = (overrides: Partial<CustomRepeatRuleDraft> = {}) => onUpdate(task.id, {
+    repeatRuleJson: serializeCustomRepeatRule(buildRepeatRuleJson(overrides)),
+  });
 
   // reminder handlers
   const handleAddReminder = async (offsetMinutes: number) => {
@@ -619,7 +637,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
           {task.dueDate && (
             <div className="text-xs text-tx-tertiary">
-              {t("tasks.progress.dueLabel")}: {format(parseISO(task.dueDate), isZh ? "yyyy\u5E74M\u6708d\u65E5" : "MMM d, yyyy", { locale: dateLocale })}
+              {t("tasks.progress.dueLabel")}: {format(parseISO(task.dueDate), isZh ? "yyyy年M月d日" : "MMM d, yyyy", { locale: dateLocale })}
             </div>
           )}
         </div>
@@ -737,7 +755,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               } else if (rule === "custom") {
                 onUpdate(task.id, {
                   repeatRule: "custom",
-                  repeatRuleJson: JSON.stringify(buildRepeatRuleJson()),
+                  repeatRuleJson: serializeCustomRepeatRule(buildRepeatRuleJson()),
                   repeatEndDate: repeatEndMode === "date" ? repeatEndDate || null : null,
                   repeatEndCount: repeatEndMode === "count" ? normalizeRepeatEndCountInput(repeatEndCount) : null,
                 });
@@ -796,16 +814,19 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                 <span className="text-xs text-tx-secondary">{t("tasks.repeat.calendar", { defaultValue: "日历" })}</span>
                 <select value={customCalendar}
                   onChange={(e) => {
-                    const cal = e.target.value;
-                    setCustomCalendar(cal);
-                    if (cal === "lunar" && task.dueDate) {
+                    const calendar = e.target.value as CustomRepeatCalendar;
+                    setCustomCalendar(calendar);
+                    const overrides: Partial<CustomRepeatRuleDraft> = { calendar };
+                    if (calendar === "lunar" && task.dueDate) {
                       try {
                         const lunar = solarToLunar(task.dueDate);
                         setCustomLunarMonth(lunar.lunarMonth);
                         setCustomLunarDay(lunar.lunarDay);
+                        overrides.lunarMonth = lunar.lunarMonth;
+                        overrides.lunarDay = lunar.lunarDay;
                       } catch { /* ignore */ }
                     }
-                    onUpdate(task.id, { repeatRuleJson: JSON.stringify(buildRepeatRuleJson()) });
+                    pushRepeatJson(overrides);
                   }}
                   className="px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary">
                   <option value="gregorian">{t("tasks.repeat.gregorian", { defaultValue: "公历" })}</option>
@@ -817,9 +838,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                 <span className="text-xs text-tx-secondary">{t("tasks.repeat.every", { defaultValue: "每" })}</span>
                 <input type="number" min={1} value={customInterval}
                   onChange={(e) => {
-                    const val = Math.max(1, parseInt(e.target.value) || 1);
-                    setCustomInterval(val);
-                    pushRepeatJson();
+                    const interval = Math.max(1, parseInt(e.target.value) || 1);
+                    setCustomInterval(interval);
+                    pushRepeatJson({ interval });
                   }}
                   className="w-16 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
                 {customCalendar === "lunar" ? (
@@ -827,8 +848,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                 ) : (
                   <select value={customFrequency}
                     onChange={(e) => {
-                      setCustomFrequency(e.target.value);
-                      pushRepeatJson();
+                      const frequency = e.target.value as CustomRepeatFrequency;
+                      setCustomFrequency(frequency);
+                      pushRepeatJson({ frequency });
                     }}
                     className="px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary">
                     <option value="day">{t("tasks.repeat.days", { defaultValue: "天" })}</option>
@@ -845,9 +867,12 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   {["日", "一", "二", "三", "四", "五", "六"].map((label, i) => (
                     <button key={i} type="button"
                       onClick={() => {
-                        const next = customWeekdays.includes(i) ? customWeekdays.filter((d) => d !== i) : [...customWeekdays, i].sort();
-                        setCustomWeekdays(next);
-                        onUpdate(task.id, { repeatRuleJson: JSON.stringify({ ...buildRepeatRuleJson(), weekdays: next.length > 0 ? next : undefined }) });
+                        const weekdays = customWeekdays.includes(i)
+                          ? customWeekdays.filter((d) => d !== i)
+                          : [...customWeekdays, i];
+                        const normalizedWeekdays = [...new Set(weekdays)].sort((a, b) => a - b);
+                        setCustomWeekdays(normalizedWeekdays);
+                        pushRepeatJson({ weekdays: normalizedWeekdays });
                       }}
                       className={cn("w-7 h-7 rounded-full text-[11px] font-medium transition-colors",
                         customWeekdays.includes(i) ? "bg-accent-primary text-white" : "bg-app-surface border border-app-border text-tx-secondary hover:bg-app-hover")}>
@@ -861,8 +886,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.monthlyDay", { defaultValue: "每月第" })}</span>
                   <input type="number" min={1} max={31} value={customMonthDay}
                     onChange={(e) => {
-                      setCustomMonthDay(Math.max(1, Math.min(31, parseInt(e.target.value) || 1)));
-                      pushRepeatJson();
+                      const monthDay = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                      setCustomMonthDay(monthDay);
+                      pushRepeatJson({ monthDay });
                     }}
                     className="w-16 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.day", { defaultValue: "日" })}</span>
@@ -873,15 +899,17 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.yearlyDate", { defaultValue: "每年" })}</span>
                   <input type="number" min={1} max={12} value={customYearMonth}
                     onChange={(e) => {
-                      setCustomYearMonth(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)));
-                      pushRepeatJson();
+                      const yearMonth = Math.max(1, Math.min(12, parseInt(e.target.value) || 1));
+                      setCustomYearMonth(yearMonth);
+                      pushRepeatJson({ yearMonth });
                     }}
                     className="w-14 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.month", { defaultValue: "月" })}</span>
                   <input type="number" min={1} max={31} value={customYearDay}
                     onChange={(e) => {
-                      setCustomYearDay(Math.max(1, Math.min(31, parseInt(e.target.value) || 1)));
-                      pushRepeatJson();
+                      const yearDay = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                      setCustomYearDay(yearDay);
+                      pushRepeatJson({ yearDay });
                     }}
                     className="w-14 px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary text-center focus:outline-none focus:border-accent-primary" />
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.day", { defaultValue: "日" })}</span>
@@ -893,8 +921,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   <span className="text-xs text-tx-secondary">{t("tasks.repeat.lunarDate", { defaultValue: "农历" })}</span>
                   <select value={customLunarMonth}
                     onChange={(e) => {
-                      setCustomLunarMonth(parseInt(e.target.value));
-                      pushRepeatJson();
+                      const lunarMonth = parseInt(e.target.value);
+                      setCustomLunarMonth(lunarMonth);
+                      pushRepeatJson({ lunarMonth });
                     }}
                     className="px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary">
                     {LUNAR_MONTH_NAMES.map((name, i) => (
@@ -903,8 +932,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   </select>
                   <select value={customLunarDay}
                     onChange={(e) => {
-                      setCustomLunarDay(parseInt(e.target.value));
-                      pushRepeatJson();
+                      const lunarDay = parseInt(e.target.value);
+                      setCustomLunarDay(lunarDay);
+                      pushRepeatJson({ lunarDay });
                     }}
                     className="px-2 py-1 rounded-md bg-app-surface border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary">
                     {LUNAR_DAY_NAMES.map((name, i) => (
@@ -1091,7 +1121,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                       min={0}
                       max={59}
                       value={customReminder.minutes}
-                      onChange={(e) => setCustomReminder((prev) => ({ ...prev, minutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) }))}
+                      onChange={(e) => setCustomReminder((prev) => ({ ...prev, minutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0) }))}
                       className="w-12 px-2 py-1 rounded-md bg-app-bg border border-app-border text-xs text-tx-primary text-center focus:outline-none focus:border-accent-primary"
                     />
                     <span className="text-[11px] text-tx-tertiary">{t("tasks.reminder.minutesUnit")}</span>
