@@ -51,6 +51,11 @@ services:
       - PORT=3001
       # Docker 默认 UTC；国内用户默认使用上海时区，海外用户可在 .env 中覆盖 TZ=Europe/London 等。
       - TZ=${TZ:-Asia/Shanghai}
+      # 公开分享最终使用的 Web 根地址。直接拉取预构建镜像时也会在容器启动阶段生效，
+      # 不需要重新执行 vite build。FN Connect 域名需要登录时，请配置一个允许匿名访客
+      # 访问、并反向代理到本服务的独立 HTTPS 域名，例如在 .env 写：
+      #   PUBLIC_WEB_ORIGIN=https://note.example.com
+      - PUBLIC_WEB_ORIGIN=${PUBLIC_WEB_ORIGIN:-}
       # 高级用户如需跟随宿主机时区，可按宿主系统情况自行挂载 /etc/localtime 或 /usr/share/zoneinfo。
       # 启用上面的独立备份卷后，**必须**同步设置以下变量，否则备份仍会写到 data 卷：
       # - BACKUP_DIR=/app/backups
