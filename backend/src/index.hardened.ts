@@ -5,6 +5,9 @@ async function bootstrap(): Promise<void> {
   await initializeDatabase();
 
   if (getDatabaseDriver() === "postgres") {
+    const { runPostgresMigrations } = await import("./db/postgres/migrations.js");
+    const applied = await runPostgresMigrations();
+    console.log(`[db] PostgreSQL schema ready (${applied.length} versioned migrations)`);
     await import("./index.postgres-runtime.js");
     return;
   }
