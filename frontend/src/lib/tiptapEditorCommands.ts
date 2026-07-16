@@ -8,6 +8,7 @@ import {
 import { TextSelection } from "@tiptap/pm/state";
 import { canJoin } from "@tiptap/pm/transform";
 import type { EditorView } from "@tiptap/pm/view";
+import { isEditorDocumentMutable } from "@/lib/codeBlockPermissions";
 
 export function createPlainTextParagraphContainer(text: string): HTMLDivElement {
   const root = document.createElement("div");
@@ -53,10 +54,15 @@ export function createPlainTextParagraphNodes(schema: Schema, text: string): Pro
 }
 
 export function replaceCodeBlockWithPlainText(
-  view: EditorView,
+  editor: Editor,
   pos: number,
   node: ProseMirrorNode,
 ): boolean {
+  // `editable: false` only blocks DOM input. Programmatic NodeView transactions
+  // still reach EditorView.dispatch, so the command itself must enforce read-only.
+  if (!isEditorDocumentMutable(editor)) return false;
+
+  const view = editor.view;
   const paragraphs = createPlainTextParagraphNodes(view.state.schema, node.textContent);
   if (paragraphs.length === 0) return false;
 
