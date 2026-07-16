@@ -213,7 +213,7 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
           <div className={cn(
             "flex items-start gap-2.5 border-b px-5 py-3 text-xs",
             publicOrigin.requiresAnonymousCheck
-              ? "border-amber-500/25 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+              ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
               : "border-app-border bg-emerald-500/5 text-tx-secondary",
           )}>
             {publicOrigin.requiresAnonymousCheck
