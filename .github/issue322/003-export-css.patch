@@ -1,0 +1,63 @@
+diff --git a/frontend/src/lib/exportServiceCore.ts b/frontend/src/lib/exportServiceCore.ts
+--- a/frontend/src/lib/exportServiceCore.ts
++++ b/frontend/src/lib/exportServiceCore.ts
+@@ -1469,11 +1469,30 @@ async function buildPrintableHtml(note: {
+     .content table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+     .content th, .content td { border: 1px solid #d0d7de; padding: 6px 10px; text-align: left; }
+     .content th { background: #f6f8fa; font-weight: 600; }
+-    .content ul, .content ol { padding-left: 1.4em; margin: 8px 0; }
+-    .content ul[data-type="taskList"] { list-style: none; padding-left: 0; }
++    .content ul, .content ol { padding-left: 1.6em; margin: 8px 0; }
++    .content ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .content ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .content ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .content ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .content ul > li:not([data-type="taskItem"]):not(.task-list-item) { position: relative; }
++    .content ul > li:not([data-type="taskItem"]):not(.task-list-item)::before { content: var(--nowen-ul-marker); position: absolute; left: -1.2em; top: var(--nowen-ul-marker-top); font-size: var(--nowen-ul-marker-size); line-height: 1; }
++    .content ul.contains-task-list > li.task-list-item::before,
++    .content ul[data-type="taskList"] > li[data-type="taskItem"]::before { content: none !important; }
++    .content ul[data-type="taskList"], .content ul.contains-task-list { list-style: none; padding-left: 0.5em; }
++    .content li[data-type="taskItem"], .content li.task-list-item { list-style: none; }
+     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
+     .content ul[data-type="taskList"] li > label { user-select: none; }
+     .content ul[data-type="taskList"] li > div { flex: 1; }
++    .content input[type="checkbox"] { margin-right: 8px; }
+     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
+     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }
+     @media print {
+diff --git a/frontend/src/lib/noteImageExportCore.ts b/frontend/src/lib/noteImageExportCore.ts
+--- a/frontend/src/lib/noteImageExportCore.ts
++++ b/frontend/src/lib/noteImageExportCore.ts
+@@ -270,12 +270,30 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
+     .nowen-note-image-export-body p { margin: 9px 0; white-space: normal; }
+     .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
+     .nowen-note-image-export-body strong { font-weight: 700; }
+-    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.65em; }
++    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.6em; }
++    .nowen-note-image-export-body ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .nowen-note-image-export-body ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .nowen-note-image-export-body ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
++    .nowen-note-image-export-body ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
++    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item) { position: relative; }
++    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item)::before { content: var(--nowen-ul-marker); position: absolute; left: -1.2em; top: var(--nowen-ul-marker-top); font-size: var(--nowen-ul-marker-size); line-height: 1; }
++    .nowen-note-image-export-body ul.contains-task-list > li.task-list-item::before,
++    .nowen-note-image-export-body ul[data-type="taskList"] > li[data-type="taskItem"]::before { content: none !important; }
+     .nowen-note-image-export-body li { margin: 4px 0; }
+     .nowen-note-image-export-body li > p { margin: 2px 0; }
+-    .nowen-note-image-export-body ul[data-type="taskList"] { padding-left: 0; list-style: none; }
+-    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
++    .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
++    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
+     .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: #4f7cff; }
+     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
+     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }
