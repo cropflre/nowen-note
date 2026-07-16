@@ -6,6 +6,7 @@ on:
     paths:
       - scripts/issue-308-backend.py
       - scripts/issue-308-fix1.py
+      - scripts/issue-308-fix2.py
       - .github/workflows/issue-308-backend.yml
   workflow_dispatch:
 
@@ -47,6 +48,9 @@ jobs:
 
           echo "## $phase" | tee -a "$LOG"
           python scripts/issue-308-fix1.py >>"$LOG" 2>&1 || status=$?
+          if [ "$status" -eq 0 ]; then
+            python scripts/issue-308-fix2.py >>"$LOG" 2>&1 || status=$?
+          fi
 
           if [ "$status" -eq 0 ]; then
             phase="apply_patch"
@@ -94,6 +98,7 @@ jobs:
             git add .github/issue-308-backend-result.json
             if ! git diff --cached --quiet; then
               git commit -m "chore(issue-308): record backend validation failure"
+              git pull --rebase origin main
               git push origin HEAD:main
             fi
             cat /tmp/issue-308-backend-tail.log
@@ -101,11 +106,12 @@ jobs:
           fi
 
           rm -f .github/issue-308-backend-result.json
-          rm -f scripts/issue-308-backend.py scripts/issue-308-fix1.py .github/workflows/issue-308-backend.yml
+          rm -f scripts/issue-308-backend.py scripts/issue-308-fix1.py scripts/issue-308-fix2.py .github/workflows/issue-308-backend.yml
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 1
           fi
           git commit -m "fix(sharing): enforce share security and lifecycle (#308)"
+          git pull --rebase origin main
           git push origin HEAD:main
