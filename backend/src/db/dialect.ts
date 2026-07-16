@@ -122,13 +122,22 @@ function convertBooleanPredicates(sql: string): string {
   const booleanName = "(?:enabled|disabled|is[A-Z][A-Za-z0-9_]*|has[A-Z][A-Za-z0-9_]*|can[A-Z][A-Za-z0-9_]*|must[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]+Enabled)";
   const identifier = `(?:"${booleanName}"|${booleanName})`;
 
-  return sql
-    .replace(new RegExp(`(${identifier})\\s*(=|!=|<>)\\s*([01])\\b`, "g"), (_match, column, operator, value) =>
-      `${column} ${operator} ${value === "1" ? "true" : "false"}`,
-    )
-    .replace(new RegExp(`COALESCE\\(\\s*(${identifier})\\s*,\\s*([01])\\s*\\)`, "gi"), (_match, column, value) =>
-      `COALESCE(${column}, ${value === "1" ? "true" : "false"})`,
-    );
+  let converted = sql.replace(
+    new RegExp(`COALESCE\\(\\s*(${identifier})\\s*,\\s*([01])\\s*\\)`, "gi"),
+    (_match, column, value) => `COALESCE(${column}, ${value === "1" ? "true" : "false"})`,
+  );
+
+  converted = converted.replace(
+    new RegExp(`(${identifier})\\s*(=|!=|<>)\\s*([01])\\b`, "g"),
+    (_match, column, operator, value) => `${column} ${operator} ${value === "1" ? "true" : "false"}`,
+  );
+
+  converted = converted.replace(
+    new RegExp(`(COALESCE\\(\\s*${identifier}\\s*,\\s*(?:true|false)\\s*\\))\\s*(=|!=|<>)\\s*([01])\\b`, "gi"),
+    (_match, expression, operator, value) => `${expression} ${operator} ${value === "1" ? "true" : "false"}`,
+  );
+
+  return converted;
 }
 
 function convertInsertOrIgnore(sql: string): string {
