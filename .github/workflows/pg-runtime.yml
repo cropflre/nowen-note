@@ -18,9 +18,7 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
-      - "backend/scripts/audit-direct-db-access.mjs"
-      - "backend/scripts/check-direct-db-access-baseline.mjs"
-      - "backend/scripts/direct-db-access-baseline.json"
+      - "backend/scripts/**"
       - "backend/tests/**"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -39,9 +37,7 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/**"
-      - "backend/scripts/audit-direct-db-access.mjs"
-      - "backend/scripts/check-direct-db-access-baseline.mjs"
-      - "backend/scripts/direct-db-access-baseline.json"
+      - "backend/scripts/**"
       - "backend/tests/**"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -108,6 +104,18 @@ jobs:
           path: /tmp/direct-db-access-report.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: PostgreSQL schema parity audit
+        run: npm run audit:pg-schema-parity
+
+      - name: Upload PostgreSQL schema parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-schema-parity-${{ github.run_id }}
+          path: /tmp/pg-schema-parity-report.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Runtime and SQL dialect unit tests
         run: >-
