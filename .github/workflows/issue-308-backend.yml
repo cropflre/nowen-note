@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - scripts/issue-308-backend.py
+      - scripts/issue-308-fix1.py
       - .github/workflows/issue-308-backend.yml
   workflow_dispatch:
 
@@ -41,12 +42,17 @@ jobs:
           set +e
           LOG=/tmp/issue-308-backend.log
           : > "$LOG"
-          phase="apply_patch"
+          phase="align_patch"
           status=0
 
           echo "## $phase" | tee -a "$LOG"
-          python scripts/issue-308-backend.py >>"$LOG" 2>&1 || status=$?
+          python scripts/issue-308-fix1.py >>"$LOG" 2>&1 || status=$?
 
+          if [ "$status" -eq 0 ]; then
+            phase="apply_patch"
+            echo "## $phase" | tee -a "$LOG"
+            python scripts/issue-308-backend.py >>"$LOG" 2>&1 || status=$?
+          fi
           if [ "$status" -eq 0 ]; then
             phase="npm_ci"
             echo "## $phase" | tee -a "$LOG"
@@ -86,14 +92,16 @@ jobs:
           )
           PY
             git add .github/issue-308-backend-result.json
-            git commit -m "chore(issue-308): record backend validation failure"
-            git push origin HEAD:main
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(issue-308): record backend validation failure"
+              git push origin HEAD:main
+            fi
             cat /tmp/issue-308-backend-tail.log
             exit "$status"
           fi
 
           rm -f .github/issue-308-backend-result.json
-          rm -f scripts/issue-308-backend.py .github/workflows/issue-308-backend.yml
+          rm -f scripts/issue-308-backend.py scripts/issue-308-fix1.py .github/workflows/issue-308-backend.yml
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
