@@ -273,6 +273,17 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
     .nowen-note-image-export-body strong { font-weight: 700; }
     .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.65em; }
+    .nowen-note-image-export-body ul { list-style: none !important; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]) { position: relative; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"])::before { content: "•"; position: absolute; left: -1.2em; top: 0; display: inline-block; }
+    .nowen-note-image-export-body ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "•"; font-size: 1em; top: 0; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "•"; font-size: 1em; top: 0; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .nowen-note-image-export-body ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
     .nowen-note-image-export-body li { margin: 4px 0; }
     .nowen-note-image-export-body li > p { margin: 2px 0; }
     .nowen-note-image-export-body ul[data-type="taskList"] { padding-left: 0; list-style: none; }

@@ -918,16 +918,15 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
           const ok = delta === 1
             ? editor.chain().focus().sinkListItem("taskItem").run()
             : editor.chain().focus().liftListItem("taskItem").run();
-          if (ok) return true;
-          // 若无法 sink/lift（例如已是最外层），退化为块级 indent
+          return true; // 列表内禁止退化为块级 indent
         } else if (isInBulletOrOrdered()) {
           const ok = delta === 1
             ? editor.chain().focus().sinkListItem("listItem").run()
             : editor.chain().focus().liftListItem("listItem").run();
           if (ok) {
             normalizeAdjacentLists(editor);
-            return true;
           }
+          return true; // 列表内禁止退化为块级 indent
         }
 
         // 其余：调整块级 indent 属性

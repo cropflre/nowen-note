@@ -1469,6 +1469,17 @@ async function buildPrintableHtml(note: {
     .content th, .content td { border: 1px solid #d0d7de; padding: 6px 10px; text-align: left; }
     .content th { background: #f6f8fa; font-weight: 600; }
     .content ul, .content ol { padding-left: 1.4em; margin: 8px 0; }
+    .content ul { list-style: none !important; }
+    .content ul > li:not([data-type="taskItem"]) { position: relative; }
+    .content ul > li:not([data-type="taskItem"])::before { content: "•"; position: absolute; left: -1.2em; top: 0; display: inline-block; }
+    .content ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .content ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
+    .content ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "•"; font-size: 1em; top: 0; }
+    .content ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
+    .content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "•"; font-size: 1em; top: 0; }
+    .content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "◦"; font-size: 1.1em; top: 0; }
+    .content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before { content: "▪"; font-size: 1.2em; top: -0.05em; }
     .content ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
     .content ul[data-type="taskList"] li > label { user-select: none; }

@@ -251,7 +251,69 @@ body {
 .ProseMirror ul {
   padding-left: 1.5rem;
   margin: 0.75rem 0;
-  list-style-type: disc;
+  list-style: none !important;
+}
+
+.ProseMirror ul > li:not([data-type="taskItem"]) {
+  position: relative;
+}
+
+.ProseMirror ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  position: absolute;
+  left: -1.2rem;
+  top: 0;
+  display: inline-block;
+  color: var(--pm-text);
+  font-size: 1.1em;
+}
+
+.ProseMirror ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.ProseMirror ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.ProseMirror ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
 }
 
 .ProseMirror ol {
@@ -1509,10 +1571,70 @@ body.density-compact {
   margin: 0.85em 0;
   padding-left: 1.6em;
 }
-.shared-note-content ul { list-style: disc; }
+.shared-note-content ul {
+  list-style: none !important;
+}
 .shared-note-content ol { list-style: decimal; }
-.shared-note-content ul ul { list-style: circle; }
-.shared-note-content ul ul ul { list-style: square; }
+
+.shared-note-content ul > li:not([data-type="taskItem"]) {
+  position: relative;
+}
+
+.shared-note-content ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  position: absolute;
+  left: -1.2em;
+  top: 0;
+  display: inline-block;
+}
+
+.shared-note-content ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.shared-note-content ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  font-size: 1em;
+  top: 0;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "•";
+  font-size: 1em;
+  top: 0;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "◦";
+  font-size: 1.1em;
+  top: 0;
+}
+
+.shared-note-content ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li:not([data-type="taskItem"])::before {
+  content: "▪";
+  font-size: 1.2em;
+  top: -0.05em;
+}
 .shared-note-content li {
   margin: 0.25em 0;
 }
