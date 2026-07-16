@@ -1,4 +1,4 @@
-name: Inspect issue 311 selection handling
+name: Fix issue 311 selection bubbles
 
 on:
   push:
@@ -9,40 +9,240 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: issue-311-final-fix
+  cancel-in-progress: true
+
 jobs:
-  inspect:
+  fix:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-      - name: Extract selection handling
+
+      - name: Apply mutually-exclusive bubble selection logic
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           path = Path('frontend/src/components/TiptapEditor.tsx')
-          lines = path.read_text(encoding='utf-8').splitlines()
-          hits = [i for i, line in enumerate(lines) if 'selectionUpdate' in line or 'setTableBubble' in line]
-          ranges = []
-          for i in hits:
-              start = max(0, i - 35)
-              end = min(len(lines), i + 80)
-              if ranges and start <= ranges[-1][1]:
-                  ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
-              else:
-                  ranges.append((start, end))
-          out = []
-          for start, end in ranges:
-              out.append(f'--- lines {start + 1}-{end} ---')
-              out.extend(f'{n + 1:05d}: {lines[n]}' for n in range(start, end))
-          Path('.github/issue-311-selection.txt').write_text('\n'.join(out) + '\n', encoding='utf-8')
+          source = path.read_text(encoding='utf-8')
+
+          state_import = 'import { TextSelection, NodeSelection } from "@tiptap/pm/state";\n'
+          cell_import = 'import { CellSelection } from "@tiptap/pm/tables";\n'
+          if cell_import not in source:
+              if state_import not in source:
+                  raise SystemExit('ProseMirror state import not found')
+              source = source.replace(state_import, state_import + cell_import, 1)
+
+          utils_import = 'import { cn } from "@/lib/utils";\n'
+          helper_import = 'import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";\n'
+          if helper_import not in source:
+              if utils_import not in source:
+                  raise SystemExit('utils import not found')
+              source = source.replace(utils_import, utils_import + helper_import, 1)
+
+          start = source.index('    const updateBubble = () => {')
+          end = source.index('    const onBlur = () => {', start)
+          handler = source[start:end]
+
+          empty_marker = '      // 空选区 → 文本/图片格式化气泡都关，但若光标停在链接里，显示链接气泡\n'
+          if empty_marker not in handler:
+              raise SystemExit('empty-selection marker not found')
+          decision = '''      const selectionKind: BubbleSelectionKind = empty
+        ? "empty"
+        : selection instanceof CellSelection
+          ? "cell"
+          : selection instanceof NodeSelection && selection.node.type.name === "image"
+            ? "image"
+            : selection instanceof TextSelection
+              ? "text"
+              : "other";
+      const selectedText = selectionKind === "text"
+        ? state.doc.textBetween(from, to, " ")
+        : "";
+      const bubbleKind = resolveEditorBubbleKind({
+        selectionKind,
+        tableActive: editor.isActive("table"),
+        linkActive: editor.isActive("link"),
+        hasVisibleText: selectedText.trim().length > 0,
+      });
+
+'''
+          if 'const selectionKind: BubbleSelectionKind' not in handler:
+              handler = handler.replace(empty_marker, decision + empty_marker, 1)
+
+          empty_table = '        if (editor.isActive("table")) {'
+          if empty_table not in handler:
+              raise SystemExit('empty-selection table condition not found')
+          handler = handler.replace(empty_table, '        if (bubbleKind === "table") {', 1)
+
+          empty_link = '        if (editor.isActive("link")) {'
+          if empty_link not in handler:
+              raise SystemExit('empty-selection link condition not found')
+          handler = handler.replace(
+              empty_link,
+              '''        if (bubbleKind === "table") {
+          setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
+          return;
+        }
+
+        if (bubbleKind === "link") {''',
+              1,
+          )
+
+          selected_marker = '      // Keep table bubble open when cells are selected\n'
+          selected_pos = handler.index(selected_marker)
+          before = handler[:selected_pos]
+          selected = handler[selected_pos:]
+
+          selected = selected.replace(
+              '''      // Keep table bubble open when cells are selected
+      if (editor.isActive("table")) {
+        const rect = posToDOMRect(view, from, to);
+''',
+              '''      // CellSelection owns the table bubble. A TextSelection inside a cell stays textual.
+      if (bubbleKind === "table") {
+        setBubble(b => b.open ? { ...b, open: false } : b);
+        setImageBubble(b => b.open ? { ...b, open: false } : b);
+        const rect = posToDOMRect(view, from, to);
+''',
+              1,
+          )
+          selected = selected.replace(
+              '''        setTableBubble({ open: true, top, left, cellText });
+      } else {
+''',
+              '''        setTableBubble({ open: true, top, left, cellText });
+        return;
+      } else {
+''',
+              1,
+          )
+          selected = selected.replace(
+              '''      const isImage = editor.isActive("image");
+
+      if (isImage) {
+''',
+              '      if (bubbleKind === "image") {\n',
+              1,
+          )
+          selected = selected.replace(
+              '        const text = state.doc.textBetween(from, to, " ");\n',
+              '        const text = selectedText;\n',
+              1,
+          )
+
+          required = [
+              'if (bubbleKind === "table")',
+              'if (bubbleKind === "image")',
+              'const text = selectedText;',
+              'selection instanceof CellSelection',
+          ]
+          combined = before + selected
+          for token in required:
+              if token not in combined:
+                  raise SystemExit(f'missing patched token: {token}')
+
+          source = source[:start] + combined + source[end:]
+          path.write_text(source, encoding='utf-8')
+
+          helper = '''export type BubbleSelectionKind = "empty" | "text" | "cell" | "image" | "other";
+export type EditorBubbleKind = "none" | "text" | "table" | "image" | "link";
+
+export interface EditorBubbleDecisionInput {
+  selectionKind: BubbleSelectionKind;
+  tableActive: boolean;
+  linkActive: boolean;
+  hasVisibleText: boolean;
+}
+
+/** Resolve exactly one editor bubble for the current ProseMirror selection. */
+export function resolveEditorBubbleKind(input: EditorBubbleDecisionInput): EditorBubbleKind {
+  switch (input.selectionKind) {
+    case "cell":
+      return "table";
+    case "image":
+      return "image";
+    case "text":
+      return input.hasVisibleText ? "text" : "none";
+    case "empty":
+      if (input.tableActive) return "table";
+      if (input.linkActive) return "link";
+      return "none";
+    default:
+      return "none";
+  }
+}
+'''
+          Path('frontend/src/lib/editorBubbleSelection.ts').write_text(helper, encoding='utf-8')
+
+          test = '''import { describe, expect, it } from "vitest";
+import { resolveEditorBubbleKind } from "../editorBubbleSelection";
+
+describe("resolveEditorBubbleKind", () => {
+  it("keeps text selected inside a table text-only", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "text", tableActive: true, linkActive: false, hasVisibleText: true })).toBe("text");
+  });
+
+  it("shows only the table bubble for a cell selection", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "cell", tableActive: true, linkActive: false, hasVisibleText: true })).toBe("table");
+  });
+
+  it("gives an image node selection priority inside a table", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "image", tableActive: true, linkActive: false, hasVisibleText: false })).toBe("image");
+  });
+
+  it("gives an empty table caret priority over a link bubble", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "empty", tableActive: true, linkActive: true, hasVisibleText: false })).toBe("table");
+  });
+
+  it("shows a caret link bubble outside tables", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "empty", tableActive: false, linkActive: true, hasVisibleText: false })).toBe("link");
+  });
+
+  it("hides text actions for invisible-only selections", () => {
+    expect(resolveEditorBubbleKind({ selectionKind: "text", tableActive: true, linkActive: false, hasVisibleText: false })).toBe("none");
+  });
+});
+'''
+          test_path = Path('frontend/src/lib/__tests__/editorBubbleSelection.test.ts')
+          test_path.parent.mkdir(parents=True, exist_ok=True)
+          test_path.write_text(test, encoding='utf-8')
           PY
-      - name: Commit diagnostic excerpt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run focused regression tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/editorBubbleSelection.test.ts
+
+      - name: Run frontend production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Commit validated fix
         run: |
+          rm -f .github/issue-311-selection.txt
+          rm -f .github/issue-311-fix-result.txt
+          rm -f .github/workflows/issue-311-inspect.yml
+          rm -f .github/workflows/issue-311-fix.yml
+          rm -f .github/workflows/issue-311-diagnose.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/issue-311-selection.txt
-          git commit -m "chore(issue-311): capture selection handler excerpt"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(editor): keep table and text bubble menus mutually exclusive (#311)"
           git push origin HEAD:main
