@@ -158,7 +158,9 @@ async function executeActiveTask(): Promise<void> {
 export function subscribeDocxImportProgress(listener: Listener): () => void {
   listeners.add(listener);
   listener(state ? { ...state, metrics: { ...state.metrics } } : null);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function runManagedDocxImport<T>(file: File, executor: Executor<T>): Promise<T> {
