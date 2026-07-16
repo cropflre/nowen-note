@@ -26,11 +26,56 @@ function normalizeIdentifier(value) {
   return value.replace(/^["'`\[]|["'`\]]$/g, "").trim().toLowerCase();
 }
 
+function isEphemeralMigrationTable(table) {
+  return table === "if" || /_(?:new|old|backup|temp|tmp)$/i.test(table);
+}
+
 function extractCreatedTables(source) {
   const tables = new Set();
   const pattern = /\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?)/gi;
-  for (const match of source.matchAll(pattern)) tables.add(normalizeIdentifier(match[1]));
+  for (const match of source.matchAll(pattern)) {
+    const table = normalizeIdentifier(match[1]);
+    if (!isEphemeralMigrationTable(table)) tables.add(table);
+  }
   return tables;
+}
+
+/**
+ * Repository 文件同时包含 import 路径、注释和普通业务文字。
+ * 只在 JS/TS 字符串字面量内部查 SQL，避免把 `from "uuid"` 等 import
+ * 误判为数据库表。
+ */
+function extractStringLiterals(source) {
+  const literals = [];
+  let index = 0;
+
+  while (index < source.length) {
+    const quote = source[index];
+    if (quote !== "'" && quote !== '"' && quote !== "`") {
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+    let value = "";
+    while (index < source.length) {
+      const char = source[index];
+      if (char === "\\") {
+        value += source[index + 1] ?? "";
+        index += 2;
+        continue;
+      }
+      if (char === quote) {
+        index += 1;
+        break;
+      }
+      value += char;
+      index += 1;
+    }
+    literals.push(value);
+  }
+
+  return literals;
 }
 
 function extractRepositoryTables(source) {
@@ -42,9 +87,23 @@ function extractRepositoryTables(source) {
     /\bUPDATE\s+(["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s+SET\b/gi,
     /\bDELETE\s+FROM\s+(["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)/gi,
   ];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) tables.add(normalizeIdentifier(match[1]));
+
+  for (const sql of extractStringLiterals(source)) {
+    if (!/\b(?:SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER)\b/i.test(sql)) continue;
+
+    const cteAliases = new Set(
+      [...sql.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s+AS\s*\(\s*(?:SELECT|WITH|VALUES)\b/gi)]
+        .map((match) => normalizeIdentifier(match[1])),
+    );
+
+    for (const pattern of patterns) {
+      for (const match of sql.matchAll(pattern)) {
+        const table = normalizeIdentifier(match[1]);
+        if (!cteAliases.has(table)) tables.add(table);
+      }
+    }
   }
+
   return tables;
 }
 
@@ -56,6 +115,7 @@ const sqliteSources = [
   join(backendDir, "src", "db", "schema.ts"),
   join(backendDir, "src", "db", "migrations.ts"),
   join(backendDir, "src", "db", "migrations.impl.ts"),
+  join(backendDir, "src", "services", "vec-store.ts"),
 ].filter(existsSync);
 const sqliteTables = union(...sqliteSources.map((path) => extractCreatedTables(read(path))));
 
