@@ -1,6 +1,6 @@
 {
   "ok": false,
-  "phase": "apply_patch",
-  "status": 1,
-  "logTail": "## align_patch\nIssue #308 PostgreSQL markers aligned\n## apply_patch\nTraceback (most recent call last):\n  File \"/home/runner/work/nowen-note/nowen-note/scripts/issue-308-backend.py\", line 907, in <module>\n    replace_once(\n  File \"/home/runner/work/nowen-note/nowen-note/scripts/issue-308-backend.py\", line 23, in replace_once\n    raise RuntimeError(f\"{path}: expected one match, got {count}: {old[:100]!r}\")\nRuntimeError: backend/src/runtime/notebook-publication.ts: expected one match, got 0: '    const scope = createPublicationAttachmentScope(publication.id, noteId);'\n"
+  "phase": "typescript",
+  "status": 2,
+  "logTail": "## align_patch\nIssue #308 PostgreSQL markers aligned\nIssue #308 publication scope marker aligned\n## apply_patch\nIssue #308 backend patch applied\n## npm_ci\n\nadded 257 packages, and audited 258 packages in 4s\n\n47 packages are looking for funding\n  run `npm fund` for details\n\n7 vulnerabilities (1 low, 1 moderate, 5 high)\n\nTo address all issues, run:\n  npm audit fix\n\nRun `npm audit` for details.\n## typescript\n\n> nowen-note-backend@1.3.7 build:tsc\n> tsc\n\nsrc/routes/shares.ts(760,27): error TS2339: Property 'noteId' does not exist on type '{ id: string; userId: string | null; }'.\nsrc/routes/shares.ts(779,27): error TS2339: Property 'noteId' does not exist on type '{ id: string; userId: string | null; }'.\nsrc/routes/shares.ts(795,27): error TS2339: Property 'noteId' does not exist on type '{ isResolved: number; }'.\nsrc/routes/wechat-favorites-import.ts(87,3): error TS2322: Type 'unknown' is not assignable to type '{ tmpDir: string; tmpPath: string; filename: string; fields: Record<string, string>; }'.\n"
 }
