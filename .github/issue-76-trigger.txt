@@ -1,0 +1,1 @@
+Validate the Issue #76 DOCX import worker, rollback, persistence checks, tests, and frontend build.
