@@ -15,7 +15,11 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
 
   const first = await runPostgresMigrations(adapter);
   const versions = first.map((migration) => migration.version);
-  assert.deepEqual(versions, ["0001_migration_state", "0002_api_tokens_parity"]);
+  assert.deepEqual(versions, [
+    "0001_migration_state",
+    "0002_api_tokens_parity",
+    "0003_runtime_tables_parity",
+  ]);
 
   const stateTable = await pool.query(
     "SELECT to_regclass('public.postgres_migration_state') AS table_name",
@@ -33,6 +37,31 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.deepEqual(
     apiTokenColumns.rows.map((row) => [row.column_name, row.is_nullable]),
     [["scopes", "NO"], ["tokenHash", "NO"]],
+  );
+
+  const parityTables = [
+    "audit_logs",
+    "habit_checkins",
+    "habits",
+    "mindmaps",
+    "notebook_acl_overrides",
+    "notebook_public_comments",
+    "notebook_publications",
+    "user_preferences",
+    "webhook_deliveries",
+    "webhooks",
+  ];
+  const tableRows = await pool.query(
+    `SELECT tablename
+       FROM pg_tables
+      WHERE schemaname = 'public'
+        AND tablename = ANY($1::text[])
+      ORDER BY tablename`,
+    [parityTables],
+  );
+  assert.deepEqual(
+    tableRows.rows.map((row) => row.tablename),
+    [...parityTables].sort(),
   );
 
   const second = await runPostgresMigrations(adapter);
