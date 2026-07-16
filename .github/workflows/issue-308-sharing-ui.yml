@@ -1,0 +1,145 @@
+name: Issue 308 Sharing Management
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/issue-308-ui.py
+      - scripts/issue-308-ui-post1.py
+      - .github/workflows/issue-308-sharing-ui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue-308-sharing-management-main
+  cancel-in-progress: false
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Apply, validate and commit
+        shell: bash
+        run: |
+          set +e
+          LOG=/tmp/issue-308-ui.log
+          : > "$LOG"
+          phase="prepare_patch"
+          status=0
+
+          echo "## $phase" | tee -a "$LOG"
+          python scripts/issue-308-ui-post1.py >>"$LOG" 2>&1 || status=$?
+
+          if [ "$status" -eq 0 ]; then
+            phase="apply_patch"
+            echo "## $phase" | tee -a "$LOG"
+            python scripts/issue-308-ui.py >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_npm_ci"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm ci) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_typescript"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm run build:tsc) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_invite_tests"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && node --import tsx --test tests/notebook-share-link-lifecycle.test.ts) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_repository_tests"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && node --import tsx --test tests/notebook-share-links-repository-async.test.ts) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_share_tests"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && node --import tsx --test tests/share-security-capabilities.test.ts tests/attachment-shared-access.test.ts) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="backend_bundle"
+            echo "## $phase" | tee -a "$LOG"
+            (cd backend && npm run build) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="frontend_npm_ci"
+            echo "## $phase" | tee -a "$LOG"
+            (cd frontend && npm ci) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="frontend_tests"
+            echo "## $phase" | tee -a "$LOG"
+            (cd frontend && npm run test:run -- src/lib/__tests__/shareAccessHelpers.test.ts) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="frontend_typescript"
+            echo "## $phase" | tee -a "$LOG"
+            (cd frontend && npx tsc -b --pretty false) >>"$LOG" 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            phase="frontend_bundle"
+            echo "## $phase" | tee -a "$LOG"
+            (cd frontend && npm run build) >>"$LOG" 2>&1 || status=$?
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ "$status" -ne 0 ]; then
+            tail -n 400 "$LOG" >/tmp/issue-308-ui-tail.log
+            git reset --hard HEAD
+            python - "$phase" "$status" <<'PY'
+          import json
+          import pathlib
+          import sys
+          phase, status = sys.argv[1], int(sys.argv[2])
+          tail = pathlib.Path('/tmp/issue-308-ui-tail.log').read_text(encoding='utf-8', errors='replace')
+          pathlib.Path('.github/issue-308-ui-result.json').write_text(
+              json.dumps({'ok': False, 'phase': phase, 'status': status, 'logTail': tail}, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+            git add .github/issue-308-ui-result.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(issue-308): record sharing management validation failure"
+              git pull --rebase origin main
+              git push origin HEAD:main
+            fi
+            cat /tmp/issue-308-ui-tail.log
+            exit "$status"
+          fi
+
+          rm -f .github/issue-308-ui-result.json
+          rm -f scripts/issue-308-ui.py scripts/issue-308-ui-post1.py .github/workflows/issue-308-sharing-ui.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 1
+          fi
+          git commit -m "feat(sharing): complete sharing management workflows (#308)"
+          git pull --rebase origin main
+          git push origin HEAD:main
