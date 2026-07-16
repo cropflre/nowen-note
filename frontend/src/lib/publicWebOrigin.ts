@@ -15,6 +15,9 @@ export interface PublicWebOriginResolution {
   requiresAnonymousCheck: boolean;
 }
 
+let runtimePublicWebOrigin = "";
+let runtimePublicWebOriginSource: string | null = null;
+
 export function normalizePublicWebOrigin(value: string | null | undefined): string {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
@@ -27,6 +30,18 @@ export function normalizePublicWebOrigin(value: string | null | undefined): stri
   } catch {
     return "";
   }
+}
+
+/**
+ * Keep the public settings response available to every link builder, including components that do
+ * not consume SiteSettingsContext directly (for example notebook invitations/publications).
+ */
+export function setRuntimePublicWebOrigin(
+  origin: string | null | undefined,
+  source?: string | null,
+): void {
+  runtimePublicWebOrigin = normalizePublicWebOrigin(origin);
+  runtimePublicWebOriginSource = source || null;
 }
 
 export function isLikelyProtectedGatewayOrigin(value: string): boolean {
@@ -53,15 +68,22 @@ function normalizeRuntimeSource(value: string | null | undefined): PublicWebOrig
  *   runtime administrator/environment setting -> Vite build variable -> current browser origin.
  */
 export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): PublicWebOriginResolution {
-  const runtime = normalizePublicWebOrigin(options.runtimeOrigin);
+  const runtimeInput = options.runtimeOrigin !== undefined
+    ? options.runtimeOrigin
+    : runtimePublicWebOrigin;
+  const runtimeSourceInput = options.runtimeSource !== undefined
+    ? options.runtimeSource
+    : runtimePublicWebOriginSource;
+  const runtime = normalizePublicWebOrigin(runtimeInput);
   if (runtime) {
-    const source = normalizeRuntimeSource(options.runtimeSource);
+    const source = normalizeRuntimeSource(runtimeSourceInput);
+    const protectedGateway = isLikelyProtectedGatewayOrigin(runtime);
     return {
       origin: runtime,
       source,
       usesCurrentOrigin: false,
-      isLikelyProtectedGateway: isLikelyProtectedGatewayOrigin(runtime),
-      requiresAnonymousCheck: isLikelyProtectedGatewayOrigin(runtime),
+      isLikelyProtectedGateway: protectedGateway,
+      requiresAnonymousCheck: protectedGateway,
     };
   }
 
@@ -71,12 +93,13 @@ export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): Pu
       import.meta.env.VITE_APP_PUBLIC_URL,
   );
   if (build) {
+    const protectedGateway = isLikelyProtectedGatewayOrigin(build);
     return {
       origin: build,
       source: "build",
       usesCurrentOrigin: false,
-      isLikelyProtectedGateway: isLikelyProtectedGatewayOrigin(build),
-      requiresAnonymousCheck: isLikelyProtectedGatewayOrigin(build),
+      isLikelyProtectedGateway: protectedGateway,
+      requiresAnonymousCheck: protectedGateway,
     };
   }
 
