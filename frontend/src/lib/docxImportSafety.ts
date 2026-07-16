@@ -21,6 +21,7 @@ export interface DocxArchiveStats {
 }
 
 export type DocxImportSafetyCode =
+  | "UNSUPPORTED_FILE"
   | "FILE_TOO_LARGE"
   | "TOO_MANY_ENTRIES"
   | "UNCOMPRESSED_TOO_LARGE"
@@ -49,7 +50,7 @@ export function formatImportBytes(bytes: number): string {
 export function getDocxFileViolation(file: Pick<File, "name" | "size">): DocxImportSafetyViolation | null {
   if (!/\.docx$/i.test(file.name || "")) {
     return {
-      code: "FILE_TOO_LARGE",
+      code: "UNSUPPORTED_FILE",
       message: "仅支持 .docx 文件（旧版 .doc 请先用 Word 另存为 .docx）",
     };
   }
@@ -103,29 +104,67 @@ export function getDocxArchiveViolation(stats: DocxArchiveStats): DocxImportSafe
   return null;
 }
 
+interface ImportedNoteSnapshot {
+  id?: string;
+  content?: string;
+  contentText?: string;
+  contentFormat?: string;
+  version?: number;
+}
+
+function normalizePlainText(value: string | undefined): string {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+export interface ImportedNoteSemanticInput {
+  expectedId: string;
+  expectedContentText: string;
+  expectedContentFormat: string;
+  expectedAttachmentUrls: string[];
+  minimumVersion: number;
+  actual: ImportedNoteSnapshot;
+}
+
+/**
+ * First response validation. The backend may legitimately add blockId attributes to Tiptap JSON,
+ * so this check validates user-visible text and every attachment reference instead of requiring
+ * byte-for-byte equality with the pre-save client JSON.
+ */
+export function getImportedNoteSemanticError(input: ImportedNoteSemanticInput): string | null {
+  const { actual } = input;
+  if (actual.id !== input.expectedId) return "服务端返回了错误的笔记 ID";
+  if (actual.contentFormat !== input.expectedContentFormat) return "服务端返回的正文格式不一致";
+  if (!Number.isFinite(actual.version) || Number(actual.version) < input.minimumVersion) {
+    return "服务端没有确认新的笔记版本";
+  }
+  if (!actual.content || actual.content.length < 10) return "服务端返回的正文为空或异常短";
+  if (normalizePlainText(actual.contentText) !== normalizePlainText(input.expectedContentText)) {
+    return "服务端返回的纯文本内容不完整";
+  }
+  for (const url of input.expectedAttachmentUrls) {
+    if (!actual.content.includes(url)) return `服务端正文缺少附件引用：${url}`;
+  }
+  return null;
+}
+
 export interface ImportedNoteIntegrityInput {
   expectedId: string;
   expectedContent: string;
   expectedContentText: string;
   expectedContentFormat: string;
   minimumVersion: number;
-  actual: {
-    id?: string;
-    content?: string;
-    contentText?: string;
-    contentFormat?: string;
-    version?: number;
-  };
+  actual: ImportedNoteSnapshot;
 }
 
+/** Second-read validation: compare the persisted GET with the already-normalized server response. */
 export function getImportedNoteIntegrityError(input: ImportedNoteIntegrityInput): string | null {
   const { actual } = input;
   if (actual.id !== input.expectedId) return "服务端返回了错误的笔记 ID";
   if (actual.contentFormat !== input.expectedContentFormat) return "服务端返回的正文格式不一致";
-  if (actual.content !== input.expectedContent) return "服务端返回的正文长度或内容不一致";
-  if (actual.contentText !== input.expectedContentText) return "服务端返回的纯文本索引不一致";
+  if (actual.content !== input.expectedContent) return "刷新后正文与保存响应不一致";
+  if (actual.contentText !== input.expectedContentText) return "刷新后纯文本索引与保存响应不一致";
   if (!Number.isFinite(actual.version) || Number(actual.version) < input.minimumVersion) {
-    return "服务端没有确认新的笔记版本";
+    return "刷新后笔记版本低于已确认版本";
   }
   return null;
 }
