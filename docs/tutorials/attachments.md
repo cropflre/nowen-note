@@ -36,9 +36,9 @@
 
 ---
 
-## 通过 MCP / API 上传
+## 通过 MCP / API / SDK / CLI 上传
 
-AI 助手和脚本不需要模拟 Web UI 拖拽，可以直接使用后端已有接口。
+AI 助手和脚本不需要模拟 Web UI 拖拽，可以直接使用公开附件接口。
 
 ### MCP 工具
 
@@ -53,6 +53,80 @@ AI 助手和脚本不需要模拟 Web UI 拖拽，可以直接使用后端已有
 ```text
 把 C:\Users\me\Pictures\screenshot.png 上传到 note-123，并插入到笔记末尾
 ```
+
+### CLI
+
+上传并直接绑定笔记：
+
+```bash
+nowen attachments upload ./screenshot.png --note <note-id>
+```
+
+先上传到文件管理，再插入 Markdown 笔记：
+
+```bash
+nowen attachments upload ./manual.pdf --json
+nowen attachments attach <attachment-id> <note-id> --mode append
+```
+
+查询附件：
+
+```bash
+nowen attachments list --category image --notebook <notebook-id>
+nowen attachments list --filter myUploads --reference unreferenced
+nowen attachments list --note <note-id> --json
+```
+
+CLI 与其他命令共用以下连接配置：
+
+```bash
+export NOWEN_URL=http://localhost:3001
+export NOWEN_USERNAME=admin
+export NOWEN_PASSWORD=your-password
+```
+
+### TypeScript SDK
+
+`@nowen/sdk` 导出独立的 `NowenAttachmentClient`。它与 `NowenClient` 使用同一份配置，同时避免给原有客户端增加 Node 文件系统依赖。
+
+```ts
+import { NowenAttachmentClient } from "@nowen/sdk";
+
+const attachments = new NowenAttachmentClient({
+  baseUrl: "http://localhost:3001",
+  username: "admin",
+  password: "your-password",
+});
+
+const bytes = await fetch("https://example.com/chart.png").then((r) => r.arrayBuffer());
+const uploaded = await attachments.uploadAttachment({
+  file: bytes,
+  filename: "chart.png",
+  mimeType: "image/png",
+  noteId: "<note-id>",
+});
+
+console.log(uploaded.id, uploaded.url);
+```
+
+列出与关联：
+
+```ts
+const result = await attachments.listAttachments({
+  notebookId: "<notebook-id>",
+  category: "image",
+  pageSize: 50,
+});
+
+await attachments.attachToNote({
+  noteId: "<note-id>",
+  attachmentId: result.items[0].id,
+  alt: "架构图",
+  mode: "append",
+});
+```
+
+> `attachToNote` 会先读取当前笔记版本，再携带 `version` 更新正文，避免绕过乐观锁。当前自动插入支持原生 Markdown 笔记；富文本笔记可使用上传返回的 URL 通过编辑器 API 自行构造节点。
 
 ### REST API
 
@@ -73,6 +147,22 @@ curl -X POST http://localhost:3001/api/files/upload \
   -F "file=@./manual.pdf;type=application/pdf"
 ```
 
+列出附件：
+
+```bash
+curl "http://localhost:3001/api/files?notebookId=<notebook-id>&category=image&pageSize=50" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+查询单个附件及其引用笔记：
+
+```bash
+curl "http://localhost:3001/api/files/<attachment-id>" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+REST 客户端关联附件时，将返回的 `/api/attachments/<id>` 写入笔记 Markdown，再通过 `PUT /api/notes/<note-id>` 提交当前 `version`。图片使用 `![alt](url)`，普通文件使用 `[filename](url?download=1)`。
+
 ---
 
 ## 文件管理器
@@ -80,8 +170,9 @@ curl -X POST http://localhost:3001/api/files/upload \
 ### 功能
 
 - 查看所有上传的文件
-- 按笔记分类
+- 按笔记、笔记本、附件文件夹和 MIME 分类
 - 查看文件大小和上传时间
+- 查看附件被哪些笔记引用
 - 删除不需要的文件
 
 ### 「我的上传」分类
@@ -119,19 +210,20 @@ curl -X POST http://localhost:3001/api/files/upload \
 
 ### Q：图片太大上传失败？
 
-默认限制 10MB。可在服务器配置中调整。
+附件默认上限为 100MB，可通过服务器环境变量 `MAX_ATTACHMENT_SIZE_MB` 调整。
 
 ### Q：附件占用空间太大？
 
-使用文件管理器清理未引用的附件。或配置对象存储分流。
+使用文件管理器清理未引用的附件，或配置对象存储分流。
 
 ---
 
 ## 下一步
 
-- [对象存储配置](./object-storage.md) — S3/R2 配置
+- [对象存储配置](../object-storage.md) — S3/R2/MinIO 配置
 - [文件管理器教程](./file-manager.md) — 文件管理
+- [MCP 使用指南](./mcp.md) — AI 客户端接入
 
 ---
 
-> 本教程基于 nowen-note v1.1.18 编写。
+> 本教程已更新至附件 MCP、SDK 与 CLI 公共接口。
