@@ -1,6 +1,6 @@
 name: Issue 322 main implementation
 
-# Second push intentionally triggers this already-registered workflow.
+# Reusable one-shot runner; the final successful commit deletes this workflow.
 on:
   push:
     branches: [main]
@@ -9,10 +9,11 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: issue-322-main-implementation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   implement:
@@ -30,24 +31,28 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Apply staged patches
+      - id: apply
+        name: Apply staged patches
         run: |
           git apply --check .github/issue322/*.patch
           git apply .github/issue322/*.patch
           git diff --check
 
-      - name: Install frontend dependencies
+      - id: install
+        name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Validate frontend
+      - id: validate
+        name: Validate frontend
         working-directory: frontend
         run: |
           npm run lint
           npm run build
           npm run test:run
 
-      - name: Commit directly to main
+      - id: commit
+        name: Commit directly to main
         run: |
           rm -rf .github/issue322
           rm -f .github/workflows/issue-322-main-implementation.yml
@@ -57,3 +62,10 @@ jobs:
           git add -A
           git commit -m "fix(editor): resolve list rendering regressions (#322)"
           git push origin HEAD:main
+
+      - name: Report workflow status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 322 --repo "$GITHUB_REPOSITORY" --body "Issue #322 implementation run $GITHUB_RUN_ID finished with status: ${{ job.status }}. Steps — apply: ${{ steps.apply.outcome }}, install: ${{ steps.install.outcome }}, validate: ${{ steps.validate.outcome }}, commit: ${{ steps.commit.outcome }}."
