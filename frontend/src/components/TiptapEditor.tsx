@@ -1035,6 +1035,34 @@ function ToolbarDivider() {
   return <div className="h-5 w-px shrink-0 bg-app-border mx-1" />;
 }
 
+function getActiveListType(editor: Editor | null): "bulletList" | "orderedList" | "taskList" | null {
+  if (!editor) return null;
+
+  const isBullet = editor.isActive("bulletList");
+  const isOrdered = editor.isActive("orderedList");
+  const isTask = editor.isActive("taskList");
+
+  const activeCount = (isBullet ? 1 : 0) + (isOrdered ? 1 : 0) + (isTask ? 1 : 0);
+  if (activeCount === 0) return null;
+  if (activeCount === 1) {
+    if (isBullet) return "bulletList";
+    if (isOrdered) return "orderedList";
+    if (isTask) return "taskList";
+  }
+
+  const { state } = editor;
+  const { selection } = state;
+  const { $from } = selection;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    const name = node.type.name;
+    if (name === "bulletList" && isBullet) return "bulletList";
+    if (name === "orderedList" && isOrdered) return "orderedList";
+    if (name === "taskList" && isTask) return "taskList";
+  }
+  return null;
+}
+
 /**
  * 字号选择器（轻量 Popover）
  * - 4 个预设档位 + 自定义 px 输入（8-96）
@@ -1536,6 +1564,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
+  const [, setSelectionTick] = useState(0);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
@@ -2630,6 +2659,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     },
     onTransaction: ({ transaction }) => {
       mapAsyncInsertAnchors(asyncInsertAnchorsRef.current, transaction);
+    },
+    onSelectionUpdate: () => {
+      setSelectionTick((t) => t + 1);
     },
     onUpdate: ({ editor }) => {
       // setContent 触发的 onUpdate 不应该保存（防止死循环）
@@ -4620,21 +4652,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         <ToolbarButton
           onClick={() => toggleBulletListSmart(editor)}
-          isActive={editor.isActive("bulletList")}
+          isActive={getActiveListType(editor) === "bulletList"}
           title={t('tiptap.bulletList')}
         >
           <List size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => toggleOrderedListSmart(editor)}
-          isActive={editor.isActive("orderedList")}
+          isActive={getActiveListType(editor) === "orderedList"}
           title={t('tiptap.orderedList')}
         >
           <ListOrdered size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleTaskList().run()}
-          isActive={editor.isActive("taskList")}
+          isActive={getActiveListType(editor) === "taskList"}
           title={t('tiptap.taskList')}
         >
           <CheckSquare size={iconSize} />
