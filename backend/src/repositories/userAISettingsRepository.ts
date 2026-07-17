@@ -20,18 +20,16 @@ export interface UserAISettingEntry {
   value: string;
 }
 
-function getAdapter() {
-  return getDatabaseAdapter();
-}
-
 function requireUserId(userId: string): void {
   if (!userId.trim()) throw new Error("userId is required");
 }
 
 export function createUserAISettingsRepository(
-  adapter: DatabaseAdapter = getAdapter(),
+  injectedAdapter?: DatabaseAdapter,
   nowExpr = "datetime('now')",
 ) {
+  const resolveAdapter = () => injectedAdapter ?? getDatabaseAdapter();
+
   return {
     get(userId: string, key: string): UserAISetting | undefined {
       requireUserId(userId);
@@ -101,7 +99,7 @@ export function createUserAISettingsRepository(
 
     async getAsync(userId: string, key: string): Promise<UserAISetting | undefined> {
       requireUserId(userId);
-      return adapter.queryOne<UserAISetting>(`
+      return resolveAdapter().queryOne<UserAISetting>(`
         SELECT "userId", key, value, "updatedAt"
         FROM user_ai_settings
         WHERE "userId" = ? AND key = ?
@@ -112,7 +110,7 @@ export function createUserAISettingsRepository(
       requireUserId(userId);
       if (keys.length === 0) return [];
       const placeholders = keys.map(() => "?").join(",");
-      return adapter.queryMany<UserAISetting>(`
+      return resolveAdapter().queryMany<UserAISetting>(`
         SELECT "userId", key, value, "updatedAt"
         FROM user_ai_settings
         WHERE "userId" = ? AND key IN (${placeholders})
@@ -122,7 +120,7 @@ export function createUserAISettingsRepository(
 
     async setAsync(userId: string, key: string, value: string): Promise<void> {
       requireUserId(userId);
-      await adapter.execute(`
+      await resolveAdapter().execute(`
         INSERT INTO user_ai_settings ("userId", key, value, "updatedAt")
         VALUES (?, ?, ?, ${nowExpr})
         ON CONFLICT("userId", key) DO UPDATE SET
@@ -134,7 +132,7 @@ export function createUserAISettingsRepository(
     async setManyAsync(userId: string, entries: UserAISettingEntry[]): Promise<void> {
       requireUserId(userId);
       if (entries.length === 0) return;
-      await adapter.executeBatch(`
+      await resolveAdapter().executeBatch(`
         INSERT INTO user_ai_settings ("userId", key, value, "updatedAt")
         VALUES (?, ?, ?, ${nowExpr})
         ON CONFLICT("userId", key) DO UPDATE SET
@@ -147,7 +145,7 @@ export function createUserAISettingsRepository(
       requireUserId(userId);
       if (keys.length === 0) return;
       const placeholders = keys.map(() => "?").join(",");
-      await adapter.execute(`
+      await resolveAdapter().execute(`
         DELETE FROM user_ai_settings
         WHERE "userId" = ? AND key IN (${placeholders})
       `, [userId, ...keys]);
