@@ -19,6 +19,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0001_migration_state",
     "0002_api_tokens_parity",
     "0003_runtime_tables_parity",
+    "0004_notebook_members_unique",
   ]);
 
   const stateTable = await pool.query(
@@ -62,6 +63,14 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.deepEqual(
     tableRows.rows.map((row) => row.tablename),
     [...parityTables].sort(),
+  );
+
+  const notebookMembersUnique = await pool.query(
+    `SELECT to_regclass('public.idx_notebook_members_notebook_user') AS index_name`,
+  );
+  assert.equal(
+    notebookMembersUnique.rows[0].index_name,
+    "idx_notebook_members_notebook_user",
   );
 
   const second = await runPostgresMigrations(adapter);
