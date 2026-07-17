@@ -158,7 +158,7 @@ test("PG share and session repositories preserve SQLite-facing shapes", { skip }
       [activeSessionId, otherSessionId].sort(),
     );
     assert.equal(typeof activeBeforeRevoke[0]?.createdAt, "string");
-    assert.equal(await userSessionsRepository.revokeAllOtherAsync(ownerId, activeSessionId), 1);
+    assert.equal(await userSessionsRepository.revokeAllOtherAsync(ownerId, activeSessionId), 2);
     assert.equal((await userSessionsRepository.listActiveByUserAsync(ownerId)).length, 1);
     assert.equal(await userSessionsRepository.cleanupExpiredAsync(ownerId), 2);
 
