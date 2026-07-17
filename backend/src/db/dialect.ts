@@ -5,7 +5,7 @@
  * 这里不尝试实现完整 SQL parser，只处理项目内高频且可确定的差异：
  * - ? 参数占位符；
  * - camelCase 标识符引用；
- * - datetime('now')；
+ * - datetime('now') 与 datetime(column)；
  * - INSERT OR IGNORE；
  * - 常见 BOOLEAN 条件中的 0/1。
  */
@@ -118,6 +118,17 @@ function convertNowExpressions(sql: string): string {
   return sql.replace(/datetime\s*\(\s*(['"])now\1\s*\)/gi, "NOW()");
 }
 
+/**
+ * SQLite 使用 datetime(column) 规范化文本时间；PostgreSQL 的 TIMESTAMPTZ
+ * 列可直接比较，因此去掉仅包裹单个标识符的 datetime()。
+ */
+function convertDatetimeColumnWrappers(sql: string): string {
+  return sql.replace(
+    /datetime\s*\(\s*((?:(?:[A-Za-z_][A-Za-z0-9_]*\.)?"[^"]+"|[A-Za-z_][A-Za-z0-9_.]*))\s*\)/gi,
+    "$1",
+  );
+}
+
 function convertBooleanPredicates(sql: string): string {
   const booleanName = "(?:enabled|disabled|is[A-Z][A-Za-z0-9_]*|has[A-Z][A-Za-z0-9_]*|can[A-Z][A-Za-z0-9_]*|must[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]+Enabled)";
   const identifier = `(?:"${booleanName}"|${booleanName})`;
@@ -163,6 +174,7 @@ export function convertSql(sql: string, dialect: DatabaseDialect): string {
   if (dialect === "sqlite") return sql;
 
   let converted = convertNowExpressions(sql);
+  converted = convertDatetimeColumnWrappers(converted);
   converted = convertInsertOrIgnore(converted);
   converted = convertBooleanPredicates(converted);
   converted = quoteCamelCaseIdentifiers(converted);
