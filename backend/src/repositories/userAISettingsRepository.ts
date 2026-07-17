@@ -5,7 +5,7 @@
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 import type { DatabaseAdapter } from "../db/adapters/types";
 
 export interface UserAISetting {
@@ -21,7 +21,7 @@ export interface UserAISettingEntry {
 }
 
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
 function requireUserId(userId: string): void {
