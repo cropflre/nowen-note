@@ -1,6 +1,10 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  registerAttachmentAccessUrls,
+  resetAttachmentAccessStateForTests,
+} from "@/lib/noteAttachmentAccessBridge";
 import { MarkdownPreview } from "../MarkdownPreview";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,11 +19,14 @@ vi.mock("@/components/MathView", () => ({
   ),
 }));
 
+const ATTACHMENT_ID = "123e4567-e89b-42d3-a456-426614174216";
+
 describe("MarkdownPreview task checkboxes", () => {
   let host: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    resetAttachmentAccessStateForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -77,5 +84,25 @@ describe("MarkdownPreview task checkboxes", () => {
     expect(host.querySelector('[data-math-preview="block"]')?.textContent).toBe("\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}");
     expect(host.querySelectorAll("[data-math-preview]")).toHaveLength(2);
     expect(host.textContent).toContain("not_math");
+  });
+
+  it("resolves signed attachment images inside the editable live preview without changing markdown", async () => {
+    const markdown = `![附件图片](/api/attachments/${ATTACHMENT_ID})`;
+    host.setAttribute("contenteditable", "true");
+    registerAttachmentAccessUrls(
+      {
+        [ATTACHMENT_ID]: `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=preview-signature&scope=v2.scope`,
+      },
+      `${window.location.origin}/api/attachments/access/urls?noteId=note-1`,
+    );
+
+    await act(async () => {
+      root.render(<MarkdownPreview markdown={markdown} />);
+    });
+
+    const image = host.querySelector<HTMLImageElement>("img");
+    expect(image).not.toBeNull();
+    expect(new URL(image!.src).searchParams.get("sig")).toBe("preview-signature");
+    expect(markdown).toBe(`![附件图片](/api/attachments/${ATTACHMENT_ID})`);
   });
 });

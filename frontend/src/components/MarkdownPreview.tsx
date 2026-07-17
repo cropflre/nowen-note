@@ -15,6 +15,7 @@ import { MathView } from "@/components/MathView";
 import { NoteLinkPreviewAnchor } from "@/components/NoteLinkPreview";
 import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
+import { resolveAttachmentUrl } from "@/lib/api";
 
 interface MarkdownPreviewProps {
   markdown: string;
@@ -157,16 +158,17 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
   if (!src) return null;
+  const resolvedSrc = resolveAttachmentUrl(src);
   if (failed) {
     return <span className="inline-flex items-center gap-1 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")}</span>;
   }
   return (
     <img
-      src={src}
+      src={resolvedSrc}
       alt={alt || ""}
       loading="lazy"
       className="my-4 block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
-      onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+      onClick={() => window.open(resolvedSrc, "_blank", "noopener,noreferrer")}
       onError={() => setFailed(true)}
     />
   );
