@@ -12,6 +12,24 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.3.9 - 2026-07-17
+
+### 🐛 修复
+
+- **release**: 发版前校验环境与登录状态 (bb7879a)
+
+### 🤖 CI
+
+- remove temporary PostgreSQL permissions validation (e4dd96e)
+- add temporary PostgreSQL permissions validation (91fbc00)
+
+### 🔧 其他
+
+- **ci**: remove temporary PostgreSQL batch B validator (162d9f6)
+- **ci**: expose latest PostgreSQL validation result (fa02ec7)
+- **ci**: validate PostgreSQL unified batch B (4939808)
+
+
 ## v1.3.8 - 2026-07-17
 
 ### ✨ 新增

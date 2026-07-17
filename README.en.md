@@ -160,6 +160,23 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.3.9 - 2026-07-17
+
+### 🐛 修复
+
+- **release**: 发版前校验环境与登录状态 (bb7879a)
+
+### 🤖 CI
+
+- remove temporary PostgreSQL permissions validation (e4dd96e)
+- add temporary PostgreSQL permissions validation (91fbc00)
+
+### 🔧 其他
+
+- **ci**: remove temporary PostgreSQL batch B validator (162d9f6)
+- **ci**: expose latest PostgreSQL validation result (fa02ec7)
+- **ci**: validate PostgreSQL unified batch B (4939808)
+
 ### v1.3.8 - 2026-07-17
 
 ### ✨ 新增
@@ -628,13 +645,5 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 
 - **search**: cover query normalization (#212) (b6168da)
 - **search**: cover reliable full-text retrieval (#212) (ee6ddde)
-
-### v1.3.4 - 2026-07-13
-
-### 🐛 修复
-
-- **桌面端**: 避免失效令牌登录循环 (e647d03)
-- **附件**: 为上传与文件列表签发访问地址 (d51d603)
-- **笔记**: 重命名时携带服务端版本 (69dbabe)
 
 <!-- CHANGELOG:END -->

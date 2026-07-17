@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-07-17T00:58:34.451Z",
+  "generatedAt": "2026-07-17T02:06:26.060Z",
   "entries": [
+    {
+      "version": "1.3.9",
+      "date": "2026-07-17",
+      "body": "### 🐛 修复\n\n- **release**: 发版前校验环境与登录状态 (bb7879a)\n\n### 🤖 CI\n\n- remove temporary PostgreSQL permissions validation (e4dd96e)\n- add temporary PostgreSQL permissions validation (91fbc00)\n\n### 🔧 其他\n\n- **ci**: remove temporary PostgreSQL batch B validator (162d9f6)\n- **ci**: expose latest PostgreSQL validation result (fa02ec7)\n- **ci**: validate PostgreSQL unified batch B (4939808)"
+    },
     {
       "version": "1.3.8",
       "date": "2026-07-17",
@@ -45,11 +50,6 @@
       "version": "1.3.0",
       "date": "2026-07-07",
       "body": "_本版本无可展示的 commit 变更（可能全部是合并 / 工作流修改）_"
-    },
-    {
-      "version": "1.2.9",
-      "date": "2026-07-07",
-      "body": "### ✨ 新增\n\n- support custom desktop data directory (#168) (82babec)"
     }
   ]
 }
