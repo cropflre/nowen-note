@@ -149,6 +149,7 @@ jobs:
           tests/postgres-adapter.test.ts
           tests/postgres-migrations.test.ts
           tests/repository-batch-a-pg.test.ts
+          tests/repository-batch-b-pg.test.ts
           tests/system-settings-repository-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
           tests/favorites-repository-pg.test.ts
