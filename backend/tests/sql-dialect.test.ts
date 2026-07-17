@@ -20,6 +20,16 @@ test("PostgreSQL conversion quotes camelCase and converts current time", () => {
   );
 });
 
+test("PostgreSQL conversion removes SQLite datetime wrappers around timestamp columns", () => {
+  assert.equal(
+    convertSql(
+      `SELECT id FROM user_sessions WHERE datetime("expiresAt") > datetime('now') AND datetime(s."lastSeenAt") <= datetime('now')`,
+      "postgres",
+    ),
+    `SELECT id FROM user_sessions WHERE "expiresAt" > NOW() AND s."lastSeenAt" <= NOW()`,
+  );
+});
+
 test("PostgreSQL conversion maps common boolean predicates", () => {
   assert.equal(
     convertSql(
