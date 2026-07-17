@@ -84,6 +84,7 @@ test("PG share and session repositories preserve SQLite-facing shapes", { skip }
     assert.equal(details?.notebookId, notebookId);
     assert.equal(typeof details?.createdAt, "string");
     assert.equal(await notebookShareLinksRepository.getEnabledByTokenAsync(`expired-token-${suffix}`), undefined);
+    await notebookShareLinksRepository.updateAsync(expiredLinkId, { enabled: 0 });
 
     await notebookShareLinksRepository.updateAsync(linkId, { enabled: 0 });
     assert.equal(await notebookShareLinksRepository.getEnabledByTokenAsync(`token-${suffix}`), undefined);
