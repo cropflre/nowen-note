@@ -1,0 +1,121 @@
+name: PostgreSQL Unified Validation
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  validate:
+    if: github.event.issue.number == 299 && github.event.issue.pull_request && github.event.comment.body == '/validate-pg-unified-batch-b'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout unified branch
+        uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Run validation matrix
+        id: validate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          : > /tmp/pg-validation-results.md
+          : > /tmp/pg-validation.log
+          overall=0
+
+          run_check() {
+            local name="$1"
+            shift
+            echo "===== $name =====" | tee -a /tmp/pg-validation.log
+            (cd backend && "$@") >> /tmp/pg-validation.log 2>&1
+            local code=$?
+            if [ "$code" -eq 0 ]; then
+              echo "- ✅ $name" >> /tmp/pg-validation-results.md
+            else
+              echo "- ❌ $name（exit $code）" >> /tmp/pg-validation-results.md
+              overall=1
+            fi
+          }
+
+          run_check "npm ci" npm ci --no-audit --no-fund
+          run_check "TypeScript" npm run build:tsc -- --noEmit
+          run_check "SQLite direct-access audit" npm run audit:sqlite-boundaries
+          run_check "PostgreSQL schema parity" npm run audit:pg-schema-parity
+          run_check "Runtime / SQL dialect tests" node --import tsx --test --test-concurrency=1 tests/database-runtime.test.ts tests/repository-runtime-provider.test.ts tests/sql-dialect.test.ts
+          run_check "Full SQLite regression" npm run test:serial
+          run_check "Real PostgreSQL tests" node --import tsx --test --test-concurrency=1 tests/postgres-adapter.test.ts tests/postgres-migrations.test.ts tests/repository-batch-a-pg.test.ts tests/repository-batch-b-pg.test.ts tests/system-settings-repository-pg.test.ts tests/custom-fonts-repository-pg.test.ts tests/favorites-repository-pg.test.ts tests/note-tags-repository-pg.test.ts
+          run_check "Production backend bundle" npm run build
+
+          echo "overall=$overall" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-unified-batch-b-${{ github.run_id }}
+          path: |
+            /tmp/pg-validation.log
+            /tmp/pg-validation-results.md
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Comment validation result
+        if: always()
+        shell: bash
+        run: |
+          status="${{ steps.validate.outputs.overall }}"
+          if [ "$status" = "0" ]; then
+            heading="## ✅ PostgreSQL Batch B validation passed"
+          else
+            heading="## ❌ PostgreSQL Batch B validation failed"
+          fi
+          {
+            echo "$heading"
+            echo
+            echo "Validated branch: \`pg-migration-unified\`"
+            echo "Validated head: \`${{ steps.validate.outputs.head }}\`"
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            cat /tmp/pg-validation-results.md
+          } > /tmp/pg-pr-comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/299/comments" -f body="$(cat /tmp/pg-pr-comment.md)"
+
+      - name: Enforce validation result
+        if: steps.validate.outputs.overall != '0'
+        run: exit 1
