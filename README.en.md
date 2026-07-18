@@ -7,6 +7,7 @@
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
+    <a href="https://nowen.cn/">Official Website</a> ·
     <a href="https://note.nowen.cn/">Live Demo</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
@@ -54,9 +55,10 @@
 | :---: | :---: | :---: |
 | ![Mobile sidebar](./docs/screenshots/mobile-sidebar.png) | ![Mobile list](./docs/screenshots/mobile-list.png) | ![Mobile editor](./docs/screenshots/mobile-editor.png) |
 
-## Live Demo
+## Official website and live demo
 
-- URL: <https://note.nowen.cn/>
+- Official website: <https://nowen.cn/>
+- Live demo: <https://note.nowen.cn/>
 - Username: `demo`
 - Password: `demo123456`
 

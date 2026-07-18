@@ -7,6 +7,7 @@
   </p>
   <p>
     <a href="./README.en.md">English</a> ·
+    <a href="https://nowen.cn/">官方网站</a> ·
     <a href="https://note.nowen.cn/">在线体验</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
@@ -54,9 +55,10 @@
 | :---: | :---: | :---: |
 | ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
 
-## 在线体验
+## 官网与在线体验
 
-- 地址：<https://note.nowen.cn/>
+- 官方网站：<https://nowen.cn/>
+- 在线体验：<https://note.nowen.cn/>
 - 账号：`demo`
 - 密码：`demo123456`
 
