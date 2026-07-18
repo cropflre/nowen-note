@@ -1,7 +1,15 @@
 export * from "./api.impl";
 
-import { api as baseApi, getBaseUrl, getCurrentWorkspace } from "./api.impl";
+import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
 import { invalidateNotebooks } from "./notebookInvalidation";
+import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
+import {
+  fetchJsonWithUploadDeadline,
+  IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
+  isElectronFullLocalRuntime,
+  LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+  UploadRequestError,
+} from "./uploadRequest";
 import type { Note, Task } from "@/types";
 
 export type TaskActivityEvent = {
@@ -86,7 +94,79 @@ async function confirmedNoteJson<T>(path: string, init: RequestInit): Promise<T>
   }
 }
 
+function isExplicitlyOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+function isDesktopFullLocalUploadRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return isElectronFullLocalRuntime(
+    getServerUrl(),
+    Boolean((window as any).nowenDesktop?.isDesktop),
+  );
+}
+
+function offlineUploadError(message: string): UploadRequestError {
+  return new UploadRequestError(message, {
+    code: "OFFLINE",
+    retryable: true,
+  });
+}
+
 const api = baseApi as EnhancedApi;
+
+// Multipart uploads intentionally bypass api.impl's JSON request() wrapper. Give both image
+// targets a hard deadline and a real AbortController so an unreachable NAS or image host can no
+// longer leave the editor lifecycle stuck in "uploading" indefinitely.
+api.imageHosting.upload = (async (file: File | Blob, source?: string) => {
+  if (isExplicitlyOffline()) {
+    throw offlineUploadError("当前处于离线状态，第三方图床不可用");
+  }
+  const token = localStorage.getItem("nowen-token");
+  const form = new FormData();
+  form.append("file", file);
+  if (source) form.append("source", source);
+  return fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.imageHosting.upload>>>(
+    `${getBaseUrl()}/image-hosting/upload`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    },
+    {
+      timeoutMs: IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
+      timeoutMessage: "图床上传超时，正在尝试本地存储",
+      httpErrorMessage: "图床上传失败",
+    },
+  );
+}) as typeof baseApi.imageHosting.upload;
+
+api.attachments.upload = (async (noteId: string, file: File) => {
+  if (isExplicitlyOffline() && !isDesktopFullLocalUploadRuntime()) {
+    throw offlineUploadError("当前处于离线状态，图片尚未上传；请恢复网络后重试");
+  }
+  const token = localStorage.getItem("nowen-token");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("noteId", noteId);
+  const fullUrl = `${getBaseUrl()}/attachments`;
+  const payload = await fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.attachments.upload>>>(
+    fullUrl,
+    {
+      method: "POST",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    },
+    {
+      timeoutMs: LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
+      httpErrorMessage: "附件上传失败",
+    },
+  );
+  registerAttachmentAccessUrls(payload.accessUrls, fullUrl);
+  return payload;
+}) as typeof baseApi.attachments.upload;
 
 const nativeMoveNotebook = baseApi.moveNotebook.bind(baseApi);
 const nativeReorderNotebooks = baseApi.reorderNotebooks.bind(baseApi);

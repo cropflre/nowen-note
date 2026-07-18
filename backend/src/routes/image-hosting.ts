@@ -14,6 +14,11 @@ import {
   isImageHostingEnabled,
   type WriteImageHostingConfigInput,
 } from "../services/image-hosting";
+import {
+  deleteImageHostingFallbackPolicy,
+  readImageHostingFallbackToLocal,
+  writeImageHostingFallbackToLocal,
+} from "../services/image-hosting-policy";
 import { isSystemAdmin } from "../middleware/acl";
 
 const app = new Hono();
@@ -23,6 +28,13 @@ const ALLOWED_MIMES = new Set([
 ]);
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+
+function readPublicConfigWithPolicy() {
+  return {
+    ...readImageHostingConfigPublic(),
+    fallbackToLocal: readImageHostingFallbackToLocal(),
+  };
+}
 
 /**
  * GET /api/image-hosting/config
@@ -34,7 +46,7 @@ app.get("/config", (c) => {
   if (!isSystemAdmin(userId)) {
     return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
   }
-  return c.json(readImageHostingConfigPublic());
+  return c.json(readPublicConfigWithPolicy());
 });
 
 /**
@@ -63,8 +75,9 @@ app.put("/config", async (c) => {
     allowedTypes: body.allowedTypes || ["image/png", "image/jpeg", "image/gif", "image/webp"],
   };
 
-  const result = writeImageHostingConfig(input);
-  return c.json(result);
+  writeImageHostingConfig(input);
+  writeImageHostingFallbackToLocal(body.fallbackToLocal !== false);
+  return c.json(readPublicConfigWithPolicy());
 });
 
 /**
@@ -76,7 +89,9 @@ app.delete("/config", (c) => {
   if (!isSystemAdmin(userId)) {
     return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
   }
-  return c.json(deleteImageHostingConfig());
+  deleteImageHostingConfig();
+  deleteImageHostingFallbackPolicy();
+  return c.json(readPublicConfigWithPolicy());
 });
 
 /**
@@ -146,15 +161,19 @@ app.post("/upload", async (c) => {
     size: result.size,
     mimeType: result.mimeType,
     uploadSource: "third-party-image-hosting",
+    source,
   });
 });
 
 /**
  * GET /api/image-hosting/status
- * 检查图床是否启用（公开接口，不需要管理员权限）
+ * 检查图床是否启用，并下发不含敏感信息的失败回退策略。
  */
 app.get("/status", (c) => {
-  return c.json({ enabled: isImageHostingEnabled() });
+  return c.json({
+    enabled: isImageHostingEnabled(),
+    fallbackToLocal: readImageHostingFallbackToLocal(),
+  });
 });
 
 export default app;

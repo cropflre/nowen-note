@@ -28,6 +28,7 @@ interface ImageHostingConfig {
   usePathStyle: boolean;
   maxFileSizeMb: number;
   allowedTypes: string[];
+  fallbackToLocal: boolean;
   updatedAt: string | null;
 }
 
@@ -67,6 +68,7 @@ export default function ImageHostingSettings() {
       setFormPathPrefix(data.pathPrefix);
       setFormUsePathStyle(data.usePathStyle);
       setFormMaxFileSizeMb(data.maxFileSizeMb);
+      setFormFallbackToLocal(data.fallbackToLocal !== false);
       setFormSecretAccessKey(""); // 不回填密钥
     } catch (e: any) {
       console.warn("[ImageHostingSettings] load failed:", e);
@@ -93,8 +95,10 @@ export default function ImageHostingSettings() {
         usePathStyle: formUsePathStyle,
         maxFileSizeMb: formMaxFileSizeMb,
         allowedTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+        fallbackToLocal: formFallbackToLocal,
       });
       setConfig(result);
+      setFormFallbackToLocal(result.fallbackToLocal !== false);
       setFormSecretAccessKey(""); // 清空密钥输入
       toast.success(t("imageHosting.configSaved"));
     } catch (e: any) {
