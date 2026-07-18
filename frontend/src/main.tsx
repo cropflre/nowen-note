@@ -43,6 +43,7 @@ import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportF
 import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
 import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
+import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
 
 function removeBootSplash() {
   try {
@@ -67,6 +68,9 @@ function BootSplashRemover() {
 // updateAttributes/deleteNode. Install the process-wide guard before rendering
 // any editor so locked notebooks cannot be mutated by NodeView toolbars.
 installNodeViewMutationGuard();
+// MediaExperienceBridge listens on document capture. Install the scope guard on window capture
+// first so Diary/Task/avatar media controls keep their own upload flows on mobile.
+installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
 // Collapse the duplicate Android cold-start collection reads into one compact native response.
 // The bridge is Android-only and transparently falls back to the original APIs when unavailable.
