@@ -7,8 +7,8 @@
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
-    <a href="https://nowen.cn/">Official Website</a> ·
-    <a href="https://note.nowen.cn/">Live Demo</a> ·
+    <a href="http://nowen.cn/">Official Website</a> ·
+    <a href="http://note.nowen.cn/">Live Demo</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
     <a href="./CHANGELOG.md">Changelog</a>
@@ -25,7 +25,7 @@
 
 </div>
 
-> Nowen Note is more than an editor. It is designed as a private knowledge infrastructure that you control, can run long-term on a server or NAS, and can access from desktop and mobile clients.
+> Nowen Note is more than an editor. It is designed as private knowledge infrastructure that you control, can run long-term on a server or NAS, and can access from desktop and mobile clients.
 
 ## Highlights
 
@@ -35,7 +35,7 @@
 | **Knowledge organization** | Unlimited notebook hierarchy, colored tags, favorites, trash, full-text search, backlinks, block references, and a knowledge graph |
 | **Task management** | Tree tasks, list, Kanban, calendar, Gantt/timeline, dependencies, recurring rules, reminders, templates, and AI task breakdown |
 | **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama; writing tools, title/tag generation, summaries, embeddings, and RAG Q&A |
-| **Collaboration and publishing** | Yjs + WebSocket real-time sync, workspaces, member roles, password/expiry protected sharing, guest comments, and public knowledge spaces |
+| **Collaboration and publishing** | Yjs + WebSocket real-time sync, workspaces, member roles, password/expiry-protected sharing, guest comments, and public knowledge spaces |
 | **Import and export** | Migration paths for Markdown, Word/DOCX, Obsidian Vault, WeChat Favorites, and more; exports to Markdown, PDF, Word, PNG, and JPG |
 | **Files and storage** | Local attachments organized by `YYYY/MM`, thumbnails, reference checks, orphan cleanup, S3/R2/MinIO, and third-party image hosting |
 | **Automation and developer tools** | Automatic and email backups, Webhooks, audit logs, plugins, OpenAPI, TypeScript SDK, CLI, MCP Server, and a browser clipper |
@@ -57,8 +57,8 @@
 
 ## Official website and live demo
 
-- Official website: <https://nowen.cn/>
-- Live demo: <https://note.nowen.cn/>
+- Official website: <http://nowen.cn/>
+- Live demo: <http://note.nowen.cn/>
 - Username: `demo`
 - Password: `demo123456`
 
@@ -152,7 +152,7 @@ The persistent container path is **`/app/data`**, not `/data`. The default Compo
 
 ### Common environment variables
 
-Most deployments do not need custom values. See [`.env.example`](./.env.example) for the complete template.
+See [`.env.example`](./.env.example) for the complete template.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -191,11 +191,7 @@ Requires Node.js 20+, npm, and Git. Electron/native dependencies also require th
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
 cd nowen-note
-
-# Root dependencies for Electron, Capacitor, and build scripts
 npm install
-
-# Frontend/backend dependencies and native module rebuild
 npm run install:all
 ```
 
@@ -263,6 +259,9 @@ nowen-note/
 ## Documentation
 
 - [Tutorial center](./docs/tutorials/README.md)
+- [Online feature help center](http://nowen.cn/docs/nowen-note-features)
+- [Online installation and troubleshooting](http://nowen.cn/docs/nowen-note-help)
+- [Online API documentation](http://nowen.cn/docs/nowen-note-api)
 - [Complete deployment guide](./docs/deployment.md)
 - [Docker online update and recovery](./docs/docker-online-update.md)
 - [Attachment object storage](./docs/object-storage.md)
