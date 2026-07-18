@@ -7,8 +7,8 @@
   </p>
   <p>
     <a href="./README.en.md">English</a> ·
-    <a href="https://nowen.cn/">官方网站</a> ·
-    <a href="https://note.nowen.cn/">在线体验</a> ·
+    <a href="http://nowen.cn/">官方网站</a> ·
+    <a href="http://note.nowen.cn/">在线体验</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
     <a href="./CHANGELOG.md">更新日志</a>
@@ -57,8 +57,8 @@
 
 ## 官网与在线体验
 
-- 官方网站：<https://nowen.cn/>
-- 在线体验：<https://note.nowen.cn/>
+- 官方网站：<http://nowen.cn/>
+- 在线体验：<http://note.nowen.cn/>
 - 账号：`demo`
 - 密码：`demo123456`
 
@@ -119,8 +119,6 @@ NOWEN_IMAGE_TAG=vX.Y.Z docker compose --profile updater up -d
 
 ### 仅运行主应用
 
-不需要在线升级时，也可以直接运行镜像：
-
 ```bash
 docker run -d \
   --name nowen-note \
@@ -136,8 +134,6 @@ docker run -d \
 ### 持久化目录
 
 容器内的持久化根目录是 **`/app/data`**，不是 `/data`。默认 Compose 使用名为 `nowen-note-data` 的 Docker Volume。
-
-典型内容：
 
 ```text
 /app/data/
@@ -156,7 +152,7 @@ docker run -d \
 
 ### 常用环境变量
 
-绝大多数变量都不是必填项，完整模板见 [`.env.example`](./.env.example)。
+完整模板见 [`.env.example`](./.env.example)。
 
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -195,11 +191,7 @@ docker run -d \
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
 cd nowen-note
-
-# 根目录依赖（Electron、Capacitor、构建脚本）
 npm install
-
-# 安装前后端依赖并重建原生模块
 npm run install:all
 ```
 
@@ -267,6 +259,9 @@ nowen-note/
 ## 文档导航
 
 - [教程中心](./docs/tutorials/README.md)
+- [官网功能帮助中心](http://nowen.cn/docs/nowen-note-features)
+- [官网安装与问题解答](http://nowen.cn/docs/nowen-note-help)
+- [官网 API 文档](http://nowen.cn/docs/nowen-note-api)
 - [完整部署指南](./docs/deployment.md)
 - [Docker 在线升级与恢复](./docs/docker-online-update.md)
 - [附件对象存储](./docs/object-storage.md)
