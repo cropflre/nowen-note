@@ -57,8 +57,12 @@ async function copySecret(password: string): Promise<boolean> {
   }
 }
 
+function fallbackElement(iframe: HTMLIFrameElement): HTMLElement | null {
+  return iframe.parentElement?.querySelector<HTMLElement>(`:scope > .${FALLBACK_CLASS}`) || null;
+}
+
 function createFallback(iframe: HTMLIFrameElement, password: string): HTMLElement {
-  const existing = iframe.parentElement?.querySelector<HTMLElement>(`:scope > .${FALLBACK_CLASS}`);
+  const existing = fallbackElement(iframe);
   if (existing) return existing.querySelector<HTMLElement>("[data-nowen-embed-password-status]") || existing;
 
   const fallback = document.createElement("div");
@@ -96,10 +100,9 @@ function applySafeSandbox(record: EmbedRecord): void {
   // A same-origin frame with both scripts and allow-same-origin can remove its own
   // sandbox. Only Nowen-controlled embed routes keep scripts; ordinary same-origin
   // pages remain inspectable for a static password field but cannot execute scripts.
-  if (!isControlledSameOriginEmbed(record.resolved, window.location.origin)) {
-    tokens.delete("allow-scripts");
-  }
-  record.iframe.setAttribute("sandbox", Array.from(tokens).join(" "));
+  if (!isControlledSameOriginEmbed(record.resolved, window.location.origin)) tokens.delete("allow-scripts");
+  const next = Array.from(tokens).join(" ");
+  if (record.iframe.getAttribute("sandbox") !== next) record.iframe.setAttribute("sandbox", next);
 }
 
 function sendOffer(record: EmbedRecord): void {
@@ -162,6 +165,14 @@ function bindIframe(iframe: HTMLIFrameElement): void {
   window.setTimeout(() => tryApplyPassword(record), 0);
 }
 
+function resetIframe(iframe: HTMLIFrameElement): void {
+  const old = records.get(iframe);
+  if (old) pending.delete(old.requestId);
+  records.delete(iframe);
+  fallbackElement(iframe)?.remove();
+  iframe.removeAttribute(BOUND_ATTR);
+}
+
 function reconcile(root: ParentNode = document): void {
   root.querySelectorAll<HTMLIFrameElement>(".nowen-md-preview iframe").forEach(bindIframe);
 }
@@ -191,7 +202,11 @@ function handleHandshake(event: MessageEvent): void {
 
   if (data.type === "nowen:embed-password-applied") {
     pending.delete(record.requestId);
-    setStatus(record, data.success === false ? "页面未能填写，请复制密码后手动输入" : "嵌入页面已确认填写（未自动提交）", data.success === false ? "fallback" : "success");
+    setStatus(
+      record,
+      data.success === false ? "页面未能填写，请复制密码后手动输入" : "嵌入页面已确认填写（未自动提交）",
+      data.success === false ? "fallback" : "success",
+    );
   }
 }
 
@@ -202,9 +217,12 @@ export default function EmbedPasswordBridge() {
     const observer = new MutationObserver((entries) => {
       for (const entry of entries) {
         if (entry.type === "attributes" && entry.target instanceof HTMLIFrameElement) {
-          const old = records.get(entry.target);
-          if (old) pending.delete(old.requestId);
-          entry.target.removeAttribute(BOUND_ATTR);
+          if (entry.attributeName === "sandbox") {
+            const record = records.get(entry.target);
+            if (record) applySafeSandbox(record);
+            continue;
+          }
+          resetIframe(entry.target);
           bindIframe(entry.target);
           continue;
         }
@@ -219,7 +237,7 @@ export default function EmbedPasswordBridge() {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["src"],
+      attributeFilter: ["src", "sandbox"],
     });
     return () => {
       observer.disconnect();
