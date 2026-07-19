@@ -4,6 +4,10 @@ import { api } from "@/lib/api";
 import { NOTEBOOKS_INVALIDATED_EVENT } from "@/lib/notebookInvalidation";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
+import {
+  mergeAuthoritativeNotebooks,
+  replaceOptimisticNotebook,
+} from "@/lib/notebookCreateState";
 
 export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline" | "queued";
 export type MobileView = "list" | "editor";
@@ -62,6 +66,10 @@ interface AppState {
 
 type Action =
   | { type: "SET_NOTEBOOKS"; payload: Notebook[] }
+  | { type: "ADD_NOTEBOOK"; payload: Notebook }
+  | { type: "REPLACE_NOTEBOOK"; payload: { id: string; notebook: Notebook } }
+  | { type: "UPDATE_NOTEBOOK"; payload: Partial<Notebook> & { id: string } }
+  | { type: "REMOVE_NOTEBOOK"; payload: string }
   | { type: "SET_NOTES"; payload: NoteListItem[] }
   | { type: "SET_ACTIVE_NOTE"; payload: Note | null }
   | { type: "SET_TAGS"; payload: Tag[] }
@@ -184,7 +192,30 @@ export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELI
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "SET_NOTEBOOKS":
-      return { ...state, notebooks: action.payload };
+      return {
+        ...state,
+        notebooks: mergeAuthoritativeNotebooks(state.notebooks, action.payload),
+      };
+    case "ADD_NOTEBOOK":
+      if (state.notebooks.some((notebook) => notebook.id === action.payload.id)) return state;
+      return { ...state, notebooks: [...state.notebooks, action.payload] };
+    case "REPLACE_NOTEBOOK": {
+      const notebooks = replaceOptimisticNotebook(
+        state.notebooks,
+        action.payload.id,
+        action.payload.notebook,
+      );
+      return notebooks === state.notebooks ? state : { ...state, notebooks };
+    }
+    case "UPDATE_NOTEBOOK":
+      return {
+        ...state,
+        notebooks: state.notebooks.map((notebook) =>
+          notebook.id === action.payload.id ? { ...notebook, ...action.payload } : notebook
+        ),
+      };
+    case "REMOVE_NOTEBOOK":
+      return { ...state, notebooks: state.notebooks.filter((notebook) => notebook.id !== action.payload) };
     case "SET_NOTES":
       return { ...state, notes: action.payload };
     case "SET_ACTIVE_NOTE":
@@ -417,6 +448,10 @@ export function useAppActions() {
   // 从而避免保存期间频繁 dispatch 导致的编辑器状态抖动（如光标跳行）。
   return useMemo(() => ({
     setNotebooks: (v: Notebook[]) => dispatch({ type: "SET_NOTEBOOKS", payload: v }),
+    addNotebook: (v: Notebook) => dispatch({ type: "ADD_NOTEBOOK", payload: v }),
+    replaceNotebook: (id: string, notebook: Notebook) => dispatch({ type: "REPLACE_NOTEBOOK", payload: { id, notebook } }),
+    updateNotebook: (v: Partial<Notebook> & { id: string }) => dispatch({ type: "UPDATE_NOTEBOOK", payload: v }),
+    removeNotebook: (id: string) => dispatch({ type: "REMOVE_NOTEBOOK", payload: id }),
     setNotes: (v: NoteListItem[]) => dispatch({ type: "SET_NOTES", payload: v }),
     setActiveNote: (v: Note | null) => dispatch({ type: "SET_ACTIVE_NOTE", payload: v }),
     setTags: (v: Tag[]) => dispatch({ type: "SET_TAGS", payload: v }),

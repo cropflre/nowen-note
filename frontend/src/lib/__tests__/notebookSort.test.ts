@@ -5,6 +5,9 @@ import {
   compareNotebooks,
   getNotebookDropZone,
   getNotebookDragHint,
+  notebookTreeContainsId,
+  notebookTreeMapChanged,
+  notebookTreeSetChanged,
   normalizeNotebookSortPref,
   reorderNotebooksForDrop,
 } from "@/lib/notebookSort";
@@ -95,6 +98,45 @@ describe("buildNotebookTree", () => {
 
     expect(buildNotebookTree(source, { by: "manual", dir: "desc" }).map((nb) => nb.id)).toEqual(["a", "b"]);
     expect(source[0].children).toBeUndefined();
+  });
+});
+
+describe("notebook subtree memo boundaries", () => {
+  const tree = buildNotebookTree([
+    notebook("root"),
+    notebook("child", { parentId: "root" }),
+    notebook("grandchild", { parentId: "child" }),
+  ])[0];
+
+  it("finds editing and selection ids below the current memoized row", () => {
+    expect(notebookTreeContainsId(tree, "grandchild")).toBe(true);
+    expect(notebookTreeContainsId(tree, "other-root")).toBe(false);
+  });
+
+  it("detects a changed create operation in a descendant only", () => {
+    const operation = { status: "pending" };
+    for (const nextOperation of [
+      { status: "confirmed" },
+      { status: "failed" },
+      { status: "pending", retry: 1 },
+      undefined,
+    ]) {
+      expect(notebookTreeMapChanged(
+        tree,
+        new Map([["grandchild", operation]]),
+        nextOperation ? new Map([["grandchild", nextOperation]]) : new Map(),
+      )).toBe(true);
+    }
+    expect(notebookTreeMapChanged(
+      tree,
+      new Map([["other-root", operation]]),
+      new Map([["other-root", { status: "confirmed" }]]),
+    )).toBe(false);
+  });
+
+  it("detects descendant loading membership without invalidating unrelated branches", () => {
+    expect(notebookTreeSetChanged(tree, new Set(), new Set(["child"]))).toBe(true);
+    expect(notebookTreeSetChanged(tree, new Set(), new Set(["other-root"]))).toBe(false);
   });
 });
 

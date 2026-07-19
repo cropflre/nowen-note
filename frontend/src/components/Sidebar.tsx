@@ -62,17 +62,49 @@ import {
   getNotebookDragHint,
   getNotebookSortPrefForParent,
   notebookSortKey,
+  notebookTreeContainsId,
+  notebookTreeMapChanged,
+  notebookTreeSetChanged,
   normalizeNotebookSortPref,
   reorderNotebooksForDrop,
+  reuseNotebookTreeReferences,
   ROOT_NOTEBOOK_SORT_KEY,
   type NotebookDropZone,
   type NotebookSortBy,
   type NotebookSortPref,
   type NotebookSortPrefMap,
 } from "@/lib/notebookSort";
+import {
+  cleanupCancelledNotebook,
+  createOptimisticNotebook,
+  EMPTY_NOTEBOOK_CREATE_STATE,
+  findNotebookCreateOperation,
+  isTemporaryNotebookId,
+  notebookCreateReducer,
+  TEMP_NOTEBOOK_ID_PREFIX,
+  withoutTemporaryNotebooks,
+  type NotebookCreateAction,
+  type NotebookCreateOperation,
+  type NotebookCreateState,
+} from "@/lib/notebookCreateState";
 import { SIDEBAR_TREE_INDENT, sidebarNotebookDisclosureChrome, sidebarNotebookPaddingLeft, sidebarNotebookRowPaddingY, sidebarNotebookShowsDragHandle, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
+import {
+  forgetPhaseBCreateTrace,
+  installPhaseBBrowserInteractionObserver,
+  installPhaseBLongTaskObserver,
+  PHASE_B_PERF_ENABLED,
+  recordPhaseBPerfEvent,
+  rememberPhaseBCreateTrace,
+  takePhaseBCreateTrace,
+} from "@/lib/phaseBPerfDiagnostics";
 
 const NOTEBOOK_SORT_STORAGE_KEY = "nowen.notebookTree.sort";
+
+function useStableEvent<Args extends unknown[], Result>(handler: (...args: Args) => Result) {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+  return useCallback((...args: Args) => handlerRef.current(...args), []);
+}
 
 function loadNotebookSortPrefs(): NotebookSortPrefMap {
   try {
@@ -199,7 +231,7 @@ function MoveNotebookModal({
   };
   collect(notebook.id);
 
-  const tree = buildNotebookTree(allNotebooks);
+  const tree = buildNotebookTree(withoutTemporaryNotebooks(allNotebooks));
   const currentParentId = notebook.parentId ?? null;
   // 有效选中目标（包含 root）
   const selectedTarget: string | null | undefined =
@@ -500,6 +532,7 @@ function NotebookItem({
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
   onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onNoteItemDragOver, onNoteItemDrop,
   onCreateNote, onCreateMarkdownNote, onCreateWordNote,
+  createOperations, onRetryCreate, onCancelCreate,
   constrainWidth = false,
   showNoteTime = true,
 }: {
@@ -547,10 +580,20 @@ function NotebookItem({
   onCreateNote?: NotebookCreateHandler;
   onCreateMarkdownNote?: NotebookCreateHandler;
   onCreateWordNote?: NotebookCreateHandler;
+  createOperations?: ReadonlyMap<string, NotebookCreateOperation>;
+  onRetryCreate?: (operationId: string) => void;
+  onCancelCreate?: (operationId: string) => void;
   constrainWidth?: boolean;
   showNoteTime?: boolean;
 }) {
   const { t } = useTranslation();
+  if (PHASE_B_PERF_ENABLED) {
+    recordPhaseBPerfEvent({
+      type: "notebook-item-render",
+      notebookId: notebook.id,
+      detail: { depth },
+    });
+  }
   const isSelected = selectedId === notebook.id;
   const hasChildren = notebook.children && notebook.children.length > 0;
   const notesLoading = !!loadingNotebookIds?.has(notebook.id);
@@ -564,13 +607,16 @@ function NotebookItem({
   const hasExpandableContent = hasChildren || hasNotes;
   const isExpanded = notebook.isExpanded === 1;
   const isEditing = editingId === notebook.id;
-  const rowDraggable = canDragInParent ? canDragInParent(notebook.parentId ?? null) : !!draggable;
+  const createOperation = createOperations?.get(notebook.id);
+  const rowDraggable = !createOperation
+    && (canDragInParent ? canDragInParent(notebook.parentId ?? null) : !!draggable);
   const isDragOver = dragOverId === notebook.id;
   const isNoteDragOver = noteDragOverId === notebook.id;
   const showBeforeIndicator = isDragOver && dragOverZone === "before";
   const showInsideIndicator = isDragOver && dragOverZone === "inside";
   const showAfterIndicator = isDragOver && dragOverZone === "after";
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelEditRef = useRef(false);
   const iconRef = useRef<HTMLButtonElement>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
@@ -613,8 +659,16 @@ function NotebookItem({
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
+      const traceId = takePhaseBCreateTrace(notebook.id);
+      if (traceId) {
+        recordPhaseBPerfEvent({
+          type: "create-input-focused",
+          notebookId: notebook.id,
+          detail: { traceId },
+        });
+      }
     }
-  }, [isEditing]);
+  }, [isEditing, notebook.id]);
 
   const getIconPickerPos = () => {
     if (iconRef.current) {
@@ -652,11 +706,11 @@ function NotebookItem({
           paddingBottom: `${sidebarNotebookRowPaddingY(constrainWidth)}px`,
           minWidth: constrainWidth ? undefined : `${sidebarTreeRowMinWidth(depth)}px`,
         }}
-        onClick={() => onSelect(notebook.id)}
-        onContextMenu={(e) => onContextMenu(e, notebook.id)}
+        onClick={() => { if (!createOperation) onSelect(notebook.id); }}
+        onContextMenu={(e) => { if (!createOperation) onContextMenu(e, notebook.id); }}
         title={!rowDraggable ? dragHint : undefined}
         onTouchStart={(e) => {
-          if (isEditing || !onLongPress) return;
+          if (isEditing || createOperation || !onLongPress) return;
           const touch = e.touches[0];
           if (!touch) return;
           longPressStart.current = { x: touch.clientX, y: touch.clientY };
@@ -689,6 +743,7 @@ function NotebookItem({
         // 因此用 `as any` 绕过 TS 的手势签名约束，运行时行为与原生 DnD 一致。
         onDragStart={((e: React.DragEvent) => { e.stopPropagation(); onDragStart?.(e, notebook.id); }) as any}
         onDragOver={((e: React.DragEvent) => {
+          if (createOperation) return;
           e.preventDefault();
           e.stopPropagation();
           if (e.dataTransfer.types.includes("application/x-nowen-note")) {
@@ -699,6 +754,7 @@ function NotebookItem({
         }) as any}
         onDragEnd={() => onDragEnd?.()}
         onDrop={(e: React.DragEvent) => {
+          if (createOperation) return;
           e.preventDefault();
           e.stopPropagation();
           if (e.dataTransfer.types.includes("application/x-nowen-note")) {
@@ -744,6 +800,7 @@ function NotebookItem({
           <button
             ref={iconRef}
             onClick={(e) => { e.stopPropagation(); setShowIconPicker(true); }}
+            disabled={!!createOperation}
             className="text-base hover:scale-125 transition-transform shrink-0"
             title={t("sidebar.changeIcon")}
           >
@@ -766,10 +823,23 @@ function NotebookItem({
             value={editValue}
             onChange={(e) => onEditChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") onEditSubmit();
-              if (e.key === "Escape") onEditCancel();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEditRef.current = true;
+                onEditCancel();
+              }
             }}
-            onBlur={onEditSubmit}
+            onBlur={() => {
+              if (cancelEditRef.current) {
+                cancelEditRef.current = false;
+                return;
+              }
+              onEditSubmit();
+            }}
             className="flex-1 text-sm bg-transparent border border-accent-primary/50 rounded px-1 py-0 outline-none text-tx-primary"
             onClick={(e) => e.stopPropagation()}
           />
@@ -781,7 +851,7 @@ function NotebookItem({
                 <span className="text-[10px] text-tx-tertiary tabular-nums shrink-0">{notebook.noteCount}</span>
               )}
             </span>
-            {showNotes && onCreateNote && (
+            {showNotes && onCreateNote && !createOperation && (
               <div className={cn(
                 "sticky right-1 ml-auto flex shrink-0 items-center gap-0.5 rounded-md bg-app-sidebar/95 pl-1",
                 sortMenuOpenId === notebook.id ? "z-[90]" : "z-10"
@@ -833,6 +903,33 @@ function NotebookItem({
             )}
           </>
         )}
+        {createOperation?.status === "pending" && (
+          <span className="shrink-0 text-[10px] text-tx-tertiary" aria-label="正在创建">…</span>
+        )}
+        {createOperation?.status === "failed" && (
+          <span className="shrink-0 flex items-center gap-1" title={createOperation.error}>
+            <button
+              type="button"
+              className="text-[10px] text-accent-primary hover:underline"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetryCreate?.(createOperation.operationId);
+              }}
+            >
+              重试
+            </button>
+            <button
+              type="button"
+              className="text-[10px] text-danger hover:underline"
+              onClick={(event) => {
+                event.stopPropagation();
+                onCancelCreate?.(createOperation.operationId);
+              }}
+            >
+              取消
+            </button>
+          </span>
+        )}
       </motion.div>
       {showAfterIndicator && (
         <div
@@ -854,7 +951,7 @@ function NotebookItem({
               style={{ left: `${depth * SIDEBAR_TREE_INDENT + 35}px` }}
             />
             {notebook.children!.map((child) => (
-              <NotebookItem
+              <MemoizedNotebookItem
                 key={child.id}
                 notebook={child}
                 depth={depth + 1}
@@ -903,6 +1000,9 @@ function NotebookItem({
                   onCreateMarkdownNote,
                   onCreateWordNote,
                 })}
+                createOperations={createOperations}
+                onRetryCreate={onRetryCreate}
+                onCancelCreate={onCancelCreate}
                 constrainWidth={constrainWidth}
                 showNoteTime={showNoteTime}
               />
@@ -931,6 +1031,48 @@ function NotebookItem({
   );
 }
 
+const MemoizedNotebookItem = React.memo(NotebookItem, (previous, next) => {
+  if (previous.notebook !== next.notebook) return false;
+  if (previous.selectedId !== next.selectedId
+    && (notebookTreeContainsId(next.notebook, previous.selectedId)
+      || notebookTreeContainsId(next.notebook, next.selectedId))) return false;
+  if (previous.editingId !== next.editingId
+    && (notebookTreeContainsId(next.notebook, previous.editingId)
+      || notebookTreeContainsId(next.notebook, next.editingId))) return false;
+  if (previous.editValue !== next.editValue
+    && (notebookTreeContainsId(next.notebook, previous.editingId)
+      || notebookTreeContainsId(next.notebook, next.editingId))) return false;
+  if (notebookTreeMapChanged(
+    next.notebook,
+    previous.notesByNotebookId,
+    next.notesByNotebookId,
+  )) return false;
+  if (notebookTreeSetChanged(
+    next.notebook,
+    previous.loadingNotebookIds,
+    next.loadingNotebookIds,
+  )) return false;
+  if (notebookTreeMapChanged(
+    next.notebook,
+    previous.createOperations,
+    next.createOperations,
+  )) return false;
+
+  const ignored = new Set([
+    "notebook",
+    "selectedId",
+    "editingId",
+    "editValue",
+    "notesByNotebookId",
+    "loadingNotebookIds",
+    "createOperations",
+  ]);
+  for (const key of Object.keys(previous) as Array<keyof typeof previous>) {
+    if (!ignored.has(key) && previous[key] !== next[key]) return false;
+  }
+  return true;
+});
+
 // 笔记本右键菜单项 - 在组件内使用 t() 动态生成
 
 /**
@@ -956,6 +1098,20 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const { t } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
   const showNotesInNotebookTree = userPrefs.showNotesInNotebookTree;
+  if (PHASE_B_PERF_ENABLED) {
+    recordPhaseBPerfEvent({
+      type: "sidebar-render",
+      detail: { notebookCount: state.notebooks.length, variant },
+    });
+  }
+  useEffect(() => {
+    if (!PHASE_B_PERF_ENABLED) return;
+    return installPhaseBLongTaskObserver();
+  }, []);
+  useEffect(() => {
+    if (!PHASE_B_PERF_ENABLED) return;
+    return installPhaseBBrowserInteractionObserver();
+  }, []);
   // v16 P3 后续：Rail 三档视觉模式（icon / label / hidden），仅桌面变体使用。
   // 入口约定：Sidebar Header 那个按钮 = 循环切换到下一档，tooltip 提示下一档是什么。
   // 约束（在 App.tsx 实施）：sidebarCollapsed=true 时即便 mode=hidden 也强制显示 Rail，
@@ -1005,6 +1161,17 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   });
   const [sharedNotebooks, setSharedNotebooks] = useState<Notebook[]>([]);
+  const createTraceSequenceRef = useRef(0);
+
+  const beginCreatePerfTrace = useCallback((parentId: string | null) => {
+    if (!PHASE_B_PERF_ENABLED) return undefined;
+    const traceId = `create-${++createTraceSequenceRef.current}`;
+    recordPhaseBPerfEvent({
+      type: "create-click",
+      detail: { traceId, parentId: parentId ?? "root" },
+    });
+    return traceId;
+  }, []);
 
   // v15 信息架构改造前：导航区是一个可折叠的扁平 8 项列表（与笔记本/标签的折叠策略一致），
   // 用 navExpanded + nowen-nav-expanded localStorage 控制。改造后导航被拆为
@@ -1117,6 +1284,53 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   // 重命名状态
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const editingIdRef = useRef<string | null>(null);
+  editingIdRef.current = editingId;
+  const [createOperations, setCreateOperations] = useState<NotebookCreateState>(
+    EMPTY_NOTEBOOK_CREATE_STATE,
+  );
+  const createOperationsRef = useRef<NotebookCreateState>(EMPTY_NOTEBOOK_CREATE_STATE);
+  const cancelledCreateOperationsRef = useRef(new Set<string>());
+  const sidebarMountedRef = useRef(true);
+  const updateCreateOperation = useCallback((action: NotebookCreateAction) => {
+    const next = notebookCreateReducer(createOperationsRef.current, action);
+    createOperationsRef.current = next;
+    if (sidebarMountedRef.current) setCreateOperations(next);
+    return next;
+  }, []);
+  const createOperationsByNotebookId = useMemo(() => {
+    const result = new Map<string, NotebookCreateOperation>();
+    Object.values(createOperations).forEach((operation) => {
+      result.set(operation.tempId, operation);
+      if (operation.serverId) result.set(operation.serverId, operation);
+    });
+    return result;
+  }, [createOperations]);
+  useEffect(() => {
+    sidebarMountedRef.current = true;
+    return () => {
+      sidebarMountedRef.current = false;
+      Object.values(createOperationsRef.current).forEach((operation) => {
+        forgetPhaseBCreateTrace(operation.tempId);
+      });
+    };
+  }, []);
+  useEffect(() => {
+    const removePendingRowsFromPreviousWorkspace = () => {
+      Object.values(createOperationsRef.current).forEach((operation) => {
+        actions.removeNotebook(operation.tempId);
+        forgetPhaseBCreateTrace(operation.tempId);
+        if (operation.status !== "pending") {
+          updateCreateOperation({ type: "finish", operationId: operation.operationId });
+        }
+      });
+      setEditingId(null);
+    };
+    window.addEventListener("nowen:workspace-changed", removePendingRowsFromPreviousWorkspace);
+    return () => {
+      window.removeEventListener("nowen:workspace-changed", removePendingRowsFromPreviousWorkspace);
+    };
+  }, [actions, updateCreateOperation]);
 
   // 更换图标状态
   const [iconPickerId, setIconPickerId] = useState<string | null>(null);
@@ -1176,7 +1390,21 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     [getNotebookSortPref],
   );
   const notebookDragHint = getNotebookDragHint(rootNotebookSortPref.by === "manual");
-  const tree = useMemo(() => buildNotebookTree(state.notebooks, getNotebookSortPref), [getNotebookSortPref, state.notebooks]);
+  const previousNotebookTreeRef = useRef<Notebook[]>([]);
+  const tree = useMemo(() => {
+    const startedAt = PHASE_B_PERF_ENABLED ? performance.now() : 0;
+    const builtTree = buildNotebookTree(state.notebooks, getNotebookSortPref);
+    const nextTree = reuseNotebookTreeReferences(builtTree, previousNotebookTreeRef.current);
+    previousNotebookTreeRef.current = nextTree;
+    if (PHASE_B_PERF_ENABLED) {
+      recordPhaseBPerfEvent({
+        type: "build-notebook-tree",
+        durationMs: performance.now() - startedAt,
+        detail: { notebookCount: state.notebooks.length },
+      });
+    }
+    return nextTree;
+  }, [getNotebookSortPref, state.notebooks]);
   const notebookTreeMinWidth = useMemo(
     () => sidebarTreeContentMinWidth(getMaxNotebookDepth(tree)),
     [tree]
@@ -1324,6 +1552,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   // 更换笔记本图标
   const handleIconChange = useCallback(async (id: string, emoji: string) => {
+    if (isTemporaryNotebookId(id)) return;
     await api.updateNotebook(id, { icon: emoji }).catch(console.error);
     actions.setNotebooks(
       state.notebooks.map((nb) => nb.id === id ? { ...nb, icon: emoji } : nb)
@@ -1349,7 +1578,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   // 笔记本拖拽：按鼠标垂直位置区分 before / inside / after。
   const handleNbDragStart = useCallback((e: React.DragEvent, id: string) => {
     const source = state.notebooks.find((n) => n.id === id);
-    if (!source || !isManualNotebookGroup(source.parentId ?? null)) {
+    if (!source || isTemporaryNotebookId(id) || !isManualNotebookGroup(source.parentId ?? null)) {
       e.preventDefault();
       return;
     }
@@ -1365,7 +1594,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const handleNbDragOver = useCallback((e: React.DragEvent, id: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    if (!dragNbId) {
+    if (!dragNbId || isTemporaryNotebookId(id) || isTemporaryNotebookId(dragNbId)) {
       setDragOverNbId(null);
       setDragOverNbZone(null);
       return;
@@ -1408,9 +1637,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragNbId(null);
     setDragOverNbId(null);
     setDragOverNbZone(null);
-    if (!sourceId || sourceId === targetId || !zone) return;
+    if (!sourceId || sourceId === targetId || !zone
+      || isTemporaryNotebookId(sourceId) || isTemporaryNotebookId(targetId)) return;
 
-    const result = reorderNotebooksForDrop(state.notebooks, sourceId, targetId, zone);
+    const result = reorderNotebooksForDrop(
+      withoutTemporaryNotebooks(state.notebooks),
+      sourceId,
+      targetId,
+      zone,
+    );
     if (!result) return;
     if (!isManualNotebookGroup(result.movePayload.parentId)) return;
 
@@ -1449,7 +1684,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     e.stopPropagation();
     const noteId = e.dataTransfer.getData("application/x-nowen-note") || dragNoteId;
     const note = getCachedNote(noteId);
-    if (!note || note.notebookId === notebookId || note.isLocked === 1) {
+    if (!note || isTemporaryNotebookId(notebookId)
+      || note.notebookId === notebookId || note.isLocked === 1) {
       e.dataTransfer.dropEffect = "none";
       setDragOverNoteNotebookId(null);
       return;
@@ -1533,7 +1769,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragOverNoteNotebookId(null);
     setDragOverSidebarNoteId(null);
     setDragOverSidebarNoteZone(null);
-    if (!noteId) return;
+    if (!noteId || isTemporaryNotebookId(targetNotebookId)) return;
 
     const note = getCachedNote(noteId);
     if (!note || note.notebookId === targetNotebookId) return;
@@ -1576,6 +1812,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   ]);
 
   const handleNotebookSelect = (id: string) => {
+    if (isTemporaryNotebookId(id)) return;
     actions.setSelectedNotebook(id);
     actions.setViewMode("notebook");
     if (showNotesInNotebookTree) {
@@ -1597,6 +1834,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   };
 
   const handleToggle = (id: string) => {
+    if (isTemporaryNotebookId(id)) return;
     const nb = state.notebooks.find((n) => n.id === id);
     if (nb) {
       const nextExpanded = nb.isExpanded === 1 ? 0 : 1;
@@ -1609,7 +1847,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   };
 
   const handleSetAllNotebooksExpanded = useCallback(async (expanded: NotebookExpandedState) => {
-    const { changed, nextNotebooks } = getNotebookExpansionChanges(state.notebooks, expanded);
+    const { changed, nextNotebooks } = getNotebookExpansionChanges(
+      withoutTemporaryNotebooks(state.notebooks),
+      expanded,
+    );
     if (changed.length === 0) return;
 
     actions.setNotebooks(nextNotebooks);
@@ -1885,20 +2126,221 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   }, [actions, isDesktop]);
 
-  const handleCreateNotebook = async () => {
-    const nb = await api.createNotebook({ name: t('common.newNotebook'), icon: "📒" });
-    actions.setNotebooks([...state.notebooks, nb]);
-    // 自动进入重命名
-    setEditingId(nb.id);
-    setEditValue(nb.name);
-  };
+  const finishCreateOperation = useCallback(async (operationId: string) => {
+    const operation = createOperationsRef.current[operationId];
+    if (!operation?.serverNotebook) return;
+    const name = operation.name.trim() || operation.serverNotebook.name;
+    try {
+      let confirmedNotebook = operation.serverNotebook;
+      if (name !== operation.serverName) {
+        confirmedNotebook = await api.updateNotebook(operation.serverNotebook.id, { name });
+      }
+      if (getCurrentWorkspace() === operation.workspaceId) {
+        const localNotebook = { ...confirmedNotebook, name };
+        actions.replaceNotebook(operation.tempId, localNotebook);
+        actions.updateNotebook({ id: localNotebook.id, name });
+      } else {
+        actions.removeNotebook(operation.tempId);
+      }
+      updateCreateOperation({ type: "finish", operationId });
+      forgetPhaseBCreateTrace(operation.tempId);
+    } catch (error) {
+      if (!sidebarMountedRef.current) {
+        if (operation.serverNotebook && getCurrentWorkspace() === operation.workspaceId) {
+          actions.replaceNotebook(operation.tempId, operation.serverNotebook);
+        } else {
+          actions.removeNotebook(operation.tempId);
+        }
+        updateCreateOperation({ type: "finish", operationId });
+        forgetPhaseBCreateTrace(operation.tempId);
+        return;
+      }
+      updateCreateOperation({
+        type: "fail",
+        operationId,
+        error: error instanceof Error
+          ? error.message
+          : t("common.operationFailed") || "创建失败",
+      });
+    }
+  }, [actions, t, updateCreateOperation]);
+
+  const runCreateOperation = useCallback(async (operationId: string, traceId?: string) => {
+    const operation = createOperationsRef.current[operationId];
+    if (!operation) return;
+    if (traceId) recordPhaseBPerfEvent({ type: "create-request-start", detail: { traceId } });
+    try {
+      const notebook = await api.createNotebook({
+        name: operation.name,
+        icon: operation.parentId ? "📁" : "📒",
+        parentId: operation.parentId,
+        workspaceId: operation.workspaceId === "personal" ? null : operation.workspaceId,
+      });
+      if (traceId) {
+        recordPhaseBPerfEvent({ type: "create-response", notebookId: notebook.id, detail: { traceId } });
+      }
+      if (cancelledCreateOperationsRef.current.delete(operationId)
+        || !createOperationsRef.current[operationId]) {
+        forgetPhaseBCreateTrace(operation.tempId);
+        const cleanupResult = await cleanupCancelledNotebook(
+          operationId,
+          notebook.id,
+          api.deleteNotebook,
+          (failure) => console.error("[Sidebar] cancelled notebook cleanup failed", failure),
+        );
+        if (cleanupResult !== "failed") actions.removeNotebook(notebook.id);
+        return;
+      }
+      updateCreateOperation({ type: "confirm", operationId, notebook });
+      const latest = createOperationsRef.current[operationId];
+      if (!latest) return;
+      if (!sidebarMountedRef.current && !latest.submitted) {
+        updateCreateOperation({
+          type: "submit",
+          operationId,
+          name: latest.name,
+        });
+        await finishCreateOperation(operationId);
+        return;
+      }
+      if (getCurrentWorkspace() !== latest.workspaceId && !latest.submitted) {
+        actions.removeNotebook(latest.tempId);
+        updateCreateOperation({ type: "finish", operationId });
+        forgetPhaseBCreateTrace(latest.tempId);
+        return;
+      }
+      if (latest.submitted) await finishCreateOperation(operationId);
+    } catch (error) {
+      if (cancelledCreateOperationsRef.current.delete(operationId)) return;
+      const latest = createOperationsRef.current[operationId];
+      if (latest && getCurrentWorkspace() !== latest.workspaceId) {
+        updateCreateOperation({ type: "finish", operationId });
+        forgetPhaseBCreateTrace(latest.tempId);
+        return;
+      }
+      if (!sidebarMountedRef.current) {
+        if (latest) actions.removeNotebook(latest.tempId);
+        updateCreateOperation({ type: "cancel", operationId });
+        if (latest) forgetPhaseBCreateTrace(latest.tempId);
+        return;
+      }
+      updateCreateOperation({
+        type: "fail",
+        operationId,
+        error: error instanceof Error
+          ? error.message
+          : t("common.operationFailed") || "创建失败",
+      });
+    }
+  }, [actions, finishCreateOperation, t, updateCreateOperation]);
+
+  const startNotebookCreate = useCallback((parentId: string | null) => {
+    const currentEditingId = editingIdRef.current;
+    const currentOperation = currentEditingId
+      ? findNotebookCreateOperation(createOperationsRef.current, currentEditingId)
+      : undefined;
+    if (currentOperation && !currentOperation.submitted) {
+      updateCreateOperation({
+        type: "submit",
+        operationId: currentOperation.operationId,
+        name: currentOperation.name,
+      });
+      if (currentOperation.serverNotebook) {
+        void finishCreateOperation(currentOperation.operationId);
+      }
+    }
+
+    const traceId = beginCreatePerfTrace(parentId);
+    const operationId = crypto.randomUUID();
+    const tempId = `${TEMP_NOTEBOOK_ID_PREFIX}${operationId}`;
+    const workspaceId = getCurrentWorkspace() || "personal";
+    const operation: NotebookCreateOperation = {
+      operationId,
+      tempId,
+      parentId,
+      workspaceId,
+      name: t("common.newNotebook"),
+      status: "pending",
+      submitted: false,
+    };
+    updateCreateOperation({ type: "start", operation });
+    if (traceId) rememberPhaseBCreateTrace(tempId, traceId);
+    actions.addNotebook(createOptimisticNotebook(operation, parentId ? "📁" : "📒"));
+    if (parentId) {
+      actions.updateNotebook({ id: parentId, isExpanded: 1 });
+      void api.updateNotebook(parentId, { isExpanded: 1 }).catch(console.error);
+    }
+    if (traceId) {
+      recordPhaseBPerfEvent({
+        type: "create-state-dispatch",
+        notebookId: tempId,
+        detail: { traceId },
+      });
+    }
+    setEditingId(tempId);
+    setEditValue(operation.name);
+    void runCreateOperation(operationId, traceId);
+  }, [actions, beginCreatePerfTrace, finishCreateOperation, runCreateOperation, t, updateCreateOperation]);
+
+  const handleCreateNotebook = useCallback(() => {
+    startNotebookCreate(null);
+  }, [startNotebookCreate]);
+
+  const handleCancelCreate = useCallback(async (operationId: string) => {
+    const operation = createOperationsRef.current[operationId];
+    if (!operation) return;
+    if (operation.serverId) {
+      try {
+        await api.deleteNotebook(operation.serverId);
+      } catch (error) {
+        updateCreateOperation({
+          type: "fail",
+          operationId,
+          error: error instanceof Error
+            ? error.message
+            : t("common.operationFailed") || "取消失败",
+        });
+        return;
+      }
+    } else {
+      cancelledCreateOperationsRef.current.add(operationId);
+    }
+    actions.removeNotebook(operation.tempId);
+    if (operation.serverId) actions.removeNotebook(operation.serverId);
+    forgetPhaseBCreateTrace(operation.tempId);
+    updateCreateOperation({ type: "cancel", operationId });
+    setEditingId((current) =>
+      current === operation.tempId || current === operation.serverId ? null : current
+    );
+  }, [actions, t, updateCreateOperation]);
+
+  const handleRetryCreate = useCallback((operationId: string) => {
+    const operation = createOperationsRef.current[operationId];
+    if (!operation) return;
+    updateCreateOperation({ type: "pending", operationId });
+    if (operation.serverNotebook) {
+      void finishCreateOperation(operationId);
+    } else {
+      void runCreateOperation(operationId);
+    }
+  }, [finishCreateOperation, runCreateOperation, updateCreateOperation]);
+
+  const handleEditValueChange = useCallback((value: string) => {
+    setEditValue(value);
+    const currentEditingId = editingIdRef.current;
+    if (!currentEditingId) return;
+    const operation = findNotebookCreateOperation(createOperationsRef.current, currentEditingId);
+    if (operation) {
+      updateCreateOperation({ type: "name", operationId: operation.operationId, name: value });
+    }
+  }, [updateCreateOperation]);
 
 
   // 右键菜单操作分发
   const handleMenuAction = async (actionId: string) => {
     const targetId = menu.targetId;
     closeMenu();
-    if (!targetId) return;
+    if (!targetId || isTemporaryNotebookId(targetId)) return;
 
     const targetNb = state.notebooks.find((nb) => nb.id === targetId);
 
@@ -2031,17 +2473,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         break;
       }
       case "new_sub": {
-        const sub = await api.createNotebook({ name: t('common.newNotebook'), icon: "📁", parentId: targetId } as any);
-        actions.setNotebooks([...state.notebooks, sub]);
-        // 展开父级
-        if (targetNb && targetNb.isExpanded !== 1) {
-          api.updateNotebook(targetId, { isExpanded: 1 } as any).catch(console.error);
-          actions.setNotebooks(
-            [...state.notebooks, sub].map((n) => n.id === targetId ? { ...n, isExpanded: 1 } : n)
-          );
-        }
-        setEditingId(sub.id);
-        setEditValue(sub.name);
+        startNotebookCreate(targetId);
         break;
       }
       case "rename": {
@@ -2119,20 +2551,43 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   // 重命名提交
   const handleEditSubmit = async () => {
     if (!editingId || !editValue.trim()) {
+      const emptyOperation = editingId
+        ? findNotebookCreateOperation(createOperationsRef.current, editingId)
+        : undefined;
+      if (emptyOperation) {
+        void handleCancelCreate(emptyOperation.operationId);
+      } else {
+        setEditingId(null);
+      }
+      return;
+    }
+    const createOperation = findNotebookCreateOperation(createOperationsRef.current, editingId);
+    if (createOperation) {
+      const name = editValue.trim();
+      updateCreateOperation({ type: "submit", operationId: createOperation.operationId, name });
+      actions.updateNotebook({ id: editingId, name });
       setEditingId(null);
+      if (createOperationsRef.current[createOperation.operationId]?.serverNotebook) {
+        await finishCreateOperation(createOperation.operationId);
+      }
       return;
     }
     const original = state.notebooks.find((nb) => nb.id === editingId);
     if (original && editValue.trim() !== original.name) {
       await api.updateNotebook(editingId, { name: editValue.trim() }).catch(console.error);
-      actions.setNotebooks(
-        state.notebooks.map((nb) => nb.id === editingId ? { ...nb, name: editValue.trim() } : nb)
-      );
+      actions.updateNotebook({ id: editingId, name: editValue.trim() });
     }
     setEditingId(null);
   };
 
   const handleEditCancel = () => {
+    if (editingId) {
+      const operation = findNotebookCreateOperation(createOperationsRef.current, editingId);
+      if (operation) {
+        void handleCancelCreate(operation.operationId);
+        return;
+      }
+    }
     setEditingId(null);
   };
 
@@ -2140,6 +2595,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const handleMoveNotebookConfirm = async (newParentId: string | null) => {
     if (!moveNbTarget) return;
     const sourceId = moveNbTarget.id;
+    if (isTemporaryNotebookId(sourceId) || isTemporaryNotebookId(newParentId)) return;
     // 循环引用防护
     if (newParentId && isDescendant(sourceId, newParentId)) {
       toast.error(t('sidebar.moveCannotSelf'));
@@ -2320,7 +2776,45 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   // v16：桌面端折叠态由 App.tsx 控制（隐藏整个 Sidebar 但保留 NavRail）。
   // 移动端没有折叠概念（抽屉显隐由 mobileSidebarOpen 控制），所以这里无需任何分支。
 
-
+  const stableNotebookSelect = useStableEvent(handleNotebookSelect);
+  const stableNotebookToggle = useStableEvent(handleToggle);
+  const stableNotebookContextMenu = useStableEvent(
+    (event: React.MouseEvent, id: string) => openMenu(event, id, "notebook"),
+  );
+  const stableNotebookLongPress = useStableEvent(
+    (x: number, y: number, id: string) => openMenuAt(x, y, id, "notebook"),
+  );
+  const stableEditChange = useStableEvent(handleEditValueChange);
+  const stableEditSubmit = useStableEvent(handleEditSubmit);
+  const stableEditCancel = useStableEvent(handleEditCancel);
+  const stableIconChange = useStableEvent(handleIconChange);
+  const stableNotebookDragStart = useStableEvent(handleNbDragStart);
+  const stableNotebookDragOver = useStableEvent(handleNbDragOver);
+  const stableNotebookDragEnd = useStableEvent(handleNbDragEnd);
+  const stableNotebookDrop = useStableEvent(handleNbDrop);
+  const stableGetSortValue = useStableEvent((id: string) => getNotebookSortPref(id));
+  const stableSortMenuToggle = useStableEvent((id: string) => {
+    setOpenNotebookSortParentId((current) => current === id ? null : id);
+  });
+  const stableSortChange = useStableEvent(
+    (id: string, next: NotebookSortPref) => setNotebookSortPrefForParent(id, next),
+  );
+  const stableSortClose = useStableEvent(() => setOpenNotebookSortParentId(null));
+  const stableSelectNote = useStableEvent(handleSelectSidebarNote);
+  const stableNoteContextMenu = useStableEvent(
+    (event: React.MouseEvent, id: string) => openMenu(event, id, "note"),
+  );
+  const stableNoteDragStart = useStableEvent(handleSidebarNoteDragStart);
+  const stableNoteDragOver = useStableEvent(handleSidebarNoteDragOver);
+  const stableNoteDragEnd = useStableEvent(handleSidebarNoteDragEnd);
+  const stableNoteDrop = useStableEvent(handleSidebarNoteDrop);
+  const stableNoteItemDragOver = useStableEvent(handleSidebarNoteItemDragOver);
+  const stableNoteItemDrop = useStableEvent(handleSidebarNoteItemDrop);
+  const stableCreateNote = useStableEvent(handleCreateSidebarNote);
+  const stableCreateMarkdownNote = useStableEvent(handleCreateSidebarMarkdownNote);
+  const stableCreateWordNote = useStableEvent(handleCreateSidebarWordNote);
+  const stableRetryCreate = useStableEvent(handleRetryCreate);
+  const stableCancelCreate = useStableEvent(handleCancelCreate);
 
   return (
     <div
@@ -2489,35 +2983,33 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 style={{ minWidth: constrainNotebookTreeWidth ? undefined : `${notebookTreeMinWidth}px` }}
               >
                 {tree.map((nb) => (
-                  <NotebookItem
+                  <MemoizedNotebookItem
                     key={nb.id}
                     notebook={nb}
                     depth={0}
-                    onSelect={handleNotebookSelect}
+                    onSelect={stableNotebookSelect}
                     selectedId={state.selectedNotebookId}
-                    onToggle={handleToggle}
-                    onContextMenu={(e, id) => openMenu(e, id, "notebook")}
-                    onLongPress={(x, y, id) => openMenuAt(x, y, id, "notebook")}
+                    onToggle={stableNotebookToggle}
+                    onContextMenu={stableNotebookContextMenu}
+                    onLongPress={stableNotebookLongPress}
                     editingId={editingId}
                     editValue={editValue}
-                    onEditChange={setEditValue}
-                    onEditSubmit={handleEditSubmit}
-                    onEditCancel={handleEditCancel}
-                    onIconChange={handleIconChange}
+                    onEditChange={stableEditChange}
+                    onEditSubmit={stableEditSubmit}
+                    onEditCancel={stableEditCancel}
+                    onIconChange={stableIconChange}
                     draggable={isManualNotebookGroup(null)}
                     dragHint={notebookDragHint}
                     canDragInParent={isManualNotebookGroup}
-                    getSortValue={(id) => getNotebookSortPref(id)}
+                    getSortValue={stableGetSortValue}
                     sortMenuOpenId={openNotebookSortParentId}
-                    onSortMenuToggle={(id) => {
-                      setOpenNotebookSortParentId((current) => current === id ? null : id);
-                    }}
-                    onSortChange={(id, next) => setNotebookSortPrefForParent(id, next)}
-                    onSortClose={() => setOpenNotebookSortParentId(null)}
-                    onDragStart={handleNbDragStart}
-                    onDragOver={handleNbDragOver}
-                    onDragEnd={handleNbDragEnd}
-                    onDrop={handleNbDrop}
+                    onSortMenuToggle={stableSortMenuToggle}
+                    onSortChange={stableSortChange}
+                    onSortClose={stableSortClose}
+                    onDragStart={stableNotebookDragStart}
+                    onDragOver={stableNotebookDragOver}
+                    onDragEnd={stableNotebookDragEnd}
+                    onDrop={stableNotebookDrop}
                     dragOverId={dragOverNbId}
                     dragOverZone={dragOverNbZone}
                     noteDragOverId={dragOverNoteNotebookId}
@@ -2527,17 +3019,20 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     notesByNotebookId={notesByNotebookId}
                     loadingNotebookIds={loadingNotebookIds}
                     activeNoteId={state.activeNote?.id ?? null}
-                    onSelectNote={handleSelectSidebarNote}
-                    onNoteContextMenu={(e, id) => openMenu(e, id, "note")}
-                    onNoteDragStart={handleSidebarNoteDragStart}
-                    onNoteDragOver={handleSidebarNoteDragOver}
-                    onNoteDragEnd={handleSidebarNoteDragEnd}
-                    onNoteDrop={handleSidebarNoteDrop}
-                    onNoteItemDragOver={handleSidebarNoteItemDragOver}
-                    onNoteItemDrop={handleSidebarNoteItemDrop}
-                    onCreateNote={handleCreateSidebarNote}
-                    onCreateMarkdownNote={handleCreateSidebarMarkdownNote}
-                    onCreateWordNote={handleCreateSidebarWordNote}
+                    onSelectNote={stableSelectNote}
+                    onNoteContextMenu={stableNoteContextMenu}
+                    onNoteDragStart={stableNoteDragStart}
+                    onNoteDragOver={stableNoteDragOver}
+                    onNoteDragEnd={stableNoteDragEnd}
+                    onNoteDrop={stableNoteDrop}
+                    onNoteItemDragOver={stableNoteItemDragOver}
+                    onNoteItemDrop={stableNoteItemDrop}
+                    onCreateNote={stableCreateNote}
+                    onCreateMarkdownNote={stableCreateMarkdownNote}
+                    onCreateWordNote={stableCreateWordNote}
+                    createOperations={createOperationsByNotebookId}
+                    onRetryCreate={stableRetryCreate}
+                    onCancelCreate={stableCancelCreate}
                     constrainWidth={constrainNotebookTreeWidth}
                     showNoteTime={userPrefs.showNoteListUpdatedTime}
                   />
@@ -2987,4 +3482,3 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     </div>
   );
 }
-

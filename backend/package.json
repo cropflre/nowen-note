@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "test": "node --import tsx --import ./tests/setup-db-isolation.ts --test tests/*.test.ts",
     "test:serial": "node scripts/run-tests-serial.mjs",
+    "fixture:phase-b": "node scripts/phase-b-notebook-fixture.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "node ../scripts/rebuild-native.mjs --prebuild=true",
     "migrate:inline-images": "node ../scripts/migrate-inline-images-to-attachments.mjs",

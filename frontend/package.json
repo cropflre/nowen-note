@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "perf:phase-a": "vitest run src/components/__tests__/CodeBlockView.performance.test.tsx src/components/__tests__/MarkdownCodeBlock.performance.test.tsx src/lib/__tests__/codeBlockHighlightPlugin.test.ts --reporter=verbose",
+    "perf:phase-b": "vitest run src/lib/__tests__/notebookCreatePhaseB.performance.test.ts --reporter=verbose",
     "cap:sync": "npx cap sync android",
     "cap:build": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",

@@ -18,6 +18,7 @@ import {
 } from "../services/workspaceNotebookTransfer";
 
 const app = new Hono();
+const notebookPerfDiagnosticsEnabled = process.env.NOTEBOOK_PERF_DIAGNOSTICS === "1";
 
 function parseNotebookMemberRole(role: unknown): "editor" | "viewer" | null {
   return role === "editor" || role === "viewer" ? role : null;
@@ -418,9 +419,12 @@ app.delete("/:id/members/:memberUserId", (c) => {
 
 // 创建笔记本
 app.post("/", async (c) => {
+  const perfEnabled = notebookPerfDiagnosticsEnabled;
+  const routeStartedAt = perfEnabled ? performance.now() : 0;
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json();
+  const parsedAt = perfEnabled ? performance.now() : 0;
   const workspaceId: string | null = body.workspaceId || null;
 
   // 如果指定了工作区，必须是 editor 以上角色
@@ -430,6 +434,7 @@ app.post("/", async (c) => {
       return c.json({ error: "您在该工作区无创建权限" }, 403);
     }
   }
+  const permissionCheckedAt = perfEnabled ? performance.now() : 0;
 
   // v14：父笔记本若已被软删（在回收站里），不允许在其下创建子笔记本——
   // 否则新建的子笔记本会立刻 "看不见"（被父级 isDeleted 过滤掉）。
@@ -445,6 +450,7 @@ app.post("/", async (c) => {
       );
     }
   }
+  const parentCheckedAt = perfEnabled ? performance.now() : 0;
 
   const id = uuid();
   db.prepare(
@@ -460,7 +466,24 @@ app.post("/", async (c) => {
     body.color || null,
     body.sortOrder || 0,
   );
+  const insertedAt = perfEnabled ? performance.now() : 0;
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
+  if (perfEnabled) {
+    const selectedAt = performance.now();
+    const timings = {
+      parse: parsedAt - routeStartedAt,
+      permission: permissionCheckedAt - parsedAt,
+      parent: parentCheckedAt - permissionCheckedAt,
+      insert: insertedAt - parentCheckedAt,
+      select: selectedAt - insertedAt,
+      route: selectedAt - routeStartedAt,
+    };
+    c.header(
+      "Server-Timing",
+      Object.entries(timings).map(([name, duration]) => `${name};dur=${duration.toFixed(3)}`).join(", "),
+    );
+    console.info("[phase-b:notebook-create]", JSON.stringify({ id, workspaceId, parentId: body.parentId || null, ...timings }));
+  }
   return c.json(notebook, 201);
 });
 
