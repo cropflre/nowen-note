@@ -19,7 +19,14 @@ const { importSiyuanPackageFromZipFile } = await import("../src/services/siyuanP
 const db = getDb();
 
 function fixturePath(): string {
-  return path.join(process.cwd(), "tests", "fixtures", "siyuan", "issue-284", "20260719010101-demo284.sy");
+  const relative = path.join("tests", "fixtures", "siyuan", "issue-284", "20260719010101-demo284.sy");
+  const candidates = [
+    path.join(process.cwd(), relative),
+    path.join(process.cwd(), "backend", relative),
+  ];
+  const hit = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!hit) throw new Error(`Issue 284 fixture not found; checked: ${candidates.join(", ")}`);
+  return hit;
 }
 
 async function buildPackage(): Promise<string> {
