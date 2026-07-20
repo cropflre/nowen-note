@@ -24,6 +24,12 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("NoteLoadCoordinator", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -54,19 +60,19 @@ describe("NoteLoadCoordinator", () => {
     vi.useFakeTimers();
     const coordinator = new NoteLoadCoordinator();
     const { events, sink } = createSink();
-    let resolveRequest: ((value: string) => void) | null = null;
+    const request = deferred<string>();
 
     const resultPromise = coordinator.run({
       noteId: "slow",
       summary: { title: "Slow", notebookId: "nb" },
       sink,
-      request: () => new Promise((resolve) => { resolveRequest = resolve; }),
+      request: () => request.promise,
       onSuccess: vi.fn(),
     });
 
     await vi.advanceTimersByTimeAsync(NOTE_LOADING_DELAY_MS);
     expect(events).toContain("show:1");
-    resolveRequest?.("ok");
+    request.resolve("ok");
     await flushMicrotasks();
     expect(events).not.toContain("finish:1");
 
@@ -80,14 +86,14 @@ describe("NoteLoadCoordinator", () => {
     const coordinator = new NoteLoadCoordinator();
     const first = createSink();
     const second = createSink();
-    let resolveFirst: ((value: string) => void) | null = null;
+    const firstRequest = deferred<string>();
 
     const firstSuccess = vi.fn();
     const firstPromise = coordinator.run({
       noteId: "first",
       summary: { title: "First", notebookId: "nb" },
       sink: first.sink,
-      request: () => new Promise((resolve) => { resolveFirst = resolve; }),
+      request: () => firstRequest.promise,
       onSuccess: firstSuccess,
     });
     const secondPromise = coordinator.run({
@@ -98,7 +104,7 @@ describe("NoteLoadCoordinator", () => {
       onSuccess: vi.fn(),
     });
 
-    resolveFirst?.("first");
+    firstRequest.resolve("first");
     await flushMicrotasks();
     expect((await firstPromise).status).toBe("cancelled");
     expect((await secondPromise).status).toBe("success");

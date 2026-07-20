@@ -111,9 +111,9 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export default function NoteTabsBar() {
   const { state } = useApp();
   const actions = useAppActions();
-  const { loadNote } = useNoteLoader();
+  const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { t } = useTranslation();
-  const { openNoteTabs, activeNote, noteLoading } = state;
+  const { openNoteTabs, activeNote, noteLoading, noteLoadingState } = state;
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [createMenu, setCreateMenu] = useState<CreateMenuState>(null);
   const [createNotebookMenu, setCreateNotebookMenu] = useState<CreateNotebookMenuState>(null);
@@ -148,7 +148,12 @@ export default function NoteTabsBar() {
   }, [contextMenu, openNoteTabs]);
 
   const openNote = useCallback(async (noteId: string) => {
-    if (activeNote?.id === noteId) return;
+    if (activeNote?.id === noteId) {
+      if (noteLoadingState.pendingNoteId && noteLoadingState.pendingNoteId !== noteId) {
+        cancelNoteLoad();
+      }
+      return;
+    }
     try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
     const targetTab = openNoteTabs.find((tab) => tab.id === noteId);
     await loadNote({
@@ -176,7 +181,7 @@ export default function NoteTabsBar() {
         });
       },
     });
-  }, [actions, activeNote?.id, loadNote, openNoteTabs, t]);
+  }, [actions, activeNote?.id, cancelNoteLoad, loadNote, noteLoadingState.pendingNoteId, openNoteTabs, t]);
 
   const closeTab = useCallback((noteId: string) => {
     const closingActive = activeNote?.id === noteId;

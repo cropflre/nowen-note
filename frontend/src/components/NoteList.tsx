@@ -1322,7 +1322,7 @@ function VirtualNoteList({
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
-  const { loadNote } = useNoteLoader();
+  const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
   // moveModal 新增 sourceWorkspaceId：源笔记所在工作区（null = 个人空间）。
   // 后端已强制"源/目标同 workspace"，这里把 UI 候选也按同一规则过滤，避免让用户
@@ -1789,6 +1789,9 @@ export default function NoteList() {
 
     // 如果点击的是当前已激活的笔记，跳过重复加载
     if (state.activeNote?.id === noteId) {
+      if (state.noteLoadingState.pendingNoteId && state.noteLoadingState.pendingNoteId !== noteId) {
+        cancelNoteLoad();
+      }
       if (userPrefs.prefs.enableNoteTabs) {
         actions.openNoteTab({
           id: state.activeNote.id,
