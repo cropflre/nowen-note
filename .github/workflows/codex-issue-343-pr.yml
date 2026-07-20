@@ -67,6 +67,19 @@ jobs:
           new = 'export function upsertServerProfile(input: Partial<ServerProfile> & { serverUrl: string; name: string; token?: unknown; password?: unknown }): ServerProfile {'
           if old not in text:
               raise SystemExit('upsert compatibility signature pattern not found')
+          text = text.replace(old, new, 1)
+          old = '''export function listServerProfiles(): ServerProfile[] {
+  const stored = readProfilesFromKey(STORAGE_KEY);
+  return stored.length > 0 ? stored : bootstrapServerProfiles();
+}'''
+          new = '''export function listServerProfiles(): ServerProfile[] {
+  try {
+    if (localStorage.getItem(STORAGE_KEY) !== null) return readProfilesFromKey(STORAGE_KEY);
+  } catch { /* fall through to bootstrap */ }
+  return bootstrapServerProfiles();
+}'''
+          if old not in text:
+              raise SystemExit('listServerProfiles initialization pattern not found')
           profiles.write_text(text.replace(old, new, 1))
           PY
       - name: Publish apply diagnostics
