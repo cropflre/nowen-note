@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 1
           show-progress: false
           ref: codex/issue-340-search-index-repair
-      - name: Apply final boundary patch
+      - name: Apply normalized candidate patch
         run: python scripts/codex-issue-340-finalize.py
       - uses: actions/setup-node@v4
         with:
@@ -42,5 +42,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/codex-issue-340-final-verify.yml
           git add -A backend scripts
-          git commit -m "fix(search): avoid full scans for indexed misses (#340)"
+          git commit -m "fix(search): add normalized candidate index (#340)"
           git push origin HEAD:codex/issue-340-search-index-repair
