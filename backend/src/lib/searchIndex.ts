@@ -3,6 +3,7 @@ import { plainTextFromNoteContent } from "./noteBlocks";
 import { normalizeSearchText } from "./searchQuery";
 
 const SEARCH_REBUILT_AT_KEY = "search_index_last_rebuilt_at";
+const normalizedSearchFunctionDatabases = new WeakSet<object>();
 
 type SearchSourceRow = {
   id: string;
@@ -136,15 +137,20 @@ export function repairSearchContentText(db: Database.Database): SearchContentRep
 }
 
 function createNormalizedSearchFts(db: Database.Database): void {
-  db.function(
-    "nowen_search_normalize",
-    { deterministic: true },
-    (value: unknown) => normalizeSearchText(value === null || value === undefined ? "" : String(value)),
-  );
+  if (!normalizedSearchFunctionDatabases.has(db as object)) {
+    db.function(
+      "nowen_search_normalize",
+      { deterministic: true },
+      (value: unknown) => normalizeSearchText(value === null || value === undefined ? "" : String(value)),
+    );
+    normalizedSearchFunctionDatabases.add(db as object);
+  }
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_search_fts USING fts5(
       title,
-      contentText
+      contentText,
+      content='',
+      tokenize='trigram'
     );
 
     DROP TRIGGER IF EXISTS notes_search_ai;
@@ -190,8 +196,13 @@ function createNormalizedSearchFts(db: Database.Database): void {
 }
 
 export function rebuildNormalizedSearchFts(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS notes_search_ai;
+    DROP TRIGGER IF EXISTS notes_search_ad;
+    DROP TRIGGER IF EXISTS notes_search_au;
+    DROP TABLE IF EXISTS notes_search_fts;
+  `);
   createNormalizedSearchFts(db);
-  db.prepare("INSERT INTO notes_search_fts(notes_search_fts) VALUES('delete-all')").run();
   db.prepare(`
     INSERT INTO notes_search_fts(rowid, title, contentText)
     SELECT rowid,

@@ -4,6 +4,7 @@ import fs from "fs";
 import { runMigrations, getCurrentSchemaVersion, CURRENT_SCHEMA_VERSION } from "./migrations.js";
 import { enableIncrementalAutoVacuum } from "../lib/reclaimSpace.js";
 import { assertSafeTestDatabasePath } from "./test-db-guard.js";
+import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
 assertSafeTestDatabasePath(DB_PATH);
@@ -103,6 +104,7 @@ export function getDb(): Database.Database {
     // 拒绝降级：发现 DB 版本高于程序支持版本时直接抛错，避免旧程序写坏新库。
     try {
       runMigrations(db);
+      ensureNormalizedSearchFts(db);
     } catch (e) {
       // 让进程启动失败：迁移失败比"看似能跑"安全得多。
       try { db.close(); } catch { /* ignore */ }

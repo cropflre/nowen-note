@@ -246,6 +246,14 @@ test("search index health is observable and admins can rebuild source text safel
   assert.equal(forbiddenResponse.status, 403);
 });
 
+test("long tokenizer-safe misses do not trigger a full-body literal fallback", async () => {
+  const response = await search(OWNER_ID, "definitelymissinglongtoken");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-search-literal-fallback"), "0");
+  assert.equal(response.headers.get("x-search-candidate-count"), "0");
+  assert.deepEqual(response.json, []);
+});
+
 test("indexed candidate retrieval stays bounded with 160 long notes", async () => {
   const filler = "lorem ipsum dolor sit amet ".repeat(400);
   const insertBulk = db().transaction(() => {

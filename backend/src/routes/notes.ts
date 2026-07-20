@@ -467,10 +467,10 @@ app.post("/", async (c) => {
       | undefined;
     if (stored) {
       const synced = syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
-        db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
-          .run(synced.content, synced.contentText, id);
-        normalizedLinkContent = synced.content;
-        finalContent = synced.content;
+      db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+        .run(synced.content, synced.contentText, id);
+      normalizedLinkContent = synced.content;
+      finalContent = synced.content;
     }
   } catch (e) {
     console.warn("[notes.post] syncNoteBlocks failed:", e instanceof Error ? e.message : e);

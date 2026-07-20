@@ -13,6 +13,7 @@ import {
   getSearchIndexRebuiltAt,
   inspectSearchContentText,
   markSearchIndexRebuilt,
+  rebuildNormalizedSearchFts,
   repairSearchContentText,
 } from "../lib/searchIndex";
 
@@ -230,7 +231,7 @@ function checkFtsIntegrity(db: Database.Database): { healthy: boolean; detail: s
 
 function getFtsRowCount(db: Database.Database): number {
   try {
-    const row = db.prepare("SELECT COUNT(*) AS count FROM notes_fts").get() as { count?: number } | undefined;
+    const row = db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number } | undefined;
     return Number(row?.count) || 0;
   } catch {
     return 0;
@@ -249,14 +250,14 @@ function fetchFtsTermCandidates(
   try {
     const rows = db.prepare(`
       SELECT n.id
-      FROM notes_fts
-      JOIN notes n ON notes_fts.rowid = n.rowid
+      FROM notes_search_fts
+      JOIN notes n ON notes_search_fts.rowid = n.rowid
       JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE notes_fts MATCH ?
+      WHERE notes_search_fts MATCH ?
         AND ${scope.sql}
         AND n.isTrashed = 0
         AND nb.isDeleted = 0
-      ORDER BY bm25(notes_fts, 8.0, 1.0)
+      ORDER BY bm25(notes_search_fts, 8.0, 1.0)
       LIMIT ${MAX_TERM_CANDIDATES}
     `).all(searchTerm, ...scope.params) as Array<{ id: string }>;
     for (const row of rows) ids.add(row.id);
@@ -337,7 +338,7 @@ function shouldUseLiteralFallback(
   ftsCandidateCount: number,
   degraded: boolean,
 ): boolean {
-  if (degraded || ftsCandidateCount === 0) return true;
+  if (degraded) return true;
   const normalized = normalizeSearchText(term);
   const tokens = normalized.match(/[\p{L}\p{N}_]+/gu) || [];
   const tokenizerPreservesTerm = tokens.length === 1 && tokens[0] === normalized;
@@ -407,11 +408,11 @@ function fetchFtsScores(
 
   try {
     const rows = db.prepare(`
-      SELECT n.id, bm25(notes_fts, 8.0, 1.0) AS score
-      FROM notes_fts
-      JOIN notes n ON notes_fts.rowid = n.rowid
+      SELECT n.id, bm25(notes_search_fts, 8.0, 1.0) AS score
+      FROM notes_search_fts
+      JOIN notes n ON notes_search_fts.rowid = n.rowid
       JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE notes_fts MATCH ?
+      WHERE notes_search_fts MATCH ?
         AND ${scope.sql}
         AND n.isTrashed = 0
         AND nb.isDeleted = 0
@@ -633,6 +634,7 @@ app.post("/rebuild", (c) => {
     const repair = db.transaction(() => {
       const result = repairSearchContentText(db);
       db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
+      rebuildNormalizedSearchFts(db);
       markSearchIndexRebuilt(db, rebuiltAt);
       return result;
     })();
