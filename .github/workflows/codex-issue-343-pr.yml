@@ -28,6 +28,19 @@ jobs:
             capture && /^[[:space:]]*B64$/ { capture=0; exit }
             capture { sub(/^[[:space:]]*/, ""); print }
           ' .github/workflows/codex-issue-343-apply.yml | base64 -d | gzip -d > /tmp/codex343.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/codex343.py')
+          text = path.read_text()
+          start_marker = "replace('frontend/src/components/ServerConnectionCenter.tsx', '''    if (!window.confirm(`删除服务端配置"
+          end_marker = "replace('frontend/src/components/ServerConnectionCenter.tsx', '''      const result = await analyzeInstanceMigration"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = """replace('frontend/src/components/ServerConnectionCenter.tsx', '只删除本机保存的地址和登录令牌，不会删除服务器上的数据。', '只删除本机档案和对应安全凭据，不会删除服务器上的数据。')
+          replace('frontend/src/components/ServerConnectionCenter.tsx', '    removeServerProfile(profile.id);\\n', '    await removeProfileCredential(profile.id);\\n    removeServerProfile(profile.id);\\n')
+          """
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
           python -m py_compile /tmp/codex343.py
           python /tmp/codex343.py > /tmp/codex343.log 2>&1
       - name: Publish apply diagnostics
