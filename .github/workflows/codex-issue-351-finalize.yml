@@ -1,0 +1,211 @@
+name: Codex Issue 351 Finalize
+
+on:
+  push:
+    branches:
+      - codex/issue-351-note-loading-ux
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply final review fixes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding="utf-8-sig")
+
+          def write(path: str, content: str) -> None:
+              Path(path).write_text(content, encoding="utf-8")
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              content = read(path)
+              count = content.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one occurrence, found {count}: {old[:100]!r}")
+              write(path, content.replace(old, new, 1))
+
+          def regex_replace_once(path: str, pattern: str, replacement: str) -> None:
+              content = read(path)
+              updated, count = re.subn(pattern, replacement, content, count=1, flags=re.S)
+              if count != 1:
+                  raise RuntimeError(f"{path}: regex expected one occurrence, found {count}: {pattern[:120]!r}")
+              write(path, updated)
+
+          # Tests: avoid TypeScript narrowing callback variables assigned inside Promise executors.
+          test = "frontend/src/lib/__tests__/noteLoadCoordinator.test.ts"
+          replace_once(test,
+            '''async function flushMicrotasks() {\n  await Promise.resolve();\n  await Promise.resolve();\n}\n''',
+            '''async function flushMicrotasks() {\n  await Promise.resolve();\n  await Promise.resolve();\n}\n\nfunction deferred<T>() {\n  let resolve!: (value: T) => void;\n  const promise = new Promise<T>((done) => { resolve = done; });\n  return { promise, resolve };\n}\n'''
+          )
+          replace_once(test,
+            '''    let resolveRequest: ((value: string) => void) | null = null;\n\n    const resultPromise = coordinator.run({\n      noteId: "slow",\n      summary: { title: "Slow", notebookId: "nb" },\n      sink,\n      request: () => new Promise((resolve) => { resolveRequest = resolve; }),\n      onSuccess: vi.fn(),\n    });\n''',
+            '''    const request = deferred<string>();\n\n    const resultPromise = coordinator.run({\n      noteId: "slow",\n      summary: { title: "Slow", notebookId: "nb" },\n      sink,\n      request: () => request.promise,\n      onSuccess: vi.fn(),\n    });\n'''
+          )
+          replace_once(test, '    resolveRequest?.("ok");\n', '    request.resolve("ok");\n')
+          replace_once(test,
+            '''    let resolveFirst: ((value: string) => void) | null = null;\n\n    const firstSuccess = vi.fn();\n    const firstPromise = coordinator.run({\n      noteId: "first",\n      summary: { title: "First", notebookId: "nb" },\n      sink: first.sink,\n      request: () => new Promise((resolve) => { resolveFirst = resolve; }),\n      onSuccess: firstSuccess,\n    });\n''',
+            '''    const firstRequest = deferred<string>();\n\n    const firstSuccess = vi.fn();\n    const firstPromise = coordinator.run({\n      noteId: "first",\n      summary: { title: "First", notebookId: "nb" },\n      sink: first.sink,\n      request: () => firstRequest.promise,\n      onSuccess: firstSuccess,\n    });\n'''
+          )
+          replace_once(test, '    resolveFirst?.("first");\n', '    firstRequest.resolve("first");\n')
+
+          # Mobile skeleton keeps the navigation affordance available.
+          skeleton = "frontend/src/components/NoteLoadingSkeleton.tsx"
+          replace_once(skeleton,
+            'import { AlertTriangle, RefreshCw } from "lucide-react";\n',
+            'import { AlertTriangle, ChevronLeft, RefreshCw } from "lucide-react";\n'
+          )
+          replace_once(skeleton,
+            '  onRetry: () => void;\n',
+            '  onRetry: () => void;\n  onBack?: () => void;\n'
+          )
+          replace_once(skeleton,
+            '  onRetry,\n  loadingLabel,\n',
+            '  onRetry,\n  onBack,\n  loadingLabel,\n'
+          )
+          replace_once(skeleton,
+            '''      <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-4 md:px-6">\n        <div className="min-w-0 flex-1">\n''',
+            '''      <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-3 md:px-6">\n        {onBack && (\n          <button\n            type="button"\n            onClick={onBack}\n            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover md:hidden"\n            aria-label="返回笔记列表"\n          >\n            <ChevronLeft size={22} />\n          </button>\n        )}\n        <div className="min-w-0 flex-1">\n'''
+          )
+
+          # List: clicking the currently displayed note cancels an in-flight switch back to it.
+          note_list = "frontend/src/components/NoteList.tsx"
+          replace_once(note_list,
+            '  const { loadNote } = useNoteLoader();\n',
+            '  const { loadNote, cancelNoteLoad } = useNoteLoader();\n'
+          )
+          replace_once(note_list,
+            '''    if (state.activeNote?.id === noteId) {\n      if (userPrefs.prefs.enableNoteTabs) {\n''',
+            '''    if (state.activeNote?.id === noteId) {\n      if (state.noteLoadingState.pendingNoteId && state.noteLoadingState.pendingNoteId !== noteId) {\n        cancelNoteLoad();\n      }\n      if (userPrefs.prefs.enableNoteTabs) {\n'''
+          )
+
+          # Tabs: pending target becomes active immediately; returning to current tab cancels the switch.
+          tabs = "frontend/src/components/NoteTabsBar.tsx"
+          replace_once(tabs,
+            '  const { loadNote } = useNoteLoader();\n',
+            '  const { loadNote, cancelNoteLoad } = useNoteLoader();\n'
+          )
+          replace_once(tabs,
+            '  const { openNoteTabs, activeNote, noteLoading } = state;\n',
+            '  const { openNoteTabs, activeNote, noteLoading, noteLoadingState } = state;\n'
+          )
+          replace_once(tabs,
+            '''  const openNote = useCallback(async (noteId: string) => {\n    if (activeNote?.id === noteId) return;\n''',
+            '''  const openNote = useCallback(async (noteId: string) => {\n    if (activeNote?.id === noteId) {\n      if (noteLoadingState.pendingNoteId && noteLoadingState.pendingNoteId !== noteId) {\n        cancelNoteLoad();\n      }\n      return;\n    }\n'''
+          )
+          replace_once(tabs,
+            '  }, [actions, activeNote?.id, loadNote, openNoteTabs, t]);\n',
+            '  }, [actions, activeNote?.id, cancelNoteLoad, loadNote, noteLoadingState.pendingNoteId, openNoteTabs, t]);\n'
+          )
+          replace_once(tabs,
+            '          const active = activeNote?.id === tab.id;\n',
+            '          const active = (noteLoadingState.pendingNoteId || activeNote?.id) === tab.id;\n'
+          )
+          replace_once(tabs,
+            '              {active && noteLoading ? (\n',
+            '              {noteLoadingState.pendingNoteId === tab.id && noteLoading ? (\n'
+          )
+
+          editor = "frontend/src/components/EditorPane.tsx"
+          replace_once(editor,
+            'import { motion, AnimatePresence } from "framer-motion";\n',
+            'import { motion, AnimatePresence, useReducedMotion } from "framer-motion";\n'
+          )
+          replace_once(editor,
+            '  const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;\n',
+            '  const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;\n  const reduceMotion = useReducedMotion();\n'
+          )
+          replace_once(editor,
+            '''  const isViewLocked = !!activeNote && viewLockedIds.has(activeNote.id);\n  const isTrashed = !!activeNote?.isTrashed;\n  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed;\n''',
+            '''  const isViewLocked = !!activeNote && viewLockedIds.has(activeNote.id);\n  const isTrashed = !!activeNote?.isTrashed;\n  const noteSwitchPending = !!noteLoadingState.pendingNoteId;\n  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed || noteSwitchPending;\n'''
+          )
+
+          # Deleting the current note and selecting the adjacent tab uses the same coordinator.
+          regex_replace_once(editor,
+            r'''    if \(nextTab\) \{\n      actions\.setNoteLoading\(true\);[\s\S]*?\n    \}\n    api\.updateNote''',
+            '''    if (nextTab) {\n      void loadNote({\n        noteId: nextTab.id,\n        summary: {\n          title: nextTab.title || t("editorTabs.noTitle"),\n          notebookId: nextTab.notebookId,\n          contentFormat: nextTab.contentFormat,\n        },\n        request: () => api.getNote(nextTab.id),\n        onSuccess: (nextNote) => {\n          actions.setActiveNote(nextNote);\n          actions.openNoteTab({\n            id: nextNote.id,\n            title: nextNote.title,\n            notebookId: nextNote.notebookId,\n            workspaceId: nextNote.workspaceId,\n            contentFormat: nextNote.contentFormat,\n            isLocked: nextNote.isLocked,\n            isTrashed: nextNote.isTrashed,\n            updatedAt: nextNote.updatedAt,\n          });\n        },\n      });\n    }\n    api.updateNote'''
+          )
+          replace_once(editor,
+            '  }, [activeNote, actions, state.openNoteTabs, userPrefs.enableNoteTabs]);\n',
+            '  }, [activeNote, actions, loadNote, state.openNoteTabs, t, userPrefs.enableNoteTabs]);\n'
+          )
+
+          # Block-reference navigation also adopts latest-request-wins and inline errors.
+          regex_replace_once(editor,
+            r'''  const handleOpenNote = useCallback\(async \(noteId: string\) => \{[\s\S]*?\n  \}, \[actions, t\]\);''',
+            '''  const handleOpenNote = useCallback(async (noteId: string) => {\n    await loadNote({\n      noteId,\n      summary: { title: t("editor.noteLoading"), notebookId: "" },\n      request: () => api.getNote(noteId),\n      onSuccess: (note) => actions.setActiveNote(note),\n    });\n  }, [actions, loadNote, t]);'''
+          )
+
+          # Mobile can always leave loading/error state. Respect reduced-motion for transitions.
+          content = read(editor)
+          content = content.replace(
+            '        onRetry={() => { void retryNoteLoad(); }}\n        loadingLabel=',
+            '        onRetry={() => { void retryNoteLoad(); }}\n        onBack={() => actions.setMobileView("list")}\n        loadingLabel=',
+            1,
+          )
+          content = content.replace(
+            '      transition={{ duration: 0.15 }}\n',
+            '      transition={{ duration: reduceMotion ? 0 : 0.15 }}\n',
+            1,
+          )
+          content = content.replace(
+            '            transition={{ duration: 0.14, ease: "easeOut" }}\n',
+            '            transition={{ duration: reduceMotion ? 0 : 0.14, ease: "easeOut" }}\n',
+            1,
+          )
+          content = content.replace(
+            '              onRetry={() => { void retryNoteLoad(); }}\n              loadingLabel=',
+            '              onRetry={() => { void retryNoteLoad(); }}\n              onBack={() => actions.setMobileView("list")}\n              loadingLabel=',
+            1,
+          )
+          write(editor, content)
+
+          Path(".issue351-diagnostics.txt").unlink(missing_ok=True)
+          Path(".github/workflows/codex-issue-351-finalize.yml").unlink()
+          PY
+
+          git diff --check
+
+      - name: Verify frontend
+        shell: bash
+        run: |
+          set +e
+          report=.issue351-verification.txt
+          : > "$report"
+          cd frontend
+          npm ci >> ../$report 2>&1
+          install_code=$?
+          echo "install_exit=$install_code" >> ../$report
+          test_code=99
+          build_code=99
+          if [ "$install_code" -eq 0 ]; then
+            npm run test:run -- src/lib/__tests__/noteLoadCoordinator.test.ts >> ../$report 2>&1
+            test_code=$?
+            echo "test_exit=$test_code" >> ../$report
+            npm run build >> ../$report 2>&1
+            build_code=$?
+            echo "build_exit=$build_code" >> ../$report
+          fi
+          cd ..
+          echo "summary install=$install_code test=$test_code build=$build_code" >> "$report"
+
+      - name: Commit finalized implementation and report
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(editor): finalize delayed note loading UX (#351)"
+          git push origin HEAD:codex/issue-351-note-loading-ux
