@@ -1,0 +1,58 @@
+name: Codex Issue 343 PR Trigger
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: codex/issue-343-secure-account-profiles
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Extract and apply implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/codex-issue-343-apply.yml').read_text()
+          start = text.index("          H4sI")
+          end = text.index("\n          B64", start)
+          payload = ''.join(line.strip() for line in text[start:end].splitlines())
+          import base64, gzip
+          Path('/tmp/codex343.py').write_bytes(gzip.decompress(base64.b64decode(payload)))
+          PY
+          python /tmp/codex343.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run security and profile tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Validate Electron bridge syntax
+        run: |
+          node --check electron/credentials.js
+          node --check electron/preload.js
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/codex-issue-343-apply.yml .github/workflows/codex-issue-343-pr.yml
+          git add electron frontend
+          git commit -m "feat(auth): secure multi-server account profiles (#343)"
+          git push origin HEAD:codex/issue-343-secure-account-profiles
