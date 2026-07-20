@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { NOTEBOOKS_INVALIDATED_EVENT } from "@/lib/notebookInvalidation";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
+import type { NoteLoadBeginPayload, NoteLoadSummary } from "@/lib/noteLoadCoordinator";
 import {
   mergeAuthoritativeNotebooks,
   replaceOptimisticNotebook,
@@ -11,6 +12,16 @@ import {
 
 export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline" | "queued";
 export type MobileView = "list" | "editor";
+
+export interface NoteLoadingState {
+  requestId: number;
+  pendingNoteId: string | null;
+  pendingSummary: NoteLoadSummary | null;
+  startedAt: number | null;
+  visible: boolean;
+  slow: boolean;
+  error: string | null;
+}
 
 export interface OpenNoteTab {
   id: string;
@@ -50,8 +61,10 @@ interface AppState {
   /** 桌面端：编辑器专注全屏。仅临时隐藏外侧导航，不改写各面板折叠偏好。 */
   editorFullscreen: boolean;
   isLoading: boolean;
-  /** 笔记切换时的加载状态：正在从后端获取完整笔记内容 */
+  /** 兼容旧组件：仅在延迟阈值后或错误状态下为 true。 */
   noteLoading: boolean;
+  /** 当前主编辑区正在打开的目标笔记及分级加载状态。 */
+  noteLoadingState: NoteLoadingState;
   syncStatus: SyncStatus;
   lastSyncedAt: string | null;
   mobileView: MobileView;
@@ -88,6 +101,11 @@ type Action =
   | { type: "TOGGLE_EDITOR_FULLSCREEN" }
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "SET_NOTE_LOADING"; payload: boolean }
+  | { type: "BEGIN_NOTE_LOAD"; payload: NoteLoadBeginPayload }
+  | { type: "SHOW_NOTE_LOAD"; payload: number }
+  | { type: "MARK_NOTE_LOAD_SLOW"; payload: number }
+  | { type: "FAIL_NOTE_LOAD"; payload: { requestId: number; error: string } }
+  | { type: "FINISH_NOTE_LOAD"; payload: number }
   | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } }
   | { type: "REMOVE_NOTE_FROM_LIST"; payload: string }
   | { type: "ADD_NOTE_TO_LIST"; payload: NoteListItem }
@@ -114,6 +132,18 @@ const DEFAULT_NOTELIST_WIDTH = 300;
 const MIN_NOTELIST_WIDTH = 220;
 const MAX_NOTELIST_WIDTH = 500;
 const MAX_OPEN_NOTE_TABS = 12;
+
+function createIdleNoteLoadingState(): NoteLoadingState {
+  return {
+    requestId: 0,
+    pendingNoteId: null,
+    pendingSummary: null,
+    startedAt: null,
+    visible: false,
+    slow: false,
+    error: null,
+  };
+}
 
 function sortOpenNoteTabs(tabs: OpenNoteTab[]): OpenNoteTab[] {
   return [...tabs].sort((a, b) => {
@@ -178,6 +208,7 @@ const initialState: AppState = {
   editorFullscreen: false,
   isLoading: false,
   noteLoading: false,
+  noteLoadingState: createIdleNoteLoadingState(),
   syncStatus: "idle",
   lastSyncedAt: null,
   mobileView: "list",
@@ -287,7 +318,55 @@ function reducer(state: AppState, action: Action): AppState {
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
     case "SET_NOTE_LOADING":
-      return { ...state, noteLoading: action.payload };
+      return action.payload
+        ? {
+          ...state,
+          noteLoading: true,
+          noteLoadingState: { ...state.noteLoadingState, visible: true, error: null },
+        }
+        : { ...state, noteLoading: false, noteLoadingState: createIdleNoteLoadingState() };
+    case "BEGIN_NOTE_LOAD":
+      return {
+        ...state,
+        noteLoading: false,
+        noteLoadingState: {
+          requestId: action.payload.requestId,
+          pendingNoteId: action.payload.noteId,
+          pendingSummary: action.payload.summary,
+          startedAt: action.payload.startedAt,
+          visible: false,
+          slow: false,
+          error: null,
+        },
+      };
+    case "SHOW_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return {
+        ...state,
+        noteLoading: true,
+        noteLoadingState: { ...state.noteLoadingState, visible: true },
+      };
+    case "MARK_NOTE_LOAD_SLOW":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return {
+        ...state,
+        noteLoadingState: { ...state.noteLoadingState, slow: true },
+      };
+    case "FAIL_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload.requestId) return state;
+      return {
+        ...state,
+        noteLoading: true,
+        noteLoadingState: {
+          ...state.noteLoadingState,
+          visible: true,
+          slow: false,
+          error: action.payload.error,
+        },
+      };
+    case "FINISH_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return { ...state, noteLoading: false, noteLoadingState: createIdleNoteLoadingState() };
     case "UPDATE_NOTE_IN_LIST":
       return {
         ...state,
@@ -470,6 +549,11 @@ export function useAppActions() {
     toggleEditorFullscreen: () => dispatch({ type: "TOGGLE_EDITOR_FULLSCREEN" }),
     setLoading: (v: boolean) => dispatch({ type: "SET_LOADING", payload: v }),
     setNoteLoading: (v: boolean) => dispatch({ type: "SET_NOTE_LOADING", payload: v }),
+    beginNoteLoad: (payload: NoteLoadBeginPayload) => dispatch({ type: "BEGIN_NOTE_LOAD", payload }),
+    showNoteLoad: (requestId: number) => dispatch({ type: "SHOW_NOTE_LOAD", payload: requestId }),
+    markNoteLoadSlow: (requestId: number) => dispatch({ type: "MARK_NOTE_LOAD_SLOW", payload: requestId }),
+    failNoteLoad: (requestId: number, error: string) => dispatch({ type: "FAIL_NOTE_LOAD", payload: { requestId, error } }),
+    finishNoteLoad: (requestId: number) => dispatch({ type: "FINISH_NOTE_LOAD", payload: requestId }),
     updateNoteInList: (v: Partial<NoteListItem> & { id: string }) => dispatch({ type: "UPDATE_NOTE_IN_LIST", payload: v }),
     removeNoteFromList: (id: string) => dispatch({ type: "REMOVE_NOTE_FROM_LIST", payload: id }),
     addNoteToList: (v: NoteListItem) => dispatch({ type: "ADD_NOTE_TO_LIST", payload: v }),

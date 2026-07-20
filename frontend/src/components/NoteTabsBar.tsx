@@ -6,6 +6,7 @@ import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
 import type { Notebook, NoteListItem } from "@/types";
 
 type TabContextMenuState = {
@@ -110,6 +111,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export default function NoteTabsBar() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { loadNote } = useNoteLoader();
   const { t } = useTranslation();
   const { openNoteTabs, activeNote, noteLoading } = state;
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
@@ -148,29 +150,33 @@ export default function NoteTabsBar() {
   const openNote = useCallback(async (noteId: string) => {
     if (activeNote?.id === noteId) return;
     try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
-    actions.setNoteLoading(true);
-    try {
-      const note = await api.getNote(noteId);
-      const existingTab = openNoteTabs.find((tab) => tab.id === note.id);
-      actions.setActiveNote(note);
-      actions.setMobileView("editor");
-      actions.openNoteTab({
-        id: note.id,
-        title: note.title,
-        notebookId: note.notebookId,
-        workspaceId: note.workspaceId,
-        contentFormat: note.contentFormat,
-        isLocked: note.isLocked,
-        isTrashed: note.isTrashed,
-        updatedAt: note.updatedAt,
-        pinned: existingTab?.pinned,
-      });
-    } catch (err: any) {
-      toast.error(err?.message || t("noteList.createFailed"));
-    } finally {
-      actions.setNoteLoading(false);
-    }
-  }, [actions, activeNote?.id, openNoteTabs, t]);
+    const targetTab = openNoteTabs.find((tab) => tab.id === noteId);
+    await loadNote({
+      noteId,
+      summary: {
+        title: targetTab?.title || t("editorTabs.noTitle"),
+        notebookId: targetTab?.notebookId || "",
+        contentFormat: targetTab?.contentFormat,
+      },
+      request: () => api.getNote(noteId),
+      onSuccess: (note) => {
+        const existingTab = openNoteTabs.find((tab) => tab.id === note.id);
+        actions.setActiveNote(note);
+        actions.setMobileView("editor");
+        actions.openNoteTab({
+          id: note.id,
+          title: note.title,
+          notebookId: note.notebookId,
+          workspaceId: note.workspaceId,
+          contentFormat: note.contentFormat,
+          isLocked: note.isLocked,
+          isTrashed: note.isTrashed,
+          updatedAt: note.updatedAt,
+          pinned: existingTab?.pinned,
+        });
+      },
+    });
+  }, [actions, activeNote?.id, loadNote, openNoteTabs, t]);
 
   const closeTab = useCallback((noteId: string) => {
     const closingActive = activeNote?.id === noteId;

@@ -34,6 +34,8 @@ import {
 } from "@/components/PresenceBar";
 import { EditorErrorBoundary } from "@/components/EditorErrorBoundary";
 import NoteTabsBar from "@/components/NoteTabsBar";
+import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useRealtimeNote } from "@/hooks/useRealtimeNote";
 import { useYDoc } from "@/hooks/useYDoc";
 import { realtime } from "@/lib/realtime";
@@ -86,7 +88,8 @@ const SHOW_EDITOR_MODE_TOGGLE = false;
 export default function EditorPane() {
   const { state } = useApp();
   const actions = useAppActions();
-  const { activeNote, syncStatus, lastSyncedAt, noteLoading } = state;
+  const { loadNote, retryNoteLoad } = useNoteLoader();
+  const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showMoveDropdown, setShowMoveDropdown] = useState(false);
   const moveDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -145,13 +148,13 @@ export default function EditorPane() {
   }, [activeNote?.id, actions, t]);
 
   useEffect(() => subscribeOpenInternalNoteLink(async ({ noteId }) => {
-    try {
-      const target = await api.getNote(noteId);
-      if (target) actions.setActiveNote(target);
-    } catch {
-      toast.error("目标笔记不存在、已删除或无权访问");
-    }
-  }), [actions]);
+    await loadNote({
+      noteId,
+      summary: { title: t("editor.noteLoading"), notebookId: "" },
+      request: () => api.getNote(noteId),
+      onSuccess: (target) => actions.setActiveNote(target),
+    });
+  }), [actions, loadNote, t]);
 
   // �бʼ�ʱ��ƫ��Ӧ��"�򿪼�����"��
   // ����ֻ�� activeNote.id �仯ʱ��һ�Σ������� prefs.lockOnOpen���������û���
@@ -2063,32 +2066,14 @@ const moveToTrash = useCallback(async () => {
   // �ڵ���ʼ��б������ݻ�û����ǰ��ʾ����̬
   if (noteLoading && !activeNote) {
     return (
-      <div className="flex-1 flex flex-col bg-app-bg overflow-hidden transition-colors">
-        {/* 未读消息数 */}
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-app-border">
-          <div className="h-7 w-48 rounded-md bg-app-hover animate-pulse" />
-          <div className="ml-auto flex items-center gap-2">
-            <div className="h-7 w-7 rounded-md bg-app-hover animate-pulse" />
-            <div className="h-7 w-7 rounded-md bg-app-hover animate-pulse" />
-          </div>
-        </div>
-        {/* 未读消息数 */}
-        <div className="flex-1 px-6 py-6 space-y-4">
-          <div className="h-8 w-3/5 rounded-md bg-app-hover animate-pulse" />
-          <div className="space-y-3 mt-6">
-            <div className="h-4 w-full rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-11/12 rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-4/5 rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-full rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-3/4 rounded bg-app-hover animate-pulse" />
-          </div>
-          <div className="space-y-3 mt-4">
-            <div className="h-4 w-full rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-5/6 rounded bg-app-hover animate-pulse" />
-            <div className="h-4 w-2/3 rounded bg-app-hover animate-pulse" />
-          </div>
-        </div>
-      </div>
+      <NoteLoadingSkeleton
+        state={noteLoadingState}
+        onRetry={() => { void retryNoteLoad(); }}
+        loadingLabel={t("editor.noteLoading")}
+        errorTitle={t("noteList.loadErrorTitle")}
+        errorDescription={t("noteList.loadErrorDesc")}
+        retryLabel={t("noteList.retryLoad")}
+      />
     );
   }
 
@@ -2174,16 +2159,22 @@ const moveToTrash = useCallback(async () => {
       <AnimatePresence>
         {noteLoading && (
           <motion.div
+            key={`note-loading-${noteLoadingState.requestId}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-app-bg/60 backdrop-blur-[2px]"
+            transition={{ duration: 0.14, ease: "easeOut" }}
+            className="absolute inset-0 z-50"
           >
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 size={24} className="animate-spin text-accent-primary" />
-              <span className="text-xs text-tx-tertiary">{t('editor.noteLoading')}</span>
-            </div>
+            <NoteLoadingSkeleton
+              mode="overlay"
+              state={noteLoadingState}
+              onRetry={() => { void retryNoteLoad(); }}
+              loadingLabel={t("editor.noteLoading")}
+              errorTitle={t("noteList.loadErrorTitle")}
+              errorDescription={t("noteList.loadErrorDesc")}
+              retryLabel={t("noteList.retryLoad")}
+            />
           </motion.div>
         )}
       </AnimatePresence>
