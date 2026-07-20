@@ -14,7 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
           show-progress: false
           ref: codex/issue-343-secure-account-profiles
       - uses: actions/setup-node@v4
