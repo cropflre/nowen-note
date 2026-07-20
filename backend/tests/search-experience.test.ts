@@ -19,6 +19,7 @@ const CPP_NOTE_ID = "search-cpp";
 const C_NOTE_ID = "search-c";
 const META_NOTE_ID = "search-meta";
 const MUTABLE_NOTE_ID = "search-mutable";
+const STALE_NOTE_ID = "search-stale-content";
 
 let app: Hono;
 let getDb: () => Database.Database;
@@ -35,11 +36,26 @@ async function search(userId: string, query: string) {
   return { status: response.status, headers: response.headers, json: await response.json() as any[] };
 }
 
-function insertNote(id: string, title: string, contentText: string, contentFormat = "markdown") {
+function insertNote(
+  id: string,
+  title: string,
+  contentText: string,
+  contentFormat = "markdown",
+  content?: string,
+) {
+  const storedContent = content ?? (contentFormat === "tiptap-json"
+    ? JSON.stringify({
+        type: "doc",
+        content: [{
+          type: "paragraph",
+          content: [{ type: "text", text: contentText }],
+        }],
+      })
+    : contentText);
   db().prepare(`
-    INSERT INTO notes (id, userId, notebookId, title, contentText, contentFormat)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, OWNER_ID, NOTEBOOK_ID, title, contentText, contentFormat);
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, OWNER_ID, NOTEBOOK_ID, title, storedContent, contentText, contentFormat);
 }
 
 test.before(async () => {
@@ -77,6 +93,13 @@ test.before(async () => {
   insertNote(C_NOTE_ID, "C language handbook", "Pointers and memory");
   insertNote(META_NOTE_ID, "Release planning", "This note deliberately has no metadata keywords.");
   insertNote(MUTABLE_NOTE_ID, "Mutable note", "before unique-old-keyword");
+  insertNote(
+    STALE_NOTE_ID,
+    "Historical stale note",
+    "",
+    "markdown",
+    "# Historical note\n\nhistoricalrepairkeyword",
+  );
 
   db().prepare("INSERT INTO tags (id, userId, name, color) VALUES (?, ?, ?, ?)")
     .run("search-tag", OWNER_ID, "项目代号X9", "#58a6ff");
@@ -109,6 +132,7 @@ test.after(() => {
 test("search results include accurate match counts and notebook metadata", async () => {
   const response = await search(OWNER_ID, "alpha");
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-search-literal-fallback"), "0");
   assert.equal(response.json.length, 1);
 
   const result = response.json[0];
@@ -126,6 +150,7 @@ test("search results include accurate match counts and notebook metadata", async
 test("Chinese search returns highlighted context and content-only metadata", async () => {
   const response = await search(OWNER_ID, "搜索");
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-search-literal-fallback"), "1");
   const result = response.json.find((item) => item.id === CHINESE_NOTE_ID);
   assert.ok(result);
   assert.equal(result.matchCount, 3);
@@ -144,6 +169,7 @@ test("full-width text is searchable with half-width input", async () => {
 test("punctuation stays literal and does not admit tokenizer-only false positives", async () => {
   const response = await search(OWNER_ID, "C++");
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-search-literal-fallback"), "1");
   assert.deepEqual(response.json.map((item) => item.id), [CPP_NOTE_ID]);
   assert.equal(response.json.some((item) => item.id === C_NOTE_ID), false);
 });
@@ -186,7 +212,9 @@ test("editing, trashing, restoring and deleting a note never leaves ghost result
   assert.deepEqual((await search(OWNER_ID, "unique-new-keyword")).json, []);
 });
 
-test("search index health is observable and admins can rebuild it safely", async () => {
+test("search index health is observable and admins can rebuild source text safely", async () => {
+  assert.deepEqual((await search(OWNER_ID, "historicalrepairkeyword")).json, []);
+
   const healthResponse = await app.request("/search/health", {
     headers: { "X-User-Id": OWNER_ID },
   });
@@ -194,6 +222,8 @@ test("search index health is observable and admins can rebuild it safely", async
   assert.equal(healthResponse.status, 200);
   assert.equal(health.healthy, true);
   assert.equal(health.canRebuild, true);
+  assert.equal(health.emptyContentTextCount, 1);
+  assert.equal(health.staleContentTextCount, 1);
 
   const rebuildResponse = await app.request("/search/rebuild", {
     method: "POST",
@@ -203,13 +233,42 @@ test("search index health is observable and admins can rebuild it safely", async
   assert.equal(rebuildResponse.status, 200);
   assert.equal(rebuilt.success, true);
   assert.equal(rebuilt.healthy, true);
+  assert.equal(rebuilt.repairedCount, 1);
+  assert.equal(rebuilt.emptyContentTextCount, 0);
+  assert.equal(rebuilt.staleContentTextCount, 0);
   assert.equal((await search(OWNER_ID, "alpha")).json[0]?.id, ENGLISH_NOTE_ID);
+  assert.equal((await search(OWNER_ID, "historicalrepairkeyword")).json[0]?.id, STALE_NOTE_ID);
 
   const forbiddenResponse = await app.request("/search/rebuild", {
     method: "POST",
     headers: { "X-User-Id": OTHER_ID },
   });
   assert.equal(forbiddenResponse.status, 403);
+});
+
+test("indexed candidate retrieval stays bounded with 160 long notes", async () => {
+  const filler = "lorem ipsum dolor sit amet ".repeat(400);
+  const insertBulk = db().transaction(() => {
+    for (let index = 0; index < 160; index += 1) {
+      const token = index === 137 ? "boundedcandidatetoken" : `bulksearchtoken${index}`;
+      insertNote(
+        `search-bulk-${index}`,
+        `Bulk note ${index}`,
+        `${filler} ${token}`,
+      );
+    }
+  });
+  insertBulk();
+
+  const started = performance.now();
+  const response = await search(OWNER_ID, "boundedcandidatetoken");
+  const elapsed = performance.now() - started;
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-search-literal-fallback"), "0");
+  assert.ok(Number(response.headers.get("x-search-candidate-count")) <= 5);
+  assert.match(response.headers.get("server-timing") || "", /candidate;dur=/);
+  assert.equal(response.json[0]?.id, "search-bulk-137");
+  assert.ok(elapsed < 1500, `indexed search took ${elapsed.toFixed(1)}ms`);
 });
 
 test("personal-space search does not expose another user's notes", async () => {

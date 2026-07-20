@@ -7,6 +7,7 @@
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { markSearchIndexRebuilt, repairSearchContentText } from "../lib/searchIndex.js";
 import {
   MIGRATIONS as BASE_MIGRATIONS,
   type Migration,
@@ -236,6 +237,16 @@ const noteImportOriginsMigration: Migration = {
   },
 };
 
+const repairSearchContentTextMigration: Migration = {
+  version: 52,
+  name: "repair-search-content-text",
+  up: (db) => {
+    repairSearchContentText(db);
+    db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
+    markSearchIndexRebuilt(db);
+  },
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
@@ -243,6 +254,7 @@ export const MIGRATIONS: Migration[] = [
   repairNotesFtsMigration,
   userAISettingsMigration,
   noteImportOriginsMigration,
+  repairSearchContentTextMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

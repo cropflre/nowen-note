@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type Database from "better-sqlite3";
 import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
@@ -577,7 +577,7 @@ function buildSearchResult(
 }
 
 function setSearchTimingHeaders(
-  c: Parameters<Parameters<typeof app.get>[1]>[0],
+  c: Context,
   timings: {
     candidate: CandidateCollection;
     candidateDurationMs: number;
