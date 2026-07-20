@@ -20,7 +20,7 @@ jobs:
           show-progress: false
           ref: codex/issue-340-search-index-repair
       - name: Apply normalized candidate patch
-        run: python scripts/codex-issue-340-finalize-v2.py
+        run: python scripts/codex-issue-340-finalize-v3.py
       - uses: actions/setup-node@v4
         with:
           node-version: 22
