@@ -43,6 +43,15 @@ jobs:
           PY
           python -m py_compile /tmp/codex343.py
           python /tmp/codex343.py > /tmp/codex343.log 2>&1
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/components/ServerConnectionCenter.tsx')
+          text = path.read_text()
+          invalid = ': "\n") +'
+          if invalid not in text:
+              raise SystemExit('generated switch newline pattern not found')
+          path.write_text(text.replace(invalid, ': "\\n") +', 1))
+          PY
       - name: Publish apply diagnostics
         if: failure() && steps.apply.outcome == 'failure'
         env:
@@ -52,7 +61,7 @@ jobs:
           {
             echo '### Issue #343 apply diagnostics'
             echo '```text'
-            if [ -s /tmp/codex343.log ]; then tail -80 /tmp/codex343.log; else echo 'payload extraction or Python compilation failed before codemod output'; fi
+            if [ -s /tmp/codex343.log ]; then tail -80 /tmp/codex343.log; else echo 'payload extraction, compilation, or generated-source normalization failed'; fi
             echo '```'
           } > /tmp/codex343-comment.md
           gh pr comment 354 --body-file /tmp/codex343-comment.md
