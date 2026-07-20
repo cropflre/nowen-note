@@ -1,6 +1,7 @@
 import type { ServerProfile } from "@/lib/serverProfiles";
 
 export type MigrationStrategy = "skip" | "replace" | "keep-both";
+export type AuthenticatedServerProfile = ServerProfile & { token: string };
 
 export interface MigrationPreflight {
   source: { instanceId: string; userId: string; username: string };
@@ -43,8 +44,8 @@ export interface TargetPreview {
 }
 
 export interface MigrationAnalysis {
-  source: ServerProfile;
-  target: ServerProfile;
+  source: AuthenticatedServerProfile;
+  target: AuthenticatedServerProfile;
   preflight: MigrationPreflight;
   targetPreview: TargetPreview;
 }
@@ -102,7 +103,7 @@ function profileApi(profile: ServerProfile, path: string): string {
   return `${profile.serverUrl.replace(/\/+$/, "")}/api/user-migration/v2${path}`;
 }
 
-function authHeaders(profile: ServerProfile, json = false): Headers {
+function authHeaders(profile: AuthenticatedServerProfile, json = false): Headers {
   const headers = new Headers();
   if (profile.token) headers.set("Authorization", `Bearer ${profile.token}`);
   if (json) headers.set("Content-Type", "application/json");
@@ -120,7 +121,7 @@ async function readApiError(response: Response): Promise<Error> {
 }
 
 async function fetchJson<T>(
-  profile: ServerProfile,
+  profile: AuthenticatedServerProfile,
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
@@ -182,7 +183,7 @@ async function digestBlob(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-export async function inspectServerProfile(profile: ServerProfile): Promise<{
+export async function inspectServerProfile(profile: ServerProfile, token = ""): Promise<{
   online: boolean;
   authenticated: boolean;
   serverInstanceId?: string;
@@ -196,11 +197,11 @@ export async function inspectServerProfile(profile: ServerProfile): Promise<{
     const version = await fetch(`${profile.serverUrl}/api/version`, { signal: controller.signal });
     if (!version.ok) return { online: false, authenticated: false, error: `HTTP ${version.status}` };
     const versionBody = await version.json().catch(() => ({}));
-    if (!profile.token) {
+    if (!token) {
       return { online: true, authenticated: false, serverInstanceId: versionBody?.serverInstanceId };
     }
     const me = await fetch(`${profile.serverUrl}/api/me`, {
-      headers: { Authorization: `Bearer ${profile.token}` },
+      headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
     const meBody = await me.json().catch(() => ({}));
@@ -247,13 +248,12 @@ export async function loginServerProfile(
 }
 
 export async function analyzeInstanceMigration(
-  source: ServerProfile,
-  target: ServerProfile,
+  source: AuthenticatedServerProfile,
+  target: AuthenticatedServerProfile,
 ): Promise<MigrationAnalysis> {
-  if (!source.token || !target.token) throw new Error("源端和目标端都必须保存有效登录状态");
   const [preflight] = await Promise.all([
     fetchJson<MigrationPreflight>(source, "/preflight"),
-    inspectServerProfile(target).then((result) => {
+    inspectServerProfile(target, target.token).then((result) => {
       if (!result.online) throw new Error(`目标服务器不可连接：${result.error || "未知错误"}`);
       if (!result.authenticated) throw new Error(`目标账号登录态已失效：${result.error || "请重新登录"}`);
       return result;
@@ -476,7 +476,7 @@ export async function runInstanceMigration(args: {
 }
 
 export async function rollbackInstanceMigration(
-  target: ServerProfile,
+  target: AuthenticatedServerProfile,
   migrationId: string,
 ): Promise<{ success: true; removed: Record<string, number> }> {
   const result = await fetchJson<{ success: true; removed: Record<string, number> }>(target, "/rollback", {
