@@ -1,0 +1,55 @@
+name: Codex Issue 351 Diagnostics
+
+on:
+  push:
+    branches:
+      - codex/issue-351-note-loading-ux
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run diagnostics
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "# Issue 351 diagnostics"
+            echo
+            echo "## Loading call sites"
+            grep -R -n -E 'setNoteLoading|noteLoadingState|effectiveLocked|canEditActiveNote' frontend/src/components frontend/src/hooks frontend/src/store | head -n 300
+            echo
+            echo "## Install"
+          } > .issue351-diagnostics.txt
+
+          cd frontend
+          npm ci >> ../.issue351-diagnostics.txt 2>&1
+          install_code=$?
+          echo "install_exit=$install_code" >> ../.issue351-diagnostics.txt
+
+          test_code=99
+          build_code=99
+          if [ "$install_code" -eq 0 ]; then
+            npm run test:run -- src/lib/__tests__/noteLoadCoordinator.test.ts >> ../.issue351-diagnostics.txt 2>&1
+            test_code=$?
+            echo "test_exit=$test_code" >> ../.issue351-diagnostics.txt
+
+            npm run build >> ../.issue351-diagnostics.txt 2>&1
+            build_code=$?
+            echo "build_exit=$build_code" >> ../.issue351-diagnostics.txt
+          fi
+          cd ..
+
+          rm .github/workflows/codex-issue-351-diagnostics.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test(editor): record issue 351 verification"
+          git push origin HEAD:codex/issue-351-note-loading-ux
