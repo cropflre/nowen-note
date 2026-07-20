@@ -18,11 +18,6 @@ jobs:
           fetch-tags: false
           show-progress: false
           ref: codex/issue-343-secure-account-profiles
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Extract and apply implementation
         shell: bash
         run: |
@@ -37,6 +32,11 @@ jobs:
             exit 1
           fi
           cat /tmp/codex343.log
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
