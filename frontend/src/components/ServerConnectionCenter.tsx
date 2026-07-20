@@ -376,6 +376,7 @@ export default function ServerConnectionCenter() {
     }
     if (!window.confirm(`删除服务端配置「${profile.name}」？\n只删除本机档案和对应安全凭据，不会删除服务器上的数据。`)) return;
     await removeProfileCredential(profile.id);
+    await removeProfileCredential(profile.id);
     removeServerProfile(profile.id);
     refreshProfiles();
     if (sourceId === profile.id) setSourceId(active?.id || "");

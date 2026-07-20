@@ -5,6 +5,8 @@ vi.mock("@/lib/api", () => ({ getServerUrl: () => "" }));
 import {
   bootstrapServerProfiles,
   listServerProfiles,
+  markServerProfileActive,
+  removeServerProfile,
   upsertServerProfile,
 } from "@/lib/serverProfiles";
 
@@ -36,6 +38,13 @@ describe("serverProfiles v2 metadata", () => {
     upsertServerProfile({ id: "alice", name: "NAS Alice", serverUrl: "http://nas.local:3001", username: "alice" });
     upsertServerProfile({ id: "bob", name: "NAS Bob", serverUrl: "http://nas.local:3001", username: "bob" });
     expect(listServerProfiles().map((profile) => profile.username).sort()).toEqual(["alice", "bob"]);
+  });
+
+  it("refuses to remove the active profile at the storage boundary", () => {
+    const active = upsertServerProfile({ id: "active", name: "Active", serverUrl: "http://active.test", username: "alice" });
+    markServerProfileActive(active.id);
+    removeServerProfile(active.id);
+    expect(listServerProfiles().some((profile) => profile.id === active.id)).toBe(true);
   });
 
   it("strips unknown sensitive fields on every write", () => {

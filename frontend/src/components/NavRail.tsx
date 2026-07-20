@@ -147,12 +147,9 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const [showMigration, setShowMigration] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
-  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => (
-    isDesktopApp() ? getActiveServerProfile() : null
-  ));
+  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => getActiveServerProfile());
 
   useEffect(() => {
-    if (!isDesktopApp()) return;
     const refreshActiveServer = () => setActiveServer(getActiveServerProfile());
     refreshActiveServer();
     return subscribeServerProfiles(refreshActiveServer);
@@ -516,30 +513,28 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       {/* 底部：设置 + 登出（label 模式下与导航项视觉对齐——也带文字，因为它们语义上是入口） */}
-      {isDesktopApp() && (
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT))}
-          title={showLabel ? undefined : "服务端与迁移中心"}
-          aria-label="服务端与迁移中心"
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT))}
+        title={showLabel ? undefined : "服务端与迁移中心"}
+        aria-label="服务端与迁移中心"
+        className={cn(
+          itemBaseClass,
+          "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary",
+        )}
+      >
+        <Server size={16} />
+        <span
           className={cn(
-            itemBaseClass,
-            "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary",
+            "absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar",
+            serverStatusDotClass(activeServer?.status),
           )}
-        >
-          <Server size={16} />
-          <span
-            className={cn(
-              "absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar",
-              serverStatusDotClass(activeServer?.status),
-            )}
-            aria-hidden
-          />
-          {showLabel && (
-            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">服务端</span>
-          )}
-        </button>
-      )}
+          aria-hidden
+        />
+        {showLabel && (
+          <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">服务端</span>
+        )}
+      </button>
       <button
         onClick={() => setShowSettings(true)}
         title={showLabel ? undefined : t('sidebar.settings')}

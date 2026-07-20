@@ -245,6 +245,8 @@ export function upsertServerProfile(input: Partial<ServerProfile> & { serverUrl:
 }
 
 export function removeServerProfile(id: string): ServerProfile[] {
+  const activeId = localStorage.getItem(ACTIVE_KEY) || localStorage.getItem(LEGACY_ACTIVE_KEY) || "";
+  if (id === activeId) return listServerProfiles();
   const profiles = writeProfiles(listServerProfiles().filter((profile) => profile.id !== id));
   if (localStorage.getItem(ACTIVE_KEY) === id || localStorage.getItem(LEGACY_ACTIVE_KEY) === id) {
     try {
