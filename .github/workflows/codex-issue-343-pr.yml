@@ -68,8 +68,23 @@ jobs:
         working-directory: frontend
         run: npm run test:run -- src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts
       - name: Build frontend
+        id: build
         working-directory: frontend
-        run: npm run build
+        shell: bash
+        run: npm run build > /tmp/codex343-build.log 2>&1
+      - name: Publish build diagnostics
+        if: failure() && steps.build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '### Issue #343 build diagnostics'
+            echo '```text'
+            tail -120 /tmp/codex343-build.log
+            echo '```'
+          } > /tmp/codex343-build-comment.md
+          gh pr comment 354 --body-file /tmp/codex343-build-comment.md
       - name: Validate Electron bridge syntax
         run: |
           node --check electron/credentials.js
