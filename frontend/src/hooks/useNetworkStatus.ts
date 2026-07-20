@@ -93,8 +93,7 @@ export function useNetworkStatus() {
   const probe = useCallback((): Promise<boolean> => {
     if (probePromiseRef.current) return probePromiseRef.current;
 
-    let request: Promise<boolean>;
-    request = (async () => {
+    const request = (async () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
       try {
@@ -126,8 +125,7 @@ export function useNetworkStatus() {
       return Promise.resolve(true);
     }
 
-    let request: Promise<boolean>;
-    request = (async () => {
+    const request = (async () => {
       try {
         await syncNow();
         return true;
@@ -136,11 +134,13 @@ export function useNetworkStatus() {
         return false;
       } finally {
         if (mountedRef.current) setPendingCount(getQueueLength());
-        if (flushPromiseRef.current === request) flushPromiseRef.current = null;
       }
     })();
 
     flushPromiseRef.current = request;
+    void request.finally(() => {
+      if (flushPromiseRef.current === request) flushPromiseRef.current = null;
+    });
     return request;
   }, []);
 
