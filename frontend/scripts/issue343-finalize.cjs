@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const profilesPath = path.join(root, 'src/lib/serverProfiles.ts');
+const vaultPath = path.join(root, 'src/lib/profileCredentialVault.ts');
 const packagePath = path.join(root, 'package.json');
 
 const oldBlock = `export function listServerProfiles(): ServerProfile[] {
@@ -16,15 +17,25 @@ const newBlock = `export function listServerProfiles(): ServerProfile[] {
   return bootstrapServerProfiles();
 }`;
 
-const source = fs.readFileSync(profilesPath, 'utf8');
-if (!source.includes(oldBlock)) {
+const profileSource = fs.readFileSync(profilesPath, 'utf8');
+if (!profileSource.includes(oldBlock)) {
   throw new Error('Issue #343 finalizer could not find listServerProfiles bootstrap block');
 }
-fs.writeFileSync(profilesPath, source.replace(oldBlock, newBlock));
+fs.writeFileSync(profilesPath, profileSource.replace(oldBlock, newBlock));
+
+const vaultSource = fs.readFileSync(vaultPath, 'utf8');
+let normalizedVault = vaultSource.replace(
+  /^(\s*(?:displayName|avatarUrl):\s*)([^,\n]*(?:displayName|avatarUrl)),$/gm,
+  (_line, prefix, expression) => `${prefix}${expression.trim()} || undefined,`,
+);
+if (normalizedVault === vaultSource) {
+  throw new Error('Issue #343 finalizer could not find nullable profile metadata assignments');
+}
+fs.writeFileSync(vaultPath, normalizedVault);
 
 const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 delete packageJson.scripts.postinstall;
 fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 fs.unlinkSync(__filename);
 
-console.log('[issue343] applied initialized-empty profile guard and removed one-shot installer');
+console.log('[issue343] applied profile guards, normalized nullable metadata, and removed one-shot installer');
