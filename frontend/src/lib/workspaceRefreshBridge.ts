@@ -8,6 +8,7 @@ const INSTALL_KEY = "__NOWEN_WORKSPACE_REFRESH_BRIDGE__" as const;
 const BUTTON_ATTRIBUTE = "data-nowen-workspace-refresh";
 const AUTO_REFRESH_COOLDOWN_MS = 4_000;
 const BACKGROUND_REFRESH_MIN_MS = 800;
+const DESKTOP_POLL_INTERVAL_MS = 30_000;
 
 type BridgeWindow = Window & typeof globalThis & {
   [INSTALL_KEY]?: () => void;
@@ -21,6 +22,7 @@ type RefreshReason =
   | "visibility"
   | "online"
   | "pageshow"
+  | "poll"
   | "sync-snapshot";
 
 let refreshPromise: Promise<RefreshResult> | null = null;
@@ -28,6 +30,7 @@ let lastAutomaticRefreshAt = 0;
 let lastSnapshotAnnouncementAt = 0;
 let backgroundedAt = 0;
 let refreshTimer: number | null = null;
+let pollTimer: number | null = null;
 let mutationFrame = 0;
 
 function isMainAppRoute(): boolean {
@@ -41,6 +44,10 @@ function isAuthenticated(): boolean {
   } catch {
     return false;
   }
+}
+
+function isDesktopClient(): boolean {
+  return !!(window as unknown as { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop;
 }
 
 function resolveCopy() {
@@ -230,6 +237,15 @@ export function installWorkspaceRefreshBridge(): void {
   const observer = new MutationObserver(scheduleMount);
   observer.observe(document.body, { childList: true, subtree: true });
 
+  // Electron/desktop keeps polling only while visible. This covers MCP/CLI writes
+  // from older servers that do not yet broadcast note creation events, while the
+  // focus/visibility hooks provide an immediate catch-up after background use.
+  if (isDesktopClient()) {
+    pollTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") scheduleAutomaticRefresh("poll", 0);
+    }, DESKTOP_POLL_INTERVAL_MS);
+  }
+
   window.addEventListener(SYNC_SNAPSHOT_APPLIED_EVENT, onSnapshotApplied);
   window.addEventListener("blur", onBlur);
   window.addEventListener("focus", onFocus);
@@ -241,6 +257,7 @@ export function installWorkspaceRefreshBridge(): void {
     observer.disconnect();
     if (mutationFrame) window.cancelAnimationFrame(mutationFrame);
     if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    if (pollTimer !== null) window.clearInterval(pollTimer);
     window.removeEventListener(SYNC_SNAPSHOT_APPLIED_EVENT, onSnapshotApplied);
     window.removeEventListener("blur", onBlur);
     window.removeEventListener("focus", onFocus);
