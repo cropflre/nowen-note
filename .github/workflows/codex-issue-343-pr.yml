@@ -45,12 +45,29 @@ jobs:
           python /tmp/codex343.py > /tmp/codex343.log 2>&1
           python - <<'PY'
           from pathlib import Path
-          path = Path('frontend/src/components/ServerConnectionCenter.tsx')
-          text = path.read_text()
+
+          center = Path('frontend/src/components/ServerConnectionCenter.tsx')
+          text = center.read_text()
           invalid = ': "\n") +'
           if invalid not in text:
               raise SystemExit('generated switch newline pattern not found')
-          path.write_text(text.replace(invalid, ': "\\n") +', 1))
+          center.write_text(text.replace(invalid, ': "\\n") +', 1))
+
+          vault = Path('frontend/src/lib/profileCredentialVault.ts')
+          text = vault.read_text()
+          old = 'user?: { id?: string; username?: string; displayName?: string; avatarUrl?: string };'
+          new = 'user?: { id?: string; username?: string; displayName?: string | null; avatarUrl?: string | null };'
+          if old not in text:
+              raise SystemExit('pending login user type pattern not found')
+          vault.write_text(text.replace(old, new, 1))
+
+          profiles = Path('frontend/src/lib/serverProfiles.ts')
+          text = profiles.read_text()
+          old = 'export function upsertServerProfile(input: Partial<ServerProfile> & { serverUrl: string; name: string }): ServerProfile {'
+          new = 'export function upsertServerProfile(input: Partial<ServerProfile> & { serverUrl: string; name: string; token?: unknown; password?: unknown }): ServerProfile {'
+          if old not in text:
+              raise SystemExit('upsert compatibility signature pattern not found')
+          profiles.write_text(text.replace(old, new, 1))
           PY
       - name: Publish apply diagnostics
         if: failure() && steps.apply.outcome == 'failure'
@@ -75,7 +92,7 @@ jobs:
         run: npm ci
       - name: Run security and profile tests
         working-directory: frontend
-        run: npm run test:run -- src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts
+        run: npm run test:run -- src/lib/__tests__/serverProfiles.test.ts src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts
       - name: Build frontend
         id: build
         working-directory: frontend
