@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   apply-and-verify:
@@ -29,7 +31,22 @@ jobs:
         run: npm ci
       - name: Run search reliability and performance tests
         working-directory: backend
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/search-index.test.ts tests/search-experience.test.ts
+        run: |
+          set -o pipefail
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/search-index.test.ts tests/search-experience.test.ts 2>&1 | tee /tmp/issue-340-tests.log
+      - name: Report test diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "### Issue #340 temporary test diagnostics"
+            echo
+            echo '```text'
+            tail -n 140 /tmp/issue-340-tests.log
+            echo '```'
+          } > /tmp/issue-340-comment.md
+          gh pr comment 360 --body-file /tmp/issue-340-comment.md
       - name: Type-check backend
         working-directory: backend
         run: npm run build:tsc
