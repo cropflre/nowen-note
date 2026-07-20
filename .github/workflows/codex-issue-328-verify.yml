@@ -1,0 +1,43 @@
+name: Codex Issue 328 Verify
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          show-progress: false
+          ref: codex/issue-328-search-match-scroll-v2
+      - name: Apply minimal implementation
+        run: python scripts/codex-issue-328-apply.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run search scrolling regression tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/searchMatchScroll.test.ts
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/codex-issue-328-verify.yml
+          git add -A frontend scripts
+          git commit -m "fix(editor): keep in-note search matches visible (#328)"
+          git push origin HEAD:codex/issue-328-search-match-scroll-v2
