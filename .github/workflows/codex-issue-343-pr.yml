@@ -91,8 +91,23 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Run security and profile tests
+        id: tests
         working-directory: frontend
-        run: npm run test:run -- src/lib/__tests__/serverProfiles.test.ts src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts
+        shell: bash
+        run: npm run test:run -- src/lib/__tests__/serverProfiles.test.ts src/lib/__tests__/serverProfilesSecurity.test.ts src/lib/__tests__/profileCredentialVault.test.ts src/components/__tests__/ServerConnectionCenterSecurity.test.ts > /tmp/codex343-tests.log 2>&1
+      - name: Publish test diagnostics
+        if: failure() && steps.tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '### Issue #343 test diagnostics'
+            echo '```text'
+            tail -160 /tmp/codex343-tests.log
+            echo '```'
+          } > /tmp/codex343-tests-comment.md
+          gh pr comment 354 --body-file /tmp/codex343-tests-comment.md
       - name: Build frontend
         id: build
         working-directory: frontend
