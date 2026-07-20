@@ -1,3 +1,4 @@
+# Final verification trigger for Issue #343.
 name: Codex Issue 343 PR Trigger
 
 on:
