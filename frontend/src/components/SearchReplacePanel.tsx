@@ -1,19 +1,6 @@
 /**
- * SearchReplacePanel —— Tiptap/ProseMirror 富文本编辑器的"查找/替换"面板。
- * ----------------------------------------------------------------------------
- * 设计要点：
- *   - 不依赖第三方扩展，自己写一个 ProseMirror 装饰器插件，避开第三方 v2/v3 兼容
- *     问题；总代码量约 200 行，可控可调。
- *   - 装饰器扫描整个 doc，给每个匹配项打 "search-match" 高亮 class；当前命中项
- *     额外打 "search-match-active"，CSS 用更深的色彩区分。
- *   - 替换走 editor.commands.insertContent + 选区 setTextSelection，避免 mark
- *     污染（保留原有 textStyle/color/fontSize 由用户决定，目前先按"插入纯文本"
- *     处理；如果未来要保留格式，可改为 replaceWith TextNode + 复制原 marks）。
- *   - 区分大小写、整词、正则三个开关；空查询时清空装饰避免无意义全文遍历。
- *
- * 这个文件只对外暴露：
- *   - createSearchReplaceExtension()：Tiptap Extension，挂载装饰器与查询状态
- *   - SearchReplacePanel：浮窗面板组件
+ * Tiptap/ProseMirror 富文本编辑器的查找/替换面板。
+ * 匹配项通过 ProseMirror decorations 高亮；导航时按精确文档坐标滚动。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
@@ -32,21 +19,19 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-
-// ---------------------------------------------------------------------------
-// ProseMirror 装饰扩展
-// ---------------------------------------------------------------------------
+import {
+  getSearchNavigationIndex,
+  isSearchNavigationUpdate,
+  scrollSearchMatchIntoView,
+} from "@/lib/searchMatchScroll";
 
 interface SearchState {
   query: string;
   caseSensitive: boolean;
   wholeWord: boolean;
   useRegex: boolean;
-  /** 当前命中索引，从 0 开始；-1 表示无命中 */
   activeIndex: number;
-  /** 所有命中位置（doc 内的绝对位置） */
   matches: { from: number; to: number }[];
-  /** 装饰集，用于编辑器渲染 */
   deco: DecorationSet;
 }
 
@@ -62,7 +47,6 @@ const emptyState: SearchState = {
 
 export const searchReplacePluginKey = new PluginKey<SearchState>("searchReplace");
 
-/** 把用户输入转成最终的正则 */
 function buildRegex(opts: {
   query: string;
   caseSensitive: boolean;
@@ -76,25 +60,26 @@ function buildRegex(opts: {
   try {
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
   } catch {
-    return null; // 用户写了非法正则，外层 UI 会提示
+    return null;
   }
 }
 
-/** 在整个 doc 中扫描所有匹配，按文本节点逐段切，避免跨节点误匹配 */
 function findMatches(doc: any, regex: RegExp): { from: number; to: number }[] {
   const matches: { from: number; to: number }[] = [];
   doc.descendants((node: any, pos: number) => {
     if (!node.isText) return;
     const text: string = node.text ?? "";
     regex.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(text))) {
-      // 防御性处理：零宽匹配（如 /\b/g）会死循环
-      if (m.index === regex.lastIndex) {
-        regex.lastIndex++;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text))) {
+      if (match.index === regex.lastIndex) {
+        regex.lastIndex += 1;
         continue;
       }
-      matches.push({ from: pos + m.index, to: pos + m.index + m[0].length });
+      matches.push({
+        from: pos + match.index,
+        to: pos + match.index + match[0].length,
+      });
     }
   });
   return matches;
@@ -106,15 +91,16 @@ function buildDecoSet(
   activeIndex: number,
 ): DecorationSet {
   if (matches.length === 0) return DecorationSet.empty;
-  const decos = matches.map((m, i) =>
-    Decoration.inline(m.from, m.to, {
-      class: i === activeIndex ? "search-match search-match-active" : "search-match",
-    }),
+  return DecorationSet.create(
+    doc,
+    matches.map((match, index) => Decoration.inline(match.from, match.to, {
+      class: index === activeIndex
+        ? "search-match search-match-active"
+        : "search-match",
+    })),
   );
-  return DecorationSet.create(doc, decos);
 }
 
-/** 创建 Tiptap 扩展：维护查询状态 + 渲染装饰 */
 export function createSearchReplaceExtension() {
   return Extension.create({
     name: "searchReplace",
@@ -125,17 +111,28 @@ export function createSearchReplaceExtension() {
           state: {
             init: () => emptyState,
             apply(tr, prev) {
-              // 外部派发的 setSearchMeta 优先：重新计算 matches + decoSet
-              const meta = tr.getMeta(searchReplacePluginKey);
+              const meta = tr.getMeta(searchReplacePluginKey) as Partial<SearchState> | undefined;
               if (meta) {
+                // 上一个/下一个只切换当前装饰，不再为长笔记重新扫描全文。
+                if (isSearchNavigationUpdate(meta as Record<string, unknown>)) {
+                  const activeIndex = prev.matches.length === 0
+                    ? -1
+                    : Math.max(-1, Math.min(meta.activeIndex ?? -1, prev.matches.length - 1));
+                  return {
+                    ...prev,
+                    activeIndex,
+                    deco: buildDecoSet(tr.doc, prev.matches, activeIndex),
+                  };
+                }
+
                 const next: SearchState = { ...prev, ...meta };
                 const regex = buildRegex(next);
                 const matches = regex ? findMatches(tr.doc, regex) : [];
-                let activeIndex = matches.length === 0 ? -1 : 0;
-                // 如果是"导航类"更新（next/prev），保留 caller 传入的 activeIndex
-                if (typeof meta.activeIndex === "number") {
-                  activeIndex = Math.max(-1, Math.min(meta.activeIndex, matches.length - 1));
-                }
+                const activeIndex = matches.length === 0
+                  ? -1
+                  : typeof meta.activeIndex === "number"
+                    ? Math.max(-1, Math.min(meta.activeIndex, matches.length - 1))
+                    : 0;
                 return {
                   ...next,
                   matches,
@@ -143,7 +140,7 @@ export function createSearchReplaceExtension() {
                   deco: buildDecoSet(tr.doc, matches, activeIndex),
                 };
               }
-              // 文档变化时重新扫描（用户在搜索过程中编辑）
+
               if (tr.docChanged && prev.query) {
                 const regex = buildRegex(prev);
                 const matches = regex ? findMatches(tr.doc, regex) : [];
@@ -157,7 +154,7 @@ export function createSearchReplaceExtension() {
                   deco: buildDecoSet(tr.doc, matches, activeIndex),
                 };
               }
-              // 仅 mapping decoSet（光标移动/选区变化）
+
               return {
                 ...prev,
                 deco: prev.deco.map(tr.mapping, tr.doc),
@@ -175,15 +172,10 @@ export function createSearchReplaceExtension() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// 浮窗面板组件
-// ---------------------------------------------------------------------------
-
 interface SearchReplacePanelProps {
   editor: Editor | null;
   open: boolean;
   onClose: () => void;
-  /** 是否允许替换（只读模式可隐藏替换输入框） */
   editable?: boolean;
 }
 
@@ -203,50 +195,67 @@ export function SearchReplacePanel({
   const [matchCount, setMatchCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
   const queryInputRef = useRef<HTMLInputElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
-  // 派发查询到 PM 插件
-  const dispatchQuery = useCallback(
-    (next: Partial<SearchState>) => {
-      if (!editor) return;
-      const view = editor.view;
-      // 防御：若编辑器当前 doc 是脏的（未通过 repair），任何 dispatch 都会让
-      // appendTransaction 阶段在 contentMatchAt 上崩溃 —— 包 try/catch 让搜索
-      // 面板自己降级而不是把整个 React 树带崩。
-      try {
-        view.dispatch(view.state.tr.setMeta(searchReplacePluginKey, next));
-      } catch (e) {
-        console.warn("[SearchReplacePanel] dispatch failed (likely dirty doc):", e);
-        return;
-      }
-      // 读最新 state
-      const s = searchReplacePluginKey.getState(view.state);
-      if (s) {
-        setMatchCount(s.matches.length);
-        setActiveIndex(s.activeIndex);
-      }
-    },
-    [editor],
-  );
-
-  // 把当前命中滚到视口
-  const scrollActiveIntoView = useCallback(() => {
-    if (!editor) return;
-    const s = searchReplacePluginKey.getState(editor.state);
-    if (!s || s.activeIndex < 0) return;
-    const m = s.matches[s.activeIndex];
-    if (!m) return;
-    const dom = editor.view.domAtPos(m.from);
-    const node = dom.node instanceof HTMLElement ? dom.node : dom.node.parentElement;
-    node?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const dispatchQuery = useCallback((next: Partial<SearchState>) => {
+    if (!editor) return null;
+    const view = editor.view;
+    try {
+      view.dispatch(view.state.tr.setMeta(searchReplacePluginKey, next));
+    } catch (error) {
+      console.warn("[SearchReplacePanel] dispatch failed (likely dirty doc):", error);
+      return null;
+    }
+    const state = searchReplacePluginKey.getState(view.state) ?? null;
+    if (state) {
+      setMatchCount(state.matches.length);
+      setActiveIndex(state.activeIndex);
+    }
+    return state;
   }, [editor]);
 
-  // query / 选项变化时自动重新搜索
+  const scrollActiveIntoView = useCallback(() => {
+    if (!editor) return;
+    const state = searchReplacePluginKey.getState(editor.state);
+    if (!state || state.activeIndex < 0) return;
+    const match = state.matches[state.activeIndex];
+    if (!match) return;
+
+    const top = scrollSearchMatchIntoView({
+      view: editor.view,
+      match,
+      behavior: "auto",
+    });
+
+    // 非标准宿主没有可识别的 overflow 容器时，仍以当前高亮 span 兜底。
+    if (top === null) {
+      editor.view.dom
+        .querySelector<HTMLElement>(".search-match-active")
+        ?.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+  }, [editor]);
+
+  const scheduleActiveScroll = useCallback(() => {
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      scrollActiveIntoView();
+    });
+  }, [scrollActiveIntoView]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     dispatchQuery({ query, caseSensitive, wholeWord, useRegex });
   }, [query, caseSensitive, wholeWord, useRegex, open, dispatchQuery]);
 
-  // 打开时聚焦 + 把当前选区文本带进去
   useEffect(() => {
     if (open) {
       if (editor) {
@@ -260,89 +269,113 @@ export function SearchReplacePanel({
         queryInputRef.current?.focus();
         queryInputRef.current?.select();
       });
-    } else {
-      // 关闭时清空装饰
-      if (editor) {
-        const view = editor.view;
-        try {
-          view.dispatch(view.state.tr.setMeta(searchReplacePluginKey, { query: "" }));
-        } catch (e) {
-          // 脏 doc 场景：忽略即可，下次正常 dispatch 时再清
-          console.warn("[SearchReplacePanel] clear-on-close dispatch failed:", e);
-        }
+      return;
+    }
+
+    if (editor) {
+      try {
+        editor.view.dispatch(
+          editor.view.state.tr.setMeta(searchReplacePluginKey, { query: "" }),
+        );
+      } catch (error) {
+        console.warn("[SearchReplacePanel] clear-on-close dispatch failed:", error);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, editor]);
 
   const goNext = useCallback(() => {
-    if (!editor || matchCount === 0) return;
-    const next = (activeIndex + 1) % matchCount;
-    dispatchQuery({ activeIndex: next });
-    requestAnimationFrame(scrollActiveIntoView);
-  }, [editor, matchCount, activeIndex, dispatchQuery, scrollActiveIntoView]);
+    if (!editor) return;
+    const state = searchReplacePluginKey.getState(editor.state);
+    if (!state || state.matches.length === 0) return;
+    dispatchQuery({
+      activeIndex: getSearchNavigationIndex(state.activeIndex, state.matches.length, 1),
+    });
+    scheduleActiveScroll();
+  }, [editor, dispatchQuery, scheduleActiveScroll]);
 
   const goPrev = useCallback(() => {
-    if (!editor || matchCount === 0) return;
-    const next = (activeIndex - 1 + matchCount) % matchCount;
-    dispatchQuery({ activeIndex: next });
-    requestAnimationFrame(scrollActiveIntoView);
-  }, [editor, matchCount, activeIndex, dispatchQuery, scrollActiveIntoView]);
+    if (!editor) return;
+    const state = searchReplacePluginKey.getState(editor.state);
+    if (!state || state.matches.length === 0) return;
+    dispatchQuery({
+      activeIndex: getSearchNavigationIndex(state.activeIndex, state.matches.length, -1),
+    });
+    scheduleActiveScroll();
+  }, [editor, dispatchQuery, scheduleActiveScroll]);
 
   const replaceCurrent = useCallback(() => {
     if (!editor || matchCount === 0 || activeIndex < 0) return;
-    const s = searchReplacePluginKey.getState(editor.state);
-    if (!s) return;
-    const m = s.matches[activeIndex];
-    if (!m) return;
+    const state = searchReplacePluginKey.getState(editor.state);
+    const match = state?.matches[activeIndex];
+    if (!match) return;
     editor
       .chain()
       .focus()
-      .setTextSelection({ from: m.from, to: m.to })
+      .setTextSelection({ from: match.from, to: match.to })
       .insertContent(replaceWith)
       .run();
-    // 替换后重新走查询，自动跳到下一个
     requestAnimationFrame(() => {
       dispatchQuery({ query, caseSensitive, wholeWord, useRegex });
     });
-  }, [editor, matchCount, activeIndex, replaceWith, query, caseSensitive, wholeWord, useRegex, dispatchQuery]);
+  }, [
+    editor,
+    matchCount,
+    activeIndex,
+    replaceWith,
+    query,
+    caseSensitive,
+    wholeWord,
+    useRegex,
+    dispatchQuery,
+  ]);
 
   const replaceAll = useCallback(() => {
     if (!editor || matchCount === 0) return;
-    const s = searchReplacePluginKey.getState(editor.state);
-    if (!s) return;
-    // 倒序替换，避免位置偏移
-    const sorted = [...s.matches].sort((a, b) => b.from - a.from);
+    const state = searchReplacePluginKey.getState(editor.state);
+    if (!state) return;
+    const sorted = [...state.matches].sort((a, b) => b.from - a.from);
     const chain = editor.chain().focus();
-    sorted.forEach((m) => {
-      chain.setTextSelection({ from: m.from, to: m.to }).insertContent(replaceWith);
+    sorted.forEach((match) => {
+      chain.setTextSelection({ from: match.from, to: match.to }).insertContent(replaceWith);
     });
     chain.run();
-    const replaced = sorted.length;
-    toast.success(t("searchReplace.replacedCount", { count: replaced }) || `已替换 ${replaced} 处`);
+    toast.success(
+      t("searchReplace.replacedCount", { count: sorted.length })
+      || `已替换 ${sorted.length} 处`,
+    );
     requestAnimationFrame(() => {
       dispatchQuery({ query, caseSensitive, wholeWord, useRegex });
     });
-  }, [editor, matchCount, replaceWith, query, caseSensitive, wholeWord, useRegex, dispatchQuery, t]);
+  }, [
+    editor,
+    matchCount,
+    replaceWith,
+    query,
+    caseSensitive,
+    wholeWord,
+    useRegex,
+    dispatchQuery,
+    t,
+  ]);
 
-  const onQueryKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.shiftKey) goPrev();
+  const onQueryKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.shiftKey) goPrev();
       else goNext();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
       onClose();
     }
   };
 
-  const onReplaceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) replaceAll();
+  const onReplaceKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) replaceAll();
       else replaceCurrent();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
       onClose();
     }
   };
@@ -362,16 +395,15 @@ export function SearchReplacePanel({
   return (
     <div
       className="absolute top-2 right-3 z-30 flex flex-col gap-1.5 bg-app-elevated border border-app-border rounded-lg shadow-lg p-2 w-[340px] max-w-[calc(100vw-1.5rem)]"
-      onMouseDown={(e) => e.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      {/* 第一行：查找输入 + 命中计数 + 上下导航 + 关闭 */}
       <div className="flex items-center gap-1">
         <Search size={14} className="text-tx-secondary shrink-0 ml-1" />
         <input
           ref={queryInputRef}
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onQueryKeyDown}
           placeholder={t("searchReplace.findPlaceholder") || "查找"}
           className={cn(
@@ -414,25 +446,24 @@ export function SearchReplacePanel({
         </button>
       </div>
 
-      {/* 第二行：选项开关 + 展开替换 */}
       <div className="flex items-center gap-0.5 px-1">
         <ToggleBtn
           active={caseSensitive}
-          onClick={() => setCaseSensitive((v) => !v)}
+          onClick={() => setCaseSensitive((value) => !value)}
           title={t("searchReplace.caseSensitive") || "区分大小写"}
         >
           <CaseSensitive size={14} />
         </ToggleBtn>
         <ToggleBtn
           active={wholeWord}
-          onClick={() => setWholeWord((v) => !v)}
+          onClick={() => setWholeWord((value) => !value)}
           title={t("searchReplace.wholeWord") || "全字匹配"}
         >
           <WholeWord size={14} />
         </ToggleBtn>
         <ToggleBtn
           active={useRegex}
-          onClick={() => setUseRegex((v) => !v)}
+          onClick={() => setUseRegex((value) => !value)}
           title={t("searchReplace.regex") || "正则表达式"}
         >
           <Regex size={14} />
@@ -440,7 +471,7 @@ export function SearchReplacePanel({
         {editable && (
           <button
             type="button"
-            onClick={() => setShowReplace((v) => !v)}
+            onClick={() => setShowReplace((value) => !value)}
             className="ml-auto text-xs text-tx-secondary hover:text-tx-primary px-2 py-0.5 rounded hover:bg-app-hover"
           >
             {showReplace
@@ -450,14 +481,13 @@ export function SearchReplacePanel({
         )}
       </div>
 
-      {/* 第三行：替换输入 + 替换按钮（仅展开时显示） */}
       {editable && showReplace && (
         <div className="flex items-center gap-1">
           <span className="w-[14px] shrink-0 ml-1" />
           <input
             type="text"
             value={replaceWith}
-            onChange={(e) => setReplaceWith(e.target.value)}
+            onChange={(event) => setReplaceWith(event.target.value)}
             onKeyDown={onReplaceKeyDown}
             placeholder={t("searchReplace.replacePlaceholder") || "替换为"}
             className="flex-1 min-w-0 px-2 py-1 text-sm bg-app-surface border border-app-border rounded focus:outline-none focus:ring-1 focus:ring-accent-primary"
