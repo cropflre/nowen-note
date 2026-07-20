@@ -159,8 +159,9 @@ export function useNetworkStatus() {
     const alive = await probe();
     if (!mountedRef.current) return false;
 
-    // 浏览器明确报告离线时，不允许一个过期的探活结果把状态重新覆盖为在线。
-    if (!alive || !navigator.onLine) {
+    // navigator.onLine 只作为即时信号；最终以服务端实际可达性为准，
+    // 保证“无互联网但本机/NAS 仍可访问”的局域网场景不被误判为离线。
+    if (!alive) {
       markOffline();
       return false;
     }
