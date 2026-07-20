@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -90,6 +90,7 @@ export default function EditorPane() {
   const actions = useAppActions();
   const { loadNote, retryNoteLoad } = useNoteLoader();
   const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;
+  const reduceMotion = useReducedMotion();
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showMoveDropdown, setShowMoveDropdown] = useState(false);
   const moveDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -125,7 +126,8 @@ export default function EditorPane() {
    */
   const isViewLocked = !!activeNote && viewLockedIds.has(activeNote.id);
   const isTrashed = !!activeNote?.isTrashed;
-  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed;
+  const noteSwitchPending = !!noteLoadingState.pendingNoteId;
+  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed || noteSwitchPending;
   const canEditActiveNote = canWriteNote(activeNote);
   const showDesktopOutline = showOutline && !state.editorFullscreen;
 
@@ -1645,9 +1647,15 @@ const moveToTrash = useCallback(async () => {
     actions.removeNoteFromList(noteId);
     actions.removeNoteTab(noteId);
     if (nextTab) {
-      actions.setNoteLoading(true);
-      api.getNote(nextTab.id)
-        .then((nextNote) => {
+      void loadNote({
+        noteId: nextTab.id,
+        summary: {
+          title: nextTab.title || t("editorTabs.noTitle"),
+          notebookId: nextTab.notebookId,
+          contentFormat: nextTab.contentFormat,
+        },
+        request: () => api.getNote(nextTab.id),
+        onSuccess: (nextNote) => {
           actions.setActiveNote(nextNote);
           actions.openNoteTab({
             id: nextNote.id,
@@ -1659,9 +1667,8 @@ const moveToTrash = useCallback(async () => {
             isTrashed: nextNote.isTrashed,
             updatedAt: nextNote.updatedAt,
           });
-        })
-        .catch(console.error)
-        .finally(() => actions.setNoteLoading(false));
+        },
+      });
     }
     api.updateNote(noteId, { isTrashed: 1 } as any)
       .then(() => {
@@ -1671,27 +1678,17 @@ const moveToTrash = useCallback(async () => {
         actions.refreshNotes();
       })
       .catch(console.error);
-  }, [activeNote, actions, state.openNoteTabs, userPrefs.enableNoteTabs]);
+  }, [activeNote, actions, loadNote, state.openNoteTabs, t, userPrefs.enableNoteTabs]);
 
   // BLOCK-LINKS-JUMP-01: 打开笔记回调（用于笔记引用跳转）
   const handleOpenNote = useCallback(async (noteId: string) => {
-    try {
-      const note = await api.getNote(noteId);
-      if (note) {
-        actions.setActiveNote(note);
-      }
-    } catch (err: any) {
-      console.error("Failed to open note:", err);
-      const msg = err?.message || "";
-      if (msg.includes("not found") || msg.includes("404")) {
-        toast.error(t("noteLink.noteNotFound", { defaultValue: "笔记不存在或已删除" }));
-      } else if (msg.includes("forbidden") || msg.includes("403")) {
-        toast.error(t("noteLink.noPermission", { defaultValue: "无权访问该笔记" }));
-      } else {
-        toast.error(t("noteLink.openFailed", { defaultValue: "打开笔记失败" }));
-      }
-    }
-  }, [actions, t]);
+    await loadNote({
+      noteId,
+      summary: { title: t("editor.noteLoading"), notebookId: "" },
+      request: () => api.getNote(noteId),
+      onSuccess: (note) => actions.setActiveNote(note),
+    });
+  }, [actions, loadNote, t]);
 
   const handleTagsChange = useCallback((tags: Tag[]) => {
     if (!activeNote) return;
@@ -2069,6 +2066,7 @@ const moveToTrash = useCallback(async () => {
       <NoteLoadingSkeleton
         state={noteLoadingState}
         onRetry={() => { void retryNoteLoad(); }}
+        onBack={() => actions.setMobileView("list")}
         loadingLabel={t("editor.noteLoading")}
         errorTitle={t("noteList.loadErrorTitle")}
         errorDescription={t("noteList.loadErrorDesc")}
@@ -2152,7 +2150,7 @@ const moveToTrash = useCallback(async () => {
       key={activeNote.id}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.15 }}
+      transition={{ duration: reduceMotion ? 0 : 0.15 }}
       className="flex-1 flex flex-col bg-app-bg overflow-hidden transition-colors relative"
     >
       {/* �ʼ��л� loading ���� */}
@@ -2163,13 +2161,14 @@ const moveToTrash = useCallback(async () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.14, ease: "easeOut" }}
+            transition={{ duration: reduceMotion ? 0 : 0.14, ease: "easeOut" }}
             className="absolute inset-0 z-50"
           >
             <NoteLoadingSkeleton
               mode="overlay"
               state={noteLoadingState}
               onRetry={() => { void retryNoteLoad(); }}
+              onBack={() => actions.setMobileView("list")}
               loadingLabel={t("editor.noteLoading")}
               errorTitle={t("noteList.loadErrorTitle")}
               errorDescription={t("noteList.loadErrorDesc")}
