@@ -20,7 +20,7 @@ jobs:
           show-progress: false
           ref: codex/issue-340-search-index-repair
       - name: Apply integration patch
-        run: python scripts/codex-issue-340-apply-v4.py
+        run: python scripts/codex-issue-340-apply-v5.py
       - uses: actions/setup-node@v4
         with:
           node-version: 22
