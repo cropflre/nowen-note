@@ -1,0 +1,46 @@
+name: Codex Issue 340 Verify
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          show-progress: false
+          ref: codex/issue-340-search-index-repair
+      - name: Apply integration patch
+        run: python scripts/codex-issue-340-apply.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Run search reliability and performance tests
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/search-index.test.ts tests/search-experience.test.ts
+      - name: Type-check backend
+        working-directory: backend
+        run: npm run build:tsc
+      - name: Build backend bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/codex-issue-340-verify.yml
+          git add -A backend scripts
+          git commit -m "fix(search): repair source text and bound candidate retrieval (#340)"
+          git push origin HEAD:codex/issue-340-search-index-repair
