@@ -1,0 +1,54 @@
+name: Codex Issue 351 Split Guard
+
+on:
+  push:
+    branches:
+      - codex/issue-351-complete-coverage
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch split dependencies
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path("frontend/src/components/EditorSplitView.tsx")
+          text = path.read_text(encoding="utf-8-sig")
+          text = text.replace(
+            '  }, [actions, noteId, splitSink, t, tabMeta?.contentFormat, tabMeta?.notebookId, tabMeta?.pinned, tabMeta?.title]);',
+            '  }, [actions, noteId, splitSink, t]);',
+            1,
+          )
+          text = text.replace(
+            '  const title = note?.title || tabMeta?.title || t("editorTabs.noTitle");\n  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;',
+            '  const title = note?.id === noteId ? note.title : tabMeta?.title || t("editorTabs.noTitle");\n  const editable = !!note && note.id === noteId && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;',
+            1,
+          )
+          path.write_text(text, encoding="utf-8")
+          Path(".issue351-complete-verification.txt").unlink(missing_ok=True)
+          Path(".github/workflows/codex-issue-351-split-guard.yml").unlink(missing_ok=True)
+          PY
+          git diff --check
+      - name: Verify production build
+        shell: bash
+        run: |
+          cd frontend
+          npm ci
+          npm run test:run -- src/lib/__tests__/noteLoadCoordinator.test.ts src/lib/__tests__/noteLoadSource.test.ts
+          npm run build
+      - name: Commit final split guard
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(editor): prevent split loading self-refresh (#351)"
+          git push origin HEAD:codex/issue-351-complete-coverage
