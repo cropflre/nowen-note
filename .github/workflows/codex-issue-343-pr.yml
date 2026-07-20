@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   apply-and-verify:
@@ -19,6 +20,7 @@ jobs:
           show-progress: false
           ref: codex/issue-343-secure-account-profiles
       - name: Extract and apply implementation
+        id: apply
         shell: bash
         run: |
           awk '
@@ -27,11 +29,20 @@ jobs:
             capture { sub(/^[[:space:]]*/, ""); print }
           ' .github/workflows/codex-issue-343-apply.yml | base64 -d | gzip -d > /tmp/codex343.py
           python -m py_compile /tmp/codex343.py
-          if ! python /tmp/codex343.py > /tmp/codex343.log 2>&1; then
-            cat /tmp/codex343.log
-            exit 1
-          fi
-          cat /tmp/codex343.log
+          python /tmp/codex343.py > /tmp/codex343.log 2>&1
+      - name: Publish apply diagnostics
+        if: failure() && steps.apply.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '### Issue #343 apply diagnostics'
+            echo '```text'
+            if [ -s /tmp/codex343.log ]; then tail -80 /tmp/codex343.log; else echo 'payload extraction or Python compilation failed before codemod output'; fi
+            echo '```'
+          } > /tmp/codex343-comment.md
+          gh pr comment 354 --body-file /tmp/codex343-comment.md
       - uses: actions/setup-node@v4
         with:
           node-version: 22
