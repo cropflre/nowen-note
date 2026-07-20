@@ -135,6 +135,89 @@ export function repairSearchContentText(db: Database.Database): SearchContentRep
   };
 }
 
+function createNormalizedSearchFts(db: Database.Database): void {
+  db.function(
+    "nowen_search_normalize",
+    { deterministic: true },
+    (value: unknown) => normalizeSearchText(value === null || value === undefined ? "" : String(value)),
+  );
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_search_fts USING fts5(
+      title,
+      contentText
+    );
+
+    DROP TRIGGER IF EXISTS notes_search_ai;
+    CREATE TRIGGER notes_search_ai AFTER INSERT ON notes BEGIN
+      INSERT INTO notes_search_fts(rowid, title, contentText)
+      VALUES (
+        new.rowid,
+        nowen_search_normalize(COALESCE(new.title, '')),
+        nowen_search_normalize(COALESCE(new.contentText, ''))
+      );
+    END;
+
+    DROP TRIGGER IF EXISTS notes_search_ad;
+    CREATE TRIGGER notes_search_ad AFTER DELETE ON notes BEGIN
+      INSERT INTO notes_search_fts(notes_search_fts, rowid, title, contentText)
+      VALUES (
+        'delete',
+        old.rowid,
+        nowen_search_normalize(COALESCE(old.title, '')),
+        nowen_search_normalize(COALESCE(old.contentText, ''))
+      );
+    END;
+
+    DROP TRIGGER IF EXISTS notes_search_au;
+    CREATE TRIGGER notes_search_au AFTER UPDATE ON notes
+    WHEN old.title IS NOT new.title OR old.contentText IS NOT new.contentText
+    BEGIN
+      INSERT INTO notes_search_fts(notes_search_fts, rowid, title, contentText)
+      VALUES (
+        'delete',
+        old.rowid,
+        nowen_search_normalize(COALESCE(old.title, '')),
+        nowen_search_normalize(COALESCE(old.contentText, ''))
+      );
+      INSERT INTO notes_search_fts(rowid, title, contentText)
+      VALUES (
+        new.rowid,
+        nowen_search_normalize(COALESCE(new.title, '')),
+        nowen_search_normalize(COALESCE(new.contentText, ''))
+      );
+    END;
+  `);
+}
+
+export function rebuildNormalizedSearchFts(db: Database.Database): void {
+  createNormalizedSearchFts(db);
+  db.prepare("INSERT INTO notes_search_fts(notes_search_fts) VALUES('delete-all')").run();
+  db.prepare(`
+    INSERT INTO notes_search_fts(rowid, title, contentText)
+    SELECT rowid,
+           nowen_search_normalize(COALESCE(title, '')),
+           nowen_search_normalize(COALESCE(contentText, ''))
+    FROM notes
+  `).run();
+}
+
+/** Ensure the normalized candidate index and its triggers exist after startup. */
+export function ensureNormalizedSearchFts(db: Database.Database): void {
+  createNormalizedSearchFts(db);
+  const noteCount = Number((db.prepare("SELECT COUNT(*) AS count FROM notes").get() as { count?: number })?.count) || 0;
+  const indexCount = Number((db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number })?.count) || 0;
+  if (noteCount !== indexCount) rebuildNormalizedSearchFts(db);
+}
+
+export function getNormalizedSearchFtsCount(db: Database.Database): number {
+  try {
+    const row = db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number } | undefined;
+    return Number(row?.count) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function markSearchIndexRebuilt(
   db: Database.Database,
   rebuiltAt = new Date().toISOString(),
