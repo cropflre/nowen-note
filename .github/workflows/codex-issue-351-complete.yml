@@ -1,0 +1,380 @@
+name: Codex Issue 351 Complete Coverage
+
+on:
+  push:
+    branches:
+      - codex/issue-351-complete-coverage
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply cache, search, and split coverage
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text(encoding="utf-8-sig")
+
+          def write(path, text):
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(text, encoding="utf-8")
+
+          def replace_once(path, old, new, label):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected 1 occurrence in {path}, got {count}")
+              write(path, text.replace(old, new, 1))
+
+          source = r'''import type { Note } from "@/types";
+          import {
+            getNote as getCachedNote,
+            isNoteDetailCached,
+            putNote,
+            type CachedNote,
+          } from "@/lib/localStore";
+
+          export interface CacheFirstNoteLoadOptions {
+            noteId: string;
+            fetchRemote: () => Promise<Note>;
+            onRevalidated?: (remote: Note, cached: CachedNote) => void | Promise<void>;
+          }
+
+          export interface RevalidatedNoteGuardInput {
+            current: Note | null | undefined;
+            cached: Note;
+            remote: Note;
+            hasDraft: boolean;
+            pendingNoteId: string | null;
+          }
+
+          export function canApplyRevalidatedNote({
+            current,
+            cached,
+            remote,
+            hasDraft,
+            pendingNoteId,
+          }: RevalidatedNoteGuardInput): boolean {
+            if (!current || hasDraft || pendingNoteId) return false;
+            if (current.id !== cached.id || remote.id !== cached.id) return false;
+            if (remote.version <= cached.version) return false;
+
+            return current.version === cached.version
+              && current.title === cached.title
+              && current.content === cached.content
+              && current.contentText === cached.contentText
+              && current.updatedAt === cached.updatedAt;
+          }
+
+          async function persistDetail(note: Note): Promise<void> {
+            await putNote({ ...note, __detailCached: true });
+          }
+
+          export async function loadNoteCacheFirst({
+            noteId,
+            fetchRemote,
+            onRevalidated,
+          }: CacheFirstNoteLoadOptions): Promise<Note> {
+            const cached = await getCachedNote(noteId);
+            if (cached && isNoteDetailCached(cached)) {
+              void fetchRemote()
+                .then(async (remote) => {
+                  await persistDetail(remote);
+                  await onRevalidated?.(remote, cached);
+                })
+                .catch((error) => {
+                  console.warn("[noteLoadSource] background revalidation failed:", error);
+                });
+              return cached;
+            }
+
+            const remote = await fetchRemote();
+            await persistDetail(remote);
+            return remote;
+          }
+          '''
+          write("frontend/src/lib/noteLoadSource.ts", source)
+
+          source_test = r'''import { describe, expect, it } from "vitest";
+          import { canApplyRevalidatedNote } from "@/lib/noteLoadSource";
+          import type { Note } from "@/types";
+
+          function makeNote(overrides: Partial<Note> = {}): Note {
+            return {
+              id: "note-1",
+              userId: "user-1",
+              notebookId: "book-1",
+              title: "Cached title",
+              content: "cached body",
+              contentText: "cached body",
+              contentFormat: "tiptap-json",
+              version: 3,
+              isPinned: 0,
+              isFavorite: 0,
+              isLocked: 0,
+              isArchived: 0,
+              isTrashed: 0,
+              sortOrder: 0,
+              createdAt: "2026-07-20T00:00:00.000Z",
+              updatedAt: "2026-07-20T00:00:00.000Z",
+              ...overrides,
+            } as Note;
+          }
+
+          describe("canApplyRevalidatedNote", () => {
+            const cached = makeNote();
+            const remote = makeNote({
+              version: 4,
+              title: "Server title",
+              content: "server body",
+              contentText: "server body",
+              updatedAt: "2026-07-20T01:00:00.000Z",
+            });
+
+            it("allows a newer server version when the visible note is still the untouched cache", () => {
+              expect(canApplyRevalidatedNote({
+                current: makeNote(),
+                cached,
+                remote,
+                hasDraft: false,
+                pendingNoteId: null,
+              })).toBe(true);
+            });
+
+            it("blocks revalidation when a local draft or another switch exists", () => {
+              expect(canApplyRevalidatedNote({ current: cached, cached, remote, hasDraft: true, pendingNoteId: null })).toBe(false);
+              expect(canApplyRevalidatedNote({ current: cached, cached, remote, hasDraft: false, pendingNoteId: "note-2" })).toBe(false);
+            });
+
+            it("blocks revalidation after the visible content changed locally", () => {
+              expect(canApplyRevalidatedNote({
+                current: makeNote({ content: "local edit", contentText: "local edit" }),
+                cached,
+                remote,
+                hasDraft: false,
+                pendingNoteId: null,
+              })).toBe(false);
+            });
+
+            it("ignores unchanged or older server versions", () => {
+              expect(canApplyRevalidatedNote({
+                current: cached,
+                cached,
+                remote: makeNote({ version: 3 }),
+                hasDraft: false,
+                pendingNoteId: null,
+              })).toBe(false);
+            });
+          });
+          '''
+          write("frontend/src/lib/__tests__/noteLoadSource.test.ts", source_test)
+
+          hook = r'''import { useCallback, useMemo, useRef } from "react";
+          import { useApp, useAppActions } from "@/store/AppContext";
+          import type { Note } from "@/types";
+          import {
+            primaryNoteLoadCoordinator,
+            type NoteLoadOptions,
+            type NoteLoadSink,
+          } from "@/lib/noteLoadCoordinator";
+          import {
+            canApplyRevalidatedNote,
+            loadNoteCacheFirst,
+          } from "@/lib/noteLoadSource";
+          import { loadDraft } from "@/lib/draftStorage";
+
+          type UseNoteLoaderOptions = Omit<NoteLoadOptions<Note>, "sink">;
+
+          export function useNoteLoader() {
+            const { state } = useApp();
+            const actions = useAppActions();
+            const stateRef = useRef(state);
+            stateRef.current = state;
+
+            const sink = useMemo<NoteLoadSink>(() => ({
+              begin: (payload) => actions.beginNoteLoad(payload),
+              show: (requestId) => actions.showNoteLoad(requestId),
+              markSlow: (requestId) => actions.markNoteLoadSlow(requestId),
+              finish: (requestId) => actions.finishNoteLoad(requestId),
+              fail: (requestId, error) => actions.failNoteLoad(requestId, error),
+            }), [actions]);
+
+            const loadNote = useCallback((options: UseNoteLoaderOptions) => {
+              const fetchRemote = options.request;
+              return primaryNoteLoadCoordinator.run({
+                ...options,
+                sink,
+                request: () => loadNoteCacheFirst({
+                  noteId: options.noteId,
+                  fetchRemote,
+                  onRevalidated: (remote, cached) => {
+                    const currentState = stateRef.current;
+                    const current = currentState.activeNote;
+                    if (!canApplyRevalidatedNote({
+                      current,
+                      cached,
+                      remote,
+                      hasDraft: !!loadDraft(options.noteId),
+                      pendingNoteId: currentState.noteLoadingState.pendingNoteId,
+                    })) return;
+
+                    actions.setActiveNote(remote);
+                    actions.updateNoteInList({
+                      id: remote.id,
+                      title: remote.title,
+                      contentText: remote.contentText,
+                      version: remote.version,
+                      updatedAt: remote.updatedAt,
+                    });
+                    actions.updateNoteTab({
+                      id: remote.id,
+                      title: remote.title,
+                      contentFormat: remote.contentFormat,
+                      isLocked: remote.isLocked,
+                      isTrashed: remote.isTrashed,
+                      updatedAt: remote.updatedAt,
+                    });
+                  },
+                }),
+              });
+            }, [actions, sink]);
+
+            const retryNoteLoad = useCallback(() => primaryNoteLoadCoordinator.retry(), []);
+            const cancelNoteLoad = useCallback(() => primaryNoteLoadCoordinator.cancel(), []);
+
+            return { loadNote, retryNoteLoad, cancelNoteLoad };
+          }
+          '''
+          write("frontend/src/hooks/useNoteLoader.ts", hook)
+
+          skeleton = "frontend/src/components/NoteLoadingSkeleton.tsx"
+          replace_once(skeleton,
+            '  mode?: "page" | "overlay";\n',
+            '  mode?: "page" | "overlay";\n  showHeader?: boolean;\n',
+            "skeleton showHeader prop",
+          )
+          replace_once(skeleton,
+            '  mode = "page",\n  onRetry,\n',
+            '  mode = "page",\n  showHeader = true,\n  onRetry,\n',
+            "skeleton showHeader default",
+          )
+          replace_once(skeleton,
+            '''      <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-3 md:px-6">\n        {onBack && (\n          <button\n            type="button"\n            onClick={onBack}\n            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover md:hidden"\n            aria-label="返回笔记列表"\n          >\n            <ChevronLeft size={22} />\n          </button>\n        )}\n        <div className="min-w-0 flex-1">\n          <div className="truncate text-sm font-semibold text-tx-primary">{title}</div>\n          {state.slow && !isError && (\n            <div className="mt-0.5 text-[11px] text-tx-tertiary">{loadingLabel}</div>\n          )}\n        </div>\n      </div>\n''',
+            '''      {showHeader && (\n        <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-3 md:px-6">\n          {onBack && (\n            <button\n              type="button"\n              onClick={onBack}\n              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover md:hidden"\n              aria-label="返回笔记列表"\n            >\n              <ChevronLeft size={22} />\n            </button>\n          )}\n          <div className="min-w-0 flex-1">\n            <div className="truncate text-sm font-semibold text-tx-primary">{title}</div>\n            {state.slow && !isError && (\n              <div className="mt-0.5 text-[11px] text-tx-tertiary">{loadingLabel}</div>\n            )}\n          </div>\n        </div>\n      )}\n''',
+            "skeleton conditional header",
+          )
+
+          search = "frontend/src/components/SearchCenter.tsx"
+          replace_once(search,
+            'import { useRailMode } from "@/hooks/useRailMode";\n',
+            'import { useRailMode } from "@/hooks/useRailMode";\nimport { useNoteLoader } from "@/hooks/useNoteLoader";\n',
+            "search loader import",
+          )
+          replace_once(search,
+            '  const actions = useAppActions();\n  const { i18n } = useTranslation();\n',
+            '  const actions = useAppActions();\n  const { loadNote } = useNoteLoader();\n  const { i18n } = useTranslation();\n',
+            "search loader hook",
+          )
+          old_open = '''  const openResult = useCallback(async (result: EnhancedSearchResult) => {\n    if (openingId) return;\n    setOpeningId(result.id);\n    try {\n      const note = await api.getNote(result.id);\n      actions.setActiveNote(note);\n      actions.setSelectedNotebook(note.notebookId);\n      actions.clearSelectedTags();\n      actions.setSearchQuery("");\n      actions.setViewMode("notebook");\n      actions.setMobileSidebar(false);\n      actions.setMobileView("editor");\n      updateMountedSidebarSearch("");\n    } catch (openError) {\n      console.error("[SearchCenter] open note failed:", openError);\n      setError(copy.openFailed);\n    } finally {\n      setOpeningId(null);\n    }\n  }, [actions, copy.openFailed, openingId]);\n'''
+          new_open = '''  const openResult = useCallback(async (result: EnhancedSearchResult) => {\n    setOpeningId(result.id);\n    actions.setSelectedNotebook(result.notebookId);\n    actions.clearSelectedTags();\n    actions.setSearchQuery("");\n    actions.setViewMode("notebook");\n    actions.setMobileSidebar(false);\n    actions.setMobileView("editor");\n    updateMountedSidebarSearch("");\n\n    await loadNote({\n      noteId: result.id,\n      summary: {\n        title: result.title || copy.emptyTitle,\n        notebookId: result.notebookId,\n        contentFormat: result.contentFormat,\n      },\n      request: () => api.getNote(result.id),\n      onSuccess: (note) => {\n        actions.setActiveNote(note);\n        actions.setSelectedNotebook(note.notebookId);\n      },\n      onError: (openError) => {\n        console.error("[SearchCenter] open note failed:", openError);\n      },\n    });\n    setOpeningId((current) => current === result.id ? null : current);\n  }, [actions, copy.emptyTitle, loadNote]);\n'''
+          replace_once(search, old_open, new_open, "search result loading")
+
+          split = "frontend/src/components/EditorSplitView.tsx"
+          replace_once(split,
+            'import NoteTabsBar from "@/components/NoteTabsBar";\n',
+            'import NoteTabsBar from "@/components/NoteTabsBar";\nimport NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";\n',
+            "split skeleton import",
+          )
+          replace_once(split,
+            'import { useApp, useAppActions } from "@/store/AppContext";\n',
+            'import { useApp, useAppActions, type NoteLoadingState } from "@/store/AppContext";\n',
+            "split loading type",
+          )
+          replace_once(split,
+            'import { useUserPreferences } from "@/hooks/useUserPreferences";\n',
+            '''import { useUserPreferences } from "@/hooks/useUserPreferences";\nimport { useNoteLoader } from "@/hooks/useNoteLoader";\nimport { NoteLoadCoordinator, type NoteLoadSink } from "@/lib/noteLoadCoordinator";\nimport { canApplyRevalidatedNote, loadNoteCacheFirst } from "@/lib/noteLoadSource";\nimport { loadDraft } from "@/lib/draftStorage";\n''',
+            "split loader imports",
+          )
+          replace_once(split,
+            'function SplitEditorPane({ noteId }: { noteId: string }) {\n',
+            '''function createSplitLoadingState(): NoteLoadingState {\n  return {\n    requestId: 0,\n    pendingNoteId: null,\n    pendingSummary: null,\n    startedAt: null,\n    visible: false,\n    slow: false,\n    error: null,\n  };\n}\n\nfunction SplitEditorPane({ noteId }: { noteId: string }) {\n''',
+            "split idle state",
+          )
+          replace_once(split,
+            '''  const actions = useAppActions();\n  const { t } = useTranslation();\n  const [note, setNote] = useState<Note | null>(() => state.activeNote?.id === noteId ? state.activeNote : null);\n  const [loading, setLoading] = useState(false);\n  const [syncing, setSyncing] = useState(false);\n''',
+            '''  const actions = useAppActions();\n  const { loadNote: loadPrimaryNote } = useNoteLoader();\n  const { t } = useTranslation();\n  const [note, setNote] = useState<Note | null>(() => state.activeNote?.id === noteId ? state.activeNote : null);\n  const [loadingState, setLoadingState] = useState<NoteLoadingState>(createSplitLoadingState);\n  const [syncing, setSyncing] = useState(false);\n  const coordinatorRef = useRef<NoteLoadCoordinator | null>(null);\n  if (!coordinatorRef.current) coordinatorRef.current = new NoteLoadCoordinator();\n''',
+            "split local coordinator state",
+          )
+          replace_once(split,
+            '''  const tabMeta = useMemo(\n    () => state.openNoteTabs.find((tab) => tab.id === noteId) || null,\n    [noteId, state.openNoteTabs]\n  );\n\n  useEffect(() => {\n    let cancelled = false;\n    setLoading(true);\n    api.getNote(noteId)\n      .then((loaded) => {\n        if (cancelled) return;\n        setNote(loaded);\n        actions.openNoteTab({\n          id: loaded.id,\n          title: loaded.title,\n          notebookId: loaded.notebookId,\n          workspaceId: loaded.workspaceId,\n          contentFormat: loaded.contentFormat,\n          isLocked: loaded.isLocked,\n          isTrashed: loaded.isTrashed,\n          updatedAt: loaded.updatedAt,\n          pinned: tabMeta?.pinned,\n        });\n      })\n      .catch((err: any) => {\n        if (!cancelled) toast.error(err?.message || t("editorTabs.splitLoadFailed"));\n      })\n      .finally(() => {\n        if (!cancelled) setLoading(false);\n      });\n    return () => {\n      cancelled = true;\n    };\n  }, [actions, noteId, t, tabMeta?.pinned]);\n''',
+            '''  const tabMeta = useMemo(\n    () => state.openNoteTabs.find((tab) => tab.id === noteId) || null,\n    [noteId, state.openNoteTabs]\n  );\n\n  const splitSink = useMemo<NoteLoadSink>(() => ({\n    begin: (payload) => setLoadingState({\n      requestId: payload.requestId,\n      pendingNoteId: payload.noteId,\n      pendingSummary: payload.summary,\n      startedAt: payload.startedAt,\n      visible: false,\n      slow: false,\n      error: null,\n    }),\n    show: (requestId) => setLoadingState((current) => current.requestId === requestId\n      ? { ...current, visible: true }\n      : current),\n    markSlow: (requestId) => setLoadingState((current) => current.requestId === requestId\n      ? { ...current, slow: true }\n      : current),\n    finish: (requestId) => setLoadingState((current) => current.requestId === requestId\n      ? createSplitLoadingState()\n      : current),\n    fail: (requestId, error) => setLoadingState((current) => current.requestId === requestId\n      ? { ...current, visible: true, slow: false, error }\n      : current),\n  }), []);\n\n  useEffect(() => {\n    const coordinator = coordinatorRef.current!;\n    void coordinator.run({\n      noteId,\n      summary: {\n        title: tabMeta?.title || t("editorTabs.noTitle"),\n        notebookId: tabMeta?.notebookId || "",\n        contentFormat: tabMeta?.contentFormat,\n      },\n      sink: splitSink,\n      request: () => loadNoteCacheFirst({\n        noteId,\n        fetchRemote: () => api.getNote(noteId),\n        onRevalidated: (remote, cached) => {\n          if (!canApplyRevalidatedNote({\n            current: noteRef.current,\n            cached,\n            remote,\n            hasDraft: !!loadDraft(noteId),\n            pendingNoteId: null,\n          })) return;\n          setNote(remote);\n          actions.updateNoteInList({\n            id: remote.id,\n            title: remote.title,\n            contentText: remote.contentText,\n            version: remote.version,\n            updatedAt: remote.updatedAt,\n          });\n          actions.updateNoteTab({\n            id: remote.id,\n            title: remote.title,\n            contentFormat: remote.contentFormat,\n            isLocked: remote.isLocked,\n            isTrashed: remote.isTrashed,\n            updatedAt: remote.updatedAt,\n          });\n        },\n      }),\n      onSuccess: (loaded) => {\n        setNote(loaded);\n        actions.openNoteTab({\n          id: loaded.id,\n          title: loaded.title,\n          notebookId: loaded.notebookId,\n          workspaceId: loaded.workspaceId,\n          contentFormat: loaded.contentFormat,\n          isLocked: loaded.isLocked,\n          isTrashed: loaded.isTrashed,\n          updatedAt: loaded.updatedAt,\n          pinned: tabMeta?.pinned,\n        });\n      },\n    });\n    return () => coordinator.cancel();\n  }, [actions, noteId, splitSink, t, tabMeta?.contentFormat, tabMeta?.notebookId, tabMeta?.pinned, tabMeta?.title]);\n''',
+            "split delayed loader",
+          )
+          replace_once(split,
+            '''  const handleOpenNote = useCallback(async (targetNoteId: string) => {\n    try {\n      const target = await api.getNote(targetNoteId);\n      actions.setActiveNote(target);\n      actions.openNoteTab({\n        id: target.id,\n        title: target.title,\n        notebookId: target.notebookId,\n        workspaceId: target.workspaceId,\n        contentFormat: target.contentFormat,\n        isLocked: target.isLocked,\n        isTrashed: target.isTrashed,\n        updatedAt: target.updatedAt,\n      });\n    } catch (err: any) {\n      toast.error(err?.message || t("noteList.createFailed"));\n    }\n  }, [actions, t]);\n''',
+            '''  const handleOpenNote = useCallback(async (targetNoteId: string) => {\n    await loadPrimaryNote({\n      noteId: targetNoteId,\n      summary: { title: t("editor.noteLoading"), notebookId: "" },\n      request: () => api.getNote(targetNoteId),\n      onSuccess: (target) => {\n        actions.setActiveNote(target);\n        actions.openNoteTab({\n          id: target.id,\n          title: target.title,\n          notebookId: target.notebookId,\n          workspaceId: target.workspaceId,\n          contentFormat: target.contentFormat,\n          isLocked: target.isLocked,\n          isTrashed: target.isTrashed,\n          updatedAt: target.updatedAt,\n        });\n      },\n    });\n  }, [actions, loadPrimaryNote, t]);\n''',
+            "split internal link loader",
+          )
+          replace_once(split,
+            '  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed;\n',
+            '  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;\n',
+            "split pending read-only",
+          )
+          replace_once(split,
+            '''        {loading && (\n          <div className="absolute inset-0 z-10 flex items-center justify-center bg-app-bg/80 text-sm text-tx-tertiary">\n            <Loader2 size={16} className="mr-2 animate-spin" />\n            {t("editor.noteLoading")}\n          </div>\n        )}\n''',
+            '''        {loadingState.visible && (\n          <NoteLoadingSkeleton\n            mode="overlay"\n            showHeader={false}\n            state={loadingState}\n            onRetry={() => { void coordinatorRef.current?.retry(); }}\n            loadingLabel={t("editor.noteLoading")}\n            errorTitle={t("noteList.loadErrorTitle")}\n            errorDescription={t("noteList.loadErrorDesc")}\n            retryLabel={t("noteList.retryLoad")}\n          />\n        )}\n''',
+            "split skeleton rendering",
+          )
+          replace_once(split,
+            '''        ) : (\n          <div className="flex h-full items-center justify-center text-sm text-tx-tertiary">\n            {t("editorTabs.splitLoadFailed")}\n          </div>\n        )}\n''',
+            '''        ) : (\n          <div className="h-full" aria-hidden="true" />\n        )}\n''',
+            "split initial blank state",
+          )
+
+          Path(".github/workflows/codex-issue-351-complete.yml").unlink(missing_ok=True)
+          PY
+          git diff --check
+
+      - name: Verify full frontend
+        shell: bash
+        run: |
+          set +e
+          report=.issue351-complete-verification.txt
+          : > "$report"
+          cd frontend
+          npm ci >> ../$report 2>&1
+          install_code=$?
+          echo "install_exit=$install_code" >> ../$report
+          test_code=99
+          build_code=99
+          if [ "$install_code" -eq 0 ]; then
+            npm run test:run -- src/lib/__tests__/noteLoadCoordinator.test.ts src/lib/__tests__/noteLoadSource.test.ts >> ../$report 2>&1
+            test_code=$?
+            echo "test_exit=$test_code" >> ../$report
+            npm run build >> ../$report 2>&1
+            build_code=$?
+            echo "build_exit=$build_code" >> ../$report
+          fi
+          cd ..
+          echo "summary install=$install_code test=$test_code build=$build_code" >> "$report"
+
+      - name: Commit implementation and report
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(editor): complete cache and split loading UX (#351)"
+          git push origin HEAD:codex/issue-351-complete-coverage
