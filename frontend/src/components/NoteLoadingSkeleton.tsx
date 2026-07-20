@@ -5,6 +5,7 @@ import type { NoteLoadingState } from "@/store/AppContext";
 interface NoteLoadingSkeletonProps {
   state: NoteLoadingState;
   mode?: "page" | "overlay";
+  showHeader?: boolean;
   onRetry: () => void;
   onBack?: () => void;
   loadingLabel: string;
@@ -16,6 +17,7 @@ interface NoteLoadingSkeletonProps {
 export default function NoteLoadingSkeleton({
   state,
   mode = "page",
+  showHeader = true,
   onRetry,
   onBack,
   loadingLabel,
@@ -36,24 +38,26 @@ export default function NoteLoadingSkeleton({
       aria-live="polite"
       data-note-loading-state={isError ? "error" : state.slow ? "slow" : "loading"}
     >
-      <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-3 md:px-6">
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover md:hidden"
-            aria-label="返回笔记列表"
-          >
-            <ChevronLeft size={22} />
-          </button>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-tx-primary">{title}</div>
-          {state.slow && !isError && (
-            <div className="mt-0.5 text-[11px] text-tx-tertiary">{loadingLabel}</div>
+      {showHeader && (
+        <div className="flex min-h-14 items-center gap-3 border-b border-app-border px-3 md:px-6">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover md:hidden"
+              aria-label="返回笔记列表"
+            >
+              <ChevronLeft size={22} />
+            </button>
           )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-tx-primary">{title}</div>
+            {state.slow && !isError && (
+              <div className="mt-0.5 text-[11px] text-tx-tertiary">{loadingLabel}</div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 overflow-hidden px-4 py-6 md:px-8">
         <div className="mx-auto w-full max-w-4xl">

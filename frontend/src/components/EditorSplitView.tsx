@@ -3,16 +3,21 @@ import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import EditorPane from "@/components/EditorPane";
 import NoteTabsBar from "@/components/NoteTabsBar";
+import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import TiptapEditor from "@/components/TiptapEditor";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import type { NoteEditorHandle, NoteEditorUpdatePayload } from "@/components/editors/types";
-import { useApp, useAppActions } from "@/store/AppContext";
+import { useApp, useAppActions, type NoteLoadingState } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { canWriteNote } from "@/lib/notePermissions";
 import type { Note } from "@/types";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
+import { NoteLoadCoordinator, type NoteLoadSink } from "@/lib/noteLoadCoordinator";
+import { canApplyRevalidatedNote, loadNoteCacheFirst } from "@/lib/noteLoadSource";
+import { loadDraft } from "@/lib/draftStorage";
 
 export default function EditorSplitView() {
   const { state } = useApp();
@@ -147,13 +152,28 @@ export default function EditorSplitView() {
   );
 }
 
+function createSplitLoadingState(): NoteLoadingState {
+  return {
+    requestId: 0,
+    pendingNoteId: null,
+    pendingSummary: null,
+    startedAt: null,
+    visible: false,
+    slow: false,
+    error: null,
+  };
+}
+
 function SplitEditorPane({ noteId }: { noteId: string }) {
   const { state } = useApp();
   const actions = useAppActions();
+  const { loadNote: loadPrimaryNote } = useNoteLoader();
   const { t } = useTranslation();
   const [note, setNote] = useState<Note | null>(() => state.activeNote?.id === noteId ? state.activeNote : null);
-  const [loading, setLoading] = useState(false);
+  const [loadingState, setLoadingState] = useState<NoteLoadingState>(createSplitLoadingState);
   const [syncing, setSyncing] = useState(false);
+  const coordinatorRef = useRef<NoteLoadCoordinator | null>(null);
+  if (!coordinatorRef.current) coordinatorRef.current = new NoteLoadCoordinator();
   const editorHandleRef = useRef<NoteEditorHandle | null>(null);
   const noteRef = useRef<Note | null>(note);
   noteRef.current = note;
@@ -163,12 +183,70 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
     [noteId, state.openNoteTabs]
   );
 
+  const splitSink = useMemo<NoteLoadSink>(() => ({
+    begin: (payload) => setLoadingState({
+      requestId: payload.requestId,
+      pendingNoteId: payload.noteId,
+      pendingSummary: payload.summary,
+      startedAt: payload.startedAt,
+      visible: false,
+      slow: false,
+      error: null,
+    }),
+    show: (requestId) => setLoadingState((current) => current.requestId === requestId
+      ? { ...current, visible: true }
+      : current),
+    markSlow: (requestId) => setLoadingState((current) => current.requestId === requestId
+      ? { ...current, slow: true }
+      : current),
+    finish: (requestId) => setLoadingState((current) => current.requestId === requestId
+      ? createSplitLoadingState()
+      : current),
+    fail: (requestId, error) => setLoadingState((current) => current.requestId === requestId
+      ? { ...current, visible: true, slow: false, error }
+      : current),
+  }), []);
+
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api.getNote(noteId)
-      .then((loaded) => {
-        if (cancelled) return;
+    const coordinator = coordinatorRef.current!;
+    void coordinator.run({
+      noteId,
+      summary: {
+        title: tabMeta?.title || t("editorTabs.noTitle"),
+        notebookId: tabMeta?.notebookId || "",
+        contentFormat: tabMeta?.contentFormat,
+      },
+      sink: splitSink,
+      request: () => loadNoteCacheFirst({
+        noteId,
+        fetchRemote: () => api.getNote(noteId),
+        onRevalidated: (remote, cached) => {
+          if (!canApplyRevalidatedNote({
+            current: noteRef.current,
+            cached,
+            remote,
+            hasDraft: !!loadDraft(noteId),
+            pendingNoteId: null,
+          })) return;
+          setNote(remote);
+          actions.updateNoteInList({
+            id: remote.id,
+            title: remote.title,
+            contentText: remote.contentText,
+            version: remote.version,
+            updatedAt: remote.updatedAt,
+          });
+          actions.updateNoteTab({
+            id: remote.id,
+            title: remote.title,
+            contentFormat: remote.contentFormat,
+            isLocked: remote.isLocked,
+            isTrashed: remote.isTrashed,
+            updatedAt: remote.updatedAt,
+          });
+        },
+      }),
+      onSuccess: (loaded) => {
         setNote(loaded);
         actions.openNoteTab({
           id: loaded.id,
@@ -181,17 +259,10 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
           updatedAt: loaded.updatedAt,
           pinned: tabMeta?.pinned,
         });
-      })
-      .catch((err: any) => {
-        if (!cancelled) toast.error(err?.message || t("editorTabs.splitLoadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [actions, noteId, t, tabMeta?.pinned]);
+      },
+    });
+    return () => coordinator.cancel();
+  }, [actions, noteId, splitSink, t, tabMeta?.contentFormat, tabMeta?.notebookId, tabMeta?.pinned, tabMeta?.title]);
 
   useEffect(() => {
     return () => {
@@ -237,26 +308,28 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
   }, [actions, state.activeNote?.id, t]);
 
   const handleOpenNote = useCallback(async (targetNoteId: string) => {
-    try {
-      const target = await api.getNote(targetNoteId);
-      actions.setActiveNote(target);
-      actions.openNoteTab({
-        id: target.id,
-        title: target.title,
-        notebookId: target.notebookId,
-        workspaceId: target.workspaceId,
-        contentFormat: target.contentFormat,
-        isLocked: target.isLocked,
-        isTrashed: target.isTrashed,
-        updatedAt: target.updatedAt,
-      });
-    } catch (err: any) {
-      toast.error(err?.message || t("noteList.createFailed"));
-    }
-  }, [actions, t]);
+    await loadPrimaryNote({
+      noteId: targetNoteId,
+      summary: { title: t("editor.noteLoading"), notebookId: "" },
+      request: () => api.getNote(targetNoteId),
+      onSuccess: (target) => {
+        actions.setActiveNote(target);
+        actions.openNoteTab({
+          id: target.id,
+          title: target.title,
+          notebookId: target.notebookId,
+          workspaceId: target.workspaceId,
+          contentFormat: target.contentFormat,
+          isLocked: target.isLocked,
+          isTrashed: target.isTrashed,
+          updatedAt: target.updatedAt,
+        });
+      },
+    });
+  }, [actions, loadPrimaryNote, t]);
 
   const title = note?.title || tabMeta?.title || t("editorTabs.noTitle");
-  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed;
+  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg">
@@ -275,11 +348,17 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
       </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-app-bg/80 text-sm text-tx-tertiary">
-            <Loader2 size={16} className="mr-2 animate-spin" />
-            {t("editor.noteLoading")}
-          </div>
+        {loadingState.visible && (
+          <NoteLoadingSkeleton
+            mode="overlay"
+            showHeader={false}
+            state={loadingState}
+            onRetry={() => { void coordinatorRef.current?.retry(); }}
+            loadingLabel={t("editor.noteLoading")}
+            errorTitle={t("noteList.loadErrorTitle")}
+            errorDescription={t("noteList.loadErrorDesc")}
+            retryLabel={t("noteList.retryLoad")}
+          />
         )}
         {note ? (
           note.contentFormat === "markdown" ? (
@@ -303,9 +382,7 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
             />
           )
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-tx-tertiary">
-            {t("editorTabs.splitLoadFailed")}
-          </div>
+          <div className="h-full" aria-hidden="true" />
         )}
       </div>
     </section>
