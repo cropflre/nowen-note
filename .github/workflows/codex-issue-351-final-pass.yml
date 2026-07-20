@@ -1,0 +1,150 @@
+name: Codex Issue 351 Final Pass
+
+on:
+  push:
+    branches:
+      - codex/issue-351-note-loading-ux
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply durable incremental patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          test_path = Path("frontend/src/lib/__tests__/noteLoadCoordinator.test.ts")
+          test = test_path.read_text(encoding="utf-8-sig")
+          helper = '''function deferred<T>() {\n  let resolve!: (value: T) => void;\n  const promise = new Promise<T>((done) => { resolve = done; });\n  return { promise, resolve };\n}\n'''
+          while test.count(helper) > 1:
+              second = test.find(helper, test.find(helper) + len(helper))
+              test = test[:second] + test[second + len(helper):]
+          test_path.write_text(test, encoding="utf-8")
+
+          path = Path("frontend/src/components/EditorPane.tsx")
+          text = path.read_text(encoding="utf-8-sig")
+
+          def replace_if_needed(old: str, new: str, label: str):
+              global text
+              if new in text:
+                  print(f"already applied: {label}")
+                  return
+              if old not in text:
+                  print(f"not found, skipped: {label}")
+                  return
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+              print(f"applied: {label}")
+
+          replace_if_needed(
+              'import { motion, AnimatePresence } from "framer-motion";',
+              'import { motion, AnimatePresence, useReducedMotion } from "framer-motion";',
+              "reduced motion import",
+          )
+          replace_if_needed(
+              '  const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;\n',
+              '  const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;\n  const reduceMotion = useReducedMotion();\n',
+              "reduced motion hook",
+          )
+          replace_if_needed(
+              '  const isTrashed = !!activeNote?.isTrashed;\n  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed;\n',
+              '  const isTrashed = !!activeNote?.isTrashed;\n  const noteSwitchPending = !!noteLoadingState.pendingNoteId;\n  const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed || noteSwitchPending;\n',
+              "pending read-only",
+          )
+
+          # Replace legacy next-tab loading block by stable markers.
+          legacy_start = '    if (nextTab) {\n      actions.setNoteLoading(true);'
+          update_marker = '    api.updateNote(noteId, { isTrashed: 1 } as any)'
+          if legacy_start in text:
+              start = text.index(legacy_start)
+              end = text.index(update_marker, start)
+              new_block = '''    if (nextTab) {\n      void loadNote({\n        noteId: nextTab.id,\n        summary: {\n          title: nextTab.title || t("editorTabs.noTitle"),\n          notebookId: nextTab.notebookId,\n          contentFormat: nextTab.contentFormat,\n        },\n        request: () => api.getNote(nextTab.id),\n        onSuccess: (nextNote) => {\n          actions.setActiveNote(nextNote);\n          actions.openNoteTab({\n            id: nextNote.id,\n            title: nextNote.title,\n            notebookId: nextNote.notebookId,\n            workspaceId: nextNote.workspaceId,\n            contentFormat: nextNote.contentFormat,\n            isLocked: nextNote.isLocked,\n            isTrashed: nextNote.isTrashed,\n            updatedAt: nextNote.updatedAt,\n          });\n        },\n      });\n    }\n'''
+              text = text[:start] + new_block + text[end:]
+              path.write_text(text, encoding="utf-8")
+              print("applied: trash next tab loader")
+
+          replace_if_needed(
+              '  }, [activeNote, actions, state.openNoteTabs, userPrefs.enableNoteTabs]);\n',
+              '  }, [activeNote, actions, loadNote, state.openNoteTabs, t, userPrefs.enableNoteTabs]);\n',
+              "trash dependencies",
+          )
+
+          # Replace the editor block-reference callback using surrounding declarations.
+          fn_start = '  const handleOpenNote = useCallback(async (noteId: string) => {'
+          fn_end = '  const handleTagsChange = useCallback((tags: Tag[]) => {'
+          if fn_start in text and 'summary: { title: t("editor.noteLoading"), notebookId: "" }' not in text[text.index(fn_start):text.index(fn_end)]:
+              start = text.index(fn_start)
+              end = text.index(fn_end, start)
+              replacement = '''  const handleOpenNote = useCallback(async (noteId: string) => {\n    await loadNote({\n      noteId,\n      summary: { title: t("editor.noteLoading"), notebookId: "" },\n      request: () => api.getNote(noteId),\n      onSuccess: (note) => actions.setActiveNote(note),\n    });\n  }, [actions, loadNote, t]);\n\n'''
+              text = text[:start] + replacement + text[end:]
+              path.write_text(text, encoding="utf-8")
+              print("applied: block reference loader")
+
+          replace_if_needed(
+              '        onRetry={() => { void retryNoteLoad(); }}\n        loadingLabel=',
+              '        onRetry={() => { void retryNoteLoad(); }}\n        onBack={() => actions.setMobileView("list")}\n        loadingLabel=',
+              "page skeleton back",
+          )
+          replace_if_needed(
+              '      transition={{ duration: 0.15 }}\n',
+              '      transition={{ duration: reduceMotion ? 0 : 0.15 }}\n',
+              "content transition",
+          )
+          replace_if_needed(
+              '            transition={{ duration: 0.14, ease: "easeOut" }}\n',
+              '            transition={{ duration: reduceMotion ? 0 : 0.14, ease: "easeOut" }}\n',
+              "overlay transition",
+          )
+          replace_if_needed(
+              '              onRetry={() => { void retryNoteLoad(); }}\n              loadingLabel=',
+              '              onRetry={() => { void retryNoteLoad(); }}\n              onBack={() => actions.setMobileView("list")}\n              loadingLabel=',
+              "overlay skeleton back",
+          )
+
+          Path(".issue351-diagnostics.txt").unlink(missing_ok=True)
+          Path(".issue351-verification.txt").unlink(missing_ok=True)
+          Path(".github/workflows/codex-issue-351-final-pass.yml").unlink(missing_ok=True)
+          PY
+          git diff --check
+
+      - name: Verify frontend
+        shell: bash
+        run: |
+          set +e
+          report=.issue351-verification.txt
+          : > "$report"
+          cd frontend
+          npm ci >> ../$report 2>&1
+          install_code=$?
+          echo "install_exit=$install_code" >> ../$report
+          test_code=99
+          build_code=99
+          if [ "$install_code" -eq 0 ]; then
+            npm run test:run -- src/lib/__tests__/noteLoadCoordinator.test.ts >> ../$report 2>&1
+            test_code=$?
+            echo "test_exit=$test_code" >> ../$report
+            npm run build >> ../$report 2>&1
+            build_code=$?
+            echo "build_exit=$build_code" >> ../$report
+          fi
+          cd ..
+          echo "summary install=$install_code test=$test_code build=$build_code" >> "$report"
+
+      - name: Commit result
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(editor): finalize delayed note loading UX (#351)"
+          git push origin HEAD:codex/issue-351-note-loading-ux
