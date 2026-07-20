@@ -1,0 +1,10 @@
+name: Codex Issue 343 Historical Verifier Stub
+
+on:
+  workflow_dispatch:
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Historical rerun snapshot supplies the real verifier."
