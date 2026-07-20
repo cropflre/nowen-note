@@ -262,7 +262,7 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
       },
     });
     return () => coordinator.cancel();
-  }, [actions, noteId, splitSink, t, tabMeta?.contentFormat, tabMeta?.notebookId, tabMeta?.pinned, tabMeta?.title]);
+  }, [actions, noteId, splitSink, t]);
 
   useEffect(() => {
     return () => {
@@ -328,8 +328,8 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
     });
   }, [actions, loadPrimaryNote, t]);
 
-  const title = note?.title || tabMeta?.title || t("editorTabs.noTitle");
-  const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
+  const title = note?.id === noteId ? note.title : tabMeta?.title || t("editorTabs.noTitle");
+  const editable = !!note && note.id === noteId && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg">
