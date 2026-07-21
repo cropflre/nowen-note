@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "@/types";
 import {
+  getEditorRuntimeDecisionForNote,
   getLargeDocumentOriginalFormat,
   isLargeDocumentCollaborationBlocked,
   isLargeRichTextSafeNote,
@@ -32,10 +33,13 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   };
 }
 
+function tiptapText(length: number): string {
+  return `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(length)}"}]}]}`;
+}
+
 describe("large rich-text runtime safety", () => {
   it("keeps an ordinary compact 18 KB Tiptap document editable", () => {
-    const rawContent =
-      `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(18_000)}"}]}]}`;
+    const rawContent = tiptapText(18_000);
     const original = makeNote({ content: rawContent });
 
     const prepared = prepareLargeRichTextNoteForDisplay(original);
@@ -45,11 +49,35 @@ describe("large rich-text runtime safety", () => {
     expect(prepared).toBe(original);
     expect(isLargeRichTextSafeNote(prepared)).toBe(false);
     expect(isLargeDocumentCollaborationBlocked(original.id)).toBe(false);
+    expect(getEditorRuntimeDecisionForNote(prepared)?.mode).toBe("normal");
   });
 
-  it("routes genuinely large Tiptap content to the safe viewer without modifying raw content", () => {
-    const rawContent =
-      `{"type":"doc","content":[{"type":"text","text":"${"x".repeat(LARGE_RICH_TEXT_THRESHOLDS.serializedCharacters)}"}]}`;
+  it("marks medium rich text for viewport optimization without changing content format", () => {
+    const original = makeNote({ id: "note-viewport", content: tiptapText(120_000) });
+    const prepared = prepareLargeRichTextNoteForDisplay(original);
+
+    expect(prepared).not.toBe(original);
+    expect(prepared.content).toBe(original.content);
+    expect(prepared.contentFormat).toBe("tiptap-json");
+    expect(getEditorRuntimeDecisionForNote(prepared)?.mode).toBe("viewport-optimized");
+    expect(isLargeRichTextSafeNote(prepared)).toBe(false);
+    expect(isLargeDocumentCollaborationBlocked(original.id)).toBe(false);
+  });
+
+  it("keeps larger rich text editable in lightweight mode", () => {
+    const original = makeNote({ id: "note-lightweight", content: tiptapText(400_000) });
+    const prepared = prepareLargeRichTextNoteForDisplay(original);
+    const decision = getEditorRuntimeDecisionForNote(prepared);
+
+    expect(prepared.contentFormat).toBe("tiptap-json");
+    expect(decision?.mode).toBe("lightweight-edit");
+    expect(decision?.capabilities.editable).toBe(true);
+    expect(decision?.capabilities.syntaxHighlight).toBe(false);
+    expect(isLargeRichTextSafeNote(prepared)).toBe(false);
+  });
+
+  it("routes genuinely pathological Tiptap content to the safe viewer without modifying raw content", () => {
+    const rawContent = tiptapText(LARGE_RICH_TEXT_THRESHOLDS.serializedCharacters);
     const original = makeNote({ content: rawContent });
 
     const prepared = prepareLargeRichTextNoteForDisplay(original);
@@ -61,6 +89,7 @@ describe("large rich-text runtime safety", () => {
     expect(isLargeRichTextSafeNote(prepared)).toBe(true);
     expect(getLargeDocumentOriginalFormat(prepared)).toBe("tiptap-json");
     expect(isLargeDocumentCollaborationBlocked(original.id)).toBe(true);
+    expect(getEditorRuntimeDecisionForNote(prepared)?.mode).toBe("emergency-readonly");
   });
 
   it("protects structurally extreme Tiptap JSON even below the size threshold", () => {
@@ -88,36 +117,39 @@ describe("large rich-text runtime safety", () => {
     expect(isLargeDocumentCollaborationBlocked(original.id)).toBe(false);
   });
 
-  it("leaves native Markdown on the existing editable large-document path", () => {
+  it("leaves native Markdown on an editable progressive path", () => {
     const markdown = makeNote({
       id: "note-native-markdown",
-      content: "x".repeat(8_100),
-      contentText: "x".repeat(8_100),
+      content: "x".repeat(800_000),
+      contentText: "x".repeat(800_000),
       contentFormat: "markdown",
     });
 
     const prepared = prepareLargeRichTextNoteForDisplay(markdown);
 
-    expect(prepared).toBe(markdown);
     expect(isLargeRichTextSafeNote(prepared)).toBe(false);
     expect(isLargeDocumentCollaborationBlocked(markdown.id)).toBe(false);
+    expect(getEditorRuntimeDecisionForNote(prepared)?.mode).toBe("lightweight-edit");
+    expect(getEditorRuntimeDecisionForNote(prepared)?.capabilities.editable).toBe(true);
   });
 
   it("removes a stale collaboration block after the note becomes small again", () => {
     const large = makeNote({
       id: "note-resized",
-      content: `{"type":"doc","text":"${"x".repeat(LARGE_RICH_TEXT_THRESHOLDS.serializedCharacters)}"}`,
+      content: tiptapText(LARGE_RICH_TEXT_THRESHOLDS.serializedCharacters),
     });
-    prepareLargeRichTextNoteForDisplay(large);
+    const protectedNote = prepareLargeRichTextNoteForDisplay(large);
     expect(isLargeDocumentCollaborationBlocked(large.id)).toBe(true);
 
     const small = makeNote({
       id: large.id,
       content: '{"type":"doc","content":[]}',
+      contentFormat: getLargeDocumentOriginalFormat(protectedNote),
     });
     const prepared = prepareLargeRichTextNoteForDisplay(small);
 
     expect(prepared).toBe(small);
+    expect(isLargeRichTextSafeNote(prepared)).toBe(false);
     expect(isLargeDocumentCollaborationBlocked(large.id)).toBe(false);
   });
 });
