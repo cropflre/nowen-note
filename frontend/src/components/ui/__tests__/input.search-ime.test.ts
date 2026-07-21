@@ -78,4 +78,12 @@ describe("sidebar search IME event routing", () => {
     emitSidebarSearchChange("")
     expect(getCurrentSidebarSearchValue()).toBe("")
   })
+
+  it("installs a spinner animation that combines centering and rotation", () => {
+    emitSidebarSearchPending(true)
+    const style = document.getElementById("nowen-sidebar-search-spinner-style")
+    expect(style?.textContent).toContain("translateY(-50%) rotate(360deg)")
+    expect(style?.textContent).toContain("nowen-sidebar-search-spin")
+    emitSidebarSearchPending(false)
+  })
 })
