@@ -55,24 +55,18 @@ export function installTaskListNodeViewIdentity(): void {
 
       state.observer = new MutationObserver((records) => {
         for (const record of records) {
-          if (record.type === "attributes") {
-            if (record.target instanceof Element) {
-              normalizeTaskListNodeViewIdentity(record.target);
-            }
-            continue;
-          }
-
           for (const node of Array.from(record.addedNodes)) {
             if (node instanceof Element) normalizeTaskListNodeViewIdentity(node);
           }
         }
       });
 
+      // TaskItem applies its static class before ProseMirror inserts the NodeView,
+      // so child-list observation is sufficient and avoids watching every class
+      // mutation produced by the rest of the application.
       state.observer.observe(document.body, {
         subtree: true,
         childList: true,
-        attributes: true,
-        attributeFilter: ["class"],
       });
     },
   };
