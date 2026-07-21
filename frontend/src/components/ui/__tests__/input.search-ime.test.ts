@@ -8,10 +8,12 @@ import {
   emitSidebarSearchChange,
   emitSidebarSearchPending,
   emitSidebarSearchSync,
+  ensureSearchSpinnerStyle,
   getCurrentSidebarSearchPending,
   getCurrentSidebarSearchValue,
   normalizeSidebarSearchPending,
   normalizeSidebarSearchValue,
+  SEARCH_SPINNER_STYLE_ID,
 } from "@/lib/sidebarSearchBridge"
 
 type NativeEventShape = Parameters<typeof shouldForwardSidebarSearchChange>[0]
@@ -79,11 +81,14 @@ describe("sidebar search IME event routing", () => {
     expect(getCurrentSidebarSearchValue()).toBe("")
   })
 
-  it("installs a spinner animation that combines centering and rotation", () => {
-    emitSidebarSearchPending(true)
-    const style = document.getElementById("nowen-sidebar-search-spinner-style")
+  it("installs independent animation fallbacks for both search spinners", () => {
+    document.getElementById(SEARCH_SPINNER_STYLE_ID)?.remove()
+    ensureSearchSpinnerStyle()
+
+    const style = document.getElementById(SEARCH_SPINNER_STYLE_ID)
     expect(style?.textContent).toContain("translateY(-50%) rotate(360deg)")
     expect(style?.textContent).toContain("nowen-sidebar-search-spin")
-    emitSidebarSearchPending(false)
+    expect(style?.textContent).toContain("nowen-search-center-spin")
+    expect(style?.textContent).toContain('[data-swipe-blocker="search-center"] .animate-spin')
   })
 })
