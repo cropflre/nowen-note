@@ -1,3 +1,5 @@
+import { isActiveEditorCapabilityEnabled } from "@/lib/editorRuntimeStore";
+
 export type PhaseAPerfEvent = {
   type:
     | "code-block-render"
@@ -169,16 +171,26 @@ export function installPhaseAEditorTransactionInstrumentation<TTransaction>(edit
   };
 }
 
+/**
+ * Wrap lowlight once for both diagnostics and runtime capability control.
+ *
+ * Lightweight mode keeps code blocks editable but returns an empty highlight tree, avoiding a
+ * synchronous full-code parse on every transaction. The wrapper reads the current capability at
+ * call time, so a long-task-triggered runtime downgrade takes effect without remounting Tiptap.
+ */
 export function instrumentPhaseALowlight<T extends {
   highlight: (language: string, code: string) => unknown;
   highlightAuto: (code: string) => unknown;
 }>(instance: T): T {
-  if (!phaseAPerfEnabled || (instance as T & { __nowenPhaseAInstrumented?: boolean }).__nowenPhaseAInstrumented) return instance;
+  if ((instance as T & { __nowenPhaseAInstrumented?: boolean }).__nowenPhaseAInstrumented) return instance;
   const marked = instance as T & { __nowenPhaseAInstrumented?: boolean };
   marked.__nowenPhaseAInstrumented = true;
   const highlight = instance.highlight.bind(instance);
   const highlightAuto = instance.highlightAuto.bind(instance);
+  const emptyResult = () => ({ children: [] });
+
   instance.highlight = ((language: string, code: string) => {
+    if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyResult();
     const startedAt = performance.now();
     try {
       return highlight(language, code);
@@ -191,6 +203,7 @@ export function instrumentPhaseALowlight<T extends {
     }
   }) as T["highlight"];
   instance.highlightAuto = ((code: string) => {
+    if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyResult();
     const startedAt = performance.now();
     try {
       return highlightAuto(code);
