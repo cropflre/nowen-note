@@ -5,8 +5,7 @@ const css = readFileSync("src/editor-list-markers.css", "utf8");
 
 describe("editor list marker compatibility CSS", () => {
   it("suppresses ordinary bullets for Tiptap task NodeViews", () => {
-    expect(css).toContain("ul.task-list > li.task-item::before");
-    expect(css).toContain('ul[data-type="taskList"] > li.task-item::before');
+    expect(css).toContain("ul > li.task-item::before");
     expect(css).toContain("content: none !important");
   });
 
