@@ -12,15 +12,31 @@ import type {
   NoteEditorHandle,
   NoteEditorProps,
 } from "@/components/editors/types";
-import { formatLargeMarkdownSize } from "@/lib/largeMarkdownSafety";
+import { formatEditorByteSize } from "@/lib/editorComplexityProfile";
 import {
+  getEditorRuntimeDecisionForNote,
   getLargeDocumentOriginalFormat,
   type RuntimeLargeRichTextSafeNote,
 } from "@/lib/largeRichTextSafeMode";
+import type { EditorComplexityReason } from "@/lib/editorRuntimePolicy";
 import { cn } from "@/lib/utils";
 
 interface LargeRichTextSafeViewerProps extends NoteEditorProps {
   onAIAssistant?: () => void;
+}
+
+function reasonLabel(reason: EditorComplexityReason): string {
+  switch (reason) {
+    case "serialized-size": return "原始内容体积过大";
+    case "line-count": return "文本行数过多";
+    case "long-line": return "存在异常超长单行";
+    case "node-count": return "富文本结构节点过多";
+    case "media-count": return "图片、附件或嵌入节点过多";
+    case "code-block-count": return "代码块数量过多";
+    case "initialization-timeout": return "编辑器初始化超过时间预算";
+    case "runtime-long-task": return "编辑器连续产生主线程长任务";
+    default: return reason;
+  }
 }
 
 /**
@@ -47,6 +63,8 @@ const LargeRichTextSafeViewer = forwardRef<
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const safeNote = note as RuntimeLargeRichTextSafeNote;
+  const decision = useMemo(() => getEditorRuntimeDecisionForNote(safeNote), [safeNote]);
+  const profile = decision?.profile;
   const displayText = useMemo(
     () => note.contentText || t("markdown.largeDocument.noPlainText", {
       defaultValue: "该大文档没有可用的纯文本索引。原始内容已受到保护，请导出后在外部工具中查看。",
@@ -104,19 +122,34 @@ const LargeRichTextSafeViewer = forwardRef<
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
               <span>
                 {t("markdown.largeDocument.richTextSafeMode", {
-                  defaultValue: "大文档只读安全模式",
+                  defaultValue: "富文本应急保护模式",
                 })}
               </span>
               <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium">
-                {formatLargeMarkdownSize(note.content.length)}
+                {formatEditorByteSize(profile?.bytes ?? note.content.length)}
               </span>
             </div>
             <p className="mt-1 text-xs leading-5 opacity-90">
               {t("markdown.largeDocument.richTextSafeModeDesc", {
                 defaultValue:
-                  "该笔记体积过大，已停止富文本解析、图片节点渲染和协同全量同步。当前展示纯文本索引，原始内容不会被修改。",
+                  "检测到该笔记的富文本结构可能导致编辑器无响应。为保护原始内容，本次以纯文本索引只读打开；原始富文本不会被修改。",
               })}
             </p>
+            {profile && (
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                <span className="rounded border border-amber-400/30 px-1.5 py-0.5">
+                  {profile.characters.toLocaleString()} 字符
+                </span>
+                <span className="rounded border border-amber-400/30 px-1.5 py-0.5">
+                  约 {profile.approximateNodes.toLocaleString()} 个节点
+                </span>
+                {decision?.reasons.map((reason) => (
+                  <span key={reason} className="rounded border border-amber-400/30 px-1.5 py-0.5">
+                    {reasonLabel(reason)}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -152,7 +185,7 @@ const LargeRichTextSafeViewer = forwardRef<
           <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
             <ShieldCheck size={12} />
             {t("markdown.largeDocument.originalProtected", {
-              defaultValue: "原文只读保护",
+              defaultValue: "原始富文本已完整保留",
             })}
           </span>
         </div>
@@ -175,13 +208,12 @@ const LargeRichTextSafeViewer = forwardRef<
 
       <div className="flex items-center gap-3 border-t border-app-border/60 px-4 py-1.5 text-[11px] text-tx-tertiary md:px-8">
         <span>
-          {displayText.length.toLocaleString()}{" "}
-          {t("tiptap.chars", { defaultValue: "字符" })}
+          {displayText.length.toLocaleString()} {t("tiptap.chars", { defaultValue: "字符" })}
         </span>
         <span className="opacity-60">·</span>
         <span>
           {t("markdown.largeDocument.richFeaturesDisabled", {
-            defaultValue: "富文本与协同已停用",
+            defaultValue: "富文本解析与协同已停用",
           })}
         </span>
         <span className="ml-auto opacity-60">
