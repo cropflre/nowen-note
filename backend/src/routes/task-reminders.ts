@@ -7,6 +7,7 @@ import {
   canManageResource,
 } from "../middleware/acl";
 import { taskRemindersRepository } from "../repositories";
+import { getClientMutationAt, getIdempotentMutation, getNewerFields, getTombstone, hasNewerFieldClock, saveIdempotentMutation, writeFieldClocks, writeTombstone } from "../lib/offlineResourceSync";
 
 const taskReminders = new Hono();
 
@@ -24,6 +25,24 @@ function resolveScope(
     return { workspaceId: raw, error: "无权访问该工作区" };
   }
   return { workspaceId: raw };
+}
+
+function canAccessReminderTombstone(
+  tombstone: { userId: string; workspaceId: string | null } | undefined,
+  userId: string,
+): boolean {
+  if (!tombstone) return false;
+  if (!tombstone.workspaceId) return tombstone.userId === userId;
+  const role = getUserWorkspaceRole(tombstone.workspaceId, userId);
+  return role === "editor" || role === "admin" || role === "owner";
+}
+
+function canReadTask(
+  task: { userId: string; workspaceId: string | null },
+  userId: string,
+): boolean {
+  if (!task.workspaceId) return task.userId === userId;
+  return getUserWorkspaceRole(task.workspaceId, userId) !== null;
 }
 
 // 获取某任务的所有提醒配置
@@ -65,9 +84,9 @@ taskReminders.get("/overview", (c) => {
              t.dueDate, t.dueAt
       FROM task_reminders r
       JOIN tasks t ON t.id = r.taskId
-      WHERE r.userId = ? AND t.workspaceId IS NULL
+      WHERE r.userId = ? AND t.userId = ? AND t.workspaceId IS NULL
       ORDER BY r.createdAt DESC
-    `).all(userId) as any[];
+    `).all(userId, userId) as any[];
   }
 
   const missed: any[] = [];
@@ -141,6 +160,42 @@ taskReminders.get("/overview", (c) => {
   return c.json({ missed, today, upcoming, disabled });
 });
 
+taskReminders.get("/snapshot", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const scope = resolveScope(c, userId);
+  if (scope.error) return c.json({ error: scope.error }, 403);
+
+  const reminders = scope.workspaceId
+    ? db.prepare(`
+        SELECT r.*
+        FROM task_reminders r
+        INNER JOIN tasks t ON t.id = r.taskId
+        WHERE r.userId = ? AND t.workspaceId = ?
+        ORDER BY r.createdAt DESC
+      `).all(userId, scope.workspaceId)
+    : db.prepare(`
+        SELECT r.*
+        FROM task_reminders r
+        INNER JOIN tasks t ON t.id = r.taskId
+        WHERE r.userId = ? AND t.userId = ? AND t.workspaceId IS NULL
+        ORDER BY r.createdAt DESC
+      `).all(userId, userId);
+  const deletedIds = scope.workspaceId
+    ? db.prepare(`
+        SELECT resourceId
+        FROM offline_resource_tombstones
+        WHERE resourceType = 'taskReminder' AND userId = ? AND workspaceId = ?
+      `).all(userId, scope.workspaceId).map((row: any) => row.resourceId)
+    : db.prepare(`
+        SELECT resourceId
+        FROM offline_resource_tombstones
+        WHERE resourceType = 'taskReminder' AND userId = ? AND workspaceId IS NULL
+      `).all(userId).map((row: any) => row.resourceId);
+
+  return c.json({ reminders, deletedIds });
+});
+
 taskReminders.get("/:taskId", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -148,6 +203,7 @@ taskReminders.get("/:taskId", (c) => {
 
   const task = db.prepare("SELECT id, userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as any;
   if (!task) return c.json({ error: "Task not found" }, 404);
+  if (!canReadTask(task, userId)) return c.json({ error: "Task not found" }, 404);
 
   const rows = taskRemindersRepository.listByTaskId(taskId, userId);
   return c.json(rows);
@@ -158,16 +214,50 @@ taskReminders.post("/:taskId", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const taskId = c.req.param("taskId");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
   const body = await c.req.json();
+  const requestedId = typeof body.id === "string" ? body.id : "";
+  if (requestedId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedId)) {
+    return c.json({ error: "Invalid reminder id", code: "INVALID_REMINDER_ID" }, 400);
+  }
 
   const task = db.prepare("SELECT id, userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as any;
-  if (!task) return c.json({ error: "Task not found" }, 404);
+  if (!task) {
+    const tombstone = getTombstone(db, "task", taskId);
+    const canManageTombstone = canAccessReminderTombstone(tombstone, userId);
+    if (canManageTombstone) return c.json({ success: true, syncIgnored: true }, 200);
+    return c.json({ error: "Task not found" }, 404);
+  }
+  if (!canManageResource(task.userId, task.workspaceId, userId)) {
+    return c.json({ error: "无权创建提醒", code: "FORBIDDEN" }, 403);
+  }
 
   const offsetMinutes = body.offsetMinutes ?? 30;
-  const id = crypto.randomUUID();
+  const id = requestedId || crypto.randomUUID();
+  const ownTombstone = getTombstone(db, "taskReminder", id);
+  if (ownTombstone && canAccessReminderTombstone(ownTombstone, userId) && clientUpdatedAt <= ownTombstone.deletedAt) {
+    const response = { success: true, syncIgnored: true };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
+  }
+  const existing = taskRemindersRepository.getById(id);
+  if (existing) {
+    if (existing.userId !== userId || existing.taskId !== taskId) {
+      return c.json({ error: "Reminder id already exists", code: "REMINDER_ID_CONFLICT" }, 409);
+    }
+    saveIdempotentMutation(db, userId, operationId, existing);
+    return c.json(existing, 200);
+  }
 
-  taskRemindersRepository.create({ id, taskId, userId, offsetMinutes });
-  const reminder = taskRemindersRepository.getById(id);
+  const reminder = db.transaction(() => {
+    taskRemindersRepository.create({ id, taskId, userId, offsetMinutes });
+    const created = taskRemindersRepository.getById(id);
+    saveIdempotentMutation(db, userId, operationId, created);
+    return created;
+  })();
   return c.json(reminder, 201);
 });
 
@@ -176,33 +266,71 @@ taskReminders.put("/:reminderId", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const reminderId = c.req.param("reminderId");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
   const existing = taskRemindersRepository.getById(reminderId);
   if (!existing) return c.json({ error: "Reminder not found" }, 404);
   if (existing.userId !== userId) return c.json({ error: "无权修改", code: "FORBIDDEN" }, 403);
 
   const body = await c.req.json();
-  const offsetMinutes = body.offsetMinutes ?? existing.offsetMinutes;
-  const enabled = body.enabled ?? existing.enabled;
+  const requestedFields = ["offsetMinutes", "enabled", "snoozedUntil"].filter((field) => Object.prototype.hasOwnProperty.call(body, field));
+  const accepted = getNewerFields(db, "taskReminder", reminderId, requestedFields, clientUpdatedAt, operationId);
+  const offsetMinutes = accepted.has("offsetMinutes") ? body.offsetMinutes : existing.offsetMinutes;
+  const enabled = accepted.has("enabled") ? (body.enabled ? 1 : 0) : existing.enabled;
   const hasSnoozedUntil = Object.prototype.hasOwnProperty.call(body, "snoozedUntil");
-  const snoozedUntil = hasSnoozedUntil ? body.snoozedUntil : existing.snoozedUntil;
+  const snoozedUntil = hasSnoozedUntil && accepted.has("snoozedUntil") ? body.snoozedUntil : existing.snoozedUntil;
 
-  taskRemindersRepository.update(reminderId, { offsetMinutes, enabled: !!enabled, snoozedUntil });
-  const updated = taskRemindersRepository.getById(reminderId);
+  const updated = db.transaction(() => {
+    if (accepted.size > 0) {
+      taskRemindersRepository.update(reminderId, { offsetMinutes, enabled: !!enabled, snoozedUntil });
+      writeFieldClocks(db, "taskReminder", reminderId, accepted, clientUpdatedAt, operationId);
+    }
+    const current = taskRemindersRepository.getById(reminderId);
+    saveIdempotentMutation(db, userId, operationId, current);
+    return current;
+  })();
   return c.json(updated);
 });
 
 // 删除提醒
 taskReminders.delete("/:reminderId", (c) => {
+  const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const reminderId = c.req.param("reminderId");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
   const existing = taskRemindersRepository.getById(reminderId);
-  if (!existing) return c.json({ error: "Reminder not found" }, 404);
+  if (!existing) {
+    const tombstone = getTombstone(db, "taskReminder", reminderId);
+    const canManageTombstone = canAccessReminderTombstone(tombstone, userId);
+    if (canManageTombstone) {
+      const response = { success: true, syncIgnored: true };
+      saveIdempotentMutation(db, userId, operationId, response);
+      return c.json(response);
+    }
+    return c.json({ error: "Reminder not found" }, 404);
+  }
   if (existing.userId !== userId) return c.json({ error: "无权删除", code: "FORBIDDEN" }, 403);
+  if (hasNewerFieldClock(db, "taskReminder", reminderId, clientUpdatedAt)) {
+    const response = { success: true, syncIgnored: true };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
+  }
 
-  taskRemindersRepository.delete(reminderId);
-  return c.json({ success: true });
+  const task = db.prepare("SELECT workspaceId FROM tasks WHERE id = ?").get(existing.taskId) as { workspaceId: string | null } | undefined;
+  const response = { success: true };
+  db.transaction(() => {
+    taskRemindersRepository.delete(reminderId);
+    writeTombstone(db, "taskReminder", reminderId, existing.userId, task?.workspaceId ?? null, clientUpdatedAt);
+    saveIdempotentMutation(db, userId, operationId, response);
+  })();
+  return c.json(response);
 });
 
 // 立即提醒（测试用）— 返回应该提醒的任务列表

@@ -8,6 +8,7 @@ import { zhCN, enUS } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { getTaskReminders as getCachedTaskReminders, putTaskReminders } from "@/lib/localStore";
 import { toast } from "@/lib/toast";
 import type { Task, TaskPriority, TaskReminder, TaskDependency } from "@/types";
 import { isRepeatingTask } from "./taskRepeatUtils";
@@ -247,9 +248,15 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   // load reminders for this task
   const loadReminders = useCallback(async () => {
     setRemindersLoading(true);
+    const cached = await getCachedTaskReminders(task.id);
+    if (cached.length > 0) {
+      setReminders(cached);
+      onReminderCountChange?.(task.id, cached.filter((r) => r.enabled === 1).length);
+    }
     try {
       const data = await api.getTaskReminders(task.id);
       setReminders(data);
+      void putTaskReminders(data);
       onReminderCountChange?.(task.id, data.filter((r) => r.enabled === 1).length);
     } catch {
       // ignore

@@ -3,6 +3,16 @@ import type { Context } from "hono";
 import crypto from "crypto";
 import { getDb } from "../db/schema";
 import {
+    getClientMutationAt,
+    hasNewerFieldClock,
+    getIdempotentMutation,
+    getNewerFields,
+    getTombstone,
+    saveIdempotentMutation,
+    writeFieldClocks,
+    writeTombstone,
+} from "../lib/offlineResourceSync";
+import {
     canManageResource,
     getUserWorkspaceRole,
     isFeatureEnabled,
@@ -105,6 +115,25 @@ function canCreateInWorkspace(workspaceId: string | null, userId: string): boole
     if (!workspaceId) return true;
     const role = getUserWorkspaceRole(workspaceId, userId) as string | null;
     return !!role && (ROLE_RANK[role] ?? 0) >= ROLE_RANK.editor;
+}
+
+function canCreateAgainstHabitTombstone(
+    tombstone: { userId: string; workspaceId: string | null } | undefined,
+    workspaceId: string | null,
+    userId: string,
+): boolean {
+    if (!tombstone || tombstone.workspaceId !== workspaceId) return false;
+    if (!workspaceId) return tombstone.userId === userId;
+    return canCreateInWorkspace(workspaceId, userId);
+}
+
+function canReadHabitTombstone(
+    tombstone: { userId: string; workspaceId: string | null } | undefined,
+    userId: string,
+): boolean {
+    if (!tombstone) return false;
+    if (!tombstone.workspaceId) return tombstone.userId === userId;
+    return !!getUserWorkspaceRole(tombstone.workspaceId, userId);
 }
 
 function getHabitOr404(id: string): HabitRecord | undefined {
@@ -293,6 +322,10 @@ habits.get("/checkins", requireWorkspaceFeature("tasks"), (c) => {
 habits.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
+    const operationId = c.req.header("Idempotency-Key");
+    const replay = getIdempotentMutation(db, userId, operationId);
+    if (replay) return c.json(replay, 200);
+    const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
     const body = await c.req.json();
     const scope = resolveHabitScope(c, userId);
     if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
@@ -303,23 +336,47 @@ habits.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) return c.json({ error: "Title is required", code: "BAD_REQUEST" }, 400);
 
-    const id = crypto.randomUUID();
+    const requestedId = typeof body.id === "string" ? body.id : "";
+    if (requestedId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedId)) {
+        return c.json({ error: "Invalid habit id", code: "INVALID_HABIT_ID" }, 400);
+    }
+    const id = requestedId || crypto.randomUUID();
+    if (requestedId) {
+        const tombstone = getTombstone(db, "habit", id);
+        if (tombstone && canCreateAgainstHabitTombstone(tombstone, scope.workspaceId, userId) && clientUpdatedAt <= tombstone.deletedAt) {
+            return c.json({ success: true, syncIgnored: true }, 200);
+        }
+        const existing = db.prepare("SELECT * FROM habits WHERE id = ?").get(id) as HabitListRecord | undefined;
+        if (existing) {
+            if (existing.userId !== userId || existing.workspaceId !== scope.workspaceId) {
+                return c.json({ error: "Habit id already exists", code: "HABIT_ID_CONFLICT" }, 409);
+            }
+            const response = { ...existing, canManage: true };
+            saveIdempotentMutation(db, userId, operationId, response);
+            return c.json(response, 201);
+        }
+    }
     const icon = typeof body.icon === "string" && body.icon.trim() ? body.icon.trim() : "check-circle";
     const color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : "#10b981";
     const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
 
-    db.prepare(`
-    INSERT INTO habits (id, userId, workspaceId, title, icon, color, sortOrder)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, scope.workspaceId, title, icon, color, sortOrder);
-
-    const created = db.prepare(`
-      SELECT habits.*, users.username AS creatorName
-      FROM habits
-      LEFT JOIN users ON users.id = habits.userId
-      WHERE habits.id = ?
-    `).get(id) as HabitListRecord;
-    return c.json({ ...created, canManage: true }, 201);
+        const response = db.transaction(() => {
+                db.prepare(`
+                    INSERT INTO habits (id, userId, workspaceId, title, icon, color, sortOrder)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `).run(id, userId, scope.workspaceId, title, icon, color, sortOrder);
+                const created = db.prepare(`
+                    SELECT habits.*, users.username AS creatorName
+                    FROM habits
+                    LEFT JOIN users ON users.id = habits.userId
+                    WHERE habits.id = ?
+                `).get(id) as HabitListRecord;
+                const result = { ...created, canManage: true };
+                writeFieldClocks(db, "habit", id, ["title", "icon", "color", "sortOrder", "archivedAt"], clientUpdatedAt, operationId);
+                saveIdempotentMutation(db, userId, operationId, result);
+                return result;
+        })();
+        return c.json(response, 201);
 });
 
 habits.get("/:id/checkins", (c) => {
@@ -327,7 +384,14 @@ habits.get("/:id/checkins", (c) => {
     const userId = c.req.header("X-User-Id")!;
     const id = c.req.param("id");
     const habit = getHabitOr404(id);
-    if (!habit) return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
+    if (!habit) {
+        const tombstone = getTombstone(db, "habit", id);
+        const canReadTombstone = canReadHabitTombstone(tombstone, userId);
+        if (canReadTombstone) {
+            return c.json({ success: true, syncIgnored: true });
+        }
+        return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
+    }
     const disabled = rejectDisabledHabitFeature(c, habit.workspaceId);
     if (disabled) return disabled;
 
@@ -359,6 +423,10 @@ habits.get("/:id/checkins", (c) => {
 habits.post("/:id/checkins", async (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
+    const operationId = c.req.header("Idempotency-Key");
+    const replay = getIdempotentMutation(db, userId, operationId);
+    if (replay) return c.json(replay, 200);
+    const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
     const id = c.req.param("id");
     const habit = getHabitOr404(id);
     if (!habit) return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
@@ -377,24 +445,31 @@ habits.post("/:id/checkins", async (c) => {
     const checkinDate = normalizeCheckinDate(body.checkinDate);
     if (!checkinDate) return invalidDate(c);
     const note = typeof body.note === "string" ? body.note : "";
+    const checkinResourceId = `${id}:${checkinDate}`;
+    const accepted = getNewerFields(db, "habitCheckin", checkinResourceId, ["status", "note"], clientUpdatedAt, operationId);
     const existing = db.prepare(
         "SELECT id FROM habit_checkins WHERE habitId = ? AND checkinDate = ?",
     ).get(id, checkinDate) as { id: string } | undefined;
 
-    if (existing) {
-        db.prepare(
-            "UPDATE habit_checkins SET userId = ?, status = ?, note = ?, updatedAt = datetime('now') WHERE id = ?",
-        ).run(userId, status, note, existing.id);
-    } else {
-        db.prepare(`
-      INSERT INTO habit_checkins (id, habitId, userId, workspaceId, checkinDate, status, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(crypto.randomUUID(), id, userId, habit.workspaceId, checkinDate, status, note);
-    }
-
-    const row = db.prepare(
-        "SELECT * FROM habit_checkins WHERE habitId = ? AND checkinDate = ?",
-    ).get(id, checkinDate);
+    const row = db.transaction(() => {
+        if (existing && accepted.size > 0) {
+            const current = db.prepare("SELECT status, note FROM habit_checkins WHERE id = ?").get(existing.id) as { status: HabitStatus; note: string };
+            db.prepare(
+                "UPDATE habit_checkins SET userId = ?, status = ?, note = ?, updatedAt = datetime('now') WHERE id = ?",
+            ).run(userId, accepted.has("status") ? status : current.status, accepted.has("note") ? note : current.note, existing.id);
+        } else if (!existing) {
+            db.prepare(`
+              INSERT INTO habit_checkins (id, habitId, userId, workspaceId, checkinDate, status, note)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(crypto.randomUUID(), id, userId, habit.workspaceId, checkinDate, status, note);
+        }
+        const current = db.prepare(
+            "SELECT * FROM habit_checkins WHERE habitId = ? AND checkinDate = ?",
+        ).get(id, checkinDate) as Record<string, unknown>;
+        if (!existing || accepted.size > 0) writeFieldClocks(db, "habitCheckin", checkinResourceId, ["status", "note"], clientUpdatedAt, operationId);
+        saveIdempotentMutation(db, userId, operationId, current);
+        return current;
+    })();
     return c.json(row, existing ? 200 : 201);
 });
 
@@ -402,6 +477,10 @@ habits.put("/:id", async (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
     const id = c.req.param("id");
+    const operationId = c.req.header("Idempotency-Key");
+    const replay = getIdempotentMutation(db, userId, operationId);
+    if (replay) return c.json(replay, 200);
+    const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
     const habit = getHabitOr404(id);
     if (!habit) return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
     const disabled = rejectDisabledHabitFeature(c, habit.workspaceId);
@@ -411,18 +490,24 @@ habits.put("/:id", async (c) => {
     }
 
     const body = await c.req.json();
-    const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : habit.title;
-    const icon = typeof body.icon === "string" && body.icon.trim() ? body.icon.trim() : habit.icon;
-    const color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : habit.color;
-    const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : habit.sortOrder;
+    const requestedFields = ["title", "icon", "color", "sortOrder"].filter((field) => Object.prototype.hasOwnProperty.call(body, field));
+    const accepted = getNewerFields(db, "habit", id, requestedFields, clientUpdatedAt, operationId);
+    const title = accepted.has("title") && typeof body.title === "string" && body.title.trim() ? body.title.trim() : habit.title;
+    const icon = accepted.has("icon") && typeof body.icon === "string" && body.icon.trim() ? body.icon.trim() : habit.icon;
+    const color = accepted.has("color") && typeof body.color === "string" && body.color.trim() ? body.color.trim() : habit.color;
+    const sortOrder = accepted.has("sortOrder") && Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : habit.sortOrder;
 
-    db.prepare(`
-    UPDATE habits
-    SET title = ?, icon = ?, color = ?, sortOrder = ?, updatedAt = datetime('now')
-    WHERE id = ?
-  `).run(title, icon, color, sortOrder, id);
-
-    const updated = db.prepare("SELECT * FROM habits WHERE id = ?").get(id);
+        const updated = db.transaction(() => {
+                db.prepare(`
+                    UPDATE habits
+                    SET title = ?, icon = ?, color = ?, sortOrder = ?, updatedAt = datetime('now')
+                    WHERE id = ?
+                `).run(title, icon, color, sortOrder, id);
+                const current = db.prepare("SELECT * FROM habits WHERE id = ?").get(id) as Record<string, unknown>;
+                writeFieldClocks(db, "habit", id, accepted, clientUpdatedAt, operationId);
+                saveIdempotentMutation(db, userId, operationId, current);
+                return current;
+        })();
     return c.json(updated);
 });
 
@@ -430,6 +515,10 @@ habits.patch("/:id/archive", async (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
     const id = c.req.param("id");
+    const operationId = c.req.header("Idempotency-Key");
+    const replay = getIdempotentMutation(db, userId, operationId);
+    if (replay) return c.json(replay, 200);
+    const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
     const habit = getHabitOr404(id);
     if (!habit) return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
     const disabled = rejectDisabledHabitFeature(c, habit.workspaceId);
@@ -441,8 +530,16 @@ habits.patch("/:id/archive", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const archived = body.archived !== false;
     const archivedAt = archived ? new Date().toISOString() : null;
-    db.prepare("UPDATE habits SET archivedAt = ?, updatedAt = datetime('now') WHERE id = ?").run(archivedAt, id);
-    const updated = db.prepare("SELECT * FROM habits WHERE id = ?").get(id);
+    const accepted = getNewerFields(db, "habit", id, ["archivedAt"], clientUpdatedAt, operationId);
+    const updated = db.transaction(() => {
+        if (accepted.has("archivedAt")) {
+            db.prepare("UPDATE habits SET archivedAt = ?, updatedAt = datetime('now') WHERE id = ?").run(archivedAt, id);
+            writeFieldClocks(db, "habit", id, accepted, clientUpdatedAt, operationId);
+        }
+        const current = db.prepare("SELECT * FROM habits WHERE id = ?").get(id) as Record<string, unknown>;
+        saveIdempotentMutation(db, userId, operationId, current);
+        return current;
+    })();
     return c.json(updated);
 });
 
@@ -450,6 +547,10 @@ habits.delete("/:id", async (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
     const id = c.req.param("id");
+    const operationId = c.req.header("Idempotency-Key");
+    const replay = getIdempotentMutation(db, userId, operationId);
+    if (replay) return c.json(replay, 200);
+    const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
     const habit = getHabitOr404(id);
     if (!habit) return c.json({ error: "Habit not found", code: "NOT_FOUND" }, 404);
     const disabled = rejectDisabledHabitFeature(c, habit.workspaceId);
@@ -457,9 +558,24 @@ habits.delete("/:id", async (c) => {
     if (!canManageResource(habit.userId, habit.workspaceId, userId)) {
         return c.json({ error: "无权删除该习惯", code: "FORBIDDEN" }, 403);
     }
+    if (hasNewerFieldClock(db, "habit", id, clientUpdatedAt)) {
+        const response = { success: true, syncIgnored: true };
+        saveIdempotentMutation(db, userId, operationId, response);
+        return c.json(response);
+    }
 
-    db.prepare("DELETE FROM habits WHERE id = ?").run(id);
-    return c.json({ success: true });
+    const tombstone = getTombstone(db, "habit", id);
+    if (!tombstone || clientUpdatedAt >= tombstone.deletedAt) {
+        db.transaction(() => {
+            writeTombstone(db, "habit", id, habit.userId, habit.workspaceId, clientUpdatedAt);
+            db.prepare("DELETE FROM habits WHERE id = ?").run(id);
+            saveIdempotentMutation(db, userId, operationId, { success: true });
+        })();
+        return c.json({ success: true });
+    }
+    const response = { success: true };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
 });
 
 export default habits;

@@ -7,16 +7,36 @@
  * payload for diagnostics/export.
  */
 
-export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
+export type OfflineMutationType =
+  | "createNote"
+  | "updateNote"
+  | "deleteNote"
+  | "createTask"
+  | "updateTask"
+  | "toggleTask"
+  | "deleteTask"
+  | "createHabit"
+  | "updateHabit"
+  | "archiveHabit"
+  | "deleteHabit"
+  | "checkInHabit"
+  | "createTaskDependency"
+  | "deleteTaskDependency"
+  | "createTaskReminder"
+  | "updateTaskReminder"
+  | "deleteTaskReminder";
 
 export const OFFLINE_QUEUE_CONFLICT_EVENT = "offlineQueue:conflict";
 
 export interface OfflineQueueItem {
   id: string;
   type: OfflineMutationType;
+  /** Canonical identifier for any queued resource. */
+  resourceId?: string;
+  /** @deprecated Use resourceId for non-note mutations. */
   noteId: string;
   url: string;
-  method: "POST" | "PUT" | "DELETE";
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
   body: Record<string, unknown> | null;
   enqueuedAt: number;
   retryCount: number;
@@ -31,6 +51,8 @@ export interface OfflineQueueItem {
   lastHttpStatus?: number;
   message?: string;
 }
+
+export type OfflineMutationEnvelope = Omit<OfflineQueueItem, "retryCount">;
 
 export interface OfflineQueueFetchContext {
   idempotencyKey: string;
@@ -50,12 +72,22 @@ export type FlushResult = {
   remaining: number;
 };
 
+export type EnqueueResult = {
+  cancelledTaskAssociationIds?: {
+    dependencyIds: string[];
+    reminderIds: string[];
+  };
+};
+
 const LEGACY_STORAGE_KEY = "nowen-offline-queue";
 const STORAGE_KEY_PREFIX = "nowen-offline-queue:v2";
 const LEGACY_LOCAL_ID_MAP_KEY = "nowen-offline-id-map";
 const LOCAL_ID_MAP_KEY_PREFIX = "nowen-offline-id-map:v2";
+const FLUSH_LEASE_KEY_PREFIX = "nowen-offline-queue-lease:v1";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RETRY = 10;
+const FLUSH_LEASE_MS = 60_000;
+const flushOwnerId = generateId();
 
 function generateId(): string {
   return `oq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -123,11 +155,55 @@ function getLocalIdMapStorageKey(): string {
   return `${LOCAL_ID_MAP_KEY_PREFIX}:${queueScope}`;
 }
 
+function getFlushLeaseStorageKey(): string {
+  const queueScope = getOfflineQueueStorageKey().slice(STORAGE_KEY_PREFIX.length + 1);
+  return `${FLUSH_LEASE_KEY_PREFIX}:${queueScope}`;
+}
+
+function acquireFlushLease(): boolean {
+  const key = getFlushLeaseStorageKey();
+  const now = Date.now();
+  try {
+    const current = JSON.parse(localStorage.getItem(key) || "null") as { ownerId?: string; expiresAt?: number } | null;
+    if (current?.ownerId && current.ownerId !== flushOwnerId && Number(current.expiresAt) > now) return false;
+    localStorage.setItem(key, JSON.stringify({ ownerId: flushOwnerId, expiresAt: now + FLUSH_LEASE_MS }));
+    const claimed = JSON.parse(localStorage.getItem(key) || "null") as { ownerId?: string } | null;
+    return claimed?.ownerId === flushOwnerId;
+  } catch {
+    // Storage may be unavailable; server idempotency still protects replay.
+    return true;
+  }
+}
+
+function renewFlushLease(): void {
+  const key = getFlushLeaseStorageKey();
+  try {
+    const current = JSON.parse(localStorage.getItem(key) || "null") as { ownerId?: string } | null;
+    if (current?.ownerId === flushOwnerId) {
+      localStorage.setItem(key, JSON.stringify({ ownerId: flushOwnerId, expiresAt: Date.now() + FLUSH_LEASE_MS }));
+    }
+  } catch { /* server idempotency remains the fallback */ }
+}
+
+function releaseFlushLease(): void {
+  const key = getFlushLeaseStorageKey();
+  try {
+    const current = JSON.parse(localStorage.getItem(key) || "null") as { ownerId?: string } | null;
+    if (current?.ownerId === flushOwnerId) localStorage.removeItem(key);
+  } catch { /* no lease to release */ }
+}
+
 function readQueueFromKey(key: string): OfflineQueueItem[] {
   const raw = localStorage.getItem(key);
   if (!raw) return [];
   const parsed = JSON.parse(raw);
-  return Array.isArray(parsed) ? parsed : [];
+  return Array.isArray(parsed)
+    ? parsed.map((item) => ({
+        ...item,
+        resourceId: typeof item.resourceId === "string" ? item.resourceId : item.noteId,
+        noteId: typeof item.noteId === "string" ? item.noteId : item.resourceId,
+      }))
+    : [];
 }
 
 function uuidV4Fallback(): string {
@@ -155,13 +231,9 @@ export function generateLocalNoteId(): string {
 }
 
 function persistQueue(items: OfflineQueueItem[]): void {
-  try {
-    const key = getOfflineQueueStorageKey();
-    if (items.length === 0) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(items));
-  } catch (error) {
-    console.warn("[offlineQueue] persistQueue failed:", error);
-  }
+  const key = getOfflineQueueStorageKey();
+  if (items.length === 0) localStorage.removeItem(key);
+  else localStorage.setItem(key, JSON.stringify(items));
 }
 
 export function getQueue(): OfflineQueueItem[] {
@@ -197,13 +269,14 @@ function clearFailureState(item: OfflineQueueItem): OfflineQueueItem {
   return next;
 }
 
-export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retryCount">): void {
+export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retryCount"> & Partial<Pick<OfflineQueueItem, "id" | "enqueuedAt">>): EnqueueResult {
   const queue = getQueue();
   const newItem: OfflineQueueItem = {
     ...item,
-    id: generateId(),
-    enqueuedAt: Date.now(),
+    id: item.id || generateId(),
+    enqueuedAt: item.enqueuedAt || Date.now(),
     retryCount: 0,
+    resourceId: item.resourceId || item.noteId,
   };
 
   // 用户明确移入回收站时，删除意图优先于此前尚未处理的内容更新或版本冲突。
@@ -215,7 +288,7 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
     next.push(newItem);
     persistQueue(next);
     notifyListeners();
-    return;
+    return {};
   }
 
   if (newItem.type === "updateNote") {
@@ -231,7 +304,7 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
       };
       persistQueue(queue);
       notifyListeners();
-      return;
+      return {};
     }
 
     const updateIndex = queue.findIndex(
@@ -248,7 +321,55 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
       };
       persistQueue(queue);
       notifyListeners();
-      return;
+      return {};
+    }
+  }
+
+  const resourceMutation = (type: OfflineMutationType): { create?: OfflineMutationType; updates: OfflineMutationType[]; remove: OfflineMutationType } | null => {
+    if (type === "createTask" || type === "updateTask" || type === "toggleTask" || type === "deleteTask") {
+      return { create: "createTask", updates: ["updateTask", "toggleTask"], remove: "deleteTask" };
+    }
+    if (type === "createHabit" || type === "updateHabit" || type === "archiveHabit" || type === "deleteHabit") {
+      return { create: "createHabit", updates: ["updateHabit", "archiveHabit"], remove: "deleteHabit" };
+    }
+    return null;
+  };
+  const resource = resourceMutation(newItem.type);
+  if (resource) {
+    const createIndex = queue.findIndex((queued) => queued.noteId === newItem.noteId && queued.type === resource.create && !queued.conflict);
+    if (newItem.type === resource.remove && createIndex !== -1 && !inFlightItemIds.has(queue[createIndex].id)) {
+      const [cancelledCreate] = queue.splice(createIndex, 1);
+      if (newItem.type === "deleteTask") {
+        const dependencyIds = new Set(queue
+          .filter((queued) => queued.type === "createTaskDependency" && (
+            queued.body?.predecessorTaskId === newItem.noteId || queued.body?.successorTaskId === newItem.noteId
+          ))
+          .map((queued) => queued.noteId));
+        const reminderIds = new Set(queue
+          .filter((queued) => queued.type === "createTaskReminder" && extractNoteId(queued.url) === newItem.noteId)
+          .map((queued) => queued.noteId));
+        const next = queue.filter((queued) => !(
+          dependencyIds.has(queued.noteId)
+          || reminderIds.has(queued.noteId)
+          || (queued.type === "createTask" && queued.noteId === cancelledCreate.noteId)
+        ));
+        persistQueue(next);
+        notifyListeners();
+        return {
+          cancelledTaskAssociationIds: {
+            dependencyIds: [...dependencyIds],
+            reminderIds: [...reminderIds],
+          },
+        };
+      }
+      persistQueue(queue);
+      notifyListeners();
+      return {};
+    }
+    if (newItem.type === resource.remove) {
+      for (let index = queue.length - 1; index >= 0; index -= 1) {
+        if (queue[index].noteId === newItem.noteId && resource.updates.includes(queue[index].type)) queue.splice(index, 1);
+      }
     }
   }
 
@@ -264,6 +385,7 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
   queue.push(newItem);
   persistQueue(queue);
   notifyListeners();
+  return {};
 }
 
 export function dequeue(itemId: string): void {
@@ -445,6 +567,7 @@ export function clearLocalIdMap(): void {
 }
 
 let flushPromise: Promise<FlushResult> | null = null;
+const inFlightItemIds = new Set<string>();
 
 async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
   const result: FlushResult = { success: 0, failed: 0, remaining: 0 };
@@ -470,13 +593,20 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
       }
 
       try {
+        renewFlushLease();
         const replayBody = item.type === "createNote" && item.body && !item.body.id && !item.noteId.startsWith("local-")
           ? { ...item.body, id: item.noteId }
           : item.body;
-        const response = await fetchFn(item.url, item.method, replayBody, {
-          idempotencyKey: item.id,
-          item,
-        });
+        inFlightItemIds.add(item.id);
+        let response;
+        try {
+          response = await fetchFn(item.url, item.method, replayBody, {
+            idempotencyKey: item.id,
+            item,
+          });
+        } finally {
+          inFlightItemIds.delete(item.id);
+        }
 
         if (response.ok) {
           if (item.type === "createNote" && item.noteId.startsWith("local-") && response.data?.id) {
@@ -567,7 +697,11 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
 
 export function flushQueue(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
   if (flushPromise) return flushPromise;
+  if (!acquireFlushLease()) {
+    return Promise.resolve({ success: 0, failed: 0, remaining: getQueueLength() });
+  }
   flushPromise = flushQueueInternal(fetchFn).finally(() => {
+    releaseFlushLease();
     flushPromise = null;
   });
   return flushPromise;
@@ -588,16 +722,36 @@ function notifyListeners(): void {
   });
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === getOfflineQueueStorageKey()) notifyListeners();
+  });
+}
+
 export function shouldEnqueue(url: string, method: string, error: any): boolean {
   const normalizedMethod = method.toUpperCase();
-  if (normalizedMethod !== "POST" && normalizedMethod !== "PUT" && normalizedMethod !== "DELETE") return false;
-  if (!isNotesMutationUrl(url)) return false;
+  if (normalizedMethod !== "POST" && normalizedMethod !== "PUT" && normalizedMethod !== "PATCH" && normalizedMethod !== "DELETE") return false;
+  if (!isOfflineMutationUrl(url)) return false;
   if (isNetworkError(error)) return true;
   return error?.status >= 500;
 }
 
-function isNotesMutationUrl(url: string): boolean {
-  return /^\/notes(\/[^/]+)?$/.test(url);
+function isOfflineMutationUrl(url: string): boolean {
+  const pathname = mutationPathname(url);
+  return /^\/notes(\/[^/]+)?$/.test(pathname)
+    || /^\/tasks(?:\/[^/]+(?:\/toggle)?)?$/.test(pathname)
+    || /^\/habits(?:\/[^/]+(?:\/(?:archive|checkins))?)?$/.test(pathname)
+    || pathname === "/task-dependencies"
+    || /^\/task-dependencies\/[^/]+$/.test(pathname)
+    || /^\/task-reminders\/[^/]+$/.test(pathname);
+}
+
+function mutationPathname(url: string): string {
+  try {
+    return new URL(url, "https://offline.invalid").pathname;
+  } catch {
+    return url.split("?", 1)[0];
+  }
 }
 
 export function isNetworkError(error: any): boolean {
@@ -608,14 +762,56 @@ export function isNetworkError(error: any): boolean {
 }
 
 export function inferMutationType(url: string, method: string): OfflineMutationType | null {
+  const pathname = mutationPathname(url);
   const normalizedMethod = method.toUpperCase();
-  if (normalizedMethod === "POST" && url === "/notes") return "createNote";
-  if (normalizedMethod === "PUT" && /^\/notes\/[^/]+$/.test(url)) return "updateNote";
-  if (normalizedMethod === "DELETE" && /^\/notes\/[^/]+$/.test(url)) return "deleteNote";
+  if (normalizedMethod === "POST" && pathname === "/notes") return "createNote";
+  if (normalizedMethod === "PUT" && /^\/notes\/[^/]+$/.test(pathname)) return "updateNote";
+  if (normalizedMethod === "DELETE" && /^\/notes\/[^/]+$/.test(pathname)) return "deleteNote";
+  if (normalizedMethod === "POST" && pathname === "/tasks") return "createTask";
+  if (normalizedMethod === "PUT" && /^\/tasks\/[^/]+$/.test(pathname)) return "updateTask";
+  if (normalizedMethod === "PATCH" && /^\/tasks\/[^/]+\/toggle$/.test(pathname)) return "toggleTask";
+  if (normalizedMethod === "DELETE" && /^\/tasks\/[^/]+$/.test(pathname)) return "deleteTask";
+  if (normalizedMethod === "POST" && pathname === "/habits") return "createHabit";
+  if (normalizedMethod === "PUT" && /^\/habits\/[^/]+$/.test(pathname)) return "updateHabit";
+  if (normalizedMethod === "PATCH" && /^\/habits\/[^/]+\/archive$/.test(pathname)) return "archiveHabit";
+  if (normalizedMethod === "DELETE" && /^\/habits\/[^/]+$/.test(pathname)) return "deleteHabit";
+  if (normalizedMethod === "POST" && /^\/habits\/[^/]+\/checkins$/.test(pathname)) return "checkInHabit";
+  if (normalizedMethod === "POST" && pathname === "/task-dependencies") return "createTaskDependency";
+  if (normalizedMethod === "DELETE" && /^\/task-dependencies\/[^/]+$/.test(pathname)) return "deleteTaskDependency";
+  if (normalizedMethod === "POST" && /^\/task-reminders\/[^/]+$/.test(pathname)) return "createTaskReminder";
+  if (normalizedMethod === "PUT" && /^\/task-reminders\/[^/]+$/.test(pathname)) return "updateTaskReminder";
+  if (normalizedMethod === "DELETE" && /^\/task-reminders\/[^/]+$/.test(pathname)) return "deleteTaskReminder";
   return null;
 }
 
+export function createOfflineMutationEnvelope(
+  url: string,
+  method: string,
+  body: Record<string, unknown> | null,
+): OfflineMutationEnvelope | null {
+  if (!isOfflineMutationUrl(url)) return null;
+  const type = inferMutationType(url, method);
+  if (!type) return null;
+  const createsEntity = type === "createNote"
+    || type === "createTask"
+    || type === "createHabit"
+    || type === "createTaskDependency"
+    || type === "createTaskReminder";
+  const resourceId = createsEntity ? String(body?.id || generateLocalNoteId()) : extractNoteId(url);
+  const nextBody = createsEntity ? { ...(body || {}), id: resourceId } : body;
+  return {
+    id: generateId(),
+    type,
+    resourceId,
+    noteId: resourceId,
+    url,
+    method: method.toUpperCase() as OfflineQueueItem["method"],
+    body: nextBody,
+    enqueuedAt: Date.now(),
+  };
+}
+
 export function extractNoteId(url: string): string {
-  const match = url.match(/^\/notes\/([^/?]+)/);
+  const match = mutationPathname(url).match(/^\/(?:notes|tasks|habits|task-dependencies|task-reminders)\/([^/?]+)/);
   return match ? match[1] : "";
 }

@@ -1,10 +1,21 @@
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
 import {
   setCurrentUser,
   putNotebooks,
   putNoteListItems,
   putNote,
   putTags,
+  replaceTasksSnapshot,
+  getTasks,
+  replaceHabitsSnapshot,
+  getHabits,
+  replaceHabitCheckinsSnapshot,
+  getHabitCheckins,
+  replaceTaskDependenciesSnapshot,
+  getTaskDependencies,
+  replaceTaskRemindersSnapshot,
+  getTaskRemindersForWorkspace,
+  deleteTaskReminder,
   setMeta,
   getMeta,
   getAllNotes,
@@ -13,6 +24,7 @@ import {
   deleteNote,
   deleteNotebook,
   deleteTag,
+  clearAll,
   isReady as localStoreReady,
 } from "@/lib/localStore";
 import {
@@ -21,6 +33,8 @@ import {
   getFailedQueueItems,
   getQueue as getOfflineQueue,
   getQueueLength,
+  clearQueue,
+  clearLocalIdMap,
   subscribe as subscribeOfflineQueue,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
@@ -152,13 +166,47 @@ export function subscribeSyncSummary(listener: (summary: SyncSummary) => void): 
 }
 
 async function pullServerSnapshot(): Promise<void> {
-  const [notebooksResult, notesResult, tagsResult] = await Promise.allSettled([
+  const workspaceId = getCurrentWorkspace() === "personal" ? null : getCurrentWorkspace();
+  const [notebooksResult, notesResult, tagsResult, tasksResult, habitsResult, habitCheckinsResult, dependenciesResult, remindersResult] = await Promise.allSettled([
     api.getNotebooks(),
     api.getNotes(),
     api.getTags(),
+    api.getTasks("all"),
+    api.getHabits(true),
+    api.getHabitCheckinLog({ includeArchived: true }),
+    api.getTaskDependencies(),
+    api.getTaskRemindersSnapshot(),
   ]);
 
   const pullErrors: string[] = [];
+  const pendingResourceItems = getOfflineQueue();
+  const pendingTaskIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "createTask" || item.type === "updateTask" || item.type === "toggleTask" || item.type === "deleteTask")
+    .map((item) => item.noteId));
+  const pendingDeletedTaskIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "deleteTask")
+    .map((item) => item.noteId));
+  const pendingHabitIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "createHabit" || item.type === "updateHabit" || item.type === "archiveHabit" || item.type === "deleteHabit" || item.type === "checkInHabit")
+    .map((item) => item.noteId));
+  const pendingDeletedHabitIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "deleteHabit")
+    .map((item) => item.noteId));
+  const pendingCheckinHabitIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "checkInHabit")
+    .map((item) => item.noteId));
+  const pendingDependencyIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "createTaskDependency" || item.type === "deleteTaskDependency")
+    .map((item) => item.noteId));
+  const pendingDeletedDependencyIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "deleteTaskDependency")
+    .map((item) => item.noteId));
+  const pendingReminderIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "createTaskReminder" || item.type === "updateTaskReminder" || item.type === "deleteTaskReminder")
+    .map((item) => item.noteId));
+  const pendingDeletedReminderIds = new Set(pendingResourceItems
+    .filter((item) => item.type === "deleteTaskReminder")
+    .map((item) => item.noteId));
 
   if (notebooksResult.status === "fulfilled") {
     const local = await getAllNotebooks();
@@ -209,6 +257,89 @@ async function pullServerSnapshot(): Promise<void> {
     pullErrors.push(`标签：${tagsResult.reason instanceof Error ? tagsResult.reason.message : String(tagsResult.reason)}`);
   }
 
+  if (tasksResult.status === "fulfilled") {
+    const localTasks = await getTasks(workspaceId);
+    const localById = new Map(localTasks.map((task) => [task.id, task]));
+    const remoteIds = new Set(tasksResult.value.map((task) => task.id));
+    const merged = tasksResult.value
+      .filter((task) => !pendingDeletedTaskIds.has(task.id))
+      .map((task) => pendingTaskIds.has(task.id) ? localById.get(task.id) || task : task);
+    merged.push(...localTasks.filter((task) => pendingTaskIds.has(task.id) && !remoteIds.has(task.id) && !pendingDeletedTaskIds.has(task.id)));
+    await replaceTasksSnapshot(merged, workspaceId);
+  } else {
+    console.warn("[syncEngine] pull tasks failed:", tasksResult.reason);
+    pullErrors.push(`任务：${tasksResult.reason instanceof Error ? tasksResult.reason.message : String(tasksResult.reason)}`);
+  }
+
+  if (habitsResult.status === "fulfilled") {
+    const localHabits = await getHabits(workspaceId);
+    const localById = new Map(localHabits.map((habit) => [habit.id, habit]));
+    const remoteIds = new Set(habitsResult.value.map((habit) => habit.id));
+    const merged = habitsResult.value
+      .filter((habit) => !pendingDeletedHabitIds.has(habit.id))
+      .map((habit) => pendingHabitIds.has(habit.id) ? localById.get(habit.id) || habit : habit);
+    merged.push(...localHabits.filter((habit) => pendingHabitIds.has(habit.id) && !remoteIds.has(habit.id) && !pendingDeletedHabitIds.has(habit.id)));
+    await replaceHabitsSnapshot(merged, workspaceId);
+  } else {
+    console.warn("[syncEngine] pull habits failed:", habitsResult.reason);
+    pullErrors.push(`习惯：${habitsResult.reason instanceof Error ? habitsResult.reason.message : String(habitsResult.reason)}`);
+  }
+
+  if (habitCheckinsResult.status === "fulfilled") {
+    const localCheckins = await getHabitCheckins(workspaceId);
+    const localByCheckinKey = new Map(localCheckins.map((checkin) => [`${checkin.habitId}:${checkin.checkinDate}`, checkin]));
+    const remoteCheckinKeys = new Set(habitCheckinsResult.value.map((checkin) => `${checkin.habitId}:${checkin.checkinDate}`));
+    const merged = [
+      ...habitCheckinsResult.value.map((checkin) => (
+        pendingCheckinHabitIds.has(checkin.habitId)
+          ? localByCheckinKey.get(`${checkin.habitId}:${checkin.checkinDate}`) || checkin
+          : checkin
+      )),
+      ...localCheckins.filter((checkin) => pendingCheckinHabitIds.has(checkin.habitId) && !remoteCheckinKeys.has(`${checkin.habitId}:${checkin.checkinDate}`)),
+    ];
+    await replaceHabitCheckinsSnapshot(merged, workspaceId);
+  } else {
+    console.warn("[syncEngine] pull habit checkins failed:", habitCheckinsResult.reason);
+    pullErrors.push(`习惯打卡：${habitCheckinsResult.reason instanceof Error ? habitCheckinsResult.reason.message : String(habitCheckinsResult.reason)}`);
+  }
+
+  if (dependenciesResult.status === "fulfilled") {
+    const localDependencies = await getTaskDependencies(workspaceId);
+    const localById = new Map(localDependencies.map((dependency) => [dependency.id, dependency]));
+    const remoteIds = new Set(dependenciesResult.value.map((dependency) => dependency.id));
+    const merged = dependenciesResult.value
+      .filter((dependency) => !pendingDeletedDependencyIds.has(dependency.id))
+      .map((dependency) => pendingDependencyIds.has(dependency.id) ? localById.get(dependency.id) || dependency : dependency);
+    merged.push(...localDependencies.filter((dependency) => pendingDependencyIds.has(dependency.id) && !remoteIds.has(dependency.id) && !pendingDeletedDependencyIds.has(dependency.id)));
+    await replaceTaskDependenciesSnapshot(merged, workspaceId);
+  } else {
+    console.warn("[syncEngine] pull task dependencies failed:", dependenciesResult.reason);
+    pullErrors.push(`任务依赖：${dependenciesResult.reason instanceof Error ? dependenciesResult.reason.message : String(dependenciesResult.reason)}`);
+  }
+
+  if (remindersResult.status === "fulfilled") {
+    const localReminders = await getTaskRemindersForWorkspace(workspaceId);
+    const localById = new Map(localReminders.map((reminder) => [reminder.id, reminder]));
+    const remoteIds = new Set(remindersResult.value.reminders.map((reminder) => reminder.id));
+    const deletedIds = new Set(remindersResult.value.deletedIds);
+    for (const reminderId of deletedIds) {
+      if (!pendingReminderIds.has(reminderId)) await deleteTaskReminder(reminderId);
+    }
+    const merged = remindersResult.value.reminders
+      .filter((reminder) => !pendingDeletedReminderIds.has(reminder.id))
+      .map((reminder) => pendingReminderIds.has(reminder.id) ? localById.get(reminder.id) || reminder : reminder);
+    merged.push(...localReminders.filter((reminder) => (
+      pendingReminderIds.has(reminder.id)
+      && !remoteIds.has(reminder.id)
+      && !deletedIds.has(reminder.id)
+      && !pendingDeletedReminderIds.has(reminder.id)
+    )));
+    await replaceTaskRemindersSnapshot(merged, workspaceId);
+  } else {
+    console.warn("[syncEngine] pull task reminders failed:", remindersResult.reason);
+    pullErrors.push(`任务提醒：${remindersResult.reason instanceof Error ? remindersResult.reason.message : String(remindersResult.reason)}`);
+  }
+
   if (pullErrors.length > 0) {
     throw new Error(`同步补拉未完整完成（${pullErrors.join("；")}）`);
   }
@@ -224,6 +355,10 @@ async function pullServerSnapshot(): Promise<void> {
         notesPulled: notesResult.status === "fulfilled",
         notebooksPulled: notebooksResult.status === "fulfilled",
         tagsPulled: tagsResult.status === "fulfilled",
+        tasksPulled: tasksResult.status === "fulfilled",
+        habitsPulled: habitsResult.status === "fulfilled",
+        dependenciesPulled: dependenciesResult.status === "fulfilled",
+        remindersPulled: remindersResult.status === "fulfilled",
       },
     }));
   }
@@ -311,6 +446,9 @@ async function getQueuedNoteIds(): Promise<Set<string>> {
 }
 
 export function teardown(): void {
+  void clearAll();
+  clearQueue();
+  clearLocalIdMap();
   setCurrentUser(null);
   setState("idle");
 }

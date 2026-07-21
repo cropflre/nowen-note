@@ -248,6 +248,89 @@ const repairSearchContentTextMigration: Migration = {
   },
 };
 
+const offlineResourceSyncMigration: Migration = {
+  version: 53,
+  name: "offline-resource-sync-metadata",
+  up: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS offline_mutation_results (
+        userId TEXT NOT NULL,
+        operationId TEXT NOT NULL,
+        responseJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (userId, operationId),
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_offline_mutation_results_created
+        ON offline_mutation_results(createdAt);
+
+      CREATE TABLE IF NOT EXISTS offline_resource_field_clocks (
+        resourceType TEXT NOT NULL,
+        resourceId TEXT NOT NULL,
+        fieldName TEXT NOT NULL,
+        clientUpdatedAt TEXT NOT NULL,
+        PRIMARY KEY (resourceType, resourceId, fieldName)
+      );
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_field_clocks_resource
+        ON offline_resource_field_clocks(resourceType, resourceId);
+
+      CREATE TABLE IF NOT EXISTS offline_resource_tombstones (
+        resourceType TEXT NOT NULL,
+        resourceId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        workspaceId TEXT,
+        deletedAt TEXT NOT NULL,
+        PRIMARY KEY (resourceType, resourceId),
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_tombstones_scope
+        ON offline_resource_tombstones(resourceType, userId, workspaceId);
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_repeat_group_sequence
+        ON tasks(repeatGroupId, repeatSequenceIndex)
+        WHERE repeatGroupId IS NOT NULL AND repeatSequenceIndex IS NOT NULL;
+    `);
+  },
+};
+
+const offlineResourceSyncTieBreakMigration: Migration = {
+  version: 54,
+  name: "offline-resource-sync-operation-tie-break",
+  up: (db) => {
+    db.exec(`
+      ALTER TABLE offline_resource_field_clocks
+        ADD COLUMN clientOperationId TEXT NOT NULL DEFAULT '';
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_field_clocks_retention
+        ON offline_resource_field_clocks(clientUpdatedAt);
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_tombstones_retention
+        ON offline_resource_tombstones(deletedAt);
+    `);
+  },
+};
+
+const offlineResourceSyncServerRetentionMigration: Migration = {
+  version: 55,
+  name: "offline-resource-sync-server-retention",
+  up: (db) => {
+    db.exec(`
+      ALTER TABLE offline_resource_field_clocks
+        ADD COLUMN recordedAt TEXT NOT NULL DEFAULT '';
+      ALTER TABLE offline_resource_tombstones
+        ADD COLUMN recordedAt TEXT NOT NULL DEFAULT '';
+      UPDATE offline_resource_field_clocks
+        SET recordedAt = datetime('now')
+        WHERE recordedAt = '';
+      UPDATE offline_resource_tombstones
+        SET recordedAt = datetime('now')
+        WHERE recordedAt = '';
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_field_clocks_recorded
+        ON offline_resource_field_clocks(recordedAt);
+      CREATE INDEX IF NOT EXISTS idx_offline_resource_tombstones_recorded
+        ON offline_resource_tombstones(recordedAt);
+    `);
+  },
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
@@ -256,6 +339,9 @@ export const MIGRATIONS: Migration[] = [
   userAISettingsMigration,
   noteImportOriginsMigration,
   repairSearchContentTextMigration,
+  offlineResourceSyncMigration,
+  offlineResourceSyncTieBreakMigration,
+  offlineResourceSyncServerRetentionMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

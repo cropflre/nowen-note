@@ -11,6 +11,16 @@ import {
 } from "../middleware/acl";
 import { taskDependenciesRepository } from "../repositories";
 import {
+  getClientMutationAt,
+  hasNewerFieldClock,
+  getIdempotentMutation,
+  getNewerFields,
+  getTombstone,
+  saveIdempotentMutation,
+  writeFieldClocks,
+  writeTombstone,
+} from "../lib/offlineResourceSync";
+import {
   taskOverdueConditionSql,
   taskTodayConditionSql,
   taskWeekConditionSql,
@@ -62,6 +72,23 @@ function resolveTaskScope(
     return { scope: "workspace", workspaceId: raw, error: "无权访问该工作区" };
   }
   return { scope: "workspace", workspaceId: raw };
+}
+
+function canCreateAgainstTaskTombstone(
+  tombstone: { userId: string; workspaceId: string | null } | undefined,
+  workspaceId: string | null,
+  userId: string,
+): boolean {
+  if (!tombstone || tombstone.workspaceId !== workspaceId) return false;
+  if (!workspaceId) return tombstone.userId === userId;
+  return !!getUserWorkspaceRole(workspaceId, userId);
+}
+
+function canManageTaskTombstone(
+  tombstone: { userId: string; workspaceId: string | null } | undefined,
+  userId: string,
+): boolean {
+  return !!tombstone && canManageResource(tombstone.userId, tombstone.workspaceId, userId);
 }
 
 // 获取所有任务
@@ -154,11 +181,11 @@ tasks.get("/stats/summary", requireWorkspaceFeature("tasks"), (c) => {
     WHERE ${whereSql}
   `).get(whereArg) as any;
 
-  const total     = row.total     ?? 0;
+  const total = row.total ?? 0;
   const completed = row.completed ?? 0;
-  const today     = row.today     ?? 0;
-  const overdue   = row.overdue   ?? 0;
-  const week      = row.week      ?? 0;
+  const today = row.today ?? 0;
+  const overdue = row.overdue ?? 0;
+  const week = row.week ?? 0;
 
   return c.json({ total, completed, pending: total - completed, today, overdue, week });
 });
@@ -269,12 +296,20 @@ tasks.get("/:id", (c) => {
 tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
   const scope = resolveTaskScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
   const body: any = await c.req.json();
-  const id = crypto.randomUUID();
+  const requestedId = typeof body.id === "string" ? body.id : "";
+  if (requestedId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedId)) {
+    return c.json({ error: "Invalid task id", code: "INVALID_TASK_ID" }, 400);
+  }
+  const id = requestedId || crypto.randomUUID();
   const { title, priority = 2, dueDate = null, dueAt = null, startDate = null, noteId = null, parentId = null } = body;
   const description = typeof body.description === "string" ? body.description : "";
   const repeatRule = body.repeatRule || "none";
@@ -344,6 +379,21 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     effectiveWorkspaceId = parent.workspaceId;
   }
 
+  if (requestedId) {
+    const tombstone = getTombstone(db, "task", id);
+    if (tombstone && canCreateAgainstTaskTombstone(tombstone, effectiveWorkspaceId, userId) && clientUpdatedAt <= tombstone.deletedAt) {
+      return c.json({ success: true, syncIgnored: true }, 200);
+    }
+    const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+    if (existing) {
+      if (existing.userId !== userId || existing.workspaceId !== effectiveWorkspaceId) {
+        return c.json({ error: "Task id already exists", code: "TASK_ID_CONFLICT" }, 409);
+      }
+      saveIdempotentMutation(db, userId, operationId, existing);
+      return c.json(existing, 201);
+    }
+  }
+
   const projectId = body.projectId || null;
   const status = body.status || "todo";
   const VALID_STATUSES = ["todo", "doing", "blocked", "done"];
@@ -369,12 +419,16 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
   const repeatSequenceIndex = repeatRule === "none" ? null : 1;
 
-  db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, completedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, effectiveCompletedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
-
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+  const task = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, completedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, effectiveCompletedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
+    const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown>;
+    writeFieldClocks(db, "task", id, ["title", "description", "isCompleted", "completedAt", "priority", "dueDate", "dueAt", "startDate", "noteId", "parentId", "projectId", "sortOrder", "status", "repeatRule", "repeatInterval", "repeatEndDate", "repeatEndCount", "repeatRuleJson"], clientUpdatedAt, operationId);
+    saveIdempotentMutation(db, userId, operationId, created);
+    return created;
+  })();
   return c.json(task, 201);
 });
 
@@ -382,174 +436,203 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
 // Y3: 走 canManageResource —— 创建者本人 + admin/owner 可改；个人任务仅本人。
 //     不允许修改 workspaceId（搬移任务到其它工作区属于高风险操作，留待后续
 //     独立"移动"接口实现）。
-tasks.put("/:id", (c) => {
+tasks.put("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
-  return c.req.json().then((body: any) => {
-    const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
-    if (!existing) return c.json({ error: "Task not found" }, 404);
+  let body: any = await c.req.json();
+  const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+  if (!existing) {
+    const tombstone = getTombstone(db, "task", id);
+    if (tombstone && canManageTaskTombstone(tombstone, userId) && clientUpdatedAt <= tombstone.deletedAt) return c.json({ success: true, syncIgnored: true }, 200);
+    return c.json({ error: "Task not found" }, 404);
+  }
 
-    if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
-      return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
+  if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
+    return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
+  }
+
+  const mutableFields = new Set(["title", "priority", "dueDate", "dueAt", "startDate", "description", "noteId", "parentId", "sortOrder", "projectId", "status", "isCompleted", "completedAt", "repeatRule", "repeatInterval", "repeatEndDate", "repeatEndCount", "repeatRuleJson"]);
+  const completionFields = ["status", "isCompleted", "completedAt"];
+  const requestedFields = Object.keys(body).filter((field) => mutableFields.has(field));
+  const requestedCompletionState = requestedFields.some((field) => completionFields.includes(field));
+  const clockFields = requestedCompletionState
+    ? [...new Set([...requestedFields.filter((field) => !completionFields.includes(field)), ...completionFields])]
+    : requestedFields;
+  const newerFields = getNewerFields(db, "task", id, clockFields, clientUpdatedAt, operationId);
+  const completionAccepted = !requestedCompletionState || completionFields.every((field) => newerFields.has(field));
+  const accepted = new Set([
+    ...requestedFields.filter((field) => !completionFields.includes(field) && newerFields.has(field)),
+    ...(completionAccepted && requestedCompletionState ? completionFields : []),
+  ]);
+  if (requestedFields.length > 0 && accepted.size === 0) {
+    const response = { task: existing, generatedTask: null };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
+  }
+  body = Object.fromEntries(Object.entries(body).filter(([field]) => accepted.has(field)));
+
+  const title = body.title ?? existing.title;
+  const priority = body.priority ?? existing.priority;
+  const dueDate = body.dueDate !== undefined ? body.dueDate : existing.dueDate;
+  const dueAt = body.dueAt !== undefined ? body.dueAt : existing.dueAt;
+  const startDate = body.startDate !== undefined ? body.startDate : existing.startDate;
+  const description = Object.prototype.hasOwnProperty.call(body, "description")
+    ? (typeof body.description === "string" ? body.description : "")
+    : (existing.description || "");
+  const noteId = body.noteId !== undefined ? body.noteId : existing.noteId;
+  const parentId = body.parentId !== undefined ? body.parentId : existing.parentId;
+  const sortOrder = body.sortOrder ?? existing.sortOrder;
+  const projectId = body.projectId !== undefined ? body.projectId : existing.projectId;
+
+  // Repeat fields
+  const repeatRule = body.repeatRule !== undefined ? body.repeatRule : (existing.repeatRule || "none");
+  const repeatInterval = body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeatInterval ?? 1);
+  const repeatEndDate = body.repeatEndDate !== undefined ? body.repeatEndDate : (existing.repeatEndDate ?? null);
+  let repeatEndCount: number | null;
+  try {
+    repeatEndCount = body.repeatEndCount !== undefined
+      ? normalizeRepeatEndCount(body.repeatEndCount)
+      : (existing.repeatEndCount ?? null);
+  } catch {
+    return c.json({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
+  }
+
+  const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
+  if (!VALID_REPEAT.includes(repeatRule)) {
+    return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
+  }
+  if (repeatRule === "none") {
+    repeatEndCount = null;
+  }
+  if (repeatRule !== "none" && repeatRule !== "custom" && (repeatInterval ?? 0) < 1) {
+    return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
+  }
+  // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
+  // TASK-RECURRENCE-CUSTOM-01-RV1: 增强校验
+  let repeatRuleJson: string | null = existing.repeatRuleJson || null;
+  if (body.repeatRuleJson !== undefined) {
+    if (body.repeatRuleJson === null) {
+      repeatRuleJson = null;
+    } else if (typeof body.repeatRuleJson === "object" && body.repeatRuleJson.frequency && body.repeatRuleJson.interval) {
+      const vErr = validateRepeatRuleJson(body.repeatRuleJson);
+      if (vErr) return c.json({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
+      const rj = { ...body.repeatRuleJson };
+      if (rj.weekdays) rj.weekdays = [...new Set(rj.weekdays)].sort((a, b) => (a as number) - (b as number));
+      repeatRuleJson = JSON.stringify(rj);
+    } else {
+      return c.json({ error: "Invalid repeatRuleJson", code: "INVALID_REPEAT_RULE" }, 400);
     }
+  }
+  if (repeatRule === "custom" && !repeatRuleJson) {
+    return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
+  }
+  if (repeatRule !== "none" && !dueDate && !dueAt) {
+    return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
+  }
 
-    const title = body.title ?? existing.title;
-    const priority = body.priority ?? existing.priority;
-    const dueDate = body.dueDate !== undefined ? body.dueDate : existing.dueDate;
-    const dueAt = body.dueAt !== undefined ? body.dueAt : existing.dueAt;
-    const startDate = body.startDate !== undefined ? body.startDate : existing.startDate;
-    const description = Object.prototype.hasOwnProperty.call(body, "description")
-      ? (typeof body.description === "string" ? body.description : "")
-      : (existing.description || "");
-    const noteId = body.noteId !== undefined ? body.noteId : existing.noteId;
-    const parentId = body.parentId !== undefined ? body.parentId : existing.parentId;
-    const sortOrder = body.sortOrder ?? existing.sortOrder;
-    const projectId = body.projectId !== undefined ? body.projectId : existing.projectId;
+  if (startDate && dueDate && startDate > dueDate) {
+    return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
+  }
 
-    // Repeat fields
-    const repeatRule = body.repeatRule !== undefined ? body.repeatRule : (existing.repeatRule || "none");
-    const repeatInterval = body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeatInterval ?? 1);
-    const repeatEndDate = body.repeatEndDate !== undefined ? body.repeatEndDate : (existing.repeatEndDate ?? null);
-    let repeatEndCount: number | null;
-    try {
-      repeatEndCount = body.repeatEndCount !== undefined
-        ? normalizeRepeatEndCount(body.repeatEndCount)
-        : (existing.repeatEndCount ?? null);
-    } catch {
-      return c.json({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
-    }
+  // Fix 5: status / isCompleted bidirectional sync
+  const VALID_STATUSES = ["todo", "doing", "blocked", "done"];
+  let status = body.status ?? existing.status;
+  let isCompleted = body.isCompleted ?? existing.isCompleted;
 
-    const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
-    if (!VALID_REPEAT.includes(repeatRule)) {
-      return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
+  if (body.status !== undefined) {
+    // status takes precedence
+    if (!VALID_STATUSES.includes(status)) {
+      return c.json({ error: "Invalid status", code: "INVALID_STATUS" }, 400);
     }
-    if (repeatRule === "none") {
-      repeatEndCount = null;
-    }
-    if (repeatRule !== "none" && repeatRule !== "custom" && (repeatInterval ?? 0) < 1) {
-      return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
-    }
-    // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
-    // TASK-RECURRENCE-CUSTOM-01-RV1: 增强校验
-    let repeatRuleJson: string | null = existing.repeatRuleJson || null;
-    if (body.repeatRuleJson !== undefined) {
-      if (body.repeatRuleJson === null) {
-        repeatRuleJson = null;
-      } else if (typeof body.repeatRuleJson === "object" && body.repeatRuleJson.frequency && body.repeatRuleJson.interval) {
-        const vErr = validateRepeatRuleJson(body.repeatRuleJson);
-        if (vErr) return c.json({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
-        const rj = { ...body.repeatRuleJson };
-        if (rj.weekdays) rj.weekdays = [...new Set(rj.weekdays)].sort((a, b) => (a as number) - (b as number));
-        repeatRuleJson = JSON.stringify(rj);
-      } else {
-        return c.json({ error: "Invalid repeatRuleJson", code: "INVALID_REPEAT_RULE" }, 400);
-      }
-    }
-    if (repeatRule === "custom" && !repeatRuleJson) {
-      return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
-    }
-    if (repeatRule !== "none" && !dueDate && !dueAt) {
-      return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
-    }
+    isCompleted = status === "done" ? 1 : 0;
+  } else if (body.isCompleted !== undefined) {
+    // isCompleted takes precedence
+    isCompleted = body.isCompleted ? 1 : 0;
+    status = isCompleted ? "done" : (existing.status === "done" ? "todo" : existing.status);
+  }
 
-    if (startDate && dueDate && startDate > dueDate) {
-      return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
+  const completedAt = isCompleted
+    ? (existing.isCompleted ? (existing.completedAt ?? new Date().toISOString()) : new Date().toISOString())
+    : null;
+
+  // Fix 2: validate projectId scope
+  if (body.projectId !== undefined && projectId !== null && projectId !== existing.projectId) {
+    const project = db.prepare("SELECT userId, workspaceId FROM task_projects WHERE id = ?").get(projectId) as any;
+    if (!project) return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 400);
+    if (existing.workspaceId && project.workspaceId !== existing.workspaceId) {
+      return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
     }
-
-    // Fix 5: status / isCompleted bidirectional sync
-    const VALID_STATUSES = ["todo", "doing", "blocked", "done"];
-    let status = body.status ?? existing.status;
-    let isCompleted = body.isCompleted ?? existing.isCompleted;
-
-    if (body.status !== undefined) {
-      // status takes precedence
-      if (!VALID_STATUSES.includes(status)) {
-        return c.json({ error: "Invalid status", code: "INVALID_STATUS" }, 400);
-      }
-      isCompleted = status === "done" ? 1 : 0;
-    } else if (body.isCompleted !== undefined) {
-      // isCompleted takes precedence
-      status = isCompleted ? "done" : (existing.status === "done" ? "todo" : existing.status);
+    if (!existing.workspaceId && (project.userId !== existing.userId || project.workspaceId !== null)) {
+      return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
     }
+  }
 
-    const completedAt = isCompleted
-      ? (existing.isCompleted ? (existing.completedAt ?? new Date().toISOString()) : new Date().toISOString())
-      : null;
+  // 重新挂接父任务时再次校验同域约束
 
-    // Fix 2: validate projectId scope
-    if (body.projectId !== undefined && projectId !== null && projectId !== existing.projectId) {
-      const project = db.prepare("SELECT userId, workspaceId FROM task_projects WHERE id = ?").get(projectId) as any;
-      if (!project) return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 400);
-      if (existing.workspaceId && project.workspaceId !== existing.workspaceId) {
-        return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
-      }
-      if (!existing.workspaceId && (project.userId !== existing.userId || project.workspaceId !== null)) {
-        return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
-      }
-    }
+  // 禁止 parentId 指向自己
+  if (parentId === id) {
+    return c.json({ error: "不能将任务设为自己的子任务", code: "INVALID_PARENT_TASK" }, 400);
+  }
 
-    // 重新挂接父任务时再次校验同域约束
-
-    // 禁止 parentId 指向自己
-    if (parentId === id) {
-      return c.json({ error: "不能将任务设为自己的子任务", code: "INVALID_PARENT_TASK" }, 400);
-    }
-
-    // 禁止移动到自己的子孙节点下面（防止循环引用）
-    if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
-      const isDescendant = (db: any, candidateId: string, taskId: string): boolean => {
-        const visited = new Set<string>();
-        const queue = [taskId];
-        while (queue.length > 0) {
-          const current = queue.shift()!;
-          if (visited.has(current)) continue;
-          visited.add(current);
-          const children = db.prepare("SELECT id FROM tasks WHERE parentId = ?").all(current) as { id: string }[];
-          for (const child of children) {
-            if (child.id === candidateId) return true;
-            queue.push(child.id);
-          }
+  // 禁止移动到自己的子孙节点下面（防止循环引用）
+  if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
+    const isDescendant = (db: any, candidateId: string, taskId: string): boolean => {
+      const visited = new Set<string>();
+      const queue = [taskId];
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        if (visited.has(current)) continue;
+        visited.add(current);
+        const children = db.prepare("SELECT id FROM tasks WHERE parentId = ?").all(current) as { id: string }[];
+        for (const child of children) {
+          if (child.id === candidateId) return true;
+          queue.push(child.id);
         }
-        return false;
-      };
-      if (isDescendant(db, body.parentId, id)) {
-        return c.json({ error: "不能将任务移动到其子孙节点下面", code: "INVALID_PARENT_TASK" }, 400);
       }
+      return false;
+    };
+    if (isDescendant(db, body.parentId, id)) {
+      return c.json({ error: "不能将任务移动到其子孙节点下面", code: "INVALID_PARENT_TASK" }, 400);
     }
-    if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
-      const parent = db
-        .prepare("SELECT workspaceId FROM tasks WHERE id = ?")
-        .get(body.parentId) as { workspaceId: string | null } | undefined;
-      if (!parent) return c.json({ error: "父任务不存在" }, 404);
-      if (parent.workspaceId !== existing.workspaceId) {
-        return c.json(
-          { error: "子任务必须与父任务在同一工作区", code: "SCOPE_MISMATCH" },
-          400,
-        );
-      }
+  }
+  if (body.parentId !== undefined && body.parentId !== null && body.parentId !== existing.parentId) {
+    const parent = db
+      .prepare("SELECT workspaceId FROM tasks WHERE id = ?")
+      .get(body.parentId) as { workspaceId: string | null } | undefined;
+    if (!parent) return c.json({ error: "父任务不存在" }, 404);
+    if (parent.workspaceId !== existing.workspaceId) {
+      return c.json(
+        { error: "子任务必须与父任务在同一工作区", code: "SCOPE_MISMATCH" },
+        400,
+      );
     }
+  }
 
-    const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
-    const repeatSequenceIndex = repeatRule === "none" ? null : (existing.repeatSequenceIndex ?? 1);
+  const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
+  const repeatSequenceIndex = repeatRule === "none" ? null : (existing.repeatSequenceIndex ?? 1);
 
+  const response = db.transaction(() => {
     db.prepare(`
-      UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
-        description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, completedAt = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatEndCount = ?, repeatSequenceIndex = ?, repeatRuleJson = ?, updatedAt = datetime('now')
-      WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, completedAt, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatEndCount, repeatSequenceIndex, repeatRuleJson, id);
-
-    let generatedTask = null;
-    // Generate next repeated task when marking as done via PUT
-    if (isCompleted === 1 && existing.isCompleted === 0) {
-      const updatedForGeneration = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-      generatedTask = generateNextRepeatedTask(db, updatedForGeneration);
-    }
-
-    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-    return c.json({ task: updated, generatedTask });
-  });
+        UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
+          description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, completedAt = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatEndCount = ?, repeatSequenceIndex = ?, repeatRuleJson = ?, updatedAt = datetime('now')
+        WHERE id = ?
+      `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, completedAt, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatEndCount, repeatSequenceIndex, repeatRuleJson, id);
+    const generatedTask = isCompleted === 1 && existing.isCompleted === 0
+      ? generateNextRepeatedTask(db, db.prepare("SELECT * FROM tasks WHERE id = ?").get(id))
+      : null;
+    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown>;
+    writeFieldClocks(db, "task", id, accepted, clientUpdatedAt, operationId);
+    const result = { task: updated, generatedTask };
+    saveIdempotentMutation(db, userId, operationId, result);
+    return result;
+  })();
+  return c.json(response);
 });
 
 // 切换完成状态（快捷操作）
@@ -679,6 +762,13 @@ function generateNextRepeatedTask(db: any, task: any): any {
   const nextSequenceIndex = Number.isFinite(currentSequenceIndex) && currentSequenceIndex >= 1
     ? currentSequenceIndex + 1
     : getRepeatOccurrenceCount(db, groupId) + 1;
+  const existingNext = db.prepare(
+    "SELECT * FROM tasks WHERE repeatGroupId = ? AND repeatSequenceIndex = ? ORDER BY createdAt ASC LIMIT 1",
+  ).get(groupId, nextSequenceIndex);
+  if (existingNext) {
+    db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run((existingNext as any).id, task.id);
+    return existingNext;
+  }
 
   const parts = baseDateStr.split("-").map(Number);
   const base = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -686,7 +776,7 @@ function generateNextRepeatedTask(db: any, task: any): any {
 
   if (task.repeatRule === "custom") {
     let rule: any = null;
-    try { rule = JSON.parse(task.repeatRuleJson || "{}"); } catch {}
+    try { rule = JSON.parse(task.repeatRuleJson || "{}"); } catch { }
     if (!rule || !rule.frequency) return null;
     next = nextDateFromCustomRule(base, rule);
   } else {
@@ -742,27 +832,55 @@ function generateNextRepeatedTask(db: any, task: any): any {
   return db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId);
 }
 
-tasks.patch("/:id/toggle", (c) => {
+tasks.patch("/:id/toggle", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
-  if (!task) return c.json({ error: "Task not found" }, 404);
+  if (!task) {
+    if (canManageTaskTombstone(getTombstone(db, "task", id), userId)) {
+      const response = { success: true, syncIgnored: true };
+      saveIdempotentMutation(db, userId, operationId, response);
+      return c.json(response);
+    }
+    return c.json({ error: "Task not found" }, 404);
+  }
 
   if (!canManageResource(task.userId, task.workspaceId, userId)) {
     return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
   }
 
-  const newStatus = task.isCompleted ? 0 : 1;
+  const body = await c.req.json().catch(() => ({}));
+
+  const accepted = getNewerFields(db, "task", id, ["isCompleted", "status", "completedAt"], clientUpdatedAt, operationId);
+  if (accepted.size === 0) {
+    const response = { task, generatedTask: null };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
+  }
+
+  const newStatus = typeof body.isCompleted === "boolean"
+    ? (body.isCompleted ? 1 : 0)
+    : (task.isCompleted ? 0 : 1);
   const newTaskStatus = newStatus === 1 ? "done" : "todo";
   const completedAt = newStatus === 1 ? new Date().toISOString() : null;
-  db.prepare("UPDATE tasks SET isCompleted = ?, status = ?, completedAt = ?, updatedAt = datetime('now') WHERE id = ?").run(newStatus, newTaskStatus, completedAt, id);
-
-  const generatedTask = newStatus === 1 ? generateNextRepeatedTask(db, task) : null;
-
-    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-  return c.json({ task: updated, generatedTask });
+  const response = db.transaction(() => {
+    db.prepare("UPDATE tasks SET isCompleted = ?, status = ?, completedAt = ?, updatedAt = datetime('now') WHERE id = ?").run(newStatus, newTaskStatus, completedAt, id);
+    const generatedTask = newStatus === 1 && task.isCompleted !== 1
+      ? generateNextRepeatedTask(db, task)
+      : null;
+    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown>;
+    writeFieldClocks(db, "task", id, accepted, clientUpdatedAt, operationId);
+    const result = { task: updated, generatedTask };
+    saveIdempotentMutation(db, userId, operationId, result);
+    return result;
+  })();
+  return c.json(response);
 });
 
 // 删除任务
@@ -771,11 +889,22 @@ tasks.delete("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
+  const operationId = c.req.header("Idempotency-Key");
+  const replay = getIdempotentMutation(db, userId, operationId);
+  if (replay) return c.json(replay, 200);
+  const clientUpdatedAt = getClientMutationAt(c.req.header("X-Client-Mutation-At"));
 
   const task = db.prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?").get(id) as
     | { userId: string; workspaceId: string | null }
     | undefined;
-  if (!task) return c.json({ error: "Task not found" }, 404);
+  if (!task) {
+    if (canManageTaskTombstone(getTombstone(db, "task", id), userId)) {
+      const response = { success: true, syncIgnored: true };
+      saveIdempotentMutation(db, userId, operationId, response);
+      return c.json(response);
+    }
+    return c.json({ error: "Task not found" }, 404);
+  }
 
   if (!canManageResource(task.userId, task.workspaceId, userId)) {
     return c.json({ error: "无权删除该任务", code: "FORBIDDEN" }, 403);
@@ -783,14 +912,22 @@ tasks.delete("/:id", (c) => {
 
   // Collect all descendants (children, grandchildren, etc.)
   const idsToDelete = collectDescendantIds(db, [id]);
-  const ph = idsToDelete.map(() => "?").join(",");
-
-  // Clean up all dependencies referencing deleted tasks (including descendants)
-  taskDependenciesRepository.deleteByTaskIds(idsToDelete);
-
-  // Delete root task (children cascade via ON DELETE CASCADE)
-  db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
-  return c.json({ success: true });
+  if (idsToDelete.some((taskId) => hasNewerFieldClock(db, "task", taskId, clientUpdatedAt))) {
+    const response = { success: true, syncIgnored: true };
+    saveIdempotentMutation(db, userId, operationId, response);
+    return c.json(response);
+  }
+  const response = { success: true };
+  db.transaction(() => {
+    taskDependenciesRepository.deleteByTaskIds(idsToDelete);
+    for (const taskId of idsToDelete) {
+      const deleted = db.prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as { userId: string; workspaceId: string | null } | undefined;
+      if (deleted) writeTombstone(db, "task", taskId, deleted.userId, deleted.workspaceId, clientUpdatedAt);
+    }
+    db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+    saveIdempotentMutation(db, userId, operationId, response);
+  })();
+  return c.json(response);
 });
 
 /** 安全清理任务依赖：表不存在或清理失败不阻断删除 */

@@ -1,20 +1,36 @@
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, Habit, HabitCheckin, TaskReminder, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
 import {
   shouldEnqueue as _shouldEnqueue,
   enqueue as _enqueue,
+  createOfflineMutationEnvelope as _createOfflineMutationEnvelope,
   inferMutationType as _inferMutationType,
   extractNoteId as _extractNoteId,
   generateLocalNoteId,
   discardNoteQueueItems,
 } from "@/lib/offlineQueue";
+import type { OfflineMutationEnvelope } from "@/lib/offlineQueue";
 import {
   readNotebooks as _readNotebooks,
   readNotesList as _readNotesList,
   readTags as _readTags,
   readNote as _readNote,
 } from "@/lib/offlineRead";
+import {
+  deleteHabit as _deleteCachedHabit,
+  deleteTask as _deleteCachedTask,
+  getHabits as _getCachedHabits,
+  getTaskDependencies as _getCachedTaskDependencies,
+  getTaskReminder as _getCachedTaskReminder,
+  getTasks as _getCachedTasks,
+  putHabits as _putCachedHabits,
+  putTaskDependencies as _putCachedTaskDependencies,
+  putTaskReminders as _putCachedTaskReminders,
+  putTasks as _putCachedTasks,
+  deleteTaskDependency as _deleteCachedTaskDependency,
+  deleteTaskReminder as _deleteCachedTaskReminder,
+} from "@/lib/localStore";
 
 import { normalizeServerBaseUrl as _normalizeBase } from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
@@ -679,12 +695,20 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
 
   // ─── 离线队列拦截：网络不可达时直接入队，不发请求 ──────────────
   const method = (restOptions?.method || "GET").toUpperCase();
+  const rawBody = typeof restOptions?.body === "string" ? restOptions.body : undefined;
+  let parsedBody: Record<string, unknown> | null = null;
+  if (rawBody) {
+    try { parsedBody = JSON.parse(rawBody) as Record<string, unknown>; } catch { /* non-JSON requests do not use the offline pipeline */ }
+  }
+  const mutationEnvelope = _skipOfflineQueue ? null : _createOfflineMutationEnvelope(url, method, parsedBody);
+  const requestBody = mutationEnvelope ? JSON.stringify(mutationEnvelope.body) : restOptions?.body;
+  const requestOptions = mutationEnvelope ? { ...restOptions, body: requestBody } : restOptions;
   if (
     !_skipOfflineQueue &&
     !navigator.onLine &&
     _shouldEnqueue(url, method, new TypeError("offline"))
   ) {
-    return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+    return handleOfflineEnqueue<T>(url, method, rawBody, mutationEnvelope);
   }
 
   let res: Response;
@@ -728,6 +752,10 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(sudoToken ? { "X-Sudo-Token": sudoToken } : {}),
+      ...(mutationEnvelope ? {
+        "Idempotency-Key": mutationEnvelope.id,
+        "X-Client-Mutation-At": new Date(mutationEnvelope.enqueuedAt).toISOString(),
+      } : method !== "GET" && method !== "HEAD" ? { "X-Client-Mutation-At": new Date().toISOString() } : {}),
       ...(includeConnId && connId ? { "X-Connection-Id": connId } : {}),
       ...restOptions?.headers,
     });
@@ -736,7 +764,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       if (!shouldTryNativeHttpFallback(error, method)) return null;
       try {
         const nativeRes = await nativeHttpFetch(fullUrl, {
-          ...restOptions,
+          ...requestOptions,
           headers: buildHeaders(includeConnId),
         });
         // eslint-disable-next-line no-console
@@ -760,7 +788,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       }
     };
     try {
-      res = await fetch(fullUrl, { ...restOptions, signal: linkedController.signal, headers: buildHeaders(true) });
+      res = await fetch(fullUrl, { ...requestOptions, signal: linkedController.signal, headers: buildHeaders(true) });
     } catch (firstErr: any) {
       // 兜底：当后端 CORS allowHeaders 没把 X-Connection-Id 加进白名单时，
       //   带它的请求会在 OPTIONS 预检阶段直接被浏览器/WebView 拦下，抛
@@ -771,7 +799,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       //   只在 connId 存在时才尝试，否则跳过直接走原错误路径，避免无谓重试。
       if (connId) {
         try {
-          res = await fetch(fullUrl, { ...restOptions, signal: linkedController.signal, headers: buildHeaders(false) });
+          res = await fetch(fullUrl, { ...requestOptions, signal: linkedController.signal, headers: buildHeaders(false) });
           // eslint-disable-next-line no-console
           console.warn(
             "[api] retry without X-Connection-Id succeeded — backend CORS likely missing this header in allowHeaders. Disabling injection for this session.",
@@ -789,7 +817,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
             const isTimeout = retryErr?.name === "AbortError";
             if (!_skipOfflineQueue && (isTimeout || _shouldEnqueue(url, method, retryErr))) {
               if (_shouldEnqueue(url, method, isTimeout ? new TypeError("timeout") : retryErr)) {
-                return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+                return handleOfflineEnqueue<T>(url, method, rawBody, mutationEnvelope);
               }
             }
             throw retryErr;
@@ -807,7 +835,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
           if (!_skipOfflineQueue) {
             const enqueueErr = isTimeout ? new TypeError("timeout") : firstErr;
             if (_shouldEnqueue(url, method, enqueueErr)) {
-              return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+              return handleOfflineEnqueue<T>(url, method, rawBody, mutationEnvelope);
             }
           }
           throw firstErr;
@@ -822,7 +850,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     if (!_skipOfflineQueue) {
       const enqueueErr = isTimeout ? new TypeError("timeout") : fetchErr;
       if (_shouldEnqueue(url, method, enqueueErr)) {
-        return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+        return handleOfflineEnqueue<T>(url, method, rawBody, mutationEnvelope);
       }
     }
     throw fetchErr;
@@ -885,13 +913,22 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       isRetryable &&
       _shouldEnqueue(url, method, error)
     ) {
-      return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+      return handleOfflineEnqueue<T>(url, method, rawBody, mutationEnvelope);
     }
 
     throw error;
   }
   const data = await safeJson<T>(res, fullUrl);
   reconcileAcknowledgedDeletion(url, method, restOptions?.body, data);
+  if (mutationEnvelope) {
+    await cacheAcknowledgedMutation(
+      mutationEnvelope.type,
+      mutationEnvelope.noteId,
+      url,
+      mutationEnvelope.body,
+      data,
+    );
+  }
   return data;
 }
 
@@ -905,18 +942,220 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
  *   - createNote → 返回带临时 id 的假 Note
  *   - deleteNote → 返回 {}
  */
-function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string): T {
-  const body = bodyStr ? JSON.parse(bodyStr) : null;
-  const mutationType = _inferMutationType(url, method);
-  const noteId = mutationType === "createNote"
-    ? (body?.id || generateLocalNoteId())
-    : _extractNoteId(url);
+function offlineWorkspaceId(): string | null {
+  const workspaceId = getCurrentWorkspace();
+  return workspaceId === "personal" ? null : workspaceId;
+}
 
-  _enqueue({
+function createOptimisticTask(id: string, body: Record<string, any> | null): Task {
+  const now = new Date().toISOString();
+  return {
+    id,
+    userId: "",
+    workspaceId: offlineWorkspaceId(),
+    title: "",
+    description: "",
+    isCompleted: 0,
+    priority: 2,
+    dueDate: null,
+    dueAt: null,
+    noteId: null,
+    parentId: null,
+    sortOrder: 0,
+    projectId: null,
+    status: "todo",
+    createdAt: now,
+    updatedAt: now,
+    ...body,
+  };
+}
+
+function createOptimisticHabit(id: string, body: Record<string, any> | null): Habit {
+  const now = new Date().toISOString();
+  return {
+    id,
+    userId: "",
+    workspaceId: offlineWorkspaceId(),
+    title: "",
+    icon: "check-circle",
+    color: "#10b981",
+    sortOrder: 0,
+    archivedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    ...body,
+  };
+}
+
+async function cacheOfflineTaskMutation(
+  mutationType: ReturnType<typeof _inferMutationType>,
+  taskId: string,
+  body: Record<string, any> | null,
+): Promise<void> {
+  const workspaceId = offlineWorkspaceId();
+  if (mutationType === "deleteTask") {
+    await _deleteCachedTask(taskId);
+    return;
+  }
+  const cached = await _getCachedTasks(workspaceId);
+  const current = cached.find((task) => task.id === taskId);
+  const next: Task = mutationType === "toggleTask" && current
+    ? {
+      ...current,
+      isCompleted: body?.isCompleted ? 1 : 0,
+      status: body?.isCompleted ? "done" : "todo",
+      completedAt: body?.isCompleted ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString(),
+    }
+    : { ...(current || createOptimisticTask(taskId, null)), ...body, id: taskId, updatedAt: new Date().toISOString() };
+  await _putCachedTasks([next], workspaceId);
+}
+
+async function cacheOfflineHabitMutation(
+  mutationType: ReturnType<typeof _inferMutationType>,
+  habitId: string,
+  body: Record<string, any> | null,
+): Promise<void> {
+  const workspaceId = offlineWorkspaceId();
+  if (mutationType === "deleteHabit") {
+    await _deleteCachedHabit(habitId);
+    return;
+  }
+  const cached = await _getCachedHabits(workspaceId);
+  const current = cached.find((habit) => habit.id === habitId);
+  let next: Habit;
+  if (mutationType === "checkInHabit" && current) {
+    next = {
+      ...current,
+      todayStatus: body?.status,
+      todayNote: body?.note || "",
+      todayCheckinDate: body?.checkinDate,
+      updatedAt: new Date().toISOString(),
+    };
+  } else if (mutationType === "archiveHabit" && current) {
+    next = { ...current, archivedAt: body?.archived ? new Date().toISOString() : null, updatedAt: new Date().toISOString() };
+  } else {
+    next = { ...(current || createOptimisticHabit(habitId, null)), ...body, id: habitId, updatedAt: new Date().toISOString() };
+  }
+  await _putCachedHabits([next], workspaceId);
+}
+
+async function cacheOfflineTaskDependencyMutation(
+  mutationType: ReturnType<typeof _inferMutationType>,
+  dependencyId: string,
+  body: Record<string, any> | null,
+): Promise<void> {
+  const workspaceId = offlineWorkspaceId();
+  if (mutationType === "deleteTaskDependency") {
+    await _deleteCachedTaskDependency(dependencyId);
+    return;
+  }
+  if (mutationType !== "createTaskDependency") return;
+  const cached = await _getCachedTaskDependencies(workspaceId);
+  const now = new Date().toISOString();
+  await _putCachedTaskDependencies([
+    ...cached.filter((dependency) => dependency.id !== dependencyId),
+    {
+      id: dependencyId,
+      userId: "",
+      workspaceId,
+      predecessorTaskId: body?.predecessorTaskId || "",
+      successorTaskId: body?.successorTaskId || "",
+      type: body?.type || "finish_to_start",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ], workspaceId);
+}
+
+async function cacheOfflineTaskReminderMutation(
+  mutationType: ReturnType<typeof _inferMutationType>,
+  reminderId: string,
+  url: string,
+  body: Record<string, any> | null,
+): Promise<void> {
+  if (mutationType === "deleteTaskReminder") {
+    await _deleteCachedTaskReminder(reminderId);
+    return;
+  }
+  if (mutationType === "createTaskReminder") {
+    const now = new Date().toISOString();
+    const taskId = _extractNoteId(url);
+    const reminder: TaskReminder = {
+      id: reminderId,
+      taskId,
+      userId: "",
+      offsetMinutes: body?.offsetMinutes ?? 30,
+      enabled: 1,
+      lastNotifiedAt: null,
+      snoozedUntil: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await _putCachedTaskReminders([reminder], getCurrentWorkspace() === "personal" ? null : getCurrentWorkspace());
+    return;
+  }
+  if (mutationType === "updateTaskReminder") {
+    const existing = await _getCachedTaskReminder(reminderId);
+    if (existing) {
+      await _putCachedTaskReminders([{ ...existing, ...body, id: reminderId, updatedAt: new Date().toISOString() }], getCurrentWorkspace() === "personal" ? null : getCurrentWorkspace());
+    }
+  }
+}
+
+async function cacheAcknowledgedMutation(
+  mutationType: ReturnType<typeof _inferMutationType>,
+  resourceId: string,
+  url: string,
+  body: Record<string, any> | null,
+  response: unknown,
+): Promise<void> {
+  if (!mutationType) return;
+  try {
+    if (mutationType === "createTask" || mutationType === "updateTask" || mutationType === "toggleTask" || mutationType === "deleteTask") {
+      const task = (response as TaskMutationResponse | undefined)?.task || response;
+      await cacheOfflineTaskMutation(mutationType, resourceId, task as Record<string, any>);
+      return;
+    }
+    if (mutationType === "createHabit" || mutationType === "updateHabit" || mutationType === "archiveHabit" || mutationType === "deleteHabit" || mutationType === "checkInHabit") {
+      await cacheOfflineHabitMutation(mutationType, resourceId, response as Record<string, any>);
+      return;
+    }
+    if (mutationType === "createTaskDependency" || mutationType === "deleteTaskDependency") {
+      await cacheOfflineTaskDependencyMutation(mutationType, resourceId, response as Record<string, any>);
+      return;
+    }
+    if (mutationType === "createTaskReminder" || mutationType === "updateTaskReminder" || mutationType === "deleteTaskReminder") {
+      await cacheOfflineTaskReminderMutation(mutationType, resourceId, url, response as Record<string, any>);
+    }
+  } catch (error) {
+    console.warn("[api] acknowledged mutation cache update failed:", error);
+  }
+}
+
+async function handleOfflineEnqueue<T>(
+  url: string,
+  method: string,
+  bodyStr?: string,
+  envelope?: OfflineMutationEnvelope | null,
+): Promise<T> {
+  const parsedBody = envelope?.body || (bodyStr ? JSON.parse(bodyStr) : null);
+  const mutationType = envelope?.type || _inferMutationType(url, method);
+  const createsEntity = mutationType === "createNote"
+    || mutationType === "createTask"
+    || mutationType === "createHabit"
+    || mutationType === "createTaskDependency"
+    || mutationType === "createTaskReminder";
+  const noteId = envelope?.noteId || (createsEntity
+    ? (parsedBody?.id || generateLocalNoteId())
+    : _extractNoteId(url));
+  const body = envelope?.body || (createsEntity ? { ...(parsedBody || {}), id: noteId } : parsedBody);
+
+  const enqueueResult = _enqueue(envelope || {
     type: mutationType || "updateNote",
     noteId,
     url,
-    method: method as "POST" | "PUT" | "DELETE",
+    method: method as "POST" | "PUT" | "PATCH" | "DELETE",
     body,
   });
 
@@ -941,6 +1180,42 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
     void import("@/lib/localStore").then((m) => m.deleteNote(noteId)).catch(() => { });
   }
 
+  if (
+    mutationType === "createTask"
+    || mutationType === "updateTask"
+    || mutationType === "toggleTask"
+    || mutationType === "deleteTask"
+  ) {
+    await cacheOfflineTaskMutation(mutationType, noteId, body).catch((error) => {
+      console.warn("[api] offline task cache update failed; queue remains persisted:", error);
+    });
+  }
+  if (mutationType?.includes("Habit") || mutationType === "checkInHabit") {
+    await cacheOfflineHabitMutation(mutationType, noteId, body).catch((error) => {
+      console.warn("[api] offline habit cache update failed; queue remains persisted:", error);
+    });
+  }
+  if (mutationType === "createTaskDependency" || mutationType === "deleteTaskDependency") {
+    await cacheOfflineTaskDependencyMutation(mutationType, noteId, body).catch((error) => {
+      console.warn("[api] offline dependency cache update failed; queue remains persisted:", error);
+    });
+  }
+  if (
+    mutationType === "createTaskReminder"
+    || mutationType === "updateTaskReminder"
+    || mutationType === "deleteTaskReminder"
+  ) {
+    await cacheOfflineTaskReminderMutation(mutationType, noteId, url, body).catch((error) => {
+      console.warn("[api] offline reminder cache update failed; queue remains persisted:", error);
+    });
+  }
+  if (enqueueResult.cancelledTaskAssociationIds) {
+    await Promise.all([
+      ...enqueueResult.cancelledTaskAssociationIds.dependencyIds.map((id) => _deleteCachedTaskDependency(id)),
+      ...enqueueResult.cancelledTaskAssociationIds.reminderIds.map((id) => _deleteCachedTaskReminder(id)),
+    ]);
+  }
+
   // 构造乐观返回值
   if (mutationType === "createNote") {
     return {
@@ -957,6 +1232,58 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
   if (mutationType === "deleteNote") {
     return {} as T;
   }
+  if (mutationType === "createTask") return createOptimisticTask(noteId, body) as T;
+  if (mutationType === "updateTask" || mutationType === "toggleTask") {
+    return {
+      task: { id: noteId, updatedAt: new Date().toISOString(), ...(body || {}) },
+      generatedTask: null,
+    } as T;
+  }
+  if (mutationType === "deleteTask") return {} as T;
+  if (mutationType === "createHabit" || mutationType === "updateHabit" || mutationType === "archiveHabit") {
+    return createOptimisticHabit(noteId, body) as T;
+  }
+  if (mutationType === "deleteHabit") return { success: true } as T;
+  if (mutationType === "checkInHabit") {
+    const now = new Date().toISOString();
+    return {
+      id: `${noteId}:${body?.checkinDate || "today"}`,
+      habitId: noteId,
+      userId: "",
+      workspaceId: offlineWorkspaceId(),
+      checkinDate: body?.checkinDate || "",
+      status: body?.status || "success",
+      note: body?.note || "",
+      createdAt: now,
+      updatedAt: now,
+    } as HabitCheckin as T;
+  }
+  if (mutationType === "createTaskDependency") {
+    return {
+      id: noteId,
+      userId: "",
+      workspaceId: offlineWorkspaceId(),
+      predecessorTaskId: body?.predecessorTaskId || "",
+      successorTaskId: body?.successorTaskId || "",
+      type: body?.type || "finish_to_start",
+      createdAt: new Date().toISOString(),
+    } as T;
+  }
+  if (mutationType === "createTaskReminder") {
+    const now = new Date().toISOString();
+    return {
+      id: noteId,
+      taskId: _extractNoteId(url),
+      userId: "",
+      offsetMinutes: body?.offsetMinutes ?? 30,
+      enabled: true,
+      lastNotifiedAt: null,
+      snoozedUntil: null,
+      createdAt: now,
+      updatedAt: now,
+    } as T;
+  }
+  if (mutationType === "deleteTaskDependency" || mutationType === "deleteTaskReminder") return { success: true } as T;
   // updateNote: 返回 body + noteId，让 EditorPane 的 reconcile 能拿到 version/updatedAt
   return {
     id: noteId,
@@ -1402,17 +1729,19 @@ export const api = {
       `/notes/${id}/headings`,
     ),
   getNoteBlocks: (id: string, limit = 500) =>
-    request<{ noteId: string; blocks: Array<{
-      noteId: string;
-      blockId: string;
-      blockType: "heading" | "paragraph" | "listItem" | "taskItem" | "blockquote" | "codeBlock";
-      parentBlockId: string | null;
-      blockOrder: number;
-      plainText: string;
-      path: string;
-      startOffset: number | null;
-      endOffset: number | null;
-    }> }>(`/blocks/note/${id}?limit=${limit}`),
+    request<{
+      noteId: string; blocks: Array<{
+        noteId: string;
+        blockId: string;
+        blockType: "heading" | "paragraph" | "listItem" | "taskItem" | "blockquote" | "codeBlock";
+        parentBlockId: string | null;
+        blockOrder: number;
+        plainText: string;
+        path: string;
+        startOffset: number | null;
+        endOffset: number | null;
+      }>
+    }>(`/blocks/note/${id}?limit=${limit}`),
   getBlock: (noteId: string, blockId: string) =>
     request<any>(`/blocks/${noteId}/${encodeURIComponent(blockId)}`),
   resolveNoteLink: (link: string) =>
@@ -1589,7 +1918,7 @@ export const api = {
   updateTask: (id: string, data: Partial<Task>) => request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   reorderTasks: (items: { id: string; sortOrder: number }[]) =>
     request<{ success: boolean; affected: number }>("/tasks/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
-  toggleTask: (id: string) => request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" }),
+  toggleTask: (id: string, isCompleted: boolean) => request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH", body: JSON.stringify({ isCompleted }) }),
   aiBreakdownTask: (id: string, lang?: string) => request<{ subtasks: { title: string; priority: number; dueDate: string | null; reason: string }[] }>(`/tasks/${id}/ai-breakdown`, { method: "POST", body: JSON.stringify({ lang }) }),
   deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
   batchTasks: (ids: string[], action: "complete" | "delete") =>
@@ -1649,6 +1978,11 @@ export const api = {
     ),
   getTaskReminders: (taskId: string) =>
     request<import("@/types").TaskReminder[]>(`/task-reminders/${taskId}`),
+  getTaskRemindersSnapshot: () => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<{ reminders: import("@/types").TaskReminder[]; deletedIds: string[] }>(`/task-reminders/snapshot${qs}`);
+  },
   createTaskReminder: (taskId: string, offsetMinutes: number) =>
     request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, { method: "POST", body: JSON.stringify({ offsetMinutes }) }),
   updateTaskReminder: (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean; snoozedUntil?: string | null }) =>

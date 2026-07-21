@@ -28,13 +28,17 @@ function seedUser() {
 function resetTasks() {
   db().prepare("DELETE FROM task_reminders").run();
   db().prepare("DELETE FROM tasks").run();
+  db().prepare("DELETE FROM offline_resource_field_clocks").run();
+  db().prepare("DELETE FROM offline_mutation_results").run();
 }
 
-async function requestJson(method: string, url: string, body?: unknown) {
+async function requestJson(method: string, url: string, body?: unknown, clientMutationAt?: string, operationId?: string) {
   const res = await app.request(url, {
     method,
     headers: {
       "X-User-Id": USER_ID,
+      ...(clientMutationAt ? { "X-Client-Mutation-At": clientMutationAt } : {}),
+      ...(operationId ? { "Idempotency-Key": operationId } : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -143,6 +147,32 @@ test("put clears completedAt when reopening a completed task", async () => {
   assert.equal(row.isCompleted, 0);
   assert.equal(row.status, "todo");
   assert.equal(row.completedAt, null);
+});
+
+test("completion fields share an atomic LWW clock group", async () => {
+  const created = await requestJson("POST", "/tasks", { title: "Clock group" });
+
+  const completed = await requestJson(
+    "PUT",
+    `/tasks/${created.json.id}`,
+    { isCompleted: true },
+    "2026-07-21T12:00:00.000Z",
+    "complete-newer",
+  );
+  assert.equal(completed.status, 200);
+  assert.equal(completed.json.task.status, "done");
+
+  const stale = await requestJson(
+    "PUT",
+    `/tasks/${created.json.id}`,
+    { status: "todo" },
+    "2026-07-21T11:00:00.000Z",
+    "status-older",
+  );
+  assert.equal(stale.status, 200);
+  assert.equal(stale.json.task.isCompleted, 1);
+  assert.equal(stale.json.task.status, "done");
+  assert.ok(stale.json.task.completedAt);
 });
 
 test("toggle writes and clears completedAt", async () => {

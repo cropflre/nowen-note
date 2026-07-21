@@ -1317,6 +1317,7 @@
     "priority": "Priority",
     "dueDate": "Due Date",
     "dueAt": "Due Time",
+    "offlineReorderUnavailable": "Drag-and-drop sorting is unavailable while offline",
     "createdAt": "Created",
     "deleteTask": "Delete Task",
     "pendingCount": "{{pending}} pending · {{completed}} completed",

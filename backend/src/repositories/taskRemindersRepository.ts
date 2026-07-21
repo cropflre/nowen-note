@@ -85,7 +85,7 @@ export const taskRemindersRepository = {
   }): void {
     const db = getDb();
     db.prepare(
-      "UPDATE task_reminders SET offsetMinutes = ?, enabled = ?, snoozedUntil = ?, updatedAt = datetime('now') WHERE id = ?"
+      "UPDATE task_reminders SET offsetMinutes = ?, enabled = ?, snoozedUntil = ? WHERE id = ?"
     ).run(input.offsetMinutes, input.enabled ? 1 : 0, input.snoozedUntil, reminderId);
   },
 

@@ -1069,14 +1069,13 @@ function AuthGate() {
   const [showWhatsNew, markWhatsNewSeen] = useWhatsNew(!!user);
 
   const handleDisconnect = () => {
+    syncTeardown();
     clearServerUrl();
     // L10: 断开服务器相当于登出 + 切换服务器，通知其他 tab
     broadcastLogout("disconnect_server");
     // Phase 7: 切换服务器时 token 已经无意义，把 secure storage 镜像也清掉，
     // 避免下次开 app 又用旧 token 自动登录（会落到 verify 失败再回退，但没必要走一遭）
     void import("@/lib/quickLogin").then((m) => m.disableQuickLogin()).catch(() => {});
-    // Phase B: 解绑本地缓存当前用户；缓存数据保留以便下次重登秒开
-    syncTeardown();
     setIsAuthenticated(false);
     setUser(null);
   };

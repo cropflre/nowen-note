@@ -7,6 +7,7 @@ import {
   generateLocalNoteId,
   getQueue,
   getQueueLength,
+  inferMutationType,
   retryQueueItem,
   updateItem,
 } from "@/lib/offlineQueue";
@@ -184,6 +185,88 @@ describe("offlineQueue reliability", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps task and habit delete intents when their create request is already in flight", async () => {
+    for (const [createType, deleteType, createUrl, deleteUrl] of [
+      ["createTask", "deleteTask", "/tasks", "/tasks/task-in-flight"],
+      ["createHabit", "deleteHabit", "/habits", "/habits/habit-in-flight"],
+    ] as const) {
+      const id = createType === "createTask" ? "task-in-flight" : "habit-in-flight";
+      enqueue({
+        type: createType,
+        noteId: id,
+        url: createUrl,
+        method: "POST",
+        body: { id, title: "offline" },
+      });
+
+      let resolveRequest: ((value: { ok: boolean; status: number; data: unknown }) => void) | undefined;
+      const fetchFn = vi.fn(() => new Promise<{ ok: boolean; status: number; data: unknown }>((resolve) => {
+        resolveRequest = resolve;
+      }));
+      const firstFlush = flushQueue(fetchFn);
+
+      enqueue({ type: deleteType, noteId: id, url: deleteUrl, method: "DELETE", body: null });
+      expect(getQueue().map((item) => item.type)).toEqual([createType, deleteType]);
+
+      resolveRequest?.({ ok: true, status: 201, data: { id } });
+      await expect(firstFlush).resolves.toEqual({ success: 1, failed: 0, remaining: 1 });
+      await expect(flushQueue(vi.fn().mockResolvedValue({ ok: true, status: 200, data: {} }))).resolves.toEqual({ success: 1, failed: 0, remaining: 0 });
+      clearQueue();
+    }
+  });
+
+  it("cancels unsent task associations when an offline-created task is deleted", () => {
+    enqueue({
+      type: "createTask",
+      noteId: "task-local",
+      url: "/tasks",
+      method: "POST",
+      body: { id: "task-local", title: "offline" },
+    });
+    enqueue({
+      type: "createTaskDependency",
+      noteId: "dependency-local",
+      url: "/task-dependencies",
+      method: "POST",
+      body: { id: "dependency-local", predecessorTaskId: "task-local", successorTaskId: "task-existing" },
+    });
+    enqueue({
+      type: "deleteTaskDependency",
+      noteId: "dependency-local",
+      url: "/task-dependencies/dependency-local",
+      method: "DELETE",
+      body: null,
+    });
+    enqueue({
+      type: "createTaskReminder",
+      noteId: "reminder-local",
+      url: "/task-reminders/task-local",
+      method: "POST",
+      body: { id: "reminder-local", offsetMinutes: 30 },
+    });
+    enqueue({
+      type: "updateTaskReminder",
+      noteId: "reminder-local",
+      url: "/task-reminders/reminder-local",
+      method: "PUT",
+      body: { enabled: false },
+    });
+
+    const result = enqueue({
+      type: "deleteTask",
+      noteId: "task-local",
+      url: "/tasks/task-local",
+      method: "DELETE",
+      body: null,
+    });
+
+    expect(getQueue()).toEqual([]);
+    expect(result.cancelledTaskAssociationIds).toEqual({
+      dependencyIds: ["dependency-local"],
+      reminderIds: ["reminder-local"],
+    });
+  });
+
   it("preserves a permanent client failure and its local payload instead of dropping it", async () => {
     enqueueUpdate("missing-note", 3);
     const fetchFn = vi.fn().mockResolvedValueOnce({
@@ -247,5 +330,34 @@ describe("offlineQueue reliability", () => {
 
     await expect(flushQueue(fetchFn)).resolves.toEqual({ success: 1, failed: 0, remaining: 0 });
     expect(getQueueLength()).toBe(0);
+  });
+
+  it("recognizes task and habit mutations for offline replay", () => {
+    expect(inferMutationType("/tasks", "POST")).toBe("createTask");
+    expect(inferMutationType("/tasks/task-1/toggle", "PATCH")).toBe("toggleTask");
+    expect(inferMutationType("/tasks/reorder/batch", "PUT")).toBeNull();
+    expect(inferMutationType("/habits", "POST")).toBe("createHabit");
+    expect(inferMutationType("/habits/habit-1/archive", "PATCH")).toBe("archiveHabit");
+    expect(inferMutationType("/habits/habit-1/checkins", "POST")).toBe("checkInHabit");
+  });
+
+  it("replays an offline task creation with its client UUID", async () => {
+    const taskId = generateLocalNoteId();
+    enqueue({
+      type: "createTask",
+      noteId: taskId,
+      url: "/tasks",
+      method: "POST",
+      body: { id: taskId, title: "offline task" },
+    });
+
+    const fetchFn = vi.fn().mockResolvedValueOnce({ ok: true, status: 201, data: { id: taskId } });
+    await expect(flushQueue(fetchFn)).resolves.toEqual({ success: 1, failed: 0, remaining: 0 });
+    expect(fetchFn).toHaveBeenCalledWith(
+      "/tasks",
+      "POST",
+      { id: taskId, title: "offline task" },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
   });
 });

@@ -4,12 +4,14 @@ import {
   Calendar, ListTodo,
   CalendarDays, AlertTriangle, CheckCheck, Inbox,
   Search, X as XIcon, GripVertical,
+  CloudOff,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight, Bell, Maximize2, Minimize2,
   MoreHorizontal, Trash2 as TrashIcon, FileText,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
+import { getHabits as getCachedHabits, getTasks as getCachedTasks, putHabits, putTasks } from "@/lib/localStore";
 import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
 import { cn } from "@/lib/utils";
@@ -61,6 +63,44 @@ export function getDefaultTaskPatchForFilter(filter: TaskFilter): Partial<Task> 
   return {};
 }
 
+function getWorkspaceCacheScope(): string | null {
+  const workspaceId = getCurrentWorkspace();
+  return workspaceId === "personal" ? null : workspaceId;
+}
+
+function filterCachedTasks(tasks: Task[], filter: TaskFilter, projectId: string | null): Task[] {
+  const today = formatLocalDateKey();
+  const weekEnd = new Date(`${today}T00:00:00`);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekEndKey = formatLocalDateKey(weekEnd);
+
+  return tasks.filter((task) => {
+    if (projectId && task.projectId !== projectId) return false;
+    if (filter === "completed") return task.isCompleted === 1;
+    if (filter === "today") return task.dueDate === today;
+    if (filter === "week") return !!task.dueDate && task.dueDate >= today && task.dueDate <= weekEndKey;
+    if (filter === "overdue") return task.isCompleted === 0 && !!task.dueDate && task.dueDate < today;
+    return true;
+  });
+}
+
+function getCachedTaskStats(tasks: Task[]): TaskStats {
+  const today = formatLocalDateKey();
+  const weekEnd = new Date(`${today}T00:00:00`);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekEndKey = formatLocalDateKey(weekEnd);
+  const completed = tasks.filter((task) => task.isCompleted === 1).length;
+
+  return {
+    total: tasks.length,
+    completed,
+    pending: tasks.length - completed,
+    today: tasks.filter((task) => task.dueDate === today).length,
+    overdue: tasks.filter((task) => task.isCompleted === 0 && !!task.dueDate && task.dueDate < today).length,
+    week: tasks.filter((task) => task.isCompleted === 0 && !!task.dueDate && task.dueDate >= today && task.dueDate <= weekEndKey).length,
+  };
+}
+
 function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> {
   const patch: Partial<Task> & { repeatRuleJson?: unknown } = { ...parsed.taskPatch };
   if (patch.repeatRule === "custom" && typeof patch.repeatRuleJson === "string") {
@@ -99,6 +139,8 @@ export default function TaskCenter() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
+  const centerModeRef = useRef<CenterMode>(centerMode);
+  centerModeRef.current = centerMode;
   const [habits, setHabits] = useState<Habit[]>([]);
   const [habitStats, setHabitStats] = useState<HabitStats | null>(null);
   const [habitListMode, setHabitListMode] = useState<HabitListMode>("active");
@@ -119,6 +161,7 @@ export default function TaskCenter() {
   const [statsHabits, setStatsHabits] = useState<Habit[]>([]);
   const [statsHabitCheckins, setStatsHabitCheckins] = useState<HabitCheckinListItem[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const statsRequestVersionRef = useRef(0);
 
   const activeHabits = useMemo(
     () => habits.filter((habit) => !habit.archivedAt),
@@ -174,6 +217,7 @@ export default function TaskCenter() {
   const [taskFullscreen, setTaskFullscreen] = useState(false);
   const [reminderBadgeCount, setReminderBadgeCount] = useState(0);
   const [sortByDueTime, setSortByDueTime] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 
   // Phase 4: batch select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -182,6 +226,21 @@ export default function TaskCenter() {
   // Phase 4: drag state
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const markOnline = () => setIsOnline(true);
+    const markOffline = () => {
+      setIsOnline(false);
+      setDragId(null);
+      setDragOverId(null);
+    };
+    window.addEventListener("online", markOnline);
+    window.addEventListener("offline", markOffline);
+    return () => {
+      window.removeEventListener("online", markOnline);
+      window.removeEventListener("offline", markOffline);
+    };
+  }, []);
 
   const treeSourceTasks = useMemo(() => {
     if (!sortByDueTime) return tasks;
@@ -245,6 +304,12 @@ export default function TaskCenter() {
   }, [flatOrderedTasks, searchQuery]);
 
   const loadTasks = useCallback(async () => {
+    const workspaceId = getWorkspaceCacheScope();
+    const cachedTasks = await getCachedTasks(workspaceId);
+    if (cachedTasks.length > 0) {
+      setTasks(filterCachedTasks(cachedTasks, filter, selectedProjectId));
+      setStats(getCachedTaskStats(cachedTasks));
+    }
     try {
       const [data, statsData] = await Promise.all([
         api.getTasks(filter, undefined, selectedProjectId || undefined),
@@ -252,6 +317,7 @@ export default function TaskCenter() {
       ]);
       setTasks(data);
       setStats(statsData);
+      await putTasks(data, workspaceId);
     } catch (err) {
       console.error("Failed to load tasks:", err);
     } finally {
@@ -260,6 +326,9 @@ export default function TaskCenter() {
   }, [filter, selectedProjectId, workspaceVersion]);
 
   const loadHabits = useCallback(async () => {
+    const workspaceId = getWorkspaceCacheScope();
+    const cachedHabits = await getCachedHabits(workspaceId);
+    if (cachedHabits.length > 0) setHabits(cachedHabits);
     try {
       const checkinDate = formatLocalDateKey();
       const [list, statsData] = await Promise.all([
@@ -268,12 +337,14 @@ export default function TaskCenter() {
       ]);
       setHabits(list);
       setHabitStats(statsData);
+      await putHabits(list, workspaceId);
     } catch (err) {
       console.error("Failed to load habits:", err);
     }
   }, []);
 
   const loadStatsCenter = useCallback(async () => {
+    const requestVersion = ++statsRequestVersionRef.current;
     try {
       setStatsLoading(true);
       const checkinDate = formatLocalDateKey();
@@ -284,25 +355,31 @@ export default function TaskCenter() {
         api.getHabitStats(true, checkinDate),
         api.getHabitCheckinLog({ includeArchived: true }),
       ]);
+      if (requestVersion !== statsRequestVersionRef.current) return;
       setStatsTasks(taskList);
       setStats(taskStatsData);
       setStatsHabits(habitList);
       setHabitStats(habitStatsData);
       setStatsHabitCheckins(habitCheckins);
     } catch (err) {
+      if (requestVersion !== statsRequestVersionRef.current) return;
       console.error("Failed to load stats center:", err);
       toast.error(t("stats.loadFailed"));
     } finally {
-      setStatsLoading(false);
+      if (requestVersion === statsRequestVersionRef.current) setStatsLoading(false);
     }
-  }, [t, workspaceVersion]);
+  }, [t]);
 
   const loadDependencies = useCallback(async () => {
+    const workspaceId = getWorkspaceCacheScope();
+    const cached = await import("@/lib/localStore").then((store) => store.getTaskDependencies(workspaceId));
+    setDependencies(cached);
     try {
       const deps = await api.getTaskDependencies();
       setDependencies(deps);
+      void import("@/lib/localStore").then((store) => store.putTaskDependencies(deps, workspaceId));
     } catch (e) { /* ignore */ }
-  }, []);
+  }, [getWorkspaceCacheScope]);
 
   const loadReminderBadge = useCallback(async () => {
     try {
@@ -321,10 +398,20 @@ export default function TaskCenter() {
   useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); loadHabits(); }, [loadTasks, loadDependencies, loadReminderBadge, loadHabits]);
 
   useEffect(() => {
-    const onWs = () => { setSelectedTaskId(null); setSearchQuery(""); setSelectedIds(new Set()); setSelectMode(false); setSelectedProjectId(null); setWorkspaceVersion((v) => v + 1); reload(); loadHabits(); };
+    const onWs = () => {
+      setSelectedTaskId(null);
+      setSearchQuery("");
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setSelectedProjectId(null);
+      setWorkspaceVersion((v) => v + 1);
+      reload();
+      loadHabits();
+      if (centerModeRef.current === "stats") void loadStatsCenter();
+    };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [loadTasks, loadHabits]);
+  }, [loadHabits, loadStatsCenter, reload]);
 
   useEffect(() => {
     if (centerMode === "stats") {
@@ -408,11 +495,12 @@ export default function TaskCenter() {
 
   // === CRUD Handlers ===
   const handleToggle = async (id: string) => {
+    const target = tasks.find((task) => task.id === id)?.isCompleted ? false : true;
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, isCompleted: t.isCompleted ? 0 : 1, status: t.isCompleted ? "todo" : "done" } : t))
     );
     try {
-      const res = await api.toggleTask(id);
+      const res = await api.toggleTask(id, target);
       // Use backend response for accurate state
       setTasks((prev) => {
         let updated = prev.map((t) => (t.id === id ? { ...t, ...res.task } : t));
@@ -665,6 +753,11 @@ export default function TaskCenter() {
 
   // === Drag reorder ===
   const handleDragStart = useCallback((id: string, e: React.DragEvent) => {
+    if (!isOnline) {
+      e.preventDefault();
+      toast.error(t("tasks.offlineReorderUnavailable"));
+      return;
+    }
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
     const img = document.createElement("div");
@@ -672,15 +765,23 @@ export default function TaskCenter() {
     document.body.appendChild(img);
     e.dataTransfer.setDragImage(img, 0, 0);
     requestAnimationFrame(() => document.body.removeChild(img));
-  }, []);
+  }, [isOnline, t]);
 
   const handleDragOver = useCallback((id: string, e: React.DragEvent) => {
+    if (!isOnline) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (id !== dragOverId) setDragOverId(id);
-  }, [dragOverId]);
+  }, [dragOverId, isOnline]);
 
-  const handleDrop = useCallback(async (targetId: string) => {
+  const handleDrop = useCallback(async (targetId: string, e?: React.DragEvent) => {
+    if (!isOnline) {
+      e?.preventDefault();
+      setDragId(null);
+      setDragOverId(null);
+      toast.error(t("tasks.offlineReorderUnavailable"));
+      return;
+    }
     if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
     if (sortByDueTime) { setDragId(null); setDragOverId(null); return; }
 
@@ -726,7 +827,7 @@ export default function TaskCenter() {
 
     setDragId(null);
     setDragOverId(null);
-  }, [dragId, tasks, sortByDueTime, loadTasks]);
+  }, [dragId, isOnline, loadTasks, sortByDueTime, t, tasks]);
 
   const handleDragEnd = useCallback(() => {
     setDragId(null);
@@ -1237,6 +1338,12 @@ export default function TaskCenter() {
               </div>
             ) : (
               <div className="space-y-1.5">
+                {!isOnline && !isMobile && !selectMode && !sortByDueTime && (
+                  <div className="flex items-center gap-2 px-2 py-1 text-xs text-tx-tertiary" role="status">
+                    <CloudOff size={14} className="shrink-0" />
+                    {t("tasks.offlineReorderUnavailable", { defaultValue: "离线时暂不支持拖拽排序" })}
+                  </div>
+                )}
                 <AnimatePresence mode="popLayout">
                   {isTreeMode ? (
                     displayFlatOrdered.map((item) => (
@@ -1246,10 +1353,10 @@ export default function TaskCenter() {
                           "relative",
                           dragOverId === item.node.id && dragId !== item.node.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                         )}
-                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        draggable={isOnline && !selectMode && !sortByDueTime && !isMobile}
                         onDragStart={(e) => handleDragStart(item.node.id, e)}
                         onDragOver={(e) => handleDragOver(item.node.id, e)}
-                        onDrop={() => handleDrop(item.node.id)}
+                        onDrop={(e) => handleDrop(item.node.id, e)}
                         onDragEnd={handleDragEnd}
                       >
                         {selectMode && (
@@ -1284,10 +1391,10 @@ export default function TaskCenter() {
                           "relative",
                           dragOverId === task.id && dragId !== task.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                         )}
-                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        draggable={isOnline && !selectMode && !sortByDueTime && !isMobile}
                         onDragStart={(e) => handleDragStart(task.id, e)}
                         onDragOver={(e) => handleDragOver(task.id, e)}
-                        onDrop={() => handleDrop(task.id)}
+                        onDrop={(e) => handleDrop(task.id, e)}
                         onDragEnd={handleDragEnd}
                       >
                         {selectMode && (

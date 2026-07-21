@@ -70,7 +70,7 @@ import { publishMdns, stopMdns } from "./services/discovery";
 import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-worker";
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
-import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
+import { CORS_ALLOW_HEADERS, DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
 
 const app = new Hono();
 
@@ -84,7 +84,7 @@ app.use("*", cors({
     return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
+  allowHeaders: CORS_ALLOW_HEADERS,
   credentials: true,
 }));
 

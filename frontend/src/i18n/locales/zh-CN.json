@@ -1336,6 +1336,7 @@
     "dueDate": "截止日期",
     "dueAt": "截止时间",
     "sortByDueTime": "按截止时间排序",
+    "offlineReorderUnavailable": "离线时暂不支持拖拽排序",
     "createdAt": "创建时间",
     "deleteTask": "删除任务",
     "pendingCount": "{{pending}} 待完成 · {{completed}} 已完成",

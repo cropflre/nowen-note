@@ -36,7 +36,7 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 const i18nMocks = vi.hoisted(() => ({
-    t: (key: string) => key,
+    t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue || key,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -51,6 +51,7 @@ vi.mock("@/lib/toast", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+    getCurrentWorkspace: () => "personal",
     api: {
         getTasks: apiMocks.getTasks,
         getTaskStats: apiMocks.getTaskStats,
@@ -296,6 +297,7 @@ describe("TaskCenter quick-add integration", () => {
         act(() => root.unmount());
         host.remove();
         document.body.innerHTML = "";
+        Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
         vi.useRealTimers();
         vi.clearAllMocks();
     });
@@ -331,6 +333,16 @@ describe("TaskCenter quick-add integration", () => {
         expect(apiMocks.createTaskReminder).toHaveBeenNthCalledWith(2, "new-task", 180);
 
         expect(input!.value).toBe("");
+    });
+
+    it("disables task reorder dragging while offline", async () => {
+        Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+        apiMocks.getTasks.mockResolvedValueOnce([makeTask({ id: "offline-task" })]);
+
+        await renderTaskCenter(root);
+
+        expect(host.textContent).toContain("离线时暂不支持拖拽排序");
+        expect(host.querySelector("[draggable='true']")).toBeNull();
     });
 
     it("continues when one reminder creation fails", async () => {
@@ -605,6 +617,7 @@ describe("TaskCenter quick-add integration", () => {
                 checkins: [expect.objectContaining({ id: "check-old" })],
             });
         });
+        expect(apiMocks.getHabitCheckinLog).toHaveBeenCalledTimes(1);
 
         workspacePhase = 1;
 
@@ -615,6 +628,11 @@ describe("TaskCenter quick-add integration", () => {
 
         await vi.waitFor(() => {
             expect(apiMocks.getHabitCheckinLog).toHaveBeenCalledTimes(2);
+        });
+        await act(async () => {
+            await flush();
+        });
+        await vi.waitFor(() => {
             expect(apiMocks.statsCenterProps.at(-1)).toMatchObject({
                 tasks: [expect.objectContaining({ id: "task-new" })],
                 habits: [expect.objectContaining({ id: "habit-new" })],
