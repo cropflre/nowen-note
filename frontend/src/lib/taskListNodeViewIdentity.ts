@@ -1,10 +1,12 @@
 const INSTALL_KEY = Symbol.for("nowen.task-list-node-view-identity");
 
+interface TaskListIdentityState {
+  observer: MutationObserver | null;
+  start: () => void;
+}
+
 type TaskListIdentityWindow = Window & {
-  [INSTALL_KEY]?: {
-    observer: MutationObserver | null;
-    start: () => void;
-  };
+  [INSTALL_KEY]?: TaskListIdentityState;
 };
 
 function matchingElements(root: ParentNode, selector: string): Element[] {
@@ -45,7 +47,7 @@ export function installTaskListNodeViewIdentity(): void {
   const targetWindow = window as TaskListIdentityWindow;
   if (targetWindow[INSTALL_KEY]) return;
 
-  const state: TaskListIdentityWindow[typeof INSTALL_KEY] = {
+  const state: TaskListIdentityState = {
     observer: null,
     start: () => {
       if (!document.body || state.observer) return;
