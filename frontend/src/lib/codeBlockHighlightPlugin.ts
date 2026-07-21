@@ -1,6 +1,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import { isActiveEditorCapabilityEnabled } from "@/lib/editorRuntimeStore";
 
 type LowlightNode = {
   value?: string;
@@ -39,6 +40,8 @@ type AutoResult = {
   task: AutoTask;
   segments: HighlightSegment[];
 };
+
+type RuntimeRefresh = { runtimeRefresh: true };
 
 const PLAIN_TEXT_LANGUAGES = new Set(["text", "plaintext", "plain", "txt"]);
 const NON_LOWLIGHT_LANGUAGES = new Set(["mermaid"]);
@@ -130,11 +133,10 @@ export type HighlightDiagnosticEvent =
 /**
  * Incremental lowlight decorations for Tiptap code blocks.
  *
- * The upstream plugin re-highlights every code block after each edit inside any
- * code block. This plugin keeps exact language+content results, renders explicit
- * plain text without lowlight, and defers expensive auto detection until idle.
- * Idle results are applied through transaction metadata only, so document
- * content, selection and undo history remain untouched.
+ * The upstream plugin re-highlights every code block after each edit inside any code block. This
+ * plugin caches exact results and defers auto detection. In lightweight runtime mode it returns an
+ * empty DecorationSet before traversing the document at all, keeping code editable without paying
+ * the whole-document scan/highlight cost.
  */
 export function createCodeBlockHighlightPlugin({
   name,
@@ -173,7 +175,14 @@ export function createCodeBlockHighlightPlugin({
     )
   );
 
+  const emptyState = (doc: ProseMirrorNode): HighlightPluginState => ({
+    decorations: DecorationSet.empty.map([], doc),
+    pending: [],
+  });
+
   const build = (doc: ProseMirrorNode): HighlightPluginState => {
+    if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyState(doc);
+
     const decorations: Decoration[] = [];
     const pendingByKey = new Map<string, AutoTask>();
 
@@ -232,8 +241,9 @@ export function createCodeBlockHighlightPlugin({
     state: {
       init: (_, state) => build(state.doc),
       apply: (transaction, previous) => {
-        const result = transaction.getMeta(pluginKey) as AutoResult | undefined;
-        if (result) {
+        const result = transaction.getMeta(pluginKey) as AutoResult | RuntimeRefresh | undefined;
+        if (result && "runtimeRefresh" in result) return build(transaction.doc);
+        if (result && "task" in result) {
           const node = transaction.doc.nodeAt(result.task.pos);
           if (
             node?.type.name === name &&
@@ -279,7 +289,7 @@ export function createCodeBlockHighlightPlugin({
       const schedulePending = () => {
         const pending = pluginKey.getState(view.state)?.pending || [];
         cancelMissingTasks(pending);
-        if (view.composing) return;
+        if (view.composing || !isActiveEditorCapabilityEnabled("syntax-highlight")) return;
 
         for (const task of pending) {
           if (scheduled.has(task.key)) continue;
@@ -288,7 +298,7 @@ export function createCodeBlockHighlightPlugin({
           const run = () => {
             scheduled.delete(task.key);
             reportQueueDepth();
-            if (cancelled || view.composing) {
+            if (cancelled || view.composing || !isActiveEditorCapabilityEnabled("syntax-highlight")) {
               schedulePending();
               return;
             }
@@ -338,7 +348,12 @@ export function createCodeBlockHighlightPlugin({
       };
 
       const handleCompositionEnd = () => window.queueMicrotask(schedulePending);
+      const handleRuntimeChange = () => {
+        view.dispatch(view.state.tr.setMeta(pluginKey, { runtimeRefresh: true } satisfies RuntimeRefresh));
+        schedulePending();
+      };
       view.dom.addEventListener("compositionend", handleCompositionEnd);
+      window.addEventListener("nowen:editor-runtime-change", handleRuntimeChange);
       schedulePending();
 
       return {
@@ -347,6 +362,7 @@ export function createCodeBlockHighlightPlugin({
         },
         destroy() {
           view.dom.removeEventListener("compositionend", handleCompositionEnd);
+          window.removeEventListener("nowen:editor-runtime-change", handleRuntimeChange);
           for (const item of scheduled.values()) {
             item.cancel();
             report?.("highlight-task-cancelled", {
