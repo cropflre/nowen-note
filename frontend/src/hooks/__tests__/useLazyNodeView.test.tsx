@@ -11,11 +11,8 @@ import {
   setActiveEditorRuntimeDecision,
 } from "@/lib/editorRuntimeStore";
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
 
 function richText(length: number): string {
   return `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(length)}"}]}]}`;
@@ -37,6 +34,7 @@ describe("useLazyNodeView", () => {
 
   beforeEach(() => {
     clearActiveEditorRuntimeDecision();
+    intersectionCallback = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
