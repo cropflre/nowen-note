@@ -1,4 +1,5 @@
-import React, { forwardRef, useCallback, useRef } from "react";
+import React, { forwardRef, useCallback, useMemo, useRef } from "react";
+import LargeMarkdownSafeEditor from "@/components/LargeMarkdownSafeEditor";
 import MarkdownEditorImpl from "@/components/MarkdownEditorImpl";
 import type {
   NoteEditorHandle,
@@ -6,6 +7,7 @@ import type {
   NoteEditorProps,
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
+import { shouldUseLargeMarkdownSafeMode } from "@/lib/largeMarkdownSafety";
 import { mergeMarkdownEditorHeadings } from "@/lib/markdownEditorOutline";
 
 export {
@@ -20,15 +22,21 @@ interface MarkdownEditorProps extends NoteEditorProps {
 /**
  * Public Markdown editor adapter.
  *
- * MarkdownEditorImpl owns CodeMirror and reports its incremental outline. This adapter
- * supplements that outline with H4-H6 entries until every consumer uses the shared
- * H1-H6 outline helper directly. Keeping the merge here avoids touching editor input,
- * collaboration, save, and scrolling behavior.
+ * Normal notes use the full CodeMirror + live-preview implementation. Pathological
+ * documents are routed to an uncontrolled native textarea before the expensive Markdown
+ * language parser, syntax highlighter and ReactMarkdown tree are mounted. This keeps the
+ * renderer recoverable for multi-megabyte imports while preserving the shared editor
+ * contract (save, snapshot, tags, outline and collaboration).
  */
 const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(props, forwardedRef) {
     const innerRef = useRef<NoteEditorHandle | null>(null);
     const { note, onHeadingsChange } = props;
+
+    const safeMode = useMemo(
+      () => shouldUseLargeMarkdownSafeMode(note.content || note.contentText),
+      [note.content, note.contentText],
+    );
 
     const assignRef = useCallback((handle: NoteEditorHandle | null) => {
       innerRef.current = handle;
@@ -46,6 +54,16 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
         normalizeToMarkdown(note.content, note.contentText);
       onHeadingsChange(mergeMarkdownEditorHeadings(headings, markdown));
     }, [note.content, note.contentText, onHeadingsChange]);
+
+    if (safeMode) {
+      return (
+        <LargeMarkdownSafeEditor
+          {...props}
+          ref={assignRef}
+          onHeadingsChange={onHeadingsChange}
+        />
+      );
+    }
 
     return (
       <MarkdownEditorImpl
