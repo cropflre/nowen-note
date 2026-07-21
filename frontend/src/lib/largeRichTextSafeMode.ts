@@ -1,9 +1,16 @@
 import type { Note } from "@/types";
 import {
+  EDITOR_RUNTIME_THRESHOLDS,
   resolveEditorRuntimeDecision,
   type EditorRuntimeDecision,
 } from "@/lib/editorRuntimePolicy";
 import { setActiveEditorRuntimeDecision } from "@/lib/editorRuntimeStore";
+
+/** Compatibility export retained for tests and callers of the previous emergency-only policy. */
+export const LARGE_RICH_TEXT_THRESHOLDS = {
+  serializedCharacters: EDITOR_RUNTIME_THRESHOLDS.richText.emergency.characters,
+  approximateNodes: EDITOR_RUNTIME_THRESHOLDS.richText.emergency.nodes,
+} as const;
 
 /**
  * Runtime-only metadata attached to non-normal editor sessions.
