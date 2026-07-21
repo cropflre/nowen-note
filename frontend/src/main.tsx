@@ -34,6 +34,7 @@ import "./editor-list-markers.css";
 import "./code-block-wrap.css";
 import "./overlay-layers.css";
 import "./space-actions.css";
+import "./settings-switches.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
