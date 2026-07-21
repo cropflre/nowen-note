@@ -11,6 +11,10 @@ import {
   loadNoteCacheFirst,
 } from "@/lib/noteLoadSource";
 import { loadDraft } from "@/lib/draftStorage";
+import {
+  getLargeDocumentOriginalFormat,
+  prepareLargeRichTextNoteForDisplay,
+} from "@/lib/largeRichTextSafeMode";
 
 type UseNoteLoaderOptions = Omit<NoteLoadOptions<Note>, "sink">;
 
@@ -33,38 +37,43 @@ export function useNoteLoader() {
     return primaryNoteLoadCoordinator.run({
       ...options,
       sink,
-      request: () => loadNoteCacheFirst({
-        noteId: options.noteId,
-        fetchRemote,
-        onRevalidated: (remote, cached) => {
-          const currentState = stateRef.current;
-          const current = currentState.activeNote;
-          if (!canApplyRevalidatedNote({
-            current,
-            cached,
-            remote,
-            hasDraft: !!loadDraft(options.noteId),
-            pendingNoteId: currentState.noteLoadingState.pendingNoteId,
-          })) return;
+      request: async () => prepareLargeRichTextNoteForDisplay(
+        await loadNoteCacheFirst({
+          noteId: options.noteId,
+          fetchRemote,
+          onRevalidated: (remote, cached) => {
+            const currentState = stateRef.current;
+            const current = currentState.activeNote;
+            if (!canApplyRevalidatedNote({
+              current,
+              cached,
+              remote,
+              hasDraft: !!loadDraft(options.noteId),
+              pendingNoteId: currentState.noteLoadingState.pendingNoteId,
+            })) return;
 
-          actions.setActiveNote(remote);
-          actions.updateNoteInList({
-            id: remote.id,
-            title: remote.title,
-            contentText: remote.contentText,
-            version: remote.version,
-            updatedAt: remote.updatedAt,
-          });
-          actions.updateNoteTab({
-            id: remote.id,
-            title: remote.title,
-            contentFormat: remote.contentFormat,
-            isLocked: remote.isLocked,
-            isTrashed: remote.isTrashed,
-            updatedAt: remote.updatedAt,
-          });
-        },
-      }),
+            const displayNote = prepareLargeRichTextNoteForDisplay(remote);
+            actions.setActiveNote(displayNote);
+            actions.updateNoteInList({
+              id: remote.id,
+              title: remote.title,
+              contentText: remote.contentText,
+              version: remote.version,
+              updatedAt: remote.updatedAt,
+            });
+            actions.updateNoteTab({
+              id: remote.id,
+              title: remote.title,
+              // Keep tab metadata truthful even though activeNote uses a runtime routing
+              // override to select the safe viewer.
+              contentFormat: getLargeDocumentOriginalFormat(displayNote),
+              isLocked: remote.isLocked,
+              isTrashed: remote.isTrashed,
+              updatedAt: remote.updatedAt,
+            });
+          },
+        }),
+      ),
     });
   }, [actions, sink]);
 

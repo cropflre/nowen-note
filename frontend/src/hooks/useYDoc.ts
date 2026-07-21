@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { NowenYjsProvider, ProviderStatus, ProviderUser } from "@/lib/yjsProvider";
 import { realtime } from "@/lib/realtime";
+import { isLargeDocumentCollaborationBlocked } from "@/lib/largeRichTextSafeMode";
 
 export interface UseYDocOptions {
   noteId: string | null;
@@ -47,10 +48,12 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
 
   // 用 ref 保存当前 provider，方便在 effect cleanup 里 destroy 时保证是同一个
   const currentRef = useRef<{ doc: Y.Doc; provider: NowenYjsProvider } | null>(null);
+  const largeDocumentBlocked = isLargeDocumentCollaborationBlocked(noteId);
 
   useEffect(() => {
-    if (!enabled || !noteId || !user) {
-      // 关闭态：清理现有
+    if (!enabled || !noteId || !user || largeDocumentBlocked) {
+      // 关闭态：清理现有。大文档安全模式也必须走这里，避免接收几 MB 的
+      // y:sync WebSocket message 后在主线程 applyUpdate 数十秒。
       if (currentRef.current) {
         try { currentRef.current.provider.destroy(); } catch {}
         try { currentRef.current.doc.destroy(); } catch {}
@@ -103,7 +106,7 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noteId, enabled, user?.userId, user?.username]);
+  }, [noteId, enabled, largeDocumentBlocked, user?.userId, user?.username]);
 
   return state;
 }

@@ -1,5 +1,6 @@
 import React, { forwardRef, useCallback, useMemo, useRef } from "react";
 import LargeMarkdownSafeEditor from "@/components/LargeMarkdownSafeEditor";
+import LargeRichTextSafeViewer from "@/components/LargeRichTextSafeViewer";
 import MarkdownEditorImpl from "@/components/MarkdownEditorImpl";
 import type {
   NoteEditorHandle,
@@ -8,6 +9,7 @@ import type {
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
 import { shouldUseLargeMarkdownSafeMode } from "@/lib/largeMarkdownSafety";
+import { isLargeRichTextSafeNote } from "@/lib/largeRichTextSafeMode";
 import { mergeMarkdownEditorHeadings } from "@/lib/markdownEditorOutline";
 
 export {
@@ -23,15 +25,15 @@ interface MarkdownEditorProps extends NoteEditorProps {
  * Public Markdown editor adapter.
  *
  * Normal notes use the full CodeMirror + live-preview implementation. Pathological
- * documents are routed to an uncontrolled native textarea before the expensive Markdown
- * language parser, syntax highlighter and ReactMarkdown tree are mounted. This keeps the
- * renderer recoverable for multi-megabyte imports while preserving the shared editor
- * contract (save, snapshot, tags, outline and collaboration).
+ * native Markdown documents use an uncontrolled textarea. Large non-Markdown notes are
+ * routed here by useNoteLoader and use a read-only plain-text viewer, so Tiptap and Y.js
+ * never receive the multi-megabyte payload.
  */
 const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(props, forwardedRef) {
     const innerRef = useRef<NoteEditorHandle | null>(null);
     const { note, onHeadingsChange } = props;
+    const richTextSafeMode = isLargeRichTextSafeNote(note);
 
     const safeMode = useMemo(
       () => shouldUseLargeMarkdownSafeMode(note.content || note.contentText),
@@ -54,6 +56,16 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
         normalizeToMarkdown(note.content, note.contentText);
       onHeadingsChange(mergeMarkdownEditorHeadings(headings, markdown));
     }, [note.content, note.contentText, onHeadingsChange]);
+
+    if (richTextSafeMode) {
+      return (
+        <LargeRichTextSafeViewer
+          {...props}
+          ref={assignRef}
+          onHeadingsChange={onHeadingsChange}
+        />
+      );
+    }
 
     if (safeMode) {
       return (
