@@ -3,7 +3,7 @@ export * from "./api.impl";
 import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
 import { invalidateNotebooks } from "./notebookInvalidation";
 import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
-import { isIncrementalShortLatinQuery } from "./searchRequestPolicy";
+import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
 import {
   fetchJsonWithUploadDeadline,
   IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
@@ -33,7 +33,8 @@ type TaskActivityQuery = {
 
 type SearchRequestOptions = {
   signal?: AbortSignal;
-  allowShortLatinQuery?: boolean;
+  /** Internal escape hatch for explicit callers that already debounce short terms. */
+  skipProgressiveDelay?: boolean;
 };
 
 type EnhancedApi = typeof baseApi & {
@@ -122,28 +123,36 @@ function offlineUploadError(message: string): UploadRequestError {
 
 const api = baseApi as EnhancedApi;
 let activeSearchController: AbortController | null = null;
+let activeSearchDelayTimer: ReturnType<typeof setTimeout> | null = null;
+let rejectActiveDelayedSearch: ((reason: unknown) => void) | null = null;
 let activeSearchSequence = 0;
 
-/**
- * SearchCenter already debounces input, but a request that has crossed the debounce boundary
- * used to keep running after the user typed the next character. On better-sqlite3 this can leave
- * the final indexed query waiting behind an obsolete synchronous literal scan.
- *
- * The enhanced API keeps exactly one renderer search alive. One/two-character Latin fragments
- * are treated as progressive input and never sent to the expensive full-text endpoint; callers
- * that intentionally need those exact queries can opt in with allowShortLatinQuery.
- */
-api.search = ((q: string, options: SearchRequestOptions = {}) => {
-  const normalized = q.trim();
-  const sequence = ++activeSearchSequence;
+function createSearchAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Search superseded", "AbortError");
+  }
+  const error = new Error("Search superseded");
+  error.name = "AbortError";
+  return error;
+}
+
+function cancelActiveSearch(): void {
   activeSearchController?.abort();
   activeSearchController = null;
-
-  if (!normalized) return Promise.resolve([]);
-  if (!options.allowShortLatinQuery && isIncrementalShortLatinQuery(normalized)) {
-    return Promise.resolve([]);
+  if (activeSearchDelayTimer !== null) {
+    clearTimeout(activeSearchDelayTimer);
+    activeSearchDelayTimer = null;
   }
+  const reject = rejectActiveDelayedSearch;
+  rejectActiveDelayedSearch = null;
+  reject?.(createSearchAbortError());
+}
 
+function executeSearch(
+  normalized: string,
+  sequence: number,
+  options: SearchRequestOptions,
+): Promise<SearchResult[]> {
   const controller = new AbortController();
   activeSearchController = controller;
   const abortFromCaller = () => controller.abort();
@@ -171,6 +180,60 @@ api.search = ((q: string, options: SearchRequestOptions = {}) => {
     if (sequence === activeSearchSequence && activeSearchController === controller) {
       activeSearchController = null;
     }
+  });
+}
+
+/**
+ * SearchCenter already debounces input by 180 ms, but requests that crossed that boundary used
+ * to continue after the next keystroke. With synchronous better-sqlite3, obsolete M/MT literal
+ * scans could therefore make the final MTU query wait several seconds on a low-power NAS.
+ *
+ * Latest-query-wins cancellation handles requests already in flight. One/two-character Latin
+ * fragments receive an additional 420 ms grace period, so ordinary progressive typing never
+ * sends them; when the user intentionally pauses on C or AI, the short query still executes.
+ */
+api.search = ((q: string, options: SearchRequestOptions = {}) => {
+  const normalized = q.trim();
+  const sequence = ++activeSearchSequence;
+  cancelActiveSearch();
+  if (!normalized) return Promise.resolve([]);
+
+  const extraDelay = options.skipProgressiveDelay
+    ? 0
+    : getProgressiveSearchExtraDelayMs(normalized);
+  if (extraDelay === 0) return executeSearch(normalized, sequence, options);
+
+  return new Promise<SearchResult[]>((resolve, reject) => {
+    const abortDelayed = () => {
+      if (sequence !== activeSearchSequence) return;
+      if (activeSearchDelayTimer !== null) {
+        clearTimeout(activeSearchDelayTimer);
+        activeSearchDelayTimer = null;
+      }
+      rejectActiveDelayedSearch = null;
+      reject(createSearchAbortError());
+    };
+
+    if (options.signal?.aborted) {
+      reject(createSearchAbortError());
+      return;
+    }
+    options.signal?.addEventListener("abort", abortDelayed, { once: true });
+
+    rejectActiveDelayedSearch = (reason) => {
+      options.signal?.removeEventListener("abort", abortDelayed);
+      reject(reason);
+    };
+    activeSearchDelayTimer = setTimeout(() => {
+      activeSearchDelayTimer = null;
+      rejectActiveDelayedSearch = null;
+      options.signal?.removeEventListener("abort", abortDelayed);
+      if (sequence !== activeSearchSequence) {
+        reject(createSearchAbortError());
+        return;
+      }
+      void executeSearch(normalized, sequence, options).then(resolve, reject);
+    }, extraDelay);
   });
 }) as EnhancedApi["search"];
 
