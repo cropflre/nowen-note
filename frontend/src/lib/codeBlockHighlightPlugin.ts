@@ -175,13 +175,13 @@ export function createCodeBlockHighlightPlugin({
     )
   );
 
-  const emptyState = (doc: ProseMirrorNode): HighlightPluginState => ({
-    decorations: DecorationSet.empty.map([], doc),
+  const emptyState = (): HighlightPluginState => ({
+    decorations: DecorationSet.empty,
     pending: [],
   });
 
   const build = (doc: ProseMirrorNode): HighlightPluginState => {
-    if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyState(doc);
+    if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyState();
 
     const decorations: Decoration[] = [];
     const pendingByKey = new Map<string, AutoTask>();
