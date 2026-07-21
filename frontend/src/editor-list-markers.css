@@ -7,10 +7,8 @@
  * compatibility overrides needed by the editor/list regression fix.
  */
 
-.ProseMirror ul.task-list > li.task-item::before,
-.ProseMirror ul[data-type="taskList"] > li.task-item::before,
-.shared-note-content ul.task-list > li.task-item::before,
-.shared-note-content ul[data-type="taskList"] > li.task-item::before {
+.ProseMirror ul > li.task-item::before,
+.shared-note-content ul > li.task-item::before {
   content: none !important;
 }
 
