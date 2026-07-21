@@ -29,6 +29,7 @@ import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
 import NoteTransferCenter from "./components/NoteTransferCenter";
 import "./index.css";
+import "./editor-list-markers.css";
 import "./code-block-wrap.css";
 import "./overlay-layers.css";
 import "./space-actions.css";
@@ -48,6 +49,7 @@ import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChalle
 import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
 import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
+import { installTaskListNodeViewIdentity } from "./lib/taskListNodeViewIdentity";
 
 function removeBootSplash() {
   try {
@@ -72,6 +74,10 @@ function BootSplashRemover() {
 // updateAttributes/deleteNode. Install the process-wide guard before rendering
 // any editor so locked notebooks cannot be mutated by NodeView toolbars.
 installNodeViewMutationGuard();
+// Restore the canonical task NodeView identity before editors mount. Tiptap 3's
+// custom TaskItem NodeView can expose only `.task-item`, which otherwise makes
+// ordinary-list marker CSS draw a second bullet before the checkbox.
+installTaskListNodeViewIdentity();
 // MediaExperienceBridge listens on document capture. Install the scope guard on window capture
 // first so Diary/Task/avatar media controls keep their own upload flows on mobile.
 installEditorMediaScopeGuard();
