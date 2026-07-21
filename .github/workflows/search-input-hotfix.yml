@@ -1,0 +1,555 @@
+name: Apply search input hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/search-input-hotfix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: search-input-hotfix
+  cancel-in-progress: false
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch search pipeline
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Frontend API: latest-search-wins cancellation + lightweight short query scope.
+          replace_once(
+              "frontend/src/lib/api.ts",
+              'import type { Note, Task } from "@/types";',
+              'import type { Note, SearchResult, Task } from "@/types";',
+          )
+          replace_once(
+              "frontend/src/lib/api.ts",
+              '''type TaskActivityQuery = {
+            from?: string;
+            to?: string;
+            limit?: number;
+          };
+
+          type EnhancedApi = typeof baseApi & {''',
+              '''type TaskActivityQuery = {
+            from?: string;
+            to?: string;
+            limit?: number;
+          };
+
+          type SearchRequestOptions = {
+            signal?: AbortSignal;
+            scope?: "title" | "notes" | "all";
+          };
+
+          type EnhancedApi = typeof baseApi & {
+            search: (q: string, options?: SearchRequestOptions) => Promise<SearchResult[]>;''',
+          )
+          replace_once(
+              "frontend/src/lib/api.ts",
+              '''const api = baseApi as EnhancedApi;
+
+          // Multipart uploads intentionally bypass api.impl's JSON request() wrapper.''',
+              '''const api = baseApi as EnhancedApi;
+
+          let activeSearchController: AbortController | null = null;
+
+          function isIncrementalShortQuery(value: string): boolean {
+            const normalized = value.normalize("NFKC").trim().toLocaleLowerCase();
+            return normalized.length > 0
+              && normalized.length < 3
+              && !/[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF]/u.test(normalized)
+              && /^[\\p{L}\\p{N}_]+$/u.test(normalized);
+          }
+
+          // SearchCenter debounces keystrokes, but a request that has already started used to keep
+          // running and block the final query on synchronous SQLite/NAS workloads. Keep one active
+          // search per renderer and abort it as soon as the next normalized query is dispatched.
+          api.search = ((q: string, options: SearchRequestOptions = {}) => {
+            const normalized = q.trim();
+            activeSearchController?.abort();
+
+            if (!normalized) {
+              activeSearchController = null;
+              return Promise.resolve([]);
+            }
+
+            const controller = new AbortController();
+            activeSearchController = controller;
+            const abortFromCaller = () => controller.abort();
+            if (options.signal) {
+              if (options.signal.aborted) controller.abort();
+              else options.signal.addEventListener("abort", abortFromCaller, { once: true });
+            }
+
+            const params = new URLSearchParams();
+            params.set("q", normalized);
+            const workspace = getCurrentWorkspace();
+            if (workspace && workspace !== "personal") params.set("workspaceId", workspace);
+            params.set(
+              "scope",
+              options.scope || (isIncrementalShortQuery(normalized) ? "title" : "notes"),
+            );
+
+            return authenticatedJson<SearchResult[]>(`/search?${params.toString()}`, {
+              signal: controller.signal,
+            }).finally(() => {
+              options.signal?.removeEventListener("abort", abortFromCaller);
+              if (activeSearchController === controller) activeSearchController = null;
+            });
+          }) as EnhancedApi["search"];
+
+          // Multipart uploads intentionally bypass api.impl's JSON request() wrapper.''',
+          )
+
+          # Backend: title-only mode for 1-2 character progressive input, and notes-only mode
+          # that avoids tag/attachment scans for the SearchCenter title/body experience.
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''type SearchScope = {
+            sql: string;
+            params: unknown[];
+          };
+
+          type MatchSource = {''',
+              '''type SearchScope = {
+            sql: string;
+            params: unknown[];
+          };
+
+          type SearchMode = "title" | "notes" | "all";
+
+          type MatchSource = {''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''function getFtsRowCount(db: Database.Database): number {
+            try {
+              const row = db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number } | undefined;
+              return Number(row?.count) || 0;
+            } catch {
+              return 0;
+            }
+          }
+
+          function fetchFtsTermCandidates(''',
+              '''function getFtsRowCount(db: Database.Database): number {
+            try {
+              const row = db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number } | undefined;
+              return Number(row?.count) || 0;
+            } catch {
+              return 0;
+            }
+          }
+
+          function resolveSearchMode(value: string | undefined): SearchMode {
+            if (value === "title" || value === "notes") return value;
+            return "all";
+          }
+
+          function isIncrementalShortTerm(term: string): boolean {
+            const normalized = normalizeSearchText(term);
+            if (!normalized || normalized.length >= 3 || hasHanText(normalized)) return false;
+            const tokens = normalized.match(/[\\p{L}\\p{N}_]+/gu) || [];
+            return tokens.length === 1 && tokens[0] === normalized;
+          }
+
+          function fetchFtsTermCandidates(''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''function fetchMetadataTermCandidates(
+            db: Database.Database,
+            term: string,
+            scope: SearchScope,
+          ): Set<string> {''',
+              '''function fetchTitleTermCandidates(
+            db: Database.Database,
+            term: string,
+            scope: SearchScope,
+          ): Set<string> {
+            const rows = db.prepare(`
+              SELECT n.id
+              FROM notes n
+              JOIN notebooks nb ON nb.id = n.notebookId
+              WHERE ${scope.sql}
+                AND n.isTrashed = 0
+                AND nb.isDeleted = 0
+                AND instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
+              ORDER BY n.updatedAt DESC
+              LIMIT ${MAX_TERM_CANDIDATES}
+            `).all(...scope.params, term) as Array<{ id: string }>;
+            return new Set(rows.map((row) => row.id));
+          }
+
+          function fetchMetadataTermCandidates(
+            db: Database.Database,
+            term: string,
+            scope: SearchScope,
+          ): Set<string> {''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''function collectCandidates(
+            db: Database.Database,
+            terms: string[],
+            scope: SearchScope,
+          ): CandidateCollection {
+            const termSets: Set<string>[] = [];
+            let degraded = false;
+            let literalFallback = false;
+            let ftsDurationMs = 0;
+            let metadataDurationMs = 0;
+            let fallbackDurationMs = 0;
+
+            for (const term of terms) {
+              const ftsStarted = performance.now();
+              const fts = fetchFtsTermCandidates(db, term, scope);
+              ftsDurationMs += performance.now() - ftsStarted;
+              degraded ||= fts.degraded;
+
+              const metadataStarted = performance.now();
+              const metadata = fetchMetadataTermCandidates(db, term, scope);
+              metadataDurationMs += performance.now() - metadataStarted;
+
+              const ids = new Set<string>([...fts.ids, ...metadata]);
+              if (shouldUseLiteralFallback(term, fts.ids.size, fts.degraded)) {
+                literalFallback = true;
+                const fallbackStarted = performance.now();
+                for (const id of fetchLiteralTermCandidates(db, term, scope)) ids.add(id);
+                fallbackDurationMs += performance.now() - fallbackStarted;
+              }
+              termSets.push(ids);
+            }
+
+            return {
+              ids: intersectCandidateSets(termSets),
+              degraded,
+              literalFallback,
+              ftsDurationMs,
+              metadataDurationMs,
+              fallbackDurationMs,
+            };
+          }''',
+              '''function collectCandidates(
+            db: Database.Database,
+            terms: string[],
+            scope: SearchScope,
+            mode: SearchMode,
+          ): CandidateCollection {
+            const termSets: Set<string>[] = [];
+            let degraded = false;
+            let literalFallback = false;
+            let ftsDurationMs = 0;
+            let metadataDurationMs = 0;
+            let fallbackDurationMs = 0;
+
+            for (const term of terms) {
+              if (mode === "title") {
+                const titleStarted = performance.now();
+                termSets.push(fetchTitleTermCandidates(db, term, scope));
+                fallbackDurationMs += performance.now() - titleStarted;
+                continue;
+              }
+
+              const ftsStarted = performance.now();
+              const fts = fetchFtsTermCandidates(db, term, scope);
+              ftsDurationMs += performance.now() - ftsStarted;
+              degraded ||= fts.degraded;
+
+              let metadata = new Set<string>();
+              if (mode === "all") {
+                const metadataStarted = performance.now();
+                metadata = fetchMetadataTermCandidates(db, term, scope);
+                metadataDurationMs += performance.now() - metadataStarted;
+              }
+
+              const ids = new Set<string>([...fts.ids, ...metadata]);
+              if (shouldUseLiteralFallback(term, fts.ids.size, fts.degraded)) {
+                literalFallback = true;
+                const fallbackStarted = performance.now();
+                for (const id of fetchLiteralTermCandidates(db, term, scope)) ids.add(id);
+                fallbackDurationMs += performance.now() - fallbackStarted;
+              }
+              termSets.push(ids);
+            }
+
+            return {
+              ids: intersectCandidateSets(termSets),
+              degraded,
+              literalFallback,
+              ftsDurationMs,
+              metadataDurationMs,
+              fallbackDurationMs,
+            };
+          }''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''function fetchCandidateRows(
+            db: Database.Database,
+            candidateIds: Set<string>,
+            userId: string,
+            scope: SearchScope,
+          ): SearchRow[] {
+            const ids = Array.from(candidateIds).slice(0, MAX_FETCH_CANDIDATES);
+            if (ids.length === 0) return [];
+            const placeholders = ids.map(() => "?").join(",");
+
+            return db.prepare(`
+              SELECT
+                n.id,
+                n.userId,
+                n.notebookId,
+                n.workspaceId,
+                n.title,
+                COALESCE(n.contentText, '') AS contentText,
+                n.updatedAt,
+                CASE WHEN EXISTS(
+                  SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
+                ) THEN 1 ELSE 0 END AS isFavorite,
+                n.isPinned,
+                n.contentFormat,
+                nb.name AS notebookName,
+                COALESCE((
+                  SELECT group_concat(t.name, char(10))
+                  FROM note_tags nt
+                  JOIN tags t ON t.id = nt.tagId
+                  WHERE nt.noteId = n.id
+                ), '') AS tagText,
+                COALESCE((
+                  SELECT group_concat(a.filename, char(10))
+                  FROM attachments a
+                  WHERE a.noteId = n.id
+                ), '') AS attachmentNames,
+                COALESCE((
+                  SELECT group_concat(ac.chunkText, char(10))
+                  FROM attachments a
+                  JOIN attachment_chunks ac ON ac.attachmentId = a.id
+                  WHERE a.noteId = n.id
+                ), '') AS attachmentText
+              FROM notes n
+              JOIN notebooks nb ON nb.id = n.notebookId
+              WHERE n.id IN (${placeholders})
+                AND ${scope.sql}
+                AND n.isTrashed = 0
+                AND nb.isDeleted = 0
+              ORDER BY n.updatedAt DESC
+            `).all(userId, ...ids, ...scope.params) as SearchRow[];
+          }''',
+              '''function fetchCandidateRows(
+            db: Database.Database,
+            candidateIds: Set<string>,
+            userId: string,
+            scope: SearchScope,
+            mode: SearchMode,
+          ): SearchRow[] {
+            const ids = Array.from(candidateIds).slice(0, MAX_FETCH_CANDIDATES);
+            if (ids.length === 0) return [];
+            const placeholders = ids.map(() => "?").join(",");
+            const contentTextSql = mode === "title" ? "''" : "COALESCE(n.contentText, '')";
+            const tagTextSql = mode === "all"
+              ? `COALESCE((
+                  SELECT group_concat(t.name, char(10))
+                  FROM note_tags nt
+                  JOIN tags t ON t.id = nt.tagId
+                  WHERE nt.noteId = n.id
+                ), '')`
+              : "''";
+            const attachmentNamesSql = mode === "all"
+              ? `COALESCE((
+                  SELECT group_concat(a.filename, char(10))
+                  FROM attachments a
+                  WHERE a.noteId = n.id
+                ), '')`
+              : "''";
+            const attachmentTextSql = mode === "all"
+              ? `COALESCE((
+                  SELECT group_concat(ac.chunkText, char(10))
+                  FROM attachments a
+                  JOIN attachment_chunks ac ON ac.attachmentId = a.id
+                  WHERE a.noteId = n.id
+                ), '')`
+              : "''";
+
+            return db.prepare(`
+              SELECT
+                n.id,
+                n.userId,
+                n.notebookId,
+                n.workspaceId,
+                n.title,
+                ${contentTextSql} AS contentText,
+                n.updatedAt,
+                CASE WHEN EXISTS(
+                  SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
+                ) THEN 1 ELSE 0 END AS isFavorite,
+                n.isPinned,
+                n.contentFormat,
+                nb.name AS notebookName,
+                ${tagTextSql} AS tagText,
+                ${attachmentNamesSql} AS attachmentNames,
+                ${attachmentTextSql} AS attachmentText
+              FROM notes n
+              JOIN notebooks nb ON nb.id = n.notebookId
+              WHERE n.id IN (${placeholders})
+                AND ${scope.sql}
+                AND n.isTrashed = 0
+                AND nb.isDeleted = 0
+              ORDER BY n.updatedAt DESC
+            `).all(userId, ...ids, ...scope.params) as SearchRow[];
+          }''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''  const q = (c.req.query("q") || "").trim().slice(0, 200);
+            const workspaceId = c.req.query("workspaceId");
+            if (!q) return c.json([]);''',
+              '''  const q = (c.req.query("q") || "").trim().slice(0, 200);
+            const workspaceId = c.req.query("workspaceId");
+            const requestedMode = resolveSearchMode(c.req.query("scope"));
+            if (!q) return c.json([]);''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''  const terms = splitSearchTerms(q);
+            if (terms.length === 0) return c.json([]);
+            const normalizedQuery = normalizeSearchText(q);
+
+            const candidateStarted = performance.now();
+            const candidate = collectCandidates(db, terms, scope);''',
+              '''  const terms = splitSearchTerms(q);
+            if (terms.length === 0) return c.json([]);
+            const normalizedQuery = normalizeSearchText(q);
+            const searchMode = requestedMode === "all" && terms.every(isIncrementalShortTerm)
+              ? "title"
+              : requestedMode;
+            c.header("X-Search-Scope", searchMode);
+
+            const candidateStarted = performance.now();
+            const candidate = collectCandidates(db, terms, scope, searchMode);''',
+          )
+          replace_once(
+              "backend/src/routes/search.ts",
+              '''  const rows = fetchCandidateRows(db, candidate.ids, userId, scope);
+            const fetchDurationMs = performance.now() - fetchStarted;
+
+            const rankStarted = performance.now();
+            const fts = fetchFtsScores(db, buildFtsSearchTerm(q), scope);''',
+              '''  const rows = fetchCandidateRows(db, candidate.ids, userId, scope, searchMode);
+            const fetchDurationMs = performance.now() - fetchStarted;
+
+            const rankStarted = performance.now();
+            const fts = searchMode === "title"
+              ? { scores: new Map<string, number>(), degraded: false }
+              : fetchFtsScores(db, buildFtsSearchTerm(q), scope);''',
+          )
+
+          # Regression coverage for progressive input and metadata-free SearchCenter scope.
+          replace_once(
+              "backend/tests/search-experience.test.ts",
+              'const STALE_NOTE_ID = "search-stale-content";',
+              'const STALE_NOTE_ID = "search-stale-content";\nconst SHORT_CONTENT_NOTE_ID = "search-short-content";',
+          )
+          replace_once(
+              "backend/tests/search-experience.test.ts",
+              '''async function search(userId: string, query: string) {
+            const response = await app.request(`/search?q=${encodeURIComponent(query)}`, {
+              headers: { "X-User-Id": userId },
+            });
+            return { status: response.status, headers: response.headers, json: await response.json() as any[] };
+          }''',
+              '''async function search(
+            userId: string,
+            query: string,
+            scope?: "title" | "notes" | "all",
+          ) {
+            const params = new URLSearchParams({ q: query });
+            if (scope) params.set("scope", scope);
+            const response = await app.request(`/search?${params.toString()}`, {
+              headers: { "X-User-Id": userId },
+            });
+            return { status: response.status, headers: response.headers, json: await response.json() as any[] };
+          }''',
+          )
+          replace_once(
+              "backend/tests/search-experience.test.ts",
+              '''  insertNote(META_NOTE_ID, "Release planning", "This note deliberately has no metadata keywords.");
+            insertNote(MUTABLE_NOTE_ID, "Mutable note", "before unique-old-keyword");''',
+              '''  insertNote(META_NOTE_ID, "Release planning", "This note deliberately has no metadata keywords.");
+            insertNote(SHORT_CONTENT_NOTE_ID, "Network tuning", "MTU appears only in this note body.");
+            insertNote(MUTABLE_NOTE_ID, "Mutable note", "before unique-old-keyword");''',
+          )
+          replace_once(
+              "backend/tests/search-experience.test.ts",
+              '''test("long tokenizer-safe misses do not trigger a full-body literal fallback", async () => {''',
+              '''test("progressive short latin input uses a title-only fast path", async () => {
+            const shortResponse = await search(OWNER_ID, "M");
+            assert.equal(shortResponse.status, 200);
+            assert.equal(shortResponse.headers.get("x-search-scope"), "title");
+            assert.equal(shortResponse.headers.get("x-search-literal-fallback"), "0");
+            assert.equal(shortResponse.json.some((item) => item.id === SHORT_CONTENT_NOTE_ID), false);
+
+            const finalResponse = await search(OWNER_ID, "MTU", "notes");
+            assert.equal(finalResponse.status, 200);
+            assert.equal(finalResponse.headers.get("x-search-scope"), "notes");
+            assert.equal(finalResponse.json[0]?.id, SHORT_CONTENT_NOTE_ID);
+          });
+
+          test("notes scope skips tag and attachment-only matches", async () => {
+            const notesOnly = await search(OWNER_ID, "火星计划", "notes");
+            assert.equal(notesOnly.status, 200);
+            assert.equal(notesOnly.headers.get("x-search-scope"), "notes");
+            assert.deepEqual(notesOnly.json, []);
+
+            const fullSearch = await search(OWNER_ID, "火星计划", "all");
+            assert.equal(fullSearch.json[0]?.id, META_NOTE_ID);
+            assert.equal(fullSearch.json[0]?.matchReason, "attachment");
+          });
+
+          test("long tokenizer-safe misses do not trigger a full-body literal fallback", async () => {''',
+          )
+          PY
+
+      - name: Verify backend search regression
+        working-directory: backend
+        run: |
+          npm ci
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/search-index.test.ts tests/search-experience.test.ts
+          npm run build:tsc
+          npm run build
+
+      - name: Verify frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit hotfix to main
+        shell: bash
+        run: |
+          rm -f .github/workflows/search-input-hotfix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/api.ts backend/src/routes/search.ts backend/tests/search-experience.test.ts .github/workflows/search-input-hotfix.yml
+          git commit -m "fix(search): prevent progressive input blocking (#340)"
+          git push origin HEAD:main
