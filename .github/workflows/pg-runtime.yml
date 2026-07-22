@@ -51,7 +51,7 @@ permissions:
 jobs:
   runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -150,6 +150,9 @@ jobs:
           tests/postgres-migrations.test.ts
           tests/repository-batch-a-pg.test.ts
           tests/repository-batch-b-pg.test.ts
+          tests/repository-permissions-pg.test.ts
+          tests/repository-access-session-pg.test.ts
+          tests/api-token-resources-pg.test.ts
           tests/system-settings-repository-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
           tests/favorites-repository-pg.test.ts
@@ -164,7 +167,9 @@ jobs:
           test -f dist/postgres/schema.base.sql &&
           test -f dist/postgres/migrations/0001_migration_state.sql &&
           test -f dist/postgres/migrations/0002_api_tokens_parity.sql &&
-          test -f dist/postgres/migrations/0003_runtime_tables_parity.sql
+          test -f dist/postgres/migrations/0003_runtime_tables_parity.sql &&
+          test -f dist/postgres/migrations/0004_notebook_members_unique.sql &&
+          test -f dist/postgres/migrations/0005_api_token_resources.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
