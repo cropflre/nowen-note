@@ -299,6 +299,7 @@ function releaseRoom(noteId: string) {
       room.doc.destroy();
       rooms.delete(noteId);
     }, ROOM_IDLE_TIMEOUT_MS);
+      room.idleTimer.unref?.();
   }
 }
 
@@ -534,6 +535,9 @@ export function yReplaceContentAsUpdate(
     const ytext = room.doc.getText("content");
     const current = ytext.toString();
     if (current === markdown) {
+      // The caller has already persisted and versioned this canonical content.
+      // Mark it accounted for even when the Y.Text replacement is a no-op.
+      room.lastVersionBumpAt = Date.now();
       return null;
     }
 
