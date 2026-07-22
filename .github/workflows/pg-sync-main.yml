@@ -1,0 +1,113 @@
+name: Sync main into PostgreSQL migration branch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/sync-main-into-pg'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge latest main
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          echo "before=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          git merge --no-ff --no-edit -X ours origin/main
+          echo "after=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+
+      - name: SQLite direct-access audit
+        working-directory: backend
+        run: npm run audit:sqlite-boundaries
+
+      - name: PostgreSQL schema parity
+        working-directory: backend
+        run: npm run audit:pg-schema-parity
+
+      - name: SQL dialect tests
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts
+
+      - name: Full SQLite regression
+        working-directory: backend
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        run: npm run test:serial
+
+      - name: Real PostgreSQL regression
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-migrations.test.ts
+          tests/repository-batch-a-pg.test.ts
+          tests/repository-batch-b-pg.test.ts
+          tests/repository-permissions-pg.test.ts
+          tests/repository-access-session-pg.test.ts
+
+      - name: Production backend bundle
+        working-directory: backend
+        run: npm run build
+
+      - name: Push synchronized branch
+        run: git push origin HEAD:pg-migration-unified
+
+      - name: Publish success
+        if: success()
+        run: |
+          gh pr comment 372 --body "## ✅ main synchronized into pg-migration-unified\n\nBefore: \`${{ steps.merge.outputs.before }}\`\nMain: \`${{ steps.merge.outputs.main }}\`\nMerge head: \`${{ steps.merge.outputs.after }}\`\nRun: \`${{ github.run_id }}\`\n\nTypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, and production bundle all passed."
+
+      - name: Publish failure
+        if: failure()
+        run: |
+          gh pr comment 372 --body "## ❌ main synchronization failed\n\nThe merge or validation matrix failed. The branch was not pushed. Run: \`${{ github.run_id }}\`."
