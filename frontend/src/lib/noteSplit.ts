@@ -24,6 +24,7 @@ interface Boundary {
 
 function cleanTitle(raw: string, index: number): string {
   const title = raw
+    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/, "")
     .replace(/\s+#+\s*$/, "")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
