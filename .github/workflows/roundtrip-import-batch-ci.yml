@@ -1,0 +1,80 @@
+name: Round-trip Import Batch CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/roundtripImportBatchesMigration.ts"
+      - "backend/src/db/postgres/migrations/0054-roundtrip-import-batches.sql"
+      - "backend/src/routes/import-batches.ts"
+      - "backend/src/routes/settings.ts"
+      - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/roundTripImportBatches.ts"
+      - "backend/src/services/roundTripImportLinkUndo.ts"
+      - "backend/tests/roundtrip-import-batches.test.ts"
+      - "frontend/src/components/RoundTripImportBatchCenter.tsx"
+      - "frontend/src/lib/roundTripImportBatches.ts"
+      - "frontend/src/lib/roundTripImportReview.ts"
+      - "frontend/src/lib/__tests__/roundTripImportBatches.test.ts"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/roundtrip-import-batch-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/roundtripImportBatchesMigration.ts"
+      - "backend/src/db/postgres/migrations/0054-roundtrip-import-batches.sql"
+      - "backend/src/routes/import-batches.ts"
+      - "backend/src/routes/settings.ts"
+      - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/roundTripImportBatches.ts"
+      - "backend/src/services/roundTripImportLinkUndo.ts"
+      - "backend/tests/roundtrip-import-batches.test.ts"
+      - "frontend/src/components/RoundTripImportBatchCenter.tsx"
+      - "frontend/src/lib/roundTripImportBatches.ts"
+      - "frontend/src/lib/roundTripImportReview.ts"
+      - "frontend/src/lib/__tests__/roundTripImportBatches.test.ts"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/roundtrip-import-batch-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Import batch and undo tests
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/roundtrip-import-batches.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Import batch client tests
+        run: npm run test:run -- src/lib/__tests__/roundTripImportBatches.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b
