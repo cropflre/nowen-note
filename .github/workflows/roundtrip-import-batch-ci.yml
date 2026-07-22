@@ -55,10 +55,29 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - name: Prepare diagnostic directory
+        run: mkdir -p ../ci-logs
       - name: Import batch and undo tests
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/roundtrip-import-batches.test.ts
+        id: backend_tests
+        continue-on-error: true
+        run: set -o pipefail; node --import tsx --import ./tests/setup-db-isolation.ts --test tests/roundtrip-import-batches.test.ts 2>&1 | tee ../ci-logs/backend-tests.log
       - name: Backend typecheck
-        run: npm run build:tsc
+        id: backend_typecheck
+        continue-on-error: true
+        run: set -o pipefail; npm run build:tsc 2>&1 | tee ../ci-logs/backend-typecheck.log
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtrip-import-backend-logs
+          path: ci-logs/backend-*.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce backend results
+        if: always()
+        run: |
+          test "${{ steps.backend_tests.outcome }}" = "success"
+          test "${{ steps.backend_typecheck.outcome }}" = "success"
 
   frontend:
     runs-on: ubuntu-latest
@@ -74,7 +93,26 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Prepare diagnostic directory
+        run: mkdir -p ../ci-logs
       - name: Import batch client tests
-        run: npm run test:run -- src/lib/__tests__/roundTripImportBatches.test.ts
+        id: frontend_tests
+        continue-on-error: true
+        run: set -o pipefail; npm run test:run -- src/lib/__tests__/roundTripImportBatches.test.ts 2>&1 | tee ../ci-logs/frontend-tests.log
       - name: Frontend typecheck
-        run: npx tsc -b
+        id: frontend_typecheck
+        continue-on-error: true
+        run: set -o pipefail; npx tsc -b 2>&1 | tee ../ci-logs/frontend-typecheck.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtrip-import-frontend-logs
+          path: ci-logs/frontend-*.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce frontend results
+        if: always()
+        run: |
+          test "${{ steps.frontend_tests.outcome }}" = "success"
+          test "${{ steps.frontend_typecheck.outcome }}" = "success"
