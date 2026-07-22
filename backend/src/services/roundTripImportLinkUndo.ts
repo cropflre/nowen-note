@@ -12,14 +12,46 @@ import {
 const DATA_DIR = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
 const UNDO_ROOT = path.join(DATA_DIR, "import-undo");
 
-interface LinkSnapshot {
-  sourceInstanceId: string;
+type ResourceType = "notebook" | "note" | "attachment";
+
+interface ImportIdentitySnapshot {
+  packageKind: string | null;
+  sourceInstanceId: string | null;
   workspaceScope: string;
   beforeRows: Array<Record<string, unknown>>;
 }
 
-interface StoredLinkUndo extends LinkSnapshot {
+interface StoredLinkUndo {
+  sourceInstanceId: string;
+  workspaceScope: string;
+  beforeRows: Array<Record<string, unknown>>;
   afterHash: string;
+}
+
+interface MutableUndoState {
+  beforeScope?: {
+    notebooks?: string[];
+    notes?: string[];
+    attachments?: string[];
+    tags?: string[];
+  };
+  created?: {
+    notebookIds?: string[];
+    noteIds?: string[];
+    attachmentRows?: Array<Record<string, unknown>>;
+    tagIds?: string[];
+  };
+  updated?: {
+    notebooks?: Array<Record<string, unknown>>;
+    notes?: Array<{ row?: Record<string, unknown> }>;
+  };
+  afterHashes?: {
+    notebooks?: Record<string, string>;
+    notes?: Record<string, string>;
+    tags?: Record<string, string>;
+  };
+  sourceLinks?: StoredLinkUndo;
+  [key: string]: unknown;
 }
 
 function stableValue(value: unknown): unknown {
@@ -48,23 +80,131 @@ function removeUndoBackup(batchId: string): void {
   try { fs.rmSync(path.join(UNDO_ROOT, batchId), { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
+function stringSet(value: unknown): Set<string> {
+  return new Set(Array.isArray(value) ? value.map((item) => String(item || "")).filter(Boolean) : []);
+}
+
+function filterHashes(source: Record<string, string> | undefined, allowed: Set<string>): Record<string, string> {
+  if (!source) return {};
+  return Object.fromEntries(Object.entries(source).filter(([id]) => allowed.has(id)));
+}
+
+function mappedTargets(rows: Array<Record<string, unknown>>, resourceType: ResourceType): Set<string> {
+  return new Set(rows
+    .filter((row) => row.resourceType === resourceType)
+    .map((row) => String(row.targetResourceId || ""))
+    .filter(Boolean));
+}
+
+function attachmentRows(ids: Set<string>): Array<Record<string, unknown>> {
+  if (!ids.size) return [];
+  const values = [...ids];
+  return getDb().prepare(`SELECT * FROM attachments WHERE id IN (${values.map(() => "?").join(",")})`)
+    .all(...values) as Array<Record<string, unknown>>;
+}
+
+function descendantsFromCreatedRoots(rootIds: string[]): { notebookIds: Set<string>; noteIds: Set<string> } {
+  if (!rootIds.length) return { notebookIds: new Set(), noteIds: new Set() };
+  const descendants = getDb().prepare(`
+    WITH RECURSIVE tree(id) AS (
+      SELECT id FROM notebooks WHERE id IN (${rootIds.map(() => "?").join(",")})
+      UNION ALL
+      SELECT n.id FROM notebooks n JOIN tree t ON n.parentId = t.id
+    )
+    SELECT DISTINCT id FROM tree
+  `).all(...rootIds) as Array<{ id: string }>;
+  const notebookIds = new Set(descendants.map((row) => row.id));
+  if (!notebookIds.size) return { notebookIds, noteIds: new Set() };
+  const values = [...notebookIds];
+  const notes = getDb().prepare(`SELECT id FROM notes WHERE notebookId IN (${values.map(() => "?").join(",")})`)
+    .all(...values) as Array<{ id: string }>;
+  return { notebookIds, noteIds: new Set(notes.map((row) => row.id)) };
+}
+
+function refineUndoState(args: {
+  state: MutableUndoState;
+  result: Record<string, unknown>;
+  importMode: string;
+  packageKind: string | null;
+  afterLinks: Array<Record<string, unknown>>;
+}): { available: boolean; reason: string | null } {
+  const beforeNotebooks = stringSet(args.state.beforeScope?.notebooks);
+  const beforeNotes = stringSet(args.state.beforeScope?.notes);
+  const beforeAttachments = stringSet(args.state.beforeScope?.attachments);
+  const updatedNotebooks = stringSet(args.state.updated?.notebooks?.map((row) => row.id));
+  const updatedNotes = stringSet(args.state.updated?.notes?.map((item) => item.row?.id));
+
+  let createdNotebooks = new Set<string>();
+  let createdNotes = new Set<string>();
+  let createdAttachments = new Set<string>();
+
+  if (args.afterLinks.length) {
+    createdNotebooks = new Set([...mappedTargets(args.afterLinks, "notebook")].filter((id) => !beforeNotebooks.has(id)));
+    createdNotes = new Set([...mappedTargets(args.afterLinks, "note")].filter((id) => !beforeNotes.has(id)));
+    createdAttachments = new Set([...mappedTargets(args.afterLinks, "attachment")].filter((id) => !beforeAttachments.has(id)));
+  } else if (args.importMode !== "merge") {
+    const roots = Array.isArray(args.result.rootNotebookIds)
+      ? args.result.rootNotebookIds.map((value) => String(value || "")).filter(Boolean)
+      : args.result.rootNotebookId
+        ? [String(args.result.rootNotebookId)]
+        : [];
+    const createdRoots = roots.filter((id) => !beforeNotebooks.has(id));
+    const tree = descendantsFromCreatedRoots(createdRoots);
+    createdNotebooks = new Set([...tree.notebookIds].filter((id) => !beforeNotebooks.has(id)));
+    createdNotes = new Set([...tree.noteIds].filter((id) => !beforeNotes.has(id)));
+    if (createdNotes.size) {
+      const noteIds = [...createdNotes];
+      const rows = getDb().prepare(`SELECT id FROM attachments WHERE noteId IN (${noteIds.map(() => "?").join(",")})`)
+        .all(...noteIds) as Array<{ id: string }>;
+      createdAttachments = new Set(rows.map((row) => row.id).filter((id) => !beforeAttachments.has(id)));
+    }
+  } else {
+    return {
+      available: false,
+      reason: args.packageKind === "markdown"
+        ? "Markdown 合并导入没有稳定资源映射，无法保证只撤销本批次创建的内容"
+        : "数据包缺少稳定来源映射，无法安全识别合并导入创建的资源",
+    };
+  }
+
+  args.state.created = {
+    notebookIds: [...createdNotebooks],
+    noteIds: [...createdNotes],
+    attachmentRows: attachmentRows(createdAttachments),
+    // Tags have no package-stable target mapping. Leaving an unused imported tag is safer than
+    // accidentally deleting a concurrently-created local tag with the same scope diff.
+    tagIds: [],
+  };
+  const allowedNotebooks = new Set([...createdNotebooks, ...updatedNotebooks]);
+  const allowedNotes = new Set([...createdNotes, ...updatedNotes]);
+  args.state.afterHashes = {
+    notebooks: filterHashes(args.state.afterHashes?.notebooks, allowedNotebooks),
+    notes: filterHashes(args.state.afterHashes?.notes, allowedNotes),
+    tags: {},
+  };
+  return { available: true, reason: null };
+}
+
 export async function captureRoundTripImportLinkUndo(
   zipBuffer: Buffer,
   userId: string,
   workspaceId: string | null | undefined,
-): Promise<LinkSnapshot | null> {
+): Promise<ImportIdentitySnapshot | null> {
   try {
     const zip = await JSZip.loadAsync(zipBuffer);
     const entry = zip.file("manifest.json");
     if (!entry) return null;
     const manifest = JSON.parse(await entry.async("string")) as Record<string, unknown>;
-    const sourceInstanceId = String(manifest.sourceInstanceId || "").trim();
-    if (!sourceInstanceId || manifest.packageKind === "markdown") return null;
+    const sourceInstanceId = String(manifest.sourceInstanceId || "").trim() || null;
+    const packageKind = manifest.packageKind ? String(manifest.packageKind) : null;
     const scope = workspaceId || "personal";
     return {
+      packageKind,
       sourceInstanceId,
       workspaceScope: scope,
-      beforeRows: currentRows(userId, scope, sourceInstanceId),
+      beforeRows: sourceInstanceId && packageKind !== "markdown"
+        ? currentRows(userId, scope, sourceInstanceId)
+        : [],
     };
   } catch {
     return null;
@@ -74,32 +214,66 @@ export async function captureRoundTripImportLinkUndo(
 export function attachRoundTripImportLinkUndo(
   userId: string,
   batchId: string,
-  snapshot: LinkSnapshot | null,
+  snapshot: ImportIdentitySnapshot | null,
 ): { available: boolean; reason: string | null } {
-  if (!snapshot) return { available: true, reason: null };
   try {
     const batch = getDb().prepare(`
-      SELECT undoStateJson, undoAvailable FROM roundtrip_import_batches
+      SELECT undoStateJson, undoAvailable, resultJson, importMode, packageKind
+        FROM roundtrip_import_batches
        WHERE id = ? AND userId = ?
-    `).get(batchId, userId) as { undoStateJson: string; undoAvailable: number } | undefined;
+    `).get(batchId, userId) as {
+      undoStateJson: string;
+      undoAvailable: number;
+      resultJson: string;
+      importMode: string;
+      packageKind: string | null;
+    } | undefined;
     if (!batch) {
       removeUndoBackup(batchId);
-      return { available: false, reason: "导入批次不存在，无法记录来源映射撤销点" };
+      return { available: false, reason: "导入批次不存在，无法记录撤销点" };
     }
-    const state = JSON.parse(batch.undoStateJson || "{}") as Record<string, unknown>;
-    const stored: StoredLinkUndo = {
-      ...snapshot,
-      afterHash: hashRows(currentRows(userId, snapshot.workspaceScope, snapshot.sourceInstanceId)),
-    };
-    state.sourceLinks = stored;
+    if (!batch.undoAvailable) return { available: false, reason: null };
+
+    const state = JSON.parse(batch.undoStateJson || "{}") as MutableUndoState;
+    const result = JSON.parse(batch.resultJson || "{}") as Record<string, unknown>;
+    const sourceInstanceId = snapshot?.sourceInstanceId || null;
+    const packageKind = snapshot?.packageKind || batch.packageKind;
+    const afterLinks = sourceInstanceId && packageKind !== "markdown"
+      ? currentRows(userId, snapshot?.workspaceScope || "personal", sourceInstanceId)
+      : [];
+    const refined = refineUndoState({
+      state,
+      result,
+      importMode: batch.importMode,
+      packageKind,
+      afterLinks,
+    });
+    if (!refined.available) {
+      getDb().prepare(`
+        UPDATE roundtrip_import_batches
+           SET undoAvailable = 0, undoUnavailableReason = ?, undoStateJson = ?
+         WHERE id = ? AND userId = ?
+      `).run(refined.reason, JSON.stringify(state), batchId, userId);
+      removeUndoBackup(batchId);
+      return refined;
+    }
+
+    if (sourceInstanceId && snapshot && packageKind !== "markdown") {
+      state.sourceLinks = {
+        sourceInstanceId,
+        workspaceScope: snapshot.workspaceScope,
+        beforeRows: snapshot.beforeRows,
+        afterHash: hashRows(afterLinks),
+      };
+    }
     getDb().prepare(`
       UPDATE roundtrip_import_batches
          SET undoStateJson = ?
        WHERE id = ? AND userId = ?
     `).run(JSON.stringify(state), batchId, userId);
-    return { available: batch.undoAvailable === 1, reason: null };
+    return { available: true, reason: null };
   } catch (error) {
-    const reason = `来源映射撤销点记录失败：${error instanceof Error ? error.message : String(error)}`;
+    const reason = `撤销点归属记录失败：${error instanceof Error ? error.message : String(error)}`;
     getDb().prepare(`
       UPDATE roundtrip_import_batches
          SET undoAvailable = 0, undoUnavailableReason = ?
