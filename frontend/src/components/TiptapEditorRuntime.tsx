@@ -38,9 +38,12 @@ type RuntimeTiptapEditorProps = NoteEditorProps & {
   presentationMode?: boolean;
 };
 
+type AppActions = ReturnType<typeof useAppActions>;
+
 type InflightPatch = {
   operationId: string;
   lifecycle: number;
+  actions: AppActions;
 };
 
 function readBlockPatchOverride(): string | null {
@@ -49,6 +52,25 @@ function readBlockPatchOverride(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Public/share routes render the same aliased editor without AppProvider. Keep the context hook in a
+ * child which is mounted only when authenticated Block Patch persistence is actually enabled.
+ */
+function BlockPatchAppActionsBridge({
+  target,
+}: {
+  target: React.MutableRefObject<AppActions | null>;
+}) {
+  const actions = useAppActions();
+  useEffect(() => {
+    target.current = actions;
+    return () => {
+      if (target.current === actions) target.current = null;
+    };
+  }, [actions, target]);
+  return null;
 }
 
 /**
@@ -64,8 +86,8 @@ function readBlockPatchOverride(): string | null {
  */
 const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProps>(
   function TiptapEditorRuntime(props, ref) {
-    const actions = useAppActions();
     const baseRef = useRef<NoteEditorHandle | null>(null);
+    const appActionsRef = useRef<AppActions | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
     const lifecycleRef = useRef(0);
@@ -176,8 +198,8 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
         version: result.version,
         updatedAt: result.updatedAt,
       };
-      actions.setActiveNote(updated);
-      actions.updateNoteInList({
+      inflight.actions.setActiveNote(updated);
+      inflight.actions.updateNoteInList({
         id: updated.id,
         title: updated.title,
         contentText: updated.contentText,
@@ -186,7 +208,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
         notebookId: updated.notebookId,
         workspaceId: updated.workspaceId,
       } as any);
-      actions.updateNoteTab({
+      inflight.actions.updateNoteTab({
         id: updated.id,
         title: updated.title,
         updatedAt: updated.updatedAt,
@@ -195,12 +217,12 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
         isTrashed: updated.isTrashed,
         notebookId: updated.notebookId,
       });
-      actions.setSyncStatus("saved");
-      actions.setLastSynced(new Date().toISOString());
+      inflight.actions.setSyncStatus("saved");
+      inflight.actions.setLastSynced(new Date().toISOString());
       if (!preserveLocalEditor && !queuedPayloadRef.current) {
         try { clearDraft(note.id); } catch { /* ignore */ }
       }
-    }, [actions]);
+    }, []);
 
     const processPayload = useCallback((payload: NoteEditorUpdatePayload) => {
       const currentProps = propsRef.current;
@@ -214,8 +236,10 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
         return;
       }
 
+      const actions = appActionsRef.current;
       if (
         !blockPatchEnabledRef.current
+        || !actions
         || typeof payload.content !== "string"
         || note.contentFormat !== "tiptap-json"
         || payload.title !== note.title
@@ -234,6 +258,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       const inflight: InflightPatch = {
         operationId: createBlockPatchOperationId(),
         lifecycle,
+        actions,
       };
       inflightRef.current = inflight;
       persistDraft(payload, note);
@@ -285,14 +310,14 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
           // draft. A blind whole-document write here could overwrite a patch that committed before
           // the response was lost, or overwrite a newer remote version.
           persistDraft(latest, propsRef.current.note);
-          actions.setSyncStatus("error");
+          inflight.actions.setSyncStatus("error");
           const detail = error instanceof BlockPatchRequestError
             ? { code: error.code, status: error.status, currentVersion: error.currentVersion }
             : undefined;
           console.warn("[tiptap-block-patch] confirmed save unavailable; draft preserved", detail || error);
         }
       })();
-    }, [actions, applyConfirmedResult, forwardWholeSave, persistDraft]);
+    }, [applyConfirmedResult, forwardWholeSave, persistDraft]);
     processPayloadRef.current = processPayload;
 
     useEffect(() => {
@@ -309,12 +334,15 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     }, []);
 
     return (
-      <BaseTiptapEditor
-        {...props}
-        ref={baseRef}
-        onUpdate={handleUpdate}
-        onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
-      />
+      <>
+        {blockPatchEnabled && <BlockPatchAppActionsBridge target={appActionsRef} />}
+        <BaseTiptapEditor
+          {...props}
+          ref={baseRef}
+          onUpdate={handleUpdate}
+          onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
+        />
+      </>
     );
   },
 );
