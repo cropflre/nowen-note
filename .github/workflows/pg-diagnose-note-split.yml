@@ -1,18 +1,17 @@
-name: Finalize PG image hosting settings
+name: Validate PG image hosting batch
 
 on:
   issue_comment:
     types: [created]
 
 permissions:
-  contents: write
   issues: write
 
 jobs:
-  migrate:
-    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/finalize-pg-image-hosting-settings'
+  validate:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/validate-pg-image-hosting-batch'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
 
     services:
       postgres:
@@ -32,7 +31,7 @@ jobs:
     env:
       TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
       DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
-      IMAGE_HOSTING_ENCRYPTION_KEY: pg-image-hosting-test-key-2026
+      IMAGE_HOSTING_ENCRYPTION_KEY: pg-image-hosting-validation-key-2026
       GH_TOKEN: ${{ github.token }}
       STATUS_COMMENT_ID: "5042929483"
 
@@ -42,197 +41,18 @@ jobs:
           ref: pg-migration-unified
           fetch-depth: 0
 
-      - name: Transform service and add tests
-        id: transform
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-          service_path = Path('backend/src/services/image-hosting.ts')
-          service = service_path.read_text()
-          replacements = [
-            (
-              'function readPersistedConfig(): (ImageHostingConfig & { updatedAt: string | null }) | null {',
-              'async function readPersistedConfigAsync(): Promise<(ImageHostingConfig & { updatedAt: string | null }) | null> {',
-            ),
-            (
-              'const row = systemSettingsRepository.get(SETTING_KEY);',
-              'const row = await systemSettingsRepository.getAsync(SETTING_KEY);',
-            ),
-            (
-              'export function readImageHostingConfigPublic(): ImageHostingConfigPublic {',
-              'export async function readImageHostingConfigPublic(): Promise<ImageHostingConfigPublic> {',
-            ),
-            (
-              'export function writeImageHostingConfig(input: WriteImageHostingConfigInput): ImageHostingConfigPublic {',
-              'export async function writeImageHostingConfig(input: WriteImageHostingConfigInput): Promise<ImageHostingConfigPublic> {',
-            ),
-            (
-              'export function deleteImageHostingConfig(): ImageHostingConfigPublic {',
-              'export async function deleteImageHostingConfig(): Promise<ImageHostingConfigPublic> {',
-            ),
-            (
-              'systemSettingsRepository.set(SETTING_KEY, JSON.stringify(config));',
-              'await systemSettingsRepository.setAsync(SETTING_KEY, JSON.stringify(config));',
-            ),
-            (
-              'systemSettingsRepository.delete(SETTING_KEY);',
-              'await systemSettingsRepository.deleteAsync(SETTING_KEY);',
-            ),
-            (
-              'export function isImageHostingEnabled(): boolean {',
-              'export async function isImageHostingEnabled(): Promise<boolean> {',
-            ),
-          ]
-          for old, new in replacements:
-              if old in service:
-                  service = service.replace(old, new, 1)
-              elif new not in service:
-                  raise SystemExit(f'missing image-hosting anchor: {old}')
-
-          service = service.replace(
-              'const cfg = readPersistedConfig();',
-              'const cfg = await readPersistedConfigAsync();',
-          )
-          service = service.replace(
-              'const existing = readPersistedConfig();',
-              'const existing = await readPersistedConfigAsync();',
-          )
-          service = service.replace(
-              'return readImageHostingConfigPublic();',
-              'return await readImageHostingConfigPublic();',
-          )
-
-          forbidden = [
-              'readPersistedConfig()',
-              'systemSettingsRepository.get(',
-              'systemSettingsRepository.set(',
-              'systemSettingsRepository.delete(',
-          ]
-          remaining = [item for item in forbidden if item in service]
-          if remaining:
-              raise SystemExit(f'sync image-hosting persistence remains: {remaining}')
-          service_path.write_text(service)
-
-          test_source = '''import assert from "node:assert/strict";
-          import test from "node:test";
-
-          const databaseUrl = process.env.TEST_PG_DATABASE_URL;
-          const skip = !databaseUrl;
-
-          test("PG image hosting settings use the runtime repository", { skip }, async () => {
-            const { Pool } = await import("pg");
-            const pool = new Pool({ connectionString: databaseUrl });
-            const runtime = await import("../src/db/runtime");
-            const keys = ["imageHosting:config", "imageHosting:fallbackToLocal"];
-
-            process.env.IMAGE_HOSTING_ENCRYPTION_KEY = "pg-image-hosting-test-key-2026";
-            await runtime.resetDatabaseRuntimeForTests();
-            await runtime.initializeDatabase({
-              env: { ...process.env, DB_DRIVER: "postgres", DATABASE_URL: databaseUrl },
-              dependencies: {
-                createPostgresPool: () => pool,
-                logger: { log: () => undefined, warn: () => undefined },
-              },
-            });
-
-            const { runPostgresMigrations } = await import("../src/db/postgres/migrations");
-            await runPostgresMigrations();
-            await pool.query('DELETE FROM system_settings WHERE key = ANY($1::text[])', [keys]);
-
-            try {
-              const hosting = await import("../src/services/image-hosting");
-              const policy = await import("../src/services/image-hosting-policy");
-
-              assert.equal(await policy.readImageHostingFallbackToLocal(), true);
-              assert.equal(await policy.writeImageHostingFallbackToLocal(false), false);
-              assert.equal(await policy.readImageHostingFallbackToLocal(), false);
-
-              const first = await hosting.writeImageHostingConfig({
-                enabled: true,
-                endpoint: "https://s3.example.test/",
-                region: "auto",
-                bucket: "images",
-                accessKeyId: "access-key",
-                secretAccessKey: "secret-key",
-                publicBaseUrl: "https://cdn.example.test/",
-                pathPrefix: "/uploads/",
-                usePathStyle: true,
-                maxFileSizeMb: 12,
-                allowedTypes: ["image/png"],
-              });
-              assert.equal(first.endpoint, "https://s3.example.test");
-              assert.equal(first.publicBaseUrl, "https://cdn.example.test");
-              assert.equal(first.pathPrefix, "uploads");
-              assert.equal(first.secretAccessKeySet, true);
-              assert.equal(await hosting.isImageHostingEnabled(), true);
-
-              const raw = await pool.query(
-                'SELECT value FROM system_settings WHERE key = $1',
-                ["imageHosting:config"],
-              );
-              const stored = JSON.parse(raw.rows[0].value);
-              assert.match(stored.secretAccessKeyEnc, /^v1:/);
-              assert.doesNotMatch(raw.rows[0].value, /secret-key/);
-
-              const updated = await hosting.writeImageHostingConfig({
-                enabled: true,
-                endpoint: "https://s3.example.test",
-                bucket: "images-v2",
-                accessKeyId: "access-key",
-                publicBaseUrl: "https://cdn.example.test",
-              });
-              assert.equal(updated.bucket, "images-v2");
-              assert.equal(updated.secretAccessKeySet, true);
-
-              const deleted = await hosting.deleteImageHostingConfig();
-              assert.equal(deleted.enabled, false);
-              assert.equal(deleted.secretAccessKeySet, false);
-              assert.equal(await hosting.isImageHostingEnabled(), false);
-
-              await policy.deleteImageHostingFallbackPolicy();
-              assert.equal(await policy.readImageHostingFallbackToLocal(), true);
-            } finally {
-              await pool.query('DELETE FROM system_settings WHERE key = ANY($1::text[])', [keys]);
-              await runtime.resetDatabaseRuntimeForTests();
-            }
-          });
-          '''
-          Path('backend/tests/image-hosting-settings-pg.test.ts').write_text(test_source)
-
-          workflow_path = Path('.github/workflows/pg-runtime.yml')
-          workflow = workflow_path.read_text()
-          test_line = '          tests/image-hosting-settings-pg.test.ts\n'
-          if test_line not in workflow:
-              anchor = '          tests/system-settings-repository-pg.test.ts\n'
-              if anchor not in workflow:
-                  raise SystemExit('pg-runtime image hosting test anchor missing')
-              workflow = workflow.replace(anchor, anchor + test_line, 1)
-
-          migration_line = '          test -f dist/postgres/migrations/0008_note_split_tables.sql\n'
-          if migration_line not in workflow:
-              anchor = '          test -f dist/postgres/migrations/0007_note_import_origins.sql\n'
-              if anchor not in workflow:
-                  raise SystemExit('pg-runtime 0008 packaging anchor missing')
-              workflow = workflow.replace(
-                  anchor,
-                  '          test -f dist/postgres/migrations/0007_note_import_origins.sql &&\n' + migration_line,
-                  1,
-              )
-          workflow_path.write_text(workflow)
-          PY
-
-      - name: Install dependencies
+      - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
 
-      - name: Validate migration
-        id: validate
-        continue-on-error: true
+      - name: TypeScript, audits and dialect tests
         working-directory: backend
-        shell: bash
         run: |
           set -o pipefail
           {
@@ -242,49 +62,78 @@ jobs:
             npm run audit:sqlite-boundaries
             echo '=== PostgreSQL schema parity ==='
             npm run audit:pg-schema-parity
-            echo '=== Real PostgreSQL image hosting test ==='
-            node --import tsx --test --test-concurrency=1 tests/image-hosting-settings-pg.test.ts
-          } 2>&1 | tee /tmp/image-hosting-migration.log
+            echo '=== SQL dialect ==='
+            node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts
+          } 2>&1 | tee /tmp/pg-image-hosting-validation.log
 
-      - name: Commit migration
-        id: commit
-        if: steps.validate.outcome == 'success'
+      - name: Full SQLite regression
+        working-directory: backend
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            backend/src/services/image-hosting.ts \
-            backend/tests/image-hosting-settings-pg.test.ts \
-            .github/workflows/pg-runtime.yml
-          git commit -m "refactor(pg): finalize image hosting runtime settings"
-          git push origin HEAD:pg-migration-unified
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          set -o pipefail
+          npm run test:serial 2>&1 | tee -a /tmp/pg-image-hosting-validation.log
 
-      - name: Publish result
-        if: always()
-        shell: bash
+      - name: Real PostgreSQL regression
+        working-directory: backend
         run: |
-          if [ "${{ steps.validate.outcome }}" = "success" ]; then
-            {
-              echo '## ✅ image hosting settings migrated to Runtime Provider'
-              echo
-              echo "Commit: \`${{ steps.commit.outputs.sha }}\`"
-              echo
-              echo 'TypeScript, SQLite boundary audit, schema parity and the real PostgreSQL image hosting test passed.'
-            } > /tmp/status.md
-          else
-            {
-              echo '## ❌ image hosting Runtime migration validation failed'
-              echo
-              echo "Run: \`${{ github.run_id }}\`"
-              echo
-              echo '```text'
-              tail -n 260 /tmp/image-hosting-migration.log
-              echo '```'
-            } > /tmp/status.md
-          fi
+          set -o pipefail
+          node --import tsx --test --test-concurrency=1 \
+            tests/postgres-adapter.test.ts \
+            tests/postgres-migrations.test.ts \
+            tests/repository-batch-a-pg.test.ts \
+            tests/repository-batch-b-pg.test.ts \
+            tests/repository-permissions-pg.test.ts \
+            tests/repository-access-session-pg.test.ts \
+            tests/api-token-resources-pg.test.ts \
+            tests/system-settings-repository-pg.test.ts \
+            tests/image-hosting-settings-pg.test.ts \
+            tests/custom-fonts-repository-pg.test.ts \
+            tests/favorites-repository-pg.test.ts \
+            tests/note-tags-repository-pg.test.ts 2>&1 | tee -a /tmp/pg-image-hosting-validation.log
+
+      - name: Production bundle and migration packaging
+        working-directory: backend
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee -a /tmp/pg-image-hosting-validation.log
+          test -f dist/postgres/schema.sql
+          test -f dist/postgres/schema.base.sql
+          for migration in \
+            0001_migration_state.sql \
+            0002_api_tokens_parity.sql \
+            0003_runtime_tables_parity.sql \
+            0004_notebook_members_unique.sql \
+            0005_api_token_resources.sql \
+            0006_share_capabilities.sql \
+            0007_note_import_origins.sql \
+            0008_note_split_tables.sql; do
+            test -f "dist/postgres/migrations/$migration"
+          done
+
+      - name: Publish success
+        if: success()
+        run: |
+          sha=$(git rev-parse HEAD)
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="## ✅ PostgreSQL image hosting batch validated
+
+Head: \`${sha}\`
+Run: \`${{ github.run_id }}\`
+
+TypeScript, SQLite boundary audit, PostgreSQL schema parity, SQL dialect tests, full SQLite regression, real PostgreSQL regression including image hosting settings, production bundle, and migrations 0001–0008 packaging all passed."
+
+      - name: Publish failure
+        if: failure()
+        run: |
+          {
+            echo '## ❌ PostgreSQL image hosting batch validation failed'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 360 /tmp/pg-image-hosting-validation.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
-
-      - name: Preserve validation failure
-        if: steps.validate.outcome == 'failure'
-        run: exit 1
