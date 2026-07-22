@@ -9,14 +9,15 @@ import {
   findPreferredMarkdownSplitLevel,
   type NoteSplitHeadingLevel,
 } from "@/lib/noteSplit";
+import { findPreferredTiptapSplitLevel } from "@/lib/tiptapNoteSplit";
 import type { Note } from "@/types";
 
 /**
- * Runtime shell for the first P2 document-splitting workflow.
+ * Runtime shell for document splitting.
  *
- * The original EditorPane remains untouched. This shell scans a Markdown note once when it opens,
- * exposes a compact split action when two peer headings exist, and owns the transactional preview
- * dialog. The server re-reads and version-checks the note before applying any mutation.
+ * The original EditorPane remains untouched. This shell scans a Markdown or Tiptap note once when
+ * it opens, exposes a compact split action when two peer headings exist, and owns the transactional
+ * preview dialog. The server re-reads and version-checks the note before applying any mutation.
  */
 export default function EditorPaneRuntime() {
   const { state } = useApp();
@@ -27,11 +28,17 @@ export default function EditorPaneRuntime() {
 
   useEffect(() => {
     setDialogOpen(false);
-    if (!activeNote || activeNote.contentFormat !== "markdown") {
+    if (!activeNote) {
       setPreferredLevel(null);
       return;
     }
-    setPreferredLevel(findPreferredMarkdownSplitLevel(activeNote.content || ""));
+    if (activeNote.contentFormat === "markdown") {
+      setPreferredLevel(findPreferredMarkdownSplitLevel(activeNote.content || ""));
+    } else if (activeNote.contentFormat === "tiptap-json") {
+      setPreferredLevel(findPreferredTiptapSplitLevel(activeNote.content || ""));
+    } else {
+      setPreferredLevel(null);
+    }
     // Deliberately scan only when a note is opened. Re-running a full heading scan after every
     // debounced save would undermine the large-document performance work this feature builds on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -61,10 +68,12 @@ export default function EditorPaneRuntime() {
     actions.refreshNotebooks();
   };
 
+  const supportedFormat = activeNote?.contentFormat === "markdown"
+    || activeNote?.contentFormat === "tiptap-json";
   const canSplit = !!(
     activeNote
     && preferredLevel
-    && activeNote.contentFormat === "markdown"
+    && supportedFormat
     && !activeNote.isLocked
     && !activeNote.isTrashed
     && canWriteNote(activeNote)
