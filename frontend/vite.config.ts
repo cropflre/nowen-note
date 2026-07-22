@@ -32,6 +32,16 @@ export default defineConfig({
         find: /^@\/components\/AISettingsPanel$/,
         replacement: path.resolve(__dirname, "./src/components/AISettingsReliabilityShell.tsx"),
       },
+      // Issue #369：保留原 schema / serializer，仅替换高成本媒体 NodeView 与 Mermaid 渲染壳。
+      // Runtime 壳内部使用相对路径导入原组件，避免精确别名递归。
+      {
+        find: /^@\/components\/VideoExtension$/,
+        replacement: path.resolve(__dirname, "./src/components/VideoExtensionRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/MermaidView$/,
+        replacement: path.resolve(__dirname, "./src/components/MermaidViewRuntime.tsx"),
+      },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
   },
