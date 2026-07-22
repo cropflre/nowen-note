@@ -7,11 +7,15 @@ import {
   FileArchive,
   FileText,
   FolderInput,
+  FolderPlus,
   FolderTree,
   Hash,
   Loader2,
   PackageCheck,
   Paperclip,
+  PencilLine,
+  RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Tags,
   X,
@@ -19,6 +23,7 @@ import {
 import {
   resolveRoundTripImportReview,
   subscribeRoundTripImportReviews,
+  type RoundTripImportConflictAction,
   type RoundTripImportReviewRequest,
   type RoundTripImportStrategy,
   type RoundTripPackagePreview,
@@ -51,6 +56,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
   const [loadingStrategy, setLoadingStrategy] = useState<RoundTripImportStrategy | null>(null);
   const [loadError, setLoadError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
   const preview = previews[strategy] || request.preview;
   const pkg = preview.package || {};
   const counts = pkg.counts || preview.counts || {};
@@ -60,14 +66,17 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
   const warnings = preview.warnings || [];
   const errors = [...(preview.errors || []), ...(loadError ? [loadError] : [])];
   const canChooseStrategy = typeof request.loadPreview === "function";
+  const syncAvailability = request.preview.package?.sync;
+  const syncEnabled = syncAvailability?.available === true;
 
   const copy = zh ? {
     title: "导入预检报告",
-    subtitle: "选择冲突处理方式，并核对目录、附件和重名结果",
+    subtitle: "选择导入方式，并核对目录、附件和冲突处理结果",
     packageFile: "数据包",
     target: "导入目标",
     exportedAt: "导出时间",
     protocol: "协议",
+    sourceInstance: "来源实例",
     notebooks: "目录",
     notes: "笔记",
     tags: "标签",
@@ -76,32 +85,51 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     markdown: "Markdown",
     richText: "富文本",
     html: "HTML",
-    strategyTitle: "遇到同名目录时",
+    strategyTitle: "选择导入方式",
     copyTitle: "创建独立副本",
     copyBadge: "推荐",
     copyDesc: "不接触已有内容；冲突根目录自动命名为“名称 (2)”。",
     mergeTitle: "合并到现有目录",
-    mergeDesc: "按同级同名目录逐层合并；现有笔记不会覆盖，同名笔记增加编号。",
-    planTitle: strategy === "merge" ? "合并与重命名计划" : "目录重命名计划",
+    mergeDesc: "按同级同名目录逐层合并；已有笔记不覆盖，同名笔记增加编号。",
+    syncTitle: "安全增量同步",
+    syncDesc: "根据首次导入留下的稳定来源映射，只更新来源有变化且本地未修改的内容。",
+    syncUnavailable: syncAvailability?.reason || "当前数据包或目标空间尚不满足同步条件",
+    linkedResources: "已关联资源",
+    planTitle: strategy === "sync" ? "增量同步计划" : strategy === "merge" ? "合并与重命名计划" : "目录重命名计划",
     copyPlanDesc: "只重命名冲突树的最高层目录，内部结构和名称保持不变。",
     mergePlanDesc: "同名目录会复用；导入的同名笔记改为“名称 (2)”，不会覆盖正文。",
-    noPlan: strategy === "merge" ? "没有需要合并或重命名的内容。" : "目标中未发现同名根目录。",
+    syncPlanDesc: "来源和本地同时变化时保留本地版本；来源包中缺少的目录和笔记不会从本地删除。",
+    noPlan: strategy === "sync" ? "没有需要新增、更新或处理冲突的资源。" : strategy === "merge" ? "没有需要合并或重命名的内容。" : "目标中未发现同名根目录。",
     mergeDirectory: "复用目录",
     renameRoot: "根目录改名",
     renameNote: "笔记改名",
+    syncCreateDirectory: "新增目录",
+    syncUpdateDirectory: "更新目录",
+    syncCreateNote: "新增笔记",
+    syncUpdateNote: "更新笔记",
+    syncLocalConflict: "保留本地",
+    syncReplaceAttachment: "替换附件",
     actionSummary: "执行摘要",
     createdDirectories: "新建目录",
     mergedDirectories: "复用目录",
     renamedNotes: "改名笔记",
+    createdNotes: "新增笔记",
+    updatedDirectories: "更新目录",
+    updatedNotes: "更新笔记",
+    unchangedNotes: "无需变更",
+    localConflicts: "本地冲突",
+    recreatedResources: "重建资源",
     warningsTitle: "需要检查",
     noWarnings: "未发现附件缺失、校验失败或结构异常。",
     safetyTitle: "本次导入的安全策略",
     copySafety: "创建独立副本，不覆盖或静默合并已有目录和笔记。",
     mergeSafety: "仅复用同级同名目录；所有导入笔记仍会创建为新笔记。",
-    safetyB: "附件会生成新的 ID，并重写正文中的附件地址。",
-    safetyC: "任一步骤失败都会回滚数据库并清理已写入文件。",
+    syncSafety: "只有稳定来源映射、来源已变化且目标未被本地修改的资源才会更新。",
+    safetyB: strategy === "sync" ? "本地和来源同时变化时保留本地版本，并在报告中标为冲突。" : "附件会生成新的 ID，并重写正文中的附件地址。",
+    safetyC: strategy === "sync" ? "同步不会删除目标中已有但本次数据包未包含的目录或笔记。" : "任一步骤失败都会回滚数据库并清理已写入文件。",
+    safetyD: "任一步骤失败都会回滚数据库并清理已写入文件。",
     cancel: "取消导入",
-    confirm: strategy === "merge" ? "确认合并导入" : "确认创建副本",
+    confirm: strategy === "sync" ? "确认安全同步" : strategy === "merge" ? "确认合并导入" : "确认创建副本",
     currentSpace: "当前导入空间",
     packageKindMarkdown: "Markdown 往返包",
     packageKindNowen: "Nowen 无损包",
@@ -109,11 +137,12 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     loadFailed: "无法生成该策略的预检结果",
   } : {
     title: "Import preflight report",
-    subtitle: "Choose a conflict policy and review the tree, attachments and rename plan",
+    subtitle: "Choose an import mode and review the tree, attachments and conflict plan",
     packageFile: "Package",
     target: "Target",
     exportedAt: "Exported",
     protocol: "Protocol",
+    sourceInstance: "Source instance",
     notebooks: "Folders",
     notes: "Notes",
     tags: "Tags",
@@ -122,32 +151,51 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     markdown: "Markdown",
     richText: "Rich text",
     html: "HTML",
-    strategyTitle: "When matching folders exist",
+    strategyTitle: "Import mode",
     copyTitle: "Create an independent copy",
     copyBadge: "Recommended",
     copyDesc: "Leaves existing content untouched and renames a conflicting root to “Name (2)”.",
     mergeTitle: "Merge into existing folders",
-    mergeDesc: "Reuses exact sibling folder names. Existing notes are never overwritten; duplicates are numbered.",
-    planTitle: strategy === "merge" ? "Merge and rename plan" : "Folder rename plan",
+    mergeDesc: "Reuses exact sibling folders. Existing notes are never overwritten; duplicates are numbered.",
+    syncTitle: "Safe incremental sync",
+    syncDesc: "Uses stable mappings from the first import and only updates changed source resources without local edits.",
+    syncUnavailable: syncAvailability?.reason || "This package or target does not meet sync requirements",
+    linkedResources: "Linked resources",
+    planTitle: strategy === "sync" ? "Incremental sync plan" : strategy === "merge" ? "Merge and rename plan" : "Folder rename plan",
     copyPlanDesc: "Only the highest conflicting root is renamed; its subtree remains unchanged.",
     mergePlanDesc: "Matching folders are reused and duplicate imported notes become “Name (2)”.",
-    noPlan: strategy === "merge" ? "Nothing needs to be merged or renamed." : "No conflicting root folders were found.",
+    syncPlanDesc: "Local edits win when both sides changed. Missing source items are not deleted from the target.",
+    noPlan: strategy === "sync" ? "No resources need to be created, updated or resolved." : strategy === "merge" ? "Nothing needs to be merged or renamed." : "No conflicting root folders were found.",
     mergeDirectory: "Reuse folder",
     renameRoot: "Rename root",
     renameNote: "Rename note",
+    syncCreateDirectory: "Create folder",
+    syncUpdateDirectory: "Update folder",
+    syncCreateNote: "Create note",
+    syncUpdateNote: "Update note",
+    syncLocalConflict: "Keep local",
+    syncReplaceAttachment: "Replace attachment",
     actionSummary: "Action summary",
     createdDirectories: "New folders",
     mergedDirectories: "Reused folders",
     renamedNotes: "Renamed notes",
+    createdNotes: "New notes",
+    updatedDirectories: "Updated folders",
+    updatedNotes: "Updated notes",
+    unchangedNotes: "Unchanged",
+    localConflicts: "Local conflicts",
+    recreatedResources: "Recreated",
     warningsTitle: "Needs attention",
     noWarnings: "No missing attachments, checksum failures or structural errors were found.",
     safetyTitle: "Import safety policy",
     copySafety: "Creates an independent copy without overwriting or silently merging existing content.",
     mergeSafety: "Only exact sibling folders are reused; every imported note is still created as a new note.",
-    safetyB: "Attachments receive new IDs and content references are rewritten.",
-    safetyC: "Any failure rolls back the database and removes files already written.",
+    syncSafety: "Only stable mapped resources changed at the source and untouched locally are updated.",
+    safetyB: strategy === "sync" ? "When source and local content both changed, the local version is preserved and reported." : "Attachments receive new IDs and content references are rewritten.",
+    safetyC: strategy === "sync" ? "Sync never deletes target folders or notes missing from this package." : "Any failure rolls back the database and removes files already written.",
+    safetyD: "Any failure rolls back the database and removes files already written.",
     cancel: "Cancel import",
-    confirm: strategy === "merge" ? "Confirm merge import" : "Confirm independent copy",
+    confirm: strategy === "sync" ? "Confirm safe sync" : strategy === "merge" ? "Confirm merge import" : "Confirm independent copy",
     currentSpace: "Current import space",
     packageKindMarkdown: "Markdown round-trip package",
     packageKindNowen: "Nowen lossless package",
@@ -168,6 +216,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
   }, [loadingStrategy, request.id, submitting]);
 
   const chooseStrategy = async (next: RoundTripImportStrategy) => {
+    if (next === "sync" && !syncEnabled) return;
     if (next === strategy || submitting || loadingStrategy) return;
     setStrategy(next);
     setLoadError("");
@@ -192,9 +241,15 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     );
   };
 
-  const actionLabel = (action?: string): string => {
+  const actionLabel = (action?: RoundTripImportConflictAction): string => {
     if (action === "merge-directory") return copy.mergeDirectory;
     if (action === "rename-note") return copy.renameNote;
+    if (action === "sync-create-directory") return copy.syncCreateDirectory;
+    if (action === "sync-update-directory") return copy.syncUpdateDirectory;
+    if (action === "sync-create-note") return copy.syncCreateNote;
+    if (action === "sync-update-note") return copy.syncUpdateNote;
+    if (action === "sync-local-conflict") return copy.syncLocalConflict;
+    if (action === "sync-replace-attachment") return copy.syncReplaceAttachment;
     return copy.renameRoot;
   };
 
@@ -205,9 +260,15 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     { label: copy.attachments, value: count(counts.attachments), icon: Paperclip },
   ];
 
+  const strategyClass = strategy === "sync"
+    ? "bg-blue-600 hover:bg-blue-700"
+    : strategy === "merge"
+      ? "bg-violet-600 hover:bg-violet-700"
+      : "bg-emerald-600 hover:bg-emerald-700";
+
   return createPortal(
     <div className="fixed inset-0 z-[12000] flex items-end justify-center bg-black/45 backdrop-blur-[1px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="round-trip-import-review-title">
-      <div className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 sm:max-h-[min(90dvh,820px)] sm:rounded-2xl">
+      <div className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 sm:max-h-[min(92dvh,880px)] sm:rounded-2xl">
         <header className="flex items-start gap-3 border-b border-zinc-200 px-4 py-4 dark:border-zinc-800 sm:px-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"><PackageCheck size={21} /></span>
           <div className="min-w-0 flex-1">
@@ -224,13 +285,14 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
               <div className="flex min-w-0 items-center gap-2"><ShieldCheck size={14} className="shrink-0 text-zinc-400" /><span className="shrink-0 text-zinc-500 dark:text-zinc-400">{copy.target}</span><span className="truncate font-medium text-zinc-800 dark:text-zinc-200">{request.targetLabel || copy.currentSpace}</span></div>
               <div className="flex min-w-0 items-center gap-2"><Hash size={14} className="shrink-0 text-zinc-400" /><span className="shrink-0 text-zinc-500 dark:text-zinc-400">{copy.protocol}</span><span className="font-medium text-zinc-800 dark:text-zinc-200">{packageKind} · v{pkg.formatVersion || "?"}{pkg.schemaVersion ? ` · schema ${pkg.schemaVersion}` : ""}</span></div>
               <div className="flex min-w-0 items-center gap-2"><span className="shrink-0 text-zinc-500 dark:text-zinc-400">{copy.exportedAt}</span><span className="truncate font-medium text-zinc-800 dark:text-zinc-200">{formatDate(pkg.exportedAt)}</span></div>
+              {pkg.sourceInstanceId && <div className="flex min-w-0 items-center gap-2 sm:col-span-2"><RefreshCw size={14} className="shrink-0 text-zinc-400" /><span className="shrink-0 text-zinc-500 dark:text-zinc-400">{copy.sourceInstance}</span><code className="truncate text-[11px] text-zinc-700 dark:text-zinc-300">{pkg.sourceInstanceId}</code></div>}
             </div>
           </section>
 
           {canChooseStrategy && (
             <section>
               <h3 className="mb-2 text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.strategyTitle}</h3>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 lg:grid-cols-3">
                 <button type="button" onClick={() => void chooseStrategy("copy")} disabled={submitting || !!loadingStrategy} className={`rounded-xl border p-3 text-left transition-colors ${strategy === "copy" ? "border-emerald-400 bg-emerald-50/70 ring-2 ring-emerald-500/10 dark:border-emerald-700 dark:bg-emerald-500/10" : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700"}`}>
                   <div className="flex items-center gap-2"><Copy size={17} className="text-emerald-600 dark:text-emerald-400" /><span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{copy.copyTitle}</span><span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">{copy.copyBadge}</span></div>
                   <p className="mt-1.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{copy.copyDesc}</p>
@@ -238,6 +300,11 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
                 <button type="button" onClick={() => void chooseStrategy("merge")} disabled={submitting || !!loadingStrategy} className={`rounded-xl border p-3 text-left transition-colors ${strategy === "merge" ? "border-violet-400 bg-violet-50/70 ring-2 ring-violet-500/10 dark:border-violet-700 dark:bg-violet-500/10" : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700"}`}>
                   <div className="flex items-center gap-2"><FolderInput size={17} className="text-violet-600 dark:text-violet-400" /><span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{copy.mergeTitle}</span>{loadingStrategy === "merge" && <Loader2 size={14} className="animate-spin text-violet-500" />}</div>
                   <p className="mt-1.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{copy.mergeDesc}</p>
+                </button>
+                <button type="button" onClick={() => void chooseStrategy("sync")} disabled={submitting || !!loadingStrategy || !syncEnabled} className={`rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${strategy === "sync" ? "border-blue-400 bg-blue-50/70 ring-2 ring-blue-500/10 dark:border-blue-700 dark:bg-blue-500/10" : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700"}`}>
+                  <div className="flex items-center gap-2"><RefreshCw size={17} className="text-blue-600 dark:text-blue-400" /><span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{copy.syncTitle}</span>{loadingStrategy === "sync" && <Loader2 size={14} className="animate-spin text-blue-500" />}</div>
+                  <p className="mt-1.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{copy.syncDesc}</p>
+                  {syncEnabled ? <p className="mt-1 text-[10px] font-medium text-blue-600 dark:text-blue-300">{copy.linkedResources}：{count(syncAvailability?.linkedResources)}</p> : <p className="mt-1 text-[10px] leading-4 text-amber-600 dark:text-amber-300">{copy.syncUnavailable}</p>}
                 </button>
               </div>
             </section>
@@ -259,18 +326,38 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
             </section>
           )}
 
+          {strategy === "sync" && (
+            <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5">
+              <h3 className="text-xs font-semibold text-blue-800 dark:text-blue-200">{copy.actionSummary}</h3>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-center text-[11px] sm:grid-cols-3 lg:grid-cols-6">
+                {[
+                  [copy.createdDirectories, actionCounts.notebooks, FolderPlus],
+                  [copy.createdNotes, actionCounts.notes, FileText],
+                  [copy.updatedDirectories, actionCounts.updatedNotebooks, FolderTree],
+                  [copy.updatedNotes, actionCounts.updatedNotes, PencilLine],
+                  [copy.unchangedNotes, actionCounts.unchangedNotes, ShieldCheck],
+                  [copy.localConflicts, actionCounts.localConflicts, ShieldAlert],
+                ].map(([label, value, Icon]) => {
+                  const SummaryIcon = Icon as React.ComponentType<{ size?: number; className?: string }>;
+                  return <div key={String(label)} className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><SummaryIcon size={14} className="mx-auto mb-1 text-blue-500" /><div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{count(value)}</div><div className="text-zinc-500">{String(label)}</div></div>;
+                })}
+              </div>
+              {count(actionCounts.recreatedResources) > 0 && <p className="mt-2 text-[11px] text-blue-700 dark:text-blue-300">{copy.recreatedResources}：{count(actionCounts.recreatedResources)}</p>}
+            </section>
+          )}
+
           <section className={`rounded-xl border p-3 ${conflicts.length > 0 ? "border-amber-200 bg-amber-50/45 dark:border-amber-900/50 dark:bg-amber-500/5" : "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900/50 dark:bg-emerald-500/5"}`}>
-            <div className="flex items-start gap-2">{conflicts.length > 0 ? <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" /> : <ShieldCheck size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}<div className="min-w-0 flex-1"><h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.planTitle} · {conflicts.length}</h3><p className="mt-1 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{conflicts.length > 0 ? (strategy === "merge" ? copy.mergePlanDesc : copy.copyPlanDesc) : copy.noPlan}</p>{conflicts.length > 0 && <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">{conflicts.map((conflict, index) => <div key={`${conflict.sourceId || index}-${index}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200/70 bg-white/75 px-2.5 py-2 text-xs dark:border-amber-900/45 dark:bg-zinc-900/60"><span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{actionLabel(conflict.action)}</span><span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300" title={conflict.originalName || ""}>{conflict.originalName || "—"}</span>{conflict.importedName !== conflict.originalName && <><ArrowRight size={13} className="shrink-0 text-amber-500" /><span className="min-w-0 flex-1 truncate font-semibold text-amber-700 dark:text-amber-300" title={conflict.importedName || ""}>{conflict.importedName || "—"}</span></>}</div>)}</div>}</div></div>
+            <div className="flex items-start gap-2">{conflicts.length > 0 ? <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" /> : <ShieldCheck size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}<div className="min-w-0 flex-1"><h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.planTitle} · {conflicts.length}</h3><p className="mt-1 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{conflicts.length > 0 ? (strategy === "sync" ? copy.syncPlanDesc : strategy === "merge" ? copy.mergePlanDesc : copy.copyPlanDesc) : copy.noPlan}</p>{conflicts.length > 0 && <div className="mt-2 max-h-52 space-y-1.5 overflow-y-auto pr-1">{conflicts.map((conflict, index) => <div key={`${conflict.sourceId || index}-${index}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200/70 bg-white/75 px-2.5 py-2 text-xs dark:border-amber-900/45 dark:bg-zinc-900/60"><span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{actionLabel(conflict.action)}</span><span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300" title={conflict.originalName || ""}>{conflict.originalName || "—"}</span>{conflict.importedName !== conflict.originalName && <><ArrowRight size={13} className="shrink-0 text-amber-500" /><span className="min-w-0 flex-1 truncate font-semibold text-amber-700 dark:text-amber-300" title={conflict.importedName || ""}>{conflict.importedName || "—"}</span></>}</div>)}</div>}</div></div>
           </section>
 
           <section className={`rounded-xl border p-3 ${warnings.length || errors.length ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-500/5" : "border-zinc-200 dark:border-zinc-800"}`}><h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.warningsTitle} · {warnings.length + errors.length}</h3>{warnings.length || errors.length ? <div className="mt-2 max-h-36 space-y-1 overflow-y-auto text-[11px] leading-5 text-red-700 dark:text-red-300">{errors.map((message, index) => <p key={`error-${index}`}>• {message}</p>)}{warnings.map((warning, index) => <p key={`${warning.type || "warning"}-${index}`}>• {warning.message || warning.type || "warning"}</p>)}</div> : <p className="mt-1 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{copy.noWarnings}</p>}</section>
 
-          <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5"><h3 className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-blue-200"><ShieldCheck size={15} />{copy.safetyTitle}</h3><div className="mt-2 space-y-1 text-[11px] leading-5 text-blue-700/90 dark:text-blue-300/90"><p>• {strategy === "merge" ? copy.mergeSafety : copy.copySafety}</p><p>• {copy.safetyB}</p><p>• {copy.safetyC}</p></div></section>
+          <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5"><h3 className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-blue-200"><ShieldCheck size={15} />{copy.safetyTitle}</h3><div className="mt-2 space-y-1 text-[11px] leading-5 text-blue-700/90 dark:text-blue-300/90"><p>• {strategy === "sync" ? copy.syncSafety : strategy === "merge" ? copy.mergeSafety : copy.copySafety}</p><p>• {copy.safetyB}</p><p>• {copy.safetyC}</p>{strategy === "sync" && <p>• {copy.safetyD}</p>}</div></section>
         </div>
 
         <footer className="flex shrink-0 gap-2 border-t border-zinc-200 px-4 pt-3 pb-[max(0.9rem,env(safe-area-inset-bottom))] dark:border-zinc-800 sm:justify-end sm:px-5 sm:pb-4">
           <button type="button" onClick={() => decide(false)} disabled={submitting || !!loadingStrategy} className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 sm:flex-none">{copy.cancel}</button>
-          <button type="button" onClick={() => decide(true)} disabled={submitting || !!loadingStrategy || errors.length > 0} className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none ${strategy === "merge" ? "bg-violet-600 hover:bg-violet-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>{submitting || loadingStrategy ? <Loader2 size={16} className="mr-2 animate-spin" /> : strategy === "merge" ? <FolderInput size={16} className="mr-2" /> : <PackageCheck size={16} className="mr-2" />}{loadingStrategy ? copy.loadingPlan : copy.confirm}</button>
+          <button type="button" onClick={() => decide(true)} disabled={submitting || !!loadingStrategy || errors.length > 0} className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none ${strategyClass}`}>{submitting || loadingStrategy ? <Loader2 size={16} className="mr-2 animate-spin" /> : strategy === "sync" ? <RefreshCw size={16} className="mr-2" /> : strategy === "merge" ? <FolderInput size={16} className="mr-2" /> : <PackageCheck size={16} className="mr-2" />}{loadingStrategy ? copy.loadingPlan : copy.confirm}</button>
         </footer>
       </div>
     </div>,
