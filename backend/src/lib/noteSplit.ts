@@ -119,7 +119,7 @@ function escapeWikiAlias(value: string): string {
 
 function buildDirectoryList(sections: SplitDirectorySection[]): string {
   return sections
-    .map((section, index) => `${index + 1}. [[${section.id}|${escapeWikiAlias(section.title)}]]`)
+    .map((section, index) => `${index + 1}. [[note:${section.id}|${escapeWikiAlias(section.title)}]]`)
     .join("\n");
 }
 
