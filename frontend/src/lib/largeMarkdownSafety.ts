@@ -96,12 +96,19 @@ export interface SingleTextChange {
   insert: string;
 }
 
+const TOKEN_CHAR_RE = /[\p{L}\p{N}_]/u;
+
+function isTokenChar(value: string | undefined): boolean {
+  return Boolean(value && TOKEN_CHAR_RE.test(value));
+}
+
 /**
  * Compute one compact replacement range so a one-character edit does not replace/broadcast the
  * entire multi-megabyte Y.Text document.
  *
- * Repeated characters can produce several equally small ranges. Canonicalize pure insertions and
- * deletions to the earliest valid position so local and remote runtimes derive the same operation.
+ * Repeated characters can produce several equally small ranges. When the default range begins in
+ * the middle of a token, rotate a pure insertion/deletion left to the nearest token boundary. End
+ * of document and already-boundary edits remain untouched.
  */
 export function computeSingleTextChange(
   previous: string,
@@ -132,6 +139,9 @@ export function computeSingleTextChange(
   if (deleteCount === 0 && insert.length > 0) {
     while (
       from > 0
+      && from < previous.length
+      && isTokenChar(previous[from - 1])
+      && isTokenChar(previous[from])
       && insert.charCodeAt(insert.length - 1) === previous.charCodeAt(from - 1)
     ) {
       insert = `${previous[from - 1]}${insert.slice(0, -1)}`;
@@ -141,6 +151,9 @@ export function computeSingleTextChange(
     let deleted = previous.slice(from, previousEnd);
     while (
       from > 0
+      && from < next.length
+      && isTokenChar(next[from - 1])
+      && isTokenChar(next[from])
       && deleted.charCodeAt(deleted.length - 1) === next.charCodeAt(from - 1)
     ) {
       deleted = `${next[from - 1]}${deleted.slice(0, -1)}`;
