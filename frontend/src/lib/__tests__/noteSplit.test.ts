@@ -32,6 +32,17 @@ describe("Markdown note split preview", () => {
     expect(preview.sections[1].content).toBe("end");
   });
 
+  it("strips persisted runtime block ids from chapter titles", () => {
+    const markdown = [
+      "# Alpha ^blk_12345678",
+      "body",
+      "# Beta ^blk_abcdefgh",
+      "body",
+    ].join("\n");
+    expect(buildMarkdownSplitPreview(markdown, 1).sections.map((section) => section.title))
+      .toEqual(["Alpha", "Beta"]);
+  });
+
   it("returns null when there are not enough peer headings", () => {
     expect(findPreferredMarkdownSplitLevel("# Only\nbody")).toBeNull();
   });
