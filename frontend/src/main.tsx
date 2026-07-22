@@ -29,6 +29,7 @@ import ServerConnectionCenter from "./components/ServerConnectionCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
 import NoteTransferCenter from "./components/NoteTransferCenter";
+import RoundTripImportReviewCenter from "./components/RoundTripImportReviewCenter";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -51,6 +52,7 @@ import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChalle
 import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
 import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
+import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
 
 function removeBootSplash() {
   try {
@@ -109,6 +111,9 @@ installTaskUpdateSafetyBridge();
 // Route Markdown/ZIP/PDF/DOCX Blob downloads through the reliable HTTP transport. New clients
 // connected to an older NAS automatically fall back to the original local Blob download.
 installReliableExportDownloadBridge();
+// Pause Nowen package imports after the authoritative dry-run and show the full package/conflict
+// report before the legacy import panel can continue to the formal write request.
+installRoundTripImportReviewBridge();
 
 initCodeBlockTheme();
 
@@ -167,6 +172,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <DocxImportCenter />
         <PublicSpaceLauncher />
         <NoteTransferCenter />
+        <RoundTripImportReviewCenter />
         <App />
       </>
     )}

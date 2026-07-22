@@ -9,6 +9,10 @@ import type {
   ImportProgress,
   ZipImportMeta,
 } from "./importService.base";
+import {
+  requestRoundTripImportReview,
+  type RoundTripPackagePreview,
+} from "./roundTripImportReview";
 
 export {
   tiptapExtensions,
@@ -108,7 +112,7 @@ async function postRoundTripPackage(
   file: File,
   workspaceId: string | undefined,
   dryRun: boolean,
-): Promise<any> {
+): Promise<RoundTripPackagePreview> {
   const token = localStorage.getItem("nowen-token");
   const params = new URLSearchParams();
   if (workspaceId && workspaceId !== "personal") params.set("workspaceId", workspaceId);
@@ -122,7 +126,7 @@ async function postRoundTripPackage(
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: form,
   });
-  const payload = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => ({})) as RoundTripPackagePreview & { error?: string };
   if (!response.ok || payload?.success === false) {
     const detail = Array.isArray(payload?.errors) && payload.errors.length
       ? payload.errors.join("；")
@@ -130,6 +134,11 @@ async function postRoundTripPackage(
     throw new Error(detail || `HTTP ${response.status}`);
   }
   return payload;
+}
+
+function targetLabel(workspaceId?: string): string {
+  if (!workspaceId || workspaceId === "personal") return "个人空间";
+  return "所选工作区";
 }
 
 /**
@@ -154,27 +163,37 @@ export async function importNotes(
   try {
     onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和冲突…" });
     const preview = await postRoundTripPackage(file, options?.workspaceId, true);
+    const accepted = await requestRoundTripImportReview(preview, {
+      fileName: file.name,
+      targetLabel: targetLabel(options?.workspaceId),
+      source: "shared-import",
+    });
+    if (!accepted) {
+      onProgress?.({ phase: "error", current: 0, total: 1, message: "已取消导入，未写入任何数据" });
+      return { success: false, count: 0 };
+    }
+
     const conflicts = Array.isArray(preview?.conflicts) ? preview.conflicts.length : 0;
     onProgress?.({
       phase: "uploading",
       current: 0,
       total: 1,
       message: conflicts > 0
-        ? `检测到 ${conflicts} 个根目录重名，将自动创建独立副本`
-        : "正在原样恢复目录和附件…",
+        ? `已确认 ${conflicts} 个根目录重命名方案，正在创建独立副本`
+        : "预检已确认，正在原样恢复目录和附件…",
     });
     const result = await postRoundTripPackage(file, options?.workspaceId, false);
-    const count = Number(result?.counts?.notes || 0);
+    const importedCount = Number(result?.counts?.notes || 0);
     const warningCount = Array.isArray(result?.warnings) ? result.warnings.length : 0;
     onProgress?.({
       phase: "done",
-      current: count,
-      total: count,
+      current: importedCount,
+      total: importedCount,
       message: warningCount > 0
-        ? `导入完成，共 ${count} 篇笔记，${warningCount} 项需要检查`
-        : `导入完成，共 ${count} 篇笔记`,
+        ? `导入完成，共 ${importedCount} 篇笔记，${warningCount} 项需要检查`
+        : `导入完成，共 ${importedCount} 篇笔记`,
     });
-    return { success: true, count };
+    return { success: true, count: importedCount };
   } catch (error) {
     onProgress?.({
       phase: "error",
