@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { Plugin } from "@tiptap/pm/state";
+import { Plugin, type PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 import {
@@ -30,6 +30,8 @@ interface RuntimeSearchState {
   stale: boolean;
   truncated: boolean;
 }
+
+const runtimeSearchPluginKey = searchReplacePluginKey as unknown as PluginKey<RuntimeSearchState>;
 
 const emptyState: RuntimeSearchState = {
   query: "",
@@ -154,11 +156,11 @@ export function createSearchReplaceExtension() {
     addProseMirrorPlugins() {
       return [
         new Plugin<RuntimeSearchState>({
-          key: searchReplacePluginKey,
+          key: runtimeSearchPluginKey,
           state: {
             init: () => emptyState,
             apply(tr, previous) {
-              const meta = tr.getMeta(searchReplacePluginKey) as Record<string, unknown> | undefined;
+              const meta = tr.getMeta(runtimeSearchPluginKey) as Record<string, unknown> | undefined;
               if (meta) {
                 if (meta.runtimeRefresh === true) {
                   return {
@@ -214,15 +216,14 @@ export function createSearchReplaceExtension() {
           },
           props: {
             decorations(state) {
-              return searchReplacePluginKey.getState(state)?.deco || null;
+              return runtimeSearchPluginKey.getState(state)?.deco || null;
             },
           },
           view(view) {
             return {
-              update: undefined,
               destroy: subscribeEditorRuntime(() => {
                 if (view.isDestroyed) return;
-                view.dispatch(view.state.tr.setMeta(searchReplacePluginKey, { runtimeRefresh: true }));
+                view.dispatch(view.state.tr.setMeta(runtimeSearchPluginKey, { runtimeRefresh: true }));
               }),
             };
           },
