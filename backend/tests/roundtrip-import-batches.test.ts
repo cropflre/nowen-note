@@ -8,6 +8,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-import-batch-test-")
 process.env.DB_PATH = path.join(tmpDir, "test.db");
 process.env.ELECTRON_USER_DATA = tmpDir;
 process.env.ROUNDTRIP_IMPORT_UNDO_TTL_HOURS = "24";
+process.env.NOWEN_INSTANCE_ID = "batch-test-instance";
 
 let closeDb: typeof import("../src/db/schema").closeDb;
 

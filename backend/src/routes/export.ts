@@ -718,8 +718,8 @@ app.get("/nowen-package", async (c) => {
   if (denied) return c.json(denied, 403);
 
   try {
-    const { createNowenPackageExport } = await import("../services/nowenPackageExport");
-    const result = await createNowenPackageExport({
+    const { createStableNowenPackageExport } = await import("../services/nowenPackageExportStable");
+    const result = await createStableNowenPackageExport({
       userId,
       workspaceId: wsParam,
       notebookId,
@@ -748,7 +748,7 @@ app.get("/nowen-package", async (c) => {
 app.post("/import/nowen-package", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const dryRun = c.req.query("dryRun") === "1" || c.req.query("dryRun") === "true";
-  const importMode = (c.req.query("importMode") as "new-root" | "into-target") || "new-root";
+  const importMode = (c.req.query("importMode") as "new-root" | "into-target" | "merge" | "sync") || "new-root";
   const targetNotebookId = c.req.query("targetNotebookId") || undefined;
 
   // 解析 workspaceId
