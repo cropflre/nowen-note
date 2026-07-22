@@ -10,6 +10,7 @@ import { EditorContent } from "@tiptap/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Video } from "@/components/VideoExtension";
 import MermaidView from "@/components/MermaidView";
+import { MathBlock } from "@/components/MathExtensions";
 import { resolveEditorRuntimeDecision } from "@/lib/editorRuntimePolicy";
 import {
   clearActiveEditorRuntimeDecision,
@@ -135,6 +136,44 @@ describe("heavy node runtime shells", () => {
       expect(host.textContent).toContain("需手动加载");
     } finally {
       await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("keeps block math behind a source placeholder until explicitly rendered", async () => {
+    setActiveEditorRuntimeDecision("math-note", lightweightDecision());
+    const editor = new Editor({
+      extensions: [Document, Paragraph, Text, MathBlock],
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Cursor starts here." }] },
+          { type: "mathBlock", attrs: { latex: "\\int_0^1 x^2 dx" } },
+        ],
+      },
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(createElement(EditorContent, { editor }));
+      });
+      expect(host.querySelector('[data-math-placeholder="block"]')).not.toBeNull();
+      expect(host.querySelector(".math-view-block")).toBeNull();
+      expect(host.querySelector(".katex")).toBeNull();
+
+      await act(async () => {
+        host.querySelector<HTMLButtonElement>('[data-math-placeholder="block"] button')?.click();
+        await Promise.resolve();
+      });
+
+      expect(host.querySelector('[data-math-placeholder="block"]')).toBeNull();
+      expect(host.querySelector(".math-view-block")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
       host.remove();
     }
   });
