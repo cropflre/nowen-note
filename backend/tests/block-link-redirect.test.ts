@@ -15,6 +15,8 @@ const notebookId = "block-redirect-notebook";
 const sourceId = "11111111-1111-4111-8111-111111111111";
 const childId = "22222222-2222-4222-8222-222222222222";
 const grandchildId = "33333333-3333-4333-8333-333333333333";
+const markdownSourceId = "44444444-4444-4444-8444-444444444444";
+const markdownChildId = "55555555-5555-4555-8555-555555555555";
 
 let db: Database.Database;
 let closeDb: () => void;
@@ -109,6 +111,38 @@ test.before(async () => {
   `).run(childId, owner, childOriginal);
   db.prepare(`INSERT INTO note_split_items (operationId, noteId, sortOrder, createdVersion, title)
               VALUES ('op-child', ?, 0, 1, 'Part')`).run(grandchildId);
+
+  const originalMarkdown = [
+    "# Chapter ^blk_md_heading",
+    "",
+    "Body text ^blk_md_body",
+    "",
+    "# Other ^blk_md_other_heading",
+    "",
+    "Other text ^blk_md_other_body",
+    "",
+  ].join("\n");
+  const markdownDirectory = "Directory ^blk_md_directory\n";
+  const markdownChild = "Body text ^blk_md_body\n";
+  db.prepare(`
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat, version)
+    VALUES (?, ?, ?, 'Markdown source', ?, 'Directory', 'markdown', 2)
+  `).run(markdownSourceId, owner, notebookId, markdownDirectory);
+  db.prepare(`
+    INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat, version)
+    VALUES (?, ?, ?, 'Chapter', ?, 'Body text', 'markdown', 1)
+  `).run(markdownChildId, owner, notebookId, markdownChild);
+  syncNoteBlocks(db, markdownSourceId, markdownDirectory, "markdown");
+  syncNoteBlocks(db, markdownChildId, markdownChild, "markdown");
+  db.prepare(`
+    INSERT INTO note_split_operations (
+      id, sourceNoteId, actorUserId, originalVersion, directoryVersion,
+      originalTitle, originalContent, originalContentText, originalContentFormat,
+      headingLevel, status
+    ) VALUES ('op-markdown', ?, ?, 1, 2, 'Markdown source', ?, 'Chapter Body text', 'markdown', 1, 'completed')
+  `).run(markdownSourceId, owner, originalMarkdown);
+  db.prepare(`INSERT INTO note_split_items (operationId, noteId, sortOrder, createdVersion, title)
+              VALUES ('op-markdown', ?, 0, 1, 'Chapter')`).run(markdownChildId);
 });
 
 test.after(() => {
@@ -140,6 +174,20 @@ test("redirects an omitted section heading to the child note top", async () => {
   assert.equal(payload.note.id, childId);
   assert.equal(payload.block, null);
   assert.equal(payload.redirect.toBlockId, null);
+});
+
+test("resolves Markdown body and heading anchors without rewriting old links", async () => {
+  const bodyResponse = await resolve(markdownSourceId, "blk_md_body");
+  assert.equal(bodyResponse.status, 200);
+  const bodyPayload = await bodyResponse.json() as any;
+  assert.equal(bodyPayload.note.id, markdownChildId);
+  assert.equal(bodyPayload.block.blockId, "blk_md_body");
+
+  const headingResponse = await resolve(markdownSourceId, "blk_md_heading");
+  assert.equal(headingResponse.status, 200);
+  const headingPayload = await headingResponse.json() as any;
+  assert.equal(headingPayload.note.id, markdownChildId);
+  assert.equal(headingPayload.block, null);
 });
 
 test("an undone split stops redirecting and the restored source block wins", async () => {
