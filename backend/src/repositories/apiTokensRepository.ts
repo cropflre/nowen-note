@@ -14,6 +14,10 @@ import type {
   CreateApiTokenInput,
 } from "./types";
 
+type ApiTokenLookupWithMode = ApiTokenLookupRow & {
+  resourceMode?: string;
+};
+
 function getAdapter() {
   return getDatabaseAdapter();
 }
@@ -47,11 +51,11 @@ export const apiTokensRepository = {
     ).get(id, userId) as { id: string; userId: string; revokedAt: string | null } | undefined;
   },
 
-  findByTokenHash(tokenHash: string): ApiTokenLookupRow | undefined {
+  findByTokenHash(tokenHash: string): ApiTokenLookupWithMode | undefined {
     return getDb().prepare(
-      `SELECT id, "userId", scopes, "expiresAt", "revokedAt", "lastUsedAt"
+      `SELECT id, "userId", scopes, "resourceMode", "expiresAt", "revokedAt", "lastUsedAt"
        FROM api_tokens WHERE "tokenHash" = ?`,
-    ).get(tokenHash) as ApiTokenLookupRow | undefined;
+    ).get(tokenHash) as ApiTokenLookupWithMode | undefined;
   },
 
   updateLastUsed(id: string, ip: string): void {
@@ -134,9 +138,9 @@ export const apiTokensRepository = {
     );
   },
 
-  async findByTokenHashAsync(tokenHash: string): Promise<ApiTokenLookupRow | undefined> {
-    return getAdapter().queryOne<ApiTokenLookupRow>(
-      `SELECT id, "userId", scopes, "expiresAt", "revokedAt", "lastUsedAt"
+  async findByTokenHashAsync(tokenHash: string): Promise<ApiTokenLookupWithMode | undefined> {
+    return getAdapter().queryOne<ApiTokenLookupWithMode>(
+      `SELECT id, "userId", scopes, "resourceMode", "expiresAt", "revokedAt", "lastUsedAt"
        FROM api_tokens WHERE "tokenHash" = ?`,
       [tokenHash],
     );
@@ -188,11 +192,11 @@ export const apiTokensRepository = {
        WHERE t."userId" = ? AND u.day >= ? AND u.day <= ?`,
       [userId, startDay, endDay],
     );
-    return row?.total ?? 0;
+    return Number(row?.total ?? 0);
   },
 
   async getUsageByTokenAsync(userId: string, startDay: string, endDay: string): Promise<Array<{ tokenId: string; name: string; count: number }>> {
-    return getAdapter().queryMany<{ tokenId: string; name: string; count: number }>(
+    const rows = await getAdapter().queryMany<{ tokenId: string; name: string; count: number }>(
       `SELECT t.id AS "tokenId", t.name AS name,
               CAST(COALESCE(SUM(u.count), 0) AS INTEGER) AS count
        FROM api_tokens t
@@ -204,5 +208,6 @@ export const apiTokensRepository = {
        ORDER BY count DESC`,
       [startDay, endDay, userId],
     );
+    return rows.map((row) => ({ ...row, count: Number(row.count) }));
   },
 };
