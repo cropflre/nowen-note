@@ -28,6 +28,14 @@ export default defineConfig({
         find: /^@\/components\/SearchReplacePanel$/,
         replacement: path.resolve(__dirname, "./src/components/SearchReplacePanelRuntime.tsx"),
       },
+      {
+        find: /^@\/components\/TiptapEditor$/,
+        replacement: path.resolve(__dirname, "./src/components/TiptapEditorRuntime.tsx"),
+      },
+      {
+        find: /^@\/lib\/proseMirrorPlainText$/,
+        replacement: path.resolve(__dirname, "./src/lib/proseMirrorPlainTextRuntime.ts"),
+      },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
   },
