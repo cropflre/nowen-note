@@ -60,10 +60,14 @@ jobs:
           pg_parent=$(git rev-parse HEAD^1)
           git checkout "$pg_parent" -- \
             backend/src/lib/api-tokens.ts \
+            backend/src/lib/attachment-signed-url.ts \
             backend/src/routes/tokens.ts \
             backend/src/repositories/apiTokensRepository.ts \
+            backend/src/repositories/apiTokenSchemaRepository.ts \
+            backend/src/repositories/attachmentSignedAccessRepository.ts \
             backend/src/repositories/notebookShareLinksRepository.ts \
-            backend/src/repositories/shareCommentsRepository.ts
+            backend/src/repositories/shareCommentsRepository.ts \
+            backend/tests/docker-hardened-entrypoint.test.ts
 
           git rm -f .github/workflows/pg-sync-main.yml
           git commit --amend --no-edit
@@ -190,10 +194,21 @@ jobs:
             output=$(node --import tsx --import ./tests/setup-db-isolation.ts --test "tests/${file}" 2>&1)
             code=$?
             set -e
-            echo "$output" | tail -n 55 >> /tmp/sqlite-failures-detailed.log
+            echo "$output" | tail -n 70 >> /tmp/sqlite-failures-detailed.log
             echo "exit=${code}" >> /tmp/sqlite-failures-detailed.log
             echo >> /tmp/sqlite-failures-detailed.log
           done
+
+      - name: Upload SQLite failure diagnostics
+        if: steps.sqlite_regression.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-sync-sqlite-failures-${{ github.run_id }}
+          path: |
+            /tmp/sqlite-regression.log
+            /tmp/sqlite-failures-detailed.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Publish SQLite regression diagnostics
         if: steps.sqlite_regression.outcome == 'failure'
@@ -204,8 +219,10 @@ jobs:
             echo
             echo "Run: \`${{ github.run_id }}\`"
             echo
+            echo 'Detailed diagnostics are attached as a workflow artifact.'
+            echo
             echo '```text'
-            tail -n 950 /tmp/sqlite-failures-detailed.log
+            tail -n 420 /tmp/sqlite-failures-detailed.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
