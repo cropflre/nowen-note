@@ -4,6 +4,11 @@ import {
   SUPPORTED_NOTE_BLOCK_TYPES,
   type NoteBlockType,
 } from "./noteBlocks.js";
+import {
+  normalizeTiptapReplacementNode,
+  TiptapBlockNodeValidationError,
+  type TiptapPatchJsonNode,
+} from "./tiptapBlockPatchNode.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const SUPPORTED_TYPES = new Set<string>(SUPPORTED_NOTE_BLOCK_TYPES);
@@ -21,6 +26,11 @@ export type TiptapBlockPatchOperation =
       type: "update";
       blockId: string;
       text: string;
+    }
+  | {
+      type: "replace";
+      blockId: string;
+      node: TiptapPatchJsonNode;
     }
   | {
       type: "delete";
@@ -44,6 +54,7 @@ export class TiptapBlockPatchError extends Error {
     public readonly code:
       | "INVALID_PATCH"
       | "INVALID_BLOCK_ID"
+      | "INVALID_BLOCK_NODE"
       | "BLOCK_ID_CONFLICT"
       | "BLOCK_NOT_FOUND"
       | "BLOCK_MOVE_PARENT_MISMATCH"
@@ -59,6 +70,7 @@ export class TiptapBlockPatchError extends Error {
 interface TiptapLocation {
   node: any;
   parent: any[];
+  parentNode: any | null;
   index: number;
   topIndex: number;
 }
@@ -75,15 +87,20 @@ function validBlockId(value: unknown): value is string {
   return typeof value === "string" && BLOCK_ID_RE.test(value);
 }
 
-function findBlock(nodes: any[], blockId: string, topIndex = -1): TiptapLocation | null {
+function findBlock(
+  nodes: any[],
+  blockId: string,
+  topIndex = -1,
+  parentNode: any | null = null,
+): TiptapLocation | null {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
     const currentTop = topIndex < 0 ? index : topIndex;
     if (node?.attrs?.blockId === blockId) {
-      return { node, parent: nodes, index, topIndex: currentTop };
+      return { node, parent: nodes, parentNode, index, topIndex: currentTop };
     }
     if (Array.isArray(node?.content)) {
-      const nested = findBlock(node.content, blockId, currentTop);
+      const nested = findBlock(node.content, blockId, currentTop, node);
       if (nested) return nested;
     }
   }
@@ -168,11 +185,19 @@ function createNode(blockType: NoteBlockType, text: string, blockId: string): an
   };
 }
 
+function invalidBlockNode(error: unknown, index?: number): TiptapBlockPatchError {
+  const prefix = index == null ? "" : `operations[${index}].`;
+  const message = error instanceof TiptapBlockNodeValidationError
+    ? error.message
+    : "replace.node 无效";
+  return new TiptapBlockPatchError("INVALID_BLOCK_NODE", `${prefix}${message}`);
+}
+
 function validateOperation(operation: any, index: number): asserts operation is TiptapBlockPatchOperation {
   if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 必须是对象`);
   }
-  if (!["create", "update", "delete", "move"].includes(operation.type)) {
+  if (!["create", "update", "replace", "delete", "move"].includes(operation.type)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].type 无效`);
   }
 
@@ -206,6 +231,14 @@ function validateOperation(operation: any, index: number): asserts operation is 
   if (operation.type === "update") {
     if (typeof operation.text !== "string") {
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].text 必须是字符串`);
+    }
+    return;
+  }
+  if (operation.type === "replace") {
+    try {
+      operation.node = normalizeTiptapReplacementNode(operation.node, operation.blockId);
+    } catch (error) {
+      throw invalidBlockNode(error, index);
     }
     return;
   }
@@ -270,7 +303,7 @@ export function applyTiptapBlockPatch(
       }
       const node = createNode(operation.blockType || "paragraph", operation.text || "", blockId);
       if (operation.afterBlockId) {
-        const anchor = findBlock(doc.content, operation.afterBlockId);
+        const anchor = findBlock(doc.content, operation.afterBlockId, -1, doc);
         if (!anchor) throw new TiptapBlockPatchError("BLOCK_NOT_FOUND", `块不存在: ${operation.afterBlockId}`);
         doc.content.splice(anchor.topIndex + 1, 0, node);
       } else {
@@ -286,11 +319,29 @@ export function applyTiptapBlockPatch(
       return;
     }
 
-    const target = findBlock(doc.content, operation.blockId);
+    const target = findBlock(doc.content, operation.blockId, -1, doc);
     if (!target) throw new TiptapBlockPatchError("BLOCK_NOT_FOUND", `块不存在: ${operation.blockId}`);
 
     if (operation.type === "update") {
       setBlockText(target.node, operation.text);
+      affectedBlockIds.push(operation.blockId);
+      return;
+    }
+
+    if (operation.type === "replace") {
+      let replacement: TiptapPatchJsonNode;
+      try {
+        replacement = normalizeTiptapReplacementNode(operation.node, operation.blockId);
+      } catch (error) {
+        throw invalidBlockNode(error);
+      }
+      if (replacement.type !== target.node.type && target.parentNode?.type !== "doc") {
+        throw new TiptapBlockPatchError(
+          "INVALID_BLOCK_NODE",
+          "嵌套块只能保留原节点类型；顶层段落、标题和代码块才允许互相转换",
+        );
+      }
+      target.parent[target.index] = replacement;
       affectedBlockIds.push(operation.blockId);
       return;
     }
@@ -306,7 +357,7 @@ export function applyTiptapBlockPatch(
     if (operation.blockId === operation.targetBlockId) {
       throw new TiptapBlockPatchError("BLOCK_MOVE_SELF", "不能把块移动到自身前后");
     }
-    const anchor = findBlock(doc.content, operation.targetBlockId);
+    const anchor = findBlock(doc.content, operation.targetBlockId, -1, doc);
     if (!anchor) throw new TiptapBlockPatchError("BLOCK_NOT_FOUND", `块不存在: ${operation.targetBlockId}`);
     if (anchor.parent !== target.parent) {
       throw new TiptapBlockPatchError("BLOCK_MOVE_PARENT_MISMATCH", "当前仅支持同一父块内移动");
