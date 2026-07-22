@@ -5,6 +5,7 @@ import {
   getActiveEditorRuntimeDecision,
   subscribeEditorRuntime,
 } from "@/lib/editorRuntimeStore";
+import { shouldPublishRealtimeTiptapOutline } from "@/lib/tiptapDerivedRuntime";
 import BaseTiptapEditor from "./TiptapEditor";
 
 type RuntimeTiptapEditorProps = NoteEditorProps & {
@@ -23,7 +24,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       getActiveEditorRuntimeDecision,
       getActiveEditorRuntimeDecision,
     );
-    const publishRealtimeOutline = decision.capabilities.wholeDocumentAnalysis;
+    const publishRealtimeOutline = shouldPublishRealtimeTiptapOutline(decision);
 
     useEffect(() => {
       if (!publishRealtimeOutline) props.onHeadingsChange?.([]);
