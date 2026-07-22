@@ -75,6 +75,10 @@ function resolveLink(c: Context) {
 
   const redirected = resolveSplitBlockTarget(getDb(), sourceNoteId, sourceBlockId);
   if (!redirected) return c.json({ error: "引用块不存在", code: "BLOCK_NOT_FOUND" }, 404);
+  if (redirected.redirectedFrom.some((step) => !canRead(step.noteId, userId))) {
+    return c.json({ error: "引用块不存在", code: "BLOCK_NOT_FOUND" }, 404);
+  }
+
   const target = readNote(redirected.noteId);
   if (!target || target.isTrashed || !canRead(target.id, userId)) {
     return c.json({ error: "引用块不存在", code: "BLOCK_NOT_FOUND" }, 404);
@@ -96,9 +100,7 @@ function resolveLink(c: Context) {
       fromBlockId: sourceBlockId,
       toNoteId: target.id,
       toBlockId: redirected.blockId,
-      operationId: redirected.operationId,
       hops: redirected.hops,
-      chain: redirected.redirectedFrom,
     },
   });
 }
