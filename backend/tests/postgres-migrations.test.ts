@@ -21,6 +21,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0003_runtime_tables_parity",
     "0004_notebook_members_unique",
     "0005_api_token_resources",
+    "0006_share_capabilities",
   ]);
 
   const stateTable = await pool.query(
@@ -81,6 +82,29 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   );
   assert.equal(resourceIndexes.rows[0].token_index, "idx_api_token_resources_token");
   assert.equal(resourceIndexes.rows[0].resource_index, "idx_api_token_resources_resource");
+
+  const shareColumns = await pool.query(`
+    SELECT table_name, column_name, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'notebook_share_links' AND column_name IN ('maxUses', 'useCount'))
+        OR
+        (table_name = 'notebook_members' AND column_name IN ('allowDownload', 'allowReshare', 'source', 'sourceId'))
+      )
+    ORDER BY table_name, column_name
+  `);
+  assert.deepEqual(
+    shareColumns.rows.map((row) => [row.table_name, row.column_name, row.is_nullable]),
+    [
+      ["notebook_members", "allowDownload", "NO"],
+      ["notebook_members", "allowReshare", "NO"],
+      ["notebook_members", "source", "NO"],
+      ["notebook_members", "sourceId", "YES"],
+      ["notebook_share_links", "maxUses", "YES"],
+      ["notebook_share_links", "useCount", "NO"],
+    ],
+  );
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
