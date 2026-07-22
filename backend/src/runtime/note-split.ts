@@ -4,7 +4,10 @@ import type { Context } from "hono";
 
 import { getDb } from "../db/schema.js";
 import { hasPermission, resolveNotePermission, resolveNotebookPermission } from "../middleware/acl.js";
-import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs.js";
+import {
+  extractAttachmentIdsFromContent,
+  syncReferences as syncAttachmentReferences,
+} from "../lib/attachmentRefs.js";
 import { syncNoteBlocks } from "../lib/noteBlocks.js";
 import { syncNoteLinks } from "../lib/noteLinks.js";
 import { extractSearchableText } from "../lib/searchIndex.js";
@@ -15,6 +18,10 @@ import {
   type NoteSplitHeadingLevel,
 } from "../lib/noteSplit.js";
 import { noteTagsRepository } from "../repositories/index.js";
+import {
+  createDeduplicatedAttachmentRow,
+  type ExistingAttachmentForDedup,
+} from "../routes/attachments-core.js";
 import { logAudit } from "../services/audit.js";
 import {
   broadcastNoteUpdated,
@@ -24,6 +31,8 @@ import {
 import { yFlush, yReplaceContentAsUpdate } from "../services/yjs.js";
 
 const NOTE_SPLIT_INSTALLED = Symbol.for("nowen.noteSplit.routesInstalled");
+
+type SplitAttachmentKind = "moved" | "copy";
 
 interface SourceNoteRow {
   id: string;
@@ -38,6 +47,16 @@ interface SourceNoteRow {
   isLocked: number;
   isArchived: number;
   isTrashed: number;
+}
+
+interface SplitAttachmentRow extends ExistingAttachmentForDedup {
+  id: string;
+  noteId: string;
+  userId: string;
+  workspaceId: string | null;
+  filename: string;
+  hash: string | null;
+  uploadSource: string | null;
 }
 
 class NoteSplitError extends Error {
@@ -82,10 +101,24 @@ export function ensureNoteSplitTables(): void {
       FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS note_split_attachment_copies (
+      operationId TEXT NOT NULL,
+      noteId TEXT NOT NULL,
+      sourceAttachmentId TEXT NOT NULL,
+      attachmentId TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('moved', 'copy')),
+      PRIMARY KEY (operationId, attachmentId),
+      FOREIGN KEY (operationId) REFERENCES note_split_operations(id) ON DELETE CASCADE,
+      FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachmentId) REFERENCES attachments(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_note_split_operations_source
       ON note_split_operations(sourceNoteId, createdAt DESC);
     CREATE INDEX IF NOT EXISTS idx_note_split_items_operation
       ON note_split_items(operationId, sortOrder ASC);
+    CREATE INDEX IF NOT EXISTS idx_note_split_attachment_operation
+      ON note_split_attachment_copies(operationId, noteId);
   `);
 }
 
@@ -150,6 +183,91 @@ function normalizeCreatedNote(db: ReturnType<typeof getDb>, noteId: string, user
     .run(synced.content, synced.contentText, noteId);
   syncAttachmentReferences(db, noteId, synced.content);
   syncNoteLinks(db, userId, noteId, synced.content);
+}
+
+function replaceAttachmentId(content: string, fromId: string, toId: string): string {
+  if (fromId === toId) return content;
+  return content.split(`/api/attachments/${fromId}`).join(`/api/attachments/${toId}`);
+}
+
+/**
+ * Keep attachment URLs independently valid after the directory note or any chapter is deleted.
+ *
+ * The first chapter that references a source-owned attachment receives the original metadata row.
+ * Additional chapters receive a new attachment id pointing at the same physical path. No file bytes
+ * are copied. Every move/copy is recorded so undo can move originals back and distinguish later
+ * user uploads from split-generated metadata.
+ */
+function prepareSectionAttachments(options: {
+  db: ReturnType<typeof getDb>;
+  operationId: string;
+  source: SourceNoteRow;
+  childNoteId: string;
+  targetWorkspaceId: string | null;
+  userId: string;
+  content: string;
+  claimedSourceAttachments: Set<string>;
+}): string {
+  let content = options.content;
+  const attachmentIds = [...extractAttachmentIdsFromContent(content)].sort();
+  const insertTracking = options.db.prepare(`
+    INSERT INTO note_split_attachment_copies (
+      operationId, noteId, sourceAttachmentId, attachmentId, kind
+    ) VALUES (?, ?, ?, ?, ?)
+  `);
+
+  for (const sourceAttachmentId of attachmentIds) {
+    const attachment = options.db.prepare(`
+      SELECT id, noteId, userId, workspaceId, filename, mimeType, size, path, hash, uploadSource
+      FROM attachments WHERE id = ?
+    `).get(sourceAttachmentId) as SplitAttachmentRow | undefined;
+    if (!attachment) continue;
+
+    if (
+      attachment.noteId === options.source.id
+      && !options.claimedSourceAttachments.has(sourceAttachmentId)
+    ) {
+      options.db.prepare(`
+        UPDATE attachments
+        SET noteId = ?, workspaceId = ?
+        WHERE id = ? AND noteId = ?
+      `).run(
+        options.childNoteId,
+        options.targetWorkspaceId,
+        sourceAttachmentId,
+        options.source.id,
+      );
+      options.claimedSourceAttachments.add(sourceAttachmentId);
+      insertTracking.run(
+        options.operationId,
+        options.childNoteId,
+        sourceAttachmentId,
+        sourceAttachmentId,
+        "moved" satisfies SplitAttachmentKind,
+      );
+      continue;
+    }
+
+    const copy = createDeduplicatedAttachmentRow({
+      source: attachment,
+      noteId: options.childNoteId,
+      userId: options.userId,
+      workspaceId: options.targetWorkspaceId,
+      filename: attachment.filename,
+      hash: attachment.hash,
+      uploadSource: "note-split",
+    });
+    insertTracking.run(
+      options.operationId,
+      options.childNoteId,
+      sourceAttachmentId,
+      copy.id,
+      "copy" satisfies SplitAttachmentKind,
+    );
+    content = replaceAttachmentId(content, sourceAttachmentId, copy.id);
+  }
+
+  return content;
 }
 
 function selectNoteForUser(noteId: string, userId: string): any {
@@ -309,10 +427,10 @@ export function installNoteSplitRoutes(router: Hono<any>): void {
           INSERT INTO note_split_items (operationId, noteId, sortOrder, createdVersion, title)
           VALUES (?, ?, ?, 1, ?)
         `);
+        const claimedSourceAttachments = new Set<string>();
 
         plan.sections.forEach((section, index) => {
           const createdId = createdIds[index];
-          const contentText = extractSearchableText(section.content, "markdown");
           insertNote.run(
             createdId,
             userId,
@@ -320,9 +438,23 @@ export function installNoteSplitRoutes(router: Hono<any>): void {
             target.notebookId,
             section.title,
             section.content,
-            contentText,
+            extractSearchableText(section.content, "markdown"),
             source.isArchived,
           );
+          const preparedContent = prepareSectionAttachments({
+            db,
+            operationId,
+            source,
+            childNoteId: createdId,
+            targetWorkspaceId: target.workspaceId,
+            userId,
+            content: section.content,
+            claimedSourceAttachments,
+          });
+          if (preparedContent !== section.content) {
+            db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+              .run(preparedContent, extractSearchableText(preparedContent, "markdown"), createdId);
+          }
           copyTag.run(createdId, source.id);
           normalizeCreatedNote(db, createdId, userId);
           insertItem.run(operationId, createdId, index, section.title);
@@ -425,11 +557,18 @@ export function installNoteSplitRoutes(router: Hono<any>): void {
       }
       const childIds = items.map((item) => item.noteId);
       const placeholders = childIds.map(() => "?").join(",");
-      const attachmentCount = childIds.length > 0
-        ? (db.prepare(`SELECT COUNT(*) AS count FROM attachments WHERE noteId IN (${placeholders})`)
-            .get(...childIds) as { count: number }).count
+      const untrackedAttachmentCount = childIds.length > 0
+        ? (db.prepare(`
+            SELECT COUNT(*) AS count
+            FROM attachments a
+            WHERE a.noteId IN (${placeholders})
+              AND NOT EXISTS (
+                SELECT 1 FROM note_split_attachment_copies c
+                WHERE c.operationId = ? AND c.attachmentId = a.id
+              )
+          `).get(...childIds, operationId) as { count: number }).count
         : 0;
-      if (attachmentCount > 0) {
+      if (untrackedAttachmentCount > 0) {
         throw new NoteSplitError("章节笔记中已上传新附件，不能自动撤销", "SPLIT_UNDO_CHILD_ATTACHMENTS", 409);
       }
 
@@ -443,6 +582,15 @@ export function installNoteSplitRoutes(router: Hono<any>): void {
           uuid(), source.id, userId, source.title, source.content, source.contentText,
           source.contentFormat, source.version, "撤销文档拆分前的目录页备份",
         );
+
+        db.prepare(`
+          UPDATE attachments
+          SET noteId = ?, workspaceId = ?
+          WHERE id IN (
+            SELECT attachmentId FROM note_split_attachment_copies
+            WHERE operationId = ? AND kind = 'moved'
+          )
+        `).run(source.id, source.workspaceId, operationId);
 
         if (childIds.length > 0) {
           db.prepare(`DELETE FROM notes WHERE id IN (${placeholders})`).run(...childIds);
