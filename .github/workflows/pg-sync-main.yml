@@ -34,6 +34,7 @@ jobs:
       TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
       DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
       GH_TOKEN: ${{ github.token }}
+      STATUS_COMMENT_ID: "5042929483"
 
     steps:
       - uses: actions/checkout@v4
@@ -85,8 +86,8 @@ jobs:
             echo '```text'
             tail -n 160 /tmp/typecheck.log
             echo '```'
-          } > /tmp/typecheck-comment.md
-          gh pr comment 372 --body-file /tmp/typecheck-comment.md
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
 
       - name: Stop after typecheck failure
         if: steps.typecheck.outcome == 'failure'
@@ -138,10 +139,27 @@ jobs:
 
       - name: Publish success
         if: success()
+        shell: bash
         run: |
-          gh pr comment 372 --body "## ✅ main synchronized into pg-migration-unified\n\nBefore: \`${{ steps.merge.outputs.before }}\`\nMain: \`${{ steps.merge.outputs.main }}\`\nMerge head: \`${{ steps.merge.outputs.after }}\`\nRun: \`${{ github.run_id }}\`\n\nTypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, production bundle, and migration packaging all passed."
+          {
+            echo '## ✅ main synchronized into pg-migration-unified'
+            echo
+            echo "Before: \`${{ steps.merge.outputs.before }}\`"
+            echo "Main: \`${{ steps.merge.outputs.main }}\`"
+            echo "Merge head: \`${{ steps.merge.outputs.after }}\`"
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo 'TypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, production bundle, and migration packaging all passed.'
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
 
       - name: Publish generic failure
         if: failure() && steps.typecheck.outcome != 'failure'
+        shell: bash
         run: |
-          gh pr comment 372 --body "## ❌ main synchronization failed\n\nThe merge or validation matrix failed. The branch was not pushed. Run: \`${{ github.run_id }}\`."
+          {
+            echo '## ❌ main synchronization failed'
+            echo
+            echo "A post-typecheck validation stage failed. The branch was not pushed. Run: \`${{ github.run_id }}\`."
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
