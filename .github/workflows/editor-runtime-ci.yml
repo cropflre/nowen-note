@@ -9,17 +9,24 @@ on:
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
       - "frontend/src/lib/largeMarkdownSafety.ts"
+      - "frontend/src/lib/markdownAnalysis.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/phaseAPerfDiagnostics.ts"
       - "frontend/src/lib/codeBlockHighlightPlugin.ts"
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
+      - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
@@ -33,17 +40,24 @@ on:
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
       - "frontend/src/lib/largeMarkdownSafety.ts"
+      - "frontend/src/lib/markdownAnalysis.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/phaseAPerfDiagnostics.ts"
       - "frontend/src/lib/codeBlockHighlightPlugin.ts"
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
+      - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
@@ -77,6 +91,9 @@ jobs:
           src/lib/__tests__/editorRuntimeStore.test.ts
           src/lib/__tests__/editorRuntimeNotice.test.ts
           src/lib/__tests__/largeRichTextSafeMode.test.ts
+          src/lib/__tests__/largeMarkdownSafety.test.ts
+          src/lib/__tests__/markdownAnalysis.test.ts
+          src/lib/__tests__/markdownAnalysisClient.test.ts
           src/lib/__tests__/codeBlockHighlightPlugin.test.ts
           src/lib/__tests__/codeBlockViewportHighlight.test.ts
           src/hooks/__tests__/useLazyNodeView.test.tsx
