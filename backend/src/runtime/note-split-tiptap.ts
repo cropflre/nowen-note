@@ -30,9 +30,7 @@ import { logAudit } from "../services/audit.js";
 import {
   broadcastNoteUpdated,
   broadcastToUser,
-  broadcastYjsUpdate,
 } from "../services/realtime.js";
-import { yFlush, yReplaceContentAsUpdate } from "../services/yjs.js";
 import { ensureNoteSplitTables } from "./note-split.js";
 
 const TIPTAP_NOTE_SPLIT_INSTALLED = Symbol.for("nowen.noteSplit.tiptapRoutesInstalled");
@@ -315,15 +313,6 @@ function publishCreatedNotes(createdNotes: any[], actorUserId: string): void {
   }
 }
 
-function syncSourceYDoc(noteId: string, content: string, userId: string): void {
-  try {
-    const result = yReplaceContentAsUpdate(noteId, content, userId || null);
-    if (result) broadcastYjsUpdate(noteId, result.updateBase64);
-  } catch (error) {
-    console.warn("[note-split-tiptap] Y.Doc replacement failed:", error);
-  }
-}
-
 function jsonError(c: Context, error: unknown) {
   if (error instanceof TiptapNoteSplitError) {
     return c.json({ error: error.message, code: error.code, ...error.extra }, error.status);
@@ -356,7 +345,6 @@ export function installTiptapNoteSplitRoutes(router: Hono<any>): void {
 
     const userId = c.req.header("X-User-Id") || "";
     try {
-      try { yFlush(noteId); } catch { /* active room may not exist */ }
       const source = assertWritableSource(noteId, userId);
       const headingLevel = body.headingLevel === 2 ? 2 : body.headingLevel === 1 ? 1 : null;
       if (!headingLevel) throw new TiptapNoteSplitError("headingLevel 必须是 1 或 2", "INVALID_HEADING_LEVEL");
@@ -502,7 +490,6 @@ export function installTiptapNoteSplitRoutes(router: Hono<any>): void {
         ...selectNoteForUser(id, userId),
         tags: noteTagsRepository.listTagsByNoteId(id),
       }));
-      syncSourceYDoc(source.id, sourceNote.content, userId);
       publishSourceUpdate(sourceNote, userId);
       publishCreatedNotes(createdNotes, userId);
       logAudit(userId, "note", "split", {
@@ -546,7 +533,6 @@ export function installTiptapNoteSplitRoutes(router: Hono<any>): void {
 
     const userId = c.req.header("X-User-Id") || "";
     try {
-      try { yFlush(noteId); } catch { /* active room may not exist */ }
       const source = assertWritableSource(noteId, userId);
       if (operation.status !== "completed") {
         throw new TiptapNoteSplitError("该拆分已经撤销", "SPLIT_ALREADY_UNDONE", 409);
@@ -653,7 +639,6 @@ export function installTiptapNoteSplitRoutes(router: Hono<any>): void {
         ...selectNoteForUser(source.id, userId),
         tags: noteTagsRepository.listTagsByNoteId(source.id),
       };
-      syncSourceYDoc(source.id, sourceNote.content, userId);
       publishSourceUpdate(sourceNote, userId);
       logAudit(userId, "note", "split_undo", {
         noteId: source.id,
