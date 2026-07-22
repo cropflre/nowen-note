@@ -7,20 +7,25 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/noteSplit.ts"
       - "backend/src/lib/tiptapNoteSplit.ts"
+      - "backend/src/lib/noteBlockRedirects.ts"
       - "backend/src/runtime/note-split.ts"
       - "backend/src/runtime/note-split-selection.ts"
       - "backend/src/runtime/note-split-tiptap.ts"
+      - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
       - "backend/tests/tiptap-note-split-empty.test.ts"
+      - "backend/tests/block-link-redirect.test.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
       - "frontend/src/lib/tiptapNoteSplit.ts"
       - "frontend/src/lib/noteSplitApi.ts"
+      - "frontend/src/lib/blockNavigation.ts"
       - "frontend/src/lib/__tests__/noteSplit.test.ts"
       - "frontend/src/lib/__tests__/tiptapNoteSplit.test.ts"
+      - "frontend/src/lib/__tests__/blockNavigation.test.ts"
       - "frontend/src/components/NoteSplitDialog.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/__tests__/NoteSplitDialog.test.tsx"
@@ -30,20 +35,25 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/noteSplit.ts"
       - "backend/src/lib/tiptapNoteSplit.ts"
+      - "backend/src/lib/noteBlockRedirects.ts"
       - "backend/src/runtime/note-split.ts"
       - "backend/src/runtime/note-split-selection.ts"
       - "backend/src/runtime/note-split-tiptap.ts"
+      - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
       - "backend/tests/tiptap-note-split-empty.test.ts"
+      - "backend/tests/block-link-redirect.test.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
       - "frontend/src/lib/tiptapNoteSplit.ts"
       - "frontend/src/lib/noteSplitApi.ts"
+      - "frontend/src/lib/blockNavigation.ts"
       - "frontend/src/lib/__tests__/noteSplit.test.ts"
       - "frontend/src/lib/__tests__/tiptapNoteSplit.test.ts"
+      - "frontend/src/lib/__tests__/blockNavigation.test.ts"
       - "frontend/src/components/NoteSplitDialog.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/__tests__/NoteSplitDialog.test.tsx"
@@ -67,11 +77,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Split preview and selection tests
+      - name: Split preview, selection, and redirect tests
         run: >-
           npm run test:run --
           src/lib/__tests__/noteSplit.test.ts
           src/lib/__tests__/tiptapNoteSplit.test.ts
+          src/lib/__tests__/blockNavigation.test.ts
           src/components/__tests__/NoteSplitDialog.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
@@ -90,12 +101,13 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Split planner and transaction tests
+      - name: Split planner, transaction, and redirect tests
         run: >-
           node --import tsx --import ./tests/setup-db-isolation.ts --test
           tests/note-split.test.ts
           tests/note-split-title.test.ts
           tests/tiptap-note-split.test.ts
           tests/tiptap-note-split-empty.test.ts
+          tests/block-link-redirect.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
