@@ -22,18 +22,28 @@ test("signed attachment helper keeps persistence behind a repository", () => {
     signedUrlSource,
     /attachmentSignedAccessRepository\.findShare\(scope\.subjectId\)/,
   );
+  assert.match(
+    signedUrlSource,
+    /attachmentSignedAccessRepository\.findPublication\(/,
+  );
 });
 
-test("signed attachment repository preserves attachment and share lookups", () => {
+test("signed attachment repository preserves attachment, share and publication lookups", () => {
   assert.match(repositorySource, /SELECT\s+"noteId"\s+FROM\s+attachments/i);
   assert.match(repositorySource, /SELECT\s+"noteId",\s+"isActive",\s+"expiresAt"\s+FROM\s+shares/i);
+  assert.match(repositorySource, /"allowDownload"/);
   assert.match(repositorySource, /WHERE id = \?/);
 });
 
-test("signed attachment helper keeps ACL and expiry checks", () => {
-  assert.match(signedUrlSource, /resolveNotePermission\(scope\.noteId, scope\.subjectId\)/);
-  assert.match(signedUrlSource, /hasPermission\(permission, "read"\)/);
+test("signed attachment helper keeps capability, expiry and signature checks", () => {
+  assert.match(
+    signedUrlSource,
+    /resolveEffectiveNoteCapabilities\(scope\.noteId, scope\.subjectId\)/,
+  );
+  assert.match(signedUrlSource, /capabilities\.read/);
+  assert.match(signedUrlSource, /capabilities\.download/);
   assert.match(signedUrlSource, /share_access_revoked/);
   assert.match(signedUrlSource, /share_expired/);
+  assert.match(signedUrlSource, /publication_access_revoked/);
   assert.match(signedUrlSource, /timingSafeEqual/);
 });
