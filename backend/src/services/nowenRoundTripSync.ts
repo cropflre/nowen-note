@@ -409,24 +409,21 @@ async function parsePackage(zipBuffer: Buffer): Promise<PackageModel> {
   }
 
   const notes = new Map<string, SourceNote>();
-  const notesFolder = zip.folder("notes");
-  if (notesFolder) {
-    for (const filename of Object.keys(notesFolder.files)) {
-      if (!filename.endsWith("/meta.json")) continue;
-      const sourceId = filename.split("/")[1];
-      if (!sourceId) continue;
-      const meta = await readJson<NoteMeta>(zip, `notes/${sourceId}/meta.json`);
-      if (!meta) throw new Error(`Invalid note metadata: ${sourceId}`);
-      const contentEntry = zip.file(`notes/${sourceId}/${meta.contentFile}`);
-      if (!contentEntry) throw new Error(`Note content not found: ${sourceId}/${meta.contentFile}`);
-      const content = await contentEntry.async("string");
-      const noteAttachments = Array.from(attachments.values()).filter((item) => item.meta.noteId === sourceId);
-      notes.set(sourceId, {
-        meta,
-        content,
-        sourceHash: sourceNoteHash(meta, content, noteAttachments),
-      });
-    }
+  for (const filename of Object.keys(zip.files)) {
+    const match = filename.match(/^notes\/([^/]+)\/meta\.json$/);
+    if (!match) continue;
+    const sourceId = match[1];
+    const meta = await readJson<NoteMeta>(zip, `notes/${sourceId}/meta.json`);
+    if (!meta) throw new Error(`Invalid note metadata: ${sourceId}`);
+    const contentEntry = zip.file(`notes/${sourceId}/${meta.contentFile}`);
+    if (!contentEntry) throw new Error(`Note content not found: ${sourceId}/${meta.contentFile}`);
+    const content = await contentEntry.async("string");
+    const noteAttachments = Array.from(attachments.values()).filter((item) => item.meta.noteId === sourceId);
+    notes.set(sourceId, {
+      meta,
+      content,
+      sourceHash: sourceNoteHash(meta, content, noteAttachments),
+    });
   }
 
   return {
@@ -1356,7 +1353,7 @@ export async function importNowenPackageWithSync(
     }];
   }
 
-  if (result.success && !params.dryRun && snapshot && model?.manifest.packageKind !== "markdown") {
+  if (result.success && !params.dryRun && snapshot && model && model.manifest.packageKind !== "markdown") {
     try {
       await recordRoundTripLinksAfterImport({
         zipBuffer,

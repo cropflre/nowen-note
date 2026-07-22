@@ -564,29 +564,26 @@ export async function importNowenPackageV2(zipBuffer: Buffer, params: ImportPara
   if (!zip.file("notebooks.json") && !zip.file("tree.json")) errors.push("Notebook tree manifest is missing");
 
   const noteContents = new Map<string, { content: string; meta: NoteMeta }>();
-  const notesFolder = zip.folder("notes");
-  if (notesFolder) {
-    for (const name of Object.keys(notesFolder.files)) {
-      if (!name.endsWith("/meta.json")) continue;
-      const noteId = name.split("/")[1];
-      if (!noteId) continue;
-      const meta = await readJson<NoteMeta>(zip, `notes/${noteId}/meta.json`);
-      if (!meta) {
-        errors.push(`Invalid note metadata: ${noteId}`);
-        continue;
-      }
-      if (!isSafeZipPath(meta.contentFile)) {
-        errors.push(`Unsafe note content path: ${meta.contentFile}`);
-        continue;
-      }
-      const contentPath = `notes/${noteId}/${meta.contentFile}`;
-      const entry = zip.file(contentPath);
-      if (!entry) {
-        errors.push(`Note content not found: ${contentPath}`);
-        continue;
-      }
-      noteContents.set(noteId, { meta, content: await entry.async("string") });
+  for (const name of Object.keys(zip.files)) {
+    const match = name.match(/^notes\/([^/]+)\/meta\.json$/);
+    if (!match) continue;
+    const noteId = match[1];
+    const meta = await readJson<NoteMeta>(zip, `notes/${noteId}/meta.json`);
+    if (!meta) {
+      errors.push(`Invalid note metadata: ${noteId}`);
+      continue;
     }
+    if (!isSafeZipPath(meta.contentFile)) {
+      errors.push(`Unsafe note content path: ${meta.contentFile}`);
+      continue;
+    }
+    const contentPath = `notes/${noteId}/${meta.contentFile}`;
+    const entry = zip.file(contentPath);
+    if (!entry) {
+      errors.push(`Note content not found: ${contentPath}`);
+      continue;
+    }
+    noteContents.set(noteId, { meta, content: await entry.async("string") });
   }
   const attachmentData = await readAttachmentEntries(zip, manifest.formatVersion, warnings, errors);
 

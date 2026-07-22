@@ -29,7 +29,7 @@ import ServerConnectionCenter from "./components/ServerConnectionCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
 import NoteTransferCenter from "./components/NoteTransferCenter";
-import RoundTripImportReviewCenter from "./components/RoundTripImportReviewCenter";
+import RoundTripImportBatchCenter from "./components/RoundTripImportBatchCenter";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -172,7 +172,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <DocxImportCenter />
         <PublicSpaceLauncher />
         <NoteTransferCenter />
-        <RoundTripImportReviewCenter />
+        <RoundTripImportBatchCenter />
         <App />
       </>
     )}

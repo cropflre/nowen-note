@@ -113,7 +113,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       editable: props.editable !== false,
       isGuest: props.isGuest === true,
       presentationMode: props.presentationMode === true,
-      contentFormat: props.note.contentFormat,
+      contentFormat: props.note.contentFormat || "tiptap-json",
     });
     const blockPatchEnabledRef = useRef(blockPatchEnabled);
     blockPatchEnabledRef.current = blockPatchEnabled;
