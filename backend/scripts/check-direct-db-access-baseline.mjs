@@ -28,32 +28,39 @@ const violations = [];
 const currentFiles = new Map(report.files.map((entry) => [entry.file, entry]));
 
 for (const [file, exception] of Object.entries(deferred.files || {})) {
-  if (!baseline.files[file]) {
-    violations.push(`${file}: deferred exception must reference an existing baseline file`);
-  }
   if (!/^#\d+$/.test(exception.owner || "")) {
     violations.push(`${file}: deferred exception must name an owning issue`);
   }
   if (!exception.reason || !String(exception.reason).trim()) {
-    violations.push(`${file}: deferred exception must explain why it is outside #248`);
+    violations.push(`${file}: deferred exception must explain why it is temporarily allowed`);
+  }
+  if (!exception.counts || typeof exception.counts !== "object") {
+    violations.push(`${file}: deferred exception must provide exact per-kind counts`);
+    continue;
+  }
+  for (const [kind, count] of Object.entries(exception.counts)) {
+    if (!Number.isInteger(count) || count < 0) {
+      violations.push(`${file}: invalid deferred count for ${kind}`);
+    }
   }
 }
 
 for (const entry of report.files) {
-  const baselineKinds = baseline.files[entry.file];
-  if (!baselineKinds) {
+  const baselineKinds = baseline.files[entry.file] || {};
+  const exception = deferred.files?.[entry.file];
+  const deferredKinds = exception?.counts || {};
+
+  if (!baseline.files[entry.file] && !exception) {
     violations.push(`${entry.file}: new direct database access file`);
     continue;
   }
 
-  const deferredKinds = deferred.files?.[entry.file]?.counts || {};
   for (const [kind, count] of Object.entries(entry.counts)) {
     const allowed = Math.max(baselineKinds[kind] ?? 0, deferredKinds[kind] ?? 0);
     if (count > allowed) {
-      const owner = deferred.files?.[entry.file]?.owner;
       violations.push(
         `${entry.file}: ${kind} increased from ${allowed} to ${count}` +
-        (owner ? ` (owned by ${owner})` : ""),
+        (exception?.owner ? ` (owned by ${exception.owner})` : ""),
       );
     }
   }
@@ -63,6 +70,15 @@ for (const [file, allowedKinds] of Object.entries(baseline.files)) {
   const current = currentFiles.get(file);
   if (!current) continue;
   for (const kind of Object.keys(allowedKinds)) {
+    const count = current.counts[kind] ?? 0;
+    if (count < 0) violations.push(`${file}: invalid negative count for ${kind}`);
+  }
+}
+
+for (const [file, exception] of Object.entries(deferred.files || {})) {
+  const current = currentFiles.get(file);
+  if (!current) continue;
+  for (const kind of Object.keys(exception.counts || {})) {
     const count = current.counts[kind] ?? 0;
     if (count < 0) violations.push(`${file}: invalid negative count for ${kind}`);
   }
