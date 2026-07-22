@@ -1,4 +1,5 @@
 import { api, getBaseUrl, getCurrentWorkspace } from "./api";
+import { announceRoundTripImportCompleted } from "./roundTripImportBatches";
 
 export type RoundTripImportStrategy = "copy" | "merge" | "sync";
 
@@ -78,6 +79,12 @@ export interface RoundTripPackagePreview {
     path?: string;
   }>;
   errors?: string[];
+  importBatch?: {
+    id?: string;
+    undoAvailable?: boolean;
+    undoExpiresAt?: string | null;
+    reason?: string | null;
+  };
 }
 
 export type RoundTripImportReviewDecision =
@@ -128,6 +135,11 @@ function readToken(): string | null {
   }
 }
 
+function announceBatch(payload: RoundTripPackagePreview): void {
+  const batchId = String(payload?.importBatch?.id || "");
+  if (batchId) announceRoundTripImportCompleted(batchId);
+}
+
 export async function submitRoundTripPackage(
   file: File,
   options: SubmitRoundTripPackageOptions,
@@ -165,6 +177,7 @@ export async function submitRoundTripPackage(
       : payload?.error;
     throw new Error(details || `HTTP ${response.status}`);
   }
+  if (!options.dryRun) announceBatch(payload);
   return payload;
 }
 
@@ -280,7 +293,11 @@ export function installRoundTripImportReviewBridge(): void {
   api.importNowenPackage = (async (file: File, opts?: any) => {
     const remembered = selectedDecisionByFile.get(file);
     selectedDecisionByFile.delete(file);
-    if (!remembered) return nativeImport(file, opts);
+    if (!remembered) {
+      const payload = await nativeImport(file, opts) as RoundTripPackagePreview;
+      announceBatch(payload);
+      return payload;
+    }
     return submitRoundTripPackage(file, {
       dryRun: false,
       strategy: remembered.strategy,
