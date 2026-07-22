@@ -1,4 +1,3 @@
-import { getBaseUrl } from "./api";
 import {
   readMarkdownFromZipWithMeta as readMarkdownFromZipWithMetaBase,
   importNotes as importNotesBase,
@@ -11,7 +10,7 @@ import type {
 } from "./importService.base";
 import {
   requestRoundTripImportReview,
-  type RoundTripPackagePreview,
+  submitRoundTripPackage,
 } from "./roundTripImportReview";
 
 export {
@@ -108,42 +107,14 @@ export async function readMarkdownFromZip(file: File): Promise<ImportFileInfo[]>
   return (await readMarkdownFromZipWithMeta(file)).files;
 }
 
-async function postRoundTripPackage(
-  file: File,
-  workspaceId: string | undefined,
-  dryRun: boolean,
-): Promise<RoundTripPackagePreview> {
-  const token = localStorage.getItem("nowen-token");
-  const params = new URLSearchParams();
-  if (workspaceId && workspaceId !== "personal") params.set("workspaceId", workspaceId);
-  params.set("importMode", "new-root");
-  if (dryRun) params.set("dryRun", "1");
-  const form = new FormData();
-  form.append("file", file);
-  const response = await fetch(`${getBaseUrl()}/export/import/nowen-package?${params.toString()}`, {
-    method: "POST",
-    credentials: "include",
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: form,
-  });
-  const payload = await response.json().catch(() => ({})) as RoundTripPackagePreview & { error?: string };
-  if (!response.ok || payload?.success === false) {
-    const detail = Array.isArray(payload?.errors) && payload.errors.length
-      ? payload.errors.join("；")
-      : payload?.error;
-    throw new Error(detail || `HTTP ${response.status}`);
-  }
-  return payload;
-}
-
 function targetLabel(workspaceId?: string): string {
   if (!workspaceId || workspaceId === "personal") return "个人空间";
   return "所选工作区";
 }
 
 /**
- * Round-trip package import is atomic and defaults to an independent copy. A conflicting source
- * root is renamed by the server to “名称 (2)”, while the subtree itself remains unchanged.
+ * Round-trip package import is atomic. The review dialog defaults to an independent copy, while
+ * explicit merge mode only reuses exact sibling folder names and never overwrites an existing note.
  */
 export async function importNotes(
   fileInfos: ImportFileInfo[],
@@ -160,38 +131,69 @@ export async function importNotes(
   }
 
   const file = packageItems[0].__nowenRoundTripPackage!;
+  const submitOptions = {
+    workspaceId: options?.workspaceId,
+    targetNotebookId: notebookId || undefined,
+  };
   try {
     onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和冲突…" });
-    const preview = await postRoundTripPackage(file, options?.workspaceId, true);
-    const accepted = await requestRoundTripImportReview(preview, {
+    const copyPreview = await submitRoundTripPackage(file, {
+      ...submitOptions,
+      dryRun: true,
+      strategy: "copy",
+    });
+    const decision = await requestRoundTripImportReview(copyPreview, {
       fileName: file.name,
       targetLabel: targetLabel(options?.workspaceId),
       source: "shared-import",
+      initialStrategy: "copy",
+      loadPreview: (strategy) => submitRoundTripPackage(file, {
+        ...submitOptions,
+        dryRun: true,
+        strategy,
+      }),
     });
-    if (!accepted) {
+    if (!decision.accepted) {
       onProgress?.({ phase: "error", current: 0, total: 1, message: "已取消导入，未写入任何数据" });
       return { success: false, count: 0 };
     }
 
-    const conflicts = Array.isArray(preview?.conflicts) ? preview.conflicts.length : 0;
+    const selectedPreview = decision.strategy === "copy"
+      ? copyPreview
+      : await submitRoundTripPackage(file, {
+        ...submitOptions,
+        dryRun: true,
+        strategy: decision.strategy,
+      });
+    const conflicts = Array.isArray(selectedPreview?.conflicts) ? selectedPreview.conflicts.length : 0;
     onProgress?.({
       phase: "uploading",
       current: 0,
       total: 1,
-      message: conflicts > 0
-        ? `已确认 ${conflicts} 个根目录重命名方案，正在创建独立副本`
-        : "预检已确认，正在原样恢复目录和附件…",
+      message: decision.strategy === "merge"
+        ? `正在按合并计划导入${conflicts ? `（${conflicts} 项处理）` : ""}…`
+        : conflicts > 0
+          ? `已确认 ${conflicts} 个重名处理方案，正在创建独立副本`
+          : "预检已确认，正在原样恢复目录和附件…",
     });
-    const result = await postRoundTripPackage(file, options?.workspaceId, false);
+    const result = await submitRoundTripPackage(file, {
+      ...submitOptions,
+      dryRun: false,
+      strategy: decision.strategy,
+    });
     const importedCount = Number(result?.counts?.notes || 0);
     const warningCount = Array.isArray(result?.warnings) ? result.warnings.length : 0;
+    const mergedCount = Number(result?.counts?.mergedNotebooks || 0);
+    const renamedCount = Number(result?.counts?.renamedNotes || 0);
     onProgress?.({
       phase: "done",
       current: importedCount,
       total: importedCount,
-      message: warningCount > 0
-        ? `导入完成，共 ${importedCount} 篇笔记，${warningCount} 项需要检查`
-        : `导入完成，共 ${importedCount} 篇笔记`,
+      message: decision.strategy === "merge"
+        ? `导入完成，共 ${importedCount} 篇笔记，复用 ${mergedCount} 个目录${renamedCount ? `，${renamedCount} 篇同名笔记已编号` : ""}`
+        : warningCount > 0
+          ? `导入完成，共 ${importedCount} 篇笔记，${warningCount} 项需要检查`
+          : `导入完成，共 ${importedCount} 篇笔记`,
     });
     return { success: true, count: importedCount };
   } catch (error) {

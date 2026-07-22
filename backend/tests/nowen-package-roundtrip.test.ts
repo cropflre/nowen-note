@@ -15,7 +15,7 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test("Nowen package restores the same subtree, renames only the conflicting root and remaps attachments", async () => {
+test("Nowen package supports independent-copy and explicit safe-merge round trips", async () => {
   const schema = await import("../src/db/schema");
   const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
   const { importNowenPackage } = await import("../src/services/nowenPackageImport");
@@ -83,7 +83,9 @@ test("Nowen package restores the same subtree, renames only the conflicting root
     dryRun: true,
   });
   assert.equal(preview.success, true, preview.errors.join("; "));
+  assert.equal(preview.strategy, "copy");
   assert.equal(preview.conflicts?.length, 1);
+  assert.equal(preview.conflicts?.[0].action, "rename-root");
   assert.equal(preview.conflicts?.[0].importedName, "产品资料 (2)");
 
   const imported = await importNowenPackage(exported.buffer, {
@@ -146,4 +148,47 @@ test("Nowen package restores the same subtree, renames only the conflicting root
   assert.match(importedNote!.content, new RegExp(`/api/attachments/${importedAttachment!.id}`));
   assert.equal(importedAttachment!.size, 9);
   assert.equal(fs.readFileSync(path.join(attachmentDir, importedAttachment!.path), "utf8"), "pdf bytes");
+
+  const mergePreview = await importNowenPackage(exported.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "merge",
+    dryRun: true,
+  });
+  assert.equal(mergePreview.success, true, mergePreview.errors.join("; "));
+  assert.equal(mergePreview.strategy, "merge");
+  assert.equal(mergePreview.counts?.notebooks, 0, "all package folders already exist in the matching root");
+  assert.equal(mergePreview.counts?.mergedNotebooks, 2);
+  assert.equal(mergePreview.counts?.renamedNotes, 1);
+  assert.ok(mergePreview.conflicts?.some((item) => item.action === "merge-directory" && item.originalName === "产品资料"));
+  assert.ok(mergePreview.conflicts?.some((item) => item.action === "rename-note" && item.importedName === "生产记录 (2)"));
+
+  const merged = await importNowenPackage(exported.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "merge",
+  });
+  assert.equal(merged.success, true, merged.errors.join("; "));
+  assert.equal(merged.counts?.notebooks, 0);
+  assert.equal(merged.counts?.mergedNotebooks, 2);
+  assert.equal(merged.counts?.renamedNotes, 1);
+  assert.equal(merged.rootNotebookId, "root-source", "merge reuses the deterministic existing root");
+
+  const mergedNote = db.prepare(`
+    SELECT id, notebookId, title, content FROM notes
+     WHERE notebookId = ? AND title = ?
+  `).get("root-source", "生产记录 (2)") as {
+    id: string;
+    notebookId: string;
+    title: string;
+    content: string;
+  } | undefined;
+  assert.ok(mergedNote, "merge creates a numbered note instead of overwriting the original");
+  assert.notEqual(mergedNote!.id, "note-source");
+  const sourceStillPresent = db.prepare("SELECT content FROM notes WHERE id = ?").get("note-source") as { content: string } | undefined;
+  assert.equal(sourceStillPresent?.content, "[检测报告](/api/attachments/att-source)");
+  const mergedAttachment = db.prepare("SELECT id, path FROM attachments WHERE noteId = ?").get(mergedNote!.id) as { id: string; path: string } | undefined;
+  assert.ok(mergedAttachment);
+  assert.match(mergedNote!.content, new RegExp(`/api/attachments/${mergedAttachment!.id}`));
+  assert.equal(fs.readFileSync(path.join(attachmentDir, mergedAttachment!.path), "utf8"), "pdf bytes");
 });

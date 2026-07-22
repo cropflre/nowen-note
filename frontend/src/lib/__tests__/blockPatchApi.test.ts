@@ -16,12 +16,26 @@ describe("block patch API client", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends one confirmed patch envelope and returns the authoritative version", async () => {
+  it("sends one confirmed patch envelope and returns the authoritative snapshot", async () => {
     localStorage.setItem("nowen-token", "token-1");
+    const authoritativeContent = JSON.stringify({
+      type: "doc",
+      content: [{
+        type: "paragraph",
+        attrs: { blockId: "blk_alpha00" },
+        content: [{ type: "text", text: "Updated" }],
+      }],
+    });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       success: true,
       noteId: "note-1",
+      title: "Note",
       version: 8,
+      updatedAt: "2026-07-22T10:00:00.000Z",
+      content: authoritativeContent,
+      contentText: "Updated",
+      contentFormat: "tiptap-json",
+      notebookId: "notebook-1",
       operationCount: 1,
       affectedBlockIds: ["blk_alpha00"],
       deletedBlockIds: [],
@@ -36,7 +50,13 @@ describe("block patch API client", () => {
       operations: [{ type: "update", blockId: "blk_alpha00", text: "Updated" }],
     });
 
-    expect(result.version).toBe(8);
+    expect(result).toMatchObject({
+      version: 8,
+      content: authoritativeContent,
+      contentText: "Updated",
+      contentFormat: "tiptap-json",
+      updatedAt: "2026-07-22T10:00:00.000Z",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/blocks/note%2Fwith%20spaces/patch");

@@ -11,6 +11,9 @@ on:
       - "frontend/src/lib/editorRuntimeStore.ts"
       - "frontend/src/lib/tiptapDerivedRuntime.ts"
       - "frontend/src/lib/proseMirrorPlainTextRuntime.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/largeMarkdownSafety.ts"
       - "frontend/src/lib/largeMarkdownSafetyRuntime.ts"
       - "frontend/src/lib/markdownAnalysis.ts"
@@ -40,12 +43,15 @@ on:
       - "frontend/src/lib/__tests__/markdownYText*.test.ts"
       - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatch*.test.ts"
+      - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
   pull_request:
     paths:
@@ -56,6 +62,9 @@ on:
       - "frontend/src/lib/editorRuntimeStore.ts"
       - "frontend/src/lib/tiptapDerivedRuntime.ts"
       - "frontend/src/lib/proseMirrorPlainTextRuntime.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/largeMarkdownSafety.ts"
       - "frontend/src/lib/largeMarkdownSafetyRuntime.ts"
       - "frontend/src/lib/markdownAnalysis.ts"
@@ -85,12 +94,15 @@ on:
       - "frontend/src/lib/__tests__/markdownYText*.test.ts"
       - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatch*.test.ts"
+      - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
 
 permissions:
@@ -126,11 +138,15 @@ jobs:
           src/lib/__tests__/markdownYTextRuntime.test.ts
           src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts
           src/lib/__tests__/tiptapDerivedRuntime.test.ts
+          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
+          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
+          src/lib/__tests__/blockPatchApi.test.ts
           src/lib/__tests__/codeBlockHighlightPlugin.test.ts
           src/lib/__tests__/codeBlockViewportHighlight.test.ts
           src/hooks/__tests__/useLazyNodeView.test.tsx
           src/components/__tests__/VideoExtension.test.ts
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
           src/components/__tests__/SearchReplaceRuntime.test.ts
+          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b

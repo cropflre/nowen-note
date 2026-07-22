@@ -131,11 +131,19 @@ When any operation fails, all earlier operations and Block-ID normalization are 
 
 ## Response
 
+The response includes the authoritative persisted snapshot. The client must use these fields as the base for the next patch instead of assuming that its local JSON is byte-for-byte identical after server normalization.
+
 ```json
 {
   "success": true,
   "noteId": "note-id",
+  "title": "Note title",
   "version": 8,
+  "updatedAt": "2026-07-22T10:00:00.000Z",
+  "content": "{\"type\":\"doc\",\"content\":[]}",
+  "contentText": "Searchable plain text",
+  "contentFormat": "tiptap-json",
+  "notebookId": "notebook-id",
   "operationCount": 4,
   "affectedBlockIds": ["blk_alpha000", "blk_new00000"],
   "deletedBlockIds": ["blk_old00000"],
@@ -151,13 +159,15 @@ When any operation fails, all earlier operations and Block-ID normalization are 
 }
 ```
 
-A replay using the same user, note and `operationId` returns the stored response with:
+A replay using the same user, note and `operationId` returns the same stored authoritative snapshot with:
 
 ```json
 {
   "idempotentReplay": true
 }
 ```
+
+Successful writes also emit the normal `note:updated` and `note:list-updated` realtime messages so other open clients receive the new version.
 
 ## Errors
 
@@ -194,10 +204,33 @@ const result = await patchTiptapBlocks(noteId, {
 
 The client bypasses the optimistic offline queue. The caller must receive the authoritative server version before submitting a dependent patch. After a timeout, retry with the same `operationId`.
 
+## Tiptap editor grey rollout
+
+`frontend/src/components/TiptapEditorRuntime.tsx` enables the patch path by default only for `viewport-optimized` and `lightweight-edit` sessions. Normal documents keep the existing whole-document save path until wider validation is complete.
+
+A session can override the default with local storage:
+
+```js
+localStorage.setItem("nowen.tiptap_block_patch_v1", "on")
+localStorage.setItem("nowen.tiptap_block_patch_v1", "off")
+```
+
+The planner intentionally accepts only changes which can be represented without losing Tiptap structure:
+
+- plain-text updates on stable-ID paragraph, heading and code blocks;
+- plain-text updates inside an otherwise unchanged nested structure;
+- top-level simple block create/delete/reorder operations;
+- no marks, hard breaks, non-default created-node attributes or missing/duplicate Block IDs.
+
+Formatting changes, tables, media, complex pastes, list restructuring, title changes and any unrecognized transaction continue through the original whole-document save callback.
+
+Only one patch may be in flight per editor. Later edits are kept as the newest full local snapshot and re-planned after the authoritative version arrives. Timeout/network uncertainty retries once with the same idempotency key. If the outcome remains uncertain, the local draft is retained and the editor reports a sync error; it does not issue a blind whole-document overwrite. Known request validation failures that happened before persistence may safely fall back to whole-document save.
+
 ## V1 boundaries
 
 - Tiptap JSON only. Markdown already uses CodeMirror transaction to Y.Text delta synchronization and needs a separate format-aware patch protocol.
 - Update operations replace block text; mark-level and arbitrary JSON-node patches are deferred.
 - Cross-parent moves are deferred.
-- The editor still retains whole-document save fallback while Block Patch adoption is introduced incrementally.
+- The editor retains whole-document save as the compatibility and safety fallback.
+- The backend still serializes the complete `notes.content` snapshot and rebuilds whole-note Block/link indexes after a successful patch.
 - Block Patch is not yet the sole authoritative content store; `notes.content` remains the canonical document in V1.

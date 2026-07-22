@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   requestRoundTripImportReview,
   resolveRoundTripImportReview,
@@ -12,13 +12,14 @@ afterEach(() => {
 });
 
 describe("round-trip import review queue", () => {
-  it("publishes a full preview and resolves the caller after approval", async () => {
+  it("publishes a full preview and resolves an independent-copy decision", async () => {
     const snapshots: RoundTripImportReviewRequest[][] = [];
     const unsubscribe = subscribeRoundTripImportReviews((items) => snapshots.push(items));
 
     const decision = requestRoundTripImportReview({
       success: true,
       dryRun: true,
+      strategy: "copy",
       package: {
         format: "nowen-package",
         formatVersion: 2,
@@ -26,7 +27,13 @@ describe("round-trip import review queue", () => {
         counts: { notebooks: 4, notes: 8, tags: 2, attachments: 3 },
         formatStats: { markdown: 8, richText: 0, html: 0 },
       },
-      conflicts: [{ sourceId: "root", originalName: "产品资料", importedName: "产品资料 (2)" }],
+      conflicts: [{
+        action: "rename-root",
+        resourceType: "notebook",
+        sourceId: "root",
+        originalName: "产品资料",
+        importedName: "产品资料 (2)",
+      }],
       warnings: [],
       errors: [],
     }, {
@@ -41,10 +48,40 @@ describe("round-trip import review queue", () => {
     expect(request?.preview.package?.counts?.notes).toBe(8);
     expect(request?.preview.conflicts?.[0]?.importedName).toBe("产品资料 (2)");
 
-    resolveRoundTripImportReview(request!.id, true);
-    await expect(decision).resolves.toBe(true);
+    resolveRoundTripImportReview(request!.id, { accepted: true, strategy: "copy" });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "copy" });
     expect(roundTripImportReviewTestUtils.pendingCount()).toBe(0);
     expect(snapshots.at(-1)).toEqual([]);
+    unsubscribe();
+  });
+
+  it("exposes a lazy merge preview loader and returns the explicit merge decision", async () => {
+    let current: RoundTripImportReviewRequest[] = [];
+    const loadPreview = vi.fn(async () => ({
+      success: true,
+      dryRun: true,
+      strategy: "merge" as const,
+      counts: { notebooks: 1, mergedNotebooks: 3, renamedNotes: 2 },
+      conflicts: [{
+        action: "merge-directory" as const,
+        resourceType: "notebook" as const,
+        sourceId: "root",
+        originalName: "产品资料",
+        importedName: "产品资料",
+      }],
+    }));
+    const unsubscribe = subscribeRoundTripImportReviews((items) => { current = items; });
+    const decision = requestRoundTripImportReview({ success: true, strategy: "copy" }, {
+      fileName: "merge.nowen.zip",
+      loadPreview,
+    });
+
+    const mergePreview = await current[0].loadPreview?.("merge");
+    expect(loadPreview).toHaveBeenCalledWith("merge");
+    expect(mergePreview?.counts?.mergedNotebooks).toBe(3);
+
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "merge" });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "merge" });
     unsubscribe();
   });
 
@@ -55,12 +92,12 @@ describe("round-trip import review queue", () => {
     const second = requestRoundTripImportReview({ success: true }, { fileName: "b.nowen.zip" });
 
     expect(current.map((item) => item.fileName)).toEqual(["a.nowen.zip", "b.nowen.zip"]);
-    resolveRoundTripImportReview(current[0].id, false);
-    await expect(first).resolves.toBe(false);
+    resolveRoundTripImportReview(current[0].id, { accepted: false });
+    await expect(first).resolves.toEqual({ accepted: false });
     expect(current.map((item) => item.fileName)).toEqual(["b.nowen.zip"]);
 
-    resolveRoundTripImportReview(current[0].id, true);
-    await expect(second).resolves.toBe(true);
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "copy" });
+    await expect(second).resolves.toEqual({ accepted: true, strategy: "copy" });
     expect(current).toEqual([]);
     unsubscribe();
   });

@@ -9,8 +9,14 @@ on:
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/block-patch-route.test.ts"
+      - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "docs/block-patch-api.md"
       - ".github/workflows/block-patch-ci.yml"
   pull_request:
@@ -20,8 +26,14 @@ on:
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/block-patch-route.test.ts"
+      - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "docs/block-patch-api.md"
       - ".github/workflows/block-patch-ci.yml"
 
@@ -65,7 +77,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Block patch client test
-        run: npm run test:run -- src/lib/__tests__/blockPatchApi.test.ts
+      - name: Block patch client, planner and rollout tests
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/blockPatchApi.test.ts
+          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
+          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
+          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b

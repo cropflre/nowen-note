@@ -126,13 +126,20 @@ test("applies a multi-block patch atomically with one note version increment", a
   const payload = await response.json() as any;
   assert.equal(payload.version, 2);
   assert.equal(payload.operationCount, 3);
+  assert.equal(payload.title, noteId);
+  assert.equal(payload.contentFormat, "tiptap-json");
+  assert.equal(payload.notebookId, notebookId);
+  assert.equal(typeof payload.updatedAt, "string");
+  assert.ok(payload.updatedAt.length > 0);
   assert.deepEqual(payload.createdBlocks, [{
     operationIndex: 1,
     clientId: "client-gamma",
     blockId: "blk_gamma00",
   }]);
 
-  const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
+  const stored = db.prepare(
+    "SELECT content, contentText, version, updatedAt FROM notes WHERE id = ?",
+  ).get(noteId) as any;
   const parsed = JSON.parse(stored.content);
   assert.equal(stored.version, 2);
   assert.deepEqual(parsed.content.map((node: any) => node.attrs.blockId), [
@@ -141,12 +148,20 @@ test("applies a multi-block patch atomically with one note version increment", a
     "blk_gamma00",
   ]);
   assert.equal(parsed.content[1].content[0].text, "Alpha updated");
+  assert.equal(payload.content, stored.content);
+  assert.equal(payload.contentText, stored.contentText);
+  assert.equal(payload.updatedAt, stored.updatedAt);
+  assert.match(payload.contentText, /Alpha updated/);
+  assert.match(payload.contentText, /Gamma/);
 
   const replay = await patch(noteId, body);
   assert.equal(replay.status, 200);
   const replayPayload = await replay.json() as any;
   assert.equal(replayPayload.idempotentReplay, true);
   assert.equal(replayPayload.version, 2);
+  assert.equal(replayPayload.content, payload.content);
+  assert.equal(replayPayload.contentText, payload.contentText);
+  assert.equal(replayPayload.updatedAt, payload.updatedAt);
 });
 
 test("rolls back every operation when a later block is missing", async () => {
