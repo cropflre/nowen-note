@@ -32,6 +32,48 @@ export default defineConfig({
         find: /^@\/components\/AISettingsPanel$/,
         replacement: path.resolve(__dirname, "./src/components/AISettingsReliabilityShell.tsx"),
       },
+      // Issue #369：保留原 schema / serializer，仅替换高成本媒体 NodeView、公式与全文搜索壳。
+      // Runtime 壳内部使用相对路径导入原组件，避免精确别名递归。
+      {
+        find: /^@\/components\/VideoExtension$/,
+        replacement: path.resolve(__dirname, "./src/components/VideoExtensionRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/MermaidView$/,
+        replacement: path.resolve(__dirname, "./src/components/MermaidViewRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/MathExtensions$/,
+        replacement: path.resolve(__dirname, "./src/components/MathExtensionsRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/SearchReplacePanel$/,
+        replacement: path.resolve(__dirname, "./src/components/SearchReplacePanelRuntime.tsx"),
+      },
+      // Issue #369：Tiptap 派生数据只扫描一次；优化模式暂停实时全文大纲。
+      {
+        find: /^@\/components\/TiptapEditor$/,
+        replacement: path.resolve(__dirname, "./src/components/TiptapEditorRuntime.tsx"),
+      },
+      {
+        find: /^@\/lib\/proseMirrorPlainText$/,
+        replacement: path.resolve(__dirname, "./src/lib/proseMirrorPlainTextRuntime.ts"),
+      },
+      // Issue #369：大 Markdown 使用 CodeMirror transaction ↔ Y.Text delta 增量同步。
+      // 原组件和纯策略通过相对路径保留，Runtime 壳只接管协作热路径。
+      {
+        find: /^@\/components\/LargeMarkdownSafeEditor$/,
+        replacement: path.resolve(__dirname, "./src/components/LargeMarkdownSafeEditorRuntime.tsx"),
+      },
+      {
+        find: /^@\/lib\/largeMarkdownSafety$/,
+        replacement: path.resolve(__dirname, "./src/lib/largeMarkdownSafetyRuntime.ts"),
+      },
+      // Issue #369 P2：在不侵入 EditorPane 主体的前提下增加事务化文档拆分入口。
+      {
+        find: /^@\/components\/EditorPane$/,
+        replacement: path.resolve(__dirname, "./src/components/EditorPaneRuntime.tsx"),
+      },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
   },
@@ -39,6 +81,10 @@ export default defineConfig({
     esbuildOptions: {
       keepNames: true,
     },
+  },
+  // Keep worker output compatible with the Chrome 64 / older Android WebView build target.
+  worker: {
+    format: "iife",
   },
   build: {
     target: "chrome64",

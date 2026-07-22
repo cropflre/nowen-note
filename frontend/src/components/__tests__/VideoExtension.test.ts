@@ -117,6 +117,25 @@ describe("VideoExtension file uploads", () => {
     expect(editor.getHTML()).toContain("playsinline");
   });
 
+  it("keeps same-origin access for allowlisted iframe video players", () => {
+    const editor = new Editor({
+      extensions: [Document, Paragraph, Text, Video],
+      content: {
+        type: "doc",
+        content: [{
+          type: "video",
+          attrs: {
+            src: "https://player.bilibili.com/player.html?bvid=BV1xx411c7mD",
+            platform: "bilibili",
+            kind: "iframe",
+          },
+        }],
+      },
+    });
+
+    expect(editor.getHTML()).toContain('sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"');
+  });
+
   it("uses a compact portrait card for vertical video ratios", () => {
     const style = getVideoDisplayStyle(9 / 16);
 

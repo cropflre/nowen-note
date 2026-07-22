@@ -15,6 +15,9 @@ import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { syncNoteLinks, getBacklinks } from "../lib/noteLinks";
+import { syncNoteBlocks } from "../lib/noteBlocks";
+import { extractSearchableText } from "../lib/searchIndex";
+import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
@@ -403,21 +406,21 @@ app.post("/", async (c) => {
   } else {
     id = uuid();
   }
-  try {
-    // contentFormat: 区分原生 Markdown 笔记与富文本笔记
-    const contentFormat = body.contentFormat === "markdown" ? "markdown"
-      : body.contentFormat === "html" ? "html"
-      : "tiptap-json";
-    // Markdown 笔记默认 content 为空 Markdown；富文本默认为空 Tiptap JSON
-    const defaultContent = contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
+  // contentText 由服务端从正文派生，客户端提交值不再作为索引真源。
+  const contentFormat = body.contentFormat === "markdown" ? "markdown"
+    : body.contentFormat === "html" ? "html"
+    : "tiptap-json";
+  const defaultContent = contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
+  const initialContent = typeof body.content === "string" ? body.content : defaultContent;
 
+  try {
     db.prepare(`
       INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId, inheritedWorkspaceId, body.notebookId,
-      body.title || "无标题笔记", body.content || defaultContent, body.contentText || "",
-      contentFormat,
+      body.title || "无标题笔记", initialContent,
+      extractSearchableText(initialContent, contentFormat), contentFormat,
     );
   } catch (e: any) {
     if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
@@ -430,7 +433,7 @@ app.post("/", async (c) => {
   // 创建路径同样可能携带 base64（如：富文本编辑器粘贴图片后立即新建笔记保存）。
   // 必须放在 INSERT 之后，attachments.noteId 外键要求 note 行先存在。
   // 短路保证常规无内联图的创建零额外成本。
-  let finalContent: string | undefined = typeof body.content === "string" ? body.content : undefined;
+  let finalContent = initialContent;
   if (typeof body.content === "string" && body.content.indexOf("data:image") >= 0) {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, inheritedWorkspaceId);
@@ -455,18 +458,32 @@ app.post("/", async (c) => {
     }
   }
 
-  // BACKLINKS-02: 维护 note_links 引用关系（写时维护）。
-  // 失败仅打日志，不阻断笔记创建——引用关系缺失只会让"反向链接"暂时不准，
-  // 不影响主流程；下次该笔记 PUT 时会被重新 sync。
-  if (typeof finalContent === "string") {
+  // BLOCK-INDEX-01: 先规范化块 ID 和派生索引，再同步链接关系。
+  // 顺序不能反过来，否则 Markdown 首次保存时 sourceBlockId 仍为空。
+  let normalizedLinkContent: string | null = null;
+  try {
+    const stored = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as
+      | { content: string; contentFormat: string }
+      | undefined;
+    if (stored) {
+      const synced = syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+      db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+        .run(synced.content, synced.contentText, id);
+      normalizedLinkContent = synced.content;
+      finalContent = synced.content;
+    }
+  } catch (e) {
+    console.warn("[notes.post] syncNoteBlocks failed:", e instanceof Error ? e.message : e);
+  }
+  if (normalizedLinkContent !== null) {
     try {
-      syncNoteLinks(db, userId, id, finalContent);
+      syncNoteLinks(db, userId, id, normalizedLinkContent);
     } catch (e) {
       console.warn("[notes.post] syncNoteLinks failed:", e instanceof Error ? e.message : e);
     }
   }
 
-  // Y1: SELECT 时 isFavorite 按 per-user 动态计算；新建笔记当前用户尚未收藏，结果必为 0。
+  // Y1: SELECT 时 isFavorite 按当前用户动态计算；新建笔记当前用户尚未收藏，结果必为 0。
   const note = db.prepare(`
     SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
       CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
@@ -663,6 +680,9 @@ app.put("/:id", async (c) => {
     }
   }
 
+  const previousTitleRow = typeof body.title === "string"
+    ? db.prepare("SELECT title FROM notes WHERE id = ?").get(id) as { title: string } | undefined
+    : undefined;
   const fields: string[] = [];
   const params: any[] = [];
 
@@ -684,6 +704,23 @@ app.put("/:id", async (c) => {
     } catch (e) {
       console.warn("[notes.put] extractInlineBase64Images failed:", e instanceof Error ? e.message : e);
     }
+  }
+
+  // Ignore untrusted client contentText and derive the searchable text after any
+  // inline-image rewrite, using the effective stored content and format.
+  if (body.content !== undefined || body.contentFormat !== undefined) {
+    const currentSearchSource = db.prepare(
+      "SELECT content, contentFormat FROM notes WHERE id = ?",
+    ).get(id) as { content: string; contentFormat: string } | undefined;
+    const effectiveContent = typeof body.content === "string"
+      ? body.content
+      : currentSearchSource?.content || "";
+    const effectiveFormat = typeof body.contentFormat === "string"
+      ? body.contentFormat
+      : currentSearchSource?.contentFormat || "tiptap-json";
+    body.contentText = extractSearchableText(effectiveContent, effectiveFormat);
+  } else if (body.contentText !== undefined) {
+    delete body.contentText;
   }
 
   if (body.title !== undefined) { fields.push("title = ?"); params.push(body.title); }
@@ -799,13 +836,36 @@ app.put("/:id", async (c) => {
     }
   }
 
-  // BACKLINKS-02: 同步 note_links 引用关系（仅在 content 字段被改动时）。
-  // 失败仅打日志不阻断保存。
+  // BLOCK-INDEX-01: 内容更新时先规范化块 ID，再从规范化正文同步链接。
   if (body.content !== undefined && typeof body.content === "string") {
+    let normalizedLinkContent = body.content;
     try {
-      syncNoteLinks(db, userId, id, body.content);
+      const stored = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as
+        | { content: string; contentFormat: string }
+        | undefined;
+      if (stored) {
+        const synced = syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+        db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+          .run(synced.content, synced.contentText, id);
+        normalizedLinkContent = synced.content;
+        body.content = synced.content;
+        body.contentText = synced.contentText;
+      }
+    } catch (e) {
+      console.warn("[notes.put] syncNoteBlocks failed:", e instanceof Error ? e.message : e);
+    }
+    try {
+      syncNoteLinks(db, userId, id, normalizedLinkContent);
     } catch (e) {
       console.warn("[notes.put] syncNoteLinks failed:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (previousTitleRow && typeof body.title === "string" && previousTitleRow.title !== body.title) {
+    try {
+      syncAutomaticNoteLinkTitles(db, id, previousTitleRow.title, body.title);
+    } catch (e) {
+      console.warn("[notes.put] syncAutomaticNoteLinkTitles failed:", e instanceof Error ? e.message : e);
     }
   }
 

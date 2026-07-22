@@ -1,0 +1,136 @@
+name: Editor Runtime CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/vite.config.ts"
+      - "frontend/vitest.config.ts"
+      - "frontend/src/lib/editorComplexityProfile.ts"
+      - "frontend/src/lib/editorRuntimePolicy.ts"
+      - "frontend/src/lib/editorRuntimeStore.ts"
+      - "frontend/src/lib/tiptapDerivedRuntime.ts"
+      - "frontend/src/lib/proseMirrorPlainTextRuntime.ts"
+      - "frontend/src/lib/largeMarkdownSafety.ts"
+      - "frontend/src/lib/largeMarkdownSafetyRuntime.ts"
+      - "frontend/src/lib/markdownAnalysis.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/markdownYTextSync.ts"
+      - "frontend/src/lib/markdownYTextSyncRuntimeState.ts"
+      - "frontend/src/lib/largeRichTextSafeMode.ts"
+      - "frontend/src/lib/phaseAPerfDiagnostics.ts"
+      - "frontend/src/lib/codeBlockHighlightPlugin.ts"
+      - "frontend/src/hooks/useLazyNodeView.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditorRuntime.tsx"
+      - "frontend/src/components/ResizableImageView.tsx"
+      - "frontend/src/components/VideoExtensionRuntime.tsx"
+      - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/MathExtensionsRuntime.tsx"
+      - "frontend/src/components/SearchReplacePanelRuntime.tsx"
+      - "frontend/src/components/LargeRichTextSafeViewer.tsx"
+      - "frontend/src/**/__tests__/*editorRuntime*.test.*"
+      - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
+      - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/markdownYText*.test.ts"
+      - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
+      - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
+      - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
+      - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
+      - "frontend/src/components/__tests__/VideoExtension.test.ts"
+      - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
+      - ".github/workflows/editor-runtime-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/vite.config.ts"
+      - "frontend/vitest.config.ts"
+      - "frontend/src/lib/editorComplexityProfile.ts"
+      - "frontend/src/lib/editorRuntimePolicy.ts"
+      - "frontend/src/lib/editorRuntimeStore.ts"
+      - "frontend/src/lib/tiptapDerivedRuntime.ts"
+      - "frontend/src/lib/proseMirrorPlainTextRuntime.ts"
+      - "frontend/src/lib/largeMarkdownSafety.ts"
+      - "frontend/src/lib/largeMarkdownSafetyRuntime.ts"
+      - "frontend/src/lib/markdownAnalysis.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/markdownYTextSync.ts"
+      - "frontend/src/lib/markdownYTextSyncRuntimeState.ts"
+      - "frontend/src/lib/largeRichTextSafeMode.ts"
+      - "frontend/src/lib/phaseAPerfDiagnostics.ts"
+      - "frontend/src/lib/codeBlockHighlightPlugin.ts"
+      - "frontend/src/hooks/useLazyNodeView.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditorRuntime.tsx"
+      - "frontend/src/components/ResizableImageView.tsx"
+      - "frontend/src/components/VideoExtensionRuntime.tsx"
+      - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/MathExtensionsRuntime.tsx"
+      - "frontend/src/components/SearchReplacePanelRuntime.tsx"
+      - "frontend/src/components/LargeRichTextSafeViewer.tsx"
+      - "frontend/src/**/__tests__/*editorRuntime*.test.*"
+      - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
+      - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/markdownYText*.test.ts"
+      - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
+      - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
+      - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
+      - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
+      - "frontend/src/components/__tests__/VideoExtension.test.ts"
+      - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
+      - ".github/workflows/editor-runtime-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Focused runtime tests
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/editorRuntimePolicy.test.ts
+          src/lib/__tests__/editorRuntimeStore.test.ts
+          src/lib/__tests__/editorRuntimeNotice.test.ts
+          src/lib/__tests__/largeRichTextSafeMode.test.ts
+          src/lib/__tests__/largeMarkdownSafety.test.ts
+          src/lib/__tests__/markdownAnalysis.test.ts
+          src/lib/__tests__/markdownAnalysisClient.test.ts
+          src/lib/__tests__/markdownYTextSync.test.ts
+          src/lib/__tests__/markdownYTextRuntime.test.ts
+          src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts
+          src/lib/__tests__/tiptapDerivedRuntime.test.ts
+          src/lib/__tests__/codeBlockHighlightPlugin.test.ts
+          src/lib/__tests__/codeBlockViewportHighlight.test.ts
+          src/hooks/__tests__/useLazyNodeView.test.tsx
+          src/components/__tests__/VideoExtension.test.ts
+          src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
+          src/components/__tests__/SearchReplaceRuntime.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b

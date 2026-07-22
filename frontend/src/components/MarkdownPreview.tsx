@@ -12,6 +12,10 @@ import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
 import { MarkdownCodeBlock, isMarkdownBlockCode } from "@/components/MarkdownCodeBlock";
 import { MathView } from "@/components/MathView";
+import { NoteLinkPreviewAnchor } from "@/components/NoteLinkPreview";
+import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
+import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
+import { resolveAttachmentUrl } from "@/lib/api";
 
 interface MarkdownPreviewProps {
   markdown: string;
@@ -80,6 +84,8 @@ const safeHtmlSchema = {
       ...((defaultSchema.attributes || {})["*"] || []),
       "dataNowenMathSource",
       "dataNowenMathDisplay",
+      "dataNowenTitleMode",
+      "dataNowenBlockEmbed",
     ],
     iframe: ["src", "title", "width", "height", "loading", "allow", "allowFullScreen", "referrerPolicy"],
     video: ["src", "controls", "poster", "preload", "width", "height"],
@@ -152,16 +158,17 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
   if (!src) return null;
+  const resolvedSrc = src.startsWith("//") ? src : resolveAttachmentUrl(src);
   if (failed) {
     return <span className="inline-flex items-center gap-1 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")}</span>;
   }
   return (
     <img
-      src={src}
+      src={resolvedSrc}
       alt={alt || ""}
       loading="lazy"
       className="my-4 block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
-      onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+      onClick={() => window.open(resolvedSrc, "_blank", "noopener,noreferrer")}
       onError={() => setFailed(true)}
     />
   );
@@ -175,7 +182,11 @@ function PreviewMediaImage({ src, alt }: { src?: string; alt?: string }) {
   return <PreviewImage src={src} alt={alt} />;
 }
 
-function PreviewLink({ href, children }: { href?: string; children?: React.ReactNode }) {
+function PreviewLink({ href, children, ...props }: { href?: string; children?: React.ReactNode; [key: string]: any }) {
+  if (href?.startsWith("note:")) {
+    const mode = props["data-nowen-title-mode"] || props.dataNowenTitleMode;
+    return <NoteLinkPreviewAnchor href={href} titleMode={mode === "alias" ? "alias" : "auto"}>{children}</NoteLinkPreviewAnchor>;
+  }
   return <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-primary underline-offset-2 hover:underline">{children}</a>;
 }
 
@@ -263,6 +274,10 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
     },
     div: ({ children, ...props }) => {
       const source = getMathSource(props);
+      const embedHref = props["data-nowen-block-embed"] ?? props.dataNowenBlockEmbed;
+      if (typeof embedHref === "string" && embedHref.startsWith("note:")) {
+        return <div className="my-4"><BlockEmbedCard href={embedHref} /></div>;
+      }
       return source === null
         ? <div {...props}>{children}</div>
         : <MathView source={source} display />;
@@ -304,9 +319,9 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
 
 export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange }: MarkdownPreviewProps) {
   const { t } = useTranslation();
-  const renderedMarkdown = useMemo(() => preprocessMarkdownMath(preprocessMarkdownVideos((markdown || "")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[\u00A0\u3000]/g, " "))), [markdown]);
+  const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos((markdown || "")
+    .replace(/[​-‍﻿]/g, "")
+    .replace(/[ 　]/g, " ")))), [markdown]);
   const containsRawHtml = RAW_HTML_RE.test(renderedMarkdown);
   const components = useMemo(() => createComponents(onTaskCheckboxChange), [onTaskCheckboxChange]);
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];

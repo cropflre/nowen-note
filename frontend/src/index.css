@@ -249,29 +249,61 @@ body {
 }
 
 .ProseMirror ul {
-  padding-left: 1.5rem;
+  padding-left: 1.6em;
   margin: 0.75rem 0;
-  list-style-type: disc;
+  list-style: none !important;
+  --nowen-ul-marker: "•";
+  --nowen-ul-marker-size: 1.1em;
+  --nowen-ul-marker-top: 0;
+}
+
+/* 无序列表符号显式覆盖 1～9 层；更深层级沿用第 9 层样式。 */
+.ProseMirror ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.ProseMirror ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+.ProseMirror ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.ProseMirror ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.ProseMirror ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+.ProseMirror ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.ProseMirror ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.ProseMirror ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+
+.ProseMirror ul > li:not([data-type="taskItem"]):not(.task-list-item) {
+  position: relative;
+}
+
+.ProseMirror ul > li:not([data-type="taskItem"]):not(.task-list-item)::before {
+  content: var(--nowen-ul-marker);
+  position: absolute;
+  left: -1.2em;
+  top: var(--nowen-ul-marker-top);
+  color: var(--pm-text);
+  font-size: var(--nowen-ul-marker-size);
+  line-height: 1;
+}
+
+.ProseMirror ul.contains-task-list > li.task-list-item::before,
+.ProseMirror ul[data-type="taskList"] > li[data-type="taskItem"]::before {
+  content: none !important;
 }
 
 .ProseMirror ol {
-  padding-left: 1.5rem;
+  padding-left: 1.6em;
   margin: 0.75rem 0;
   list-style-type: decimal !important;
-  -webkit-padding-start: 1.5rem;
+  -webkit-padding-start: 1.6em;
 }
 
-.ProseMirror ol li {
+.ProseMirror ol > li {
   display: list-item !important;
   list-style-type: decimal !important;
 }
 
-/* 纭繚宓屽鏈夊簭鍒楄〃涔熸纭樉绀虹紪鍙?*/
-.ProseMirror ol ol li {
+/* 确保嵌套有序列表仅影响自己的直接列表项。 */
+.ProseMirror ol > li > ol > li {
   list-style-type: lower-alpha !important;
 }
 
-.ProseMirror ol ol ol li {
+.ProseMirror ol > li > ol > li > ol > li {
   list-style-type: lower-roman !important;
 }
 
@@ -1245,7 +1277,7 @@ body.density-compact {
     padding-inline-start: 1.5rem;
   }
 
-  .ProseMirror ol li {
+  .ProseMirror ol > li {
     display: list-item !important;
     list-style-type: decimal !important;
   }
@@ -1509,10 +1541,39 @@ body.density-compact {
   margin: 0.85em 0;
   padding-left: 1.6em;
 }
-.shared-note-content ul { list-style: disc; }
+.shared-note-content ul {
+  list-style: none !important;
+  --nowen-ul-marker: "•";
+  --nowen-ul-marker-size: 1.1em;
+  --nowen-ul-marker-top: 0;
+}
 .shared-note-content ol { list-style: decimal; }
-.shared-note-content ul ul { list-style: circle; }
-.shared-note-content ul ul ul { list-style: square; }
+.shared-note-content ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.shared-note-content ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+.shared-note-content ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.shared-note-content ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.shared-note-content ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+.shared-note-content ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.shared-note-content ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+.shared-note-content ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+
+.shared-note-content ul > li:not([data-type="taskItem"]):not(.task-list-item) {
+  position: relative;
+}
+
+.shared-note-content ul > li:not([data-type="taskItem"]):not(.task-list-item)::before {
+  content: var(--nowen-ul-marker);
+  position: absolute;
+  left: -1.2em;
+  top: var(--nowen-ul-marker-top);
+  font-size: var(--nowen-ul-marker-size);
+  line-height: 1;
+}
+
+.shared-note-content ul.contains-task-list > li.task-list-item::before,
+.shared-note-content ul[data-type="taskList"] > li[data-type="taskItem"]::before {
+  content: none !important;
+}
 .shared-note-content li {
   margin: 0.25em 0;
 }

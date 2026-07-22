@@ -1,17 +1,6 @@
 # =============================================================================
 # nowen-note 多架构 Dockerfile（Alpine 精简版）
-# -----------------------------------------------------------------------------
-# 支持 linux/amd64 与 linux/arm64。较旧的 slim 版本镜像约 238MB，
-# 改用 alpine 基座 + 构建工具链 virtual 卸载 + musl 原生编译后约 85–95MB。
-#
-# 关键设计：
-#   - 基础镜像：node:20-alpine（~42MB），而非 node:20-slim（~150MB）
-#   - better-sqlite3 / sqlite-vec 在 musl 下需要本地编译 → 用 --virtual
-#     安装构建链，npm ci 完立即 `apk del`，不留任何构建产物在运行层
-#   - rollup 的原生绑定根据 TARGETARCH 选 musl 版（linux-*-musl）而不是 gnu
-#   - QEMU 模拟 arm64 编译 better-sqlite3 仍然会慢，属预期
 # =============================================================================
-
 ARG TARGETARCH=amd64
 
 # ---------- Stage 1: 前端构建 ----------
@@ -19,19 +8,16 @@ FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 ARG TARGETARCH
 WORKDIR /app/frontend
 
-# 根 package.json 被 vite.config.ts 读取用于注入 __APP_VERSION__
 COPY package.json /app/package.json
-
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# rollup 原生绑定按目标架构选 musl 版（alpine 必须 musl，不能用 gnu）
 RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.packages||{})['node_modules/rollup']||(l.dependencies||{}).rollup||{};console.log(v.version||'')}catch(e){console.log('')}") && \
     [ -z "$ROLLUP_VER" ] && ROLLUP_VER="4.59.0" ; \
     case "$TARGETARCH" in \
       amd64) ROLLUP_PKG="@rollup/rollup-linux-x64-musl@${ROLLUP_VER}" ;; \
       arm64) ROLLUP_PKG="@rollup/rollup-linux-arm64-musl@${ROLLUP_VER}" ;; \
-      *)     ROLLUP_PKG="" ;; \
+      *)     ROLLUP_PKG="" ;;
     esac; \
     if [ -n "$ROLLUP_PKG" ]; then \
       echo "Installing $ROLLUP_PKG ..." && \
@@ -41,31 +27,21 @@ RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.
 COPY frontend/ .
 RUN npx vite build
 
-# ---------- Stage 2: 后端构建（tsc） ----------
+# ---------- Stage 2: 后端构建（包含 updater 专用入口） ----------
 FROM node:20-alpine AS backend-build
 WORKDIR /app/backend
-
-# tsc 纯 JS 架构无关，但 npm ci 会触发 better-sqlite3 / sqlite-vec 编译
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
-
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY backend/ .
 RUN npx tsc
-
-# build-deps 在这个 stage 用不着保留，最终运行时镜像会从 runtime stage 重新编译
 RUN apk del .build-deps
 
 # ---------- Stage 3: 运行时镜像 ----------
 FROM node:20-alpine
 WORKDIR /app
-
-# tini 提供 PID 1 信号转发；tzdata 让 TZ=Asia/Shanghai 等时区在 Alpine 运行层生效
 RUN apk add --no-cache tini tzdata
 
-# 运行时依赖（production only）：独立编译一次，确保 .node 是 musl 版
-# 根 package.json 是运行时版本号的真相源；/api/version 优先读取它，避免 NAS / 应用市场
-# 更新时复用旧容器 ENV（NOWEN_APP_VERSION）导致服务端版本号停在旧值。
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
@@ -78,22 +54,25 @@ COPY --from=backend-build /app/backend/dist ./backend/dist
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
-RUN mkdir -p /app/data
-
-# 数据卷（见原 Dockerfile 注释：便于 NAS 面板自动识别）
+RUN mkdir -p /app/data /var/lib/nowen-updater \
+    && chmod 700 /var/lib/nowen-updater
 VOLUME ["/app/data"]
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# ---- 版本/构建元信息（由 release.sh 通过 --build-arg 注入；本机 docker build 也兼容空值） ----
-# BUILD_DATE   : ISO8601 UTC，如 2026-05-09T10:23:01Z；run-time 通过 NOWEN_BUILD_TIME 暴露给 /api/version
-# APP_VERSION  : 形如 1.0.31，写入 NOWEN_APP_VERSION 兜底（即便镜像里 package.json 与发版号偏差也不会报错）
-# 这两个 ARG 都是可选的——空字符串场景下后端 resolveAppVersion()/resolveBuildTime() 仍会走原有 fallback。
 ARG BUILD_DATE=""
 ARG APP_VERSION=""
+ARG VCS_REF=""
 ENV NOWEN_BUILD_TIME=${BUILD_DATE}
 ENV NOWEN_APP_VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.title="Nowen Note" \
+      org.opencontainers.image.description="Self-hosted note and knowledge management" \
+      org.opencontainers.image.source="https://github.com/cropflre/nowen-note" \
+      org.opencontainers.image.version=${APP_VERSION} \
+      org.opencontainers.image.created=${BUILD_DATE} \
+      org.opencontainers.image.revision=${VCS_REF} \
+      com.nowen-note.schema-metadata="runtime-api"
 
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/nowen-note.db
@@ -101,6 +80,11 @@ ENV PORT=3001
 
 EXPOSE 3001
 
+# 主应用的容器级健康检查。Compose 会显式重复声明，兼容 NAS 面板与直接 docker run。
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
+  CMD node -e "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
 WORKDIR /app
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
-CMD ["node", "backend/dist/index.js"]
+# 必须从 hardened 入口启动，确保自动全量备份等运行时补丁在 Docker 生产环境生效。
+CMD ["node", "backend/dist/index.hardened.js"]

@@ -181,6 +181,10 @@ CREATE TABLE IF NOT EXISTS notebook_members (
     "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT NOT NULL DEFAULT 'viewer',
     status TEXT NOT NULL DEFAULT 'active',
+    "allowDownload" INTEGER NOT NULL DEFAULT 1,
+    "allowReshare" INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
+    "sourceId" TEXT,
     "invitedBy" TEXT REFERENCES users(id) ON DELETE SET NULL,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -196,6 +200,8 @@ CREATE TABLE IF NOT EXISTS notebook_share_links (
     role TEXT NOT NULL DEFAULT 'viewer',
     enabled BOOLEAN NOT NULL DEFAULT true,
     "expiresAt" TIMESTAMPTZ,
+    "maxUses" INTEGER,
+    "useCount" INTEGER NOT NULL DEFAULT 0,
     "createdBy" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -562,6 +568,7 @@ CREATE TABLE IF NOT EXISTS shares (
     "shareType" TEXT NOT NULL DEFAULT 'link',
     permission TEXT NOT NULL DEFAULT 'view',
     password TEXT,
+    "credentialVersion" INTEGER NOT NULL DEFAULT 1,
     "expiresAt" TIMESTAMPTZ,
     "maxViews" INTEGER,
     "viewCount" INTEGER DEFAULT 0,
@@ -574,6 +581,15 @@ CREATE INDEX IF NOT EXISTS idx_shares_note ON shares("noteId");
 CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares("ownerId");
 CREATE INDEX IF NOT EXISTS idx_shares_token ON shares("shareToken");
 
+CREATE TABLE IF NOT EXISTS "share_view_sessions" (
+  "shareId" TEXT NOT NULL REFERENCES "shares"("id") ON DELETE CASCADE,
+  "sessionHash" TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "lastSeenAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ("shareId", "sessionHash")
+);
+CREATE INDEX IF NOT EXISTS "idx_share_view_sessions_seen" ON "share_view_sessions"("shareId", "lastSeenAt");
+
 CREATE TABLE IF NOT EXISTS share_comments (
     id TEXT PRIMARY KEY,
     "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -583,6 +599,9 @@ CREATE TABLE IF NOT EXISTS share_comments (
     "parentId" TEXT REFERENCES share_comments(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     "anchorData" TEXT,
+    "sourceType" TEXT NOT NULL DEFAULT 'note_share',
+    "sourceId" TEXT,
+    "isHidden" INTEGER NOT NULL DEFAULT 0,
     "isResolved" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -781,3 +800,37 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     "appliedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (version, name)
 );
+
+-- ============================================================
+-- Universal note block index and idempotent block operations
+-- ============================================================
+CREATE TABLE IF NOT EXISTS note_blocks_index (
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "blockId" TEXT NOT NULL,
+    "blockType" TEXT NOT NULL,
+    "parentBlockId" TEXT,
+    "blockOrder" INTEGER NOT NULL DEFAULT 0,
+    "plainText" TEXT NOT NULL DEFAULT '',
+    "contentHash" TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    "startOffset" INTEGER,
+    "endOffset" INTEGER,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("noteId", "blockId")
+);
+CREATE INDEX IF NOT EXISTS idx_note_blocks_block_id ON note_blocks_index("blockId");
+CREATE INDEX IF NOT EXISTS idx_note_blocks_note_order ON note_blocks_index("noteId", "blockOrder");
+CREATE INDEX IF NOT EXISTS idx_note_blocks_hash ON note_blocks_index("noteId", "blockType", "contentHash");
+
+CREATE TABLE IF NOT EXISTS block_operations (
+    "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    "operationId" TEXT NOT NULL,
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "resultJson" TEXT NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("userId", "operationId")
+);
+CREATE INDEX IF NOT EXISTS idx_block_operations_note ON block_operations("noteId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_note_links_source_block ON note_links("sourceNoteId", "sourceBlockId");
+

@@ -56,7 +56,7 @@ async function main() {
 
 function runTest(filePath, label) {
   return new Promise((resolve) => {
-    const child = spawn("node", ["--import", "tsx", "--test", filePath], {
+    const child = spawn("node", ["--import", "tsx", "--import", "./tests/setup-db-isolation.ts", "--test", filePath], {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
     });

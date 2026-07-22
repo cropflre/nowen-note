@@ -1,10 +1,27 @@
-import React, { createContext, useContext, useEffect, useReducer, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useReducer, useMemo, useRef } from "react";
 import { Notebook, NoteListItem, Note, Tag, ViewMode } from "@/types";
 import { api } from "@/lib/api";
 import { NOTEBOOKS_INVALIDATED_EVENT } from "@/lib/notebookInvalidation";
+import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
+import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
+import type { NoteLoadBeginPayload, NoteLoadSummary } from "@/lib/noteLoadCoordinator";
+import {
+  mergeAuthoritativeNotebooks,
+  replaceOptimisticNotebook,
+} from "@/lib/notebookCreateState";
 
 export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline" | "queued";
 export type MobileView = "list" | "editor";
+
+export interface NoteLoadingState {
+  requestId: number;
+  pendingNoteId: string | null;
+  pendingSummary: NoteLoadSummary | null;
+  startedAt: number | null;
+  visible: boolean;
+  slow: boolean;
+  error: string | null;
+}
 
 export interface OpenNoteTab {
   id: string;
@@ -44,8 +61,10 @@ interface AppState {
   /** 桌面端：编辑器专注全屏。仅临时隐藏外侧导航，不改写各面板折叠偏好。 */
   editorFullscreen: boolean;
   isLoading: boolean;
-  /** 笔记切换时的加载状态：正在从后端获取完整笔记内容 */
+  /** 兼容旧组件：仅在延迟阈值后或错误状态下为 true。 */
   noteLoading: boolean;
+  /** 当前主编辑区正在打开的目标笔记及分级加载状态。 */
+  noteLoadingState: NoteLoadingState;
   syncStatus: SyncStatus;
   lastSyncedAt: string | null;
   mobileView: MobileView;
@@ -60,6 +79,10 @@ interface AppState {
 
 type Action =
   | { type: "SET_NOTEBOOKS"; payload: Notebook[] }
+  | { type: "ADD_NOTEBOOK"; payload: Notebook }
+  | { type: "REPLACE_NOTEBOOK"; payload: { id: string; notebook: Notebook } }
+  | { type: "UPDATE_NOTEBOOK"; payload: Partial<Notebook> & { id: string } }
+  | { type: "REMOVE_NOTEBOOK"; payload: string }
   | { type: "SET_NOTES"; payload: NoteListItem[] }
   | { type: "SET_ACTIVE_NOTE"; payload: Note | null }
   | { type: "SET_TAGS"; payload: Tag[] }
@@ -78,6 +101,11 @@ type Action =
   | { type: "TOGGLE_EDITOR_FULLSCREEN" }
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "SET_NOTE_LOADING"; payload: boolean }
+  | { type: "BEGIN_NOTE_LOAD"; payload: NoteLoadBeginPayload }
+  | { type: "SHOW_NOTE_LOAD"; payload: number }
+  | { type: "MARK_NOTE_LOAD_SLOW"; payload: number }
+  | { type: "FAIL_NOTE_LOAD"; payload: { requestId: number; error: string } }
+  | { type: "FINISH_NOTE_LOAD"; payload: number }
   | { type: "UPDATE_NOTE_IN_LIST"; payload: Partial<NoteListItem> & { id: string } }
   | { type: "REMOVE_NOTE_FROM_LIST"; payload: string }
   | { type: "ADD_NOTE_TO_LIST"; payload: NoteListItem }
@@ -104,6 +132,18 @@ const DEFAULT_NOTELIST_WIDTH = 300;
 const MIN_NOTELIST_WIDTH = 220;
 const MAX_NOTELIST_WIDTH = 500;
 const MAX_OPEN_NOTE_TABS = 12;
+
+function createIdleNoteLoadingState(): NoteLoadingState {
+  return {
+    requestId: 0,
+    pendingNoteId: null,
+    pendingSummary: null,
+    startedAt: null,
+    visible: false,
+    slow: false,
+    error: null,
+  };
+}
 
 function sortOpenNoteTabs(tabs: OpenNoteTab[]): OpenNoteTab[] {
   return [...tabs].sort((a, b) => {
@@ -168,6 +208,7 @@ const initialState: AppState = {
   editorFullscreen: false,
   isLoading: false,
   noteLoading: false,
+  noteLoadingState: createIdleNoteLoadingState(),
   syncStatus: "idle",
   lastSyncedAt: null,
   mobileView: "list",
@@ -182,7 +223,30 @@ export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELI
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "SET_NOTEBOOKS":
-      return { ...state, notebooks: action.payload };
+      return {
+        ...state,
+        notebooks: mergeAuthoritativeNotebooks(state.notebooks, action.payload),
+      };
+    case "ADD_NOTEBOOK":
+      if (state.notebooks.some((notebook) => notebook.id === action.payload.id)) return state;
+      return { ...state, notebooks: [...state.notebooks, action.payload] };
+    case "REPLACE_NOTEBOOK": {
+      const notebooks = replaceOptimisticNotebook(
+        state.notebooks,
+        action.payload.id,
+        action.payload.notebook,
+      );
+      return notebooks === state.notebooks ? state : { ...state, notebooks };
+    }
+    case "UPDATE_NOTEBOOK":
+      return {
+        ...state,
+        notebooks: state.notebooks.map((notebook) =>
+          notebook.id === action.payload.id ? { ...notebook, ...action.payload } : notebook
+        ),
+      };
+    case "REMOVE_NOTEBOOK":
+      return { ...state, notebooks: state.notebooks.filter((notebook) => notebook.id !== action.payload) };
     case "SET_NOTES":
       return { ...state, notes: action.payload };
     case "SET_ACTIVE_NOTE":
@@ -254,7 +318,55 @@ function reducer(state: AppState, action: Action): AppState {
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
     case "SET_NOTE_LOADING":
-      return { ...state, noteLoading: action.payload };
+      return action.payload
+        ? {
+          ...state,
+          noteLoading: true,
+          noteLoadingState: { ...state.noteLoadingState, visible: true, error: null },
+        }
+        : { ...state, noteLoading: false, noteLoadingState: createIdleNoteLoadingState() };
+    case "BEGIN_NOTE_LOAD":
+      return {
+        ...state,
+        noteLoading: false,
+        noteLoadingState: {
+          requestId: action.payload.requestId,
+          pendingNoteId: action.payload.noteId,
+          pendingSummary: action.payload.summary,
+          startedAt: action.payload.startedAt,
+          visible: false,
+          slow: false,
+          error: null,
+        },
+      };
+    case "SHOW_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return {
+        ...state,
+        noteLoading: true,
+        noteLoadingState: { ...state.noteLoadingState, visible: true },
+      };
+    case "MARK_NOTE_LOAD_SLOW":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return {
+        ...state,
+        noteLoadingState: { ...state.noteLoadingState, slow: true },
+      };
+    case "FAIL_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload.requestId) return state;
+      return {
+        ...state,
+        noteLoading: true,
+        noteLoadingState: {
+          ...state.noteLoadingState,
+          visible: true,
+          slow: false,
+          error: action.payload.error,
+        },
+      };
+    case "FINISH_NOTE_LOAD":
+      if (state.noteLoadingState.requestId !== action.payload) return state;
+      return { ...state, noteLoading: false, noteLoadingState: createIdleNoteLoadingState() };
     case "UPDATE_NOTE_IN_LIST":
       return {
         ...state,
@@ -338,6 +450,28 @@ const AppContext = createContext<{
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const profiledDispatch = useCallback<React.Dispatch<Action>>((action) => {
+    const current = stateRef.current;
+    let changedFields = "";
+    if (action.type === "SET_ACTIVE_NOTE") {
+      const previous = current.activeNote;
+      const next = action.payload;
+      if (previous && next) {
+        changedFields = Object.keys(next)
+          .filter((key) => previous[key as keyof Note] !== next[key as keyof Note])
+          .join(",");
+      } else if (previous !== next) {
+        changedFields = "activeNote";
+      }
+    }
+    recordPhaseAPerfEvent({
+      type: "app-context-dispatch",
+      detail: { action: action.type, changedFields },
+    });
+    dispatch(action);
+  }, []);
 
   useEffect(() => {
     let refreshTimer: number | null = null;
@@ -373,8 +507,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AppContext.Provider value={{ state, dispatch }}>
-      {children}
+    <AppContext.Provider value={{ state, dispatch: profiledDispatch }}>
+      <PhaseAPerfProfiler id="AppProvider">{children}</PhaseAPerfProfiler>
     </AppContext.Provider>
   );
 }
@@ -393,6 +527,10 @@ export function useAppActions() {
   // 从而避免保存期间频繁 dispatch 导致的编辑器状态抖动（如光标跳行）。
   return useMemo(() => ({
     setNotebooks: (v: Notebook[]) => dispatch({ type: "SET_NOTEBOOKS", payload: v }),
+    addNotebook: (v: Notebook) => dispatch({ type: "ADD_NOTEBOOK", payload: v }),
+    replaceNotebook: (id: string, notebook: Notebook) => dispatch({ type: "REPLACE_NOTEBOOK", payload: { id, notebook } }),
+    updateNotebook: (v: Partial<Notebook> & { id: string }) => dispatch({ type: "UPDATE_NOTEBOOK", payload: v }),
+    removeNotebook: (id: string) => dispatch({ type: "REMOVE_NOTEBOOK", payload: id }),
     setNotes: (v: NoteListItem[]) => dispatch({ type: "SET_NOTES", payload: v }),
     setActiveNote: (v: Note | null) => dispatch({ type: "SET_ACTIVE_NOTE", payload: v }),
     setTags: (v: Tag[]) => dispatch({ type: "SET_TAGS", payload: v }),
@@ -411,6 +549,11 @@ export function useAppActions() {
     toggleEditorFullscreen: () => dispatch({ type: "TOGGLE_EDITOR_FULLSCREEN" }),
     setLoading: (v: boolean) => dispatch({ type: "SET_LOADING", payload: v }),
     setNoteLoading: (v: boolean) => dispatch({ type: "SET_NOTE_LOADING", payload: v }),
+    beginNoteLoad: (payload: NoteLoadBeginPayload) => dispatch({ type: "BEGIN_NOTE_LOAD", payload }),
+    showNoteLoad: (requestId: number) => dispatch({ type: "SHOW_NOTE_LOAD", payload: requestId }),
+    markNoteLoadSlow: (requestId: number) => dispatch({ type: "MARK_NOTE_LOAD_SLOW", payload: requestId }),
+    failNoteLoad: (requestId: number, error: string) => dispatch({ type: "FAIL_NOTE_LOAD", payload: { requestId, error } }),
+    finishNoteLoad: (requestId: number) => dispatch({ type: "FINISH_NOTE_LOAD", payload: requestId }),
     updateNoteInList: (v: Partial<NoteListItem> & { id: string }) => dispatch({ type: "UPDATE_NOTE_IN_LIST", payload: v }),
     removeNoteFromList: (id: string) => dispatch({ type: "REMOVE_NOTE_FROM_LIST", payload: id }),
     addNoteToList: (v: NoteListItem) => dispatch({ type: "ADD_NOTE_TO_LIST", payload: v }),

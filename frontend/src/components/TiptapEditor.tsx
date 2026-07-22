@@ -9,7 +9,7 @@ import { Plugin, PluginKey } from "prosemirror-state";
 const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPreview"));
 // 复用的附件详情抽屉（与 FileManager 同一份实现）
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
-import { posToDOMRect } from "@tiptap/core";
+import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
@@ -17,7 +17,7 @@ import ResizableImageView from "./ResizableImageView";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
 import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
@@ -29,8 +29,26 @@ import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TableRowResizable } from "./extensions/TableRowResizable";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
+import {
+  installPhaseABrowserObservers,
+  installPhaseAEditorTransactionInstrumentation,
+  instrumentPhaseALowlight,
+  isPhaseAPerfEnabled,
+  recordPhaseAPerfEvent,
+} from "@/lib/phaseAPerfDiagnostics";
+import { publishEditorEditable } from "@/lib/editorEditableStore";
+import { EditorRevisionGuard } from "@/lib/editorRevisionGuard";
+import {
+  isMatchingTiptapSaveAck,
+  type TiptapSaveAckToken,
+} from "@/lib/editorSyncGuards";
+import {
+  createCodeBlockHighlightPlugin,
+  type LowlightLike,
+} from "@/lib/codeBlockHighlightPlugin";
 import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection, NodeSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
@@ -49,6 +67,12 @@ import {
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
+import { shouldLocalizeUrl } from "@/lib/remoteImageLocalizer";
+import {
+  analyzeRiskyForegroundColors,
+  normalizeLegacyFontColors,
+  stripExplicitForegroundColors,
+} from "@/lib/pasteForegroundColor";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
@@ -64,11 +88,12 @@ import {
 import { downloadAttachment } from "@/lib/downloadFile";
 import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
 import { cn } from "@/lib/utils";
+import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
-import { prompt as promptDialog } from "@/components/ui/confirm";
+import { choose as chooseDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import { Note, Tag } from "@/types";
 import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
@@ -76,7 +101,10 @@ import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/com
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
-import { NoteLinkMenu, type NoteSearchResult, type HeadingItem as NoteLinkHeadingItem } from "@/components/NoteLinkExtension";
+import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
+import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
+import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
 import { MathExtensions } from "@/components/MathExtensions";
 import { FootnoteExtensions, nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
@@ -99,10 +127,22 @@ import {
   toggleBulletListSmart,
   toggleOrderedListSmart,
 } from "@/lib/tiptapEditorCommands";
+import {
+  captureAsyncInsertAnchor,
+  mapAsyncInsertAnchors,
+  releaseAsyncInsertAnchor,
+  restoreAsyncInsertAnchor,
+  type AsyncInsertAnchor,
+} from "@/lib/asyncEditorInsert";
+import {
+  clearOutlineScrollReserve,
+  scrollOutlineTargetIntoView,
+} from "@/lib/outlineScroll";
 
 import { useTranslation } from "react-i18next";
+import { getActiveListType, type ActiveListType } from "@/lib/activeListType";
 
-const lowlight = createLowlight(common);
+const lowlight = instrumentPhaseALowlight(createLowlight(common));
 
 const NOTE_WIKI_LINK_RE = /\[\[note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:#blk:([a-zA-Z0-9_-]+))?(?:\|((?:\\\]|[^\]])*))?\]\]/g;
 
@@ -151,6 +191,7 @@ function parsePastedWikiNoteLinks(text: string, fallbackTitle: string): HTMLDivE
     const title = (rawTitle || fallbackTitle).replace(/\\]/g, "]");
     const anchor = document.createElement("a");
     anchor.setAttribute("href", blockId ? `note:${noteId}#blk:${blockId}` : `note:${noteId}`);
+    anchor.setAttribute("rel", `noopener noreferrer nofollow nowen-title-${rawTitle ? "alias" : "auto"}`);
     anchor.textContent = title || fallbackTitle;
     wrapper.appendChild(anchor);
     lastIndex = match.index + match[0].length;
@@ -745,8 +786,8 @@ const IndentExtension = Extension.create({
  *   - TipTap JSON 中保存 attrs.blockId
  *
  * 限制：
- *   - 只处理 heading，不处理 paragraph / list / image / table 等
- *   - 不做块引用 UI，不做跳转，不改 note_links
+ *   - 第一版处理 heading / paragraph / listItem / taskItem / blockquote / codeBlock
+ *   - table / image / media 暂不纳入块身份模型
  */
 const BlockIdExtension = Extension.create({
   name: "blockId",
@@ -754,7 +795,7 @@ const BlockIdExtension = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: ["heading"],
+        types: ["heading", "paragraph", "listItem", "taskItem", "blockquote", "codeBlock"],
         attributes: {
           blockId: {
             default: null,
@@ -794,9 +835,10 @@ const BlockIdExtension = Extension.create({
             }
           };
 
-          // 扫描所有 heading 节点
+          // 扫描所有受支持块节点
+          const supportedBlockTypes = new Set(["heading", "paragraph", "listItem", "taskItem", "blockquote", "codeBlock"]);
           newState.doc.descendants((node, pos) => {
-            if (node.type.name !== "heading") return;
+            if (!supportedBlockTypes.has(node.type.name)) return;
 
             const currentId = node.attrs.blockId;
 
@@ -889,24 +931,24 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
           }
         }
 
-        // 任务列表 / 普通列表：sink / lift
+        // 列表内的 Tab 只调整列表层级，不退化为块级视觉缩进。
         if (isInTaskList()) {
-          const ok = delta === 1
-            ? editor.chain().focus().sinkListItem("taskItem").run()
-            : editor.chain().focus().liftListItem("taskItem").run();
-          if (ok) return true;
-          // 若无法 sink/lift（例如已是最外层），退化为块级 indent
-        } else if (isInBulletOrOrdered()) {
-          const ok = delta === 1
+          if (delta === 1) {
+            editor.chain().focus().sinkListItem("taskItem").run();
+          } else {
+            editor.chain().focus().liftListItem("taskItem").run();
+          }
+          return true;
+        }
+        if (isInBulletOrOrdered()) {
+          const changed = delta === 1
             ? editor.chain().focus().sinkListItem("listItem").run()
             : editor.chain().focus().liftListItem("listItem").run();
-          if (ok) {
-            normalizeAdjacentLists(editor);
-            return true;
-          }
+          if (changed) normalizeAdjacentLists(editor);
+          return true;
         }
 
-        // 其余：调整块级 indent 属性
+        // 仅普通块级内容使用视觉缩进。
         return editor.chain().focus().changeIndent(delta).run();
       };
 
@@ -992,6 +1034,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact }
     <button
       type="button"
       onClick={onClick}
+      onMouseDown={(event) => event.preventDefault()}
       disabled={disabled}
       title={title}
       className={cn(
@@ -1473,7 +1516,10 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
  * TiptapEditor props 契约：完全继承 NoteEditorProps，保证和 MarkdownEditor 100% 对齐。
  * 若需要 Tiptap 独有的 prop，请在此处 extends 扩展，而非另起炉灶。
  */
-type TiptapEditorProps = NoteEditorProps;
+type TiptapEditorProps = NoteEditorProps & {
+  /** Published/read-only embedding: render document content without editor chrome. */
+  presentationMode?: boolean;
+};
 
 function extractHeadings(editor: any): NoteEditorHeading[] {
   const headings: NoteEditorHeading[] = [];
@@ -1500,15 +1546,45 @@ function getEditorPlainText(editor: any): string {
   }
 }
 
-export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEditor(
-  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false, searchQuery },
+type WordStats = { chars: number; charsNoSpace: number; words: number };
+type WordStatsHandle = { update: (stats: WordStats) => void };
+
+const WordStatsDisplay = React.memo(forwardRef<WordStatsHandle, {
+  wordsLabel: string;
+  charsLabel: string;
+}>(function WordStatsDisplay({ wordsLabel, charsLabel }, ref) {
+  const [stats, setStats] = useState<WordStats>({ chars: 0, charsNoSpace: 0, words: 0 });
+  useImperativeHandle(ref, () => ({ update: setStats }), []);
+  return (
+    <>
+      <span>{stats.words}{wordsLabel}</span>
+      <span className="max-md:hidden">·</span>
+      <span>{stats.charsNoSpace}{charsLabel}</span>
+    </>
+  );
+}));
+
+const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEditor(
+  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false, presentationMode = false, searchQuery },
   ref,
 ) {
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const derivedTimer = useRef<NodeJS.Timeout | null>(null);
+  const editorRevisionGuardRef = useRef(new EditorRevisionGuard());
+  const saveGenerationRef = useRef(0);
+  const pendingSaveAckRef = useRef<TiptapSaveAckToken | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
-  const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
+  const wordStatsDisplayRef = useRef<WordStatsHandle>(null);
+  const [activeListType, setActiveListType] = useState<ActiveListType>(null);
+  const activeListTypeRef = useRef<ActiveListType>(null);
+  const syncActiveListType = useCallback((currentEditor: Editor | null) => {
+    const next = getActiveListType(currentEditor);
+    if (activeListTypeRef.current === next) return;
+    activeListTypeRef.current = next;
+    setActiveListType(next);
+  }, []);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
@@ -1544,6 +1620,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   });
   const [imageSizeMenuOpen, setImageSizeMenuOpen] = useState(false);
   const [replacingImage, setReplacingImage] = useState(false);
+  const [localizingSelectedImage, setLocalizingSelectedImage] = useState(false);
   const [imageEditDialog, setImageEditDialog] = useState<{
     open: boolean;
     src: string;
@@ -1616,6 +1693,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     blockId: string;
     timestamp: number;
   } | null>(null);
+  useEffect(() => {
+    const apply = () => {
+      const request = consumeBlockNavigation(note.id);
+      if (request) setPendingBlockJump({ targetNoteId: request.noteId, blockId: request.blockId, timestamp: request.createdAt });
+    };
+    apply();
+    return subscribeBlockNavigation((request) => {
+      if (request.noteId === note.id) setPendingBlockJump({ targetNoteId: request.noteId, blockId: request.blockId, timestamp: request.createdAt });
+    });
+  }, [note.id]);
 
   // 斜杠命令事件处理器（稳定引用）
   const slashHandlers = useRef(createSlashEventHandlers());
@@ -1659,6 +1746,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   }, []);
 
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  const outlineToolbarRef = useRef<HTMLDivElement | null>(null);
+  const outlineScrollRequestRef = useRef(0);
   // 防止 setContent 触发 onUpdate 导致无限循环
   const isSettingContent = useRef(false);
   // 保持最新的 note ref，避免闭包引用过期
@@ -1667,28 +1756,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   // 保持最新的 onUpdate ref
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
-
-  /**
-   * 本编辑器最近一次派发给 onUpdate 的 content 字符串。
-   *
-   * 作用：父级 EditorPane 保存成功后会把 `content` 回填到 `activeNote`，
-   * 这会让本组件的 `note.content` 引用变化并触发
-   * `useEffect([note.id, note.content])` 去 setContent —— 如果恰好 setContent
-   * 的就是"自己刚派出去的那份"，没有意义且可能打断正在继续输入的用户。
-   *
-   * 守卫策略：
-   *   - onUpdate 派出前把 JSON 记到这里
-   *   - 同步 effect 里先比对：note.content === lastEmittedContentRef.current 就跳过
-   *   - 其他来源（MD 编辑器保存、版本恢复、切换笔记）的变化不会等于这个值，
-   *     走正常 setContent 路径
-   */
-  const lastEmittedContentRef = useRef<string | null>(null);
+  const onHeadingsChangeRef = useRef(onHeadingsChange);
+  onHeadingsChangeRef.current = onHeadingsChange;
 
   // 立即保存（Ctrl/Cmd+S 使用）：清掉 debounce 并立刻调用 onUpdate
   const flushSaveRef = useRef<() => void>(() => {});
 
   // 稳定的键盘扩展引用（Tab/Shift-Tab/Mod-s）
   const keyboardExtension = useRef(createKeyboardExtension(flushSaveRef));
+  // Native file/image pickers blur the editor. Keep insertion anchors outside the DOM
+  // selection and map them through every document transaction until upload completes.
+  const asyncInsertAnchorsRef = useRef(new Set<AsyncInsertAnchor>());
 
   const computeStats = useCallback((text: string) => {
     const chars = text.length;
@@ -1700,7 +1778,25 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     return { chars, charsNoSpace, words: cjk + enWords };
   }, []);
 
+  // `content` is only consumed when useEditor creates a new editor. Live content
+  // changes are handled by the guarded note-sync effect below, so an ACK for the
+  // same note must not repeat JSON parsing and schema repair during React render.
+  const initialEditorContentRef = useRef<{ noteId: string; content: Content } | null>(null);
+  if (initialEditorContentRef.current?.noteId !== note.id) {
+    const startedAt = isPhaseAPerfEnabled() ? performance.now() : 0;
+    initialEditorContentRef.current = { noteId: note.id, content: parseContent(note.content) };
+    if (startedAt) {
+      recordPhaseAPerfEvent({
+        type: "tiptap-parse-content",
+        durationMs: performance.now() - startedAt,
+        detail: { noteId: note.id, contentLength: note.content.length },
+      });
+    }
+  }
+  const initialEditorContent = initialEditorContentRef.current.content;
+
   const editor: Editor | null = useEditor({
+    shouldRerenderOnTransaction: false,
     extensions: [
       keyboardExtension.current,
       StarterKit.configure({
@@ -1782,11 +1878,27 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         allowBase64: true,
         HTMLAttributes: { class: "rounded-lg max-w-full mx-auto my-4 shadow-md" },
       }),
-      CodeBlockLowlight.extend({
+      CodeBlock.extend<CodeBlockOptions & { lowlight: LowlightLike }>({
+        addOptions() {
+          return { ...this.parent?.(), lowlight } as CodeBlockOptions & { lowlight: LowlightLike };
+        },
+        addProseMirrorPlugins() {
+          return [
+            ...(this.parent?.() || []),
+            createCodeBlockHighlightPlugin({
+              name: this.name,
+              lowlight: this.options.lowlight,
+              defaultLanguage: this.options.defaultLanguage,
+              onDiagnostic: isPhaseAPerfEnabled()
+                ? (type, detail) => recordPhaseAPerfEvent({ type, detail })
+                : undefined,
+            }),
+          ];
+        },
         addNodeView() {
           return ReactNodeViewRenderer(CodeBlockView);
         },
-      }).configure({ lowlight, defaultLanguage: null as any }),
+      }).configure({ lowlight, defaultLanguage: null }),
       Underline,
       Highlight.configure({
         multicolor: true,
@@ -1841,8 +1953,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       // atom + block + draggable，NodeView 用透明遮罩防 iframe 抢焦点。
       // parseHTML 同时识别 <iframe> / <video>，让剪藏过来的视频内容也能落到此节点。
       VideoExtension,
+      BlockEmbedExtension,
     ],
-    content: parseContent(note.content),
+    content: initialEditorContent,
     editable,
     editorProps: {
       attributes: {
@@ -2090,8 +2203,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           }
 
           const text = event.clipboardData?.getData("text/plain") || "";
-          // SEC-XSS-01-D: 剪贴板 HTML 进入任何处理路径前先清洗
-          const html = sanitizeForPaste(event.clipboardData?.getData("text/html") || "");
+          // 先把旧式 <font color> 转为 span style，再进入统一 XSS 清洗。
+          // 这样既能检测固定前景色，也能在用户选择“保留原颜色”时继续由 TextStyleKit 承载。
+          const rawHtml = event.clipboardData?.getData("text/html") || "";
+          const html = sanitizeForPaste(normalizeLegacyFontColors(rawHtml));
 
           // 2) 若当前光标在代码块内：不管来源是 html 还是 text，始终保留原始文本 + 换行
           const { state: stCode } = view;
@@ -2378,14 +2493,6 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           //    避免后续块级操作（toggleHeading 等）误把整段转换。
           if (html && html.trim().length > 0) {
             console.log("[paste-diag] PATH=html (normalize + parseSlice)");
-            const { state, dispatch } = view;
-            const parser = ProseMirrorDOMParser.fromSchema(state.schema);
-            const tempDiv = document.createElement("div");
-            // 5a) Word / WPS 粘贴：HTML 里的 <img src> 是 "file:///..." 本地路径，
-            //     浏览器无法加载；但 text/rtf 里以 \pngblip / \jpegblip 内联了
-            //     真正的图像字节。在归一化之前，先从 RTF 提取 data URL，按顺序
-            //     回填到 HTML 的 <img> 占位上，这样后续 rescue / PM DOMParser
-            //     能正常当作合法 data:image 插入（已超 200B，不会被判为占位）。
             let htmlForParse = html;
             try {
               const rtf = event.clipboardData?.getData("text/rtf") || "";
@@ -2393,51 +2500,84 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                 const rtfImages = extractImagesFromRtf(rtf);
                 if (rtfImages.length > 0) {
                   htmlForParse = mergeRtfImagesIntoHtml(html, rtfImages);
-                  console.log(
-                    "[paste-diag] RTF images extracted=",
-                    rtfImages.length
-                  );
+                  console.log("[paste-diag] RTF images extracted=", rtfImages.length);
                 }
               }
             } catch (err) {
               console.warn("[paste-diag] RTF image extraction failed:", err);
             }
-            const normalized = normalizePastedHtmlForBlocks(htmlForParse);
-            tempDiv.innerHTML = normalized.html;
-            // --- [DIAG] Word 粘贴图片丢失排查 ---
-            try {
-              const rawImgs = (html.match(/<img[^>]*>/gi) || []).length;
-              const normalizedImgs = tempDiv.querySelectorAll("img").length;
-              const firstSrc = tempDiv.querySelector("img")?.getAttribute("src") || "";
-              console.log("[paste-diag] raw html <img>=", rawImgs,
-                " normalized <img>=", normalizedImgs,
-                " isWord=", normalized.isWordSource,
-                " stats=", normalized.imageStats,
-                " firstSrcHead=", firstSrc.slice(0, 80));
-            } catch {}
-            const slice = parser.parseSlice(tempDiv);
-            try {
-              let imgCountInSlice = 0;
-              slice.content.descendants((n) => {
-                if (n.type.name === "image") imgCountInSlice += 1;
+
+            const insertPreparedHtml = (preparedHtml: string) => {
+              if (view.isDestroyed) return;
+              const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
+              const tempDiv = document.createElement("div");
+              const normalized = normalizePastedHtmlForBlocks(preparedHtml);
+              tempDiv.innerHTML = normalized.html;
+              try {
+                const rawImgs = (preparedHtml.match(/<img[^>]*>/gi) || []).length;
+                const normalizedImgs = tempDiv.querySelectorAll("img").length;
+                const firstSrc = tempDiv.querySelector("img")?.getAttribute("src") || "";
+                console.log("[paste-diag] raw html <img>=", rawImgs,
+                  " normalized <img>=", normalizedImgs,
+                  " isWord=", normalized.isWordSource,
+                  " stats=", normalized.imageStats,
+                  " firstSrcHead=", firstSrc.slice(0, 80));
+              } catch {}
+              const slice = parser.parseSlice(tempDiv);
+              try {
+                let imgCountInSlice = 0;
+                slice.content.descendants((node) => {
+                  if (node.type.name === "image") imgCountInSlice += 1;
+                });
+                console.log("[paste-diag] PM slice image nodes=", imgCountInSlice);
+              } catch {}
+              view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+              if (normalized.imageStats.failed > 0) {
+                const msgKey = normalized.isWordSource
+                  ? "tiptap.wordImagesNotPastable"
+                  : "tiptap.imagesNotLoaded";
+                showPasteToast("error", t(msgKey, { count: normalized.imageStats.failed }), 6000);
+              }
+            };
+
+            const colorRisk = analyzeRiskyForegroundColors(htmlForParse);
+            if (colorRisk.total > 0) {
+              const pasteAnchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(pasteAnchor);
+              void chooseDialog({
+                title: t("tiptap.pasteColorRiskTitle", { defaultValue: "检测到可能影响主题阅读的文字颜色" }),
+                description: t("tiptap.pasteColorRiskDescription", {
+                  defaultValue: "粘贴内容中有 {{count}} 处固定文字颜色（偏黑 {{dark}} 处、偏白 {{light}} 处）。切换深色或浅色主题后，这些文字可能与背景融为一体。",
+                  count: colorRisk.total,
+                  dark: colorRisk.dark,
+                  light: colorRisk.light,
+                }),
+                cancelText: t("common.cancel"),
+                choices: [
+                  {
+                    value: "keep",
+                    label: t("tiptap.pasteColorKeepAndPaste", { defaultValue: "保留原颜色并粘贴" }),
+                    variant: "outline",
+                  },
+                  {
+                    value: "strip",
+                    label: t("tiptap.pasteColorRemoveAndPaste", { defaultValue: "移除文字颜色并粘贴" }),
+                    variant: "default",
+                  },
+                ],
+              }).then((choice) => {
+                if (!choice || view.isDestroyed) return;
+                if (!restoreAsyncInsertAnchor(view, pasteAnchor)) return;
+                insertPreparedHtml(choice === "strip"
+                  ? stripExplicitForegroundColors(htmlForParse)
+                  : htmlForParse);
+              }).finally(() => {
+                releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, pasteAnchor);
               });
-              console.log("[paste-diag] PM slice image nodes=", imgCountInSlice);
-            } catch {}
-            const tr = state.tr.replaceSelection(slice);
-            dispatch(tr);
-            // 若存在图片还没加载完（没有任何可用 src 的 <img>），提示用户
-            //   a) Word 粘贴：<img src="file:///..."> 浏览器不可加载 → 引导用户改用"导入 Word 文档"
-            //   b) 懒加载网页：<img> 真实地址没填入 → 提示回原网页滚动加载后再复制
-            if (normalized.imageStats.failed > 0) {
-              const msgKey = normalized.isWordSource
-                ? "tiptap.wordImagesNotPastable"
-                : "tiptap.imagesNotLoaded";
-              showPasteToast(
-                "error",
-                t(msgKey, { count: normalized.imageStats.failed }),
-                6000
-              );
+              return true;
             }
+
+            insertPreparedHtml(htmlForParse);
             return true;
           }
 
@@ -2488,7 +2628,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           /* ignore */
         }
 
+        const dropInsertAnchor = captureAsyncInsertAnchor(view);
+        asyncInsertAnchorsRef.current.add(dropInsertAnchor);
+
         const insertAttachmentToView = (filename: string, url: string, size: number) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const html = buildAttachmentLinkHtml(filename, url, size);
           const dom = document.createElement("div");
           dom.innerHTML = html;
@@ -2498,10 +2642,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           view.dispatch(view.state.tr.replaceSelection(slice));
         };
         const insertImageToView = (src: string) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const node = view.state.schema.nodes.image?.create({ src });
           if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
         };
         const insertVideoToView = (result: MediaUploadResult) => {
+          if (!restoreAsyncInsertAnchor(view, dropInsertAnchor)) return;
           const node = view.state.schema.nodes.video?.create(
             createVideoFileAttrs({
               previewUrl: result.previewUrl,
@@ -2517,42 +2663,71 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         showPasteToast("converting", t("tiptap.attachmentUploading"));
         (async () => {
-          for (const file of files) {
-            try {
-              const isImage = file.type.startsWith("image/");
-              if (isImage) {
-                // 图片文件：优先走图床
-                await uploadAndInsertImage(
-                  file,
-                  file.name,
-                  currentNote.id,
-                  (url) => insertImageToView(url),
-                  "drag-drop",
-                );
-              } else if (isVideoFile(file)) {
-                const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "drag-drop" });
-                insertVideoToView(res);
-              } else {
-                // 非图片文件：走本地附件
-                const res = await api.attachments.upload(currentNote.id, file);
-                insertAttachmentToView(res.filename, res.url, res.size);
+          try {
+            for (const file of files) {
+              try {
+                const isImage = file.type.startsWith("image/");
+                if (isImage) {
+                  // 图片文件：优先走图床
+                  await uploadAndInsertImage(
+                    file,
+                    file.name,
+                    currentNote.id,
+                    (url) => insertImageToView(url),
+                    "drag-drop",
+                  );
+                } else if (isVideoFile(file)) {
+                  const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "drag-drop" });
+                  insertVideoToView(res);
+                } else {
+                  // 非图片文件：走本地附件
+                  const res = await api.attachments.upload(currentNote.id, file);
+                  insertAttachmentToView(res.filename, res.url, res.size);
+                }
+              } catch (err) {
+                console.error("Drop attachment upload failed:", err);
               }
-            } catch (err) {
-              console.error("Drop attachment upload failed:", err);
             }
+            showPasteToast("success", t("tiptap.attachmentUploaded"));
+          } finally {
+            releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, dropInsertAnchor);
           }
-          showPasteToast("success", t("tiptap.attachmentUploaded"));
         })();
         return true;
       },
+    },
+    onCreate: ({ editor }) => {
+      syncActiveListType(editor);
+    },
+    onTransaction: ({ editor, transaction }) => {
+      mapAsyncInsertAnchors(asyncInsertAnchorsRef.current, transaction);
+      syncActiveListType(editor);
     },
     onUpdate: ({ editor }) => {
       // setContent 触发的 onUpdate 不应该保存（防止死循环）
       if (isSettingContent.current) return;
 
-      const text = getEditorPlainText(editor);
-      setWordStats(computeStats(text));
-      onHeadingsChange?.(extractHeadings(editor));
+      const onUpdateStartedAt = performance.now();
+      const scheduledNoteId = noteRef.current.id;
+      const revisionToken = editorRevisionGuardRef.current.next(scheduledNoteId, editor);
+      if (derivedTimer.current) clearTimeout(derivedTimer.current);
+      derivedTimer.current = setTimeout(() => {
+        derivedTimer.current = null;
+        if (editor.isDestroyed || !editorRevisionGuardRef.current.isCurrent(
+          revisionToken,
+          noteRef.current.id,
+          editor,
+        )) return;
+        const plainTextStartedAt = performance.now();
+        const derivedText = getEditorPlainText(editor);
+        recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
+        const wordStatsStartedAt = performance.now();
+        wordStatsDisplayRef.current?.update(computeStats(derivedText));
+        recordPhaseAPerfEvent({ type: "tiptap-word-stats", durationMs: performance.now() - wordStatsStartedAt });
+        const headingsStartedAt = performance.now();
+        onHeadingsChangeRef.current?.(extractHeadings(editor));
+        recordPhaseAPerfEvent({ type: "tiptap-headings", durationMs: performance.now() - headingsStartedAt });
+      }, 150);
 
       // 检测 [[ 触发笔记搜索菜单
       const { state } = editor;
@@ -2582,73 +2757,70 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       }
 
       // P0: 调度时快照 noteId，防止 debounce 期间切换笔记导致写错目标
-      const scheduledNoteId = noteRef.current.id;
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => {
+        debounceTimer.current = null;
         // 再次校验 noteId 未变化（切换笔记时 debounce 会被清理，这里是双重保险）
-        if (noteRef.current.id !== scheduledNoteId) return;
+        if (editor.isDestroyed || editor.view.composing || !editorRevisionGuardRef.current.isCurrent(
+          revisionToken,
+          noteRef.current.id,
+          editor,
+        )) return;
         const json = JSON.stringify(editor.getJSON());
+        const plainTextStartedAt = performance.now();
+        const text = getEditorPlainText(editor);
+        recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
         const title = isTitleComposingRef.current
           ? noteRef.current.title
           : titleRef.current?.value || noteRef.current.title;
-        lastEmittedContentRef.current = json;
         lastEmittedTitleRef.current = title;
-        onUpdateRef.current({ content: json, contentText: text, title, _noteId: scheduledNoteId });
+        onUpdateRef.current({
+          content: json,
+          contentText: text,
+          title,
+          _noteId: scheduledNoteId,
+          _saveGeneration: ++saveGenerationRef.current,
+        });
       }, 500);
+      recordPhaseAPerfEvent({ type: "tiptap-on-update", durationMs: performance.now() - onUpdateStartedAt });
     },
   });
 
-  // BLOCK-LINKS-UI-01: 插入笔记引用（支持笔记级和块级）
-  const handleNoteLinkSelect = useCallback((note: NoteSearchResult, heading?: NoteLinkHeadingItem) => {
+  useEffect(() => {
+    const removeBrowserObservers = installPhaseABrowserObservers();
+    const removeTransactionInstrumentation = editor
+      ? installPhaseAEditorTransactionInstrumentation(editor)
+      : () => undefined;
+    return () => {
+      removeTransactionInstrumentation();
+      removeBrowserObservers();
+    };
+  }, [editor]);
+
+  // BLOCK-LINKS-UI-02: 笔记/任意块引用，区分自动标题与固定别名。
+  const handleNoteLinkSelect = useCallback((
+    targetNote: NoteSearchResult,
+    block?: NoteLinkBlockItem,
+    options?: NoteLinkSelectionOptions,
+  ) => {
     if (!editor) return;
-
-    // 使用保存的 triggerFrom 位置，而不是重新计算
-    // 这样即使用户在菜单打开后移动了光标，也能正确替换 [[ 到菜单打开时的位置
     const replaceFrom = noteLinkMenu.triggerFrom;
-
-    // 验证 replaceFrom 是否有效
     if (replaceFrom < 0) return;
-
-    // 获取当前光标位置作为替换结束位置
-    const { state } = editor;
-    const { selection } = state;
-    const replaceTo = selection.$from.pos;
-
-    // 构建 href 和显示文本
-    let href: string;
-    let linkText: string;
-
-    if (heading) {
-      // 块级引用：note:NOTE_ID#blk:BLOCK_ID
-      href = `note:${note.id}#blk:${heading.blockId}`;
-      // 显示文本：笔记标题 > 标题文本
-      linkText = `${note.title} > ${heading.text}`;
-    } else {
-      // 笔记级引用：note:NOTE_ID
-      href = `note:${note.id}`;
-      linkText = note.title;
-    }
-
-    // 插入 Link mark
-    editor.chain()
-      .focus()
-      .deleteRange({ from: replaceFrom, to: replaceTo })
-      .insertContent({
-        type: "text",
-        text: linkText,
-        marks: [{
-          type: "link",
-          attrs: {
-            href,
-            target: "_blank",
-            rel: "noopener noreferrer nofollow",
-          },
-        }],
-      })
-      .run();
-
-    // 关闭菜单
-    setNoteLinkMenu(prev => ({ ...prev, open: false }));
+    const replaceTo = editor.state.selection.$from.pos;
+    const href = block ? `note:${targetNote.id}#blk:${block.blockId}` : `note:${targetNote.id}`;
+    const alias = options?.alias?.trim() || "";
+    const titleMode = alias ? "alias" : "auto";
+    const linkText = alias || (block ? `${targetNote.title} > ${block.plainText.slice(0, 80) || block.blockType}` : targetNote.title);
+    editor.chain().focus().deleteRange({ from: replaceFrom, to: replaceTo }).insertContent({
+      type: "text",
+      text: linkText,
+      marks: [{ type: "link", attrs: {
+        href,
+        target: "_blank",
+        rel: `noopener noreferrer nofollow nowen-title-${titleMode}`,
+      } }],
+    }).run();
+    setNoteLinkMenu((previous) => ({ ...previous, open: false }));
   }, [editor, noteLinkMenu.triggerFrom]);
 
   const copySelectionText = useCallback(async () => {
@@ -2678,9 +2850,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     const title = isTitleComposingRef.current
       ? noteRef.current.title
       : titleRef.current?.value || noteRef.current.title;
-    lastEmittedContentRef.current = json;
     lastEmittedTitleRef.current = title;
-    onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
+    onUpdateRef.current({
+      content: json,
+      contentText: text,
+      title,
+      _noteId: noteRef.current.id,
+      _saveGeneration: ++saveGenerationRef.current,
+    });
     try {
       toast.success(t('tiptap.saved') || 'Saved');
     } catch {}
@@ -2711,9 +2888,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         const title = isTitleComposingRef.current
           ? noteRef.current.title
           : titleRef.current?.value || noteRef.current.title;
-        lastEmittedContentRef.current = json;
         lastEmittedTitleRef.current = title;
-        onUpdateRef.current({ content: json, contentText: text, title, _noteId: noteRef.current.id });
+        onUpdateRef.current({
+          content: json,
+          contentText: text,
+          title,
+          _noteId: noteRef.current.id,
+          _saveGeneration: ++saveGenerationRef.current,
+        });
       },
       discardPending: () => {
         // 切换编辑器时调用方已经自己 PUT 规范化内容，清掉 debounce 避免竞态
@@ -2721,6 +2903,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           clearTimeout(debounceTimer.current);
           debounceTimer.current = null;
         }
+        if (derivedTimer.current) {
+          clearTimeout(derivedTimer.current);
+          derivedTimer.current = null;
+        }
+        editorRevisionGuardRef.current.invalidate();
+        pendingSaveAckRef.current = null;
       },
       getSnapshot: () => {
         if (!editor) return null;
@@ -2728,6 +2916,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           content: JSON.stringify(editor.getJSON()),
           contentText: getEditorPlainText(editor),
         };
+      },
+      acknowledgeSave: (ack) => {
+        pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
       appendMarkdown: (md: string) => {
@@ -2799,38 +2990,42 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   }, [pendingBlockJump, editor, note, t]);
 
   useEffect(() => {
+    const noteChanged = lastSyncedNoteIdRef.current !== note.id;
+    const matchingAck = isMatchingTiptapSaveAck({
+      noteChanged,
+      noteId: note.id,
+      noteVersion: note.version,
+      noteContent: note.content,
+      ack: pendingSaveAckRef.current,
+    });
+    if (matchingAck) pendingSaveAckRef.current = null;
+    if (editor && matchingAck) {
+      if (titleRef.current && shouldSyncTitleValue({
+        inputValue: titleRef.current.value,
+        noteTitle: note.title,
+        isComposing: isTitleComposingRef.current,
+      })) {
+        titleRef.current.value = note.title;
+      }
+      return;
+    }
+
     // 切换笔记时立即清理旧的 debounce timer，防止旧笔记的保存请求泄漏
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
     }
+    if (derivedTimer.current) {
+      clearTimeout(derivedTimer.current);
+      derivedTimer.current = null;
+    }
+    if (editor) editorRevisionGuardRef.current.reset(note.id, editor);
 
     if (editor && note) {
       // 笔记切换时重置 lastEmitted 守卫（新笔记的 content 肯定要真正 setContent）
-      const noteChanged = lastSyncedNoteIdRef.current !== note.id;
       if (noteChanged) {
-        lastEmittedContentRef.current = null;
+        pendingSaveAckRef.current = null;
         lastSyncedNoteIdRef.current = note.id;
-      }
-
-      // 自写自读守卫：如果 note.content 正是自己上次派出去的那份 JSON 字符串，
-      // 说明这次 effect 是 EditorPane 保存完成后回填引起的 → 编辑器 DOM 已是
-      // 最新，不需要 setContent（否则会打断继续输入 / 产生光标抖动）。
-      if (
-        lastEmittedContentRef.current !== null &&
-        note.content === lastEmittedContentRef.current
-      ) {
-        // 仍然刷新字数/大纲，保证状态栏和大纲与实际内容同步
-        setWordStats(computeStats(getEditorPlainText(editor)));
-        onHeadingsChange?.(extractHeadings(editor));
-        if (titleRef.current && shouldSyncTitleValue({
-          inputValue: titleRef.current.value,
-          noteTitle: note.title,
-          isComposing: isTitleComposingRef.current,
-        })) {
-          titleRef.current.value = note.title;
-        }
-        return;
       }
 
       const parsed = parseContent(note.content);
@@ -2865,12 +3060,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         } else {
           setTimeout(unlockSettingContent, 0);
         }
-        // 外部驱动的 setContent 之后，本编辑器当前持有的 content 不再等于
-        // 自己之前派出去的值（现在持有的是 parsed 后再重新 serialize 的版本），
-        // 把 lastEmitted 清掉，避免后续误判为"自写"。
-        lastEmittedContentRef.current = null;
       }
-      setWordStats(computeStats(getEditorPlainText(editor)));
+      wordStatsDisplayRef.current?.update(computeStats(getEditorPlainText(editor)));
       onHeadingsChange?.(extractHeadings(editor));
     }
     if (titleRef.current && !isTitleComposingRef.current) {
@@ -2881,13 +3072,13 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   //   依赖含 content 的完整语义（更新版）：
   //
   //   父组件 EditorPane.handleUpdate 现在会把保存成功的 content 回填到 activeNote，
-  //   这样切换编辑器 (MD ↔ RTE) 时双方都能看到最新内容。但为避免 "自己刚派的
-  //   JSON 又被 setContent 回来" 打断输入，本 effect 内用 lastEmittedContentRef
-  //   做自写自读守卫。命中则 no-op，否则才执行真正的 setContent。
+  //   这样切换编辑器 (MD ↔ RTE) 时双方都能看到最新内容。为避免本机保存 ACK
+  //   把较新的未保存输入重放成旧内容，EditorPane 会在 REST ACK 到达时登记一次性
+  //   noteId/version/generation/content 令牌；只有令牌精确匹配才跳过 setContent。
   //
   //   触发时机：
-  //   1) 本编辑器打字保存：content 回填 == lastEmitted → 守卫命中 → 不重放。
-  //   2) 对侧编辑器保存后切回来：content 不等于 lastEmitted → 正常 setContent。
+  //   1) 本编辑器打字保存：ACK 令牌匹配 → 不重放。
+  //   2) 对侧编辑器保存后切回来：没有本地 ACK 令牌 → 正常 setContent。
   //   3) 版本恢复 / 切换笔记 / 外部修改：同上，走正常 setContent。
 
   // ---------- 标题单独同步 ----------
@@ -2914,11 +3105,18 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   // 组件卸载时清理 debounce timer
   useEffect(() => {
+    const revisionGuard = editorRevisionGuardRef.current;
     return () => {
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
       }
+      if (derivedTimer.current) {
+        clearTimeout(derivedTimer.current);
+        derivedTimer.current = null;
+      }
+      revisionGuard.invalidate();
+      pendingSaveAckRef.current = null;
     };
   }, []);
 
@@ -3037,6 +3235,62 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       toast.error(t("tiptap.imageDownloadFailed", { defaultValue: "图片下载失败" }));
     }
   }, [getSelectedImageAttrs, t]);
+
+  const handleLocalizeSelectedImage = useCallback(async () => {
+    if (!editor || localizingSelectedImage) return;
+    const currentNote = noteRef.current;
+    if (!currentNote?.id) {
+      toast.error(t("tiptap.imageLocalizeFailed", { defaultValue: "网络图片转存失败" }));
+      return;
+    }
+    const selection = editor.state.selection;
+    if (!(selection instanceof NodeSelection) || selection.node.type.name !== "image") return;
+    const originalSrc = String(selection.node.attrs.src || "").trim();
+    if (!shouldLocalizeUrl(originalSrc)) return;
+    const preferredPos = selection.from;
+
+    setLocalizingSelectedImage(true);
+    toast.info(t("tiptap.imageLocalizing", { defaultValue: "正在转存网络图片..." }));
+    try {
+      const result = await api.attachments.importRemoteImage(currentNote.id, originalSrc, "image-action");
+      if (editor.isDestroyed) return;
+      let targetPos: number | null = null;
+      const preferredNode = editor.state.doc.nodeAt(preferredPos);
+      if (isImageReplaceTargetNode(preferredNode) && String(preferredNode.attrs.src || "") === originalSrc) {
+        targetPos = preferredPos;
+      } else {
+        const matches: number[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "image" && String(node.attrs.src || "") === originalSrc) matches.push(pos);
+        });
+        if (matches.length === 1) targetPos = matches[0];
+      }
+      if (targetPos == null) {
+        toast.error(t("tiptap.imageLocalizeTargetChanged", { defaultValue: "原图片位置已变化，请重新选择后转存" }));
+        return;
+      }
+      const targetNode = editor.state.doc.nodeAt(targetPos);
+      if (!isImageReplaceTargetNode(targetNode)) return;
+      let transaction = editor.state.tr.setNodeMarkup(targetPos, undefined, { ...targetNode.attrs, src: result.url });
+      try { transaction = transaction.setSelection(NodeSelection.create(transaction.doc, targetPos)); } catch {}
+      editor.view.dispatch(transaction.scrollIntoView());
+      toast.success(t("tiptap.imageLocalizeSuccess", { defaultValue: "网络图片已转存为本地附件" }));
+    } catch (error) {
+      console.error("Localize selected image failed:", error);
+      const detail = (error as Error)?.message || "";
+      toast.error(detail || t("tiptap.imageLocalizeFailed", { defaultValue: "网络图片转存失败" }));
+    } finally {
+      setLocalizingSelectedImage(false);
+    }
+  }, [editor, localizingSelectedImage, t]);
+
+  const selectedImageCanLocalize = (() => {
+    if (!editor) return false;
+    const selection = editor.state.selection;
+    return selection instanceof NodeSelection
+      && selection.node.type.name === "image"
+      && shouldLocalizeUrl(String(selection.node.attrs.src || ""));
+  })();
 
   const handleCopySelectedImageSrc = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
@@ -3174,6 +3428,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   useEffect(() => {
     if (editor) {
       editor.setEditable(editable);
+      publishEditorEditable(editor);
     }
   }, [editor, editable]);
 
@@ -3335,13 +3590,32 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         return;
       }
 
+      const selectionKind: BubbleSelectionKind = empty
+        ? "empty"
+        : selection instanceof CellSelection
+          ? "cell"
+          : selection instanceof NodeSelection && selection.node.type.name === "image"
+            ? "image"
+            : selection instanceof TextSelection
+              ? "text"
+              : "other";
+      const selectedText = selectionKind === "text"
+        ? state.doc.textBetween(from, to, " ")
+        : "";
+      const bubbleKind = resolveEditorBubbleKind({
+        selectionKind,
+        tableActive: editor.isActive("table"),
+        linkActive: editor.isActive("link"),
+        hasVisibleText: selectedText.trim().length > 0,
+      });
+
       // 空选区 → 文本/图片格式化气泡都关，但若光标停在链接里，显示链接气泡
       if (empty) {
         setBubble(b => b.open ? { ...b, open: false } : b);
         setImageBubble(b => b.open ? { ...b, open: false } : b);
 
         // 光标在表格里 → 显示表格操作气泡（独立于 link 气泡，因为表格里基本不会有 link）
-        if (editor.isActive("table")) {
+        if (bubbleKind === "table") {
           // 用当前光标位置所在 <td>/<th> 的 DOM 作为锚定矩形
           let cellEl: HTMLElement | null = null;
           try {
@@ -3363,7 +3637,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           setTableBubble(b => b.open ? { ...b, open: false } : b);
         }
 
-        if (editor.isActive("link")) {
+        if (bubbleKind === "table") {
+          setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
+          return;
+        }
+
+        if (bubbleKind === "link") {
           // 取整段 link mark 的范围用于定位（光标位置矩形是零宽，定位会偏）
           const $pos = state.doc.resolve(from);
           const linkType = state.schema.marks.link;
@@ -3416,8 +3695,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
       // 有选区 → 关闭 caret 链接气泡（hover 的不动），走原有文本/图片气泡逻辑
       setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
-      // Keep table bubble open when cells are selected
-      if (editor.isActive("table")) {
+      // CellSelection owns the table bubble. A TextSelection inside a cell stays textual.
+      if (bubbleKind === "table") {
+        setBubble(b => b.open ? { ...b, open: false } : b);
+        setImageBubble(b => b.open ? { ...b, open: false } : b);
         const rect = posToDOMRect(view, from, to);
         const { top } = placeBubble(rect, 40, 360);
         const cx = rect.left + rect.width / 2;
@@ -3431,13 +3712,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           cellText = cell?.textContent?.trim() || "";
         } catch { /* ignore */ }
         setTableBubble({ open: true, top, left, cellText });
+        return;
       } else {
         setTableBubble(b => b.open ? { ...b, open: false } : b);
       }
 
-      const isImage = editor.isActive("image");
-
-      if (isImage) {
+      if (bubbleKind === "image") {
         // 图片选区 → 显示图片尺寸气泡
         setBubble(b => b.open ? { ...b, open: false } : b);
         const rect = getImageSelectionRect(from) ?? posToDOMRect(view, from, to);
@@ -3450,7 +3730,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         // 文本选区 → 显示格式化气泡
         setImageBubble(b => b.open ? { ...b, open: false } : b);
         // 若文本长度为 0（全是不可见字符）也跳过
-        const text = state.doc.textBetween(from, to, " ");
+        const text = selectedText;
         if (!text.trim().length) {
           setBubble(b => b.open ? { ...b, open: false } : b);
           setSelectedTextAction(null);
@@ -3572,20 +3852,71 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     };
   }, [editor]);
 
-  // Provide scrollTo callback to parent
+  // Provide a deterministic outline scroll callback to the parent.
+  // Selection updates and scrolling have one owner each: ProseMirror receives a
+  // non-scrolling transaction, then the actual editor container is moved exactly once.
   useEffect(() => {
     if (!editor) return;
     const scrollTo = (pos: number) => {
-      editor.commands.focus();
-      editor.commands.setTextSelection(pos);
-      // Scroll the heading node into view
-      const dom = editor.view.domAtPos(pos + 1);
-      if (dom?.node) {
-        const el = dom.node instanceof HTMLElement ? dom.node : dom.node.parentElement;
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (editor.isDestroyed) return;
+      const docSize = editor.state.doc.content.size;
+      const clamped = Math.max(0, Math.min(docSize, pos));
+      const requestId = ++outlineScrollRequestRef.current;
+
+      try {
+        const selection = TextSelection.near(editor.state.doc.resolve(clamped), 1);
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+      } catch {
+        // A stale outline position can briefly exist while the heading list updates.
+        return;
       }
+
+      // Focusing through Tiptap commands may invoke ProseMirror's nearest-edge scrolling.
+      // Focus the DOM directly and explicitly prevent that implicit first scroll.
+      try {
+        editor.view.dom.focus({ preventScroll: true });
+      } catch {
+        editor.view.focus();
+      }
+
+      requestAnimationFrame(() => {
+        if (editor.isDestroyed || requestId !== outlineScrollRequestRef.current) return;
+        const container = scrollContainerRef.current || editorScrollRef.current;
+        if (!container) return;
+
+        const nodeDom = editor.view.nodeDOM(clamped);
+        const nodeElement = nodeDom instanceof HTMLElement
+          ? nodeDom
+          : nodeDom?.parentElement ?? null;
+        let target = nodeElement?.matches("h1, h2, h3, h4, h5, h6")
+          ? nodeElement
+          : nodeElement?.closest<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? null;
+
+        if (!target) {
+          const fallbackPos = Math.min(docSize, clamped + 1);
+          const dom = editor.view.domAtPos(fallbackPos);
+          const fallbackElement = dom.node instanceof HTMLElement
+            ? dom.node
+            : dom.node.parentElement;
+          target = fallbackElement?.matches("h1, h2, h3, h4, h5, h6")
+            ? fallbackElement
+            : fallbackElement?.closest<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? null;
+        }
+        if (!target) return;
+
+        scrollOutlineTargetIntoView({
+          container,
+          target,
+          topOverlay: outlineToolbarRef.current,
+          gap: 24,
+          behavior: "smooth",
+        });
+      });
     };
     onEditorReady?.(scrollTo);
+    return () => {
+      outlineScrollRequestRef.current += 1;
+    };
   }, [editor, onEditorReady]);
 
   // SEARCH-NOTE-BODY-HIGHLIGHT-01: 外部搜索关键词 → 高亮 + 定位
@@ -3783,20 +4114,55 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     isTitleComposingRef.current = false;
   }, []);
 
+  const captureEditorInsertAnchor = useCallback(() => {
+    if (!editor || editor.isDestroyed) return null;
+    const anchor = captureAsyncInsertAnchor(editor.view);
+    asyncInsertAnchorsRef.current.add(anchor);
+    return anchor;
+  }, [editor]);
+
+  const restoreEditorInsertAnchor = useCallback((anchor: AsyncInsertAnchor | null) => {
+    if (!editor || editor.isDestroyed || !anchor) return false;
+    return restoreAsyncInsertAnchor(editor.view, anchor);
+  }, [editor]);
+
+  const releaseEditorInsertAnchor = useCallback((anchor: AsyncInsertAnchor | null) => {
+    if (!anchor) return;
+    releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor);
+  }, []);
+
   const handleImageUpload = useCallback(() => {
     if (!editor) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       const currentNote = noteRef.current;
       const insertAtSrc = (src: string) => {
-        editor.chain().focus().setImage({ src }).run();
+        if (restoreEditorInsertAnchor(insertAnchor)) {
+          editor.chain().focus().setImage({ src }).run();
+        }
+        releaseAnchor();
+      };
+      const insertBase64Fallback = () => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const src = event.target?.result as string;
+          if (src) insertAtSrc(src);
+          else releaseAnchor();
+        };
+        reader.onerror = releaseAnchor;
+        reader.readAsDataURL(file);
       };
       if (currentNote?.id) {
-        // 走 /api/attachments：写磁盘 + 记录 attachments 表，编辑器只引用 URL
         toast.info(t("tiptap.imageUploading") || "Uploading image...");
         api.attachments
           .upload(currentNote.id, file)
@@ -3807,63 +4173,65 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           .catch((err) => {
             console.error("Attachment upload failed, falling back to base64:", err);
             toast.error(t("tiptap.imageUploadFailed") || "Image upload failed");
-            // 兜底：失败时退回 base64，保证用户仍可插图
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const src = e.target?.result as string;
-              if (src) insertAtSrc(src);
-            };
-            reader.readAsDataURL(file);
+            insertBase64Fallback();
           });
       } else {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const src = e.target?.result as string;
-          if (src) insertAtSrc(src);
-        };
-        reader.readAsDataURL(file);
+        insertBase64Fallback();
       }
     };
     input.click();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleImageUrlInsert = useCallback(async () => {
     if (!editor) return;
-    const url = await promptDialog({
-      title: t("tiptap.insertImageUrl") || "Insert image URL",
-      placeholder: t("tiptap.imageUrlPlaceholder") || "https://example.com/image.png",
-      defaultValue: "",
-      confirmText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      allowEmpty: false,
-    });
-    if (!url) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    try {
+      const url = await promptDialog({
+        title: t("tiptap.insertImageUrl") || "Insert image URL",
+        placeholder: t("tiptap.imageUrlPlaceholder") || "https://example.com/image.png",
+        defaultValue: "",
+        confirmText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        allowEmpty: false,
+      });
+      if (!url) return;
 
-    const src = url.trim();
-    if (!isAllowedRemoteImageUrl(src)) {
-      toast.error(t("tiptap.invalidImageUrl") || "Only http and https image URLs are allowed");
-      return;
+      const src = url.trim();
+      if (!isAllowedRemoteImageUrl(src)) {
+        toast.error(t("tiptap.invalidImageUrl") || "Only http and https image URLs are allowed");
+        return;
+      }
+
+      if (restoreEditorInsertAnchor(insertAnchor)) {
+        editor.chain().focus().setImage({ src }).run();
+      }
+    } finally {
+      releaseEditorInsertAnchor(insertAnchor);
     }
-
-    editor.chain().focus().setImage({ src }).run();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleVideoUrlInsert = useCallback(async () => {
     if (!editor) return;
-    const url = await promptDialog({
-      title: t("tiptap.insertVideoLink") || t("tiptap.insertVideo") || "Insert video link",
-      placeholder: "https://www.bilibili.com/video/BV... or .mp4",
-      defaultValue: "",
-      confirmText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      allowEmpty: false,
-    });
-    if (!url) return;
-    const ok = (editor.commands as any).setVideo(url.trim());
-    if (!ok) {
-      toast.error(t("tiptap.videoUrlInvalid") || "Cannot recognize this video URL");
+    const insertAnchor = captureEditorInsertAnchor();
+    try {
+      const url = await promptDialog({
+        title: t("tiptap.insertVideoLink") || t("tiptap.insertVideo") || "Insert video link",
+        placeholder: "https://www.bilibili.com/video/BV... or .mp4",
+        defaultValue: "",
+        confirmText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        allowEmpty: false,
+      });
+      if (!url) return;
+      if (!restoreEditorInsertAnchor(insertAnchor)) return;
+      const ok = (editor.commands as any).setVideo(url.trim());
+      if (!ok) {
+        toast.error(t("tiptap.videoUrlInvalid") || "Cannot recognize this video URL");
+      }
+    } finally {
+      releaseEditorInsertAnchor(insertAnchor);
     }
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   const handleVideoUpload = useCallback(() => {
     if (!editor) return;
@@ -3872,19 +4240,27 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
       return;
     }
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "video/*";
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       if (!isVideoFile(file)) {
+        releaseAnchor();
         toast.error(t("tiptap.videoFileInvalid") || "请选择视频文件");
         return;
       }
       toast.info(t("tiptap.videoUploading") || "Uploading video...");
       uploadMediaAttachment({ noteId: currentNote.id, file, source: "editor" })
         .then((res) => {
+          if (!restoreEditorInsertAnchor(insertAnchor)) return;
           const ok = (editor.commands as any).setVideoFile({
             previewUrl: res.previewUrl,
             url: res.url,
@@ -3907,35 +4283,30 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           } else {
             toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
           }
-        });
+        })
+        .finally(releaseAnchor);
     };
     input.click();
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   /**
-   * 任意格式附件上传 → 在编辑器当前位置插入：
-   *   - 图片（image/*）：当作 <img> 插入，与 handleImageUpload 一致路径
-   *   - 其它：插入一段「附件链接」HTML：
-   *       <a href="/api/attachments/<id>" download="<原文件名>"
-   *          data-attachment="1" data-size="<bytes>">📎 文件名 (大小)</a>
-   *     - data-attachment / data-size 用于将来识别 / 二次渲染（如换图标）；
-   *     - download 属性 + 后端 Content-Disposition 双保险触发下载；
-   *     - 链接由 StarterKit 默认 Link mark 承载（v3 starter-kit 默认含 link），
-   *       即便没有 link mark 也能作为普通 <a> 文本节点存活下来。
-   *
-   * 与 handleImageUpload 解耦的好处：
-   *   - 工具栏可以同时存在「插入图片」（仅图片文件 picker）和「插入附件」（任意），
-   *     两个入口语义清晰；
-   *   - 粘贴 / 拖拽路径只调本函数即可（已自动按 mime 分流）。
+   * 任意格式附件上传 → 在编辑器当前位置插入。
+   * Native picker 打开前先保存插入锚点，上传完成后显式恢复，避免 selection
+   * 在 horizontalRule 等原子块节点附近 blur 后回退到前面的段落。
    */
   const handleAttachmentUpload = useCallback(() => {
     if (!editor) return;
+    const insertAnchor = captureEditorInsertAnchor();
+    const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
-    // 不设 accept：放开任意格式
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        releaseAnchor();
+        return;
+      }
       uploadAndInsertAttachment(file);
     };
     input.click();
@@ -3943,6 +4314,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     function uploadAndInsertAttachment(file: File) {
       const currentNote = noteRef.current;
       if (!currentNote?.id) {
+        releaseAnchor();
         toast.error(t("tiptap.attachmentUploadFailed") || "Attachment upload failed");
         return;
       }
@@ -3950,8 +4322,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       api.attachments
         .upload(currentNote.id, file)
         .then((res) => {
+          if (!restoreEditorInsertAnchor(insertAnchor)) return;
           if (res.category === "image") {
-            // 图片：与 handleImageUpload 一致，走 setImage
             editor!.chain().focus().setImage({ src: res.url }).run();
           } else if (isVideoFile(file)) {
             const ok = (editor!.commands as any).setVideoFile({
@@ -3980,9 +4352,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           } else {
             toast.error(t("tiptap.attachmentUploadFailed") || "Attachment upload failed");
           }
-        });
+        })
+        .finally(releaseAnchor);
     }
-  }, [editor, t]);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor, restoreEditorInsertAnchor, t]);
 
   /**
    * 严格作用于当前选区的代码块切换：
@@ -4172,6 +4545,71 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const [toolbarShadow, setToolbarShadow] = useState(false);
   // 查找替换面板开关；Ctrl/Cmd+F 切换。
   const [searchOpen, setSearchOpen] = useState(false);
+  const perfRenderSnapshot = isPhaseAPerfEnabled() ? {
+    note,
+    onUpdate,
+    onTagsChange,
+    onHeadingsChange,
+    onEditorReady,
+    onOpenNote,
+    editable,
+    searchQuery,
+    stateKey: [
+      activeListType,
+      showAI,
+      aiSelectedText,
+      aiPosition?.top || 0,
+      attachmentPreview?.id || "",
+      previewImage || "",
+      imageZoom,
+      imageDrag.x,
+      imageDrag.y,
+      isDragging,
+      selectedTextAction,
+      bubble.open,
+      imageBubble.open,
+      imageSizeMenuOpen,
+      replacingImage,
+      localizingSelectedImage,
+      imageEditDialog?.open || false,
+      tableBubble.open,
+      tableSheet,
+      isMobile,
+      resizeDialog.open,
+      linkBubble.open,
+      noteLinkMenu.open,
+      pendingBlockJump?.timestamp || 0,
+      pasteToast?.type || "",
+      searchOpen,
+    ].join("|"),
+  } : null;
+  const previousPerfRenderRef = useRef<typeof perfRenderSnapshot | null>(null);
+  const previousPerfRender = previousPerfRenderRef.current;
+  if (perfRenderSnapshot) recordPhaseAPerfEvent({
+    type: "tiptap-editor-render",
+    detail: {
+      noteChanged: previousPerfRender !== null && previousPerfRender?.note !== note,
+      callbacksChanged: previousPerfRender !== null && (
+        previousPerfRender?.onUpdate !== onUpdate ||
+        previousPerfRender?.onTagsChange !== onTagsChange ||
+        previousPerfRender?.onHeadingsChange !== onHeadingsChange ||
+        previousPerfRender?.onEditorReady !== onEditorReady ||
+        previousPerfRender?.onOpenNote !== onOpenNote
+      ),
+      editableChanged: previousPerfRender !== null && previousPerfRender?.editable !== editable,
+      searchChanged: previousPerfRender !== null && previousPerfRender?.searchQuery !== searchQuery,
+      stateChanged: previousPerfRender !== null && previousPerfRender?.stateKey !== perfRenderSnapshot.stateKey,
+      stateKey: perfRenderSnapshot.stateKey,
+      noteVersion: note.version,
+    },
+  });
+  if (perfRenderSnapshot) previousPerfRenderRef.current = perfRenderSnapshot;
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    clearOutlineScrollReserve(el);
+    return () => clearOutlineScrollReserve(el);
+  }, [note.id]);
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -4262,14 +4700,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       .run();
   };
   return (
-    <div className="flex flex-col h-full relative">
+    <div className={cn("flex flex-col h-full relative", presentationMode && "tiptap-presentation-mode")}>
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
             - 键盘弹起时不再隐藏，避免移动端找不到格式按钮；
             - sticky top-0 让长内容滚动时也能随时点到工具栏；
             - z 索引压在选区/链接气泡之下（z-50），保留气泡的覆盖能力。 */}
+      {!presentationMode && (
       <div
+        ref={outlineToolbarRef}
         className={cn(
           "editor-toolbar-scroll-fade hide-scrollbar sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-4 py-2 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap md:overflow-visible md:touch-auto",
           // 滚动离顶后加底部阴影，表达「工具栏浮于内容之上」
@@ -4380,21 +4820,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         <ToolbarButton
           onClick={() => toggleBulletListSmart(editor)}
-          isActive={editor.isActive("bulletList")}
+          isActive={activeListType === "bulletList"}
           title={t('tiptap.bulletList')}
         >
           <List size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => toggleOrderedListSmart(editor)}
-          isActive={editor.isActive("orderedList")}
+          isActive={activeListType === "orderedList"}
           title={t('tiptap.orderedList')}
         >
           <ListOrdered size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleTaskList().run()}
-          isActive={editor.isActive("taskList")}
+          isActive={activeListType === "taskList"}
           title={t('tiptap.taskList')}
         >
           <CheckSquare size={iconSize} />
@@ -4569,10 +5009,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           </>
         )}
       </div>
+      )}
 
       {/* 查找替换浮窗：依附最外层 relative，右上角应于序列。
           - editable=false 的只读场景仍可查找，只是隐藏替换输入框 */}
-      {editor && (
+      {editor && !presentationMode && (
         <SearchReplacePanel
           editor={editor}
           open={searchOpen}
@@ -4582,6 +5023,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       )}
 
       {/* Title */}
+      {!presentationMode && (
       <div className="px-4 md:px-8 pt-4 md:pt-6 pb-0">
         <input
           ref={titleRef}
@@ -4602,11 +5044,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           <span className="max-md:hidden">·</span>
           <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
           <span className="max-md:hidden">·</span>
-          <span>{wordStats.words}{t('tiptap.words')}</span>
-          <span className="max-md:hidden">·</span>
-          <span>{wordStats.charsNoSpace}{t('tiptap.chars')}</span>
+          <WordStatsDisplay
+            ref={wordStatsDisplayRef}
+            wordsLabel={t('tiptap.words')}
+            charsLabel={t('tiptap.chars')}
+          />
         </div>
       </div>
+      )}
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
       {!isGuest && (
@@ -4836,6 +5281,15 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
             <Download size={14} />
           </ToolbarButton>
+          {selectedImageCanLocalize && (
+            <ToolbarButton
+              title={t("tiptap.imageLocalize", { defaultValue: "转存为附件" })}
+              disabled={localizingSelectedImage}
+              onClick={() => { void handleLocalizeSelectedImage(); }}
+            >
+              <Paperclip size={14} />
+            </ToolbarButton>
+          )}
           <ToolbarButton
             title={t("tiptap.imageReplace")}
             disabled={replacingImage}
@@ -4910,6 +5364,13 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             {[
               { key: "view", label: t("tiptap.imageViewLarge"), icon: ExternalLink, action: handlePreviewSelectedImage },
               { key: "download", label: t("tiptap.imageDownload"), icon: Download, action: () => { void handleDownloadSelectedImage(); } },
+              ...(selectedImageCanLocalize ? [{
+                key: "localize",
+                label: t("tiptap.imageLocalize", { defaultValue: "转存为附件" }),
+                icon: Paperclip,
+                action: () => { void handleLocalizeSelectedImage(); },
+                disabled: localizingSelectedImage,
+              }] : []),
               { key: "replace", label: t("tiptap.imageReplace"), icon: Upload, action: handleReplaceSelectedImage, disabled: replacingImage },
               { key: "copy", label: t("tiptap.imageCopyAddress"), icon: Copy, action: () => { void handleCopySelectedImageSrc(); } },
               { key: "delete", label: t("tiptap.imageDelete"), icon: Trash2, action: handleDeleteSelectedImage },
@@ -5205,9 +5666,10 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-auto px-4 md:px-8 pb-12"
-        style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px))" }}
+        style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
         <EditorContent editor={editor} />
+      <NoteLinkHoverPreview root={editor.view.dom} />
       </div>
 
       {/* 附件内嵌预览：复用 AttachmentDetailDrawer
@@ -5342,6 +5804,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           editor={editor}
           position={noteLinkMenu.position}
           query={noteLinkMenu.query}
+          notebookId={note.notebookId}
           onSelect={handleNoteLinkSelect}
           onClose={() => setNoteLinkMenu(prev => ({ ...prev, open: false }))}
         />
@@ -5502,6 +5965,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     </div>
   );
 });
+
+export default React.memo(TiptapEditor);
 
 /**
  * 把附件信息渲染成一段「可粘附进 Tiptap 内容」的 HTML 链接。

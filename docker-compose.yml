@@ -1,47 +1,14 @@
 services:
   nowen-note:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      # 在 x86 主机上可以通过以下命令构建 arm64 镜像（A311D/RK3566 等板子）：
-      #   docker buildx build --platform linux/arm64 -t nowen-note:arm64 --load .
-      # 或直接使用统一脚本：scripts/release.sh --build-only --arch arm64
-      # compose 原生的 `platforms:` 字段在非 buildx 流程下会被忽略，这里仅做声明。
-      platforms:
-        - linux/amd64
-        - linux/arm64
-    image: nowen-note:latest
-    # 若在 x86 主机上拉起 arm64 镜像做冒烟测试，取消下一行注释（需已启用 binfmt/qemu）：
-    # platform: linux/arm64
+    image: cropflre/nowen-note:${NOWEN_IMAGE_TAG:-latest}
     container_name: nowen-note
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "${NOWEN_PORT:-3001}:3001"
     volumes:
       - nowen-note-data:/app/data
-      # ===========================================================================
-      # 【强烈建议】把备份目录挂载到与数据卷**不同的物理介质**上！
-      #
-      # 默认情况下备份会写入 /app/data/backups（即 nowen-note-data 卷内部），
-      # 一旦该卷损坏 / 误删 / 被勒索，数据和备份会一起没。这违反 3-2-1 备份原则
-      # （3 份副本、2 种介质、1 份异地）。
-      #
-      # 推荐做法（任选其一）：
-      #   1) 绑定挂载到宿主机另一块磁盘：
-      #        - /mnt/backup-disk/nowen-note:/app/backups
-      #      然后在 environment 区块设置 BACKUP_DIR=/app/backups
-      #   2) 挂载到 NAS / 网络存储路径
-      #   3) 创建独立的 docker volume（虽然仍可能在同一物理盘，但至少防 down -v 误删）：
-      #        - nowen-note-backup:/app/backups
-      #
-      # /api/backups/status 会返回 sameVolume=true/false，前端备份页会显示警告横幅。
-      # ---------------------------------------------------------------------------
-      # 取消下一行注释启用独立备份卷（任选 1/2/3 之一即可）：
-      # - nowen-note-backup:/app/backups
-    # JWT_SECRET 等敏感变量由容器内 docker-entrypoint.sh 在首启时自动生成并
-    # 持久化到 data 卷；用户零配置即可启动。
-    # 如需手动覆盖（多实例共享密钥、企业统一密钥管理等），可在同目录下创建
-    # .env 文件填入 JWT_SECRET=... ，compose 会自动加载。.env 不存在则跳过。
+      # 推荐把备份放到独立物理卷，并同时设置 BACKUP_DIR=/app/backups
+      # - /path/on/another-disk/nowen-backups:/app/backups
     env_file:
       - path: .env
         required: false
@@ -49,26 +16,84 @@ services:
       - NODE_ENV=production
       - DB_PATH=/app/data/nowen-note.db
       - PORT=3001
-      # Docker 默认 UTC；国内用户默认使用上海时区，海外用户可在 .env 中覆盖 TZ=Europe/London 等。
       - TZ=${TZ:-Asia/Shanghai}
-      # 高级用户如需跟随宿主机时区，可按宿主系统情况自行挂载 /etc/localtime 或 /usr/share/zoneinfo。
-      # 启用上面的独立备份卷后，**必须**同步设置以下变量，否则备份仍会写到 data 卷：
-      # - BACKUP_DIR=/app/backups
-      # Ollama 地址，如需使用请自行部署 Ollama 并填写正确地址
-      # - OLLAMA_URL=http://host.docker.internal:11434
-      # Optional attachment object storage (S3 / Cloudflare R2 / MinIO).
-      # Keep commented to use /app/data/attachments on the local volume.
-      # - ATTACHMENT_STORAGE=s3
-      # - S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-      # - S3_REGION=auto
-      # - S3_BUCKET=nowen-note
-      # - S3_ACCESS_KEY_ID=
-      # - S3_SECRET_ACCESS_KEY=
-      # - S3_PREFIX=attachments
+      - PUBLIC_WEB_ORIGIN=${PUBLIC_WEB_ORIGIN:-}
+      - NOWEN_DEPLOYMENT_TYPE=docker-compose-managed
+      - NOWEN_IMAGE_TAG=${NOWEN_IMAGE_TAG:-latest}
+      - NOWEN_UPDATER_URL=http://nowen-note-updater:3002
+      - NOWEN_UPDATER_TOKEN=${NOWEN_UPDATER_TOKEN:-}
+      - NOWEN_UPDATER_INSTANCE=${NOWEN_INSTANCE_ID:-nowen-note}
+    labels:
+      com.nowen-note.managed: "true"
+      com.nowen-note.role: "app"
+      com.nowen-note.project: "nowen-note"
+      com.nowen-note.instance: "${NOWEN_INSTANCE_ID:-nowen-note}"
+      com.nowen-note.image-repository: "cropflre/nowen-note"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - nowen-network
+      - nowen-update-internal
+
+  # 默认关闭：只有显式传入 --profile updater 才会启动。
+  # 该容器是唯一挂载 Docker Socket 的进程；主应用永远不挂载 Socket。
+  nowen-note-updater:
+    image: cropflre/nowen-note:${NOWEN_IMAGE_TAG:-latest}
+    container_name: nowen-note-updater
+    profiles: ["updater"]
+    restart: unless-stopped
+    depends_on:
+      nowen-note:
+        condition: service_healthy
+    entrypoint: ["/sbin/tini", "--"]
+    command: ["node", "backend/dist/updater/index.js"]
+    environment:
+      - NODE_ENV=production
+      - NOWEN_UPDATER_PORT=3002
+      - NOWEN_UPDATER_TOKEN=${NOWEN_UPDATER_TOKEN:-}
+      - NOWEN_UPDATER_INSTANCE=${NOWEN_INSTANCE_ID:-nowen-note}
+      - NOWEN_UPDATER_CONTAINER_NAME=nowen-note
+      - NOWEN_UPDATER_ALLOWED_IMAGE=cropflre/nowen-note
+      - NOWEN_UPDATER_TARGET_URL=http://nowen-note:3001
+      - NOWEN_UPDATER_STATE_DIR=/var/lib/nowen-updater
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - nowen-updater-state:/var/lib/nowen-updater
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nowen-update-internal
 
 volumes:
   nowen-note-data:
     driver: local
-  # 启用独立备份卷时取消下方注释（与上面 volumes 段对应）：
-  # nowen-note-backup:
-  #   driver: local
+  nowen-updater-state:
+    driver: local
+
+networks:
+  nowen-network:
+  nowen-update-internal:
+    internal: true

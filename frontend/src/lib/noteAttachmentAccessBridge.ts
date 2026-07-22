@@ -1,4 +1,5 @@
 import { toast } from "@/lib/toast";
+import { getShareSessionId } from "@/lib/shareSession";
 
 const INSTALL_KEY = "__NOWEN_NOTE_ATTACHMENT_ACCESS_BRIDGE_V1__";
 const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -300,6 +301,8 @@ function authHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
   if (authorization) headers.set("Authorization", authorization);
   const requestedWith = source.get("X-Requested-With");
   if (requestedWith) headers.set("X-Requested-With", requestedWith);
+  const shareSession = source.get("X-Share-Session");
+  if (shareSession) headers.set("X-Share-Session", shareSession);
   return headers;
 }
 
@@ -412,7 +415,9 @@ export function installNoteAttachmentAccessBridge(): void {
       // 必须在正文接口自增 viewCount 之前签发，否则 maxViews=1 的首次访问会立即失效。
       const accessUrl = new URL("/api/attachments/share-access", url.origin);
       accessUrl.searchParams.set("token", decodeURIComponent(shareMatch[1]));
-      await fetchAccessUrls(originalFetch, accessUrl, authHeaders(input, init), credentials);
+      const headers = authHeaders(input, init);
+      if (!headers.has("X-Share-Session")) headers.set("X-Share-Session", getShareSessionId());
+      await fetchAccessUrls(originalFetch, accessUrl, headers, credentials);
     }
 
     const response = await originalFetch(input, init);

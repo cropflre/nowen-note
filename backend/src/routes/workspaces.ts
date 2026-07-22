@@ -36,6 +36,11 @@ import {
   type WorkspaceFeature,
 } from "../middleware/acl";
 import { workspaceInvitesRepository, noteAclRepository, workspaceMembersRepository } from "../repositories";
+import {
+  normalizeWorkspaceIcon,
+  workspaceIconForRead,
+} from "../lib/workspace-icon";
+import { broadcastToUser } from "../services/realtime";
 
 const app = new Hono();
 
@@ -46,6 +51,22 @@ function generateInviteCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
+}
+
+function normalizeWorkspaceRow<T extends Record<string, any>>(row: T): T {
+  return { ...row, icon: workspaceIconForRead(row.icon) };
+}
+
+function broadcastWorkspaceProfileUpdated(workspaceId: string, workspace: Record<string, any>): void {
+  const members = workspaceMembersRepository.listByWorkspaceWithUser(workspaceId) as Array<{ userId?: string }>;
+  for (const member of members) {
+    if (!member.userId) continue;
+    broadcastToUser(member.userId, {
+      type: "workspace:updated",
+      workspaceId,
+      workspace,
+    } as any);
+  }
 }
 
 // ===================== 工作区 CRUD =====================
@@ -67,9 +88,9 @@ app.get("/", (c) => {
       ORDER BY w.createdAt ASC
     `,
     )
-    .all(userId);
+    .all(userId) as Array<Record<string, any>>;
 
-  return c.json(rows);
+  return c.json(rows.map(normalizeWorkspaceRow));
 });
 
 // 系统管理员：列出所有工作区（包含自己未加入的），用于"工作区管理"面板
@@ -90,9 +111,9 @@ app.get("/all", requireAdmin, (c) => {
       ORDER BY w.createdAt ASC
       `,
     )
-    .all();
+    .all() as Array<Record<string, any>>;
 
-  return c.json(rows);
+  return c.json(rows.map(normalizeWorkspaceRow));
 });
 
 // 创建工作区
@@ -107,18 +128,25 @@ app.post("/", async (c) => {
   };
 
   if (!name || !name.trim()) return c.json({ error: "工作区名称不能为空" }, 400);
+  const normalizedIcon = normalizeWorkspaceIcon(icon);
+  if (!normalizedIcon.ok) {
+    return c.json({ error: normalizedIcon.error, code: "INVALID_WORKSPACE_ICON" }, 400);
+  }
 
   const id = uuid();
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO workspaces (id, name, description, icon, ownerId) VALUES (?, ?, ?, ?, ?)`,
-    ).run(id, name.trim(), description || "", icon || "🏢", userId);
-    workspaceMembersRepository.create(id, userId, 'owner');
+    ).run(id, name.trim(), typeof description === "string" ? description : "", normalizedIcon.icon, userId);
+    workspaceMembersRepository.create(id, userId, "owner");
   });
   tx();
 
-  const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id);
-  return c.json({ ...(workspace as any), role: "owner", memberCount: 1, notebookCount: 0 }, 201);
+  const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id) as Record<string, any>;
+  return c.json(
+    normalizeWorkspaceRow({ ...workspace, role: "owner", memberCount: 1, notebookCount: 0 }),
+    201,
+  );
 });
 
 // 查看工作区详情
@@ -132,7 +160,7 @@ app.get("/:id", (c) => {
   const role = sysAdmin ? "owner" : getUserWorkspaceRole(id, userId);
   if (!role) return c.json({ error: "无权访问该工作区" }, 403);
 
-  const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id);
+  const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id) as Record<string, any> | undefined;
   if (!ws) return c.json({ error: "工作区不存在" }, 404);
 
   const memberCount = workspaceMembersRepository.countByWorkspace(id);
@@ -142,7 +170,7 @@ app.get("/:id", (c) => {
     }
   ).c;
 
-  return c.json({ ...(ws as any), role, memberCount, notebookCount });
+  return c.json(normalizeWorkspaceRow({ ...ws, role, memberCount, notebookCount }));
 });
 
 // 更新工作区（仅 owner/admin）
@@ -154,16 +182,26 @@ app.put("/:id", requireWorkspaceRole("admin"), async (c) => {
   const fields: string[] = [];
   const params: any[] = [];
   if (body.name !== undefined) {
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      return c.json({ error: "工作区名称不能为空" }, 400);
+    }
     fields.push("name = ?");
-    params.push(body.name);
+    params.push(body.name.trim());
   }
   if (body.description !== undefined) {
+    if (typeof body.description !== "string") {
+      return c.json({ error: "工作区描述格式无效" }, 400);
+    }
     fields.push("description = ?");
     params.push(body.description);
   }
   if (body.icon !== undefined) {
+    const normalizedIcon = normalizeWorkspaceIcon(body.icon);
+    if (!normalizedIcon.ok) {
+      return c.json({ error: normalizedIcon.error, code: "INVALID_WORKSPACE_ICON" }, 400);
+    }
     fields.push("icon = ?");
-    params.push(body.icon);
+    params.push(normalizedIcon.icon);
   }
   if (fields.length === 0) return c.json({ error: "无可更新字段" }, 400);
 
@@ -171,7 +209,10 @@ app.put("/:id", requireWorkspaceRole("admin"), async (c) => {
   params.push(id);
 
   db.prepare(`UPDATE workspaces SET ${fields.join(", ")} WHERE id = ?`).run(...params);
-  const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id);
+  const row = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id) as Record<string, any> | undefined;
+  if (!row) return c.json({ error: "工作区不存在" }, 404);
+  const ws = normalizeWorkspaceRow(row);
+  broadcastWorkspaceProfileUpdated(id, ws);
   return c.json(ws);
 });
 
@@ -358,8 +399,8 @@ app.post("/join", async (c) => {
   });
   tx();
 
-  const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(invite.workspaceId);
-  return c.json({ success: true, workspace: ws, role: invite.role });
+  const ws = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(invite.workspaceId) as Record<string, any>;
+  return c.json({ success: true, workspace: normalizeWorkspaceRow(ws), role: invite.role });
 });
 
 // ===================== 功能开关（Phase 1）=====================

@@ -1,3 +1,5 @@
+import { parseServerTime } from "@/lib/dateTime";
+
 export type NoteImageExportFormat = "png" | "jpg" | "svg";
 export type NoteImageExportLayout = "auto" | "long" | "pages";
 export type NoteImageExportTheme = "current" | "light" | "dark";
@@ -39,6 +41,41 @@ function createRequestId(): string {
 }
 
 /**
+ * Convert backend timestamps to an unambiguous ISO UTC representation before the note
+ * enters any PNG/JPG/SVG rendering path.
+ *
+ * SQLite returns `YYYY-MM-DD HH:mm:ss` without a zone even though the value is UTC.
+ * `parseServerTime()` also preserves timestamps that already carry `Z` or an explicit
+ * offset, so this normalization cannot apply the user's time-zone offset twice.
+ */
+export function normalizeNoteImageExportTimestamp(
+  value: string | null | undefined,
+): string | undefined {
+  return parseServerTime(value)?.toISOString();
+}
+
+/**
+ * Normalize a copy only; never mutate the active note held by the editor/store.
+ * Invalid or empty timestamps are omitted so the export metadata cannot render
+ * `Invalid Date`.
+ */
+export function normalizeNoteImageExportSource(
+  note: ExportableNoteImageSource,
+): ExportableNoteImageSource {
+  const normalized = { ...note };
+  const createdAt = normalizeNoteImageExportTimestamp(note.createdAt);
+  const updatedAt = normalizeNoteImageExportTimestamp(note.updatedAt);
+
+  if (createdAt) normalized.createdAt = createdAt;
+  else delete normalized.createdAt;
+
+  if (updatedAt) normalized.updatedAt = updatedAt;
+  else delete normalized.updatedAt;
+
+  return normalized;
+}
+
+/**
  * Opens the global image-export center and resolves after the user completes or
  * cancels the flow. Existing menu entry points can await this promise without
  * knowing whether the app is running in Web, Electron or Capacitor.
@@ -50,11 +87,12 @@ export function requestNoteImageExport(
   if (typeof window === "undefined") return Promise.resolve(false);
 
   const requestId = createRequestId();
+  const exportNote = normalizeNoteImageExportSource(note);
   return new Promise<boolean>((resolve) => {
     pending.set(requestId, resolve);
     window.dispatchEvent(new CustomEvent<NoteImageExportRequestDetail>(
       NOTE_IMAGE_EXPORT_REQUEST_EVENT,
-      { detail: { requestId, note, options } },
+      { detail: { requestId, note: exportNote, options } },
     ));
   });
 }

@@ -37,15 +37,17 @@ test("export helpers reject traversal and rewrite attachment URLs", async () => 
   );
 });
 
-test("markdown export writes attachments to a ZIP file and keeps duplicate note titles", async () => {
+test("markdown export preserves the tree, attachments and duplicate note titles", async () => {
   const schema = await import("../src/db/schema");
   const service = await import("../src/services/markdownExportJobs");
   closeDb = schema.closeDb;
   const db = schema.getDb();
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run("user-export", "user-export", "hash");
-  db.prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)")
-    .run("nb-export", "user-export", "笔记本");
+  db.prepare("INSERT INTO notebooks (id, userId, name, sortOrder) VALUES (?, ?, ?, ?)")
+    .run("nb-export", "user-export", "笔记本", 10);
+  db.prepare("INSERT INTO notebooks (id, userId, parentId, name, sortOrder) VALUES (?, ?, ?, ?, ?)")
+    .run("nb-empty", "user-export", "nb-export", "空目录", 20);
   for (const id of ["note-1", "note-2"]) {
     db.prepare("INSERT INTO notes (id, userId, notebookId, title) VALUES (?, ?, ?, ?)")
       .run(id, "user-export", "nb-export", "同名笔记");
@@ -84,7 +86,7 @@ test("markdown export writes attachments to a ZIP file and keeps duplicate note 
   });
 
   let snapshot = created;
-  for (let i = 0; i < 200 && snapshot.state !== "ready" && snapshot.state !== "error"; i++) {
+  for (let i = 0; i < 300 && snapshot.state !== "ready" && snapshot.state !== "error"; i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     snapshot = service.getMarkdownExportJob(created.id, "user-export")!;
   }
@@ -100,7 +102,8 @@ test("markdown export writes attachments to a ZIP file and keeps duplicate note 
 
   const zip = await JSZip.loadAsync(await response.arrayBuffer());
   assert.ok(zip.file("笔记本/同名笔记.md"));
-  assert.ok(zip.file("笔记本/同名笔记_2.md"));
+  assert.ok(zip.file("笔记本/同名笔记 (2).md"));
+  assert.ok(zip.folder("笔记本/空目录"));
   assert.equal(
     await zip.file("笔记本/assets/att-att-1-附件.bin")!.async("string"),
     "streamed attachment",
@@ -109,6 +112,14 @@ test("markdown export writes attachments to a ZIP file and keeps duplicate note 
     await zip.file("笔记本/同名笔记.md")!.async("string"),
     /\[附件\]\(\.\/assets\/att-att-1-附件\.bin\)/,
   );
+  const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+  assert.equal(manifest.format, "nowen-package");
+  assert.equal(manifest.formatVersion, 2);
+  assert.equal(manifest.packageKind, "markdown");
+  const tree = JSON.parse(await zip.file("tree.json")!.async("string"));
+  assert.equal(tree.nodes.length, 2);
+  const attachments = JSON.parse(await zip.file("attachments.json")!.async("string"));
+  assert.equal(attachments.items.length, 1);
 });
 
 test("single-note flat export keeps the note and assets at ZIP root", async () => {
@@ -131,7 +142,7 @@ test("single-note flat export keeps the note and assets at ZIP root", async () =
   });
 
   let snapshot = created;
-  for (let i = 0; i < 200 && snapshot.state !== "ready" && snapshot.state !== "error"; i++) {
+  for (let i = 0; i < 300 && snapshot.state !== "ready" && snapshot.state !== "error"; i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     snapshot = service.getMarkdownExportJob(created.id, "user-export")!;
   }
@@ -215,7 +226,7 @@ test("markdown export route validates note ownership and exposes asynchronous st
   const createdBody = await created.json() as { job: { id: string } };
 
   let state = "queued";
-  for (let i = 0; i < 200 && state !== "ready" && state !== "error"; i++) {
+  for (let i = 0; i < 300 && state !== "ready" && state !== "error"; i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     const status = await app.request(`/export/markdown-package/jobs/${createdBody.job.id}`, {
       headers: { "X-User-Id": "user-export" },

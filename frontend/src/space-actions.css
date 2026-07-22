@@ -1,0 +1,35 @@
+/*
+ * 空间入口已经迁移到左侧 NavRail（AI 问答下方）。
+ * NoteTransferCenter 暂时仍保留旧触发按钮作为兼容命令入口；在转移中心完成事件式
+ * 打开 API 之前，强制隐藏该按钮，避免桌面端和移动端再次出现重复悬浮入口。
+ */
+button[aria-label="跨空间转移笔记"] {
+  display: none !important;
+}
+
+/*
+ * PublicSpaceLauncher 通过 portal 挂载到 NavRail。开发模式的 StrictMode/HMR 或旧
+ * DOM 残留可能让同一个 mount 短暂存在两个入口：一个持有展开态，另一个仍是默认态。
+ * 同一个 mount 始终只展示一个按钮；有展开态时优先展示展开态，否则展示第一个。
+ */
+[data-nowen-space-actions-mount] > button[aria-label="空间"],
+[data-nowen-space-actions-mount] > button[aria-label="Spaces"] {
+  display: none !important;
+}
+
+[data-nowen-space-actions-mount] > button[aria-label="空间"]:first-of-type,
+[data-nowen-space-actions-mount] > button[aria-label="Spaces"]:first-of-type,
+[data-nowen-space-actions-mount] > button[aria-expanded="true"] {
+  display: flex !important;
+}
+
+[data-nowen-space-actions-mount]:has(> button[aria-expanded="true"])
+  > button[aria-expanded="false"] {
+  display: none !important;
+}
+
+/* HMR 遗留多个 mount 时，只保留导航容器中的第一个。 */
+.nav-rail [data-nowen-space-actions-mount]
+  ~ [data-nowen-space-actions-mount] {
+  display: none !important;
+}

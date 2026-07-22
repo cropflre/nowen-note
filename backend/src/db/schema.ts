@@ -3,8 +3,11 @@ import path from "path";
 import fs from "fs";
 import { runMigrations, getCurrentSchemaVersion, CURRENT_SCHEMA_VERSION } from "./migrations.js";
 import { enableIncrementalAutoVacuum } from "../lib/reclaimSpace.js";
+import { assertSafeTestDatabasePath } from "./test-db-guard.js";
+import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
+assertSafeTestDatabasePath(DB_PATH);
 
 let db: Database.Database;
 
@@ -101,6 +104,7 @@ export function getDb(): Database.Database {
     // 拒绝降级：发现 DB 版本高于程序支持版本时直接抛错，避免旧程序写坏新库。
     try {
       runMigrations(db);
+      ensureNormalizedSearchFts(db);
     } catch (e) {
       // 让进程启动失败：迁移失败比"看似能跑"安全得多。
       try { db.close(); } catch { /* ignore */ }
@@ -339,6 +343,7 @@ function initSchema(db: Database.Database) {
       shareType TEXT NOT NULL DEFAULT 'link',
       permission TEXT NOT NULL DEFAULT 'view',
       password TEXT,
+      credentialVersion INTEGER NOT NULL DEFAULT 1,
       expiresAt TEXT,
       maxViews INTEGER,
       viewCount INTEGER DEFAULT 0,
@@ -352,6 +357,16 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(noteId);
     CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(ownerId);
     CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(shareToken);
+
+    CREATE TABLE IF NOT EXISTS share_view_sessions (
+      shareId TEXT NOT NULL,
+      sessionHash TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      lastSeenAt TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (shareId, sessionHash),
+      FOREIGN KEY (shareId) REFERENCES shares(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_view_sessions_seen ON share_view_sessions(shareId, lastSeenAt);
 
     -- 笔记版本历史表
     CREATE TABLE IF NOT EXISTS note_versions (
@@ -394,6 +409,9 @@ function initSchema(db: Database.Database) {
       parentId TEXT,
       content TEXT NOT NULL,
       anchorData TEXT,
+      sourceType TEXT NOT NULL DEFAULT 'note_share',
+      sourceId TEXT,
+      isHidden INTEGER NOT NULL DEFAULT 0,
       isResolved INTEGER DEFAULT 0,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -403,6 +421,9 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_share_comments_note ON share_comments(noteId);
+    -- 注意：idx_share_comments_source 不在这里建。
+    -- 老库的 share_comments 表缺少 sourceType/sourceId，索引必须由 v50 迁移
+    -- 在补齐字段后创建，否则 initSchema 会先于 runMigrations 抛错。
     -- 注意：idx_share_comments_guest_ip 不在这里建。
     -- 原因：老库（v12 之前）已经有 share_comments 表但没有 guestIpHash 列，
     --       CREATE TABLE IF NOT EXISTS 会跳过重建，紧接着对不存在的列建索引会让
@@ -552,6 +573,10 @@ function initSchema(db: Database.Database) {
       userId TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       status TEXT NOT NULL DEFAULT 'active',
+      allowDownload INTEGER NOT NULL DEFAULT 1,
+      allowReshare INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      sourceId TEXT,
       invitedBy TEXT,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -568,6 +593,8 @@ function initSchema(db: Database.Database) {
       role TEXT NOT NULL DEFAULT 'viewer',
       enabled INTEGER NOT NULL DEFAULT 1,
       expiresAt TEXT,
+      maxUses INTEGER,
+      useCount INTEGER NOT NULL DEFAULT 0,
       createdBy TEXT NOT NULL,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),

@@ -7,7 +7,7 @@
  *   - 快捷入口：创建工作区、加入工作区（输入邀请码）
  *   - 管理成员入口
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -27,7 +27,9 @@ import { api, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
 import { Workspace } from "@/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { realtime } from "@/lib/realtime";
 import MembersPanel from "@/components/MembersPanel";
+import WorkspaceIconField, { DEFAULT_WORKSPACE_ICON } from "@/components/WorkspaceIconField";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import { useContextMenu } from "@/hooks/useContextMenu";
 
@@ -51,18 +53,27 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
   const ref = useRef<HTMLDivElement>(null);
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
 
-  const loadWorkspaces = async () => {
+  const loadWorkspaces = useCallback(async () => {
     try {
       const list = await api.getWorkspaces();
-      setWorkspaces(list);
+      setWorkspaces(list.map((workspace) => ({
+        ...workspace,
+        icon: workspace.icon || DEFAULT_WORKSPACE_ICON,
+      })));
     } catch (e: any) {
       console.error("[WorkspaceSwitcher] load failed", e);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadWorkspaces();
-  }, []);
+    void loadWorkspaces();
+  }, [loadWorkspaces]);
+
+  // 工作区资料（名称、描述、图标）更新后，所有在线成员都会收到该消息。
+  // 当前窗口及同账号的其他窗口统一重新拉取，避免图标只在编辑弹窗里更新。
+  useEffect(() => realtime.on("workspace:updated", (payload) => {
+    if (payload?.workspaceId || payload?.workspace?.id) void loadWorkspaces();
+  }), [loadWorkspaces]);
 
   // 系统管理员（users.role='admin'）：可对任意工作区右键编辑/删除——后端中间件已对其旁路。
   useEffect(() => {
@@ -105,7 +116,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
 
   const currentWs = workspaces.find((w) => w.id === current);
   const displayName = current === "personal" ? "我的笔记" : currentWs?.name || "我的笔记";
-  const displayIcon = current === "personal" ? "🏠" : currentWs?.icon || "🏢";
+  const displayIcon = current === "personal" ? "🏠" : currentWs?.icon || DEFAULT_WORKSPACE_ICON;
 
   // 在入口按钮（展开/收起态）上右键当前工作区时，直接弹出对应右键菜单。
   // 个人空间没有可管理选项，不弹菜单（避免空菜单）。
@@ -114,8 +125,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
     const target = workspaces.find((w) => w.id === current);
     if (!target) return;
     const canManage = target.role === "owner" || target.role === "admin" || isAdmin;
-    const canEditDelete = target.role === "owner" || isAdmin;
-    if (!canManage && !canEditDelete) return;
+    if (!canManage) return;
     e.preventDefault();
     e.stopPropagation();
     openMenu(e, target.id, "workspace");
@@ -146,7 +156,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
             workspaceId={showMembers}
             onClose={() => {
               setShowMembers(null);
-              loadWorkspaces();
+              void loadWorkspaces();
             }}
           />
         )}
@@ -155,7 +165,8 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
           const target = workspaces.find((w) => w.id === menu.targetId);
           if (!target) return null;
           const canManage = target.role === "owner" || target.role === "admin" || isAdmin;
-          const canEditDelete = target.role === "owner" || isAdmin;
+          const canEdit = target.role === "owner" || target.role === "admin" || isAdmin;
+          const canDelete = target.role === "owner" || isAdmin;
           const items: ContextMenuItem[] = [];
           if (canManage) {
             items.push({
@@ -164,13 +175,15 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
               icon: <Users className="w-3.5 h-3.5" />,
             });
           }
-          if (canEditDelete) {
+          if (canEdit) {
             if (items.length > 0) items.push({ id: "sep1", label: "", separator: true });
             items.push({
               id: "edit",
               label: t("workspaceSwitcher.contextMenu.edit", "编辑团队空间"),
               icon: <Pencil className="w-3.5 h-3.5" />,
             });
+          }
+          if (canDelete) {
             items.push({
               id: "delete",
               label: t("workspaceSwitcher.contextMenu.delete", "删除团队空间"),
@@ -204,9 +217,14 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
           <EditWorkspaceDialog
             workspace={editing}
             onClose={() => setEditing(null)}
-            onSaved={() => {
+            onSaved={(saved) => {
               setEditing(null);
-              loadWorkspaces();
+              setWorkspaces((previous) => previous.map((workspace) => (
+                workspace.id === saved.id
+                  ? { ...workspace, ...saved, icon: saved.icon || DEFAULT_WORKSPACE_ICON }
+                  : workspace
+              )));
+              void loadWorkspaces();
             }}
           />
         )}
@@ -227,7 +245,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
                   }),
                 );
               }
-              loadWorkspaces();
+              void loadWorkspaces();
             }}
           />
         )}
@@ -282,7 +300,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
                 {workspaces.map((w) => (
                   <WorkspaceItem
                     key={w.id}
-                    icon={w.icon || "🏢"}
+                    icon={w.icon || DEFAULT_WORKSPACE_ICON}
                     name={w.name}
                     subtitle={`${w.role} · ${w.memberCount} 位成员`}
                     active={current === w.id}
@@ -297,11 +315,6 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
                     }
                     onContextMenu={(e) => {
                       // 只有 owner / 工作区 admin / 系统管理员 才有右键菜单。
-                      // 注意：这里**不**主动 setOpen(false)——之前那样写会导致
-                      // 下拉立即收起、用户视觉上看到"菜单弹出但下拉消失"的割裂
-                      // 体验。下拉与右键菜单本就互不重叠（菜单跟随鼠标，下拉
-                      // 锚定按钮），完全可以共存；用户做完动作（点菜单项 / 点空白）
-                      // 后下拉会自然关闭。
                       if (w.role === "owner" || w.role === "admin" || isAdmin) {
                         openMenu(e, w.id, "workspace");
                       }
@@ -341,8 +354,13 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
           onClose={() => setShowCreate(false)}
           onCreated={(ws) => {
             setShowCreate(false);
-            loadWorkspaces();
+            const normalized = { ...ws, icon: ws.icon || DEFAULT_WORKSPACE_ICON };
+            setWorkspaces((previous) => [
+              ...previous.filter((workspace) => workspace.id !== normalized.id),
+              normalized,
+            ]);
             switchTo(ws.id);
+            void loadWorkspaces();
           }}
         />
       )}
@@ -352,7 +370,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
           onClose={() => setShowJoin(false)}
           onJoined={(workspaceId) => {
             setShowJoin(false);
-            loadWorkspaces();
+            void loadWorkspaces();
             switchTo(workspaceId);
           }}
         />
@@ -419,66 +437,65 @@ function CreateWorkspaceDialog({
   onClose: () => void;
   onCreated: (ws: Workspace) => void;
 }) {
+  const { i18n, t } = useTranslation();
+  const zh = i18n.language.toLowerCase().startsWith("zh");
+  const copy = (cnText: string, enText: string) => zh ? cnText : enText;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [icon, setIcon] = useState("🏢");
+  const [icon, setIcon] = useState(DEFAULT_WORKSPACE_ICON);
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast.error("请输入团队空间名称");
+      toast.error(copy("请输入团队空间名称", "Enter a team workspace name"));
       return;
     }
     setLoading(true);
     try {
       const ws = await api.createWorkspace({ name: name.trim(), description, icon });
-      toast.success("团队空间创建成功");
+      toast.success(copy("团队空间创建成功", "Team workspace created"));
       onCreated(ws);
     } catch (e: any) {
-      toast.error(e.message || "创建失败");
+      toast.error(e.message || copy("创建失败", "Create failed"));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal title="创建团队空间" onClose={onClose}>
-      <div className="space-y-3">
-        <div>
-          <label className="text-sm mb-1 block">图标</label>
-          <Input
-            value={icon}
-            maxLength={4}
-            onChange={(e) => setIcon(e.target.value)}
-            placeholder="🏢"
-            className="w-20 text-center text-lg"
-          />
-        </div>
+    <Modal title={copy("创建团队空间", "Create team workspace")} onClose={onClose}>
+      <div className="space-y-4">
+        <WorkspaceIconField
+          icon={icon}
+          onChange={setIcon}
+          disabled={loading}
+          label={t("workspaceManagement.fieldIcon", copy("图标", "Icon"))}
+        />
         <div>
           <label className="text-sm mb-1 block">
-            名称 <span className="text-destructive">*</span>
+            {copy("名称", "Name")} <span className="text-destructive">*</span>
           </label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例如：研发团队"
+            placeholder={copy("例如：研发团队", "e.g. Product team")}
             autoFocus
           />
         </div>
         <div>
-          <label className="text-sm mb-1 block">描述（可选）</label>
+          <label className="text-sm mb-1 block">{copy("描述（可选）", "Description (optional)")}</label>
           <Input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="简短说明"
+            placeholder={copy("简短说明", "Short description")}
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+            {copy("取消", "Cancel")}
           </Button>
-          <Button onClick={handleCreate} disabled={loading}>
-            {loading ? "创建中..." : "创建"}
+          <Button onClick={handleCreate} disabled={loading || !name.trim()}>
+            {loading ? copy("创建中...", "Creating...") : copy("创建", "Create")}
           </Button>
         </div>
       </div>
@@ -554,12 +571,12 @@ function EditWorkspaceDialog({
 }: {
   workspace: Workspace;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (workspace: Workspace) => void;
 }) {
   const { t } = useTranslation();
   const [name, setName] = useState(workspace.name);
   const [description, setDescription] = useState(workspace.description || "");
-  const [icon, setIcon] = useState(workspace.icon || "🏢");
+  const [icon, setIcon] = useState(workspace.icon || DEFAULT_WORKSPACE_ICON);
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
@@ -571,16 +588,16 @@ function EditWorkspaceDialog({
     const payload: { name?: string; description?: string; icon?: string } = {};
     if (trimmed !== workspace.name) payload.name = trimmed;
     if (description !== (workspace.description || "")) payload.description = description;
-    if (icon !== (workspace.icon || "🏢")) payload.icon = icon;
+    if (icon !== (workspace.icon || DEFAULT_WORKSPACE_ICON)) payload.icon = icon;
     if (Object.keys(payload).length === 0) {
       onClose();
       return;
     }
     setLoading(true);
     try {
-      await api.updateWorkspace(workspace.id, payload);
+      const saved = await api.updateWorkspace(workspace.id, payload);
       toast.success(t("workspaceManagement.saveSuccess", "已保存"));
-      onSaved();
+      onSaved(saved);
     } catch (e: any) {
       toast.error(e?.message || t("workspaceManagement.saveFailed", "保存失败"));
     } finally {
@@ -593,22 +610,16 @@ function EditWorkspaceDialog({
       title={t("workspaceManagement.editTitle", { name: workspace.name, defaultValue: `编辑：${workspace.name}` })}
       onClose={() => !loading && onClose()}
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
+        <WorkspaceIconField
+          icon={icon}
+          onChange={setIcon}
+          disabled={loading}
+          label={t("workspaceManagement.fieldIcon", "图标")}
+        />
         <div>
           <label className="text-sm mb-1 block">
-            {t("workspaceManagement.fieldIcon", "图标")}
-          </label>
-          <Input
-            value={icon}
-            maxLength={4}
-            onChange={(e) => setIcon(e.target.value)}
-            placeholder="🏢"
-            className="w-20 text-center text-lg"
-          />
-        </div>
-        <div>
-          <label className="text-sm mb-1 block">
-            {t("workspaceManagement.fieldName", "名称")}{" "}
+            {t("workspaceManagement.fieldName", "名称")} {" "}
             <span className="text-destructive">*</span>
           </label>
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
@@ -719,7 +730,10 @@ export function Modal({
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Emoji Picker 自己先处理 Esc；避免一次按键同时关闭选择器和父弹窗。
+      if (document.querySelector('[data-emoji-picker-open="true"]')) return;
+      onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -728,7 +742,10 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+      onClick={(event) => {
+        // React Portal 内的 Emoji 点击会沿组件树冒泡；仅点击真实遮罩层时关闭。
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}

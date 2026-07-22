@@ -92,6 +92,86 @@ export function buildNotebookTree(notebooks: Notebook[], pref: NotebookSortResol
   return roots;
 }
 
+function sameNotebookFields(a: Notebook, b: Notebook): boolean {
+  return a.id === b.id
+    && a.userId === b.userId
+    && a.workspaceId === b.workspaceId
+    && a.parentId === b.parentId
+    && a.name === b.name
+    && a.description === b.description
+    && a.icon === b.icon
+    && a.color === b.color
+    && a.sortOrder === b.sortOrder
+    && a.isExpanded === b.isExpanded
+    && a.createdAt === b.createdAt
+    && a.updatedAt === b.updatedAt
+    && a.noteCount === b.noteCount
+    && a.myRole === b.myRole
+    && a.permission === b.permission;
+}
+
+/**
+ * buildNotebookTree intentionally creates mutable children arrays while assembling the
+ * tree. Reconcile the finished tree with the previous immutable result so unchanged
+ * branches keep their object identity and memoized recursive rows can bail out.
+ */
+export function reuseNotebookTreeReferences(next: Notebook[], previous: Notebook[]): Notebook[] {
+  if (previous.length === 0) return next;
+  const previousById = new Map<string, Notebook>();
+  const indexPrevious = (nodes: Notebook[]) => {
+    for (const node of nodes) {
+      previousById.set(node.id, node);
+      if (node.children?.length) indexPrevious(node.children);
+    }
+  };
+  indexPrevious(previous);
+
+  const reconcile = (node: Notebook): Notebook => {
+    const nextChildren = (node.children || []).map(reconcile);
+    const previousNode = previousById.get(node.id);
+    const previousChildren = previousNode?.children || [];
+    const childrenUnchanged = previousChildren.length === nextChildren.length
+      && previousChildren.every((child, index) => child === nextChildren[index]);
+    if (previousNode && childrenUnchanged && sameNotebookFields(previousNode, node)) {
+      return previousNode;
+    }
+    return { ...node, children: nextChildren };
+  };
+
+  return next.map(reconcile);
+}
+
+export function notebookTreeContainsId(
+  notebook: Notebook,
+  id: string | null | undefined,
+): boolean {
+  if (!id) return false;
+  if (notebook.id === id) return true;
+  return notebook.children?.some((child) => notebookTreeContainsId(child, id)) ?? false;
+}
+
+export function notebookTreeMapChanged<T>(
+  notebook: Notebook,
+  previous: ReadonlyMap<string, T> | undefined,
+  next: ReadonlyMap<string, T> | undefined,
+): boolean {
+  if (previous?.get(notebook.id) !== next?.get(notebook.id)) return true;
+  return notebook.children?.some(
+    (child) => notebookTreeMapChanged(child, previous, next),
+  ) ?? false;
+}
+
+export function notebookTreeSetChanged(
+  notebook: Notebook,
+  previous: ReadonlySet<string> | undefined,
+  next: ReadonlySet<string> | undefined,
+): boolean {
+  if (previous?.has(notebook.id) !== next?.has(notebook.id)) return true;
+  return notebook.children?.some(
+    (child) => notebookTreeSetChanged(child, previous, next),
+  ) ?? false;
+}
+
 export function getNotebookDragHint(canDragSort: boolean): string {
   return canDragSort ? "拖动调整笔记本顺序" : "切换到手动排序后可拖动调整顺序";
 }

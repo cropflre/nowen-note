@@ -17,6 +17,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useRailMode } from "@/hooks/useRailMode";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,7 @@ function formatResultDate(value: string, language: string): string {
 export default function SearchCenter() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { loadNote } = useNoteLoader();
   const { i18n } = useTranslation();
   const [railMode] = useRailMode();
   const desktop = useDesktopViewport();
@@ -252,25 +254,33 @@ export default function SearchCenter() {
   }, [actions, setSearchQuery, state.selectedNotebookId]);
 
   const openResult = useCallback(async (result: EnhancedSearchResult) => {
-    if (openingId) return;
     setOpeningId(result.id);
-    try {
-      const note = await api.getNote(result.id);
-      actions.setActiveNote(note);
-      actions.setSelectedNotebook(note.notebookId);
-      actions.clearSelectedTags();
-      actions.setSearchQuery("");
-      actions.setViewMode("notebook");
-      actions.setMobileSidebar(false);
-      actions.setMobileView("editor");
-      updateMountedSidebarSearch("");
-    } catch (openError) {
-      console.error("[SearchCenter] open note failed:", openError);
-      setError(copy.openFailed);
-    } finally {
-      setOpeningId(null);
-    }
-  }, [actions, copy.openFailed, openingId]);
+    actions.setSelectedNotebook(result.notebookId);
+    actions.clearSelectedTags();
+    actions.setSearchQuery("");
+    actions.setViewMode("notebook");
+    actions.setMobileSidebar(false);
+    actions.setMobileView("editor");
+    updateMountedSidebarSearch("");
+
+    await loadNote({
+      noteId: result.id,
+      summary: {
+        title: result.title || copy.emptyTitle,
+        notebookId: result.notebookId,
+        contentFormat: result.contentFormat,
+      },
+      request: () => api.getNote(result.id),
+      onSuccess: (note) => {
+        actions.setActiveNote(note);
+        actions.setSelectedNotebook(note.notebookId);
+      },
+      onError: (openError) => {
+        console.error("[SearchCenter] open note failed:", openError);
+      },
+    });
+    setOpeningId((current) => current === result.id ? null : current);
+  }, [actions, copy.emptyTitle, loadNote]);
 
   const onInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {

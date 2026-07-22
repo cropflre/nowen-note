@@ -1,41 +1,45 @@
-# nowen-note
+<div align="center">
+  <img src="./electron/icon.png" alt="Nowen Note" width="104" />
+  <h1>Nowen Note（弄文笔记）</h1>
+  <p><strong>面向个人与小团队的开源、自托管知识库与任务工作台</strong></p>
+  <p>
+    富文本与 Markdown 双编辑器 · 实时协作 · AI 知识问答 · 待办与思维导图 · 多端客户端
+  </p>
+  <p>
+    <a href="./README.en.md">English</a> ·
+    <a href="http://nowen.cn/">官方网站</a> ·
+    <a href="http://note.nowen.cn/">在线体验</a> ·
+    <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
+    <a href="./docs/tutorials/README.md">教程中心</a> ·
+    <a href="./CHANGELOG.md">更新日志</a>
+  </p>
+</div>
 
-> 自托管的私有知识库，对标群晖 Note Station。
->
-> A self-hosted private knowledge base. [English README](./README.en.md) · [作者感言](./AUTHOR_STORY.md) · [在线体验](http://note.nowen.cn/)
+<div align="center">
 
+[![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/Node-20%2B-green.svg)](https://nodejs.org/)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg?logo=docker&logoColor=white)](./Dockerfile)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose%20v2-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
 
-## 功能概览
+</div>
 
-- **富文本 + Markdown 双引擎**：Tiptap 3 + CodeMirror 6，共享 AI、版本历史、评论等上层能力；支持表格（单元格水平/垂直居中）、图片、附件
-- **AI 助手**：支持通义千问 / OpenAI / Gemini / DeepSeek / 豆包 / Ollama，覆盖写作辅助、生成标题、推荐标签、RAG 知识问答；AI 思考过程自动过滤，仅展示最终回答
-- **知识管理**：无限层级笔记本、彩色标签、收藏、回收站（笔记锁定，禁止编辑/收藏/锁定操作）、FTS5 全文搜索
-- **待办事项**：任务中心支持树形任务、看板视图、日历视图、甘特图 / 时间轴、任务依赖、重复任务、AI 拆任务、提醒系统、任务模板
-- **思维导图**：节点拖拽 / 多选 / 复制粘贴、文件夹管理、导图模板、全屏编辑、滚轮缩放、从笔记生成、收藏与搜索
-- **说说 / 动态**：轻量社交化笔记，支持图文混排
-- **分享与权限**：4 档权限（仅查看 / 可评论 / 可编辑 / 可编辑需登录）+ 访客留言 + 密码 / 有效期 + 分享链接可撤销、版本回溯
-- **实时同步**：基于 Yjs + WebSocket 的多端实时协作，删除 / 回收站操作跨端即时同步；IndexedDB 本地离线缓存
-- **文件管理**：图片缩略图（webp 三档自适应，密集图床场景流量降至 1/100）、「我的上传」分类（已引用 / 未引用细分）、孤儿清理；附件按 `YYYY/MM` 分目录存储
-- **导出**：Markdown / PDF / Word / PNG / JPG 多格式导出；Android 导出图片可直接保存到系统相册
-- **备份与恢复**：定时自动备份、邮件备份推送、一键恢复；Docker / NAS 部署开箱即用
-- **多端**：Web / Electron（Win/macOS/Linux）/ Android（Capacitor）
-- **自动化**：沙箱插件系统、Webhook、审计日志
-- **开发者生态**：MCP Server、TypeScript SDK、CLI、[浏览器剪藏扩展](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)、OpenAPI 3.0（见 [`packages/`](./packages)）
+> Nowen Note 的目标不是只做一个编辑器，而是提供一套数据可控、可在 NAS / 服务器长期运行，并能通过桌面和移动客户端访问的个人知识基础设施。
 
-## 技术栈
+## 核心能力
 
-| 层 | 技术 |
+| 模块 | 当前能力 |
 | --- | --- |
-| **前端** | React 18 + Vite + TypeScript + Tailwind CSS + Tiptap 3 + CodeMirror 6 |
-| **后端** | Hono + better-sqlite3 + WebSocket + Yjs + sharp + sqlite-vec |
-| **桌面端** | Electron（Win / macOS / Linux） |
-| **移动端** | Capacitor Android |
-| **存储** | SQLite（FTS5 全文搜索） + 本地附件目录 + S3 / R2 / MinIO 对象存储 |
-| **同步** | 实时同步（Yjs + WebSocket） + IndexedDB 本地离线缓存 |
-| **导出** | Markdown / PDF / Word / PNG / JPG |
+| **笔记与编辑器** | Tiptap 3 富文本、CodeMirror 6 Markdown、实时预览与分屏、表格、代码块、KaTeX、Mermaid、图片与附件、评论、版本历史 |
+| **知识组织** | 无限层级笔记本、彩色标签、收藏、回收站、全文搜索、双向链接、块引用、反向链接与知识图谱 |
+| **任务管理** | 树形任务、列表、看板、日历、甘特图 / 时间轴、任务依赖、重复规则、提醒、模板与 AI 拆解 |
+| **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包、Ollama；支持写作辅助、标题与标签、总结、Embedding 与 RAG 知识问答 |
+| **协作与发布** | Yjs + WebSocket 实时同步、工作区、成员权限、分享密码与有效期、访客评论、公开知识空间与目录权限 |
+| **导入与导出** | Markdown、Word / DOCX、Obsidian Vault、微信收藏等迁移入口；支持 Markdown、PDF、Word、PNG、JPG 等导出 |
+| **附件与存储** | 本地附件目录、按 `YYYY/MM` 归档、图片缩略图、引用检查与孤儿清理；可接入 S3、Cloudflare R2、MinIO 和第三方图床 |
+| **自动化与开发者能力** | 自动备份、邮件备份、Webhook、审计日志、插件系统、OpenAPI、TypeScript SDK、CLI、MCP Server、浏览器剪藏扩展 |
+| **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程 |
 
 ## 截图
 
@@ -45,560 +49,273 @@
 | :---: | :---: |
 | ![桌面 AI 写作](./docs/screenshots/desktop-ai-writing.png) | ![AI 设置](./docs/screenshots/settings-ai.png) |
 
-### 移动端（Android / Capacitor）
+### 移动端
 
 | 侧边栏 | 笔记列表 | 编辑器 |
 | :---: | :---: | :---: |
 | ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
 
-## 在线体验
+## 官网与在线体验
 
-不想本地部署？可以直接打开作者维护的官方体验站点：
-
-- 地址：<https://note.nowen.cn/>
+- 官方网站：<http://nowen.cn/>
+- 在线体验：<http://note.nowen.cn/>
 - 账号：`demo`
 - 密码：`demo123456`
 
-> ⚠ 体验账号为只读演示用途，数据可能被定期重置，请勿存放任何敏感或重要内容。生产使用请按下方「快速开始」自托管部署。
+> 演示账号仅用于体验，数据可能被定期重置。请勿存放敏感或重要内容。
 
-## 快速开始
+## 快速部署
 
-> 默认管理员：`admin` / `admin123`，首次登录后请立即修改密码。
+### Docker Compose（推荐）
 
-### Docker（推荐）
+要求已安装 Docker Engine 与 Docker Compose v2。
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
 cd nowen-note
-docker-compose up -d
+docker compose up -d
 ```
 
-访问 `http://<你的IP>:3001`。
+打开 `http://<服务器IP>:3001`。
 
-### 本地开发
+默认管理员账号：
 
-需要 Node.js 20+。
+```text
+用户名：admin
+密码：admin123
+```
+
+> 首次登录后请立即修改默认密码。公网部署还应配置 HTTPS、备份、正确的公开访问地址，并按需收紧 CORS 与旧版公开附件访问。
+
+查看运行状态和日志：
+
+```bash
+docker compose ps
+docker compose logs -f --tail=200 nowen-note
+```
+
+手动更新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### Docker 在线升级（可选）
+
+在线升级仅支持仓库内的官方 [`docker-compose.yml`](./docker-compose.yml)，默认关闭。主应用容器不会挂载 Docker Socket；只有独立、内网隔离的 updater 容器拥有受限的 Docker Engine 权限。
+
+```bash
+cp .env.example .env
+printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
+
+# 建议把 vX.Y.Z 替换为 Releases 中的稳定版本
+NOWEN_IMAGE_TAG=vX.Y.Z docker compose --profile updater up -d
+```
+
+启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级和失败回滚。数据库发生不可逆迁移时，镜像回滚不等于数据回滚，生产环境必须保留独立备份。
+
+完整说明见 [Docker 在线升级与恢复](./docs/docker-online-update.md)。
+
+### 仅运行主应用
+
+```bash
+docker run -d \
+  --name nowen-note \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  -e TZ=Asia/Shanghai \
+  -v /opt/nowen-note/data:/app/data \
+  cropflre/nowen-note:latest
+```
+
+## 数据、备份与配置
+
+### 持久化目录
+
+容器内的持久化根目录是 **`/app/data`**，不是 `/data`。默认 Compose 使用名为 `nowen-note-data` 的 Docker Volume。
+
+```text
+/app/data/
+├── nowen-note.db
+├── attachments/
+├── backups/
+├── fonts/
+└── .jwt_secret
+```
+
+- 默认数据库为 SQLite，主文件是 `/app/data/nowen-note.db`。
+- 附件默认存储在 `/app/data/attachments`，新文件按 `YYYY/MM` 分目录。
+- 自动备份默认位于 `/app/data/backups`。
+- 生产环境建议把 `BACKUP_DIR` 映射到独立物理磁盘，并遵循 3-2-1 备份原则。
+- PostgreSQL 适配与迁移工作仍在持续推进；当前正式部署与恢复流程仍以 SQLite 为默认基线。
+
+### 常用环境变量
+
+完整模板见 [`.env.example`](./.env.example)。
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `NOWEN_PORT` | `3001` | Compose 对外暴露端口 |
+| `TZ` | `Asia/Shanghai` | 容器时区，会影响待办日期判断 |
+| `PUBLIC_WEB_ORIGIN` | 空 | 反向代理或公网域名，用于生成正确的分享链接 |
+| `JWT_SECRET` | 自动生成并持久化 | 登录与 sudo token 签名；多实例部署时必须统一配置 |
+| `BACKUP_DIR` | `/app/data/backups` | 自动备份目录 |
+| `CORS_ORIGINS` | 内置原生客户端来源 | 额外允许的网页 Origin，逗号分隔 |
+| `MAX_ATTACHMENT_SIZE_MB` | `100` | 单个附件大小上限 |
+| `ATTACHMENT_STORAGE` | `local` | 设为 `s3` 后可接入 S3 / R2 / MinIO |
+| `IMAGE_HOSTING_ENCRYPTION_KEY` | 空 | 加密第三方图床密钥 |
+| `NOWEN_UPDATER_TOKEN` | 空 | 启用 Docker 在线升级代理 |
+
+对象存储配置见 [附件对象存储](./docs/object-storage.md)。
+
+## 客户端与平台状态
+
+| 平台 | 获取 / 构建方式 | 状态说明 |
+| --- | --- | --- |
+| **Web / Docker** | Docker Hub 或源码构建 | 推荐部署方式；镜像可构建 `amd64`、`arm64` 或多架构版本 |
+| **Windows / macOS / Linux** | [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 或 `npm run electron:build` | Electron 客户端可连接远程服务，也可使用本地后端 |
+| **Android** | Releases APK 或 `frontend/` 下使用 Capacitor 构建 | 正式维护 |
+| **iOS** | Capacitor 工程与 GitHub Actions / TestFlight 流程 | 需要 Apple 签名与开发者账号，详见 [iOS 发布指南](./docs/iOS-Release.md) |
+| **HarmonyOS** | 使用 DevEco Studio 打开 [`nowen-harmony/`](./nowen-harmony/) | ArkTS + ArkWeb MVP；部分原生能力仍在完善 |
+| **fnOS** | Releases 中的 `.fpk` | 当前 `.fpk` 主要面向 x86_64 |
+| **绿联 UGOS** | Releases / 构建脚本中的 `.upk` | 依赖具体设备架构与应用安装能力 |
+| **其他 NAS** | Docker Compose | 群晖、威联通、极空间等均可按 Docker 方式部署 |
+
+> 各平台实际发布的安装包以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
+
+## 本地开发
+
+要求 Node.js 20+、npm、Git。Electron 和原生依赖构建还需要对应平台的编译工具链。
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
 cd nowen-note
+npm install
 npm run install:all
-npm run dev:backend   # 后端 :3001
-npm run dev:frontend  # 前端 :5173
+```
+
+分别启动两个终端：
+
+```bash
+npm run dev:backend
+```
+
+```bash
+npm run dev:frontend
 ```
 
 访问 `http://localhost:5173`。
 
-### 桌面端 / 移动端
+常用命令：
 
 ```bash
-npm run electron:dev      # Electron 开发
-npm run electron:build    # 打包 Windows / macOS / Linux
+npm run build:all                 # 构建前端与后端
+npm run electron:dev              # Electron 开发
+npm run electron:build            # Electron 打包
+(cd backend && npm test)          # 后端测试
+(cd frontend && npm run test:run) # 前端测试
 ```
 
-Android 可直接从 [Releases](https://github.com/cropflre/nowen-note/releases) 下载 APK，或 `npx cap sync android && npx cap open android` 自行构建。
-
-### 飞牛 fnOS（.fpk 一键安装）
-
-从 [Releases](https://github.com/cropflre/nowen-note/releases) 下载最新 `nowen-note-x.y.z.fpk`，在飞牛 NAS 「应用中心 → 设置 → 手动安装应用」选中文件即可。安装后桌面出现「弄文笔记」图标，浏览器打开 `http://<飞牛IP>:3001`。
-
-> 当前 .fpk 仅支持 x86_64 飞牛设备（`platform=x86`）。手动打包参见 [scripts/fpk/README.md](./scripts/fpk/README.md)。
-
-## 配置
-
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `PORT` | `3001` | 服务端口 |
-| `DB_PATH` | `/app/data/nowen-note.db` | 数据库文件路径 |
-| `TZ` | `Asia/Shanghai` | Docker 容器时区；海外用户可改为 `Europe/London`、`America/Los_Angeles` 等 |
-| `OLLAMA_URL` | — | 本地 Ollama 地址（可选） |
-
-数据持久化：容器需将 **`/app/data`** 映射到宿主机（不是 `/data`）。镜像已声明 `VOLUME ["/app/data"]`，主流 NAS 面板会自动预填该路径。
-
-Docker 镜像内置 `tzdata`，`docker-compose.yml` 默认设置 `TZ=Asia/Shanghai`，用于保证待办「今日 / 本周 / 逾期」等后端日期判断按本地时区刷新。海外用户可在项目根目录创建 `.env` 并写入自己的时区，例如 `TZ=Europe/London`。
-
-备份策略：自动备份默认写入 `/app/data/backups`，与数据在同一个卷。建议按 3-2-1 原则把 `/app/backups` 另挂到独立磁盘，并设置 `BACKUP_DIR=/app/backups`，详见 [`docker-compose.yml`](./docker-compose.yml) 内的注释。
-
-## 数据目录说明
-
-`/app/data`（本地开发时为项目根目录下的 `data/`）的典型结构如下：
-
-```
-data/
-├── nowen-note.db          # SQLite 主数据库
-├── backups/               # 自动备份文件
-├── attachments/           # 所有附件（笔记图片、文件、任务附件等）
-│   ├── 2026/06/           # 新附件按 YYYY/MM 分目录存储
-│   │   └── <uuid>.<ext>
-│   ├── <uuid>.<ext>       # 旧附件平铺路径，仍兼容读取
-│   └── .thumbs/           # 缩略图缓存（webp），不要手动删除
-└── fonts/                 # 自定义字体
-```
-
-- **新附件路径**：`data/attachments/YYYY/MM/<uuid>.<ext>`，按年月自动归档
-- **旧附件兼容**：历史版本平铺在 `attachments/` 根目录的文件仍可正常读取，无需迁移
-- **`.thumbs` 目录**：缩略图缓存，由系统自动生成和管理。删除后会在下次访问时重新生成，但会导致短暂的缩略图缺失，不建议手动删除
-- **`task_attachments`**：待办任务的图片/附件与普通笔记附件共用同一个 `ATTACHMENTS_DIR`，通过数据库关联区分归属
-
-## 文档
-
-- 浏览器剪藏扩展（Chrome / Edge）：[Chrome Web Store](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
-- 部署指南（本地 / Docker / 桌面 / 移动 / 群晖 / 绿联 / 威联通 / 飞牛 / 极空间 / ARM64）：[docs/deployment.md](./docs/deployment.md)
-- 附件对象存储（S3 / R2 / MinIO）：[docs/object-storage.md](./docs/object-storage.md)
-- 飞牛 .fpk 应用打包：[scripts/fpk/README.md](./scripts/fpk/README.md)
-- ARM64 详解：[docs/deploy-arm64.md](./docs/deploy-arm64.md)
-- 邮件备份配置：[docs/backup-email-smtp.md](./docs/backup-email-smtp.md)
-- 编辑器模式切换：[docs/editor-mode-switch.md](./docs/editor-mode-switch.md)
-- 多设备同步验证：[docs/multi-device-sync-validation.md](./docs/multi-device-sync-validation.md)
-- iOS 版本说明：[docs/iOS-Release.md](./docs/iOS-Release.md)
-- 隐私策略：[docs/PRIVACY.md](./docs/PRIVACY.md)
-- OpenAPI：运行后访问 `/api/openapi.json`
-
-> 📚 **教程中心**：[docs/tutorials/](./docs/tutorials/) — 从快速上手到高级功能的完整教程
-
-- **快速上手**：[5 分钟快速上手](./docs/tutorials/quick-start.md) · [界面概览](./docs/tutorials/ui-overview.md) · [创建第一篇笔记](./docs/tutorials/first-note.md)
-- **笔记管理**：[文档树 / 笔记本](./docs/tree-tutorial.md) · [标签和收藏](./docs/tutorials/tags-favorites.md) · [搜索](./docs/tutorials/search.md) · [回收站与恢复](./docs/tutorials/trash-recover.md) · [批量管理](./docs/tutorials/batch-manage.md)
-- **编辑器**：[富文本编辑器](./docs/tutorials/editor-rich-text.md) · [Markdown 编辑器](./docs/tutorials/editor-markdown.md) · [斜杠命令](./docs/tutorials/slash-commands.md) · [高级块](./docs/tutorials/advanced-blocks.md) · [附件管理](./docs/tutorials/attachments.md) · [导入导出](./docs/tutorials/import-export.md)
-- **AI 功能**：[AI 配置](./docs/tutorials/ai-setup.md) · [AI 生成标题和标签](./docs/tutorials/ai-title-tags.md) · [AI 总结](./docs/tutorials/ai-summary.md)
-- **思维导图**：[入门](./docs/tutorials/mindmap-intro.md) · [从笔记生成](./docs/tutorials/mindmap-from-note.md) · [导出](./docs/tutorials/mindmap-export.md) · [Mermaid 图表](./docs/tutorials/mermaid.md)
-- **待办事项**：[任务中心](./docs/tutorials/tasks.md)
-- **说说 / 动态**：[说说功能](./docs/tutorials/diary.md)
-- **分享与协作**：[分享](./docs/tutorials/sharing.md) · [实时协作](./docs/tutorials/realtime-collab.md) · [版本历史](./docs/tutorials/version-history.md) · [工作区](./docs/tutorials/workspace.md)
-- **多端**：[桌面端](./docs/tutorials/desktop.md) · [移动端](./docs/tutorials/mobile.md) · [Android](./docs/tutorials/android.md) · [鸿蒙](./docs/tutorials/harmony.md) · [Web](./docs/tutorials/web.md)
-- **部署与运维**：[Docker](./docs/tutorials/docker-deploy.md) · [NAS](./docs/tutorials/nas-deploy.md) · [备份与迁移](./docs/tutorials/backup-migrate.md) · [安全](./docs/tutorials/security.md)
-- **开发者**：[API](./docs/tutorials/api.md) · [SDK](./docs/tutorials/sdk.md) · [CLI](./docs/tutorials/cli.md) · [MCP](./docs/tutorials/mcp.md) · [Webhook](./docs/tutorials/webhook.md) · [剪藏扩展](./docs/tutorials/clipper.md)
-- **常见问题**：[附件问题](./docs/tutorials/faq-attachment.md) · [登录问题](./docs/tutorials/faq-login.md) · [性能问题](./docs/tutorials/faq-performance.md) · [同步问题](./docs/tutorials/faq-sync.md)
-
-## 常见问题
-
-### macOS 首次打开报错 / 无法启动 / "ERR_DLOPEN_FAILED"
-
-由于本应用未做 Apple 公证（notarization），系统会把 dmg 里下载来的 `.app`
-打上 quarantine 隔离属性，导致内部的 `better-sqlite3` 原生模块加载失败、
-后端启动卡住 30 秒后报"后端启动超时"。
-
-终端执行一行命令解除隔离即可（路径换成你实际拖过去的位置）：
+Android：
 
 ```bash
-sudo xattr -dr com.apple.quarantine "/Applications/Nowen Note.app"
-# 或
-sudo xattr -dr com.apple.quarantine ~/Downloads/Nowen\ Note.app
+cd frontend
+npm run cap:build
+npx cap open android
 ```
 
-执行后双击重新打开即可。Apple Silicon 用户若用了 x64 版本，需要 Rosetta 2
-（系统会自动提示安装）。
+iOS：
 
-## 问题反馈
+```bash
+npm run cap:sync:ios
+npm run cap:open:ios
+```
 
-QQ 群：`1093473044`
+## 技术架构
+
+| 层 | 主要技术 |
+| --- | --- |
+| **前端** | React 18、TypeScript、Vite 5、Tailwind CSS、Tiptap 3、CodeMirror 6、Yjs、IndexedDB |
+| **后端** | Node.js 20、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
+| **桌面端** | Electron 33、electron-builder、electron-updater |
+| **移动端** | Capacitor 8（Android / iOS）、ArkTS + ArkWeb（HarmonyOS） |
+| **存储** | SQLite、本地附件、S3 / R2 / MinIO、第三方图床 |
+| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、MCP Server、Webhook |
+
+## 项目结构
+
+```text
+nowen-note/
+├── frontend/       # React Web 与 Capacitor 客户端
+├── backend/        # Hono API、数据库、同步与后台任务
+├── electron/       # Electron 主进程与打包配置
+├── packages/       # SDK、CLI、MCP 等开发者包
+├── nowen-harmony/  # HarmonyOS ArkTS / ArkWeb 客户端
+├── docs/           # 部署、教程与设计文档
+└── scripts/        # 构建、迁移、打包与发布脚本
+```
+
+## 文档导航
+
+- [教程中心](./docs/tutorials/README.md)
+- [官网功能帮助中心](http://nowen.cn/docs/nowen-note-features)
+- [官网安装与问题解答](http://nowen.cn/docs/nowen-note-help)
+- [官网 API 文档](http://nowen.cn/docs/nowen-note-api)
+- [完整部署指南](./docs/deployment.md)
+- [Docker 在线升级与恢复](./docs/docker-online-update.md)
+- [附件对象存储](./docs/object-storage.md)
+- [邮件备份配置](./docs/backup-email-smtp.md)
+- [ARM64 部署](./docs/deploy-arm64.md)
+- [iOS 发布指南](./docs/iOS-Release.md)
+- [隐私策略](./docs/PRIVACY.md)
+- [浏览器剪藏扩展](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
+- OpenAPI：服务启动后访问 `/api/openapi.json`
+
+## 当前边界
+
+- **数据库**：SQLite 是当前默认且完整支持的生产方案；PostgreSQL 迁移仍在开发和验证中。
+- **Docker 在线升级**：只支持官方 Compose 受管部署，不支持任意容器、任意镜像或 NAS 应用包。
+- **macOS**：安装包若未经过 Apple 公证，首次打开可能需要执行 `xattr` 解除隔离，详见 [桌面端教程](./docs/tutorials/desktop.md)。
+- **移动端**：Android 维护最完整；iOS 与 HarmonyOS 的分发、签名和部分原生桥接能力仍受平台工具链限制。
+- **快速迭代**：功能和安装包更新较快，请以 Releases、应用内版本信息和 [CHANGELOG.md](./CHANGELOG.md) 为准。
+
+## 参与贡献
+
+欢迎提交 Issue、功能建议和 Pull Request。提交代码前建议至少完成：
+
+```bash
+npm run build:all
+(cd backend && npm test)
+(cd frontend && npm run test:run)
+```
+
+反馈入口：
+
+- [GitHub Issues](https://github.com/cropflre/nowen-note/issues)
+- QQ 群：`1093473044`
+
+<details>
+<summary><strong>最近版本更新</strong></summary>
+
+<!-- CHANGELOG:BEGIN -->
+## 更新日志
+
+> 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+<!-- CHANGELOG:END -->
+
+</details>
 
 ## 支持作者
 
-如果这个项目对你有帮助，欢迎扫码请作者喝杯咖啡 ☕
+如果这个项目对你有帮助，欢迎扫码请作者喝杯咖啡。
 
 <p align="center">
   <img src="./weixin.jpg" alt="微信赞赏码" width="280" />
 </p>
 
+也可以阅读 [作者感言](./AUTHOR_STORY.md)。
+
 ## 开源协议
 
-[GPL-3.0](./LICENSE) — 派生作品对外分发时须同样以 GPL-3.0 开源并保留原作者版权声明。
-
-## 最近重要更新
-
-以下为近期完成的功能与修复，按类别整理。
-
-### 移动端体验
-
-- **Android 导出图片保存到相册**：导出为 PNG / JPG 后可直接写入系统相册，无需手动转存
-- **移动端编辑器单图保存到相册**：长按编辑器中的单张图片，一键保存到设备相册
-
-### 存储与附件
-
-- **附件按 YYYY/MM 分目录存储**：新上传的附件自动归入 `data/attachments/YYYY/MM/` 目录，避免单目录文件数过多；旧附件平铺路径仍兼容读取
-- **待办图片 orphan 清理误删修复**：修复任务附件被孤儿清理逻辑误判为未引用而删除的问题
-
-### 跨端同步
-
-- **删除 / 回收站跨端实时同步**：笔记删除、移入回收站、从回收站恢复等操作通过 WebSocket 实时推送至所有在线客户端
-- **笔记列表更新时间开关**：笔记列表支持切换显示「更新时间」或「创建时间」，设置持久化
-
-### 编辑器
-
-- **表格单元格水平 / 垂直居中**：表格工具栏新增单元格对齐选项，支持水平居中和垂直居中
-- **回收站笔记锁定**：回收站中的笔记自动进入只读状态，禁止编辑、收藏、锁定等操作，防止误操作
-
-### 思维导图
-
-- **思维导图滚轮缩放修复**：Ctrl + 滚轮缩放改为原生事件监听，修复部分浏览器下页面整体缩放的问题
-
-### 分享
-
-- **笔记本分享链接可撤销**：已生成的分享链接支持一键撤销，撤销后访客立即无法访问
-
-### 搜索与 AI
-
-- **搜索结果误报修复**：修复全文搜索在特定关键词下返回不相关结果的问题
-- **AI 思考内容过滤**：AI 回答中的 `<think>` 思考过程不再展示给用户，仅显示最终回答内容
-
-<!-- CHANGELOG:BEGIN -->
-## 更新日志
-
-> 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
-
-### v1.3.7 - 2026-07-14
-
-### ✨ 新增
-
-- **标签栏**: 添加全部标签快速切换 (88ec3ac)
-- **笔记体验**: 添加打印与紧凑侧栏布局 (e414baf)
-
-### 🐛 修复
-
-- **notebooks**: apply inherited sort to notes (6d6bfc5)
-- **editor**: 全端关闭文档拼写检查（任务 1） (04ff8a4)
-- 修复反代部署附件刷新后变成 127.0.0.1 裂图 (#295) (f02f14a)
-- **export**: 延迟释放导出文件地址 (c243d06)
-- **export**: 允许浏览器重试下载 (dfecf4f)
-- **标签栏**: 完善标签列表收起与焦点行为 (e43ea81)
-
-### 📝 文档
-
-- 规划笔记排序继承修复 (eac2edc)
-- 设计笔记排序继承修复 (e8b0ec2)
-- 添加全端关闭拼写检查实现计划 (38de780)
-- 设计全端关闭文档拼写检查 (b7d844e)
-- **export**: 添加浏览器下载重试计划 (dbe91ba)
-- **export**: 设计浏览器下载重试修复 (27b87ba)
-- **计划**: 记录顶部标签快速切换实现步骤 (6706849)
-- **设计**: 记录顶部标签快速切换方案 (31e4154)
-
-### ✅ 测试
-
-- **notebooks**: cover sidebar sort inheritance (96249db)
-
-### 🔧 其他
-
-- **git**: 忽略本地工作树 (15c73f0)
-
-### v1.3.6 - 2026-07-14
-
-### 🐛 修复
-
-- 完成版本冲突处理闭环并停止重复弹窗 (#274) (b10c2cb)
-- 简化全局同步状态，隐藏普通用户队列概念 (#275) (c222bfb)
-- 修复安卓主题切换抖动与图片旋转缩放 (#270) (7510060)
-
-### v1.3.5 - 2026-07-13
-
-### ✨ 新增
-
-- 用户偏好跟随账号同步 (#209) (1cc78c6)
-- **移动端**: 优化图片操作菜单（任务 2/3） (bd6b701)
-
-### 🐛 修复
-
-- **Android**: 修复笔记列表轻触无响应 (f0ad5ce)
-- **search**: rebuild stale FTS index on upgrade (#212) (1d1ab84)
-- **search**: require explainable matches and cover metadata (#212) (a0bb18a)
-- **search**: normalize literal query terms (#212) (8e32aeb)
-- **移动端**: 提供 Markdown 预览入口 (b1da1f0)
-- **Markdown**: 渲染行内与块级公式 (e70c612)
-- **移动端**: 消除图片菜单切换闪烁 (04b3629)
-- **移动端**: 兼容通用编辑器选区类型（任务 3/3） (ed0a91c)
-- **移动端**: 保持图片操作菜单可见（任务 1/3） (3749ece)
-
-### 📝 文档
-
-- **移动端**: 记录图片菜单实现计划 (c633e03)
-- **移动端**: 记录图片操作菜单设计 (c51c5fe)
-
-### 💄 样式
-
-- **移动端**: 缩小图片操作面板 (6f77dc6)
-
-### ✅ 测试
-
-- **search**: cover query normalization (#212) (b6168da)
-- **search**: cover reliable full-text retrieval (#212) (ee6ddde)
-
-### v1.3.4 - 2026-07-13
-
-### 🐛 修复
-
-- **桌面端**: 避免失效令牌登录循环 (e647d03)
-- **附件**: 为上传与文件列表签发访问地址 (d51d603)
-- **笔记**: 重命名时携带服务端版本 (69dbabe)
-
-### v1.3.3 - 2026-07-13
-
-### ✨ 新增
-
-- **统计**: 重设计仪表盘概览 (14bd5ec)
-- **sync**: expose failed queue diagnostics and retries (#208) (827bcd3)
-- 思维导图折叠按钮显示子节点数量，移除 CSP 中的 frame-ancestors 限制 (6ed0f9c)
-- **tasks**: 完善任务与习惯统计视图 (a77091a)
-- **mobile**: install Android startup request coalescer (#237) (7804729)
-- **mobile**: collapse Android cold-start reads (#237) (e795f05)
-- **mobile**: mount compact startup snapshot (#237) (15f303f)
-- **mobile**: add compact Android startup snapshot (#237) (c51286d)
-- **导入**: 提升 H4-H6 标题级别保真 (4f98153)
-- **export**: route image exports through reliable preview renderer (#221) (b717c6f)
-- **export**: mount note image export center (#221) (2b11a07)
-- **android**: add export file picker and native sharing (#221) (0289bc5)
-- **android**: support gallery, files, share and open for exports (#221) (f231993)
-- **export**: add cross-platform image export center (#221) (4bdb7b6)
-- **export**: render faithful raster and SVG note exports (#221) (4eb4d15)
-- **export**: add note image export request bridge (#221) (7e2e7a2)
-- **desktop**: support multi-server profiles and safe NAS migration (#207) (3ebe73f)
-- **siyuan**: 安全补齐导入保真并修复表格属性丢失 (#224) (6823598)
-- **media**: enable attachment range responses (#214) (426ca86)
-- **media**: mount mobile media experience bridge (#214) (c183e33)
-- **media**: add mobile media picker and inline video UX (#214) (a4698a7)
-- **media**: add mobile media selection helpers (#214) (f48e25e)
-- **media**: report video upload lifecycle (#214) (5008cfb)
-- **media**: report image upload lifecycle (#214) (bf828f7)
-- **media**: expose per-file upload lifecycle (#214) (2314895)
-- **media**: stream attachment video ranges (#214) (852f132)
-- **media**: add strict single-range parser (#214) (9a76986)
-- **android**: mount share import center (#220) (de83a1c)
-- **android**: add system share import sheet (#220) (d5e43c5)
-- **android**: build safe note content for shared items (#220) (a1f7498)
-- **android**: expose native share import bridge (#220) (438f00a)
-- **android**: register share and open-with targets (#220) (72e8dcb)
-- **android**: route share intents into Nowen (#220) (0cab0a8)
-- **android**: receive and stream shared files (#220) (a99f287)
-- **android**: add share import validation helpers (#220) (08e38b6)
-- **folder-sync**: add stop-tracking conflict control (#222) (bf80024)
-- **folder-sync**: stop tracking edited notes on conflict (#222) (329e96b)
-- **folder-sync**: expose detached conflict result (#222) (3546f3b)
-- **folder-sync**: add stop-tracking conflict policy (#222) (3c04dd5)
-- **folder-sync**: expose safety and conflict controls (#222) (f333ff9)
-- **folder-sync**: process conflicts renames and source deletion (#222) (1648937)
-- **folder-sync**: add conflict and deletion policies (#222) (c1d2b0f)
-- **folder-sync**: harden incremental scanner and rename tracking (#222) (fb5f5dc)
-- **folder-sync**: add conflict-aware transport (#222) (5a8547b)
-- **folder-sync**: add advanced sync preferences (#222) (4c0c23d)
-- **ai**: mount reliability UI shells (#218) (2a64b21)
-- **ai**: add explicit manual configuration switch (#218) (33a7db5)
-- **ai**: expose context modes and diagnostics in chat (#218) (d326db5)
-- **ai**: add reliable ask client and diagnostics parser (#218) (0206e9e)
-- **ai**: mount reliable context routes (#218) (ad20cf4)
-- **ai**: add explainable reliable ask pipeline (#218) (621b0ed)
-- **ai**: add explainable context preparation (#218) (216bf4f)
-- **clipper**: persist image limits and reset account state (#217) (667c57f)
-- **clipper**: expose lazy image limits and reset controls (#217) (aed4113)
-- **clipper**: add quick note and target picker UI (#217) (a7646e2)
-- **clipper**: redesign popup as unified capture entry (#217) (f50d15e)
-- **clipper**: mount enhanced background entry (#217) (9aa1fce)
-- **clipper**: implement unified quick note and clip pipeline (#217) (a8a282c)
-- **clipper**: support workspace targets and note metadata (#217) (c2a9cab)
-- **clipper**: define unified capture protocol (#217) (888bb2a)
-- **clipper**: persist account-scoped capture preferences (#217) (933fe88)
-- **clipper**: add bounded image localization pipeline (#217) (9a67963)
-- **data**: mount full system transfer controls (ad0f6c3)
-- **data**: replace database-only transfer with full system archive (ef4527f)
-- **tasks**: enable image-aware transfer center (#206) (dd60910)
-- **tasks**: expose full backup with task images (#206) (71969f1)
-- **tasks**: add image-aware task backup archive (#206) (b8fb1f2)
-- **tasks**: mount task data transfer center (#206) (08615b3)
-- **tasks**: add responsive import export center (#206) (2b737ba)
-- **tasks**: add task backup and import engine (#206) (e7a099c)
-- **android**: mount mobile drawer UX bridge (7b56924)
-- **auth**: mount persistent 2FA challenge center (#158) (3a3fe36)
-- **auth**: add resilient 2FA challenge center (#158) (8d03e0a)
-- **images**: 保留图片旋转/翻转状态并修复图片节点 inline 模式 (206344e)
-- **updater**: mount desktop update center (#202) (8530330)
-- **updater**: add global in-app update center (#202) (4be7f34)
-- **updater**: add update presentation helpers (#202) (f6c76bb)
-- **updater**: add consent-driven in-app update state machine (#202) (8e048b2)
-- **images**: mount persistent editor transform bridge (#201) (86b712b)
-- **images**: add compact editor transform controls (#201) (6579bf0)
-- **images**: add persistent image transform attributes (#201) (00f30df)
-
-### 🐛 修复
-
-- **任务提醒**: 修复鉴权与路由匹配 (44640e0)
-- **editor**: let IME composition commit through slash fallback (#213) (3884c83)
-- **editor**: reset and scope slash command menu (#213) (53a8619)
-- **editor**: make slash activation transaction-driven (#213) (de85615)
-- **同步**: 改善冲突队列与删除后清理 (1535ba3)
-- **tasks**: 加固任务统计历史与兼容性 (#244) (ebbd1c6)
-- **sync**: keep queue replay compatible with CORS allowlist (#208) (9f48bf0)
-- **sync**: report pending queue and refresh authoritative snapshot (#208) (d4954e4)
-- **sync**: preserve failed queue items and serialize flush (#208) (f339f9f)
-- **sync**: add stable mutation ids to queue replay (#208) (76f34f5)
-- 下载附件时使用附件访问桥，确保跨域场景也能正确下载 (e7cbbac)
-- **mermaid**: 禁用 htmlLabels 使用原生 SVG text，避免 DOMPurify 清空节点文字 (4c6d499)
-- **markdown**: include H4-H6 in editor outline (#236) (b54c09a)
-- **ai**: 优化 AI 连接测试逻辑，允许模型未返回文本时也判定连接成功 (b850f8a)
-- **export**: install reliable download bridge (#235) (3005f79)
-- **export**: bridge all browser exports to HTTP downloads (#235) (6a2fb32)
-- **export**: enforce bounded requests and one-time cleanup (#235) (45853cb)
-- **export**: add bounded reliable export routes (#235) (9cba9c4)
-- **export**: harden reliable export jobs (#235) (b2683fc)
-- **mobile**: coalesce NAS startup reads in mobile web (#237) (886d4b8)
-- **导出**: 让 PDF 和 Word 使用真实下载地址 (6ca71fa)
-- **导出**: 覆盖单篇笔记附件流式下载 (18e37a0)
-- **导出**: 使用后端流式任务避免压缩卡在99% (c975d58)
-- **sharing**: authorize shared note attachments (#216) (45b91f0)
-- **media**: recover legacy video MIME for playback (#214) (48ac1c1)
-- **media**: infer missing video MIME from filenames (#214) (de7ee48)
-- **media**: type file picker cancel events (#214) (36ee1e9)
-- **media**: keep byte-range responses uncompressed (#214) (6ec3c53)
-- **media**: treat prevented editor drops as handled (#214) (1310dbb)
-- **android**: reject untrusted MIME header injection (#220) (f8c87f7)
-- **android**: preserve legacy note formats during share import (#220) (d5ac04d)
-- **android**: guard missing share import plugin (#220) (04500c2)
-- **android**: accept open-with intents without MIME (#220) (e5f5832)
-- **android**: harden shared executable detection (#220) (3ce0596)
-- **android**: neutralize shared raw HTML in markdown (#220) (be78ac9)
-- **folder-sync**: store desktop attachments under userData (#222) (966c237)
-- **folder-sync**: detach entries removed from configured scope (#222) (55bd20d)
-- **folder-sync**: protect notes when sync scope narrows (#222) (c2e3e8d)
-- **folder-sync**: normalize root-compatible double-star rules (#222) (4bc8cf0)
-- **folder-sync**: persist rename metadata despite unchanged hash (#222) (ec1174a)
-- **auth**: invalidate cached identity before issuing sessions (#223) (14cb276)
-- **ai**: harden scoped retrieval and full-note budgeting (#218) (e0e63a0)
-- **clipper**: migrate username-scoped capture preferences (#217) (cd96777)
-- **tasks**: use safe PNG for missing-image placeholders (#206) (9d989ad)
-- **tasks**: keep fallback marker type-safe (#206) (6a668e3)
-- **tasks**: install missing-image backup fallback (#206) (95946e0)
-- **tasks**: tolerate missing images during backup export (#206) (8ad94ad)
-- **tasks**: refine task transfer UX and observer cost (#206) (a277746)
-- **tasks**: harden task backup integrity and imports (#206) (f692bb3)
-- **android**: improve drawer search and safe top controls (6b8e342)
-- **notebooks**: narrow nested sort resolver type (#190) (496285c)
-- **notebooks**: apply inherited sort to nested notes (#190) (d7ab88c)
-- **notebooks**: inherit root sort through nested tree (#190) (e81eee3)
-- **auth**: cap pending 2FA challenges at five minutes (#158) (d1a541c)
-- **auth**: preserve safe redirect after 2FA login (#158) (61adc42)
-- **auth**: avoid extra CORS headers in 2FA verification (#158) (ac65c07)
-- **auth**: harden 2FA challenge storage access (#158) (bc5aa5e)
-- **auth**: let pending 2FA bypass quick login (#158) (ea43acd)
-- **auth**: persist pending 2FA login challenges (#158) (5b107ed)
-- **search**: keep Android sidebar focus during search transition (#203) (8450bca)
-- **search**: hydrate remounted sidebar from bridge state (#203) (dfa2cc8)
-- **search**: restore query after sidebar remount (#203) (c9c98fe)
-- **search**: unify mobile sidebar and full search state (#203) (379f33c)
-- **search**: decouple sidebar input from synthetic events (#203) (691fe1c)
-- **search**: add mobile sidebar search state bridge (#203) (2aec04f)
-- **search**: keep IME fallback compatible with older webviews (#203) (639ba47)
-- **search**: commit IME text without synthetic input loss (#203) (5a7a9e5)
-- **search**: preserve IME composition in sidebar search (#203) (3c5fa6c)
-- **import**: route siyuan zip by suffix (480bc77)
-- **images**: keep drag resize aligned after rotation (#201) (298d37c)
-- **images**: preserve transforms in markdown exports (#201) (1ecf1b3)
-- **images**: keep legacy replacement payloads stable (#201) (f68f74e)
-- **images**: avoid symbol-key type errors in transform bootstrap (#201) (7619a8a)
-- **images**: preserve transforms when replacing images (#201) (fdd7703)
-
-### ♻️ 重构
-
-- **export**: fold hardening into compatibility service (#235) (4ecc794)
-- **media**: reuse pure video MIME helper (#214) (9673d8b)
-- **media**: isolate video MIME inference (#214) (8df5142)
-- **ai**: preserve user preference routes for reliability wrapper (#218) (4807345)
-
-### 📝 文档
-
-- **统计**: 明确仪表盘重设计方案 (9e4898f)
-- 设计同步冲突处理流程 (ba1d63e)
-- **export**: document reliable note image export (#221) (8559a6b)
-- **media**: document mobile image and video workflow (#214) (ab8f6f0)
-- **android**: clarify pending share retention budget (#220) (c7bc35b)
-- **android**: document system share import (#220) (a3c277f)
-- **folder-sync**: document conflict detach behavior (#222) (efaa4a7)
-- **folder-sync**: document safe one-way sync v2 (#222) (c62f8e1)
-- **clipper**: document unified capture workflow (#217) (737f9c9)
-- add image editor regression screenshot (46acaf4)
-
-### 💄 样式
-
-- **clipper**: polish unified capture popup (#217) (9edbdf2)
-
-### ✅ 测试
-
-- **editor**: 兼容新版文本输入回调 (dda9472)
-- **editor**: cover repeated slash command activation (#213) (8f359dd)
-- **sync**: cover queue races, preservation and idempotency (#208) (eecec45)
-- **export**: cover reliable download compatibility bridge (#235) (fe3d24a)
-- **export**: cover quotas and one-time downloads (#235) (5dde2cf)
-- **export**: preserve legacy helper coverage (#235) (50fb353)
-- **mobile**: cover compact startup filtering and sorting (#237) (affcccd)
-- **export**: cover safe long-image and pagination planning (#221) (36c6188)
-- **sharing**: stabilize shared attachment validation (#216) (847e56f)
-- **media**: cover lazy repair of legacy video MIME (#214) (af07a2d)
-- **media**: verify empty mobile video MIME normalization (#214) (d90863a)
-- **media**: isolate video MIME helper coverage (#214) (9436220)
-- **media**: cover mobile video MIME inference (#214) (130f6fb)
-- **media**: cover mobile media preparation helpers (#214) (c37119b)
-- **media**: cover strict HTTP range parsing (#214) (329fee3)
-- **media**: cover attachment video byte ranges (#214) (c23d12d)
-- **android**: cover malicious shared MIME metadata (#220) (84d7d56)
-- **android**: cover legacy note formats and unsafe share text (#220) (96f53d8)
-- **android**: cover disguised executable shares (#220) (9bb7d8d)
-- **android**: align share filename normalization (#220) (b591e90)
-- **android**: cover shared note content fidelity (#220) (947dcd3)
-- **android**: cover shared file validation (#220) (0dfa305)
-- **folder-sync**: cover Electron attachment storage path (#222) (aafe59a)
-- **folder-sync**: cover exclusion scope matching (#222) (6c72f42)
-- **folder-sync**: cover advanced preference normalization (#222) (e5b53a6)
-- **folder-sync**: cover stop-tracking conflict flow (#222) (b0d2f0a)
-- **folder-sync**: cover hash-stable source rename (#222) (59e9a39)
-- **folder-sync**: preserve sync marker in manual edit fixture (#222) (31c4383)
-- **folder-sync**: cover conflict and source deletion policies (#222) (c96edd0)
-- **folder-sync**: cover safety rename and advanced preferences (#222) (f681515)
-- **auth**: cover fresh session cache invalidation (#223) (e36c08e)
-- **ai**: cover disabled configuration guard and restore (#218) (6a85b97)
-- **ai**: cover full note conversion and visible truncation (#218) (e0324be)
-- **notes**: cover attachment cleanup on permanent deletion (0eabf88)
-- **tasks**: assert PNG placeholder bytes (#206) (1d1a711)
-- **tasks**: stabilize missing-image fallback assertions (#206) (14352e2)
-- **tasks**: cover missing-image export fallback (#206) (11b4519)
-- **tasks**: cover image backup archive parsing (#206) (775212a)
-- **tasks**: cover backup integrity and import rollback (#206) (19119c9)
-- **tasks**: cover cyclic hierarchy and note-link warnings (#206) (56d5fdf)
-- **tasks**: cover task backup CSV and validation (#206) (43b897e)
-- **android**: cover drawer search completion and safe controls (e1fb200)
-- **notebooks**: cover nested sort inheritance (#190) (82a00b2)
-- **auth**: enforce five-minute 2FA challenge cap (#158) (e3a08e9)
-- **auth**: cover persistent 2FA login challenges (#158) (346ee2b)
-- **search**: cover sidebar remount state (#203) (260b269)
-- **search**: cover mobile sidebar bridge routing (#203) (e818ce9)
-- **search**: cover sidebar IME event routing (#203) (177de30)
-- **updater**: cover update state presentation (#202) (c28a31f)
-- **images**: cover transformed markdown exports (#201) (3b1ac4b)
-- **images**: preserve transforms during replacement (#201) (24c86b3)
-- **images**: cover persistent editor transforms (#201) (948c95b)
-
-### 🤖 CI
-
-- add one-shot PR 236 fix trigger (f4bcdd8)
-
-### 🔧 其他
-
-- **ci**: bootstrap issue 221 export integration (43ae00f)
-- **media**: rely on DOM cancel event typing (#214) (41485f6)
-- 更新浏览器剪藏插件0.2.0发布包 (2df0ab3)
-- **clipper**: publish manifest 0.2.0 (#217) (51b564d)
-- **clipper**: bump unified capture release to 0.2.0 (#217) (c1ccf3f)
-- remove unused issue 201 verification workflow (1c7a092)
-- remove unused issue 201 patch script (9b2a97d)
-- apply and verify image transform implementation (#201) (9958f76)
-- stage image transform implementation (#201) (01a4645)
-
-### 📌 杂项
-
-- 统一桌面开发与网页端本地数据源 (2652eb5)
-- 修复桌面端本地登录后导航被拦截 (ce0384e)
-- 修复本地迁移登录会话失效 (a239c5c)
-- 修复桌面端原生模块 ABI 不匹配 (343270c)
-- 修复客户端登录后个人笔记未加载 (4ab392f)
-- 调整服务端入口至左侧导航栏 (9d2b5e3)
-- 修复桌面端导航栏与窗口按钮重叠 (d10c3f6)
-- 修复桌面端左上角展示和原生模块兼容 (1c28cfd)
-- Add siyuan directory (bc3ada5)
-- testability(media): export video MIME inference (#214) (4d15d0f)
-
-<!-- CHANGELOG:END -->
+[GPL-3.0](./LICENSE)。对外分发派生作品时，需要继续使用 GPL-3.0 并保留原作者版权声明。

@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { common, createLowlight } from "lowlight";
+import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
+import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-const lowlight = createLowlight(common);
+const lowlight = instrumentPhaseALowlight(createLowlight(common));
 
 const LANGUAGE_LABELS: Record<string, string> = {
   bash: "Bash",
@@ -59,8 +61,9 @@ export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProp
   const code = String(children ?? "").replace(/\n$/, "");
 
   const highlighted = useMemo(() => {
+    if (isPlainTextLanguage(language)) return code;
     try {
-      const tree = language === "text" ? lowlight.highlightAuto(code) : lowlight.highlight(language, code);
+      const tree = lowlight.highlight(language, code);
       return tree.children.map((node, index) => renderLowlightNode(node, index));
     } catch {
       return code;

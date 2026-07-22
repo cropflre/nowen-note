@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "files": ["dist", "README.md"],
   "keywords": ["nowen-note", "sdk", "api-client"],

@@ -10,28 +10,17 @@ function runPlugin(tree: any) {
   return tree;
 }
 
-function calloutTree(firstText: string, restText = "正文") {
+function paragraph(value: string) {
+  return { type: "paragraph", children: [{ type: "text", value }] };
+}
+
+function calloutTree(firstText: string, restText = "正文", extras: any[] = []) {
   return {
     type: "root",
-    children: [
-      {
-        type: "blockquote",
-        children: [
-          {
-            type: "paragraph",
-            children: [
-              { type: "text", value: firstText },
-            ],
-          },
-          {
-            type: "paragraph",
-            children: [
-              { type: "text", value: restText },
-            ],
-          },
-        ],
-      },
-    ],
+    children: [{
+      type: "blockquote",
+      children: [paragraph(firstText), paragraph(restText), ...extras],
+    }],
   };
 }
 
@@ -43,7 +32,22 @@ describe("markdownCallouts", () => {
     ["[!WARNING]", "warning", "Warning"],
     ["[!CAUTION]", "caution", "Caution"],
   ])("parses %s markers", (marker, type, title) => {
-    expect(parseSiyuanCalloutMarker(marker)).toEqual({ type, title, rest: "" });
+    expect(parseSiyuanCalloutMarker(marker)).toEqual({ type, title, rest: "", fold: null });
+  });
+
+  it("normalizes compatible aliases", () => {
+    expect(parseSiyuanCalloutMarker("[!SUCCESS] 已完成")).toEqual({
+      type: "tip",
+      title: "已完成",
+      rest: "",
+      fold: null,
+    });
+    expect(parseSiyuanCalloutMarker("[!DANGER]")).toEqual({
+      type: "caution",
+      title: "Caution",
+      rest: "",
+      fold: null,
+    });
   });
 
   it("parses markers case-insensitively", () => {
@@ -51,6 +55,7 @@ describe("markdownCallouts", () => {
       type: "note",
       title: "Note",
       rest: "",
+      fold: null,
     });
   });
 
@@ -59,15 +64,18 @@ describe("markdownCallouts", () => {
       type: "note",
       title: "自定义标题",
       rest: "",
+      fold: null,
     });
   });
 
-  it("accepts collapsible callout markers", () => {
+  it("preserves collapsible callout state", () => {
     expect(parseSiyuanCalloutMarker("[!TIP]+ 可展开提示")).toEqual({
       type: "tip",
       title: "可展开提示",
       rest: "",
+      fold: "expanded",
     });
+    expect(parseSiyuanCalloutMarker("[!WARNING]- 收起提示")?.fold).toBe("collapsed");
   });
 
   it("keeps same-paragraph body text after the marker line", () => {
@@ -75,6 +83,7 @@ describe("markdownCallouts", () => {
       type: "tip",
       title: "Tip",
       rest: "提示正文",
+      fold: null,
     });
   });
 
@@ -86,14 +95,7 @@ describe("markdownCallouts", () => {
       "data-callout-type": "tip",
       "data-callout-title": "Tip",
     });
-    expect(blockquote.children).toEqual([
-      {
-        type: "paragraph",
-        children: [
-          { type: "text", value: "支持 **Markdown**" },
-        ],
-      },
-    ]);
+    expect(blockquote.children).toEqual([paragraph("支持 **Markdown**")]);
   });
 
   it("preserves content stored in the marker paragraph", () => {
@@ -105,19 +107,20 @@ describe("markdownCallouts", () => {
     expect(blockquote.children[1].children[0].value).toBe("下一段");
   });
 
-  it("keeps marker line trailing body text", () => {
+  it("removes SiYuan block IAL rows from rendered content", () => {
+    const tree = runPlugin(calloutTree("[!TIP]- 折叠", "正文", [paragraph('{: id="20260719010101-abcdefg"}')]));
+    const blockquote = tree.children[0];
+
+    expect(blockquote.data.hProperties["data-callout-fold"]).toBe("collapsed");
+    expect(blockquote.children).toEqual([paragraph("正文")]);
+  });
+
+  it("keeps marker line trailing title separate from the body", () => {
     const tree = runPlugin(calloutTree("[!WARNING] 注意事项"));
     const blockquote = tree.children[0];
 
     expect(blockquote.data.hProperties["data-callout-title"]).toBe("注意事项");
-    expect(blockquote.children).toEqual([
-      {
-        type: "paragraph",
-        children: [
-          { type: "text", value: "正文" },
-        ],
-      },
-    ]);
+    expect(blockquote.children).toEqual([paragraph("正文")]);
   });
 
   it("does not mark ordinary blockquotes", () => {

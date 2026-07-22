@@ -129,14 +129,41 @@ server.tool(
 
 server.tool(
   "nowen_read_note",
-  "读取 Nowen Note 中指定笔记的完整内容（包括标题、正文、标签等全部信息）",
+  "读取指定笔记，可返回纯文本、Markdown/原始正文或结构化块树",
   {
     noteId: z.string().describe("笔记 ID"),
+    mode: z.enum(["text", "markdown", "blocks"]).optional().describe("返回模式，默认 text"),
+    includeBlockIds: z.boolean().optional().describe("text/markdown 模式是否同时附带块 ID 列表"),
+    maxBlocks: z.number().int().positive().max(2000).optional().describe("blocks 模式最大块数量，默认 500"),
   },
-  async ({ noteId }) => {
+  async ({ noteId, mode, includeBlockIds, maxBlocks }) => {
     try {
       const note = await api.getNote(noteId);
-      const result = buildReadNoteResult(note);
+      const selectedMode = mode || "text";
+      if (selectedMode === "blocks") {
+        const blocks = await api.listNoteBlocks(noteId, maxBlocks || 500);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({
+            id: note.id,
+            title: note.title,
+            notebookId: note.notebookId,
+            version: note.version,
+            contentFormat: note.contentFormat,
+            blocks,
+          }, null, 2) }],
+        };
+      }
+      const result: any = selectedMode === "markdown"
+        ? {
+            id: note.id,
+            title: note.title,
+            notebookId: note.notebookId,
+            version: note.version,
+            contentFormat: note.contentFormat,
+            content: note.content,
+          }
+        : buildReadNoteResult(note);
+      if (includeBlockIds) result.blocks = await api.listNoteBlocks(noteId, maxBlocks || 500);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -210,6 +237,175 @@ server.tool(
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
     }
   }
+);
+
+
+// ==================== 双链与块工具 ====================
+
+const noteBlockTypeSchema = z.enum(["heading", "paragraph", "listItem", "taskItem", "blockquote", "codeBlock"]);
+
+server.tool(
+  "nowen_resolve_link",
+  "解析 note: 内部链接，返回目标笔记和可选目标块",
+  { link: z.string().describe("note:<noteId> 或 note:<noteId>#blk:<blockId>") },
+  async ({ link }) => {
+    try {
+      const result = await api.resolveInternalLink(link);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_get_backlinks",
+  "获取引用指定笔记的来源笔记和来源块",
+  {
+    noteId: z.string().describe("目标笔记 ID"),
+    limit: z.number().int().positive().max(200).optional().describe("最大结果数，默认 100"),
+  },
+  async ({ noteId, limit }) => {
+    try {
+      const backlinks = await api.getBacklinks(noteId, limit || 100);
+      return { content: [{ type: "text" as const, text: JSON.stringify(backlinks, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_get_block",
+  "按 noteId + blockId 读取单个结构化块",
+  {
+    noteId: z.string().describe("笔记 ID"),
+    blockId: z.string().describe("块 ID"),
+  },
+  async ({ noteId, blockId }) => {
+    try {
+      const block = await api.getBlock(noteId, blockId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(block, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_search_blocks",
+  "全文搜索块，返回 noteId、blockId、块类型、文本和路径",
+  {
+    query: z.string().describe("搜索关键词"),
+    notebookId: z.string().optional().describe("限定笔记本 ID"),
+    limit: z.number().int().positive().max(200).optional().describe("最大结果数，默认 50"),
+  },
+  async ({ query, notebookId, limit }) => {
+    try {
+      const blocks = await api.searchBlocks(query, { notebookId, limit: limit || 50 });
+      return { content: [{ type: "text" as const, text: JSON.stringify(blocks, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_get_block_backlinks",
+  "获取指向指定块的来源笔记和来源块",
+  {
+    noteId: z.string().describe("目标笔记 ID"),
+    blockId: z.string().describe("目标块 ID"),
+  },
+  async ({ noteId, blockId }) => {
+    try {
+      const backlinks = await api.getBlockBacklinks(noteId, blockId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(backlinks, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_create_block",
+  "在笔记中创建块；通过 expectedNoteVersion 防并发覆盖，operationId 保证重试幂等",
+  {
+    noteId: z.string().describe("笔记 ID"),
+    blockType: noteBlockTypeSchema.optional().describe("块类型，默认 paragraph"),
+    text: z.string().optional().describe("块文本"),
+    afterBlockId: z.string().optional().describe("插入到该块之后；不传则追加"),
+    expectedNoteVersion: z.number().int().positive().describe("当前笔记版本"),
+    operationId: z.string().min(8).max(128).describe("调用方生成的幂等操作 ID"),
+  },
+  async ({ noteId, blockType, text, afterBlockId, expectedNoteVersion, operationId }) => {
+    try {
+      const result = await api.createBlock(noteId, { blockType, text, afterBlockId, expectedNoteVersion, operationId });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_update_block",
+  "更新块文本，要求笔记版本和幂等操作 ID",
+  {
+    noteId: z.string().describe("笔记 ID"),
+    blockId: z.string().describe("块 ID"),
+    text: z.string().describe("新文本"),
+    expectedNoteVersion: z.number().int().positive().describe("当前笔记版本"),
+    operationId: z.string().min(8).max(128).describe("幂等操作 ID"),
+  },
+  async ({ noteId, blockId, text, expectedNoteVersion, operationId }) => {
+    try {
+      const result = await api.updateBlock(noteId, blockId, { text, expectedNoteVersion, operationId });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_delete_block",
+  "删除块，要求笔记版本和幂等操作 ID",
+  {
+    noteId: z.string().describe("笔记 ID"),
+    blockId: z.string().describe("块 ID"),
+    expectedNoteVersion: z.number().int().positive().describe("当前笔记版本"),
+    operationId: z.string().min(8).max(128).describe("幂等操作 ID"),
+  },
+  async ({ noteId, blockId, expectedNoteVersion, operationId }) => {
+    try {
+      const result = await api.deleteBlock(noteId, blockId, { expectedNoteVersion, operationId });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "nowen_move_block",
+  "在同一父块内移动块，要求笔记版本和幂等操作 ID",
+  {
+    noteId: z.string().describe("笔记 ID"),
+    blockId: z.string().describe("要移动的块 ID"),
+    targetBlockId: z.string().describe("目标块 ID"),
+    position: z.enum(["before", "after"]).optional().describe("放在目标之前或之后，默认 after"),
+    expectedNoteVersion: z.number().int().positive().describe("当前笔记版本"),
+    operationId: z.string().min(8).max(128).describe("幂等操作 ID"),
+  },
+  async ({ noteId, blockId, targetBlockId, position, expectedNoteVersion, operationId }) => {
+    try {
+      const result = await api.moveBlock(noteId, blockId, { targetBlockId, position, expectedNoteVersion, operationId });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  },
 );
 
 // ==================== 附件工具 ====================
@@ -318,12 +514,19 @@ server.tool(
 
 server.tool(
   "nowen_search",
-  "在 Nowen Note 中全文搜索笔记。使用 FTS5 全文索引，支持模糊匹配，返回匹配的笔记摘要和高亮片段",
+  "搜索笔记或块；块级搜索会返回稳定 blockId",
   {
     query: z.string().describe("搜索关键词"),
+    level: z.enum(["note", "block"]).optional().describe("搜索层级，默认 note"),
+    notebookId: z.string().optional().describe("块级搜索时限定笔记本"),
+    limit: z.number().int().positive().max(200).optional().describe("块级结果上限"),
   },
-  async ({ query }) => {
+  async ({ query, level, notebookId, limit }) => {
     try {
+      if (level === "block") {
+        const blocks = await api.searchBlocks(query, { notebookId, limit: limit || 50 });
+        return { content: [{ type: "text" as const, text: `找到 ${blocks.length} 个块:\n${JSON.stringify(blocks, null, 2)}` }] };
+      }
       const results = await api.search(query);
       const summary = results.map((r: any) => ({
         id: r.id,

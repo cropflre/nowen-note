@@ -289,6 +289,69 @@ export class NowenApiClient {
     return this.request(`/api/notes/${id}`, { method: "DELETE" });
   }
 
+  // ==================== 通用块 / 双链 ====================
+
+  async listNoteBlocks(noteId: string, limit = 500): Promise<any[]> {
+    const result = await this.request<{ blocks: any[] }>(`/api/blocks/note/${noteId}`, { query: { limit } });
+    return result.blocks || [];
+  }
+
+  async getBlock(noteId: string, blockId: string): Promise<any> {
+    return this.request(`/api/blocks/${noteId}/${blockId}`);
+  }
+
+  async searchBlocks(query: string, params: { notebookId?: string; limit?: number } = {}): Promise<any[]> {
+    return this.request("/api/blocks/search", { query: { q: query, notebookId: params.notebookId, limit: params.limit } });
+  }
+
+  async resolveInternalLink(link: string): Promise<any> {
+    return this.request("/api/blocks/resolve", { query: { link } });
+  }
+
+  async getBacklinks(noteId: string, limit = 100): Promise<any[]> {
+    const result = await this.request<{ backlinks: any[] }>(`/api/notes/${noteId}/backlinks`, { query: { limit } });
+    return result.backlinks || [];
+  }
+
+  async getBlockBacklinks(noteId: string, blockId: string): Promise<any[]> {
+    const result = await this.request<{ backlinks: any[] }>(`/api/blocks/${noteId}/${blockId}/backlinks`);
+    return result.backlinks || [];
+  }
+
+  async createBlock(noteId: string, params: {
+    blockType?: "heading" | "paragraph" | "listItem" | "taskItem" | "blockquote" | "codeBlock";
+    text?: string;
+    afterBlockId?: string;
+    expectedNoteVersion: number;
+    operationId: string;
+  }): Promise<any> {
+    return this.request(`/api/blocks/${noteId}`, { method: "POST", body: params });
+  }
+
+  async updateBlock(noteId: string, blockId: string, params: {
+    text: string;
+    expectedNoteVersion: number;
+    operationId: string;
+  }): Promise<any> {
+    return this.request(`/api/blocks/${noteId}/${blockId}`, { method: "PUT", body: params });
+  }
+
+  async deleteBlock(noteId: string, blockId: string, params: {
+    expectedNoteVersion: number;
+    operationId: string;
+  }): Promise<any> {
+    return this.request(`/api/blocks/${noteId}/${blockId}`, { method: "DELETE", body: params });
+  }
+
+  async moveBlock(noteId: string, blockId: string, params: {
+    targetBlockId: string;
+    position?: "before" | "after";
+    expectedNoteVersion: number;
+    operationId: string;
+  }): Promise<any> {
+    return this.request(`/api/blocks/${noteId}/${blockId}/move`, { method: "POST", body: params });
+  }
+
   // ==================== 标签 ====================
 
   /** 获取所有标签 */

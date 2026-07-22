@@ -18,6 +18,7 @@ import {
 } from "../services/workspaceNotebookTransfer";
 
 const app = new Hono();
+const notebookPerfDiagnosticsEnabled = process.env.NOTEBOOK_PERF_DIAGNOSTICS === "1";
 
 function parseNotebookMemberRole(role: unknown): "editor" | "viewer" | null {
   return role === "editor" || role === "viewer" ? role : null;
@@ -199,6 +200,9 @@ app.get("/share/:token", (c) => {
   const token = c.req.param("token");
   const link = notebookShareLinksRepository.getByTokenWithDetails(token);
   if (!link) return c.json({ error: "share link not found" }, 404);
+  if (link.maxUses && link.useCount >= link.maxUses) {
+    return c.json({ error: "邀请链接已达到最大加入人数", code: "SHARE_LINK_USE_LIMIT" }, 410);
+  }
   return c.json(link);
 });
 
@@ -206,116 +210,116 @@ app.post("/share/:token/join", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const token = c.req.param("token");
-
   const link = notebookShareLinksRepository.getEnabledByToken(token);
   if (!link) return c.json({ error: "share link not found" }, 404);
-  if (link.ownerId === userId) {
-    return c.json({ success: true, notebookId: link.notebookId, role: "owner" });
-  }
+  if (link.ownerId === userId) return c.json({ success: true, notebookId: link.notebookId, role: "owner" });
 
   const role = parseNotebookMemberRole(link.role) || "viewer";
-  notebookMembersRepository.upsert({
-    id: notebookMemberId(link.notebookId, userId),
-    notebookId: link.notebookId,
-    userId,
-    role,
-    invitedBy: link.createdBy,
-  });
-
-  return c.json({ success: true, notebookId: link.notebookId, role });
+  const result = db.transaction(() => {
+    const existing = db.prepare(`SELECT role, status, source, sourceId FROM notebook_members
+      WHERE notebookId = ? AND userId = ?`).get(link.notebookId, userId) as
+      | { role: string; status: string; source: string; sourceId: string | null }
+      | undefined;
+    if (existing?.status === "active") {
+      return { success: true as const, role: existing.role, counted: false };
+    }
+    const consumed = db.prepare(`UPDATE notebook_share_links SET useCount = useCount + 1, updatedAt = datetime('now')
+      WHERE id = ? AND enabled = 1 AND (maxUses IS NULL OR useCount < maxUses)`).run(link.id);
+    if (!consumed.changes) return null;
+    notebookMembersRepository.upsert({
+      id: notebookMemberId(link.notebookId, userId), notebookId: link.notebookId, userId,
+      role, invitedBy: link.createdBy, source: "invite_link", sourceId: link.id,
+    });
+    return { success: true as const, role, counted: true };
+  })();
+  if (!result) return c.json({ error: "邀请链接已达到最大加入人数", code: "SHARE_LINK_USE_LIMIT" }, 410);
+  return c.json({ ...result, notebookId: link.notebookId });
 });
 
 app.get("/:id/share-link", (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-
   const { permission } = resolveNotebookPermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const link = notebookShareLinksRepository.getLatestEnabledByNotebook(id);
-  return c.json(link || null);
+  if (!hasPermission(permission, "manage")) return c.json({ error: "forbidden" }, 403);
+  return c.json(notebookShareLinksRepository.getLatestEnabledByNotebook(id) || null);
 });
 
 app.post("/:id/share-link", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
   const role = parseNotebookMemberRole(body.role) || "viewer";
-  const expiresAt = typeof body.expiresAt === "string" && body.expiresAt.trim()
-    ? body.expiresAt.trim()
-    : null;
-
-  const { permission } = resolveNotebookPermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    return c.json({ error: "forbidden" }, 403);
+  const expiresAt = typeof body.expiresAt === "string" && body.expiresAt.trim() ? body.expiresAt.trim() : null;
+  const maxUses = body.maxUses === null || body.maxUses === undefined || body.maxUses === ""
+    ? null : Number(body.maxUses);
+  if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100000)) {
+    return c.json({ error: "maxUses must be 1-100000" }, 400);
   }
+  const { permission } = resolveNotebookPermission(id, userId);
+  if (!hasPermission(permission, "manage")) return c.json({ error: "forbidden" }, 403);
 
-  notebookShareLinksRepository.disableAllByNotebook(id);
-
+  const previous = notebookShareLinksRepository.getLatestEnabledByNotebook(id);
+  if (previous) {
+    notebookShareLinksRepository.disableAllByNotebook(id);
+    notebookMembersRepository.removeBySource("invite_link", previous.id);
+  }
   const linkId = uuid();
-  const token = generateShareToken();
   notebookShareLinksRepository.create({
-    id: linkId,
-    notebookId: id,
-    token,
-    role,
-    expiresAt,
-    createdBy: userId,
+    id: linkId, notebookId: id, token: generateShareToken(), role, expiresAt, maxUses, createdBy: userId,
   });
-
-  const link = notebookShareLinksRepository.getById(linkId);
-  return c.json(link, 201);
+  return c.json(notebookShareLinksRepository.getById(linkId), 201);
 });
 
 app.patch("/:id/share-link", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-  const body = await c.req.json();
-
+  const body = await c.req.json().catch(() => ({}));
   const { permission } = resolveNotebookPermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
+  if (!hasPermission(permission, "manage")) return c.json({ error: "forbidden" }, 403);
   const link = notebookShareLinksRepository.getLatestEnabledByNotebook(id);
   if (!link) return c.json({ error: "share link not found" }, 404);
 
-  const updates: any = {};
+  const updates: Parameters<typeof notebookShareLinksRepository.update>[1] = {};
   if (body.role !== undefined) {
     const role = parseNotebookMemberRole(body.role);
     if (!role) return c.json({ error: "role must be editor or viewer" }, 400);
     updates.role = role;
   }
-  if (body.expiresAt !== undefined) {
-    updates.expiresAt = body.expiresAt ? String(body.expiresAt) : null;
+  if (body.expiresAt !== undefined) updates.expiresAt = body.expiresAt ? String(body.expiresAt) : null;
+  if (body.maxUses !== undefined) {
+    const maxUses = body.maxUses === null || body.maxUses === "" ? null : Number(body.maxUses);
+    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100000)) {
+      return c.json({ error: "maxUses must be 1-100000" }, 400);
+    }
+    updates.maxUses = maxUses;
   }
-  if (body.enabled !== undefined) {
-    updates.enabled = body.enabled ? 1 : 0;
+  if (body.resetUses === true) updates.useCount = 0;
+  if (body.rotateToken === true) {
+    updates.token = generateShareToken();
+    updates.useCount = 0;
   }
-  if (Object.keys(updates).length === 0) return c.json({ error: "no changes" }, 400);
+  if (body.enabled !== undefined) updates.enabled = body.enabled ? 1 : 0;
+  if (!Object.keys(updates).length) return c.json({ error: "no changes" }, 400);
 
   notebookShareLinksRepository.update(link.id, updates);
-  const updated = notebookShareLinksRepository.getById(link.id);
-  return c.json(updated);
+  if (updates.role || updates.enabled === 0) {
+    if (updates.enabled === 0) notebookMembersRepository.removeBySource("invite_link", link.id);
+    else notebookMembersRepository.restrictBySource("invite_link", link.id, {
+      role: updates.role === "editor" ? "editor" : "viewer", allowDownload: true, allowReshare: false,
+    });
+  }
+  return c.json(notebookShareLinksRepository.getById(link.id));
 });
 
 app.delete("/:id/share-link", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-
   const { permission } = resolveNotebookPermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
+  if (!hasPermission(permission, "manage")) return c.json({ error: "forbidden" }, 403);
+  const link = notebookShareLinksRepository.getLatestEnabledByNotebook(id);
   notebookShareLinksRepository.disableAllByNotebook(id);
-
-  return c.json({ success: true });
+  const removedMembers = link ? notebookMembersRepository.removeBySource("invite_link", link.id) : 0;
+  return c.json({ success: true, removedMembers });
 });
 
 app.get("/:id/members", (c) => {
@@ -415,9 +419,12 @@ app.delete("/:id/members/:memberUserId", (c) => {
 
 // 创建笔记本
 app.post("/", async (c) => {
+  const perfEnabled = notebookPerfDiagnosticsEnabled;
+  const routeStartedAt = perfEnabled ? performance.now() : 0;
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json();
+  const parsedAt = perfEnabled ? performance.now() : 0;
   const workspaceId: string | null = body.workspaceId || null;
 
   // 如果指定了工作区，必须是 editor 以上角色
@@ -427,6 +434,7 @@ app.post("/", async (c) => {
       return c.json({ error: "您在该工作区无创建权限" }, 403);
     }
   }
+  const permissionCheckedAt = perfEnabled ? performance.now() : 0;
 
   // v14：父笔记本若已被软删（在回收站里），不允许在其下创建子笔记本——
   // 否则新建的子笔记本会立刻 "看不见"（被父级 isDeleted 过滤掉）。
@@ -442,6 +450,7 @@ app.post("/", async (c) => {
       );
     }
   }
+  const parentCheckedAt = perfEnabled ? performance.now() : 0;
 
   const id = uuid();
   db.prepare(
@@ -457,7 +466,24 @@ app.post("/", async (c) => {
     body.color || null,
     body.sortOrder || 0,
   );
+  const insertedAt = perfEnabled ? performance.now() : 0;
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
+  if (perfEnabled) {
+    const selectedAt = performance.now();
+    const timings = {
+      parse: parsedAt - routeStartedAt,
+      permission: permissionCheckedAt - parsedAt,
+      parent: parentCheckedAt - permissionCheckedAt,
+      insert: insertedAt - parentCheckedAt,
+      select: selectedAt - insertedAt,
+      route: selectedAt - routeStartedAt,
+    };
+    c.header(
+      "Server-Timing",
+      Object.entries(timings).map(([name, duration]) => `${name};dur=${duration.toFixed(3)}`).join(", "),
+    );
+    console.info("[phase-b:notebook-create]", JSON.stringify({ id, workspaceId, parentId: body.parentId || null, ...timings }));
+  }
   return c.json(notebook, 201);
 });
 

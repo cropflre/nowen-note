@@ -35,6 +35,8 @@ export interface NoteEditorUpdatePayload {
   title: string;
   /** P0: debounce 调度时快照的 noteId，防止切换笔记后写错目标 */
   _noteId?: string;
+  /** Tiptap 本地保存代次；仅用于把 REST ACK 精确关联到发起它的编辑器快照。 */
+  _saveGeneration?: number;
 }
 
 /** 两个编辑器引擎统一的 props 契约 */
@@ -91,6 +93,14 @@ export interface NoteEditorHandle {
    * CRDT 模式下 content 由 yDoc 接管，返回的 content 仅供临时回填，不代表服务端权威。
    */
   getSnapshot?: () => { content: string; contentText: string } | null;
+  /** 标记一次已经由当前编辑器发起并得到服务器确认的保存。 */
+  acknowledgeSave?: (ack: {
+    noteId: string;
+    version: number;
+    content: string;
+    saveGeneration: number;
+    preserveLocalEditor: boolean;
+  }) => void;
   /**
    * 编辑器是否已 mount 并可被命令式 API 安全调用。
    *

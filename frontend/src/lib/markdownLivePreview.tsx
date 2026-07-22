@@ -20,6 +20,7 @@ import {
 } from "@/lib/markdownTasks";
 
 const BLOCK_NODE_RE = /^(?:ATXHeading[1-6]|SetextHeading[12]|Paragraph|Blockquote|BulletList|OrderedList|FencedCode|CodeBlock|HorizontalRule|HTMLBlock|Table)$/;
+const STANDALONE_IAL_RE = /^\s*\{:\s*[\s\S]*\}\s*$/;
 const roots = new WeakMap<HTMLElement, Root>();
 
 export interface MarkdownLivePreviewBlock {
@@ -39,13 +40,94 @@ function expandToWholeLines(state: EditorState, from: number, to: number): { fro
   return { from: startLine.from, to: endLine.to };
 }
 
+function lineAfter(state: EditorState, position: number) {
+  if (position >= state.doc.length) return null;
+  const current = state.doc.lineAt(position);
+  return current.number < state.doc.lines ? state.doc.line(current.number + 1) : null;
+}
+
+function expandSemanticTail(
+  state: EditorState,
+  range: { from: number; to: number },
+): { from: number; to: number } {
+  let to = range.to;
+  const firstLine = state.doc.lineAt(range.from).text;
+  const quoteBlock = /^\s*>/.test(firstLine);
+
+  while (to < state.doc.length) {
+    const next = lineAfter(state, to);
+    if (!next) break;
+    const text = next.text;
+
+    // SiYuan block IAL rows belong to the preceding semantic block. Parsing them
+    // as a separate live-preview paragraph is one of the reasons imported
+    // callouts/tables differed from the complete-document preview.
+    if (STANDALONE_IAL_RE.test(text)) {
+      to = next.to;
+      continue;
+    }
+
+    // CodeMirror may expose nested/continued blockquote lines as siblings. Keep
+    // the whole quote together so a GFM alert marker and its body are parsed by
+    // one ReactMarkdown instance.
+    if (quoteBlock && /^\s*>/.test(text)) {
+      to = next.to;
+      continue;
+    }
+
+    break;
+  }
+
+  return { from: range.from, to };
+}
+
+function isSameSemanticContainer(left: string, right: string, gap: string): boolean {
+  if (/^\s*>/.test(left) && /^\s*>/.test(right)) return true;
+  if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(left) && /^\s*(?:[-+*]|\d+[.)])\s+/.test(right)) {
+    return /^\s*$/.test(gap);
+  }
+  if (/^\s*\|/.test(left) && /^\s*\|/.test(right)) return /^\s*$/.test(gap);
+  return false;
+}
+
+function mergeSemanticRanges(
+  state: EditorState,
+  ranges: Array<{ from: number; to: number }>,
+): Array<{ from: number; to: number }> {
+  const sorted = [...ranges].sort((a, b) => a.from - b.from || b.to - a.to);
+  const merged: Array<{ from: number; to: number }> = [];
+
+  for (const current of sorted) {
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push({ ...current });
+      continue;
+    }
+    if (current.from <= previous.to) {
+      previous.to = Math.max(previous.to, current.to);
+      continue;
+    }
+
+    const left = state.doc.lineAt(Math.max(previous.from, previous.to - 1)).text;
+    const right = state.doc.lineAt(current.from).text;
+    const gap = state.doc.sliceString(previous.to, current.from);
+    if (isSameSemanticContainer(left, right, gap)) {
+      previous.to = current.to;
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
+}
+
 /**
- * Collect top-level blocks that do not intersect the current selection.
+ * Collect top-level semantic blocks that do not intersect the current selection.
  *
- * CodeMirror syntax nodes may begin after a quote/list marker. Expanding every
- * top-level node to complete source lines keeps live preview input identical to
- * the full preview input, which is especially important for `[!TIP]` callouts,
- * tables, fenced code and raw HTML blocks.
+ * Live preview and full preview both render through MarkdownPreview. The important
+ * invariant is therefore the input boundary: quote/callout continuations and
+ * SiYuan IAL rows must reach the renderer as one block instead of several isolated
+ * Markdown fragments.
  */
 export function collectMarkdownLivePreviewBlocks(
   source: EditorView | EditorState,
@@ -53,28 +135,26 @@ export function collectMarkdownLivePreviewBlocks(
   const state = getEditorState(source);
   const selection = state.selection.main;
   const cursor = syntaxTree(state).cursor();
-  const blocks: MarkdownLivePreviewBlock[] = [];
+  const candidates: Array<{ from: number; to: number }> = [];
   const seen = new Set<string>();
-  if (!cursor.firstChild()) return blocks;
+  if (!cursor.firstChild()) return [];
 
   do {
     const node = cursor.node;
     if (!BLOCK_NODE_RE.test(node.name) || node.from >= node.to) continue;
-    const range = expandToWholeLines(state, node.from, node.to);
+    const range = expandSemanticTail(state, expandToWholeLines(state, node.from, node.to));
     const key = `${range.from}:${range.to}`;
     if (seen.has(key)) continue;
     seen.add(key);
-
-    const intersectsSelection = selection.from <= range.to && selection.to >= range.from;
-    if (intersectsSelection) continue;
-    blocks.push({
-      from: range.from,
-      to: range.to,
-      markdown: state.doc.sliceString(range.from, range.to),
-    });
+    candidates.push(range);
   } while (cursor.nextSibling());
 
-  return blocks;
+  return mergeSemanticRanges(state, candidates)
+    .filter((range) => !(selection.from <= range.to && selection.to >= range.from))
+    .map((range) => ({
+      ...range,
+      markdown: state.doc.sliceString(range.from, range.to),
+    }));
 }
 
 class MarkdownLivePreviewWidget extends WidgetType {
@@ -119,11 +199,7 @@ class MarkdownLivePreviewWidget extends WidgetType {
           if (!change) return;
           const nextBlock = applyMarkdownTaskCheckboxChange(this.markdown, change);
           view.dispatch({
-            changes: {
-              from: this.from,
-              to: this.to,
-              insert: nextBlock,
-            },
+            changes: { from: this.from, to: this.to, insert: nextBlock },
           });
         }}
       />,
@@ -161,21 +237,13 @@ function buildDecorations(state: EditorState): DecorationSet {
   return builder.finish();
 }
 
-/**
- * Block decorations cannot be returned from ViewPlugin.decorations. Doing so throws:
- * "Block decorations may not be specified via plugins" when live preview is enabled.
- * A StateField is the supported CodeMirror path for document-layout decorations.
- */
 const livePreviewDecorations = StateField.define<DecorationSet>({
   create(state) {
     return buildDecorations(state);
   },
   update(value, transaction) {
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
-    if (transaction.docChanged || selectionChanged) {
-      return buildDecorations(transaction.state);
-    }
-    return value;
+    return transaction.docChanged || selectionChanged ? buildDecorations(transaction.state) : value;
   },
   provide(field) {
     return EditorView.decorations.from(field);
@@ -197,12 +265,8 @@ const livePreviewTheme = EditorView.theme({
     maxWidth: "none",
     margin: "0",
   },
-  ".cm-live-preview-block .cm-live-preview-render > :first-child": {
-    marginTop: "0",
-  },
-  ".cm-live-preview-block .cm-live-preview-render > :last-child": {
-    marginBottom: "0",
-  },
+  ".cm-live-preview-block .cm-live-preview-render > :first-child": { marginTop: "0" },
+  ".cm-live-preview-block .cm-live-preview-render > :last-child": { marginBottom: "0" },
 });
 
 export const markdownLivePreviewExtension: Extension = [livePreviewDecorations, livePreviewTheme];

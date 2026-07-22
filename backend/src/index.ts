@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import "./runtime/task-stats-hardening";
+import "./runtime/notebook-publication";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -9,6 +10,7 @@ import fs from "fs";
 import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/auth-security";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
 import tasksRouter from "./routes/tasks";
@@ -55,6 +57,7 @@ import versionRouter, { resolveAppVersion } from "./routes/version";
 import releasesRouter from "./routes/releases";
 import { seedDatabase } from "./db/seed";
 import { initApiTokensTable, looksLikeApiToken, resolveApiToken } from "./lib/api-tokens";
+import { enforceApiTokenAccess } from "./middleware/api-token-resource-scope";
 import { getDb, closeDb } from "./db/schema";
 import { userSessionsRepository } from "./repositories";
 import { generateOpenAPISpec } from "./services/openapi";
@@ -81,7 +84,7 @@ app.use("*", cors({
     return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
+  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
   credentials: true,
 }));
 
@@ -408,6 +411,8 @@ app.use("/api/*", async (c, next) => {
     }
     c.req.raw.headers.set("X-User-Id", resolved.userId);
     c.req.raw.headers.set("X-Auth-Mode", "api-token");
+    c.req.raw.headers.set("X-Api-Token-Id", resolved.tokenId);
+    c.req.raw.headers.set("X-Api-Resource-Mode", resolved.resourceMode);
     if (resolved.scopes.length > 0) {
       c.req.raw.headers.set("X-Api-Scopes", resolved.scopes.join(","));
     }
@@ -459,9 +464,14 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
+// API Token scopes + notebook resource scope enforcement.
+// JWT login requests pass through unchanged.
+app.use("/api/*", enforceApiTokenAccess);
+
 // API 路由（受 JWT 保护）
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
 app.route("/api/tasks", tasksRouter);

@@ -38,6 +38,7 @@ import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
+import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -677,13 +678,13 @@ function AppLayout() {
           但 Rail 仍在，模块切换永远 1 次点击可达。
           v16 P3 后续：Rail 三档模式（icon=48px 纯图标 / label=64px 图标+文字 / hidden=完全隐藏）；
           hidden 模式下若主侧栏也折叠，强制保留 Rail（避免完全无侧栏入口）。 */}
-      {showRail && <NavRail />}
+      {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail /></PhaseAPerfProfiler>}
       {showSidebar && (
         <div
           className="hidden md:flex shrink-0"
           style={{ width: `${state.sidebarWidth}px` }}
         >
-          <Sidebar variant="desktop" />
+          <PhaseAPerfProfiler id="Sidebar"><Sidebar variant="desktop" /></PhaseAPerfProfiler>
         </div>
       )}
       {showSidebar && <SidebarResizeHandle />}
@@ -745,7 +746,7 @@ function AppLayout() {
               `}
               style={{ "--note-list-width": `${state.noteListWidth}px` } as React.CSSProperties}
             >
-              <NoteList />
+              <PhaseAPerfProfiler id="NoteList"><NoteList /></PhaseAPerfProfiler>
             </div>
           )}
 
@@ -756,7 +757,9 @@ function AppLayout() {
             absolute inset-0 z-20 md:static md:z-auto md:flex-1 flex flex-col min-w-0
             ${state.mobileView === "editor" ? "flex" : "hidden md:flex"}
           `}>
-            {state.editorSplit ? <EditorSplitView /> : <EditorPane />}
+            <PhaseAPerfProfiler id="EditorPane">
+              {state.editorSplit ? <EditorSplitView /> : <EditorPane />}
+            </PhaseAPerfProfiler>
           </div>
         </div>
       )}
@@ -768,7 +771,7 @@ function AppLayout() {
       />
 
       {/* 离线状态 + 待同步指示器 */}
-      <OfflineIndicator />
+      <PhaseAPerfProfiler id="OfflineIndicator"><OfflineIndicator /></PhaseAPerfProfiler>
 
       {/* 服务端版本升级提示（前端 bundle 与服务端不一致时） */}
       <UpdateNotifier />
@@ -1164,7 +1167,7 @@ function AuthGate() {
   return (
     <AppProvider>
       <TooltipProvider>
-        <AppLayout />
+        <PhaseAPerfProfiler id="AppLayout"><AppLayout /></PhaseAPerfProfiler>
         {/* Phase 7: 客户端模式下，密码登录成功后引导启用快速登录。
             QuickLoginEnrollDialog 内部会判断"是否已问过 / 设备是否支持"，
             不需要展示时会立即调 onClose 自我隐身。 */}

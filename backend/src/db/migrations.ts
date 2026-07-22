@@ -7,6 +7,7 @@
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { markSearchIndexRebuilt, rebuildNormalizedSearchFts, repairSearchContentText } from "../lib/searchIndex.js";
 import {
   MIGRATIONS as BASE_MIGRATIONS,
   type Migration,
@@ -204,12 +205,57 @@ const userAISettingsMigration: Migration = {
   },
 };
 
+const noteImportOriginsMigration: Migration = {
+  version: 49,
+  name: "note-import-origins",
+  up: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS note_import_origins (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        workspaceId TEXT,
+        workspaceScope TEXT NOT NULL,
+        noteId TEXT NOT NULL,
+        sourceType TEXT NOT NULL,
+        externalId TEXT NOT NULL,
+        contentHash TEXT,
+        batchId TEXT,
+        importedAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT,
+        metadata TEXT,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_note_import_origins_scope_external
+        ON note_import_origins(userId, workspaceScope, sourceType, externalId);
+      CREATE INDEX IF NOT EXISTS idx_note_import_origins_note
+        ON note_import_origins(noteId);
+      CREATE INDEX IF NOT EXISTS idx_note_import_origins_batch
+        ON note_import_origins(batchId);
+    `);
+  },
+};
+
+const repairSearchContentTextMigration: Migration = {
+  version: 52,
+  name: "repair-search-content-text",
+  up: (db) => {
+    repairSearchContentText(db);
+    db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
+    rebuildNormalizedSearchFts(db);
+    markSearchIndexRebuilt(db);
+  },
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
   activityMigration,
   repairNotesFtsMigration,
   userAISettingsMigration,
+  noteImportOriginsMigration,
+  repairSearchContentTextMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

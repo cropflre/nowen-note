@@ -1,16 +1,26 @@
-import { Hono } from "hono";
+import { performance } from "node:perf_hooks";
+import { Hono, type Context } from "hono";
 import type Database from "better-sqlite3";
 import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import {
   buildFtsSearchTerm,
-  countSearchTermOccurrences,
+  hasHanText,
   normalizeSearchText,
   splitSearchTerms,
 } from "../lib/searchQuery";
+import {
+  getSearchIndexRebuiltAt,
+  inspectSearchContentText,
+  markSearchIndexRebuilt,
+  rebuildNormalizedSearchFts,
+  repairSearchContentText,
+} from "../lib/searchIndex";
 
 const app = new Hono();
 const registeredSearchDatabases = new WeakSet<object>();
+const MAX_TERM_CANDIDATES = 1000;
+const MAX_FETCH_CANDIDATES = 500;
 
 type MatchField = "title" | "content" | "tag" | "attachment";
 
@@ -52,6 +62,15 @@ type SearchResultWithScore = Omit<SearchRow, "contentText" | "tagText" | "attach
   matchReason: MatchField;
   matchCount: number;
   score: number;
+};
+
+type CandidateCollection = {
+  ids: Set<string>;
+  degraded: boolean;
+  literalFallback: boolean;
+  ftsDurationMs: number;
+  metadataDurationMs: number;
+  fallbackDurationMs: number;
 };
 
 function escapeHtml(text: string): string {
@@ -146,7 +165,11 @@ function findFirstMatch(source: string, terms: string[]): { index: number; lengt
 
 function buildPlainSnippet(source: string, terms: string[], label?: string): string {
   const match = findFirstMatch(source, terms);
-  if (!match) return label ? `${escapeHtml(label)}：${escapeHtml(source.slice(0, 220))}` : escapeHtml(source.slice(0, 220));
+  if (!match) {
+    return label
+      ? `${escapeHtml(label)}：${escapeHtml(source.slice(0, 220))}`
+      : escapeHtml(source.slice(0, 220));
+  }
 
   const start = Math.max(0, match.index - 70);
   const end = Math.min(source.length, match.index + match.length + 150);
@@ -196,7 +219,6 @@ function getUserRole(db: Database.Database, userId: string): string | null {
 
 function checkFtsIntegrity(db: Database.Database): { healthy: boolean; detail: string } {
   try {
-    // rank=1 asks FTS5 to compare the external-content index with the notes table.
     db.prepare("INSERT INTO notes_fts(notes_fts, rank) VALUES('integrity-check', 1)").run();
     return { healthy: true, detail: "ok" };
   } catch (error) {
@@ -205,6 +227,175 @@ function checkFtsIntegrity(db: Database.Database): { healthy: boolean; detail: s
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function getFtsRowCount(db: Database.Database): number {
+  try {
+    const row = db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number } | undefined;
+    return Number(row?.count) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function fetchFtsTermCandidates(
+  db: Database.Database,
+  term: string,
+  scope: SearchScope,
+): { ids: Set<string>; degraded: boolean } {
+  const ids = new Set<string>();
+  const searchTerm = buildFtsSearchTerm(term);
+  if (!searchTerm) return { ids, degraded: false };
+
+  try {
+    const rows = db.prepare(`
+      SELECT n.id
+      FROM notes_search_fts
+      JOIN notes n ON notes_search_fts.rowid = n.rowid
+      JOIN notebooks nb ON nb.id = n.notebookId
+      WHERE notes_search_fts MATCH ?
+        AND ${scope.sql}
+        AND n.isTrashed = 0
+        AND nb.isDeleted = 0
+      ORDER BY bm25(notes_search_fts, 8.0, 1.0)
+      LIMIT ${MAX_TERM_CANDIDATES}
+    `).all(searchTerm, ...scope.params) as Array<{ id: string }>;
+    for (const row of rows) ids.add(row.id);
+    return { ids, degraded: false };
+  } catch (error) {
+    console.warn("[search] FTS candidate lookup unavailable; enabling bounded literal fallback:", error);
+    return { ids, degraded: true };
+  }
+}
+
+function fetchMetadataTermCandidates(
+  db: Database.Database,
+  term: string,
+  scope: SearchScope,
+): Set<string> {
+  const rows = db.prepare(`
+    SELECT id FROM (
+      SELECT n.id AS id
+      FROM note_tags nt
+      JOIN tags t ON t.id = nt.tagId
+      JOIN notes n ON n.id = nt.noteId
+      JOIN notebooks nb ON nb.id = n.notebookId
+      WHERE ${scope.sql}
+        AND n.isTrashed = 0
+        AND nb.isDeleted = 0
+        AND instr(nowen_search_normalize(COALESCE(t.name, '')), ?) > 0
+
+      UNION
+
+      SELECT n.id AS id
+      FROM attachments a
+      LEFT JOIN attachment_chunks ac ON ac.attachmentId = a.id
+      JOIN notes n ON n.id = a.noteId
+      JOIN notebooks nb ON nb.id = n.notebookId
+      WHERE ${scope.sql}
+        AND n.isTrashed = 0
+        AND nb.isDeleted = 0
+        AND (
+          instr(nowen_search_normalize(COALESCE(a.filename, '')), ?) > 0
+          OR instr(nowen_search_normalize(COALESCE(ac.chunkText, '')), ?) > 0
+        )
+    )
+    LIMIT ${MAX_TERM_CANDIDATES}
+  `).all(
+    ...scope.params,
+    term,
+    ...scope.params,
+    term,
+    term,
+  ) as Array<{ id: string }>;
+  return new Set(rows.map((row) => row.id));
+}
+
+function fetchLiteralTermCandidates(
+  db: Database.Database,
+  term: string,
+  scope: SearchScope,
+): Set<string> {
+  const rows = db.prepare(`
+    SELECT n.id
+    FROM notes n
+    JOIN notebooks nb ON nb.id = n.notebookId
+    WHERE ${scope.sql}
+      AND n.isTrashed = 0
+      AND nb.isDeleted = 0
+      AND (
+        instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
+        OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
+      )
+    ORDER BY n.updatedAt DESC
+    LIMIT ${MAX_TERM_CANDIDATES}
+  `).all(...scope.params, term, term) as Array<{ id: string }>;
+  return new Set(rows.map((row) => row.id));
+}
+
+function shouldUseLiteralFallback(
+  term: string,
+  ftsCandidateCount: number,
+  degraded: boolean,
+): boolean {
+  if (degraded) return true;
+  const normalized = normalizeSearchText(term);
+  const tokens = normalized.match(/[\p{L}\p{N}_]+/gu) || [];
+  const tokenizerPreservesTerm = tokens.length === 1 && tokens[0] === normalized;
+  return normalized.length < 3 || hasHanText(normalized) || !tokenizerPreservesTerm;
+}
+
+function intersectCandidateSets(sets: Set<string>[]): Set<string> {
+  if (sets.length === 0) return new Set();
+  const result = new Set(sets[0]);
+  for (let i = 1; i < sets.length; i += 1) {
+    for (const id of result) {
+      if (!sets[i].has(id)) result.delete(id);
+    }
+  }
+  return result;
+}
+
+function collectCandidates(
+  db: Database.Database,
+  terms: string[],
+  scope: SearchScope,
+): CandidateCollection {
+  const termSets: Set<string>[] = [];
+  let degraded = false;
+  let literalFallback = false;
+  let ftsDurationMs = 0;
+  let metadataDurationMs = 0;
+  let fallbackDurationMs = 0;
+
+  for (const term of terms) {
+    const ftsStarted = performance.now();
+    const fts = fetchFtsTermCandidates(db, term, scope);
+    ftsDurationMs += performance.now() - ftsStarted;
+    degraded ||= fts.degraded;
+
+    const metadataStarted = performance.now();
+    const metadata = fetchMetadataTermCandidates(db, term, scope);
+    metadataDurationMs += performance.now() - metadataStarted;
+
+    const ids = new Set<string>([...fts.ids, ...metadata]);
+    if (shouldUseLiteralFallback(term, fts.ids.size, fts.degraded)) {
+      literalFallback = true;
+      const fallbackStarted = performance.now();
+      for (const id of fetchLiteralTermCandidates(db, term, scope)) ids.add(id);
+      fallbackDurationMs += performance.now() - fallbackStarted;
+    }
+    termSets.push(ids);
+  }
+
+  return {
+    ids: intersectCandidateSets(termSets),
+    degraded,
+    literalFallback,
+    ftsDurationMs,
+    metadataDurationMs,
+    fallbackDurationMs,
+  };
 }
 
 function fetchFtsScores(
@@ -217,23 +408,88 @@ function fetchFtsScores(
 
   try {
     const rows = db.prepare(`
-      SELECT n.id, bm25(notes_fts, 8.0, 1.0) AS score
-      FROM notes_fts
-      JOIN notes n ON notes_fts.rowid = n.rowid
+      SELECT n.id, bm25(notes_search_fts, 8.0, 1.0) AS score
+      FROM notes_search_fts
+      JOIN notes n ON notes_search_fts.rowid = n.rowid
       JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE notes_fts MATCH ?
+      WHERE notes_search_fts MATCH ?
         AND ${scope.sql}
         AND n.isTrashed = 0
         AND nb.isDeleted = 0
       ORDER BY score
-      LIMIT 500
+      LIMIT ${MAX_TERM_CANDIDATES}
     `).all(searchTerm, ...scope.params) as Array<{ id: string; score: number }>;
     for (const row of rows) scores.set(row.id, Number(row.score) || 0);
     return { scores, degraded: false };
   } catch (error) {
-    console.warn("[search] FTS ranking unavailable; using verified literal results:", error);
+    console.warn("[search] FTS ranking unavailable; using verified literal ranking:", error);
     return { scores, degraded: true };
   }
+}
+
+function fetchCandidateRows(
+  db: Database.Database,
+  candidateIds: Set<string>,
+  userId: string,
+  scope: SearchScope,
+): SearchRow[] {
+  const ids = Array.from(candidateIds).slice(0, MAX_FETCH_CANDIDATES);
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(",");
+
+  return db.prepare(`
+    SELECT
+      n.id,
+      n.userId,
+      n.notebookId,
+      n.workspaceId,
+      n.title,
+      COALESCE(n.contentText, '') AS contentText,
+      n.updatedAt,
+      CASE WHEN EXISTS(
+        SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
+      ) THEN 1 ELSE 0 END AS isFavorite,
+      n.isPinned,
+      n.contentFormat,
+      nb.name AS notebookName,
+      COALESCE((
+        SELECT group_concat(t.name, char(10))
+        FROM note_tags nt
+        JOIN tags t ON t.id = nt.tagId
+        WHERE nt.noteId = n.id
+      ), '') AS tagText,
+      COALESCE((
+        SELECT group_concat(a.filename, char(10))
+        FROM attachments a
+        WHERE a.noteId = n.id
+      ), '') AS attachmentNames,
+      COALESCE((
+        SELECT group_concat(ac.chunkText, char(10))
+        FROM attachments a
+        JOIN attachment_chunks ac ON ac.attachmentId = a.id
+        WHERE a.noteId = n.id
+      ), '') AS attachmentText
+    FROM notes n
+    JOIN notebooks nb ON nb.id = n.notebookId
+    WHERE n.id IN (${placeholders})
+      AND ${scope.sql}
+      AND n.isTrashed = 0
+      AND nb.isDeleted = 0
+    ORDER BY n.updatedAt DESC
+  `).all(userId, ...ids, ...scope.params) as SearchRow[];
+}
+
+function countNormalizedOccurrences(haystack: string, needle: string): number {
+  if (!haystack || !needle) return 0;
+  let count = 0;
+  let from = 0;
+  while (from < haystack.length) {
+    const index = haystack.indexOf(needle, from);
+    if (index < 0) break;
+    count += 1;
+    from = index + Math.max(needle.length, 1);
+  }
+  return count;
 }
 
 function buildSearchResult(
@@ -242,6 +498,7 @@ function buildSearchResult(
   normalizedQuery: string,
   ftsScore: number | undefined,
 ): SearchResultWithScore | null {
+  const normalizedTerms = terms.map(normalizeSearchText).filter(Boolean);
   const sources: MatchSource[] = [
     { field: "title", label: "标题", text: row.title || "", priority: 0 },
     { field: "content", label: "正文", text: row.contentText || "", priority: 1 },
@@ -254,23 +511,25 @@ function buildSearchResult(
     },
   ];
 
-  // Every literal query term must have a visible source. FTS is never allowed to
-  // admit a row by itself, which eliminates stale/tokenizer-only ghost results.
-  const allTermsExplained = terms.every((term) =>
-    sources.some((source) => countSearchTermOccurrences(source.text, term) > 0),
+  const evaluated = sources.map((source) => {
+    const normalized = normalizeSearchText(source.text);
+    const termCounts = normalizedTerms.map((term) => countNormalizedOccurrences(normalized, term));
+    return {
+      ...source,
+      normalized,
+      termCounts,
+      matchCount: termCounts.reduce((sum, count) => sum + count, 0),
+      coverage: termCounts.filter((count) => count > 0).length,
+      exactQuery: normalizedQuery ? normalized.includes(normalizedQuery) : false,
+    };
+  });
+
+  const allTermsExplained = normalizedTerms.every((_, termIndex) =>
+    evaluated.some((source) => source.termCounts[termIndex] > 0),
   );
   if (!allTermsExplained) return null;
 
-  const matchedSources = sources
-    .map((source) => ({
-      ...source,
-      matchCount: terms.reduce(
-        (sum, term) => sum + countSearchTermOccurrences(source.text, term),
-        0,
-      ),
-      coverage: terms.filter((term) => countSearchTermOccurrences(source.text, term) > 0).length,
-      exactQuery: normalizedQuery ? normalizeSearchText(source.text).includes(normalizedQuery) : false,
-    }))
+  const matchedSources = evaluated
     .filter((source) => source.matchCount > 0)
     .sort((a, b) =>
       Number(b.exactQuery) - Number(a.exactQuery)
@@ -318,12 +577,46 @@ function buildSearchResult(
   };
 }
 
+function setSearchTimingHeaders(
+  c: Context,
+  timings: {
+    candidate: CandidateCollection;
+    candidateDurationMs: number;
+    fetchDurationMs: number;
+    rankDurationMs: number;
+    renderDurationMs: number;
+    totalDurationMs: number;
+  },
+): void {
+  const { candidate } = timings;
+  c.header("X-Search-Index-Status", candidate.degraded ? "degraded" : "ok");
+  c.header("X-Search-Candidate-Count", String(candidate.ids.size));
+  c.header("X-Search-Literal-Fallback", candidate.literalFallback ? "1" : "0");
+  c.header(
+    "Server-Timing",
+    [
+      `candidate;dur=${timings.candidateDurationMs.toFixed(1)}`,
+      `fts;dur=${candidate.ftsDurationMs.toFixed(1)}`,
+      `metadata;dur=${candidate.metadataDurationMs.toFixed(1)}`,
+      `fallback;dur=${candidate.fallbackDurationMs.toFixed(1)}`,
+      `fetch;dur=${timings.fetchDurationMs.toFixed(1)}`,
+      `rank;dur=${timings.rankDurationMs.toFixed(1)}`,
+      `render;dur=${timings.renderDurationMs.toFixed(1)}`,
+      `total;dur=${timings.totalDurationMs.toFixed(1)}`,
+    ].join(", "),
+  );
+}
+
 app.get("/health", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "demo";
   const integrity = checkFtsIntegrity(db);
+  const diagnostics = inspectSearchContentText(db);
   return c.json({
     ...integrity,
+    ...diagnostics,
+    ftsRowCount: getFtsRowCount(db),
+    lastRebuiltAt: getSearchIndexRebuiltAt(db),
     canRebuild: getUserRole(db, userId) === "admin",
     checkedAt: new Date().toISOString(),
   });
@@ -337,16 +630,26 @@ app.post("/rebuild", (c) => {
   }
 
   try {
-    const rebuild = db.transaction(() => {
+    const rebuiltAt = new Date().toISOString();
+    const repair = db.transaction(() => {
+      const result = repairSearchContentText(db);
       db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
-    });
-    rebuild();
+      rebuildNormalizedSearchFts(db);
+      markSearchIndexRebuilt(db, rebuiltAt);
+      return result;
+    })();
     const integrity = checkFtsIntegrity(db);
-    console.info(`[search] notes_fts rebuilt by user ${userId}; healthy=${integrity.healthy}`);
+    const diagnostics = inspectSearchContentText(db);
+    console.info(
+      `[search] index rebuilt by user ${userId}; repaired=${repair.repairedCount}; healthy=${integrity.healthy}`,
+    );
     return c.json({
-      success: integrity.healthy,
+      success: integrity.healthy && diagnostics.staleContentTextCount === 0,
       ...integrity,
-      rebuiltAt: new Date().toISOString(),
+      ...diagnostics,
+      repairedCount: repair.repairedCount,
+      ftsRowCount: getFtsRowCount(db),
+      rebuiltAt,
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -356,6 +659,7 @@ app.post("/rebuild", (c) => {
 });
 
 app.get("/", (c) => {
+  const totalStarted = performance.now();
   const db = getDb();
   ensureSearchSqlFunctions(db);
 
@@ -371,95 +675,49 @@ app.get("/", (c) => {
   if (terms.length === 0) return c.json([]);
   const normalizedQuery = normalizeSearchText(q);
 
-  const perTermCondition = `(
-    instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
-    OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
-    OR EXISTS (
-      SELECT 1
-      FROM note_tags nt
-      JOIN tags t ON t.id = nt.tagId
-      WHERE nt.noteId = n.id
-        AND instr(nowen_search_normalize(COALESCE(t.name, '')), ?) > 0
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM attachments a
-      LEFT JOIN attachment_chunks ac ON ac.attachmentId = a.id
-      WHERE a.noteId = n.id
-        AND (
-          instr(nowen_search_normalize(COALESCE(a.filename, '')), ?) > 0
-          OR instr(nowen_search_normalize(COALESCE(ac.chunkText, '')), ?) > 0
-        )
-    )
-  )`;
-  const termSql = terms.map(() => perTermCondition).join(" AND ");
-  const termParams = terms.flatMap((term) => [term, term, term, term, term]);
+  const candidateStarted = performance.now();
+  const candidate = collectCandidates(db, terms, scope);
+  const candidateDurationMs = performance.now() - candidateStarted;
 
-  const rows = db.prepare(`
-    SELECT
-      n.id,
-      n.userId,
-      n.notebookId,
-      n.workspaceId,
-      n.title,
-      COALESCE(n.contentText, '') AS contentText,
-      n.updatedAt,
-      CASE WHEN EXISTS(
-        SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
-      ) THEN 1 ELSE 0 END AS isFavorite,
-      n.isPinned,
-      n.contentFormat,
-      nb.name AS notebookName,
-      COALESCE((
-        SELECT group_concat(t.name, char(10))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tagId
-        WHERE nt.noteId = n.id
-      ), '') AS tagText,
-      COALESCE((
-        SELECT group_concat(a.filename, char(10))
-        FROM attachments a
-        WHERE a.noteId = n.id
-      ), '') AS attachmentNames,
-      COALESCE((
-        SELECT group_concat(ac.chunkText, char(10))
-        FROM attachments a
-        JOIN attachment_chunks ac ON ac.attachmentId = a.id
-        WHERE a.noteId = n.id
-      ), '') AS attachmentText
-    FROM notes n
-    JOIN notebooks nb ON nb.id = n.notebookId
-    WHERE ${scope.sql}
-      AND n.isTrashed = 0
-      AND nb.isDeleted = 0
-      AND (${termSql})
-    ORDER BY
-      CASE
-        WHEN instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0 THEN 0
-        WHEN instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0 THEN 1
-        ELSE 2
-      END,
-      n.updatedAt DESC
-    LIMIT 300
-  `).all(
-    userId,
-    ...scope.params,
-    ...termParams,
-    normalizedQuery,
-    normalizedQuery,
-  ) as SearchRow[];
+  if (candidate.ids.size === 0) {
+    setSearchTimingHeaders(c, {
+      candidate,
+      candidateDurationMs,
+      fetchDurationMs: 0,
+      rankDurationMs: 0,
+      renderDurationMs: 0,
+      totalDurationMs: performance.now() - totalStarted,
+    });
+    return c.json([]);
+  }
 
+  const fetchStarted = performance.now();
+  const rows = fetchCandidateRows(db, candidate.ids, userId, scope);
+  const fetchDurationMs = performance.now() - fetchStarted;
+
+  const rankStarted = performance.now();
   const fts = fetchFtsScores(db, buildFtsSearchTerm(q), scope);
-  c.header("X-Search-Index-Status", fts.degraded ? "degraded" : "ok");
+  candidate.degraded ||= fts.degraded;
+  const rankDurationMs = performance.now() - rankStarted;
 
-  return c.json(
-    rows
-      .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
-      .filter((row): row is SearchResultWithScore => Boolean(row))
-      .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 100)
-      .map(({ score: _score, ...row }) => row),
-  );
+  const renderStarted = performance.now();
+  const results = rows
+    .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
+    .filter((row): row is SearchResultWithScore => Boolean(row))
+    .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 100)
+    .map(({ score: _score, ...row }) => row);
+  const renderDurationMs = performance.now() - renderStarted;
+
+  setSearchTimingHeaders(c, {
+    candidate,
+    candidateDurationMs,
+    fetchDurationMs,
+    rankDurationMs,
+    renderDurationMs,
+    totalDurationMs: performance.now() - totalStarted,
+  });
+  return c.json(results);
 });
 
 export default app;

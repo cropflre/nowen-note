@@ -1,0 +1,71 @@
+name: Block Patch CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/index.hardened.ts"
+      - "backend/src/lib/tiptapBlockPatch.ts"
+      - "backend/src/runtime/block-patch.ts"
+      - "backend/tests/tiptap-block-patch.test.ts"
+      - "backend/tests/block-patch-route.test.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
+      - "docs/block-patch-api.md"
+      - ".github/workflows/block-patch-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/index.hardened.ts"
+      - "backend/src/lib/tiptapBlockPatch.ts"
+      - "backend/src/runtime/block-patch.ts"
+      - "backend/tests/tiptap-block-patch.test.ts"
+      - "backend/tests/block-patch-route.test.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
+      - "docs/block-patch-api.md"
+      - ".github/workflows/block-patch-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Block patch engine and route tests
+        run: >-
+          node --import tsx --test
+          tests/tiptap-block-patch.test.ts
+          tests/block-patch-route.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Block patch client test
+        run: npm run test:run -- src/lib/__tests__/blockPatchApi.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b

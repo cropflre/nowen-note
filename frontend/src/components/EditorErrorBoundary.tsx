@@ -6,6 +6,7 @@
  *   - 历史导入路径写入了 schema 不合法的 Tiptap JSON，setContent 不立刻报错，
  *     但任何后续 transaction 走到 `Node.contentMatchAt` 都会抛
  *     "Called contentMatchAt on a node with invalid content"；
+ *   - 旧 Android WebView 缺少依赖使用的运行时 API；
  *   - 此前没有 boundary，错误冒到 React root，整个页面变白屏。
  *
  * 行为：
@@ -25,6 +26,31 @@ interface Props {
 
 interface State {
   error: Error | null;
+}
+
+export interface EditorErrorPresentation {
+  description: string;
+  hint: ReactNode;
+}
+
+const RUNTIME_COMPATIBILITY_ERROR_RE = /(?:\.findLast(?:Index)?\s+is not a function|\.(?:toSorted|toReversed)\s+is not a function)/i;
+
+export function getEditorErrorPresentation(error: Error): EditorErrorPresentation {
+  if (RUNTIME_COMPATIBILITY_ERROR_RE.test(error.message)) {
+    return {
+      description: "当前 Android WebView 版本过旧，编辑器缺少必要的运行时能力。请升级 APP；如已是最新版，可临时更新 Android System WebView 或 Chrome。",
+      hint: "这是运行环境兼容问题，不代表笔记正文损坏，应用不会自动修改或修复这篇笔记。",
+    };
+  }
+
+  return {
+    description: "这篇笔记的内容结构异常，无法正常渲染。",
+    hint: (
+      <>
+        提示：可在浏览器控制台输入 <code className="font-mono">window.__lastDirtyDoc</code> 查看原始脏 JSON。
+      </>
+    ),
+  };
 }
 
 export class EditorErrorBoundary extends Component<Props, State> {
@@ -63,6 +89,8 @@ export class EditorErrorBoundary extends Component<Props, State> {
 
     if (this.props.fallback) return this.props.fallback(error, this.retry);
 
+    const presentation = getEditorErrorPresentation(error);
+
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
         <div className="max-w-md">
@@ -73,7 +101,7 @@ export class EditorErrorBoundary extends Component<Props, State> {
             编辑器加载失败
           </h3>
           <p className="text-sm text-tx-secondary mb-4 break-words">
-            这篇笔记的内容结构异常，无法正常渲染。
+            {presentation.description}
             <br />
             <span className="text-xs text-tx-tertiary font-mono mt-1 block">
               {error.message}
@@ -88,7 +116,7 @@ export class EditorErrorBoundary extends Component<Props, State> {
             </button>
           </div>
           <p className="text-xs text-tx-tertiary mt-3">
-            提示：可在浏览器控制台输入 <code className="font-mono">window.__lastDirtyDoc</code> 查看原始脏 JSON。
+            {presentation.hint}
           </p>
         </div>
       </div>

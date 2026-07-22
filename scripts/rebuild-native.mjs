@@ -44,6 +44,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 
+const NODE_MODULE_VERSION_BY_ELECTRON_MAJOR = {
+  28: 119,
+  29: 121,
+  30: 123,
+  31: 125,
+  32: 128,
+  33: 130,
+  34: 133,
+  35: 136,
+};
+
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -144,6 +155,15 @@ function detectNodeFilePlatform(nodeFile) {
   }
 }
 
+function detectNodeAbiVersions(nodeFile) {
+  try {
+    const contents = fs.readFileSync(nodeFile).toString("latin1");
+    return [...new Set([...contents.matchAll(/node_register_module_v(\d+)/g)].map((match) => Number(match[1])))];
+  } catch {
+    return [];
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const targetPlatform =
@@ -173,6 +193,7 @@ async function main() {
     process.exit(1);
   }
   const electronVersion = electronDep.replace(/^[^\d]*/, "");
+  const expectedNodeAbi = NODE_MODULE_VERSION_BY_ELECTRON_MAJOR[Number(electronVersion.split(".")[0])] || null;
 
   console.log(`[rebuild-native] host:   ${hostPlatform}-${hostArch}`);
   console.log(`[rebuild-native] target: ${targetPlatform}-${targetArch}`);
@@ -205,6 +226,7 @@ async function main() {
   const existingDetected = fs.existsSync(nodFile)
     ? detectNodeFilePlatform(nodFile)
     : { platform: "unknown", arch: "unknown" };
+  const existingNodeAbi = fs.existsSync(nodFile) ? detectNodeAbiVersions(nodFile) : [];
   const expectedDetectedPlatform =
     targetPlatform === "win32"
       ? "win32"
@@ -215,6 +237,8 @@ async function main() {
     existingStamp?.electronVersion === electronVersion &&
     existingStamp?.platform === targetPlatform &&
     existingStamp?.arch === targetArch &&
+    expectedNodeAbi !== null &&
+    existingNodeAbi.includes(expectedNodeAbi) &&
     existingDetected.platform === expectedDetectedPlatform &&
     (existingDetected.arch === "universal" || existingDetected.arch === "unknown" || existingDetected.arch === targetArch);
 
@@ -339,6 +363,15 @@ async function main() {
   }
   const stat = fs.statSync(nodFile);
   const detected = detectNodeFilePlatform(nodFile);
+  const detectedNodeAbi = detectNodeAbiVersions(nodFile);
+  if (expectedNodeAbi !== null && !detectedNodeAbi.includes(expectedNodeAbi)) {
+    console.error(
+      `[rebuild-native] ✗ 产物 ABI 不匹配！\n` +
+        `   期望: NODE_MODULE_VERSION ${expectedNodeAbi}（Electron ${electronVersion}）\n` +
+        `   实际: [${detectedNodeAbi.join(", ") || "未找到"}]`
+    );
+    process.exit(1);
+  }
   if (detected.platform !== expectedDetectedPlatform) {
     console.error(
       `[rebuild-native] ✗ 产物平台不匹配！\n` +

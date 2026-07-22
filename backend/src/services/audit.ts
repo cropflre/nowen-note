@@ -6,6 +6,7 @@
  * 日志类别：
  *  - auth    — 登录/登出/密码修改
  *  - note    — 笔记 CRUD
+ *  - note_transfer — 个人空间与团队空间之间的复制/移动
  *  - share   — 单篇分享创建/访问
  *  - notebook_publication — 笔记本知识站发布/撤销
  *  - ai      — AI 调用
@@ -18,7 +19,7 @@ import { auditRepository } from "../repositories/auditRepository";
 
 // ===== 类型 =====
 
-export type AuditCategory = "auth" | "note" | "notebook" | "notebook_publication" | "tag" | "task" | "share" | "ai" | "plugin" | "system";
+export type AuditCategory = "auth" | "note" | "note_transfer" | "notebook" | "notebook_publication" | "tag" | "task" | "share" | "ai" | "plugin" | "system";
 export type AuditLevel = "info" | "warn" | "error";
 
 export interface AuditEntry {

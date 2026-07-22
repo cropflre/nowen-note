@@ -152,6 +152,7 @@ function PublicNotebookReader({ token }: { token: string }) {
     try { return localStorage.getItem("nowen-public-nickname") || ""; } catch { return ""; }
   });
   const [commentText, setCommentText] = useState("");
+  const [commentWebsite, setCommentWebsite] = useState("");
   const [commenting, setCommenting] = useState(false);
   const [joining, setJoining] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -295,7 +296,7 @@ function PublicNotebookReader({ token }: { token: string }) {
       const created = await notebookPublicationApi.addComment(
         token,
         activeNote.id,
-        { nickname: nickname.trim(), content: commentText.trim() },
+        { nickname: nickname.trim(), content: commentText.trim(), _hp: commentWebsite },
         accessToken || undefined,
       );
       setComments((current) => [...current, created]);
@@ -439,7 +440,13 @@ function PublicNotebookReader({ token }: { token: string }) {
                   {activeNote.contentFormat === "md" ? (
                     <MarkdownPreview markdown={activeNote.content} compact className="p-0" />
                   ) : fakeNote ? (
-                    <TiptapEditor note={fakeNote} editable={false} onUpdate={() => undefined} isGuest />
+                    <TiptapEditor
+                      note={fakeNote}
+                      editable={false}
+                      onUpdate={() => undefined}
+                      isGuest
+                      presentationMode
+                    />
                   ) : null}
                 </div>
 
@@ -456,7 +463,17 @@ function PublicNotebookReader({ token }: { token: string }) {
                     </div>
                     <div className="mt-4 grid gap-2 sm:grid-cols-[160px_1fr_auto]">
                       <Input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="你的昵称" maxLength={32} />
-                      <Input value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="写下评论…" maxLength={4000} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitComment(); } }} />
+                      <input
+                        type="text"
+                        value={commentWebsite}
+                        onChange={(event) => setCommentWebsite(event.target.value)}
+                        tabIndex={-1}
+                        autoComplete="off"
+                        aria-hidden="true"
+                        className="absolute -left-[10000px] h-px w-px opacity-0"
+                        name="website"
+                      />
+                      <Input value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="写下评论…" maxLength={1000} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitComment(); } }} />
                       <Button onClick={submitComment} disabled={commenting || !nickname.trim() || !commentText.trim()}>{commenting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}</Button>
                     </div>
                   </section>

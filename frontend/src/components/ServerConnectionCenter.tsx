@@ -42,11 +42,20 @@ import {
   MigrationProgress,
   MigrationRunResult,
   MigrationStrategy,
+  type AuthenticatedServerProfile,
   rollbackInstanceMigration,
   runInstanceMigration,
 } from "@/lib/serverMigrationV2";
 import { isDesktop, switchDesktopToFull } from "@/lib/desktopBridge";
-import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
+import {
+  canPersistProfileSecrets,
+  loadProfileCredential,
+  migrateLegacyServerProfileCredentials,
+  removeProfileCredential,
+  saveProfileCredential,
+  stagePendingProfileReauthentication,
+} from "@/lib/profileCredentialVault";
+import { getQueueLength } from "@/lib/offlineQueue";
 
 type Tab = "profiles" | "migration" | "guide";
 type FormMode = "create" | "edit";
@@ -102,6 +111,9 @@ export default function ServerConnectionCenter() {
   const [formKind, setFormKind] = useState<ServerProfileKind>("nas");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
+  const [formRememberCredential, setFormRememberCredential] = useState(false);
+  const [formAutoLogin, setFormAutoLogin] = useState(false);
+  const [credentialStorageAvailable, setCredentialStorageAvailable] = useState(false);
   const [formError, setFormError] = useState("");
   const [formBusy, setFormBusy] = useState(false);
   const [checkingId, setCheckingId] = useState("");
@@ -126,6 +138,17 @@ export default function ServerConnectionCenter() {
   };
 
   useEffect(() => subscribeServerProfiles(refreshProfiles), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void canPersistProfileSecrets().then((available) => {
+      if (!cancelled) setCredentialStorageAvailable(available);
+    });
+    void migrateLegacyServerProfileCredentials().then(() => {
+      if (!cancelled) refreshProfiles();
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const openCenter = () => {
@@ -158,8 +181,6 @@ export default function ServerConnectionCenter() {
   const previewRows: Array<{ total: number; alreadyImported: number; changed: number; newItems: number }> =
     analysis ? Object.values(analysis.targetPreview.summary) : [];
 
-  if (!desktop) return null;
-
   const openCreateForm = () => {
     setFormMode("create");
     setEditingId("");
@@ -168,6 +189,8 @@ export default function ServerConnectionCenter() {
     setFormKind("nas");
     setFormUsername("");
     setFormPassword("");
+    setFormRememberCredential(credentialStorageAvailable);
+    setFormAutoLogin(false);
     setFormError("");
     setFormOpen(true);
   };
@@ -180,8 +203,18 @@ export default function ServerConnectionCenter() {
     setFormKind(profile.kind);
     setFormUsername(profile.username);
     setFormPassword("");
+    setFormRememberCredential(profile.rememberCredential && credentialStorageAvailable);
+    setFormAutoLogin(profile.autoLogin && credentialStorageAvailable);
     setFormError("");
     setFormOpen(true);
+  };
+
+  const getAuthenticatedProfile = async (profile: ServerProfile): Promise<AuthenticatedServerProfile> => {
+    const credential = await loadProfileCredential(profile.id);
+    const activeToken = profile.id === active?.id ? (localStorage.getItem("nowen-token") || "") : "";
+    const token = credential?.token || activeToken;
+    if (!token) throw new Error(`「${profile.name}」没有可用安全登录凭据，请先重新登录`);
+    return { ...profile, token };
   };
 
   const saveProfile = async () => {
@@ -193,7 +226,8 @@ export default function ServerConnectionCenter() {
     const existing = profiles.find((profile) => profile.id === editingId);
     setFormBusy(true);
     try {
-      let token = existing?.token || "";
+      const existingCredential = existing ? await loadProfileCredential(existing.id) : null;
+      let token = existingCredential?.token || (existing?.id === active?.id ? localStorage.getItem("nowen-token") || "" : "");
       let username = formUsername.trim();
       let displayName = existing?.displayName || username;
       if (formPassword) {
@@ -202,8 +236,9 @@ export default function ServerConnectionCenter() {
         username = login.username;
         displayName = login.displayName;
       } else if (!token) {
-        throw new Error("新配置必须输入密码完成一次登录；密码只用于本次登录，不会保存");
+        throw new Error("请输入密码完成登录；该档案没有可复用的安全凭据");
       }
+      const rememberCredential = formRememberCredential && credentialStorageAvailable;
       const profile = upsertServerProfile({
         ...(existing || {}),
         id: existing?.id,
@@ -212,10 +247,24 @@ export default function ServerConnectionCenter() {
         kind: formKind,
         username,
         displayName,
-        token,
+        rememberCredential,
+        autoLogin: rememberCredential && formAutoLogin,
         status: "checking",
       });
-      const inspected = await inspectServerProfile(profile);
+      if (rememberCredential) {
+        const saved = await saveProfileCredential({
+          profileId: profile.id,
+          serverUrl: profile.serverUrl,
+          username,
+          token,
+          password: formPassword || existingCredential?.password || "",
+          autoLogin: formAutoLogin,
+        });
+        if (!saved.ok || !saved.persisted) throw new Error(saved.error || "系统安全存储不可用，未保存任何密码或令牌");
+      } else {
+        await removeProfileCredential(profile.id);
+      }
+      const inspected = await inspectServerProfile(profile, token);
       updateServerProfileStatus(profile.id, {
         status: inspected.online ? (inspected.authenticated ? "online" : "auth-expired") : "offline",
         serverInstanceId: inspected.serverInstanceId,
@@ -235,7 +284,9 @@ export default function ServerConnectionCenter() {
     setCheckingId(profile.id);
     updateServerProfileStatus(profile.id, { status: "checking" });
     refreshProfiles();
-    const inspected = await inspectServerProfile(profile);
+    const credential = await loadProfileCredential(profile.id);
+    const token = credential?.token || (profile.id === active?.id ? localStorage.getItem("nowen-token") || "" : "");
+    const inspected = await inspectServerProfile(profile, token);
     updateServerProfileStatus(profile.id, {
       status: inspected.online ? (inspected.authenticated ? "online" : "auth-expired") : "offline",
       serverInstanceId: inspected.serverInstanceId,
@@ -250,48 +301,82 @@ export default function ServerConnectionCenter() {
     if (profile.id === active?.id) return;
     const queueCount = getQueueLength();
     const confirmed = window.confirm(
-      `切换到「${profile.name}」？\n\n` +
-      `服务器：${profile.serverUrl}\n账号：${profile.displayName || profile.username}\n` +
-      (queueCount > 0
-        ? `\n当前服务还有 ${queueCount} 条未同步操作。切换后本地队列会被清空，请先确认数据已经同步。\n`
-        : "\n") +
-      `这只是切换连接，不会复制或迁移任何数据。`,
+      `切换到「${profile.name}」？
+
+` +
+      `服务器：${profile.serverUrl}
+账号：${profile.displayName || profile.username}
+` +
+      (queueCount > 0 ? `
+当前账号还有 ${queueCount} 条未同步笔记操作；它们会保留在当前账号的独立队列中，不会被删除。
+` : "\n") +
+      `切换会保存当前编辑器内容并重新加载目标账号数据，不会复制或迁移服务器数据。`,
     );
     if (!confirmed) return;
 
-    const inspected = await inspectServerProfile(profile);
+    try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+
+    const credential = await loadProfileCredential(profile.id);
+    let token = credential?.token || "";
+    let inspected = await inspectServerProfile(profile, token);
+    if (inspected.online && !inspected.authenticated && credential?.password && profile.autoLogin) {
+      try {
+        const login = await loginServerProfile(profile, profile.username, credential.password);
+        token = login.token;
+        const saved = await saveProfileCredential({
+          profileId: profile.id,
+          serverUrl: profile.serverUrl,
+          username: login.username,
+          token,
+          password: credential.password,
+          autoLogin: true,
+        });
+        if (!saved.persisted) throw new Error("无法更新安全凭据");
+        inspected = await inspectServerProfile(profile, token);
+      } catch {
+        inspected = { ...inspected, authenticated: false };
+      }
+    }
+
     if (!inspected.online) {
       window.alert(`服务器不可连接：${inspected.error || "未知错误"}`);
-      return;
-    }
-    if (!inspected.authenticated) {
-      window.alert(`该配置的登录状态已失效：${inspected.error || "请编辑配置并重新登录"}`);
-      updateServerProfileStatus(profile.id, { status: "auth-expired" });
+      updateServerProfileStatus(profile.id, { status: "offline" });
       refreshProfiles();
       return;
     }
+    if (!inspected.authenticated || !token) {
+      updateServerProfileStatus(profile.id, { status: "auth-expired" });
+      stagePendingProfileReauthentication(profile);
+      clearCurrentWorkspace();
+      setServerUrl(profile.serverUrl);
+      localStorage.removeItem("nowen-token");
+      localStorage.setItem("nowen-server-url-last", profile.serverUrl);
+      window.location.reload();
+      return;
+    }
 
-    clearQueue();
-    clearLocalIdMap();
     clearCurrentWorkspace();
-    if (profile.kind === "local" && isLoopbackProfileUrl(profile.serverUrl)) {
+    if (desktop && profile.kind === "local" && isLoopbackProfileUrl(profile.serverUrl)) {
       markServerProfileActive(profile.id);
       const result = await switchDesktopToFull().catch(() => ({ ok: false }));
       if (result?.ok !== false) return;
     }
     setServerUrl(profile.serverUrl);
-    localStorage.setItem("nowen-token", profile.token);
+    localStorage.setItem("nowen-token", token);
     localStorage.removeItem("nowen-prefer-cloud");
     markServerProfileActive(profile.id);
     window.location.reload();
   };
 
-  const deleteProfile = (profile: ServerProfile) => {
+  const deleteProfile = async (profile: ServerProfile) => {
     if (profile.id === active?.id) {
       window.alert("当前正在使用的服务端配置不能删除，请先切换到其他配置。");
       return;
     }
-    if (!window.confirm(`删除服务端配置「${profile.name}」？\n只删除本机保存的地址和登录令牌，不会删除服务器上的数据。`)) return;
+    if (!window.confirm(`删除服务端配置「${profile.name}」？\n只删除本机档案和对应安全凭据，不会删除服务器上的数据。`)) return;
+    await removeProfileCredential(profile.id);
+    await removeProfileCredential(profile.id);
     removeServerProfile(profile.id);
     refreshProfiles();
     if (sourceId === profile.id) setSourceId(active?.id || "");
@@ -312,7 +397,11 @@ export default function ServerConnectionCenter() {
     }
     setAnalysisBusy(true);
     try {
-      const result = await analyzeInstanceMigration(source, target);
+      const [sourceAuth, targetAuth] = await Promise.all([
+        getAuthenticatedProfile(source),
+        getAuthenticatedProfile(target),
+      ]);
+      const result = await analyzeInstanceMigration(sourceAuth, targetAuth);
       setAnalysis(result);
     } catch (error) {
       setMigrationError(error instanceof Error ? error.message : String(error));
@@ -354,7 +443,7 @@ export default function ServerConnectionCenter() {
     if (!window.confirm("撤销这次未完成迁移在目标端创建的可追踪数据？\n源端数据和源端安全备份不会受影响。")) return;
     setRollbackBusy(true);
     try {
-      await rollbackInstanceMigration(target, checkpoint.migrationId);
+      await rollbackInstanceMigration(await getAuthenticatedProfile(target), checkpoint.migrationId);
       clearMigrationCheckpoint();
       setMigrationError("");
       setMigrationProgress(null);
@@ -382,7 +471,7 @@ export default function ServerConnectionCenter() {
               <h2 className="font-semibold">服务端与迁移中心</h2>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              管理多个 nowen-note 实例，并把本地数据一次性安全迁移到 NAS。
+              管理多个服务器与账号档案，安全切换登录，并可把本地数据一次性迁移到 NAS。
             </p>
           </div>
           <button
@@ -396,8 +485,8 @@ export default function ServerConnectionCenter() {
           </button>
         </header>
 
-        <div className="grid grid-cols-[180px_minmax(0,1fr)] min-h-0 flex-1">
-          <aside className="border-r border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/70 dark:bg-zinc-900/35">
+        <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] min-h-0 flex-1">
+          <aside className="border-b md:border-b-0 md:border-r border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/70 dark:bg-zinc-900/35 flex md:block gap-1 overflow-x-auto">
             {([
               ["profiles", Server, "服务端配置"],
               ["migration", DatabaseBackup, "迁移到 NAS"],
@@ -426,7 +515,7 @@ export default function ServerConnectionCenter() {
                   <div>
                     <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">我的服务端</h3>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                      每个配置保存名称、地址、账号和登录令牌；不会保存密码。
+                      档案只保存非敏感元数据；密码和令牌仅存入系统安全存储，Web 端不会保存秘密。
                     </p>
                   </div>
                   <button
@@ -476,6 +565,7 @@ export default function ServerConnectionCenter() {
                             <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 truncate">{profile.serverUrl}</div>
                             <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
                               账号：{profile.displayName || profile.username || "未登录"} · 最近使用：{formatTime(profile.lastUsedAt)}
+                              {profile.rememberCredential && <span className="ml-2 text-emerald-600 dark:text-emerald-400">系统安全凭据</span>}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
@@ -812,10 +902,37 @@ export default function ServerConnectionCenter() {
               </label>
               <label className="block">
                 <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                  密码{formMode === "edit" ? "（留空则继续使用已保存登录令牌）" : ""}
+                  密码{formMode === "edit" ? "（留空则继续使用系统安全凭据）" : ""}
                 </span>
                 <input value={formPassword} onChange={(event) => setFormPassword(event.target.value)} type="password" autoComplete="new-password" className="mt-1 w-full px-3 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm" />
-                <p className="text-[11px] text-zinc-500 mt-1">密码只用于本次登录换取令牌，不写入配置。</p>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  {credentialStorageAvailable
+                    ? "密码和令牌不会写入档案 JSON；勾选后仅加密保存到系统安全存储。"
+                    : "当前平台无法安全保存密码或令牌，只会记录服务器地址和用户名。"}
+                </p>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={formRememberCredential}
+                  disabled={!credentialStorageAvailable}
+                  onChange={(event) => {
+                    setFormRememberCredential(event.target.checked);
+                    if (!event.target.checked) setFormAutoLogin(false);
+                  }}
+                  className="mt-0.5"
+                />
+                <span>使用系统安全存储记住此账号凭据</span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={formAutoLogin}
+                  disabled={!credentialStorageAvailable || !formRememberCredential}
+                  onChange={(event) => setFormAutoLogin(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>令牌失效时尝试使用加密密码自动重新登录（2FA 仍会进入验证码流程）</span>
               </label>
             </div>
             {formError && <div className="mt-3 text-sm text-rose-600 dark:text-rose-400">{formError}</div>}

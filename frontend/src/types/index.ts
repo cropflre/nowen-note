@@ -84,6 +84,10 @@ export interface NotebookMember {
   userId: string;
   role: NotebookRole;
   status: NotebookMemberStatus;
+  allowDownload?: number | boolean;
+  allowReshare?: number | boolean;
+  source?: "manual" | "invite_link" | "publication";
+  sourceId?: string | null;
   invitedBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +104,8 @@ export interface NotebookShareLink {
   role: Exclude<NotebookRole, "owner">;
   enabled: 0 | 1 | number;
   expiresAt: string | null;
+  maxUses: number | null;
+  useCount: number;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

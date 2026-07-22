@@ -1,0 +1,79 @@
+name: Apply verified PG Yjs fix
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  apply:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/apply-and-verify-pg-yjs-fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STATUS_COMMENT_ID: "5042929483"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - name: Apply no-op version accounting and timer cleanup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('backend/src/services/yjs.ts')
+          source = path.read_text()
+
+          if 'Mark it accounted for even when the Y.Text replacement is a no-op.' not in source:
+              pattern = r'(\n\s*if \(current === markdown\) \{\n)(\s*)return null;'
+              replacement = (
+                  r'\1\2// The caller has already persisted and versioned this canonical content.\n'
+                  r'\2// Mark it accounted for even when the Y.Text replacement is a no-op.\n'
+                  r'\2room.lastVersionBumpAt = Date.now();\n'
+                  r'\2return null;'
+              )
+              source, count = re.subn(pattern, replacement, source, count=1)
+              if count != 1:
+                  raise SystemExit('Yjs no-op branch anchor not found')
+
+          if 'room.idleTimer.unref?.();' not in source:
+              pattern = r'(\n\s*room\.idleTimer = setTimeout\(\(\) => \{.*?\n\s*\}, ROOM_IDLE_TIMEOUT_MS\);)'
+              source, count = re.subn(
+                  pattern,
+                  lambda match: match.group(1) + '\n      room.idleTimer.unref?.();',
+                  source,
+                  count=1,
+                  flags=re.S,
+              )
+              if count != 1:
+                  raise SystemExit('Yjs idle timer anchor not found')
+
+          path.write_text(source)
+          PY
+      - name: Commit and push
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/yjs.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "fix(pg): account for no-op Yjs server replacement"
+            git push origin HEAD:pg-migration-unified
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Publish result
+        run: |
+          {
+            echo '## ✅ PG Yjs version fix applied'
+            echo
+            echo "Commit: \`${{ steps.commit.outputs.sha }}\`"
+            echo
+            echo 'The no-op server replacement now records version accounting, and the idle timer no longer keeps test processes alive.'
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"

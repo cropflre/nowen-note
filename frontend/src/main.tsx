@@ -1,6 +1,9 @@
+import "./lib/runtimeCompatibility";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./lib/androidCompat";
+import "./lib/noteTransferRefreshBridge";
+import "./lib/workspaceRefreshBridge";
 import "./i18n";
 // Must run before App and its import/export/editor schemas are evaluated.
 import "./lib/imageNodeTransformBootstrap";
@@ -17,15 +20,22 @@ import ImageExperienceBridge from "./components/ImageExperienceBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
 import DesktopUpdateCenter from "./components/DesktopUpdateCenter";
+import DockerUpdateCenter from "./components/DockerUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
 import TaskDataTransferBridgeV2 from "./components/TaskDataTransferBridgeV2";
 import SystemFullDataTransferBridge from "./components/SystemFullDataTransferBridge";
 import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
 import ServerConnectionCenter from "./components/ServerConnectionCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
+import DocxImportCenter from "./components/DocxImportCenter";
+import NoteTransferCenter from "./components/NoteTransferCenter";
+import RoundTripImportReviewCenter from "./components/RoundTripImportReviewCenter";
 import "./index.css";
+import "./editor-list-markers.css";
 import "./code-block-wrap.css";
 import "./overlay-layers.css";
+import "./space-actions.css";
+import "./settings-switches.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -36,8 +46,13 @@ import { installShareLightboxRotationGuard } from "./lib/shareLightboxRotationGu
 import { installMobileImageFocusGuard } from "./lib/mobileImageFocusGuard";
 import { installNoteSyncSafety } from "./lib/noteSyncSafety";
 import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
+import { installNoteUpdateSerialQueue } from "./lib/noteUpdateSerialQueue";
 import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportFallback";
 import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
+import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
+import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
+import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
+import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
 
 function removeBootSplash() {
   try {
@@ -58,6 +73,13 @@ function BootSplashRemover() {
   return null;
 }
 
+// Tiptap's editable=false blocks DOM input but not NodeView methods such as
+// updateAttributes/deleteNode. Install the process-wide guard before rendering
+// any editor so locked notebooks cannot be mutated by NodeView toolbars.
+installNodeViewMutationGuard();
+// MediaExperienceBridge listens on document capture. Install the scope guard on window capture
+// first so Diary/Task/avatar media controls keep their own upload flows on mobile.
+installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
 // Collapse the duplicate Android cold-start collection reads into one compact native response.
 // The bridge is Android-only and transparently falls back to the original APIs when unavailable.
@@ -76,13 +98,22 @@ installTwoFactorLoginChallengeBridge();
 // metadata-only writes before it can replace activeNote in React state.
 installNoteSyncSafety();
 installNoteUpdateResponseGuard();
+// Keep the safety/response wrappers underneath one per-note writer. Concurrent debounce calls
+// now coalesce to the latest snapshot and chain from the preceding server ACK version.
+installNoteUpdateSerialQueue();
 installShareLightboxRotationGuard();
 installMobileImageFocusGuard();
 // Keep one stale task-image reference from aborting an otherwise valid full task backup.
 installTaskAttachmentExportFallback();
+// Normalize task repeat mutations at the API boundary and surface failures before optimistic
+// task state is reloaded from the server.
+installTaskUpdateSafetyBridge();
 // Route Markdown/ZIP/PDF/DOCX Blob downloads through the reliable HTTP transport. New clients
 // connected to an older NAS automatically fall back to the original local Blob download.
 installReliableExportDownloadBridge();
+// Pause Nowen package imports after the authoritative dry-run and show the full package/conflict
+// report before the legacy import panel can continue to the formal write request.
+installRoundTripImportReviewBridge();
 
 initCodeBlockTheme();
 
@@ -131,13 +162,17 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <MediaExperienceBridge />
         <EditorImageTransformBridge />
         <DesktopUpdateCenter />
+        <DockerUpdateCenter />
         <TwoFactorLoginChallengeCenter />
         <TaskDataTransferBridgeV2 />
         <SystemFullDataTransferBridge />
         <AndroidShareImportCenter />
         <ServerConnectionCenter />
         <NoteImageExportCenter />
+        <DocxImportCenter />
         <PublicSpaceLauncher />
+        <NoteTransferCenter />
+        <RoundTripImportReviewCenter />
         <App />
       </>
     )}

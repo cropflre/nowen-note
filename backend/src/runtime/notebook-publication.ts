@@ -14,6 +14,7 @@ import {
 } from "../lib/attachment-signed-url.js";
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite.js";
 import { logAudit } from "../services/audit.js";
+import { allowAnonymousAction, checkCredentialAttempt, getClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit.js";
 
 export type NotebookPublicationAccessMode = "public" | "link" | "code" | "password";
 export type NotebookPublicationPermission = "read" | "comment" | "write";
@@ -26,6 +27,7 @@ type PublicationRow = {
   accessMode: NotebookPublicationAccessMode;
   accessSecret: string | null;
   permission: NotebookPublicationPermission;
+  credentialVersion: number;
   allowDownload: number;
   allowComment: number;
   allowEdit: number;
@@ -60,6 +62,7 @@ export function ensureNotebookPublicationTables(): void {
       accessSecret TEXT,
       permission TEXT NOT NULL DEFAULT 'read'
         CHECK(permission IN ('read', 'comment', 'write')),
+      credentialVersion INTEGER NOT NULL DEFAULT 1,
       allowDownload INTEGER NOT NULL DEFAULT 1,
       allowComment INTEGER NOT NULL DEFAULT 0,
       allowEdit INTEGER NOT NULL DEFAULT 0,
@@ -89,6 +92,10 @@ export function ensureNotebookPublicationTables(): void {
     CREATE INDEX IF NOT EXISTS idx_notebook_public_comments_note
       ON notebook_public_comments(publicationId, noteId, createdAt);
   `);
+  const publicationColumns = db.prepare("PRAGMA table_info(notebook_publications)").all() as { name: string }[];
+  if (!publicationColumns.some((column) => column.name === "credentialVersion")) {
+    db.prepare("ALTER TABLE notebook_publications ADD COLUMN credentialVersion INTEGER NOT NULL DEFAULT 1").run();
+  }
 }
 
 function generatePublicationToken(): string {
@@ -130,7 +137,7 @@ function verifyPublicationAccess(c: any, row: PublicationRow): boolean {
   if (!requiresSecret(row)) return true;
   const auth = c.req.header("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return false;
-  return !!verifyShareAccessToken(auth.slice(7), row.id);
+  return !!verifyShareAccessToken(auth.slice(7), row.id, row.credentialVersion);
 }
 
 function noStore(c: any): void {
@@ -164,7 +171,7 @@ function attachmentUrlsForNote(c: any, publication: PublicationRow, noteId: stri
     .prepare("SELECT id FROM attachments WHERE noteId = ? ORDER BY id ASC")
     .all(noteId) as Array<{ id: string }>;
   const origin = (resolvePublicOrigin((name) => c.req.header(name)) || "").replace(/\/+$/, "");
-  const scope = createPublicationAttachmentScope(publication.id, noteId);
+  const scope = createPublicationAttachmentScope(publication.id, noteId, publication.allowDownload !== 0);
   const urls: Record<string, string> = {};
   for (const row of rows) {
     const path = `/api/attachments/${row.id}`;
@@ -278,16 +285,33 @@ sharedRouter.post("/notebook-public/:token/verify", async (c) => {
   const checked = validatePublication(publicationByToken(c.req.param("token")));
   if (!checked.ok) return c.json({ error: checked.error, code: checked.code }, checked.status);
   const p = checked.publication;
+  const ipHash = hashClientIp(getClientIp(c));
+  const rateKey = `publication:${p.id}:${ipHash}`;
+  const rate = checkCredentialAttempt(rateKey);
+  if (!rate.allowed) {
+    c.header("Retry-After", String(rate.retryAfterSeconds));
+    return c.json({ error: "验证尝试过于频繁，请稍后再试", code: "SHARE_CREDENTIAL_RATE_LIMIT" }, 429);
+  }
   if (!requiresSecret(p)) {
-    return c.json({ success: true, accessToken: signShareAccessToken({ shareId: p.id, noteId: p.notebookId }) });
+    recordCredentialSuccess(rateKey);
+    return c.json({ success: true, accessToken: signShareAccessToken({
+      shareId: p.id, noteId: p.notebookId, credentialVersion: p.credentialVersion,
+    }) });
   }
   const body = await c.req.json().catch(() => ({}));
   const secret = String(body.secret || "").trim();
   if (!secret) return c.json({ error: `请输入${p.accessMode === "code" ? "访问码" : "密码"}` }, 400);
   if (!p.accessSecret || !(await bcrypt.compare(secret, p.accessSecret))) {
-    return c.json({ error: `${p.accessMode === "code" ? "访问码" : "密码"}错误` }, 403);
+    recordCredentialFailure(rateKey);
+    logAudit("", "notebook_publication", "credential_failure", { publicationId: p.id, ipHash }, {
+      targetType: "notebook_publication", targetId: p.id, ip: ipHash, level: "warn",
+    });
+    return c.json({ error: "访问凭证错误" }, 403);
   }
-  return c.json({ success: true, accessToken: signShareAccessToken({ shareId: p.id, noteId: p.notebookId }) });
+  recordCredentialSuccess(rateKey);
+  return c.json({ success: true, accessToken: signShareAccessToken({
+    shareId: p.id, noteId: p.notebookId, credentialVersion: p.credentialVersion,
+  }) });
 });
 
 sharedRouter.get("/notebook-public/:token/tree", (c) => {
@@ -364,15 +388,17 @@ sharedRouter.get("/notebook-public/:token/notes/:noteId/comments", (c) => {
   if (!checked.ok) return c.json({ error: checked.error, code: checked.code }, checked.status);
   const p = checked.publication;
   if (!verifyPublicationAccess(c, p)) return c.json({ error: "需要验证访问凭证" }, 401);
+  if (!p.allowComment && p.permission === "read") return c.json({ error: "此发布未开放评论" }, 403);
   const noteId = c.req.param("noteId");
   if (!noteBelongsToPublication(p.id, noteId)) return c.json({ error: "笔记不存在或未发布" }, 404);
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") || 50)));
+  const offset = Math.max(0, Number(c.req.query("offset") || 0));
   const rows = getDb().prepare(`
-    SELECT id, nickname, content, createdAt
-    FROM notebook_public_comments
-    WHERE publicationId = ? AND noteId = ?
-    ORDER BY createdAt ASC
-    LIMIT 500
-  `).all(p.id, noteId);
+    SELECT sc.id, sc.guestName AS nickname, sc.content, sc.isResolved, sc.createdAt
+    FROM share_comments sc
+    WHERE sc.sourceType = 'notebook_publication' AND sc.sourceId = ? AND sc.noteId = ? AND sc.isHidden = 0
+    ORDER BY sc.createdAt ASC LIMIT ? OFFSET ?
+  `).all(p.id, noteId, limit, offset);
   return c.json(rows);
 });
 
@@ -388,20 +414,25 @@ sharedRouter.post("/notebook-public/:token/notes/:noteId/comments", async (c) =>
   const noteId = c.req.param("noteId");
   if (!noteBelongsToPublication(p.id, noteId)) return c.json({ error: "笔记不存在或未发布" }, 404);
   const body = await c.req.json().catch(() => ({}));
+  if (String(body._hp || "").trim()) return c.json({ ok: true, suppressed: true });
   const nickname = String(body.nickname || "").trim();
   const content = String(body.content || "").trim();
   if (!nickname || nickname.length > NICKNAME_MAX_LENGTH) {
     return c.json({ error: `昵称长度需为 1-${NICKNAME_MAX_LENGTH} 个字符` }, 400);
   }
-  if (!content || content.length > COMMENT_MAX_LENGTH) {
-    return c.json({ error: `评论长度需为 1-${COMMENT_MAX_LENGTH} 个字符` }, 400);
+  if (!content || content.length > 1000) return c.json({ error: "评论长度需为 1-1000 个字符" }, 400);
+  const ipHash = hashClientIp(getClientIp(c));
+  if (!allowAnonymousAction("publication-comment", `${p.id}:${noteId}:${ipHash}`, 20, 60_000)) {
+    return c.json({ error: "评论过于频繁，请稍后再试" }, 429);
   }
   const id = uuid();
   getDb().prepare(`
-    INSERT INTO notebook_public_comments (id, publicationId, noteId, nickname, content)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, p.id, noteId, nickname, content);
-  return c.json({ id, nickname, content, createdAt: new Date().toISOString() }, 201);
+    INSERT INTO share_comments (
+      id, noteId, userId, guestName, guestIpHash, content,
+      sourceType, sourceId, isHidden, isResolved
+    ) VALUES (?, ?, NULL, ?, ?, ?, 'notebook_publication', ?, 0, 0)
+  `).run(id, noteId, nickname, ipHash, content, p.id);
+  return c.json({ id, nickname, content, isResolved: 0, createdAt: new Date().toISOString() }, 201);
 });
 
 sharedRouter.post("/notebook-public/:token/join", async (c) => {
@@ -412,7 +443,7 @@ sharedRouter.post("/notebook-public/:token/join", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   if (requiresSecret(p)) {
     const accessToken = String(body.accessToken || "");
-    if (!verifyShareAccessToken(accessToken, p.id)) {
+    if (!verifyShareAccessToken(accessToken, p.id, p.credentialVersion)) {
       return c.json({ error: "访问凭证无效或已过期" }, 401);
     }
   }
@@ -439,6 +470,10 @@ sharedRouter.post("/notebook-public/:token/join", async (c) => {
     userId: login.userId,
     role,
     invitedBy: p.ownerId,
+    allowDownload: !!p.allowDownload,
+    allowReshare: !!p.allowReshare,
+    source: "publication",
+    sourceId: p.id,
   });
   return c.json({ success: true, notebookId: p.notebookId, role });
 });
@@ -473,10 +508,12 @@ notebooksRouter.put("/:id/publication", async (c) => {
     .get(notebookId) as PublicationRow | undefined;
   const secret = typeof body.secret === "string" ? body.secret.trim() : "";
   let accessSecret = existing?.accessSecret || null;
+  let credentialChanged = false;
   if (accessMode === "code" || accessMode === "password") {
-    if (secret) accessSecret = await bcrypt.hash(secret, 10);
+    if (secret) { accessSecret = await bcrypt.hash(secret, 10); credentialChanged = true; }
     if (!accessSecret) return c.json({ error: `请设置${accessMode === "code" ? "访问码" : "密码"}` }, 400);
   } else {
+    if (accessSecret) credentialChanged = true;
     accessSecret = null;
   }
 
@@ -497,6 +534,7 @@ notebooksRouter.put("/:id/publication", async (c) => {
     ON CONFLICT(notebookId) DO UPDATE SET
       ownerId = excluded.ownerId,
       token = excluded.token,
+      credentialVersion = CASE WHEN ? = 1 THEN notebook_publications.credentialVersion + 1 ELSE notebook_publications.credentialVersion END,
       accessMode = excluded.accessMode,
       accessSecret = excluded.accessSecret,
       permission = excluded.permission,
@@ -509,12 +547,20 @@ notebooksRouter.put("/:id/publication", async (c) => {
       updatedAt = datetime('now')
   `).run(
     id, notebookId, access.userId, token, accessMode, accessSecret, permission,
-    allowDownload, allowComment, allowEdit, allowReshare, expiresAt,
+    allowDownload, allowComment, allowEdit, allowReshare, expiresAt, credentialChanged ? 1 : 0,
   );
 
   logAudit(access.userId, "notebook_publication", existing ? "update" : "create", {
     notebookId, accessMode, permission, allowDownload, allowComment, allowEdit, allowReshare,
   }, { targetType: "notebook", targetId: notebookId });
+
+  if (existing) {
+    notebookMembersRepository.restrictBySource("publication", existing.id, {
+      role: permission === "write" && allowEdit ? "editor" : "viewer",
+      allowDownload: !!allowDownload,
+      allowReshare: !!allowReshare,
+    });
+  }
 
   const updated = getDb().prepare("SELECT * FROM notebook_publications WHERE notebookId = ?")
     .get(notebookId) as PublicationRow;
@@ -531,8 +577,67 @@ notebooksRouter.delete("/:id/publication", (c) => {
     SET isActive = 0, updatedAt = datetime('now')
     WHERE notebookId = ? AND isActive = 1
   `).run(notebookId);
-  logAudit(access.userId, "notebook_publication", "revoke", { notebookId }, { targetType: "notebook", targetId: notebookId });
-  return c.json({ success: true, revoked: result.changes > 0 });
+  const publication = getDb().prepare("SELECT id FROM notebook_publications WHERE notebookId = ?").get(notebookId) as { id: string } | undefined;
+  const removedMembers = publication ? notebookMembersRepository.removeBySource("publication", publication.id) : 0;
+  logAudit(access.userId, "notebook_publication", "revoke", { notebookId, removedMembers }, { targetType: "notebook", targetId: notebookId });
+  return c.json({ success: true, revoked: result.changes > 0, removedMembers });
+});
+
+notebooksRouter.get("/:id/publication/comments", (c) => {
+  const notebookId = c.req.param("id");
+  const access = requireManageNotebook(c, notebookId);
+  if (!access.ok) return access.response;
+  const publication = getDb().prepare("SELECT id FROM notebook_publications WHERE notebookId = ?")
+    .get(notebookId) as { id: string } | undefined;
+  if (!publication) return c.json([]);
+  const limit = Math.min(200, Math.max(1, Number(c.req.query("limit") || 100)));
+  const rows = getDb().prepare(`
+    SELECT sc.id, sc.noteId, n.title AS noteTitle,
+           COALESCE(NULLIF(sc.guestName, ''), u.displayName, u.username, '匿名') AS nickname,
+           sc.content, sc.isResolved, sc.isHidden, sc.createdAt
+    FROM share_comments sc
+    JOIN notes n ON n.id = sc.noteId
+    LEFT JOIN users u ON u.id = sc.userId
+    WHERE sc.sourceType = 'notebook_publication' AND sc.sourceId = ?
+    ORDER BY sc.createdAt DESC LIMIT ?
+  `).all(publication.id, limit);
+  return c.json(rows);
+});
+
+notebooksRouter.patch("/:id/publication/comments/:commentId", async (c) => {
+  const notebookId = c.req.param("id");
+  const access = requireManageNotebook(c, notebookId);
+  if (!access.ok) return access.response;
+  const publication = getDb().prepare("SELECT id FROM notebook_publications WHERE notebookId = ?")
+    .get(notebookId) as { id: string } | undefined;
+  if (!publication) return c.json({ error: "发布不存在" }, 404);
+  const commentId = c.req.param("commentId");
+  const comment = getDb().prepare(`
+    SELECT id, isResolved, isHidden FROM share_comments
+    WHERE id = ? AND sourceType = 'notebook_publication' AND sourceId = ?
+  `).get(commentId, publication.id) as { id: string; isResolved: number; isHidden: number } | undefined;
+  if (!comment) return c.json({ error: "评论不存在" }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const resolved = body.isResolved === undefined ? comment.isResolved : body.isResolved ? 1 : 0;
+  const hidden = body.isHidden === undefined ? comment.isHidden : body.isHidden ? 1 : 0;
+  getDb().prepare("UPDATE share_comments SET isResolved = ?, isHidden = ?, updatedAt = datetime('now') WHERE id = ?")
+    .run(resolved, hidden, commentId);
+  return c.json({ success: true, id: commentId, isResolved: resolved, isHidden: hidden });
+});
+
+notebooksRouter.delete("/:id/publication/comments/:commentId", (c) => {
+  const notebookId = c.req.param("id");
+  const access = requireManageNotebook(c, notebookId);
+  if (!access.ok) return access.response;
+  const publication = getDb().prepare("SELECT id FROM notebook_publications WHERE notebookId = ?")
+    .get(notebookId) as { id: string } | undefined;
+  if (!publication) return c.json({ error: "发布不存在" }, 404);
+  const result = getDb().prepare(`
+    DELETE FROM share_comments
+    WHERE id = ? AND sourceType = 'notebook_publication' AND sourceId = ?
+  `).run(c.req.param("commentId"), publication.id);
+  if (!result.changes) return c.json({ error: "评论不存在" }, 404);
+  return c.json({ success: true });
 });
 
 notebooksRouter.get("/:id/permission-overrides", (c) => {

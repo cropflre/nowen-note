@@ -8,7 +8,7 @@ import {
   Lock, Eye, EyeOff, X,
   Mail, Send, Settings as SettingsIcon, ChevronDown, ChevronRight,
   BookOpen, ExternalLink,
-  User as UserIcon, Users, ServerCog, Package, Smartphone,
+  User as UserIcon, Users, ServerCog, Package, Smartphone, FolderOpen, Heart,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
@@ -39,7 +39,16 @@ import MiCloudImport from "@/components/MiCloudImport";
 import OppoCloudImport from "@/components/OppoCloudImport";
 import ICloudImport from "@/components/iCloudImport";
 import YoudaoImport from "@/components/YoudaoImport";
+import ObsidianImport from "@/components/ObsidianImport";
+import WeChatFavoritesImport from "@/components/WeChatFavoritesImport";
 import UrlImport from "@/components/UrlImport";
+import {
+  IMPORT_METHOD_GROUPS,
+  persistImportMethod,
+  readImportMethod,
+  shouldResetSharedFileImport,
+  type ImportMethod,
+} from "@/lib/importHub";
 import type { Workspace } from "@/types";
 
 // ============================================================================
@@ -59,7 +68,6 @@ import type { Workspace } from "@/types";
 
 type Scope = "personal" | "workspace" | "system";
 type SubTab = "export" | "import" | "database" | "backup" | "danger";
-type ImportMethod = "siyuan" | "generic" | "nowen" | "url" | "mobile-memo" | "youdao";
 type MobileMemoMethod = "xiaomi" | "oppo" | "iphone";
 
 /** 各 scope 下允许的二级 Tab 集合（顺序即展示顺序） */
@@ -393,8 +401,9 @@ export default function DataManager() {
   const [isImporting, setIsImporting] = useState(false);
   const [serverSiyuanFile, setServerSiyuanFile] = useState<File | null>(null);
   const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<"tiptap-json" | "markdown">("tiptap-json");
-  const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>("siyuan");
+  const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>(() => readImportMethod());
   const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
+  useEffect(() => persistImportMethod(activeImportMethod), [activeImportMethod]);
   // 记录"上一次导入实际落到的 workspaceId"和导入数量。
   //   - 当目标 ≠ 当前侧边栏 workspace 时，用于渲染"切到该工作区查看"的提示，
   //     避免出现"点完导入说成功、但侧边栏里看不到笔记"的体感（实际写入了别的空间）。
@@ -792,6 +801,12 @@ export default function DataManager() {
     setNotesImportNotice(null);
   };
 
+  const handleImportMethodChange = (method: ImportMethod) => {
+    if (method === activeImportMethod) return;
+    if (shouldResetSharedFileImport(activeImportMethod, method)) clearImportList();
+    setActiveImportMethod(method);
+  };
+
   const selectedCount = importFiles.filter((f) => f.selected).length;
 
   // Danger Zone state
@@ -843,78 +858,96 @@ export default function DataManager() {
   // 导出/导入按钮应被禁用，避免发出 ?workspaceId= （后端会按个人空间错处理）
   const workspaceScopeNotReady = scope === "workspace" && !effectiveWorkspaceId;
 
-  const importMethods = [
-    {
-      id: "siyuan",
+  const importMethodConfigs: Record<ImportMethod, {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    desc: string;
+    tag: string;
+    iconClass: string;
+  }> = {
+    siyuan: {
       icon: BookOpen,
       label: t("dataManager.importMethodSiyuan"),
       desc: t("dataManager.importMethodSiyuanDesc"),
       tag: t("dataManager.importMethodSiyuanTag"),
-      tone: "emerald",
+      iconClass: "text-emerald-600 dark:text-emerald-400",
     },
-    {
-      id: "generic",
-      icon: FileUp,
-      label: t("dataManager.importMethodGeneric"),
-      desc: t("dataManager.importMethodGenericDesc"),
-      tag: t("dataManager.importMethodGenericTag"),
-      tone: "indigo",
+    obsidian: {
+      icon: FolderOpen,
+      label: t("dataManager.importMethodObsidian"),
+      desc: t("dataManager.importMethodObsidianDesc"),
+      tag: t("dataManager.importMethodObsidianTag"),
+      iconClass: "text-violet-600 dark:text-violet-400",
     },
-    {
-      id: "nowen",
-      icon: Package,
-      label: t("dataManager.importMethodNowen"),
-      desc: t("dataManager.importMethodNowenDesc"),
-      tag: t("dataManager.importMethodNowenTag"),
-      tone: "violet",
+    "wechat-favorites": {
+      icon: Heart,
+      label: t("dataManager.importMethodWechatFavorites"),
+      desc: t("dataManager.importMethodWechatFavoritesDesc"),
+      tag: t("dataManager.importMethodWechatFavoritesTag"),
+      iconClass: "text-emerald-600 dark:text-emerald-400",
     },
-    {
-      id: "url",
-      icon: ExternalLink,
-      label: t("dataManager.importMethodUrl"),
-      desc: t("dataManager.importMethodUrlDesc"),
-      tag: t("dataManager.importMethodUrlTag"),
-      tone: "blue",
-    },
-    {
-      id: "mobile-memo",
-      icon: Smartphone,
-      label: t("dataManager.importMethodMobileMemo"),
-      desc: t("dataManager.importMethodMobileMemoDesc"),
-      tag: t("dataManager.importMethodMobileMemoTag"),
-      tone: "orange",
-    },
-    {
-      id: "youdao",
+    youdao: {
       icon: BookOpen,
       label: t("dataManager.importMethodYoudao"),
       desc: t("dataManager.importMethodYoudaoDesc"),
       tag: t("dataManager.importMethodYoudaoTag"),
-      tone: "rose",
+      iconClass: "text-rose-600 dark:text-rose-400",
     },
-  ] as const;
-
-  const getImportMethodClass = (tone: string, active: boolean): string => {
-    if (!active) {
-      return "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300";
-    }
-    switch (tone) {
-      case "emerald":
-        return "border-emerald-300 bg-emerald-50/80 text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-500/10 dark:text-emerald-200";
-      case "indigo":
-        return "border-indigo-300 bg-indigo-50/80 text-indigo-800 dark:border-indigo-800/70 dark:bg-indigo-500/10 dark:text-indigo-200";
-      case "violet":
-        return "border-violet-300 bg-violet-50/80 text-violet-800 dark:border-violet-800/70 dark:bg-violet-500/10 dark:text-violet-200";
-      case "blue":
-        return "border-blue-300 bg-blue-50/80 text-blue-800 dark:border-blue-800/70 dark:bg-blue-500/10 dark:text-blue-200";
-      case "orange":
-        return "border-orange-300 bg-orange-50/80 text-orange-800 dark:border-orange-800/70 dark:bg-orange-500/10 dark:text-orange-200";
-      case "rose":
-        return "border-rose-300 bg-rose-50/80 text-rose-800 dark:border-rose-800/70 dark:bg-rose-500/10 dark:text-rose-200";
-      default:
-        return "border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
-    }
+    "mobile-memo": {
+      icon: Smartphone,
+      label: t("dataManager.importMethodMobileMemo"),
+      desc: t("dataManager.importMethodMobileMemoDesc"),
+      tag: t("dataManager.importMethodMobileMemoTag"),
+      iconClass: "text-orange-600 dark:text-orange-400",
+    },
+    generic: {
+      icon: FileUp,
+      label: t("dataManager.importMethodGeneric"),
+      desc: t("dataManager.importMethodGenericDesc"),
+      tag: t("dataManager.importMethodGenericTag"),
+      iconClass: "text-indigo-600 dark:text-indigo-400",
+    },
+    url: {
+      icon: ExternalLink,
+      label: t("dataManager.importMethodUrl"),
+      desc: t("dataManager.importMethodUrlDesc"),
+      tag: t("dataManager.importMethodUrlTag"),
+      iconClass: "text-blue-600 dark:text-blue-400",
+    },
+    nowen: {
+      icon: Package,
+      label: t("dataManager.importMethodNowen"),
+      desc: t("dataManager.importMethodNowenDesc"),
+      tag: t("dataManager.importMethodNowenTag"),
+      iconClass: "text-violet-600 dark:text-violet-400",
+    },
   };
+
+  const importGroupCopy = {
+    migration: {
+      title: t("dataManager.importGroupMigration"),
+      description: t("dataManager.importGroupMigrationDesc"),
+    },
+    general: {
+      title: t("dataManager.importGroupGeneral"),
+      description: t("dataManager.importGroupGeneralDesc"),
+    },
+    restore: {
+      title: t("dataManager.importGroupRestore"),
+      description: t("dataManager.importGroupRestoreDesc"),
+    },
+  } as const;
+
+  const importMethodGroups = IMPORT_METHOD_GROUPS.map((group) => ({
+    ...group,
+    ...importGroupCopy[group.id],
+    methods: group.methods.map((id) => ({ id, ...importMethodConfigs[id] })),
+  }));
+
+  const getImportMethodClass = (active: boolean): string =>
+    active
+      ? "border-indigo-400 bg-indigo-50/80 text-zinc-900 ring-2 ring-indigo-500/15 dark:border-indigo-600 dark:bg-indigo-500/10 dark:text-zinc-100"
+      : "border-zinc-200 bg-white text-zinc-700 hover:border-indigo-200 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60";
 
   // -----------------------------------------------------------------
   // 入口闸门
@@ -1222,40 +1255,63 @@ export default function DataManager() {
           )}
 
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-3 sm:p-4">
-            <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
-              {t('dataManager.importHubTitle')}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {importMethods.map((method) => {
-                const Icon = method.icon;
-                const active = activeImportMethod === method.id;
-                return (
-                  <button
-                    key={method.id}
-                    type="button"
-                    onClick={() => setActiveImportMethod(method.id)}
-                    disabled={personalImportLocked}
-                    aria-pressed={active}
-                    className={`min-h-[92px] rounded-xl border p-3 text-left transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${getImportMethodClass(method.tone, active)}`}
-                  >
-                    <span className="flex items-start gap-2.5 min-w-0">
-                      <span className="w-8 h-8 rounded-lg bg-white/70 dark:bg-zinc-950/30 flex items-center justify-center flex-shrink-0">
-                        <Icon className="w-4 h-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold truncate">{method.label}</span>
-                        <span className="block mt-0.5 text-xs opacity-75 truncate">{method.desc}</span>
-                        <span className="inline-flex max-w-full mt-2 rounded-md bg-white/70 dark:bg-zinc-950/30 px-1.5 py-0.5 text-[11px] font-medium truncate">
-                          {method.tag}
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="mb-4">
+              <h5 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                {t("dataManager.importHubTitle")}
+              </h5>
+              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                {t("dataManager.importHubDescription")}
+              </p>
             </div>
 
-            <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
+            <div className="space-y-5">
+              {importMethodGroups.map((group) => (
+                <section key={group.id} aria-labelledby={`import-group-${group.id}`}>
+                  <div className="mb-2">
+                    <h6
+                      id={`import-group-${group.id}`}
+                      className="text-xs font-semibold text-zinc-700 dark:text-zinc-200"
+                    >
+                      {group.title}
+                    </h6>
+                    <p className="mt-0.5 text-[11px] leading-5 text-zinc-400 dark:text-zinc-500">
+                      {group.description}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.methods.map((method) => {
+                      const Icon = method.icon;
+                      const active = activeImportMethod === method.id;
+                      return (
+                        <button
+                          key={method.id}
+                          type="button"
+                          onClick={() => handleImportMethodChange(method.id)}
+                          disabled={personalImportLocked}
+                          aria-pressed={active}
+                          className={`min-h-[112px] rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${getImportMethodClass(active)}`}
+                        >
+                          <span className="flex items-start gap-2.5">
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100/80 dark:bg-zinc-950/40 ${method.iconClass}`}>
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-semibold">{method.label}</span>
+                              <span className="mt-1 block text-xs leading-5 opacity-75">{method.desc}</span>
+                              <span className="mt-2 inline-flex max-w-full rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-[11px] font-medium dark:bg-zinc-950/40">
+                                {method.tag}
+                              </span>
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <div key={activeImportMethod} className="mt-5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
               {(activeImportMethod === "siyuan" || activeImportMethod === "generic") && (
                 <>
                   <div className="flex items-start justify-between gap-3 mb-3">
@@ -1758,6 +1814,8 @@ export default function DataManager() {
                 </div>
               )}
 
+              {!personalImportLocked && activeImportMethod === "obsidian" && <ObsidianImport />}
+              {!personalImportLocked && activeImportMethod === "wechat-favorites" && <WeChatFavoritesImport />}
               {!personalImportLocked && activeImportMethod === "youdao" && <YoudaoImport />}
             </div>
           </div>

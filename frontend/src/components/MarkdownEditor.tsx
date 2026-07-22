@@ -1,4 +1,6 @@
-import React, { forwardRef, useCallback, useRef } from "react";
+import React, { forwardRef, useCallback, useMemo, useRef } from "react";
+import LargeMarkdownSafeEditor from "@/components/LargeMarkdownSafeEditor";
+import LargeRichTextSafeViewer from "@/components/LargeRichTextSafeViewer";
 import MarkdownEditorImpl from "@/components/MarkdownEditorImpl";
 import type {
   NoteEditorHandle,
@@ -6,6 +8,8 @@ import type {
   NoteEditorProps,
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
+import { shouldUseLargeMarkdownOptimizedMode } from "@/lib/largeMarkdownSafety";
+import { isLargeRichTextSafeNote } from "@/lib/largeRichTextSafeMode";
 import { mergeMarkdownEditorHeadings } from "@/lib/markdownEditorOutline";
 
 export {
@@ -20,15 +24,28 @@ interface MarkdownEditorProps extends NoteEditorProps {
 /**
  * Public Markdown editor adapter.
  *
- * MarkdownEditorImpl owns CodeMirror and reports its incremental outline. This adapter
- * supplements that outline with H4-H6 entries until every consumer uses the shared
- * H1-H6 outline helper directly. Keeping the merge here avoids touching editor input,
- * collaboration, save, and scrolling behavior.
+ * Small notes use the complete editor with live preview. Medium and large Markdown documents use
+ * the worker-backed CodeMirror viewport editor. Extreme rich-text payloads routed through this
+ * adapter continue to use the emergency read-only viewer before Tiptap/Y.js are mounted.
  */
 const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(props, forwardedRef) {
     const innerRef = useRef<NoteEditorHandle | null>(null);
     const { note, onHeadingsChange } = props;
+    const richTextSafeMode = isLargeRichTextSafeNote(note);
+
+    // Historical Tiptap JSON is commonly serialized as one compact line. Classify the normalized
+    // Markdown instead of the raw storage string, otherwise an ordinary rich-text note would be
+    // mistaken for a pathological long-line Markdown document. Emergency rich text must skip the
+    // conversion completely so the pre-mount safety boundary remains intact.
+    const normalizedMarkdown = useMemo(
+      () => richTextSafeMode ? "" : normalizeToMarkdown(note.content, note.contentText),
+      [note.content, note.contentText, richTextSafeMode],
+    );
+    const optimizedMode = useMemo(
+      () => !richTextSafeMode && shouldUseLargeMarkdownOptimizedMode(normalizedMarkdown),
+      [normalizedMarkdown, richTextSafeMode],
+    );
 
     const assignRef = useCallback((handle: NoteEditorHandle | null) => {
       innerRef.current = handle;
@@ -41,11 +58,29 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
 
     const handleHeadingsChange = useCallback((headings: NoteEditorHeading[]) => {
       if (!onHeadingsChange) return;
-      const markdown =
-        innerRef.current?.getSnapshot?.()?.content ??
-        normalizeToMarkdown(note.content, note.contentText);
+      const markdown = innerRef.current?.getSnapshot?.()?.content ?? normalizedMarkdown;
       onHeadingsChange(mergeMarkdownEditorHeadings(headings, markdown));
-    }, [note.content, note.contentText, onHeadingsChange]);
+    }, [normalizedMarkdown, onHeadingsChange]);
+
+    if (richTextSafeMode) {
+      return (
+        <LargeRichTextSafeViewer
+          {...props}
+          ref={assignRef}
+          onHeadingsChange={onHeadingsChange}
+        />
+      );
+    }
+
+    if (optimizedMode) {
+      return (
+        <LargeMarkdownSafeEditor
+          {...props}
+          ref={assignRef}
+          onHeadingsChange={onHeadingsChange}
+        />
+      );
+    }
 
     return (
       <MarkdownEditorImpl

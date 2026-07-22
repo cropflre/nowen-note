@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
+import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, PanelLeftClose, AlertTriangle } from "lucide-react";
@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { NoteListItem, Notebook } from "@/types";
@@ -1321,6 +1322,7 @@ function VirtualNoteList({
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
   // moveModal 新增 sourceWorkspaceId：源笔记所在工作区（null = 个人空间）。
   // 后端已强制"源/目标同 workspace"，这里把 UI 候选也按同一规则过滤，避免让用户
@@ -1743,8 +1745,6 @@ export default function NoteList() {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedIds.size]);
 
-  // 防止快速点击导致多个并发 getNote 请求
-  const selectNoteAbortRef = useRef<AbortController | null>(null);
 
   const handleSelectNote = async (noteId: string, e?: React.MouseEvent) => {
     const isCtrl = !!e && (e.ctrlKey || e.metaKey);
@@ -1789,6 +1789,9 @@ export default function NoteList() {
 
     // 如果点击的是当前已激活的笔记，跳过重复加载
     if (state.activeNote?.id === noteId) {
+      if (state.noteLoadingState.pendingNoteId && state.noteLoadingState.pendingNoteId !== noteId) {
+        cancelNoteLoad();
+      }
       if (userPrefs.prefs.enableNoteTabs) {
         actions.openNoteTab({
           id: state.activeNote.id,
@@ -1809,58 +1812,34 @@ export default function NoteList() {
     setLastClickedId(noteId);
     try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
 
-    // 取消之前正在进行的 getNote 请求（快速连续点击时只加载最后一个）
-    if (selectNoteAbortRef.current) {
-      selectNoteAbortRef.current.abort();
-    }
-    const abortCtrl = new AbortController();
-    selectNoteAbortRef.current = abortCtrl;
-
-    // 立即设置 loading 状态，给 EditorPane 显示骨架屏
-    actions.setNoteLoading(true);
-    // 关键修复（移动端"点笔记没反应"）：
-    //   把 setMobileView("editor") 提前到 fetch 之前，确保用户点击瞬间就切到
-    //   编辑器视图，由 EditorPane 的 noteLoading overlay 显示加载中。
-    //   原实现把它放在 setActiveNote 之后，导致：
-    //     1) 弱网 / 后端慢响应时，用户点了 1~2 秒"还在列表页"，以为没点到；
-    //     2) 若 fetch 抛错或被 abort，setMobileView 永远不执行，
-    //        用户体感就是"切到笔记本列表后点击不进去编辑器"。
-    //   提前切换视图后即便 fetch 失败，用户也能立刻看到反馈并按返回键回到列表，
-    //   不会被卡在"点了没反应"的死路上。
+    // 移动端立即进入编辑器，但视觉 Loading 延迟 150ms；快请求不会闪烁。
     actions.setMobileView("editor");
+    const pending = sortedNotes.find((note) => note.id === noteId);
 
-    try {
-      const note = await api.getNote(noteId);
-      // 如果该请求已被新的点击 abort，则忽略结果
-      if (abortCtrl.signal.aborted) return;
-      actions.setActiveNote(note);
-      if (userPrefs.prefs.enableNoteTabs) {
-        actions.openNoteTab({
-          id: note.id,
-          title: note.title,
-          notebookId: note.notebookId,
-          workspaceId: note.workspaceId,
-          contentFormat: note.contentFormat,
-          isLocked: note.isLocked,
-          isTrashed: note.isTrashed,
-          updatedAt: note.updatedAt,
-        });
-      }
-    } catch (err: any) {
-      // 被 abort 的请求不需要处理错误
-      if (abortCtrl.signal.aborted || err?.name === "AbortError") return;
-      console.error("Failed to load note:", err);
-      // 加载失败：清掉空 activeNote 占位（如有），并提示用户。
-      // 移动端不强制回退到 list —— 让用户自己点返回，避免视图反复跳动。
-      try {
-        const { toast } = await import("@/lib/toast");
-        toast.error(err?.message || t('noteList.createFailed'));
-      } catch { /* toast 加载失败时忽略 */ }
-    } finally {
-      if (!abortCtrl.signal.aborted) {
-        actions.setNoteLoading(false);
-      }
-    }
+    await loadNote({
+      noteId,
+      summary: {
+        title: pending?.title || t("common.untitledNote"),
+        notebookId: pending?.notebookId || "",
+        contentFormat: pending?.contentFormat,
+      },
+      request: () => api.getNote(noteId),
+      onSuccess: (note) => {
+        actions.setActiveNote(note);
+        if (userPrefs.prefs.enableNoteTabs) {
+          actions.openNoteTab({
+            id: note.id,
+            title: note.title,
+            notebookId: note.notebookId,
+            workspaceId: note.workspaceId,
+            contentFormat: note.contentFormat,
+            isLocked: note.isLocked,
+            isTrashed: note.isTrashed,
+            updatedAt: note.updatedAt,
+          });
+        }
+      },
+    });
   };
 
   // 一键清空回收站：查询可删除数量 → confirm 确认 → 调用 api.emptyTrash → 刷新列表。
@@ -3479,7 +3458,7 @@ export default function NoteList() {
         {sortedNotes.length > 100 ? (
           <VirtualNoteList
             notes={sortedNotes}
-            activeNoteId={state.activeNote?.id}
+            activeNoteId={state.noteLoadingState.pendingNoteId || state.activeNote?.id}
             menuState={{ isOpen: menu.isOpen, targetId: menu.targetId }}
             sharedNoteIds={sharedNoteIds}
             selectedIds={selectedIds}
@@ -3513,7 +3492,7 @@ export default function NoteList() {
                   else noteCardRefs.current.delete(note.id);
                 }}
                 note={note}
-                isActive={state.activeNote?.id === note.id}
+                isActive={(state.noteLoadingState.pendingNoteId || state.activeNote?.id) === note.id}
                 isContextTarget={menu.isOpen && menu.targetId === note.id}
                 isShared={sharedNoteIds.has(note.id)}
                 isSelected={selectedIds.has(note.id)}

@@ -129,6 +129,8 @@ export interface UpdateCalendarExportTargetStatusInput {
 /** 反向链接条目 */
 export interface BacklinkItem {
   sourceNoteId: string;
+  sourceBlockId: string | null;
+  sourceNotebookId: string;
   title: string;
   updatedAt: string;
   linkText: string | null;
@@ -141,6 +143,7 @@ export interface BacklinkItem {
 export interface NoteLinkEntry {
   targetNoteId: string;
   targetBlockId: string | null;
+  sourceBlockId: string | null;
   linkType: "note" | "block";
   linkText: string | null;
   excerpt: string | null;

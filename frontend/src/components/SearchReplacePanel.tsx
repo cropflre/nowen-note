@@ -32,6 +32,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import {
+  getSearchNavigationIndex,
+  isSearchNavigationUpdate,
+  scrollSearchMatchIntoView,
+} from "@/lib/searchMatchScroll";
 
 // ---------------------------------------------------------------------------
 // ProseMirror 装饰扩展
@@ -128,6 +133,17 @@ export function createSearchReplaceExtension() {
               // 外部派发的 setSearchMeta 优先：重新计算 matches + decoSet
               const meta = tr.getMeta(searchReplacePluginKey);
               if (meta) {
+                // 仅切换上一个/下一个时复用已有 matches，避免长笔记重复扫描全文。
+                if (isSearchNavigationUpdate(meta as Record<string, unknown>)) {
+                  const activeIndex = prev.matches.length === 0
+                    ? -1
+                    : Math.max(-1, Math.min(meta.activeIndex, prev.matches.length - 1));
+                  return {
+                    ...prev,
+                    activeIndex,
+                    deco: buildDecoSet(tr.doc, prev.matches, activeIndex),
+                  };
+                }
                 const next: SearchState = { ...prev, ...meta };
                 const regex = buildRegex(next);
                 const matches = regex ? findMatches(tr.doc, regex) : [];
@@ -203,6 +219,7 @@ export function SearchReplacePanel({
   const [matchCount, setMatchCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
   const queryInputRef = useRef<HTMLInputElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   // 派发查询到 PM 插件
   const dispatchQuery = useCallback(
@@ -228,17 +245,37 @@ export function SearchReplacePanel({
     [editor],
   );
 
-  // 把当前命中滚到视口
+  // 用 ProseMirror 的精确坐标定位命中行，避免长代码块只滚动整个 <pre>/<code>。
   const scrollActiveIntoView = useCallback(() => {
     if (!editor) return;
     const s = searchReplacePluginKey.getState(editor.state);
     if (!s || s.activeIndex < 0) return;
     const m = s.matches[s.activeIndex];
     if (!m) return;
-    const dom = editor.view.domAtPos(m.from);
-    const node = dom.node instanceof HTMLElement ? dom.node : dom.node.parentElement;
-    node?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const top = scrollSearchMatchIntoView({
+      view: editor.view,
+      match: m,
+      // 连续按 Enter 时立即以最后一次导航为准，避免平滑动画追不上索引。
+      behavior: "auto",
+    });
+    if (top === null) {
+      editor.view.dom
+        .querySelector<HTMLElement>(".search-match-active")
+        ?.scrollIntoView({ block: "center", inline: "nearest" });
+    }
   }, [editor]);
+
+  const scheduleActiveScroll = useCallback(() => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      scrollActiveIntoView();
+    });
+  }, [scrollActiveIntoView]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
 
   // query / 选项变化时自动重新搜索
   useEffect(() => {
@@ -276,18 +313,24 @@ export function SearchReplacePanel({
   }, [open]);
 
   const goNext = useCallback(() => {
-    if (!editor || matchCount === 0) return;
-    const next = (activeIndex + 1) % matchCount;
-    dispatchQuery({ activeIndex: next });
-    requestAnimationFrame(scrollActiveIntoView);
-  }, [editor, matchCount, activeIndex, dispatchQuery, scrollActiveIntoView]);
+    if (!editor) return;
+    const s = searchReplacePluginKey.getState(editor.state);
+    if (!s || s.matches.length === 0) return;
+    dispatchQuery({
+      activeIndex: getSearchNavigationIndex(s.activeIndex, s.matches.length, 1),
+    });
+    scheduleActiveScroll();
+  }, [editor, dispatchQuery, scheduleActiveScroll]);
 
   const goPrev = useCallback(() => {
-    if (!editor || matchCount === 0) return;
-    const next = (activeIndex - 1 + matchCount) % matchCount;
-    dispatchQuery({ activeIndex: next });
-    requestAnimationFrame(scrollActiveIntoView);
-  }, [editor, matchCount, activeIndex, dispatchQuery, scrollActiveIntoView]);
+    if (!editor) return;
+    const s = searchReplacePluginKey.getState(editor.state);
+    if (!s || s.matches.length === 0) return;
+    dispatchQuery({
+      activeIndex: getSearchNavigationIndex(s.activeIndex, s.matches.length, -1),
+    });
+    scheduleActiveScroll();
+  }, [editor, dispatchQuery, scheduleActiveScroll]);
 
   const replaceCurrent = useCallback(() => {
     if (!editor || matchCount === 0 || activeIndex < 0) return;

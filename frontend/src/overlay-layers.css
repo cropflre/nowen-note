@@ -11,3 +11,23 @@
 [data-swipe-blocker="settings-modal"].fixed {
   z-index: 110;
 }
+
+/*
+ * The MediaExperienceBridge touch overlay is mounted above every editor
+ * <video>. On Electron/desktop pointer devices that layer sits over Chromium's
+ * native controls and steals hit testing from play, seek, volume, PiP and
+ * fullscreen. Desktop already has reliable native controls plus the NodeView
+ * toolbar, so keep the custom overlay mobile-only.
+ *
+ * `data-electron` covers narrow desktop windows and touch-enabled laptops;
+ * the pointer media query also fixes the same interaction in desktop Web.
+ */
+html[data-electron] [data-nowen-video-portal="overlay"] {
+  display: none !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-nowen-video-portal="overlay"] {
+    display: none !important;
+  }
+}

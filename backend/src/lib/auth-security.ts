@@ -139,25 +139,43 @@ export interface ShareTokenPayload {
   typ: "share";
   shareId: string;
   noteId: string;
+  credentialVersion?: number;
   iat?: number;
   exp?: number;
 }
 
-/** 签发分享访问 token（访客通过密码验证后换取，1 小时有效） */
-export function signShareAccessToken(params: { shareId: string; noteId: string }): string {
+/** 签发分享访问 token（访客通过密码/访问码验证后换取，1 小时有效）。 */
+export function signShareAccessToken(params: {
+  shareId: string;
+  noteId: string;
+  credentialVersion?: number;
+}): string {
   return jwt.sign(
-    { typ: "share", shareId: params.shareId, noteId: params.noteId },
+    {
+      typ: "share",
+      shareId: params.shareId,
+      noteId: params.noteId,
+      credentialVersion: params.credentialVersion ?? 1,
+    },
     SHARE_JWT_SECRET,
     { expiresIn: "1h" },
   );
 }
 
-/** 校验分享访问 token，必须同时满足 typ==="share" 与期望的 shareId。 */
-export function verifyShareAccessToken(token: string, expectedShareId: string): ShareTokenPayload | null {
+/** 校验分享访问 token，并可要求凭证版本一致，使改密后旧 token 立即失效。 */
+export function verifyShareAccessToken(
+  token: string,
+  expectedShareId: string,
+  expectedCredentialVersion?: number,
+): ShareTokenPayload | null {
   try {
     const payload = jwt.verify(token, SHARE_JWT_SECRET) as ShareTokenPayload;
     if (payload.typ !== "share") return null;
     if (payload.shareId !== expectedShareId) return null;
+    if (
+      expectedCredentialVersion !== undefined
+      && (payload.credentialVersion ?? 0) !== expectedCredentialVersion
+    ) return null;
     return payload;
   } catch {
     return null;

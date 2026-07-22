@@ -17,3 +17,10 @@ test("one-shot full release includes linux-app instead of a separate menu option
   assert.match(source, /TARGETS="docker,pc,linux-app,android,fpk,lite,clipper"/);
   assert.doesNotMatch(source, /11\)\s+TARGETS="linux-app"/);
 });
+
+test("release.sh performs strict authentication and final remote checks", () => {
+  assert.match(source, /preflight_release_environment\(\)/);
+  assert.match(source, /verify_release_remote_baseline\(\)/);
+  assert.match(source, /git push --dry-run origin HEAD/);
+  assert.match(source, /gh auth status/);
+});

@@ -1,8 +1,17 @@
 export * from "./api.impl";
 
-import { api as baseApi, getBaseUrl, getCurrentWorkspace } from "./api.impl";
+import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
 import { invalidateNotebooks } from "./notebookInvalidation";
-import type { Note, Task } from "@/types";
+import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
+import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
+import {
+  fetchJsonWithUploadDeadline,
+  IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
+  isElectronFullLocalRuntime,
+  LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+  UploadRequestError,
+} from "./uploadRequest";
+import type { Note, SearchResult, Task } from "@/types";
 
 export type TaskActivityEvent = {
   id: string;
@@ -22,7 +31,14 @@ type TaskActivityQuery = {
   limit?: number;
 };
 
+type SearchRequestOptions = {
+  signal?: AbortSignal;
+  /** Internal escape hatch for explicit callers that already debounce short terms. */
+  skipProgressiveDelay?: boolean;
+};
+
 type EnhancedApi = typeof baseApi & {
+  search: (q: string, options?: SearchRequestOptions) => Promise<SearchResult[]>;
   getTaskActivityEvents: (params?: TaskActivityQuery) => Promise<TaskActivityEvent[]>;
   restoreTaskCompletedAt: (taskId: string, completedAt: string) => Promise<Task>;
   /**
@@ -86,7 +102,193 @@ async function confirmedNoteJson<T>(path: string, init: RequestInit): Promise<T>
   }
 }
 
+function isExplicitlyOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+function isDesktopFullLocalUploadRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return isElectronFullLocalRuntime(
+    getServerUrl(),
+    Boolean((window as any).nowenDesktop?.isDesktop),
+  );
+}
+
+function offlineUploadError(message: string): UploadRequestError {
+  return new UploadRequestError(message, {
+    code: "OFFLINE",
+    retryable: true,
+  });
+}
+
 const api = baseApi as EnhancedApi;
+let activeSearchController: AbortController | null = null;
+let activeSearchDelayTimer: ReturnType<typeof setTimeout> | null = null;
+let rejectActiveDelayedSearch: ((reason: unknown) => void) | null = null;
+let activeSearchSequence = 0;
+
+function createSearchAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Search superseded", "AbortError");
+  }
+  const error = new Error("Search superseded");
+  error.name = "AbortError";
+  return error;
+}
+
+function cancelActiveSearch(): void {
+  activeSearchController?.abort();
+  activeSearchController = null;
+  if (activeSearchDelayTimer !== null) {
+    clearTimeout(activeSearchDelayTimer);
+    activeSearchDelayTimer = null;
+  }
+  const reject = rejectActiveDelayedSearch;
+  rejectActiveDelayedSearch = null;
+  reject?.(createSearchAbortError());
+}
+
+function executeSearch(
+  normalized: string,
+  sequence: number,
+  options: SearchRequestOptions,
+): Promise<SearchResult[]> {
+  const controller = new AbortController();
+  activeSearchController = controller;
+  const abortFromCaller = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const params = new URLSearchParams();
+  params.set("q", normalized);
+  const workspace = getCurrentWorkspace();
+  if (workspace && workspace !== "personal") params.set("workspaceId", workspace);
+
+  const path = `/search?${params.toString()}`;
+  return authenticatedJson<SearchResult[]>(path, {
+    signal: controller.signal,
+  }).catch((error) => {
+    if ((error as { name?: string })?.name === "AbortError") throw error;
+    // Keep Android/native compatibility: api.impl's request wrapper can fall back to
+    // CapacitorHttp when WebView fetch is unavailable. This path is only used after the
+    // cancellable fetch itself has failed, never for an intentionally aborted stale request.
+    return baseApi.search(normalized);
+  }).finally(() => {
+    options.signal?.removeEventListener("abort", abortFromCaller);
+    if (sequence === activeSearchSequence && activeSearchController === controller) {
+      activeSearchController = null;
+    }
+  });
+}
+
+/**
+ * SearchCenter already debounces input by 180 ms, but requests that crossed that boundary used
+ * to continue after the next keystroke. With synchronous better-sqlite3, obsolete M/MT literal
+ * scans could therefore make the final MTU query wait several seconds on a low-power NAS.
+ *
+ * Latest-query-wins cancellation handles requests already in flight. One/two-character Latin
+ * fragments receive an additional 420 ms grace period, so ordinary progressive typing never
+ * sends them; when the user intentionally pauses on C or AI, the short query still executes.
+ */
+api.search = ((q: string, options: SearchRequestOptions = {}) => {
+  const normalized = q.trim();
+  const sequence = ++activeSearchSequence;
+  cancelActiveSearch();
+  if (!normalized) return Promise.resolve([]);
+
+  const extraDelay = options.skipProgressiveDelay
+    ? 0
+    : getProgressiveSearchExtraDelayMs(normalized);
+  if (extraDelay === 0) return executeSearch(normalized, sequence, options);
+
+  return new Promise<SearchResult[]>((resolve, reject) => {
+    const abortDelayed = () => {
+      if (sequence !== activeSearchSequence) return;
+      if (activeSearchDelayTimer !== null) {
+        clearTimeout(activeSearchDelayTimer);
+        activeSearchDelayTimer = null;
+      }
+      rejectActiveDelayedSearch = null;
+      reject(createSearchAbortError());
+    };
+
+    if (options.signal?.aborted) {
+      reject(createSearchAbortError());
+      return;
+    }
+    options.signal?.addEventListener("abort", abortDelayed, { once: true });
+
+    rejectActiveDelayedSearch = (reason) => {
+      options.signal?.removeEventListener("abort", abortDelayed);
+      reject(reason);
+    };
+    activeSearchDelayTimer = setTimeout(() => {
+      activeSearchDelayTimer = null;
+      rejectActiveDelayedSearch = null;
+      options.signal?.removeEventListener("abort", abortDelayed);
+      if (sequence !== activeSearchSequence) {
+        reject(createSearchAbortError());
+        return;
+      }
+      void executeSearch(normalized, sequence, options).then(resolve, reject);
+    }, extraDelay);
+  });
+}) as EnhancedApi["search"];
+
+// Multipart uploads intentionally bypass api.impl's JSON request() wrapper. Give both image
+// targets a hard deadline and a real AbortController so an unreachable NAS or image host can no
+// longer leave the editor lifecycle stuck in "uploading" indefinitely.
+api.imageHosting.upload = (async (file: File | Blob, source?: string) => {
+  if (isExplicitlyOffline()) {
+    throw offlineUploadError("当前处于离线状态，第三方图床不可用");
+  }
+  const token = localStorage.getItem("nowen-token");
+  const form = new FormData();
+  form.append("file", file);
+  if (source) form.append("source", source);
+  return fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.imageHosting.upload>>>(
+    `${getBaseUrl()}/image-hosting/upload`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    },
+    {
+      timeoutMs: IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
+      timeoutMessage: "图床上传超时，正在尝试本地存储",
+      httpErrorMessage: "图床上传失败",
+    },
+  );
+}) as typeof baseApi.imageHosting.upload;
+
+api.attachments.upload = (async (noteId: string, file: File) => {
+  if (isExplicitlyOffline() && !isDesktopFullLocalUploadRuntime()) {
+    throw offlineUploadError("当前处于离线状态，图片尚未上传；请恢复网络后重试");
+  }
+  const token = localStorage.getItem("nowen-token");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("noteId", noteId);
+  const fullUrl = `${getBaseUrl()}/attachments`;
+  const payload = await fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.attachments.upload>>>(
+    fullUrl,
+    {
+      method: "POST",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    },
+    {
+      timeoutMs: LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
+      httpErrorMessage: "附件上传失败",
+    },
+  );
+  registerAttachmentAccessUrls(payload.accessUrls, fullUrl);
+  return payload;
+}) as typeof baseApi.attachments.upload;
 
 const nativeMoveNotebook = baseApi.moveNotebook.bind(baseApi);
 const nativeReorderNotebooks = baseApi.reorderNotebooks.bind(baseApi);

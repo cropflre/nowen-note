@@ -125,6 +125,9 @@ import { uploadAndInsertImage } from "@/lib/imageUploadService";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
+import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
+import { buildWikiNoteLink, detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
+import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import {
   toggleWrap,
   toggleHeading,
@@ -468,6 +471,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
   const [slashState, setSlashState] = useState<SlashState>(emptySlashState);
+  const [noteLinkMenu, setNoteLinkMenu] = useState({
+    open: false,
+    position: { top: 0, left: 0 },
+    query: "",
+    from: 0,
+    to: 0,
+  });
   // �༭���Ƿ�۽� ���� ���������ƶ��˸����������Ƿ���ʾ
 
   // �ƶ����������Ƿ���������ԭ�� + ���̵���ʱ���ض������������ߵײ�������������
@@ -888,6 +898,16 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
       if (!collabEnabledRef.current) {
         scheduleSave();
+      }
+
+      const cursor = update.state.selection.main.head;
+      const line = update.state.doc.lineAt(cursor);
+      const activeWiki = detectActiveWikiNoteQuery(line.text.slice(0, cursor - line.from), cursor, line.from);
+      if (activeWiki) {
+        const coords = update.view.coordsAtPos(cursor);
+        if (coords) setNoteLinkMenu({ open: true, position: { top: coords.bottom + 8, left: coords.left }, query: activeWiki.query, from: activeWiki.from, to: activeWiki.to });
+      } else {
+        setNoteLinkMenu((previous) => previous.open ? { ...previous, open: false } : previous);
       }
 
       // MARKDOWN-PREVIEW-MODE-01: 分屏模式下实时更新预览（debounce 200ms）
@@ -1486,10 +1506,53 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   const iconSize = 15;
 
+  const handleNoteLinkSelect = useCallback((
+    targetNote: NoteSearchResult,
+    block?: NoteLinkBlockItem,
+    options?: NoteLinkSelectionOptions,
+  ) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const alias = options?.alias?.trim() || "";
+    const syntax = buildWikiNoteLink(targetNote.id, block?.blockId, alias);
+    view.dispatch({
+      changes: { from: noteLinkMenu.from, to: noteLinkMenu.to, insert: syntax },
+      selection: { anchor: noteLinkMenu.from + syntax.length },
+    });
+    setNoteLinkMenu((previous) => ({ ...previous, open: false }));
+    queueMicrotask(() => view.focus());
+  }, [noteLinkMenu.from, noteLinkMenu.to]);
+
+  useEffect(() => {
+    const jump = async (blockId: string) => {
+      const view = viewRef.current;
+      if (!view) return;
+      try {
+        const block = await api.getBlock(note.id, blockId);
+        if (typeof block.startOffset !== "number") return;
+        const pos = Math.max(0, Math.min(block.startOffset, view.state.doc.length));
+        view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+        view.focus();
+      } catch { toast.info("引用块已不存在或无权访问"); }
+    };
+    const pending = consumeBlockNavigation(note.id);
+    if (pending) void jump(pending.blockId);
+    return subscribeBlockNavigation((request) => { if (request.noteId === note.id) void jump(request.blockId); });
+  }, [note.id]);
+
   // ---------- ��Ⱦ ----------
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {noteLinkMenu.open && (
+        <NoteLinkMenu
+          position={noteLinkMenu.position}
+          query={noteLinkMenu.query}
+          notebookId={note.notebookId}
+          onSelect={handleNoteLinkSelect}
+          onClose={() => setNoteLinkMenu((previous) => ({ ...previous, open: false }))}
+        />
+      )}
       {/* Status bar (char/word count, aligned with TiptapEditor) */}
       {editable && (
         <div

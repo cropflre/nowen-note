@@ -1,10 +1,22 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Link2, Copy, Check, Trash2, Shield, Clock, Eye, EyeOff, Globe, RefreshCw, Loader2, ExternalLink, QrCode } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  AlertTriangle, Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, Pencil,
+  RefreshCw, RotateCcw, Settings2, Shield, Trash2, X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api, getServerUrl } from "@/lib/api";
-import { Share, SharePermission } from "@/types";
+import { Input } from "@/components/ui/input";
+import { confirm } from "@/components/ui/confirm";
+import { api } from "@/lib/api";
+import {
+  buildPublicWebUrl,
+  getPublicWebOriginSourceLabel,
+  resolvePublicWebOrigin,
+} from "@/lib/publicWebOrigin";
+import { toast } from "@/lib/toast";
+import type { Share, SharePermission } from "@/types";
 import { cn } from "@/lib/utils";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 
 interface ShareModalProps {
   noteId: string;
@@ -12,469 +24,258 @@ interface ShareModalProps {
   onClose: () => void;
 }
 
+function toLocalDateTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function permissionLabel(value: string): string {
+  return value === "comment" ? "可评论" : value === "edit" ? "访客可编辑" : value === "edit_auth" ? "登录后可编辑" : "仅查看";
+}
+
 export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalProps) {
+  const { siteConfig, updatePublicWebOrigin } = useSiteSettings();
   const [shares, setShares] = useState<Share[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  // 新建分享表单
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [permission, setPermission] = useState<SharePermission>("view");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [expiresIn, setExpiresIn] = useState<string>("");
-  const [maxViews, setMaxViews] = useState<string>("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [maxViews, setMaxViews] = useState("");
+  const [canManagePublicOrigin, setCanManagePublicOrigin] = useState(false);
+  const [originDraft, setOriginDraft] = useState(siteConfig.publicWebOrigin);
+  const [originSaving, setOriginSaving] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
 
-  // 加载分享列表
+  const publicOrigin = resolvePublicWebOrigin({
+    runtimeOrigin: siteConfig.publicWebOrigin,
+    runtimeSource: siteConfig.publicWebOriginSource,
+  });
+  const publicOriginLabel = getPublicWebOriginSourceLabel(publicOrigin.source);
+  const publicOriginOptions = {
+    runtimeOrigin: siteConfig.publicWebOrigin,
+    runtimeSource: siteConfig.publicWebOriginSource,
+  };
+
   const loadShares = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await api.getSharesByNote(noteId);
-      setShares(data);
-    } catch (e) {
-      console.error("加载分享列表失败:", e);
+      setShares(await api.getSharesByNote(noteId));
+    } catch (error: any) {
+      toast.error(error?.message || "加载分享列表失败");
     } finally {
       setLoading(false);
     }
   }, [noteId]);
 
+  useEffect(() => { void loadShares(); }, [loadShares]);
   useEffect(() => {
-    loadShares();
-  }, [loadShares]);
-
-  // 生成分享链接 URL
-  const getShareUrl = (shareToken: string) => {
-    const serverUrl = getServerUrl();
-    const baseUrl = serverUrl || window.location.origin;
-    return `${baseUrl}/share/${shareToken}`;
-  };
-
-  // 复制到剪贴板
-  const copyToClipboard = async (text: string, id: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      // fallback
-      const input = document.createElement("input");
-      input.value = text;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand("copy");
-      document.body.removeChild(input);
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    }
-  };
-
-  // 创建分享
-  const handleCreate = async () => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      let expiresAt: string | undefined;
-      if (expiresIn) {
-        const date = new Date();
-        const hours = parseInt(expiresIn);
-        date.setHours(date.getHours() + hours);
-        expiresAt = date.toISOString();
-      }
-
-      await api.createShare({
-        noteId,
-        permission,
-        password: password || undefined,
-        expiresAt,
-        maxViews: maxViews ? parseInt(maxViews) : undefined,
-      });
-
-      // 重置表单
-      setPassword("");
-      setExpiresIn("");
-      setMaxViews("");
-      setPermission("view");
-
-      // 刷新列表
-      await loadShares();
-    } catch (e: any) {
-      console.error("创建分享失败:", e);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  // 撤销分享
-  const handleDelete = async (id: string) => {
-    try {
-      await api.deleteShare(id);
-      setShares((prev) => prev.filter((s) => s.id !== id));
-    } catch (e) {
-      console.error("删除分享失败:", e);
-    }
-  };
-
-  // 切换分享激活状态
-  const handleToggleActive = async (share: Share) => {
-    try {
-      const updated = await api.updateShare(share.id, { isActive: share.isActive ? 0 : 1 });
-      setShares((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    } catch (e) {
-      console.error("更新分享状态失败:", e);
-    }
-  };
-
-  // 点击遮罩关闭
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
-  // Esc 关闭
+    let cancelled = false;
+    api.getMe()
+      .then((user) => { if (!cancelled) setCanManagePublicOrigin(user.role === "admin"); })
+      .catch(() => { if (!cancelled) setCanManagePublicOrigin(false); });
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    setOriginDraft(siteConfig.publicWebOrigin);
+  }, [siteConfig.publicWebOrigin]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const permissionLabels: Record<SharePermission, string> = {
-    view: "仅查看",
-    comment: "可评论",
-    edit: "可编辑",
-    edit_auth: "可编辑（需登录）",
+  const savePublicOrigin = async () => {
+    if (originSaving) return;
+    setOriginSaving(true);
+    try {
+      await updatePublicWebOrigin(originDraft);
+      toast.success(originDraft.trim() ? "公开分享域名已保存" : "已恢复容器环境变量或当前域名");
+    } catch (error: any) {
+      toast.error(error?.message || "公开分享域名保存失败");
+    } finally {
+      setOriginSaving(false);
+    }
   };
 
-  // 权限说明（用于按钮 title 提示），让用户清楚每档语义
-  const permissionTitles: Record<SharePermission, string> = {
-    view: "访客仅能阅读笔记内容",
-    comment: "访客填昵称即可留言；评论对所有访客可见（留言板模式）",
-    edit: "任何人填昵称即可编辑笔记，无需注册",
-    edit_auth: "需登录账号才能编辑；未登录用户访问会被引导跳转登录页",
+  const resetForm = () => {
+    setEditingId(null);
+    setPermission("view");
+    setPassword("");
+    setExpiresAt("");
+    setMaxViews("");
+    setShowPassword(false);
   };
 
-  const expiresOptions = [
-    { value: "", label: "永不过期" },
-    { value: "1", label: "1小时" },
-    { value: "24", label: "1天" },
-    { value: "168", label: "7天" },
-    { value: "720", label: "30天" },
-  ];
+  const editShare = (share: Share) => {
+    setEditingId(share.id);
+    setPermission(share.permission);
+    setPassword("");
+    setExpiresAt(toLocalDateTime(share.expiresAt));
+    setMaxViews(share.maxViews ? String(share.maxViews) : "");
+  };
+
+  const submit = async () => {
+    if (saving) return;
+    const parsedMax = maxViews.trim() ? Number(maxViews) : null;
+    if (parsedMax !== null && (!Number.isInteger(parsedMax) || parsedMax < 1)) {
+      toast.error("最大访问会话数必须是正整数");
+      return;
+    }
+    setSaving(true);
+    try {
+      const common = {
+        permission,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+        maxViews: parsedMax,
+      };
+      if (editingId) {
+        await api.updateShare(editingId, {
+          ...common,
+          ...(password.trim() ? { password: password.trim() } : {}),
+        });
+        toast.success("分享设置已更新");
+      } else {
+        await api.createShare({
+          noteId,
+          permission,
+          password: password.trim() || undefined,
+          expiresAt: common.expiresAt || undefined,
+          maxViews: parsedMax || undefined,
+        });
+        if (publicOrigin.requiresAnonymousCheck) {
+          toast.warning("分享链接已创建，请先用无痕窗口验证访客能否打开");
+        } else {
+          toast.success("分享链接已创建");
+        }
+      }
+      resetForm();
+      await loadShares();
+    } catch (error: any) {
+      toast.error(error?.message || "保存分享失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const shareUrl = (token: string) => buildPublicWebUrl(`/share/${token}`, publicOriginOptions);
+  const copy = async (value: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(id);
+      window.setTimeout(() => setCopied(null), 1600);
+      if (publicOrigin.requiresAnonymousCheck) {
+        toast.warning("链接已复制，请在无痕窗口、微信或未登录设备中验证");
+      } else {
+        toast.success("分享链接已复制");
+      }
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const mutate = async (action: () => Promise<unknown>, success: string) => {
+    try { await action(); toast.success(success); await loadShares(); }
+    catch (error: any) { toast.error(error?.message || "操作失败"); }
+  };
+
+  const rotate = async (share: Share) => {
+    if (!await confirm({ title: "轮换分享链接？", description: "旧链接和旧密码访问令牌会立即失效，访问会话数会重置。" })) return;
+    await mutate(() => api.updateShare(share.id, { rotateToken: true }), "已生成新链接");
+  };
+  const resetViews = async (share: Share) => {
+    if (!await confirm({ title: "重置访问会话数？", description: "已记录的访问会话将清零，访客可重新占用名额。" })) return;
+    await mutate(() => api.updateShare(share.id, { resetViews: true }), "访问会话数已重置");
+  };
+  const remove = async (share: Share) => {
+    if (!await confirm({ title: "删除分享？", description: "链接、评论访问和附件签名将立即失效。", danger: true })) return;
+    await mutate(() => api.deleteShare(share.id), "分享已删除");
+  };
+
+  const riskMessage = publicOrigin.isLikelyProtectedGateway
+    ? "当前公开地址疑似 FN Connect 登录网关。创建者浏览器能打开，不代表微信、无痕窗口或未登录访客可以访问。"
+    : "当前分享地址沿用正在访问的域名。若该域名需要 VPN、内网或网关登录，外部访客将无法打开。";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-sm"
-      onClick={handleBackdropClick}
-    >
-      <motion.div
-        ref={modalRef}
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ duration: 0.2 }}
-        className="w-full max-w-lg mx-4 bg-app-elevated rounded-xl shadow-2xl border border-app-border overflow-hidden max-h-[90vh] flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-accent-primary/10 flex items-center justify-center">
-              <Globe size={16} className="text-accent-primary" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-tx-primary">分享笔记</h2>
-              <p className="text-[11px] text-tx-tertiary truncate max-w-[260px]">{noteTitle}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-app-hover text-tx-tertiary hover:text-tx-secondary transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <AnimatePresence>
+      <motion.div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 px-3 py-5 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <motion.div ref={modalRef} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" initial={{ y: 18, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 18, scale: .98 }}>
+          <header className="flex items-center justify-between border-b border-app-border px-5 py-4">
+            <div><h2 className="font-semibold">分享笔记</h2><p className="mt-0.5 max-w-xl truncate text-xs text-tx-tertiary">{noteTitle}</p></div>
+            <button onClick={onClose} className="rounded-lg p-2 hover:bg-app-hover" aria-label="关闭"><X size={17} /></button>
+          </header>
 
-        {/* 内容区域 */}
-        <div className="flex-1 overflow-auto">
-          {/* 创建新分享 */}
-          <div className="px-5 py-4 border-b border-app-border">
-            <h3 className="text-xs font-medium text-tx-secondary mb-3 flex items-center gap-1.5">
-              <Link2 size={13} />
-              创建分享链接
-            </h3>
-
-            <div className="space-y-3">
-              {/* 权限选择 */}
-              <div className="flex items-start gap-2">
-                <label className="text-xs text-tx-tertiary w-16 shrink-0 mt-1.5">权限</label>
-                <div className="grid grid-cols-2 gap-1.5 flex-1">
-                  {(["view", "comment", "edit", "edit_auth"] as SharePermission[]).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPermission(p)}
-                      title={permissionTitles[p]}
-                      className={cn(
-                        "px-3 py-1.5 text-xs rounded-lg border transition-colors",
-                        permission === p
-                          ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary font-medium"
-                          : "border-app-border text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
-                      )}
-                    >
-                      {permissionLabels[p]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 密码保护 */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-tx-tertiary w-16 shrink-0 flex items-center gap-1">
-                  <Shield size={11} />
-                  密码
-                </label>
-                <div className="relative flex-1">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="留空则无需密码"
-                    className="w-full h-8 px-3 pr-8 text-xs rounded-lg border border-app-border bg-app-bg text-tx-primary placeholder:text-tx-tertiary/50 focus:outline-none focus:border-accent-primary/50"
+          <div className={cn(
+            "flex items-start gap-2.5 border-b px-5 py-3 text-xs",
+            publicOrigin.requiresAnonymousCheck
+              ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              : "border-app-border bg-emerald-500/5 text-tx-secondary",
+          )}>
+            {publicOrigin.requiresAnonymousCheck
+              ? <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              : <Shield size={16} className="mt-0.5 shrink-0 text-emerald-600" />}
+            <div className="min-w-0 flex-1 space-y-1">
+              <p>{publicOrigin.requiresAnonymousCheck ? riskMessage : "已使用独立的公开分享域名。"}</p>
+              <p className="break-all text-[11px] opacity-80">
+                地址来源：{publicOriginLabel} · {publicOrigin.origin || "相对地址"}
+              </p>
+              {canManagePublicOrigin ? (
+                <div className="flex flex-col gap-1.5 pt-1 sm:flex-row">
+                  <Input
+                    value={originDraft}
+                    onChange={(event) => setOriginDraft(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter") void savePublicOrigin(); }}
+                    placeholder="https://note.example.com"
+                    className="h-8 min-w-0 flex-1 bg-app-surface text-xs text-tx-primary"
+                    aria-label="公开分享域名"
                   />
-                  <button
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary"
-                  >
-                    {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-                  </button>
+                  <Button size="sm" variant="outline" disabled={originSaving} onClick={savePublicOrigin} className="h-8 shrink-0">
+                    {originSaving && <Loader2 size={13} className="mr-1 animate-spin" />}
+                    保存公开域名
+                  </Button>
                 </div>
-              </div>
-
-              {/* 有效期 */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-tx-tertiary w-16 shrink-0 flex items-center gap-1">
-                  <Clock size={11} />
-                  有效期
-                </label>
-                <select
-                  value={expiresIn}
-                  onChange={(e) => setExpiresIn(e.target.value)}
-                  className="flex-1 h-8 px-3 text-xs rounded-lg border border-app-border bg-app-bg text-tx-primary focus:outline-none focus:border-accent-primary/50"
-                >
-                  {expiresOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 最大访问次数 */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-tx-tertiary w-16 shrink-0 flex items-center gap-1">
-                  <Eye size={11} />
-                  次数
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  value={maxViews}
-                  onChange={(e) => setMaxViews(e.target.value)}
-                  placeholder="不限制"
-                  className="flex-1 h-8 px-3 text-xs rounded-lg border border-app-border bg-app-bg text-tx-primary placeholder:text-tx-tertiary/50 focus:outline-none focus:border-accent-primary/50"
-                />
-              </div>
-
-              {/* 创建按钮 */}
-              <Button
-                onClick={handleCreate}
-                disabled={creating}
-                className="w-full h-9 text-xs font-medium bg-accent-primary hover:bg-accent-primary/90 text-white"
-              >
-                {creating ? (
-                  <Loader2 size={14} className="animate-spin mr-1.5" />
-                ) : (
-                  <Link2 size={14} className="mr-1.5" />
-                )}
-                {creating ? "创建中..." : "生成分享链接"}
-              </Button>
+              ) : publicOrigin.requiresAnonymousCheck ? (
+                <p className="text-[11px] opacity-80">请让管理员配置 PUBLIC_WEB_ORIGIN 或独立公开域名。</p>
+              ) : null}
+              {canManagePublicOrigin && (
+                <p className="text-[11px] opacity-70">留空后优先恢复容器 PUBLIC_WEB_ORIGIN；仍未配置时使用当前访问域名。</p>
+              )}
             </div>
           </div>
 
-          {/* 已有分享列表 */}
-          <div className="px-5 py-4">
-            <h3 className="text-xs font-medium text-tx-secondary mb-3">
-              已创建的分享 {shares.length > 0 && <span className="text-tx-tertiary">({shares.length})</span>}
-            </h3>
+          <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_1fr]">
+            <section className="border-b border-app-border p-5 lg:border-b-0 lg:border-r">
+              <div className="mb-4 flex items-center gap-2"><Settings2 size={16} className="text-accent-primary" /><h3 className="text-sm font-semibold">{editingId ? "编辑分享设置" : "创建新分享"}</h3></div>
+              <div className="space-y-3">
+                <label className="block space-y-1"><span className="text-xs text-tx-secondary">权限</span><select className="h-10 w-full rounded-lg border border-app-border bg-app-bg px-3 text-sm" value={permission} onChange={(event) => setPermission(event.target.value as SharePermission)}><option value="view">仅查看</option><option value="comment">查看 + 评论</option><option value="edit">访客可编辑</option><option value="edit_auth">登录后可编辑</option></select></label>
+                <label className="block space-y-1"><span className="text-xs text-tx-secondary">访问密码（可选）</span><div className="relative"><Input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={editingId ? "留空保持原密码" : "至少 4 个字符"} className="pr-10" /><button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-2.5 text-tx-tertiary">{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
+                <label className="block space-y-1"><span className="text-xs text-tx-secondary">有效期（可选）</span><Input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+                <label className="block space-y-1"><span className="text-xs text-tx-secondary">最大访问会话数（可选）</span><Input type="number" min={1} value={maxViews} onChange={(event) => setMaxViews(event.target.value)} placeholder="同一浏览器标签页刷新不重复计数" /></label>
+                <div className="flex gap-2 pt-1"><Button onClick={submit} disabled={saving} className="flex-1">{saving ? <Loader2 size={15} className="mr-1 animate-spin" /> : <Link2 size={15} className="mr-1" />}{editingId ? "保存设置" : "创建链接"}</Button>{editingId && <Button variant="outline" onClick={resetForm}>取消</Button>}</div>
+              </div>
+            </section>
 
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 size={20} className="animate-spin text-tx-tertiary" />
-              </div>
-            ) : shares.length === 0 ? (
-              <div className="text-center py-8">
-                <Globe size={28} className="mx-auto mb-2 text-tx-tertiary/30" />
-                <p className="text-xs text-tx-tertiary">还没有分享链接</p>
-                <p className="text-[10px] text-tx-tertiary/60 mt-0.5">点击上方按钮创建</p>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {shares.map((share) => (
-                  <ShareItem
-                    key={share.id}
-                    share={share}
-                    shareUrl={getShareUrl(share.shareToken)}
-                    copied={copied}
-                    onCopy={copyToClipboard}
-                    onDelete={handleDelete}
-                    onToggleActive={handleToggleActive}
-                  />
-                ))}
-              </div>
-            )}
+            <section className="min-h-0 overflow-y-auto p-5">
+              <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">已创建的分享</h3><Button variant="ghost" size="sm" onClick={loadShares}><RefreshCw size={14} /></Button></div>
+              {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-tx-tertiary" /></div> : shares.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-app-border py-14 text-center text-sm text-tx-tertiary">暂时没有分享链接</div>
+              ) : <div className="space-y-3">{shares.map((share) => {
+                const active = Boolean(share.isActive);
+                const url = shareUrl(share.shareToken);
+                return <article key={share.id} className={cn("rounded-xl border border-app-border p-3", !active && "opacity-60")}>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? "有效" : "已停用"}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">密码</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary">访问会话 {share.viewCount || 0}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? ` · 到期 ${new Date(share.expiresAt).toLocaleString()}` : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary" /></div>
+                  <div className="mt-3 flex flex-wrap gap-1.5"><Button size="sm" variant="outline" onClick={() => copy(url, share.id)}>{copied === share.id ? <Check size={13} /> : <Copy size={13} />}<span className="ml-1">复制</span></Button><Button size="sm" variant="outline" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}><ExternalLink size={13} /></Button><Button size="sm" variant="outline" onClick={() => editShare(share)}><Pencil size={13} className="mr-1" />编辑</Button><Button size="sm" variant="outline" onClick={() => resetViews(share)}><RotateCcw size={13} className="mr-1" />清零</Button><Button size="sm" variant="outline" onClick={() => rotate(share)}><RefreshCw size={13} className="mr-1" />换链接</Button><Button size="sm" variant="outline" onClick={() => mutate(() => api.updateShare(share.id, { isActive: active ? 0 : 1 }), active ? "分享已停用" : "分享已启用")}>{active ? "停用" : "启用"}</Button><Button size="sm" variant="outline" className="text-red-500" onClick={() => remove(share)}><Trash2 size={13} /></Button></div>
+                </article>;
+              })}</div>}
+            </section>
           </div>
-        </div>
+        </motion.div>
       </motion.div>
-    </div>
-  );
-}
-
-/* ===== 单个分享条目 ===== */
-function ShareItem({
-  share,
-  shareUrl,
-  copied,
-  onCopy,
-  onDelete,
-  onToggleActive,
-}: {
-  share: Share;
-  shareUrl: string;
-  copied: string | null;
-  onCopy: (text: string, id: string) => void;
-  onDelete: (id: string) => void;
-  onToggleActive: (share: Share) => void;
-}) {
-  const isExpired = share.expiresAt && new Date(share.expiresAt) < new Date();
-  const isMaxed = share.maxViews && share.viewCount >= share.maxViews;
-  const isInactive = !share.isActive || isExpired || isMaxed;
-
-  const permissionColors: Record<string, string> = {
-    view: "bg-blue-500/10 text-blue-500",
-    comment: "bg-amber-500/10 text-amber-500",
-    edit: "bg-green-500/10 text-green-500",
-    // edit_auth：与 edit 区分一下（紫色），暗示"门槛更高"
-    edit_auth: "bg-purple-500/10 text-purple-500",
-  };
-
-  const permissionLabels: Record<string, string> = {
-    view: "仅查看",
-    comment: "可评论",
-    edit: "可编辑",
-    edit_auth: "需登录编辑",
-  };
-
-  const formatDate = (date: string) => {
-    const d = new Date(date);
-    return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  };
-
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 transition-colors",
-        isInactive
-          ? "border-app-border/50 bg-app-bg/50 opacity-60"
-          : "border-app-border bg-app-bg hover:border-accent-primary/20"
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          {/* 分享链接 */}
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <code className="text-[11px] text-tx-secondary truncate flex-1 font-mono">{shareUrl}</code>
-            <button
-              onClick={() => onCopy(shareUrl, share.id)}
-              className="shrink-0 p-1 rounded hover:bg-app-hover text-tx-tertiary hover:text-tx-secondary transition-colors"
-              title="复制链接"
-            >
-              {copied === share.id ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
-            </button>
-            <a
-              href={shareUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 p-1 rounded hover:bg-app-hover text-tx-tertiary hover:text-tx-secondary transition-colors"
-              title="新窗口打开"
-            >
-              <ExternalLink size={13} />
-            </a>
-          </div>
-
-          {/* 标签行 */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={cn("px-1.5 py-0.5 text-[10px] rounded-md font-medium", permissionColors[share.permission])}>
-              {permissionLabels[share.permission]}
-            </span>
-            {share.hasPassword && (
-              <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-orange-500/10 text-orange-500">
-                🔒 密码保护
-              </span>
-            )}
-            {share.expiresAt && (
-              <span className={cn(
-                "px-1.5 py-0.5 text-[10px] rounded-md",
-                isExpired ? "bg-red-500/10 text-red-500" : "bg-tx-tertiary/10 text-tx-tertiary"
-              )}>
-                {isExpired ? "已过期" : `${formatDate(share.expiresAt)} 到期`}
-              </span>
-            )}
-            {share.maxViews && (
-              <span className={cn(
-                "px-1.5 py-0.5 text-[10px] rounded-md",
-                isMaxed ? "bg-red-500/10 text-red-500" : "bg-tx-tertiary/10 text-tx-tertiary"
-              )}>
-                {share.viewCount}/{share.maxViews} 次访问
-              </span>
-            )}
-            {!share.maxViews && (
-              <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-tx-tertiary/10 text-tx-tertiary">
-                {share.viewCount} 次访问
-              </span>
-            )}
-            {!share.isActive && (
-              <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-red-500/10 text-red-500">
-                已停用
-              </span>
-            )}
-          </div>
-
-          {/* 创建时间 */}
-          <p className="text-[10px] text-tx-tertiary/60 mt-1.5">
-            创建于 {formatDate(share.createdAt)}
-          </p>
-        </div>
-
-        {/* 操作按钮 */}
-        <div className="flex flex-col gap-1 shrink-0">
-          <button
-            onClick={() => onToggleActive(share)}
-            className={cn(
-              "p-1.5 rounded-md transition-colors text-xs",
-              share.isActive
-                ? "hover:bg-amber-500/10 text-amber-500"
-                : "hover:bg-green-500/10 text-green-500"
-            )}
-            title={share.isActive ? "停用分享" : "启用分享"}
-          >
-            {share.isActive ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-          <button
-            onClick={() => onDelete(share.id)}
-            className="p-1.5 rounded-md hover:bg-red-500/10 text-red-500/60 hover:text-red-500 transition-colors"
-            title="删除分享"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-      </div>
-    </div>
+    </AnimatePresence>
   );
 }

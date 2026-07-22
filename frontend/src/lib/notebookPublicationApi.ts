@@ -103,7 +103,14 @@ export interface PublicComment {
   id: string;
   nickname: string;
   content: string;
+  isResolved?: number | boolean;
   createdAt: string;
+}
+
+export interface ManagedPublicationComment extends PublicComment {
+  noteId: string;
+  noteTitle: string;
+  isHidden: number | boolean;
 }
 
 function apiBase(): string {
@@ -186,6 +193,30 @@ export const notebookPublicationApi = {
     );
   },
 
+  getManagedComments(notebookId: string) {
+    return request<ManagedPublicationComment[]>(
+      `/notebooks/${encodeURIComponent(notebookId)}/publication/comments`,
+      {},
+      { authenticated: true },
+    );
+  },
+
+  moderateComment(notebookId: string, commentId: string, input: { isResolved?: boolean; isHidden?: boolean }) {
+    return request<{ success: true; id: string; isResolved: number; isHidden: number }>(
+      `/notebooks/${encodeURIComponent(notebookId)}/publication/comments/${encodeURIComponent(commentId)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+      { authenticated: true },
+    );
+  },
+
+  deleteManagedComment(notebookId: string, commentId: string) {
+    return request<{ success: true }>(
+      `/notebooks/${encodeURIComponent(notebookId)}/publication/comments/${encodeURIComponent(commentId)}`,
+      { method: "DELETE" },
+      { authenticated: true },
+    );
+  },
+
   getPermissionOverrides(notebookId: string) {
     return request<{ direct: NotebookPermissionOverride[]; inheritsFromParent: string | null }>(
       `/notebooks/${encodeURIComponent(notebookId)}/permission-overrides`,
@@ -258,7 +289,7 @@ export const notebookPublicationApi = {
     );
   },
 
-  addComment(token: string, noteId: string, input: { nickname: string; content: string }, accessToken?: string) {
+  addComment(token: string, noteId: string, input: { nickname: string; content: string; _hp?: string }, accessToken?: string) {
     return request<PublicComment>(
       `/shared/notebook-public/${encodeURIComponent(token)}/notes/${encodeURIComponent(noteId)}/comments`,
       { method: "POST", body: JSON.stringify(input) },

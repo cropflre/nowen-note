@@ -19,8 +19,14 @@ import type {
   NoteImageExportLayout,
   NoteImageExportTheme,
 } from "@/lib/noteImageExportBridge";
+import {
+  findOverflowingExportTables,
+  normalizeExportTables,
+} from "@/lib/noteImageExportTables";
 
 const EXPORT_WIDTH = 794;
+const EXPORT_HORIZONTAL_PADDING = 56;
+const EXPORT_CONTENT_WIDTH = EXPORT_WIDTH - EXPORT_HORIZONTAL_PADDING * 2;
 const PAGE_SLICE_HEIGHT = 1400;
 const MAX_CANVAS_DIMENSION = 16_384;
 const MAX_CANVAS_PIXELS = 64 * 1024 * 1024;
@@ -266,16 +272,31 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body p { margin: 9px 0; white-space: normal; }
     .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
     .nowen-note-image-export-body strong { font-weight: 700; }
-    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.65em; }
+    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.6em; }
+    .nowen-note-image-export-body ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item) { position: relative; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item)::before { content: var(--nowen-ul-marker); position: absolute; left: -1.2em; top: var(--nowen-ul-marker-top); font-size: var(--nowen-ul-marker-size); line-height: 1; }
+    .nowen-note-image-export-body ul.contains-task-list > li.task-list-item::before,
+    .nowen-note-image-export-body ul[data-type="taskList"] > li[data-type="taskItem"]::before { content: none !important; }
     .nowen-note-image-export-body li { margin: 4px 0; }
     .nowen-note-image-export-body li > p { margin: 2px 0; }
-    .nowen-note-image-export-body ul[data-type="taskList"] { padding-left: 0; list-style: none; }
-    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
+    .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
+    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
     .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: #4f7cff; }
     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }
-    .nowen-note-image-export-body table { width: 100%; margin: 16px 0; border-collapse: collapse; table-layout: auto; font-size: 14px; }
-    .nowen-note-image-export-body th, .nowen-note-image-export-body td { border: 1px solid ${border}; padding: 8px 10px; vertical-align: top; }
+    .nowen-note-image-export-body table { width: 100% !important; max-width: 100% !important; min-width: 0 !important; margin: 16px 0; border-collapse: collapse; table-layout: fixed; font-size: 14px; overflow-wrap: anywhere; }
+    .nowen-note-image-export-body col { min-width: 0 !important; max-width: none !important; }
+    .nowen-note-image-export-body th, .nowen-note-image-export-body td { width: auto; min-width: 0 !important; max-width: none !important; border: 1px solid ${border}; padding: 8px 10px; vertical-align: top; white-space: normal !important; overflow-wrap: anywhere !important; word-break: break-word; }
+    .nowen-note-image-export-body th > *, .nowen-note-image-export-body td > * { max-width: 100% !important; min-width: 0 !important; overflow-wrap: anywhere !important; }
     .nowen-note-image-export-body th { background: ${soft}; font-weight: 650; }
     .nowen-note-image-export-body img { display: block; max-width: 100%; height: auto; margin: 14px auto; border-radius: 8px; object-fit: contain; }
     .nowen-note-image-export-body img[align="left"], .nowen-note-image-export-body img[data-align="left"] { margin-left: 0; margin-right: auto; }
@@ -351,6 +372,7 @@ async function prepareHost(
     ADD_ATTR: [
       "src", "alt", "title", "width", "height", "style", "class", "align",
       "data-align", "data-type", "data-checked", "checked", "disabled", "colspan", "rowspan",
+      "colwidth", "data-colwidth", "span",
     ],
   });
 
@@ -401,12 +423,17 @@ async function prepareHost(
   const body = document.createElement("div");
   body.className = "nowen-note-image-export-body";
   body.innerHTML = bodyHtml || "";
+  normalizeExportTables(body, EXPORT_CONTENT_WIDTH);
   highlightCodeBlocks(body);
   article.appendChild(body);
   host.appendChild(article);
   document.body.appendChild(host);
 
   await waitForHostAssets(host, failedResources);
+  const overflowingTables = findOverflowingExportTables(body, EXPORT_CONTENT_WIDTH);
+  if (overflowingTables.length > 0) {
+    throw new Error(`有 ${overflowingTables.length} 个表格仍超出导出画布，已停止生成可能缺列的图片`);
+  }
   const height = Math.max(120, Math.ceil(article.scrollHeight));
   progress?.({ phase: "assets", current: 1, total: 1, message: "图片和字体已准备完成" });
 

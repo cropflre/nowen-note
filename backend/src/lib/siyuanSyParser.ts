@@ -9,6 +9,33 @@ export type { SiyuanNode, SiyuanSyMarkdownResult } from "./siyuanSyParserLegacy"
 export { siyuanTimestampToIso };
 
 const SAFE_IFRAME_PROTOCOLS = new Set(["http:", "https:"]);
+const CALLOUT_TYPE_ALIASES: Record<string, "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION"> = {
+    note: "NOTE",
+    info: "NOTE",
+    abstract: "NOTE",
+    summary: "NOTE",
+    tldr: "NOTE",
+    quote: "NOTE",
+    tip: "TIP",
+    hint: "TIP",
+    success: "TIP",
+    check: "TIP",
+    done: "TIP",
+    important: "IMPORTANT",
+    question: "IMPORTANT",
+    help: "IMPORTANT",
+    faq: "IMPORTANT",
+    example: "IMPORTANT",
+    warning: "WARNING",
+    warn: "WARNING",
+    attention: "WARNING",
+    caution: "CAUTION",
+    danger: "CAUTION",
+    error: "CAUTION",
+    failure: "CAUTION",
+    fail: "CAUTION",
+    bug: "CAUTION",
+};
 
 /** Decode SiYuan's icon format (for example `1f3af` or `1f468-200d-1f4bb`). */
 export function decodeSiyuanEmoji(value: unknown): string {
@@ -31,8 +58,6 @@ export function decodeSiyuanEmoji(value: unknown): string {
         }
     }
 
-    // Real Unicode emoji may already be stored directly. Do not treat custom icon
-    // filenames/paths as emoji because Nowen cannot resolve SiYuan's custom asset here.
     if (!/[\\/]/.test(raw) && !/\.[a-z0-9]{2,8}$/i.test(raw) && Array.from(raw).length <= 16) {
         return raw;
     }
@@ -45,6 +70,8 @@ function readString(node: SiyuanNode, keys: string[]): string {
         if (typeof direct === "string" && direct.trim()) return direct.trim();
         const property = node.Properties?.[key];
         if (typeof property === "string" && property.trim()) return property.trim();
+        if (typeof direct === "boolean" || typeof direct === "number") return String(direct);
+        if (typeof property === "boolean" || typeof property === "number") return String(property);
     }
     return "";
 }
@@ -58,8 +85,6 @@ function extractIframeSrc(node: SiyuanNode): string {
         const parsed = new URL(value);
         return SAFE_IFRAME_PROTOCOLS.has(parsed.protocol) ? parsed.toString() : "";
     } catch {
-        // Relative URLs are retained so imported attachment references can still be
-        // rewritten by the package importer. MarkdownPreview applies the final guard.
         return /^(?:\/|\.\/|\.\.\/|assets\/)/i.test(value) ? value : "";
     }
 }
@@ -72,12 +97,52 @@ function escapeHtmlAttribute(value: string): string {
         .replace(/>/g, "&gt;");
 }
 
+function normalizeCalloutType(node: SiyuanNode): "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION" {
+    const raw = readString(node, ["CalloutType", "calloutType", "type"]).toLowerCase();
+    return CALLOUT_TYPE_ALIASES[raw] || "NOTE";
+}
+
+function readCalloutFold(node: SiyuanNode): "+" | "-" | "" {
+    const raw = readString(node, ["CalloutFold", "calloutFold", "fold", "folded", "collapsed", "open"]).toLowerCase();
+    if (["-", "true", "1", "collapsed", "closed", "close"].includes(raw)) return "-";
+    if (["+", "false", "0", "expanded", "open"].includes(raw)) return "+";
+    return "";
+}
+
+function calloutAsBlockquote(node: SiyuanNode, preparedChildren: SiyuanNode[]): SiyuanNode {
+    const type = normalizeCalloutType(node);
+    const title = readString(node, ["CalloutTitle", "calloutTitle", "title", "Title"]);
+    const fold = readCalloutFold(node);
+    const marker = `[!${type}]${fold}${title ? ` ${title}` : ""}`;
+    return {
+        ...node,
+        Type: "NodeBlockquote",
+        Children: [
+            {
+                Type: "NodeParagraph",
+                Children: [{ Type: "NodeText", Data: marker }],
+            },
+            ...preparedChildren,
+        ],
+    };
+}
+
 function prepareNode(node: SiyuanNode): SiyuanNode {
+    const preparedChildren = node.Children?.map(prepareNode) || [];
     const copy: SiyuanNode = {
         ...node,
         Properties: node.Properties ? { ...node.Properties } : undefined,
-        Children: node.Children?.map(prepareNode),
+        Children: preparedChildren,
     };
+
+    if (copy.Type === "NodeKramdownBlockIAL") {
+        // The legacy renderer already ignores span IAL markers. Normalize block IAL
+        // to that marker type so source metadata never becomes a visible paragraph.
+        copy.Type = "NodeKramdownSpanIAL";
+        return copy;
+    }
+
+    if (copy.Type === "NodeCallout") return calloutAsBlockquote(copy, preparedChildren);
 
     if (copy.Type === "NodeEmoji") {
         const emoji = decodeSiyuanEmoji(readString(copy, ["Data", "Tokens", "unicode", "emoji", "icon"]));
@@ -124,13 +189,14 @@ function countNodeType(node: SiyuanNode, type: string): number {
 /**
  * Compatibility wrapper around the mature SiYuan parser.
  *
- * The legacy converter remains responsible for all existing block fidelity. We only
- * normalize pieces it previously dropped: emoji nodes, iframe nodes and asset refs
- * embedded inside raw HTML. Iframes become raw HTML and are rendered later by the
- * sanitized Markdown preview or converted into supported Tiptap video/link nodes.
+ * Real `.sy` nodes are normalized before the legacy data-plane renderer runs:
+ * Callout becomes canonical GFM-alert Markdown, block IAL is hidden, iframe is
+ * retained as sanitized HTML and emoji is decoded. This keeps Markdown import,
+ * live preview and complete preview on the same source representation.
  */
 export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
     const iframeCount = countNodeType(doc, "NodeIFrame");
+    const calloutCount = countNodeType(doc, "NodeCallout");
     const prepared = prepareNode(doc);
     const result = legacySiyuanSyToMarkdown(prepared);
     const images = new Set(result.stats.images);
@@ -140,12 +206,15 @@ export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
 
     collectHtmlAssetRefs(prepared, images, attachments);
 
-    // Keep the historical import-reporting contract even though the enhanced parser
-    // normalizes iframe nodes before the legacy parser sees them. The content itself is
-    // still preserved as a supported video or a safe link by the rich-text converter.
     if (iframeCount > 0) {
         unsupportedNodes.NodeIFrame = (unsupportedNodes.NodeIFrame || 0) + iframeCount;
-        warnings.push("Siyuan iframe content was downgraded to a supported video or safe link.");
+        warnings.push("Siyuan iframe is preserved in Markdown; rich text uses a supported video or a downgraded safe link.");
+    }
+    if (calloutCount > 0) {
+        // Retain an import-report entry because rich text represents the alert with
+        // supported blockquote/paragraph nodes rather than a native callout schema.
+        unsupportedNodes.NodeCallout = (unsupportedNodes.NodeCallout || 0) + calloutCount;
+        warnings.push("Siyuan callout was mapped to a styled blockquote with its type, title, fold state and body preserved.");
     }
 
     return {

@@ -43,6 +43,8 @@ import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
+import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 
 // BLOCK-ID-01: heading blockId 扩展（与 TiptapEditor 对齐）
 // 只声明 attrs，不带 appendTransaction plugin（generateHTML/generateJSON 不需要）
@@ -50,7 +52,7 @@ const BlockIdAttrs = Extension.create({
   name: "blockId",
   addGlobalAttributes() {
     return [{
-      types: ["heading"],
+      types: ["heading", "paragraph", "listItem", "taskItem", "blockquote", "codeBlock"],
       attributes: {
         blockId: {
           default: null,
@@ -201,6 +203,7 @@ export function getTiptapExtensions() {
     // 视频节点：必须与 TiptapEditor 保持一致，否则 generateHTML 时 video 节点
     // 会被 schema 过滤，导致切换到 MD 后视频丢失。
     VideoExtension,
+    BlockEmbedExtension,
   ];
   return _extensions;
 }
@@ -470,6 +473,54 @@ function getTurndown(): TurndownService {
     },
   });
 
+  // Persist universal block identity in Markdown using the compatible `^blk_xxx` suffix.
+  td.addRule("nowenBlockId", {
+    filter: (node) => {
+      if (!(node instanceof Element)) return false;
+      if (!node.getAttribute("data-block-id")) return false;
+      return /^(H[1-6]|P|LI|BLOCKQUOTE|PRE)$/.test(node.nodeName);
+    },
+    replacement: (content, node) => {
+      const el = node as Element;
+      const id = el.getAttribute("data-block-id") || "";
+      const clean = content.replace(/^\n+|\n+$/g, "").trim();
+      if (!id) return content;
+      if (/^H[1-6]$/.test(el.nodeName)) {
+        const level = Number(el.nodeName.slice(1));
+        return `\n\n${"#".repeat(level)} ${clean} ^${id}\n\n`;
+      }
+      if (el.nodeName === "LI") {
+        const task = el.getAttribute("data-type") === "taskItem";
+        const checked = el.getAttribute("data-checked") === "true";
+        const marker = task ? `- [${checked ? "x" : " "}]` : (el.parentElement?.nodeName === "OL" ? "1." : "-");
+        return `\n${marker} ${clean} ^${id}\n`;
+      }
+      if (el.nodeName === "BLOCKQUOTE") return `\n\n> ${clean.replace(/\n/g, "\n> ")} ^${id}\n\n`;
+      if (el.nodeName === "PRE") return `\n\n${clean}\n^${id}\n\n`;
+      if (el.parentElement?.nodeName === "LI") return content;
+      return `\n\n${clean} ^${id}\n\n`;
+    },
+  });
+
+  td.addRule("nowenNoteLink", {
+    filter: (node) => node.nodeName === "A" && ((node as Element).getAttribute("href") || "").startsWith("note:"),
+    replacement: (content, node) => {
+      const el = node as Element;
+      const href = el.getAttribute("href") || "";
+      const rel = el.getAttribute("rel") || "";
+      const alias = /\bnowen-title-alias\b/.test(rel) ? content.replace(/^\s+|\s+$/g, "") : "";
+      return alias ? `[[${href}|${alias.replace(/\]/g, "\\]")}]]` : `[[${href}]]`;
+    },
+  });
+
+  td.addRule("nowenBlockEmbed", {
+    filter: (node) => node.nodeName === "DIV" && (node as Element).getAttribute("data-nowen-block-embed") != null,
+    replacement: (_content, node) => {
+      const href = (node as Element).getAttribute("data-nowen-block-embed") || "";
+      return href ? `\n\n![[${href}]]\n\n` : "";
+    },
+  });
+
   _turndown = td;
   return td;
 }
@@ -550,6 +601,8 @@ export function markdownToPlainText(md: string): string {
   text = text.replace(/`([^`]+)`/g, "$1");
   // 图片
   text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  // Nowen 内部链接 / 块嵌入：别名保留，自动标题保留稳定 ID 的可读占位。
+  text = text.replace(/!?\[\[note:[0-9a-f-]{36}(?:#blk:[A-Za-z0-9_-]+)?(?:\|([^\]]+))?\]\]/gi, (_match, alias) => alias || "关联笔记");
   // 链接
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   // HTML 标签（含 <span style="color/font-size"> 这类 inline 样式包装：
@@ -575,6 +628,8 @@ export function markdownToPlainText(md: string): string {
   // 全文搜索语义化更合理（脚注内容应该可被搜到，引用标记本身不重要）
   text = text.replace(/^\[\^[A-Za-z0-9_-]+\]:\s?/gm, "");
   text = text.replace(/\[\^[A-Za-z0-9_-]+\]/g, "");
+  // 派生块 ID 是结构元数据，不进入全文索引与摘要。
+  text = text.replace(/(?:\s+|^)\^blk_[A-Za-z0-9_-]{6,}\s*$/gm, "");
   // 合并多余空白
   text = text.replace(/[ \t]+\n/g, "\n");
   text = text.replace(/\n{3,}/g, "\n\n");
@@ -1238,11 +1293,44 @@ function restoreFootnotePlaceholders(
   return out;
 }
 
+
+interface MarkdownBlockIdPlaceholderResult {
+  text: string;
+  ids: string[];
+}
+
+function extractMarkdownBlockIdPlaceholders(md: string): MarkdownBlockIdPlaceholderResult {
+  const ids: string[] = [];
+  const text = md.replace(/(?:\s+|^)\^(blk_[A-Za-z0-9_-]{6,})\s*$/gm, (_match, id) => {
+    const index = ids.push(id) - 1;
+    return ` NOWENBLOCKIDTOKEN${index}END`;
+  });
+  return { text, ids };
+}
+
+function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string {
+  let out = html;
+  ids.forEach((id, index) => {
+    const token = `NOWENBLOCKIDTOKEN${index}END`;
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`<([a-zA-Z0-9]+)([^>]*)>([\\s\\S]*?)${escaped}([\\s\\S]*?)<\\/\\1>`, "i");
+    out = out.replace(pattern, (_match, tag, attrs, before, after) => {
+      const safeId = escapeAttr(id);
+      return `<${tag}${attrs} data-block-id="${safeId}">${before}${after}</${tag}>`;
+    });
+  });
+  return out;
+}
+
 export function markdownToHtml(md: string): string {
   if (!md) return "";
   try {
+    // 第 -1 步：把 Nowen 内部链接/块嵌入转换成可由 Tiptap schema 识别的 HTML。
+    const afterNoteLinks = preprocessInternalNoteLinks(md);
+    // 第 0 步：把 ^blk_xxx 换成不会被 Markdown parser 吞掉的占位文本。
+    const { text: afterBlockIds, ids: blockIds } = extractMarkdownBlockIdPlaceholders(afterNoteLinks);
     // 第 1 步：抽离数学公式
-    const { text: afterMath, blocks, inlines } = extractMathPlaceholders(md);
+    const { text: afterMath, blocks, inlines } = extractMathPlaceholders(afterBlockIds);
     // 第 2 步：抽离脚注（在 math 之后做，避免 `$..$` 内的 `[^x]` 被当成 ref）
     const { text: preprocessed, refs, defs } = extractFootnotePlaceholders(afterMath);
 
@@ -1256,11 +1344,14 @@ export function markdownToHtml(md: string): string {
       c = c.nextSibling;
     }
     const html = out || `<p>${escapeHtml(preprocessed)}</p>`;
-    // 第 3 步：还原 math + footnote 占位
-    return restoreFootnotePlaceholders(
-      restoreMathPlaceholders(html, blocks, inlines),
-      refs,
-      defs
+    // 第 3 步：还原 math + footnote + blockId 占位
+    return restoreMarkdownBlockIdPlaceholders(
+      restoreFootnotePlaceholders(
+        restoreMathPlaceholders(html, blocks, inlines),
+        refs,
+        defs
+      ),
+      blockIds,
     );
   } catch (err) {
     console.warn("[contentFormat] markdownToHtml failed:", err);

@@ -27,8 +27,10 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { realtime } from "@/lib/realtime";
 import { WorkspaceAdminItem } from "@/types";
 import { toast } from "@/lib/toast";
+import WorkspaceIconField, { DEFAULT_WORKSPACE_ICON } from "@/components/WorkspaceIconField";
 
 interface EditState {
   workspace: WorkspaceAdminItem;
@@ -59,7 +61,10 @@ export default function WorkspaceManagement() {
     setLoading(true);
     try {
       const list = await api.listAllWorkspaces();
-      setItems(list);
+      setItems(list.map((workspace) => ({
+        ...workspace,
+        icon: workspace.icon || DEFAULT_WORKSPACE_ICON,
+      })));
     } catch (err: any) {
       toast.error(err?.message || t("workspaceManagement.loadFailed"));
     } finally {
@@ -68,8 +73,12 @@ export default function WorkspaceManagement() {
   }, [t]);
 
   useEffect(() => {
-    fetchList();
+    void fetchList();
   }, [fetchList]);
+
+  useEffect(() => realtime.on("workspace:updated", () => {
+    void fetchList();
+  }), [fetchList]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -91,7 +100,7 @@ export default function WorkspaceManagement() {
     if (edit.name.trim() !== edit.workspace.name) payload.name = edit.name.trim();
     if (edit.description !== (edit.workspace.description || ""))
       payload.description = edit.description;
-    if (edit.icon !== edit.workspace.icon) payload.icon = edit.icon;
+    if (edit.icon !== (edit.workspace.icon || DEFAULT_WORKSPACE_ICON)) payload.icon = edit.icon;
 
     if (!payload.name && payload.description === undefined && !payload.icon) {
       setEdit(null);
@@ -104,10 +113,15 @@ export default function WorkspaceManagement() {
 
     setEditLoading(true);
     try {
-      await api.updateWorkspace(edit.workspace.id, payload);
+      const saved = await api.updateWorkspace(edit.workspace.id, payload);
+      setItems((previous) => previous.map((workspace) => (
+        workspace.id === saved.id
+          ? { ...workspace, ...saved, icon: saved.icon || DEFAULT_WORKSPACE_ICON }
+          : workspace
+      )));
       toast.success(t("workspaceManagement.saveSuccess"));
       setEdit(null);
-      fetchList();
+      void fetchList();
     } catch (err: any) {
       setEditError(err?.message || t("workspaceManagement.saveFailed"));
     } finally {
@@ -122,7 +136,7 @@ export default function WorkspaceManagement() {
       await api.deleteWorkspace(del.workspace.id);
       toast.success(t("workspaceManagement.deleteSuccess"));
       setDel(null);
-      fetchList();
+      void fetchList();
     } catch (err: any) {
       setDel((prev) =>
         prev
@@ -151,7 +165,7 @@ export default function WorkspaceManagement() {
           </p>
         </div>
         <button
-          onClick={fetchList}
+          onClick={() => void fetchList()}
           disabled={loading}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
         >
@@ -193,7 +207,7 @@ export default function WorkspaceManagement() {
                   <div className="flex items-start gap-3">
                     {/* 图标 */}
                     <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-base shrink-0">
-                      {w.icon || "🏢"}
+                      {w.icon || DEFAULT_WORKSPACE_ICON}
                     </div>
 
                     {/* 主信息 */}
@@ -210,7 +224,7 @@ export default function WorkspaceManagement() {
                       )}
                       <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px] text-zinc-400 dark:text-zinc-500">
                         <span className="truncate">
-                          {t("workspaceManagement.colOwner")}:{" "}
+                          {t("workspaceManagement.colOwner")}: {" "}
                           {w.ownerName ||
                             w.ownerUsername ||
                             t("workspaceManagement.ownerUnknown")}
@@ -219,15 +233,15 @@ export default function WorkspaceManagement() {
                             : ""}
                         </span>
                         <span>
-                          {t("workspaceManagement.colMembers")}:{" "}
+                          {t("workspaceManagement.colMembers")}: {" "}
                           {t("workspaceManagement.members", { count: w.memberCount ?? 0 })}
                         </span>
                         <span>
-                          {t("workspaceManagement.colNotebooks")}:{" "}
+                          {t("workspaceManagement.colNotebooks")}: {" "}
                           {t("workspaceManagement.notebooks", { count: w.notebookCount ?? 0 })}
                         </span>
                         <span className="truncate">
-                          {t("workspaceManagement.colCreatedAt")}:{" "}
+                          {t("workspaceManagement.colCreatedAt")}: {" "}
                           {w.createdAt ? new Date(w.createdAt).toLocaleString() : "—"}
                         </span>
                       </div>
@@ -241,7 +255,7 @@ export default function WorkspaceManagement() {
                             workspace: w,
                             name: w.name,
                             description: w.description || "",
-                            icon: w.icon || "🏢",
+                            icon: w.icon || DEFAULT_WORKSPACE_ICON,
                           })
                         }
                         className="p-1.5 rounded-md text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
@@ -274,17 +288,17 @@ export default function WorkspaceManagement() {
             onClose={() => !editLoading && setEdit(null)}
             title={t("workspaceManagement.editTitle", { name: edit.workspace.name })}
           >
-            <div className="space-y-3">
+            <div className="space-y-4">
+              <WorkspaceIconField
+                label={t("workspaceManagement.fieldIcon")}
+                icon={edit.icon}
+                disabled={editLoading}
+                onChange={(icon) => setEdit((state) => state ? { ...state, icon } : state)}
+              />
               <FieldInput
                 label={t("workspaceManagement.fieldName")}
                 value={edit.name}
                 onChange={(v) => setEdit((s) => (s ? { ...s, name: v } : s))}
-              />
-              <FieldInput
-                label={t("workspaceManagement.fieldIcon")}
-                value={edit.icon}
-                onChange={(v) => setEdit((s) => (s ? { ...s, icon: v } : s))}
-                placeholder={t("workspaceManagement.iconPlaceholder")}
               />
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">

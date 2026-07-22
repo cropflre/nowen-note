@@ -58,6 +58,16 @@ export interface PromptOptions extends ConfirmOptions {
   allowEmpty?: boolean;
 }
 
+export interface ChoiceOption {
+  value: string;
+  label: string;
+  variant?: "default" | "outline" | "destructive";
+}
+
+export interface ChoiceOptions extends ConfirmOptions {
+  choices: ChoiceOption[];
+}
+
 type StackItem =
   | {
       kind: "confirm";
@@ -69,6 +79,12 @@ type StackItem =
       kind: "prompt";
       id: number;
       options: PromptOptions;
+      resolve: (value: string | null) => void;
+    }
+  | {
+      kind: "choice";
+      id: number;
+      options: ChoiceOptions;
       resolve: (value: string | null) => void;
     };
 
@@ -168,11 +184,39 @@ export function prompt(options: PromptOptions): Promise<string | null> {
 // Hook 形式（如果组件内更喜欢 hook 风格）
 // ---------------------------------------------------------------------------
 
+export function choose(options: ChoiceOptions): Promise<string | null> {
+  return new Promise((resolve) => {
+    const item: Omit<StackItem, "id"> = { kind: "choice", options, resolve };
+    if (dispatcher) {
+      dispatcher.push(item);
+      return;
+    }
+    let bound = false;
+    const bind = (_id: number) => { bound = true; };
+    pending.push({ item, bind });
+    setTimeout(() => {
+      if (!bound && !dispatcher) {
+        const idx = pending.findIndex((entry) => entry.item === item);
+        if (idx >= 0) pending.splice(idx, 1);
+        const fallback = window.confirm(
+          [options.title, typeof options.description === "string" ? options.description : ""]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
+        resolve(fallback ? options.choices[0]?.value ?? null : null);
+      }
+    }, 100);
+  });
+}
+
 export function useConfirm() {
   return confirm;
 }
 export function usePrompt() {
   return prompt;
+}
+export function useChoice() {
+  return choose;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +322,9 @@ function DialogShell({
 
   // prompt 专属
   const isPrompt = item.kind === "prompt";
+  const isChoice = item.kind === "choice";
   const promptOpts = isPrompt ? (item.options as PromptOptions) : null;
+  const choiceOpts = isChoice ? (item.options as ChoiceOptions) : null;
   const [value, setValue] = React.useState(promptOpts?.defaultValue ?? "");
   const [error, setError] = React.useState<string | null>(null);
 
@@ -290,11 +336,11 @@ function DialogShell({
     // 自动聚焦：prompt 优先聚焦输入框；danger 默认聚焦取消（防误回车）；其它聚焦确认
     const t = setTimeout(() => {
       if (isPrompt) inputRef.current?.focus();
-      else if (danger) cancelBtnRef.current?.focus();
+      else if (isChoice || danger) cancelBtnRef.current?.focus();
       else confirmBtnRef.current?.focus();
     }, 30);
     return () => clearTimeout(t);
-  }, [isPrompt, danger]);
+  }, [isPrompt, isChoice, danger]);
 
   const submit = () => {
     if (isPrompt) {
@@ -353,7 +399,7 @@ function DialogShell({
         transition={{ duration: 0.16, ease: "easeOut" }}
         className="relative z-10 w-full max-w-md rounded-xl border border-app-border bg-app-surface shadow-xl overflow-hidden"
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (isPrompt || !danger)) {
+          if (e.key === "Enter" && !isChoice && (isPrompt || !danger)) {
             // prompt：回车提交；confirm 非危险：回车确认；危险确认默认要点
             e.preventDefault();
             submit();
@@ -410,7 +456,7 @@ function DialogShell({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 bg-app-bg/40 border-t border-app-border">
+        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 bg-app-bg/40 border-t border-app-border">
           <Button
             ref={cancelBtnRef}
             type="button"
@@ -420,19 +466,33 @@ function DialogShell({
           >
             {cancelText || "取消"}
           </Button>
-          <Button
-            ref={confirmBtnRef}
-            type="button"
-            size="sm"
-            variant={danger ? "destructive" : "default"}
-            onClick={submit}
-            className={cn(
-              danger &&
-                "bg-red-500 hover:bg-red-500/90 text-white border-transparent",
-            )}
-          >
-            {confirmText || "确定"}
-          </Button>
+          {isChoice ? (
+            choiceOpts!.choices.map((choice) => (
+              <Button
+                key={choice.value}
+                type="button"
+                size="sm"
+                variant={choice.variant || "default"}
+                onClick={() => onConfirm(choice.value)}
+              >
+                {choice.label}
+              </Button>
+            ))
+          ) : (
+            <Button
+              ref={confirmBtnRef}
+              type="button"
+              size="sm"
+              variant={danger ? "destructive" : "default"}
+              onClick={submit}
+              className={cn(
+                danger &&
+                  "bg-red-500 hover:bg-red-500/90 text-white border-transparent",
+              )}
+            >
+              {confirmText || "确定"}
+            </Button>
+          )}
         </div>
       </motion.div>
     </motion.div>
