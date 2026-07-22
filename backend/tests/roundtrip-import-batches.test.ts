@@ -62,6 +62,10 @@ async function seedSource() {
   return { schema, db };
 }
 
+function countRow(value: unknown): number {
+  return Number((value as { count?: number } | undefined)?.count || 0);
+}
+
 test("formal round-trip import persists a report and can be safely undone", async () => {
   const { db } = await seedSource();
   const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
@@ -106,11 +110,11 @@ test("formal round-trip import persists a report and can be safely undone", asyn
 
   const undone = await undoRoundTripImportBatchWithLinks("batch-user", batchId);
   assert.equal(undone.status, "undone");
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM notebooks WHERE id = ?").get(importedRootId)?.count, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(importedNote!.id)?.count, 0);
+  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notebooks WHERE id = ?").get(importedRootId)), 0);
+  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(importedNote!.id)), 0);
   assert.equal(fs.existsSync(path.join(tmpDir, "attachments", importedAttachment!.path)), false);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = 'batch-note'").get()?.count, 1);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM roundtrip_import_links").get()?.count, 0);
+  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = 'batch-note'").get()), 1);
+  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM roundtrip_import_links").get()), 0);
 });
 
 test("undo refuses to remove a note edited after the import", async () => {
@@ -147,5 +151,6 @@ test("undo refuses to remove a note edited after the import", async () => {
       return true;
     },
   );
-  assert.equal(db.prepare("SELECT title FROM notes WHERE id = ?").get(importedNote!.id)?.title, "用户导入后修改");
+  const titleRow = db.prepare("SELECT title FROM notes WHERE id = ?").get(importedNote!.id) as { title: string } | undefined;
+  assert.equal(titleRow?.title, "用户导入后修改");
 });
