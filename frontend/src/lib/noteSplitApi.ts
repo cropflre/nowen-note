@@ -11,6 +11,7 @@ export interface SplitNoteResult {
   selectedSectionIndexes: number[];
   retainedSectionCount: number;
   totalSectionCount: number;
+  blockLinkWarningCount?: number;
   canUndo: boolean;
 }
 
@@ -25,6 +26,7 @@ export class NoteSplitRequestError extends Error {
   code?: string;
   status?: number;
   currentVersion?: number;
+  blockLinkCount?: number;
 }
 
 async function splitJson<T>(path: string, body: unknown): Promise<T> {
@@ -49,6 +51,7 @@ async function splitJson<T>(path: string, body: unknown): Promise<T> {
       error.code = typeof payload.code === "string" ? payload.code : undefined;
       error.status = response.status;
       error.currentVersion = typeof payload.currentVersion === "number" ? payload.currentVersion : undefined;
+      error.blockLinkCount = typeof payload.blockLinkCount === "number" ? payload.blockLinkCount : undefined;
       throw error;
     }
     return payload as T;
@@ -72,6 +75,7 @@ export function splitMarkdownNote(
     sectionIndexes: number[];
     targetNotebookId?: string | null;
     preservePreamble: boolean;
+    acknowledgeBlockLinkRisk?: boolean;
   },
 ): Promise<SplitNoteResult> {
   return splitJson<SplitNoteResult>(`/notes/${encodeURIComponent(noteId)}/split`, input);
