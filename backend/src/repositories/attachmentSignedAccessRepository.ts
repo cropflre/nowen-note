@@ -13,6 +13,7 @@ export interface AttachmentSignedShareRecord {
 export interface AttachmentSignedPublicationRecord {
   isActive: number;
   expiresAt: string | null;
+  allowDownload: number;
 }
 
 /**
@@ -51,7 +52,7 @@ export const attachmentSignedAccessRepository = {
         JOIN published_tree tree ON child."parentId" = tree.id
         WHERE child."isDeleted" = 0
       )
-      SELECT p."isActive", p."expiresAt"
+      SELECT p."isActive", p."expiresAt", p."allowDownload"
       FROM notebook_publications p
       JOIN notes n ON n.id = ?
       WHERE p.id = ?
