@@ -16,30 +16,58 @@ jobs:
         with:
           ref: pg-migration-unified
           fetch-depth: 0
-      - name: Patch server replacement version timestamp
+      - name: Patch server replacement version accounting
         run: |
           python - <<'PY'
           from pathlib import Path
+
           path = Path('backend/src/services/yjs.ts')
           source = path.read_text()
-          old = '''    room.updatesSinceSnapshot++;
+
+          noop_old = '''    if (current === markdown) {
+              return null;
+            }
+          '''
+          noop_new = '''    if (current === markdown) {
+              // The caller has already persisted and versioned this canonical content.
+              // Mark it accounted for even when the Y.Text replacement is a no-op.
+              room.lastVersionBumpAt = Date.now();
+              return null;
+            }
+          '''
+          if noop_old in source:
+              source = source.replace(noop_old, noop_new, 1)
+          elif 'Mark it accounted for even when the Y.Text replacement is a no-op.' not in source:
+              raise SystemExit('Yjs no-op branch anchor not found')
+
+          update_old = '''    room.updatesSinceSnapshot++;
               if (userId) room.lastActorUserId = userId;
 
               // 到达阈值顺手合并一次 snapshot，行为与 yApplyUpdate 对齐
           '''
-          new = '''    room.updatesSinceSnapshot++;
+          update_new = '''    room.updatesSinceSnapshot++;
               if (userId) room.lastActorUserId = userId;
-              // The caller has already persisted and versioned the same canonical content.
-              // Prevent an immediate yFlush from counting that server replacement as another edit.
+              // Prevent an immediate yFlush from counting the same server replacement again.
               room.lastVersionBumpAt = Date.now();
 
               // 到达阈值顺手合并一次 snapshot，行为与 yApplyUpdate 对齐
           '''
-          if old not in source:
-              if 'room.lastVersionBumpAt = Date.now();' in source:
-                  raise SystemExit(0)
-              raise SystemExit('yReplaceContentAsUpdate patch anchor not found')
-          path.write_text(source.replace(old, new, 1))
+          if update_old in source:
+              source = source.replace(update_old, update_new, 1)
+
+          timer_old = '''      }, ROOM_IDLE_TIMEOUT_MS);
+              }
+            }
+          '''
+          timer_new = '''      }, ROOM_IDLE_TIMEOUT_MS);
+                room.idleTimer.unref?.();
+              }
+            }
+          '''
+          if timer_old in source:
+              source = source.replace(timer_old, timer_new, 1)
+
+          path.write_text(source)
           PY
       - name: Commit fix
         run: |
@@ -47,11 +75,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/src/services/yjs.ts
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix(pg): avoid duplicate Yjs version bump after server replace"
+          git commit -m "fix(pg): account for no-op Yjs server replacement"
           git push origin HEAD:pg-migration-unified
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci --no-audit --no-fund
-      - name: TypeScript
-        working-directory: backend
-        run: npm run build:tsc -- --noEmit
