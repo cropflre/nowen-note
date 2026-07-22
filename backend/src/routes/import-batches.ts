@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import {
   getRoundTripImportBatch,
   listRoundTripImportBatches,
@@ -35,8 +36,19 @@ app.get("/:id", (c) => {
 
 app.post("/:id/undo", async (c) => {
   const userId = c.req.header("X-User-Id")!;
+  const batchId = c.req.param("id");
+  const existing = getRoundTripImportBatch(userId, batchId);
+  if (!existing) return c.json({ error: "导入批次不存在", code: "IMPORT_BATCH_NOT_FOUND" }, 404);
+  if (
+    existing.workspaceId
+    && !isSystemAdmin(userId)
+    && !hasRole(getUserWorkspaceRole(existing.workspaceId, userId), "editor")
+  ) {
+    return c.json({ error: "当前已无权修改该工作区，不能撤销历史导入", code: "WORKSPACE_FORBIDDEN" }, 403);
+  }
+
   try {
-    const item = await undoRoundTripImportBatchWithLinks(userId, c.req.param("id"));
+    const item = await undoRoundTripImportBatchWithLinks(userId, batchId);
     try {
       broadcastToUser(userId, {
         type: "notes:imported",
