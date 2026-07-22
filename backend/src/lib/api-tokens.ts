@@ -4,7 +4,7 @@
  * 支持 scopes、过期/吊销、使用统计，以及可选的笔记本资源级授权。
  *
  * 同步鉴权入口仍服务于现有 SQLite 默认运行时；所有数据库访问都通过
- * Repository 边界执行，避免本模块直接依赖 better-sqlite3。
+ * Repository 边界执行，业务库不直接依赖具体数据库驱动。
  */
 
 import crypto from "crypto";
