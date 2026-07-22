@@ -553,6 +553,9 @@ export function yReplaceContentAsUpdate(
     }
     room.updatesSinceSnapshot++;
     if (userId) room.lastActorUserId = userId;
+    // The caller has already persisted and versioned the same canonical content.
+    // Prevent an immediate yFlush from counting that server replacement as another edit.
+    room.lastVersionBumpAt = Date.now();
 
     // 到达阈值顺手合并一次 snapshot，行为与 yApplyUpdate 对齐
     if (room.updatesSinceSnapshot >= SNAPSHOT_EVERY_N_UPDATES) {
