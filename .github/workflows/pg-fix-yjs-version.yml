@@ -41,12 +41,6 @@ jobs:
               raise SystemExit('yReplaceContentAsUpdate patch anchor not found')
           path.write_text(source.replace(old, new, 1))
           PY
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci --no-audit --no-fund
-      - name: TypeScript
-        working-directory: backend
-        run: npm run build:tsc -- --noEmit
       - name: Commit fix
         run: |
           git config user.name "github-actions[bot]"
@@ -55,3 +49,9 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "fix(pg): avoid duplicate Yjs version bump after server replace"
           git push origin HEAD:pg-migration-unified
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
