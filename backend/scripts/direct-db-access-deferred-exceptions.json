@@ -1,23 +1,106 @@
 {
-  "version": 1,
-  "note": "Temporary direct-access allowances caused by stacked-base drift. Every entry must name the owning follow-up issue and may only decrease.",
+  "version": 2,
+  "note": "Temporary, issue-owned direct-access allowances introduced by mainline drift. Every entry has an exact per-kind ceiling and must decrease as #249/#251/#252/#253 are completed.",
   "files": {
+    "lib/noteBlocks.ts": {
+      "owner": "#249",
+      "reason": "Main added block-level note operations after the original Repository boundary snapshot. These business operations must move behind the runtime adapter in a later #249 core-note batch.",
+      "counts": { "better-sqlite3": 1, "db-exec-call": 1, "prepare-call": 9, "transaction-call": 1 }
+    },
+    "lib/noteLinkTitles.ts": {
+      "owner": "#249",
+      "reason": "Main added note-link title hydration after the reviewed baseline; the note-link runtime Repository batch owns this boundary.",
+      "counts": { "better-sqlite3": 1, "prepare-call": 2 }
+    },
+    "lib/public-web-origin.ts": {
+      "owner": "#249",
+      "reason": "Public web origin persistence was added on main and still uses SQLite transactions. It remains an explicit settings Repository migration item.",
+      "counts": { "getDb-call": 2, "prepare-call": 1, "transaction-call": 1 }
+    },
+    "lib/searchIndex.ts": {
+      "owner": "#252",
+      "reason": "Search index maintenance is part of the deferred PostgreSQL FTS/vector redesign and must not be partially rewritten during branch synchronization.",
+      "counts": { "better-sqlite3": 1, "db-exec-call": 2, "prepare-call": 8 }
+    },
+    "middleware/api-token-resource-scope.ts": {
+      "owner": "#249",
+      "reason": "Main introduced API token resource enforcement with synchronous SQLite lookups. Token resource writes are migrated in 0005; request-time scope enforcement remains a dedicated #249 async boundary task.",
+      "counts": { "getDb-call": 5, "prepare-call": 3 }
+    },
+    "routes/blocks.ts": {
+      "owner": "#249",
+      "reason": "The new block API arrived after the baseline and requires a block Repository before PostgreSQL business routes can be enabled.",
+      "counts": { "getDb-call": 17, "prepare-call": 2 }
+    },
+    "routes/notebooks.ts": {
+      "owner": "#249",
+      "reason": "Main added share-limit and capability operations to the notebook route. The underlying share Repository is migrated, while remaining route-local notebook transactions await the core notebook batch.",
+      "counts": { "prepare-call": 12, "transaction-call": 3 }
+    },
+    "routes/notes.ts": {
+      "owner": "#249",
+      "reason": "Main expanded note operations after the original snapshot. Core note queries and transactions remain an explicit high-risk #249 batch.",
+      "counts": { "prepare-call": 31 }
+    },
+    "routes/remote-image-import.ts": {
+      "owner": "#249",
+      "reason": "Remote image import was added on main and still performs note/attachment lookups directly; attachment Repository migration owns it.",
+      "counts": { "getDb-call": 1, "prepare-call": 2 }
+    },
     "routes/search.ts": {
       "owner": "#252",
-      "reason": "The #247 base added SQLite FTS fallback work after the #248 baseline was recorded. Search and vector migration are explicitly owned by PG-SEARCH-01; #248 must not remove or redesign that behavior.",
-      "counts": {
-        "better-sqlite3": 1,
-        "getDb-call": 3,
-        "prepare-call": 5,
-        "transaction-call": 1
-      }
+      "reason": "Main expanded SQLite FTS fallback queries. Search and vector migration are explicitly deferred to #252.",
+      "counts": { "better-sqlite3": 1, "getDb-call": 3, "prepare-call": 9, "transaction-call": 1 }
+    },
+    "routes/system-update.ts": {
+      "owner": "#249",
+      "reason": "System update state now reads the database directly and needs a small runtime settings Repository boundary.",
+      "counts": { "getDb-call": 1 }
+    },
+    "routes/wechat-favorites-import.ts": {
+      "owner": "#251",
+      "reason": "WeChat favorites import is a data migration/import path and is intentionally owned by the SQLite-to-PostgreSQL migration tooling stage.",
+      "counts": { "getDb-call": 1 }
+    },
+    "services/attachment-reference.ts": {
+      "owner": "#249",
+      "reason": "Main added attachment reference maintenance outside the existing runtime Repository; it belongs to the attachment batch.",
+      "counts": { "getDb-call": 1, "prepare-call": 2 }
     },
     "services/embedding-worker.ts": {
       "owner": "#252",
-      "reason": "Latest main added user-scoped AI settings isolation while the embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by PG-SEARCH-01.",
-      "counts": {
-        "prepare-call": 15
-      }
+      "reason": "The embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by #252.",
+      "counts": { "prepare-call": 15 }
+    },
+    "services/image-hosting-policy.ts": {
+      "owner": "#249",
+      "reason": "Image-hosting policy reads settings directly after mainline expansion; it requires a runtime settings Repository migration.",
+      "counts": { "getDb-call": 3 }
+    },
+    "services/note-links.ts": {
+      "owner": "#249",
+      "reason": "Main added a note-link service lookup outside the existing Repository. It is tracked with the note-link runtime batch.",
+      "counts": { "getDb-call": 1, "prepare-call": 1 }
+    },
+    "services/noteTransfer.ts": {
+      "owner": "#249",
+      "reason": "Note transfer is a high-risk multi-table transaction added after the baseline and requires an explicit cross-driver transaction design.",
+      "counts": { "better-sqlite3": 1, "getDb-call": 3, "prepare-call": 16, "transaction-call": 1 }
+    },
+    "services/single-share-access.ts": {
+      "owner": "#249",
+      "reason": "Main consolidated single-share access into a service that still owns SQLite transactions. The share/ACL runtime batch must migrate it as one atomic unit.",
+      "counts": { "getDb-call": 4, "pragma": 1, "prepare-call": 8, "transaction-call": 2 }
+    },
+    "services/siyuanPackageImportLegacy.ts": {
+      "owner": "#251",
+      "reason": "The legacy SiYuan importer gained additional SQLite operations on main; import migration remains explicitly deferred to #251.",
+      "counts": { "getDb-call": 5, "prepare-call": 6, "transaction-call": 2 }
+    },
+    "services/wechatFavoritesPackageImport.ts": {
+      "owner": "#251",
+      "reason": "The WeChat package importer is a bulk data migration path and must be redesigned with the #251 copy/checkpoint/resume tooling.",
+      "counts": { "getDb-call": 15, "prepare-call": 12 }
     }
   }
 }
