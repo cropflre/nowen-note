@@ -80,6 +80,48 @@ test("keeps a valid editable paragraph after deleting the final block", () => {
   assert.equal(result.createdBlocks[0].operationIndex, 1);
 });
 
+test("repairs a list item after deleting its final nested paragraph", () => {
+  const result = applyTiptapBlockPatch(
+    doc([{
+      type: "bulletList",
+      content: [{
+        type: "listItem",
+        attrs: { blockId: "blk_item000" },
+        content: [paragraph("blk_nested00", "Nested")],
+      }],
+    }]),
+    [{ type: "delete", blockId: "blk_nested00" }],
+  );
+  const parsed = JSON.parse(result.content);
+
+  assert.equal(parsed.content[0].type, "bulletList");
+  assert.equal(parsed.content[0].content[0].type, "listItem");
+  assert.deepEqual(parsed.content[0].content[0].content, [{
+    type: "paragraph",
+    content: [],
+  }]);
+});
+
+test("removes an empty list wrapper after deleting its final item", () => {
+  const result = applyTiptapBlockPatch(
+    doc([{
+      type: "bulletList",
+      content: [{
+        type: "listItem",
+        attrs: { blockId: "blk_item000" },
+        content: [paragraph("blk_nested00", "Nested")],
+      }],
+    }]),
+    [{ type: "delete", blockId: "blk_item000" }],
+    () => "blk_empty000",
+  );
+  const parsed = JSON.parse(result.content);
+
+  assert.equal(parsed.content.length, 1);
+  assert.equal(parsed.content[0].type, "paragraph");
+  assert.equal(parsed.content[0].attrs.blockId, "blk_empty000");
+});
+
 test("rejects duplicate client IDs and invalid block identifiers", () => {
   assert.throws(
     () => validateTiptapBlockPatchOperations([
