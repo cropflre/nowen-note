@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { Migration } from "./migrations.impl";
+import type { Migration } from "./migrations.impl.js";
 
 export function ensureRoundTripImportLinksSchema(db: Database.Database): void {
   db.exec(`
