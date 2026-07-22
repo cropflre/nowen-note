@@ -107,6 +107,34 @@ jobs:
         id: frontend_tests
         continue-on-error: true
         run: set -o pipefail; npm run test:run -- src/lib/__tests__/roundTripImportBatches.test.ts src/lib/__tests__/blockPatchApi.test.ts 2>&1 | tee ../ci-logs/frontend-tests.log
+      - name: Affected editor runtime regression suite
+        id: editor_runtime_tests
+        continue-on-error: true
+        run: >-
+          set -o pipefail; npm run test:run --
+          src/lib/__tests__/editorRuntimePolicy.test.ts
+          src/lib/__tests__/editorRuntimeStore.test.ts
+          src/lib/__tests__/editorRuntimeNotice.test.ts
+          src/lib/__tests__/largeRichTextSafeMode.test.ts
+          src/lib/__tests__/largeMarkdownSafety.test.ts
+          src/lib/__tests__/markdownAnalysis.test.ts
+          src/lib/__tests__/markdownAnalysisClient.test.ts
+          src/lib/__tests__/markdownYTextSync.test.ts
+          src/lib/__tests__/markdownYTextRuntime.test.ts
+          src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts
+          src/lib/__tests__/tiptapDerivedRuntime.test.ts
+          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
+          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
+          src/lib/__tests__/blockPatchApi.test.ts
+          src/lib/__tests__/codeBlockHighlightPlugin.test.ts
+          src/lib/__tests__/codeBlockViewportHighlight.test.ts
+          src/hooks/__tests__/useLazyNodeView.test.tsx
+          src/components/__tests__/VideoExtension.test.ts
+          src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
+          src/components/__tests__/SearchReplaceRuntime.test.ts
+          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
+          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
+          2>&1 | tee ../ci-logs/frontend-editor-runtime-tests.log
       - name: Frontend typecheck
         id: frontend_typecheck
         continue-on-error: true
@@ -123,4 +151,5 @@ jobs:
         if: always()
         run: |
           test "${{ steps.frontend_tests.outcome }}" = "success"
+          test "${{ steps.editor_runtime_tests.outcome }}" = "success"
           test "${{ steps.frontend_typecheck.outcome }}" = "success"
