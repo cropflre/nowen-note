@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import EditorPane from "@/components/EditorPane";
+import FormatAwareEditorPane from "@/components/FormatAwareEditorPane";
 import NoteTabsBar from "@/components/NoteTabsBar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -100,7 +100,7 @@ export default function EditorSplitView() {
     window.addEventListener("mouseup", cleanup);
   }, [applySplitRatio, split]);
 
-  if (!split || !state.activeNote) return <EditorPane />;
+  if (!split || !state.activeNote) return <FormatAwareEditorPane />;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-app-bg">
@@ -120,7 +120,7 @@ export default function EditorSplitView() {
           className="flex min-h-0 min-w-0 flex-none flex-col overflow-hidden"
           style={{ flexBasis: "var(--split-primary)" }}
         >
-          <EditorPane />
+          <FormatAwareEditorPane />
         </div>
         <div
           role="separator"
