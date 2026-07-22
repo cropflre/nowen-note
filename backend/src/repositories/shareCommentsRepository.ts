@@ -37,19 +37,24 @@ function normalizeCommentRows<T = any>(rows: any[]): T[] {
 }
 
 export const shareCommentsRepository = {
-  getById(commentId: string): { id: string; userId: string | null } | undefined {
-    const db = getDb();
-    return db.prepare('SELECT id, "userId" FROM share_comments WHERE id = ?').get(commentId) as any;
+  getById(commentId: string): { id: string; noteId: string; userId: string | null } | undefined {
+    return getDb()
+      .prepare('SELECT id, "noteId", "userId" FROM share_comments WHERE id = ?')
+      .get(commentId) as { id: string; noteId: string; userId: string | null } | undefined;
   },
 
-  getResolved(commentId: string): { isResolved: number } | undefined {
-    const db = getDb();
-    return db.prepare('SELECT "isResolved" FROM share_comments WHERE id = ?').get(commentId) as any;
+  getResolved(commentId: string): { noteId: string; isResolved: number } | undefined {
+    const row = getDb()
+      .prepare('SELECT "noteId", "isResolved" FROM share_comments WHERE id = ?')
+      .get(commentId) as { noteId: string; isResolved: unknown } | undefined;
+    return row
+      ? { noteId: row.noteId, isResolved: booleanNumber(row.isResolved) }
+      : undefined;
   },
 
   updateResolved(commentId: string, isResolved: number): void {
-    const db = getDb();
-    db.prepare('UPDATE share_comments SET "isResolved" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?')
+    getDb()
+      .prepare('UPDATE share_comments SET "isResolved" = ?, "updatedAt" = datetime(\'now\') WHERE id = ?')
       .run(isResolved, commentId);
   },
 
@@ -58,12 +63,16 @@ export const shareCommentsRepository = {
   },
 
   countByUser(userId: string): number {
-    const row = getDb().prepare('SELECT COUNT(*) as c FROM share_comments WHERE "userId" = ?').get(userId) as { c: number };
+    const row = getDb()
+      .prepare('SELECT COUNT(*) as c FROM share_comments WHERE "userId" = ?')
+      .get(userId) as { c: number };
     return row.c;
   },
 
   transferOwnership(fromUserId: string, toUserId: string): number {
-    return getDb().prepare('UPDATE share_comments SET "userId" = ? WHERE "userId" = ?').run(toUserId, fromUserId).changes;
+    return getDb()
+      .prepare('UPDATE share_comments SET "userId" = ? WHERE "userId" = ?')
+      .run(toUserId, fromUserId).changes;
   },
 
   create(input: {
@@ -81,12 +90,28 @@ export const shareCommentsRepository = {
       db.prepare(
         `INSERT INTO share_comments (id, "noteId", "userId", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, input.userId, input.parentId || null, input.content, input.anchorData || null);
+      ).run(
+        input.id,
+        input.noteId,
+        input.userId,
+        input.parentId || null,
+        input.content,
+        input.anchorData || null,
+      );
     } else {
       db.prepare(
         `INSERT INTO share_comments (id, "noteId", "userId", "guestName", "guestIpHash", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, null, input.guestName || null, input.guestIpHash || null, input.parentId || null, input.content, input.anchorData || null);
+      ).run(
+        input.id,
+        input.noteId,
+        null,
+        input.guestName || null,
+        input.guestIpHash || null,
+        input.parentId || null,
+        input.content,
+        input.anchorData || null,
+      );
     }
   },
 
@@ -136,16 +161,28 @@ export const shareCommentsRepository = {
     ).get(id) as any;
   },
 
-  async getByIdAsync(commentId: string): Promise<{ id: string; userId: string | null } | undefined> {
-    return getAdapter().queryOne('SELECT id, "userId" FROM share_comments WHERE id = ?', [commentId]);
-  },
-
-  async getResolvedAsync(commentId: string): Promise<{ isResolved: number } | undefined> {
-    const row = await getAdapter().queryOne<{ isResolved: unknown }>(
-      'SELECT "isResolved" FROM share_comments WHERE id = ?',
+  async getByIdAsync(commentId: string): Promise<{
+    id: string;
+    noteId: string;
+    userId: string | null;
+  } | undefined> {
+    return getAdapter().queryOne(
+      'SELECT id, "noteId", "userId" FROM share_comments WHERE id = ?',
       [commentId],
     );
-    return row ? { isResolved: booleanNumber(row.isResolved) } : undefined;
+  },
+
+  async getResolvedAsync(commentId: string): Promise<{
+    noteId: string;
+    isResolved: number;
+  } | undefined> {
+    const row = await getAdapter().queryOne<{ noteId: string; isResolved: unknown }>(
+      'SELECT "noteId", "isResolved" FROM share_comments WHERE id = ?',
+      [commentId],
+    );
+    return row
+      ? { noteId: row.noteId, isResolved: booleanNumber(row.isResolved) }
+      : undefined;
   },
 
   async updateResolvedAsync(commentId: string, isResolved: number): Promise<void> {
