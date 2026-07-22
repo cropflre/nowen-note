@@ -85,8 +85,8 @@ test("builds a directory with stable note ids and escaped aliases", () => {
   });
   assert.match(directory, /Intro/);
   assert.match(directory, /nowen-note-split:op-1/);
-  assert.match(directory, /\[\[note-a\|Alpha ｜ A\]\]/);
-  assert.match(directory, /\[\[note-b\|Beta ］ B\]\]/);
+  assert.match(directory, /\[\[note:note-a\|Alpha ｜ A\]\]/);
+  assert.match(directory, /\[\[note:note-b\|Beta ］ B\]\]/);
 });
 
 test("partial source keeps exact unselected ranges and uses a lower directory heading", () => {
@@ -111,7 +111,7 @@ test("partial source keeps exact unselected ranges and uses a lower directory he
   });
   assert.match(partial, /### 目录/);
   assert.doesNotMatch(partial, /^## 目录$/m);
-  assert.match(partial, /\[\[note-beta\|Beta\]\]/);
+  assert.match(partial, /\[\[note:note-beta\|Beta\]\]/);
   assert.match(partial, /## Alpha\nA/);
   assert.match(partial, /## Gamma\nG/);
   assert.doesNotMatch(partial, /^## Beta$/m);
@@ -184,6 +184,15 @@ test("transactionally splits, shares attachment bytes, inherits tags and restore
   ).all(...childIds) as Array<{ noteId: string; tagId: string }>;
   assert.equal(childTags.length, 2);
   assert.ok(childTags.every((row) => row.tagId === tagId));
+
+  const directoryLinks = db.prepare(`
+    SELECT targetNoteId FROM note_links
+    WHERE sourceNoteId = ? ORDER BY targetNoteId
+  `).all(noteId) as Array<{ targetNoteId: string }>;
+  assert.deepEqual(
+    directoryLinks.map((row) => row.targetNoteId).sort(),
+    [...childIds].sort(),
+  );
 
   const attachmentRows = db.prepare(`
     SELECT id, noteId, path FROM attachments
@@ -290,6 +299,12 @@ test("selected chapter split retains unselected content and keeps shared origina
   assert.doesNotMatch(splitResult.sourceNote.content, /^# Alpha(?:\s|$)/m);
 
   const childId = splitResult.createdNotes[0].id;
+  const directoryLink = db.prepare(`
+    SELECT targetNoteId FROM note_links
+    WHERE sourceNoteId = ? AND targetNoteId = ?
+  `).get(noteId, childId) as { targetNoteId: string } | undefined;
+  assert.equal(directoryLink?.targetNoteId, childId);
+
   const attachmentRows = db.prepare(`
     SELECT id, noteId, path, uploadSource FROM attachments
     WHERE path = ? ORDER BY id
