@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "frontend/vite.config.ts"
       - "frontend/src/lib/editorComplexityProfile.ts"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
@@ -14,15 +15,20 @@ on:
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/ResizableImageView.tsx"
+      - "frontend/src/components/VideoExtensionRuntime.tsx"
+      - "frontend/src/components/MermaidViewRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
+      - "frontend/src/components/__tests__/VideoExtension.test.ts"
+      - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
   pull_request:
     paths:
+      - "frontend/vite.config.ts"
       - "frontend/src/lib/editorComplexityProfile.ts"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
@@ -33,12 +39,16 @@ on:
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/ResizableImageView.tsx"
+      - "frontend/src/components/VideoExtensionRuntime.tsx"
+      - "frontend/src/components/MermaidViewRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/codeBlockHighlightPlugin.test.ts"
       - "frontend/src/lib/__tests__/codeBlockViewportHighlight.test.ts"
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
+      - "frontend/src/components/__tests__/VideoExtension.test.ts"
+      - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
 
 permissions:
@@ -70,5 +80,7 @@ jobs:
           src/lib/__tests__/codeBlockHighlightPlugin.test.ts
           src/lib/__tests__/codeBlockViewportHighlight.test.ts
           src/hooks/__tests__/useLazyNodeView.test.tsx
+          src/components/__tests__/VideoExtension.test.ts
+          src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
