@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import JSZip from "jszip";
 import { getDb } from "../db/schema";
 import {
@@ -6,6 +8,9 @@ import {
   undoRoundTripImportBatch,
   type RoundTripImportBatchDetail,
 } from "./roundTripImportBatches";
+
+const DATA_DIR = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
+const UNDO_ROOT = path.join(DATA_DIR, "import-undo");
 
 interface LinkSnapshot {
   sourceInstanceId: string;
@@ -37,6 +42,10 @@ function currentRows(userId: string, workspaceScope: string, sourceInstanceId: s
      WHERE userId = ? AND workspaceScope = ? AND sourceInstanceId = ?
      ORDER BY id
   `).all(userId, workspaceScope, sourceInstanceId) as Array<Record<string, unknown>>;
+}
+
+function removeUndoBackup(batchId: string): void {
+  try { fs.rmSync(path.join(UNDO_ROOT, batchId), { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
 export async function captureRoundTripImportLinkUndo(
@@ -73,7 +82,10 @@ export function attachRoundTripImportLinkUndo(
       SELECT undoStateJson, undoAvailable FROM roundtrip_import_batches
        WHERE id = ? AND userId = ?
     `).get(batchId, userId) as { undoStateJson: string; undoAvailable: number } | undefined;
-    if (!batch) return { available: false, reason: "导入批次不存在，无法记录来源映射撤销点" };
+    if (!batch) {
+      removeUndoBackup(batchId);
+      return { available: false, reason: "导入批次不存在，无法记录来源映射撤销点" };
+    }
     const state = JSON.parse(batch.undoStateJson || "{}") as Record<string, unknown>;
     const stored: StoredLinkUndo = {
       ...snapshot,
@@ -93,6 +105,7 @@ export function attachRoundTripImportLinkUndo(
          SET undoAvailable = 0, undoUnavailableReason = ?
        WHERE id = ? AND userId = ?
     `).run(reason, batchId, userId);
+    removeUndoBackup(batchId);
     return { available: false, reason };
   }
 }
