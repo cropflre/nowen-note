@@ -20,7 +20,7 @@ export async function importNowenPackage(zipBuffer: Buffer, params: RoundTripImp
       result.importBatch = {
         ...(result.importBatch || {}),
         undoAvailable: false,
-        reason: attached.reason,
+        reason: attached.reason ?? result.importBatch?.reason ?? null,
       };
     }
   }
