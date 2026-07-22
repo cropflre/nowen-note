@@ -62,8 +62,33 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: TypeScript
+        id: typecheck
+        continue-on-error: true
         working-directory: backend
-        run: npm run build:tsc -- --noEmit
+        shell: bash
+        run: |
+          set +e
+          npm run build:tsc -- --noEmit 2>&1 | tee /tmp/typecheck.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish typecheck diagnostics
+        if: steps.typecheck.outcome == 'failure'
+        shell: bash
+        run: |
+          {
+            echo '## ❌ main synchronization typecheck failed'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 120 /tmp/typecheck.log
+            echo '```'
+          } > /tmp/typecheck-comment.md
+          gh pr comment 372 --body-file /tmp/typecheck-comment.md
+
+      - name: Stop after typecheck failure
+        if: steps.typecheck.outcome == 'failure'
+        run: exit 1
 
       - name: SQLite direct-access audit
         working-directory: backend
@@ -107,7 +132,7 @@ jobs:
         run: |
           gh pr comment 372 --body "## ✅ main synchronized into pg-migration-unified\n\nBefore: \`${{ steps.merge.outputs.before }}\`\nMain: \`${{ steps.merge.outputs.main }}\`\nMerge head: \`${{ steps.merge.outputs.after }}\`\nRun: \`${{ github.run_id }}\`\n\nTypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, and production bundle all passed."
 
-      - name: Publish failure
-        if: failure()
+      - name: Publish generic failure
+        if: failure() && steps.typecheck.outcome != 'failure'
         run: |
           gh pr comment 372 --body "## ❌ main synchronization failed\n\nThe merge or validation matrix failed. The branch was not pushed. Run: \`${{ github.run_id }}\`."
