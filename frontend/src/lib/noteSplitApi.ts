@@ -8,6 +8,9 @@ export interface SplitNoteResult {
   createdNotes: Note[];
   headingLevel: NoteSplitHeadingLevel;
   preservePreamble: boolean;
+  selectedSectionIndexes: number[];
+  retainedSectionCount: number;
+  totalSectionCount: number;
   canUndo: boolean;
 }
 
@@ -66,6 +69,7 @@ export function splitMarkdownNote(
   input: {
     version: number;
     headingLevel: NoteSplitHeadingLevel;
+    sectionIndexes: number[];
     targetNotebookId?: string | null;
     preservePreamble: boolean;
   },
