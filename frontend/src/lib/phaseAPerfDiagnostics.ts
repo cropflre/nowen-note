@@ -19,6 +19,7 @@ export type PhaseAPerfEvent = {
     | "highlight-task-stale"
     | "highlight-task-applied"
     | "highlight-queue-depth"
+    | "highlight-viewport-range"
     | "app-context-dispatch"
     | "react-commit"
     | "keydown-to-paint"
