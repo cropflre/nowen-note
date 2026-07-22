@@ -44,6 +44,11 @@ class BlockPatchRouteError extends Error {
   }
 }
 
+type IdempotencyLookup =
+  | { kind: "none" }
+  | { kind: "replay"; result: unknown }
+  | { kind: "conflict" };
+
 function readNote(noteId: string): NoteRecord | null {
   return (getDb().prepare(`
     SELECT id, userId, notebookId, title, content, contentText, contentFormat,
@@ -73,17 +78,18 @@ function validateEnvelope(body: any): string | null {
   return null;
 }
 
-function readIdempotentResult(userId: string, noteId: string, operationId: string): unknown | null {
+function readIdempotentResult(userId: string, noteId: string, operationId: string): IdempotencyLookup {
   ensureNoteBlockTables(getDb());
   const row = getDb().prepare(`
-    SELECT resultJson FROM block_operations
-    WHERE userId = ? AND noteId = ? AND operationId = ?
-  `).get(userId, noteId, operationId) as { resultJson: string } | undefined;
-  if (!row) return null;
+    SELECT noteId, resultJson FROM block_operations
+    WHERE userId = ? AND operationId = ?
+  `).get(userId, operationId) as { noteId: string; resultJson: string } | undefined;
+  if (!row) return { kind: "none" };
+  if (row.noteId !== noteId) return { kind: "conflict" };
   try {
-    return JSON.parse(row.resultJson);
+    return { kind: "replay", result: JSON.parse(row.resultJson) };
   } catch {
-    return null;
+    return { kind: "conflict" };
   }
 }
 
@@ -125,8 +131,16 @@ async function patchBlocks(c: Context) {
   if (required instanceof Response) return required;
   const { userId } = required;
 
-  const cached = readIdempotentResult(userId, noteId, body.operationId);
-  if (cached) return c.json({ ...(cached as any), idempotentReplay: true });
+  const idempotency = readIdempotentResult(userId, noteId, body.operationId);
+  if (idempotency.kind === "replay") {
+    return c.json({ ...(idempotency.result as any), idempotentReplay: true });
+  }
+  if (idempotency.kind === "conflict") {
+    return c.json({
+      error: "operationId 已被当前用户的另一笔记使用，请生成新的幂等键",
+      code: "OPERATION_ID_CONFLICT",
+    }, 409);
+  }
 
   let operations: TiptapBlockPatchOperation[];
   try {
