@@ -99,6 +99,23 @@ function collectBlockIds(nodes: any[], output = new Set<string>()): Set<string> 
   return output;
 }
 
+/** Keep common Tiptap container nodes schema-valid after deleting a nested indexed block. */
+function repairEmptyContainers(nodes: any[]): void {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (!node || typeof node !== "object" || !Array.isArray(node.content)) continue;
+    repairEmptyContainers(node.content);
+
+    if (["bulletList", "orderedList", "taskList"].includes(node.type) && node.content.length === 0) {
+      nodes.splice(index, 1);
+      continue;
+    }
+    if (["listItem", "taskItem", "blockquote"].includes(node.type) && node.content.length === 0) {
+      node.content = [{ type: "paragraph", content: [] }];
+    }
+  }
+}
+
 function setBlockText(node: any, text: string): void {
   const content = text ? [{ type: "text", text }] : [];
   if (["paragraph", "heading", "codeBlock"].includes(node.type)) {
@@ -280,6 +297,7 @@ export function applyTiptapBlockPatch(
 
     if (operation.type === "delete") {
       target.parent.splice(target.index, 1);
+      repairEmptyContainers(doc.content);
       knownIds.delete(operation.blockId);
       affectedBlockIds.push(operation.blockId);
       return;
@@ -303,7 +321,14 @@ export function applyTiptapBlockPatch(
 
   if (doc.content.length === 0) {
     let blockId = createId();
-    while (!validBlockId(blockId) || knownIds.has(blockId)) blockId = createId();
+    let attempts = 0;
+    while ((!validBlockId(blockId) || knownIds.has(blockId)) && attempts < 32) {
+      blockId = createId();
+      attempts += 1;
+    }
+    if (!validBlockId(blockId) || knownIds.has(blockId)) {
+      throw new TiptapBlockPatchError("INVALID_BLOCK_ID", "无法生成有效的空段落 blockId");
+    }
     doc.content.push(createNode("paragraph", "", blockId));
     affectedBlockIds.push(blockId);
     createdBlocks.push({ operationIndex: operations.length, clientId: null, blockId });
