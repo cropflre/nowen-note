@@ -6,15 +6,20 @@ on:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/noteSplit.ts"
+      - "backend/src/lib/tiptapNoteSplit.ts"
       - "backend/src/runtime/note-split.ts"
       - "backend/src/runtime/note-split-selection.ts"
+      - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
+      - "backend/tests/tiptap-note-split.test.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
+      - "frontend/src/lib/tiptapNoteSplit.ts"
       - "frontend/src/lib/noteSplitApi.ts"
       - "frontend/src/lib/__tests__/noteSplit.test.ts"
+      - "frontend/src/lib/__tests__/tiptapNoteSplit.test.ts"
       - "frontend/src/components/NoteSplitDialog.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/__tests__/NoteSplitDialog.test.tsx"
@@ -23,15 +28,20 @@ on:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/noteSplit.ts"
+      - "backend/src/lib/tiptapNoteSplit.ts"
       - "backend/src/runtime/note-split.ts"
       - "backend/src/runtime/note-split-selection.ts"
+      - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
+      - "backend/tests/tiptap-note-split.test.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
+      - "frontend/src/lib/tiptapNoteSplit.ts"
       - "frontend/src/lib/noteSplitApi.ts"
       - "frontend/src/lib/__tests__/noteSplit.test.ts"
+      - "frontend/src/lib/__tests__/tiptapNoteSplit.test.ts"
       - "frontend/src/components/NoteSplitDialog.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/__tests__/NoteSplitDialog.test.tsx"
@@ -59,6 +69,7 @@ jobs:
         run: >-
           npm run test:run --
           src/lib/__tests__/noteSplit.test.ts
+          src/lib/__tests__/tiptapNoteSplit.test.ts
           src/components/__tests__/NoteSplitDialog.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
@@ -82,5 +93,6 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test
           tests/note-split.test.ts
           tests/note-split-title.test.ts
+          tests/tiptap-note-split.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
