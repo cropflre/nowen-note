@@ -86,4 +86,5 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
 
 WORKDIR /app
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
-CMD ["node", "backend/dist/index.js"]
+# 必须从 hardened 入口启动，确保自动全量备份等运行时补丁在 Docker 生产环境生效。
+CMD ["node", "backend/dist/index.hardened.js"]
