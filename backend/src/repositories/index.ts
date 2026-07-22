@@ -13,6 +13,7 @@ export { userAISettingsRepository } from "./userAISettingsRepository";
 export { serverInstanceRepository } from "./serverInstanceRepository";
 export { customFontsRepository } from "./customFontsRepository";
 export { apiTokensRepository } from "./apiTokensRepository";
+export { apiTokenResourcesRepository } from "./apiTokenResourcesRepository";
 export { apiTokenSchemaRepository } from "./apiTokenSchemaRepository";
 export { authSecurityRepository } from "./authSecurityRepository";
 export { aclQueryRepository } from "./aclQueryRepository";
@@ -83,6 +84,14 @@ export type {
   TagWithCount,
   UpdateTagInput,
 } from "./types";
+export type {
+  ApiTokenResourceInput,
+  ApiTokenResourceMode,
+  ApiTokenResourcePermission,
+  ApiTokenResourceRecord,
+  ApiTokenWithResourceMode,
+  ApiTokenNotebookOption,
+} from "./apiTokenResourcesRepository";
 export type { ApiTokenSchemaDatabase } from "./apiTokenSchemaRepository";
 export type { AuthSecurityDatabase } from "./authSecurityRepository";
 export type { MindmapSchemaDatabase } from "./mindmapSchemaRepository";
