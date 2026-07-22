@@ -15,7 +15,7 @@
     "build:icon": "node scripts/build-icon.mjs",
     "build:mobile-icons": "node scripts/sync-mobile-icons.mjs",
     "electron:dev": "npm run rebuild:native && npm run build:all && NOWEN_DEV_BACKEND_URL=http://127.0.0.1:3001 electron .",
-    "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js",
+    "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js && node build/verifyUpdateArtifactsCli.js dist-electron",
     "electron:build:safe": "node scripts/safe-build.mjs",
     "electron:build:lite": "node scripts/build-lite.mjs",
     "electron:build:lite:safe": "node scripts/build-lite.mjs --safe",

@@ -85,6 +85,11 @@ const steps = [
     args: ["electron-builder", "--config", "electron/builder.lite.config.js"],
     filter: true,
   },
+  {
+    cmd: "node",
+    args: ["build/verifyUpdateArtifactsCli.js", tmpOut || "dist-electron-lite"],
+    filter: false,
+  },
 ];
 
 // ANSI 颜色（与 safe-build 保持一致，便于以后合并公共模块）

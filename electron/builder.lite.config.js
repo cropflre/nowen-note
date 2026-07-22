@@ -5,7 +5,6 @@
  * metadata without mixing it with the full latest channel.
  */
 const base = require("./builder.lite.base.config.js");
-const verifyUpdateArtifacts = require("../build/verifyUpdateArtifacts.js");
 
 const { artifactName: _legacyWindowsArtifactName, ...win } = base.win || {};
 
@@ -45,5 +44,4 @@ module.exports = {
     ...(base.appImage || {}),
     artifactName: "Nowen-Note-Lite-${version}-${arch}.${ext}",
   },
-  afterAllArtifactBuild: verifyUpdateArtifacts,
 };

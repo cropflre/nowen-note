@@ -312,7 +312,7 @@ const VideoNodeView: React.FC<ReactNodeViewProps> = ({ node, selected, deleteNod
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
             referrerPolicy="no-referrer"
-            sandbox="allow-scripts allow-presentation allow-popups"
+            sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
           />
           {/* 未选中时透明遮罩，吃掉点击事件防止 iframe 抢焦点 / 防止误触播放
@@ -507,7 +507,7 @@ export const Video = Node.create({
               allow: "autoplay; fullscreen; encrypted-media; picture-in-picture",
               allowfullscreen: "true",
               referrerpolicy: "no-referrer",
-              sandbox: "allow-scripts allow-presentation allow-popups",
+              sandbox: "allow-scripts allow-same-origin allow-presentation allow-popups",
               style: "width:100%;aspect-ratio:16/9;border:0;display:block;",
             },
           ];
@@ -606,7 +606,7 @@ export function videoNodeToMarkdown(attrs: {
   const tag =
     kind === "file"
       ? `<video src="${escapeAttr(src)}" controls playsinline preload="metadata" data-attachment-id="${escapeAttr(attachmentId)}" data-filename="${escapeAttr(filename)}" data-mime-type="${escapeAttr(mimeType)}" data-size="${escapeAttr(String(size))}" style="width:100%;display:block;aspect-ratio:16/9;background:#000;"></video>`
-      : `<iframe src="${escapeAttr(src)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" sandbox="allow-scripts allow-presentation allow-popups" style="width:100%;aspect-ratio:16/9;border:0;display:block;"></iframe>`;
+      : `<iframe src="${escapeAttr(src)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" style="width:100%;aspect-ratio:16/9;border:0;display:block;"></iframe>`;
 
   const wrapper = `<div data-video-platform="${escapeAttr(String(platform))}" data-kind="${escapeAttr(kind)}" data-src="${escapeAttr(src)}" data-original-url="${escapeAttr(originalUrl)}" data-attachment-id="${escapeAttr(attachmentId)}" data-filename="${escapeAttr(filename)}" data-mime-type="${escapeAttr(mimeType)}" data-size="${escapeAttr(String(size))}" class="video-embed" style="margin:12px auto;max-width:720px;border-radius:8px;overflow:hidden;background:#000;">${tag}</div>`;
 

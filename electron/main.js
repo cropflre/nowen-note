@@ -1691,11 +1691,11 @@ app.whenReady().then(async () => {
   currentRemoteUrl = settings.remoteUrl;
   currentHideMenuBar = !!settings.hideMenuBar;
 
-  // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许 notifications
+  // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许通知和全屏。
   const defaultSession = session.defaultSession;
   defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    // 只允许 notifications（任务提醒功能需要），其余全部拒绝
-    if (permission === "notifications") {
+    // notifications 用于任务提醒；fullscreen 用于编辑器原生视频控件。
+    if (permission === "notifications" || permission === "fullscreen") {
       callback(true);
       return;
     }
@@ -1704,8 +1704,8 @@ app.whenReady().then(async () => {
   // setPermissionCheckHandler: 拦截权限查询（非弹窗类的静默检查）
   if (typeof defaultSession.setPermissionCheckHandler === "function") {
     defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
-      // 同样只允许 notifications
-      return permission === "notifications";
+      // 与请求阶段保持一致，避免 Fullscreen API 在查询阶段被拒绝。
+      return permission === "notifications" || permission === "fullscreen";
     });
   }
 

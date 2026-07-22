@@ -93,6 +93,11 @@ const steps = [
     args: ["electron-builder", "--config", "electron/builder.config.js"],
     filter: true,
   },
+  {
+    cmd: "node",
+    args: ["build/verifyUpdateArtifactsCli.js", tmpOut],
+    filter: false,
+  },
 ];
 
 // ANSI 颜色
