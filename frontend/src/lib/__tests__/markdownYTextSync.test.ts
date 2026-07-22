@@ -6,6 +6,7 @@ import {
   applyCodeMirrorChangesToYText,
   collectCodeMirrorTextChanges,
   yTextDeltaToCodeMirrorChanges,
+  type YTextDeltaPart,
 } from "@/lib/markdownYTextSync";
 
 function applyChanges(documentText: string, changes: Array<{ from: number; to: number; insert: string }>) {
@@ -63,6 +64,29 @@ describe("incremental Markdown Y.Text synchronization", () => {
       { from: 11, to: 16, insert: "GAMMA" },
     ]);
     expect(applyChanges(source, changes || [])).toBe("alpha brave GAMMA");
+  });
+
+  it("replays the delta produced by a real Y.Text transaction", () => {
+    const source = "alpha beta gamma";
+    const yDoc = new Y.Doc();
+    const yText = yDoc.getText("content");
+    yText.insert(0, source);
+    let observedDelta: readonly YTextDeltaPart[] = [];
+
+    yText.observe((event) => {
+      observedDelta = event.delta;
+    });
+    yDoc.transact(() => {
+      yText.delete(6, 4);
+      yText.insert(6, "brave");
+      yText.delete(12, 5);
+      yText.insert(12, "GAMMA");
+    });
+
+    const changes = yTextDeltaToCodeMirrorChanges(observedDelta);
+    expect(changes).not.toBeNull();
+    expect(applyChanges(source, changes || [])).toBe(yText.toString());
+    expect(yText.toString()).toBe("alpha brave GAMMA");
   });
 
   it("supports insertion-only and deletion-only remote deltas", () => {
