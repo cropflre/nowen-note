@@ -34,9 +34,16 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
     const { note, onHeadingsChange } = props;
     const richTextSafeMode = isLargeRichTextSafeNote(note);
 
-    const optimizedMode = useMemo(
-      () => shouldUseLargeMarkdownOptimizedMode(note.content || note.contentText),
+    // Historical Tiptap JSON is commonly serialized as one compact line. Classify the normalized
+    // Markdown instead of the raw storage string, otherwise an ordinary rich-text note would be
+    // mistaken for a pathological long-line Markdown document.
+    const normalizedMarkdown = useMemo(
+      () => normalizeToMarkdown(note.content, note.contentText),
       [note.content, note.contentText],
+    );
+    const optimizedMode = useMemo(
+      () => shouldUseLargeMarkdownOptimizedMode(normalizedMarkdown),
+      [normalizedMarkdown],
     );
 
     const assignRef = useCallback((handle: NoteEditorHandle | null) => {
@@ -50,11 +57,9 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
 
     const handleHeadingsChange = useCallback((headings: NoteEditorHeading[]) => {
       if (!onHeadingsChange) return;
-      const markdown =
-        innerRef.current?.getSnapshot?.()?.content
-        ?? normalizeToMarkdown(note.content, note.contentText);
+      const markdown = innerRef.current?.getSnapshot?.()?.content ?? normalizedMarkdown;
       onHeadingsChange(mergeMarkdownEditorHeadings(headings, markdown));
-    }, [note.content, note.contentText, onHeadingsChange]);
+    }, [normalizedMarkdown, onHeadingsChange]);
 
     if (richTextSafeMode) {
       return (
