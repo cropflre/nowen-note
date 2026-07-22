@@ -48,71 +48,9 @@ on:
       - ".github/workflows/roundtrip-import-batch-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair-stable-export:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Route native exports through stable instance identity
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          route = Path("backend/src/routes/export.ts")
-          text = route.read_text()
-          replacements = [
-              (
-                  'const { createNowenPackageExport } = await import("../services/nowenPackageExport");',
-                  'const { createStableNowenPackageExport } = await import("../services/nowenPackageExportStable");',
-              ),
-              (
-                  'const result = await createNowenPackageExport({',
-                  'const result = await createStableNowenPackageExport({',
-              ),
-              (
-                  'const importMode = (c.req.query("importMode") as "new-root" | "into-target") || "new-root";',
-                  'const importMode = (c.req.query("importMode") as "new-root" | "into-target" | "merge" | "sync") || "new-root";',
-              ),
-          ]
-          changed = False
-          for old, new in replacements:
-              if old in text:
-                  text = text.replace(old, new, 1)
-                  changed = True
-              elif new not in text:
-                  raise SystemExit(f"expected route source missing: {old}")
-          route.write_text(text)
-
-          test_file = Path("backend/tests/roundtrip-import-batches.test.ts")
-          test_text = test_file.read_text()
-          marker = 'process.env.ROUNDTRIP_IMPORT_UNDO_TTL_HOURS = "24";'
-          replacement = marker + '\nprocess.env.NOWEN_INSTANCE_ID = "batch-test-instance";'
-          if replacement not in test_text:
-              if marker not in test_text:
-                  raise SystemExit("test environment marker missing")
-              test_text = test_text.replace(marker, replacement, 1)
-              test_file.write_text(test_text)
-              changed = True
-          print("changed" if changed else "already patched")
-          PY
-      - name: Commit repaired export path
-        run: |
-          if git diff --quiet; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add backend/src/routes/export.ts backend/tests/roundtrip-import-batches.test.ts
-          git commit -m "fix(import): export stable source identity"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 25
