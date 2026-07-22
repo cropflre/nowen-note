@@ -1,0 +1,89 @@
+name: Diagnose note split undo
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  diagnose:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/diagnose-note-split'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STATUS_COMMENT_ID: "5042929483"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Expose undo response and avoid idle timer hang
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          yjs_path = Path('backend/src/services/yjs.ts')
+          yjs = yjs_path.read_text()
+          anchor = '''    room.updatesSinceSnapshot++;
+              if (userId) room.lastActorUserId = userId;
+          '''
+          replacement = '''    room.updatesSinceSnapshot++;
+              if (userId) room.lastActorUserId = userId;
+              room.lastVersionBumpAt = Date.now();
+          '''
+          if anchor in yjs and 'room.lastVersionBumpAt = Date.now();' not in yjs[yjs.find(anchor):yjs.find(anchor)+300]:
+              yjs = yjs.replace(anchor, replacement, 1)
+          yjs = yjs.replace(
+              '''      }, ROOM_IDLE_TIMEOUT_MS);
+              }
+            }
+          ''',
+              '''      }, ROOM_IDLE_TIMEOUT_MS);
+                room.idleTimer.unref?.();
+              }
+            }
+          ''',
+              1,
+          )
+          yjs_path.write_text(yjs)
+
+          test_path = Path('backend/tests/note-split.test.ts')
+          source = test_path.read_text()
+          source = source.replace(
+              'assert.equal(undoResponse.status, 200);',
+              'assert.equal(undoResponse.status, 200, await undoResponse.clone().text());',
+          )
+          source = source.replace(
+              'assert.equal(undo.status, 200);',
+              'assert.equal(undo.status, 200, await undo.clone().text());',
+          )
+          test_path.write_text(source)
+          PY
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Run note split diagnostic
+        id: test
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          set +e
+          timeout 90s node --import tsx --import ./tests/setup-db-isolation.ts --test --test-concurrency=1 tests/note-split.test.ts 2>&1 | tee /tmp/note-split.log
+          exit ${PIPESTATUS[0]}
+      - name: Publish diagnostic
+        run: |
+          {
+            echo '## 🔬 note split undo diagnostic'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 220 /tmp/note-split.log
+            echo '```'
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
+      - name: Preserve failure status
+        if: steps.test.outcome == 'failure'
+        run: exit 1
