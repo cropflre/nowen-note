@@ -26,6 +26,8 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/MathExtensionsRuntime.tsx"
+      - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
@@ -37,6 +39,7 @@ on:
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - ".github/workflows/editor-runtime-ci.yml"
   pull_request:
     paths:
@@ -62,6 +65,8 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/MathExtensionsRuntime.tsx"
+      - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
@@ -73,6 +78,7 @@ on:
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - ".github/workflows/editor-runtime-ci.yml"
 
 permissions:
@@ -111,5 +117,6 @@ jobs:
           src/hooks/__tests__/useLazyNodeView.test.tsx
           src/components/__tests__/VideoExtension.test.ts
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
+          src/components/__tests__/SearchReplaceRuntime.test.ts
       - name: Frontend typecheck
         run: npx tsc -b
