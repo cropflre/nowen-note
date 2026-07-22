@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { computeSingleTextChange } from "@/lib/largeMarkdownSafetyRuntime";
@@ -41,7 +42,7 @@ describe("large Markdown incremental collaboration runtime", () => {
 
   it("keeps both local and remote incremental paths in the runtime shell", () => {
     const source = readFileSync(
-      new URL("../../components/LargeMarkdownSafeEditorRuntime.tsx", import.meta.url),
+      path.resolve(process.cwd(), "src/components/LargeMarkdownSafeEditorRuntime.tsx"),
       "utf-8",
     );
 
