@@ -1,4 +1,4 @@
-import { getDb } from "../db/schema";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 const FALLBACK_SETTING_KEY = "imageHosting:fallbackToLocal";
 
@@ -6,11 +6,9 @@ const FALLBACK_SETTING_KEY = "imageHosting:fallbackToLocal";
  * Whether clients may fall back to Nowen's attachment storage when the external image host fails.
  * Legacy installations did not persist this switch, so the compatibility default is true.
  */
-export function readImageHostingFallbackToLocal(): boolean {
+export async function readImageHostingFallbackToLocal(): Promise<boolean> {
   try {
-    const row = getDb()
-      .prepare("SELECT value FROM system_settings WHERE key = ?")
-      .get(FALLBACK_SETTING_KEY) as { value?: string } | undefined;
+    const row = await systemSettingsRepository.getAsync(FALLBACK_SETTING_KEY);
     if (!row) return true;
     const normalized = String(row.value ?? "").trim().toLowerCase();
     return normalized !== "false" && normalized !== "0";
@@ -20,16 +18,15 @@ export function readImageHostingFallbackToLocal(): boolean {
   }
 }
 
-export function writeImageHostingFallbackToLocal(value: boolean): boolean {
+export async function writeImageHostingFallbackToLocal(value: boolean): Promise<boolean> {
   const normalized = value !== false;
-  getDb().prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt
-  `).run(FALLBACK_SETTING_KEY, normalized ? "true" : "false");
+  await systemSettingsRepository.setAsync(
+    FALLBACK_SETTING_KEY,
+    normalized ? "true" : "false",
+  );
   return normalized;
 }
 
-export function deleteImageHostingFallbackPolicy(): void {
-  getDb().prepare("DELETE FROM system_settings WHERE key = ?").run(FALLBACK_SETTING_KEY);
+export async function deleteImageHostingFallbackPolicy(): Promise<void> {
+  await systemSettingsRepository.deleteAsync(FALLBACK_SETTING_KEY);
 }
