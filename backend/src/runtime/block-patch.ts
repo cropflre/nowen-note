@@ -17,6 +17,7 @@ import {
 } from "../lib/tiptapBlockPatch.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { logAudit } from "../services/audit.js";
+import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime.js";
 
 const BLOCK_PATCH_ROUTE = Symbol.for("nowen.blocks.batchPatchRoute");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
@@ -32,6 +33,7 @@ interface NoteRecord {
   version: number;
   isLocked: number;
   isTrashed: number;
+  updatedAt: string;
 }
 
 class BlockPatchRouteError extends Error {
@@ -52,7 +54,7 @@ type IdempotencyLookup =
 function readNote(noteId: string): NoteRecord | null {
   return (getDb().prepare(`
     SELECT id, userId, notebookId, title, content, contentText, contentFormat,
-           version, isLocked, isTrashed
+           version, isLocked, isTrashed, updatedAt
     FROM notes WHERE id = ?
   `).get(noteId) as NoteRecord | undefined) || null;
 }
@@ -184,6 +186,8 @@ async function patchBlocks(c: Context) {
 
       const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
       syncNoteLinks(db, userId, noteId, synced.content);
+      const persisted = readNote(noteId);
+      if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
 
       const deletedBlockIds = operations
         .filter((operation) => operation.type === "delete")
@@ -194,7 +198,13 @@ async function patchBlocks(c: Context) {
       const result = {
         success: true,
         noteId,
+        title: persisted.title,
         version: nextVersion,
+        updatedAt: persisted.updatedAt,
+        content: synced.content,
+        contentText: synced.contentText,
+        contentFormat: persisted.contentFormat,
+        notebookId: persisted.notebookId,
         operationCount: operations.length,
         affectedBlockIds: patch.affectedBlockIds,
         deletedBlockIds,
@@ -213,6 +223,25 @@ async function patchBlocks(c: Context) {
       operationCount: result.operationCount,
       affectedBlockIds: result.affectedBlockIds,
     }, { targetType: "note", targetId: noteId });
+    broadcastNoteUpdated(noteId, {
+      version: result.version,
+      updatedAt: result.updatedAt,
+      title: result.title,
+      contentText: result.contentText,
+      actorUserId: userId,
+    });
+    broadcastToUser(userId, {
+      type: "note:list-updated",
+      note: {
+        id: noteId,
+        title: result.title,
+        contentText: result.contentText,
+        contentFormat: result.contentFormat,
+        notebookId: result.notebookId,
+        version: result.version,
+        updatedAt: result.updatedAt,
+      },
+    });
     return c.json(result);
   } catch (error) {
     const mapped = mapPatchError(c, error);
