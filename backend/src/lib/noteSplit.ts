@@ -34,6 +34,7 @@ interface SelectedSplitDirectorySection extends SplitDirectorySection {
 
 function cleanHeadingTitle(raw: string, fallbackIndex: number): string {
   const cleaned = raw
+    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/, "")
     .replace(/\s+#+\s*$/, "")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
