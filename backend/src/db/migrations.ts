@@ -12,6 +12,7 @@ import {
   MIGRATIONS as BASE_MIGRATIONS,
   type Migration,
 } from "./migrations.impl.js";
+import { roundTripImportLinksMigration } from "./roundtripImportLinksMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -256,6 +257,7 @@ export const MIGRATIONS: Migration[] = [
   userAISettingsMigration,
   noteImportOriginsMigration,
   repairSearchContentTextMigration,
+  roundTripImportLinksMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
