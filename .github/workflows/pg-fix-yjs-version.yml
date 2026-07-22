@@ -1,16 +1,15 @@
 name: Apply PG Yjs version fix
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/pg-fix-yjs-version-trigger
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/apply-pg-yjs-version-fix'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
