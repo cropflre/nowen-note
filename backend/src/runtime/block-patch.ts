@@ -231,7 +231,7 @@ async function patchBlocks(c: Context) {
       actorUserId: userId,
     });
     broadcastToUser(userId, {
-      type: "note:list-updated",
+      type: "note:list-updated" as any,
       note: {
         id: noteId,
         title: result.title,
@@ -241,7 +241,9 @@ async function patchBlocks(c: Context) {
         version: result.version,
         updatedAt: result.updatedAt,
       },
-    });
+      actorUserId: userId,
+      actorConnectionId: null,
+    } as any);
     return c.json(result);
   } catch (error) {
     const mapped = mapPatchError(c, error);
