@@ -20,6 +20,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0002_api_tokens_parity",
     "0003_runtime_tables_parity",
     "0004_notebook_members_unique",
+    "0005_api_token_resources",
   ]);
 
   const stateTable = await pool.query(
@@ -32,15 +33,16 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     FROM information_schema.columns
     WHERE table_schema = 'public'
       AND table_name = 'api_tokens'
-      AND column_name IN ('tokenHash', 'scopes')
+      AND column_name IN ('tokenHash', 'scopes', 'resourceMode')
     ORDER BY column_name
   `);
   assert.deepEqual(
     apiTokenColumns.rows.map((row) => [row.column_name, row.is_nullable]),
-    [["scopes", "NO"], ["tokenHash", "NO"]],
+    [["resourceMode", "NO"], ["scopes", "NO"], ["tokenHash", "NO"]],
   );
 
   const parityTables = [
+    "api_token_resources",
     "audit_logs",
     "habit_checkins",
     "habits",
@@ -72,6 +74,13 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     notebookMembersUnique.rows[0].index_name,
     "idx_notebook_members_notebook_user",
   );
+
+  const resourceIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_api_token_resources_token') AS token_index,
+            to_regclass('public.idx_api_token_resources_resource') AS resource_index`,
+  );
+  assert.equal(resourceIndexes.rows[0].token_index, "idx_api_token_resources_token");
+  assert.equal(resourceIndexes.rows[0].resource_index, "idx_api_token_resources_resource");
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
