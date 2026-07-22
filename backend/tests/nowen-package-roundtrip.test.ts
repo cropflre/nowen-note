@@ -7,6 +7,7 @@ import path from "node:path";
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-package-roundtrip-test-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
 process.env.ELECTRON_USER_DATA = tmpDir;
+process.env.NOWEN_INSTANCE_ID = "roundtrip-source-instance-test";
 
 let closeDb: typeof import("../src/db/schema").closeDb;
 
@@ -15,7 +16,7 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test("Nowen package supports independent-copy and explicit safe-merge round trips", async () => {
+test("Nowen package supports copy, merge and conflict-safe incremental sync round trips", async () => {
   const schema = await import("../src/db/schema");
   const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
   const { importNowenPackage } = await import("../src/services/nowenPackageImport");
@@ -67,11 +68,15 @@ test("Nowen package supports independent-copy and explicit safe-merge round trip
     "2026-07-22 10:30:00",
   );
 
-  const exported = await createNowenPackageExport({
+  const exportSource = () => createNowenPackageExport({
     userId: "roundtrip-user",
     workspaceId: null,
+    notebookId: "root-source",
+    includeSubNotebooks: true,
     packageKind: "nowen",
   });
+
+  const exported = await exportSource();
   assert.equal(exported.stats.notebooks, 2);
   assert.equal(exported.stats.notes, 1);
   assert.equal(exported.stats.attachments, 1);
@@ -87,6 +92,7 @@ test("Nowen package supports independent-copy and explicit safe-merge round trip
   assert.equal(preview.conflicts?.length, 1);
   assert.equal(preview.conflicts?.[0].action, "rename-root");
   assert.equal(preview.conflicts?.[0].importedName, "产品资料 (2)");
+  assert.equal(preview.package?.sync?.available, false);
 
   const imported = await importNowenPackage(exported.buffer, {
     userId: "roundtrip-user",
@@ -98,6 +104,7 @@ test("Nowen package supports independent-copy and explicit safe-merge round trip
   assert.equal(imported.counts?.notebooks, 2);
   assert.equal(imported.counts?.notes, 1);
   assert.equal(imported.counts?.attachments, 1);
+  assert.equal(imported.package?.sync?.available, true);
 
   const importedRoot = db.prepare(`
     SELECT id, name, sortOrder FROM notebooks
@@ -149,6 +156,83 @@ test("Nowen package supports independent-copy and explicit safe-merge round trip
   assert.equal(importedAttachment!.size, 9);
   assert.equal(fs.readFileSync(path.join(attachmentDir, importedAttachment!.path), "utf8"), "pdf bytes");
 
+  const linkCounts = db.prepare(`
+    SELECT resourceType, COUNT(*) AS count
+      FROM roundtrip_import_links
+     WHERE sourceInstanceId = ?
+     GROUP BY resourceType
+  `).all("roundtrip-source-instance-test") as Array<{ resourceType: string; count: number }>;
+  assert.deepEqual(Object.fromEntries(linkCounts.map((item) => [item.resourceType, item.count])), {
+    attachment: 1,
+    note: 1,
+    notebook: 2,
+  });
+
+  // Source changed, target copy untouched: sync updates the mapped target in place.
+  db.prepare(`
+    UPDATE notes SET title = ?, content = ?, contentText = ?, updatedAt = ? WHERE id = ?
+  `).run(
+    "生产记录（来源更新）",
+    "来源第二版 [检测报告](/api/attachments/att-source)",
+    "来源第二版",
+    "2026-07-22 12:00:00",
+    "note-source",
+  );
+  const secondPackage = await exportSource();
+  const syncPreview = await importNowenPackage(secondPackage.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "sync",
+    dryRun: true,
+  });
+  assert.equal(syncPreview.success, true, syncPreview.errors.join("; "));
+  assert.equal(syncPreview.strategy, "sync");
+  assert.equal(syncPreview.counts?.updatedNotes, 1);
+  assert.equal(syncPreview.counts?.localConflicts, 0);
+
+  const synced = await importNowenPackage(secondPackage.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "sync",
+  });
+  assert.equal(synced.success, true, synced.errors.join("; "));
+  assert.equal(synced.counts?.updatedNotes, 1);
+  const afterSync = db.prepare("SELECT title, content FROM notes WHERE id = ?").get(importedNote!.id) as { title: string; content: string };
+  assert.equal(afterSync.title, "生产记录（来源更新）");
+  assert.match(afterSync.content, /来源第二版/);
+  assert.match(afterSync.content, new RegExp(`/api/attachments/${importedAttachment!.id}`));
+
+  // Both source and target changed: keep local content and report a conflict.
+  db.prepare("UPDATE notes SET title = ?, content = ?, contentText = ?, updatedAt = ? WHERE id = ?")
+    .run("本地人工修改", "本地必须保留", "本地必须保留", "2026-07-22 12:30:00", importedNote!.id);
+  db.prepare("UPDATE notes SET title = ?, content = ?, contentText = ?, updatedAt = ? WHERE id = ?")
+    .run("来源第三版", "来源第三版", "来源第三版", "2026-07-22 13:00:00", "note-source");
+  const thirdPackage = await exportSource();
+  const conflictPreview = await importNowenPackage(thirdPackage.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "sync",
+    dryRun: true,
+  });
+  assert.equal(conflictPreview.success, true, conflictPreview.errors.join("; "));
+  assert.equal(conflictPreview.counts?.localConflicts, 1);
+  assert.ok(conflictPreview.conflicts?.some((item: any) => item.action === "sync-local-conflict" && item.resourceType === "note"));
+
+  const conflictSync = await importNowenPackage(thirdPackage.buffer, {
+    userId: "roundtrip-user",
+    workspaceId: null,
+    importMode: "sync",
+  });
+  assert.equal(conflictSync.success, true, conflictSync.errors.join("; "));
+  assert.equal(conflictSync.counts?.localConflicts, 1);
+  const preserved = db.prepare("SELECT title, content FROM notes WHERE id = ?").get(importedNote!.id) as { title: string; content: string };
+  assert.equal(preserved.title, "本地人工修改");
+  assert.equal(preserved.content, "本地必须保留");
+
+  // Restore the original source title before exercising explicit merge behavior with the first package.
+  db.prepare("UPDATE notes SET title = ?, content = ?, contentText = ?, updatedAt = ? WHERE id = ?")
+    .run("生产记录", "[检测报告](/api/attachments/att-source)", "生产记录", "2026-07-22 11:00:00", "note-source");
+
   const mergePreview = await importNowenPackage(exported.buffer, {
     userId: "roundtrip-user",
     workspaceId: null,
@@ -160,8 +244,8 @@ test("Nowen package supports independent-copy and explicit safe-merge round trip
   assert.equal(mergePreview.counts?.notebooks, 0, "all package folders already exist in the matching root");
   assert.equal(mergePreview.counts?.mergedNotebooks, 2);
   assert.equal(mergePreview.counts?.renamedNotes, 1);
-  assert.ok(mergePreview.conflicts?.some((item) => item.action === "merge-directory" && item.originalName === "产品资料"));
-  assert.ok(mergePreview.conflicts?.some((item) => item.action === "rename-note" && item.importedName === "生产记录 (2)"));
+  assert.ok(mergePreview.conflicts?.some((item: any) => item.action === "merge-directory" && item.originalName === "产品资料"));
+  assert.ok(mergePreview.conflicts?.some((item: any) => item.action === "rename-note" && item.importedName === "生产记录 (2)"));
 
   const merged = await importNowenPackage(exported.buffer, {
     userId: "roundtrip-user",

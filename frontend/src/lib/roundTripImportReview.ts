@@ -1,6 +1,6 @@
-import { api, getBaseUrl } from "./api";
+import { api, getBaseUrl, getCurrentWorkspace } from "./api";
 
-export type RoundTripImportStrategy = "copy" | "merge";
+export type RoundTripImportStrategy = "copy" | "merge" | "sync";
 
 export interface RoundTripPackageCounts {
   notebooks?: number;
@@ -11,6 +11,13 @@ export interface RoundTripPackageCounts {
   renamedRoots?: number;
   mergedNotebooks?: number;
   renamedNotes?: number;
+  updatedNotebooks?: number;
+  updatedNotes?: number;
+  unchangedNotes?: number;
+  localConflicts?: number;
+  recreatedResources?: number;
+  reusedAttachments?: number;
+  removedAttachments?: number;
 }
 
 export interface RoundTripPackageFormatStats {
@@ -19,14 +26,31 @@ export interface RoundTripPackageFormatStats {
   html?: number;
 }
 
+export type RoundTripImportConflictAction =
+  | "rename-root"
+  | "merge-directory"
+  | "rename-note"
+  | "sync-create-directory"
+  | "sync-update-directory"
+  | "sync-create-note"
+  | "sync-update-note"
+  | "sync-local-conflict"
+  | "sync-replace-attachment";
+
 export interface RoundTripImportConflict {
-  action?: "rename-root" | "merge-directory" | "rename-note";
-  resourceType?: "notebook" | "note";
+  action?: RoundTripImportConflictAction;
+  resourceType?: "notebook" | "note" | "attachment";
   sourceId?: string;
   originalName?: string;
   importedName?: string;
   parentId?: string | null;
   targetId?: string;
+}
+
+export interface RoundTripSyncAvailability {
+  available?: boolean;
+  linkedResources?: number;
+  reason?: string | null;
 }
 
 export interface RoundTripPackagePreview {
@@ -39,6 +63,9 @@ export interface RoundTripPackagePreview {
     schemaVersion?: number;
     exportedAt?: string;
     packageKind?: string;
+    sourceInstanceId?: string | null;
+    exportBatchId?: string | null;
+    sync?: RoundTripSyncAvailability;
     counts?: RoundTripPackageCounts;
     formatStats?: RoundTripPackageFormatStats;
   };
@@ -74,13 +101,18 @@ interface SubmitRoundTripPackageOptions {
   targetNotebookId?: string;
 }
 
+interface RememberedImportDecision {
+  strategy: RoundTripImportStrategy;
+  workspaceId?: string;
+}
+
 type Listener = (requests: RoundTripImportReviewRequest[]) => void;
 
 let sequence = 1;
 let requests: RoundTripImportReviewRequest[] = [];
 const listeners = new Set<Listener>();
 const resolvers = new Map<number, (decision: RoundTripImportReviewDecision) => void>();
-const selectedStrategyByFile = new WeakMap<File, RoundTripImportStrategy>();
+const selectedDecisionByFile = new WeakMap<File, RememberedImportDecision>();
 let bridgeInstalled = false;
 
 function emit(): void {
@@ -107,11 +139,13 @@ export async function submitRoundTripPackage(
   if (options.targetNotebookId) params.set("targetNotebookId", options.targetNotebookId);
   params.set(
     "importMode",
-    options.strategy === "merge"
-      ? "merge"
-      : options.targetNotebookId
-        ? "into-target"
-        : "new-root",
+    options.strategy === "sync"
+      ? "sync"
+      : options.strategy === "merge"
+        ? "merge"
+        : options.targetNotebookId
+          ? "into-target"
+          : "new-root",
   );
   if (options.dryRun) params.set("dryRun", "1");
 
@@ -197,44 +231,61 @@ function armLegacyConfirmResult(result: boolean): void {
   timer = window.setTimeout(restore, 2_000);
 }
 
+function currentWorkspaceId(): string | undefined {
+  const value = getCurrentWorkspace();
+  return value && value !== "personal" ? value : undefined;
+}
+
 /**
- * Enhances the legacy Nowen-package panel without coupling the dialog to DataManager. The selected
- * strategy is remembered for the exact File object and applied to the formal import call.
+ * Enhance the legacy Nowen-package panel without coupling it to the review dialog.
+ *
+ * All three strategies use the same explicit workspace-aware endpoint. This avoids the historical
+ * dry-run/import mismatch where the preview was calculated in personal scope while the UI showed a
+ * workspace. Sync is only offered when the server confirms that stable source mappings exist.
  */
 export function installRoundTripImportReviewBridge(): void {
   if (bridgeInstalled) return;
   bridgeInstalled = true;
 
-  const nativeDryRun = api.dryRunNowenPackage.bind(api);
   const nativeImport = api.importNowenPackage.bind(api);
 
   api.dryRunNowenPackage = (async (file: File) => {
-    const preview = await nativeDryRun(file) as RoundTripPackagePreview;
+    const workspaceId = currentWorkspaceId();
+    const preview = await submitRoundTripPackage(file, {
+      dryRun: true,
+      strategy: "copy",
+      workspaceId,
+    });
     if (!preview?.success) return preview;
     const decision = await requestRoundTripImportReview(preview, {
       fileName: file.name,
-      targetLabel: "当前导入空间",
+      targetLabel: workspaceId ? "所选工作区" : "个人空间",
       source: "nowen-panel",
       initialStrategy: "copy",
-      loadPreview: (strategy) => strategy === "copy"
-        ? Promise.resolve(preview)
-        : submitRoundTripPackage(file, { dryRun: true, strategy }),
+      loadPreview: (strategy) => submitRoundTripPackage(file, {
+        dryRun: true,
+        strategy,
+        workspaceId,
+      }),
     });
-    if (decision.accepted) selectedStrategyByFile.set(file, decision.strategy);
-    else selectedStrategyByFile.delete(file);
+    if (decision.accepted) {
+      selectedDecisionByFile.set(file, { strategy: decision.strategy, workspaceId });
+    } else {
+      selectedDecisionByFile.delete(file);
+    }
     armLegacyConfirmResult(decision.accepted);
     return preview;
   }) as typeof api.dryRunNowenPackage;
 
   api.importNowenPackage = (async (file: File, opts?: any) => {
-    const strategy = selectedStrategyByFile.get(file) || "copy";
-    selectedStrategyByFile.delete(file);
-    if (strategy === "copy") return nativeImport(file, opts);
+    const remembered = selectedDecisionByFile.get(file);
+    selectedDecisionByFile.delete(file);
+    if (!remembered) return nativeImport(file, opts);
     return submitRoundTripPackage(file, {
       dryRun: false,
-      strategy,
+      strategy: remembered.strategy,
+      workspaceId: opts?.workspaceId ?? remembered.workspaceId,
       targetNotebookId: opts?.targetNotebookId,
-      workspaceId: opts?.workspaceId,
     });
   }) as typeof api.importNowenPackage;
 }

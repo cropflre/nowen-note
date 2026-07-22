@@ -1,7 +1,7 @@
-export {
-  importNowenPackageV2 as importNowenPackage,
-  type ImportConflict,
-  type ImportParams,
-  type RoundTripConflictStrategy,
-  type RoundTripImportMode,
-} from "./nowenPackageImportV2";
+export { importNowenPackageWithSync as importNowenPackage } from "./nowenRoundTripSync";
+export type {
+  RoundTripImportParams as ImportParams,
+  RoundTripSyncImportMode as RoundTripImportMode,
+  RoundTripSyncStrategy as RoundTripConflictStrategy,
+} from "./nowenRoundTripSync";
+export type { ImportConflict } from "./nowenPackageImportV2";

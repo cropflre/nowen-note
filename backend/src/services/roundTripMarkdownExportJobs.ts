@@ -11,7 +11,12 @@ import {
   type PreparedMarkdownNote,
   type ReliableExportJobSnapshot,
 } from "./reliableExportJobs";
-import { createNowenPackageExport } from "./nowenPackageExport";
+import { createStableNowenPackageExport } from "./nowenPackageExportStable";
+import { ensureNowenInstanceEnvironment } from "./nowenInstanceIdentity";
+
+// export.ts imports this service at router startup. Pin the instance identity once so the native
+// Nowen-package endpoint and Markdown jobs both write the same stable sourceInstanceId.
+ensureNowenInstanceEnvironment();
 
 const TMP_PREFIX = "nowen-roundtrip-markdown-";
 const TTL_MS = 30 * 60 * 1000;
@@ -104,7 +109,7 @@ async function buildJob(
     job.message = "正在生成完整目录与附件清单";
     const noteIds = notes.map((note) => note.id);
     const workspaceId = inferWorkspaceId(job.userId, noteIds);
-    const result = await createNowenPackageExport({
+    const result = await createStableNowenPackageExport({
       userId: job.userId,
       workspaceId,
       noteIds,
