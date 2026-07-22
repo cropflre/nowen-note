@@ -51,11 +51,11 @@ describe("editor runtime store", () => {
     let explicitCalls = 0;
     let autoCalls = 0;
     const lowlight = instrumentPhaseALowlight({
-      highlight: () => {
+      highlight: (_language: string, _code: string) => {
         explicitCalls += 1;
         return { children: [{ value: "x" }] };
       },
-      highlightAuto: () => {
+      highlightAuto: (_code: string) => {
         autoCalls += 1;
         return { children: [{ value: "x" }] };
       },
