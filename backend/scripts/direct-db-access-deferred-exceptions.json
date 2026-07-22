@@ -87,6 +87,21 @@
       "reason": "Note transfer is a high-risk multi-table transaction added after the baseline and requires an explicit cross-driver transaction design.",
       "counts": { "better-sqlite3": 1, "getDb-call": 3, "prepare-call": 16, "transaction-call": 1 }
     },
+    "services/nowenPackageExport.ts": {
+      "owner": "#251",
+      "reason": "Main expanded Nowen package export with an additional database read. Export consistency and cross-driver streaming belong to the #251 migration tooling stage.",
+      "counts": { "getDb-call": 2, "prepare-call": 6 }
+    },
+    "services/nowenPackageImport.ts": {
+      "owner": "#251",
+      "reason": "Main expanded Nowen package import metadata handling. The bulk copy/checkpoint PostgreSQL implementation remains owned by #251.",
+      "counts": { "db-exec-call": 3, "getDb-call": 1, "prepare-call": 10 }
+    },
+    "services/roundTripMarkdownExportJobs.ts": {
+      "owner": "#251",
+      "reason": "Round-trip Markdown export jobs were added after the baseline and are part of the import/export data migration surface tracked by #251.",
+      "counts": { "getDb-call": 1, "prepare-call": 2 }
+    },
     "services/single-share-access.ts": {
       "owner": "#249",
       "reason": "Main consolidated single-share access into a service that still owns SQLite transactions. The share/ACL runtime batch must migrate it as one atomic unit.",
