@@ -5,10 +5,9 @@ import {
 } from "@/lib/editorRuntimePolicy";
 
 /**
- * The full Markdown editor enables language parsing, syntax highlighting, live preview,
- * outline extraction and several whole-document transforms. The progressive runtime policy
- * keeps medium documents in CodeMirror viewport mode and only routes pathological Markdown to
- * the lightweight textarea editor.
+ * The full Markdown editor enables live preview, embedded language highlighting and several
+ * whole-document transforms. Medium/large documents are routed to the dedicated CodeMirror
+ * viewport editor; only the most expensive tier disables Markdown parsing/highlighting entirely.
  */
 export const LARGE_MARKDOWN_THRESHOLDS = {
   characters: EDITOR_RUNTIME_THRESHOLDS.markdown.lightweight.characters,
@@ -29,13 +28,21 @@ export function shouldUseLargeMarkdownSafeMode(
   }).mode === "lightweight-edit";
 }
 
+/** Route both viewport-optimized and lightweight Markdown through the worker-backed editor. */
+export function shouldUseLargeMarkdownOptimizedMode(
+  content: string | null | undefined,
+): boolean {
+  if (!content) return false;
+  const mode = resolveEditorRuntimeDecision({
+    content,
+    contentFormat: "markdown",
+  }).mode;
+  return mode === "viewport-optimized" || mode === "lightweight-edit";
+}
+
 /**
- * A bounded, parser-free search representation for safe mode.
- *
- * The server remains the authoritative indexer, but the editor contract still expects a
- * contentText snapshot. Avoid running the full Markdown parser on the renderer thread;
- * retain the beginning and end so title/introduction and recent appended content remain
- * searchable while keeping payload work bounded.
+ * A bounded, parser-free search representation used only when the background analysis has not
+ * completed before an explicit save/snapshot. The Worker-generated plain text is preferred.
  */
 export function buildLargeMarkdownSearchText(
   markdown: string,
@@ -50,9 +57,7 @@ export function buildLargeMarkdownSearchText(
 }
 
 /**
- * Parser-free outline extraction. It recognizes ATX headings and is deliberately capped
- * so a generated document with thousands of headings cannot create an equally large
- * React outline tree.
+ * Parser-free synchronous outline fallback retained for tests and non-Worker environments.
  */
 export function extractLargeMarkdownHeadings(
   markdown: string,
@@ -92,9 +97,8 @@ export interface SingleTextChange {
 }
 
 /**
- * Compute one compact replacement range. This is used by the lightweight collaborative
- * editor so a one-character edit does not replace/broadcast the entire multi-megabyte
- * Y.Text document.
+ * Compute one compact replacement range so a one-character edit does not replace/broadcast the
+ * entire multi-megabyte Y.Text document.
  */
 export function computeSingleTextChange(
   previous: string,
