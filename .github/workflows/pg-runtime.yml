@@ -170,7 +170,8 @@ jobs:
           test -f dist/postgres/migrations/0003_runtime_tables_parity.sql &&
           test -f dist/postgres/migrations/0004_notebook_members_unique.sql &&
           test -f dist/postgres/migrations/0005_api_token_resources.sql &&
-          test -f dist/postgres/migrations/0006_share_capabilities.sql
+          test -f dist/postgres/migrations/0006_share_capabilities.sql &&
+          test -f dist/postgres/migrations/0007_note_import_origins.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
