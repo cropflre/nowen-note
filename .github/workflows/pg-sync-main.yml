@@ -79,6 +79,14 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          indexer_path = Path("backend/src/services/attachment-indexer.ts")
+          indexer = indexer_path.read_text()
+          old_indexer_import = 'import { getAttachmentsDir } from "../routes/attachments";'
+          new_indexer_import = 'import { getAttachmentsDir } from "./attachment-storage";'
+          if old_indexer_import not in indexer and new_indexer_import not in indexer:
+              raise SystemExit("attachment-indexer import pattern not found")
+          indexer_path.write_text(indexer.replace(old_indexer_import, new_indexer_import, 1))
+
           import_path = Path("backend/src/services/nowenPackageImport.ts")
           import_source = import_path.read_text()
           old_notes_loop = '''  const notesFolder = zip.folder("notes");
@@ -91,41 +99,46 @@ jobs:
               for (const name of Object.keys(notesFolder.files)) {
                 if (!/^notes\\/[^/]+\\/meta\\.json$/.test(name)) continue;
           '''
-          if old_notes_loop not in import_source:
+          if old_notes_loop in import_source:
+              import_source = import_source.replace(old_notes_loop, new_notes_loop, 1)
+          elif new_notes_loop not in import_source:
               raise SystemExit("nowenPackageImport notes loop pattern not found")
-          import_path.write_text(import_source.replace(old_notes_loop, new_notes_loop, 1))
+          import_path.write_text(import_source)
 
           links_test_path = Path("backend/tests/note-links-repository-async.test.ts")
           links_test = links_test_path.read_text()
-          old_replace_contract = '''  // Other user's link should still exist
-            const otherLinks = getDb().prepare("SELECT * FROM note_links WHERE userId = ? AND sourceNoteId = ?").all(otherUser, NOTE_1) as any[];
-            assert.equal(otherLinks.length, 1);
-          '''
-          new_replace_contract = '''  // Links are owned by the source note, so replacing the source removes legacy rows regardless of saver.
-            const otherLinks = getDb().prepare("SELECT * FROM note_links WHERE userId = ? AND sourceNoteId = ?").all(otherUser, NOTE_1) as any[];
-            assert.equal(otherLinks.length, 0);
-          '''
-          old_backlink_contract = '''  const backlinks = await noteLinksRepository.getBacklinksAsync(USER_ID, NOTE_1);
-            assert.equal(backlinks.length, 0);
-            clean();
-          });
-          '''
-          new_backlink_contract = '''  const backlinks = await noteLinksRepository.getBacklinksAsync(USER_ID, NOTE_1);
-            assert.equal(backlinks.length, 1);
-            assert.equal(backlinks[0].sourceNoteId, NOTE_2);
-            clean();
-          });
-          '''
-          if old_replace_contract not in links_test:
-              raise SystemExit("note links replace contract pattern not found")
-          if old_backlink_contract not in links_test:
-              raise SystemExit("note links backlink contract pattern not found")
-          links_test = links_test.replace(old_replace_contract, new_replace_contract, 1)
-          links_test = links_test.replace(old_backlink_contract, new_backlink_contract, 1)
+
+          replace_test_name = 'test("replaceLinksForSourceAsync does not affect other userId"'
+          replace_start = links_test.find(replace_test_name)
+          replace_end = links_test.find('\n});', replace_start)
+          if replace_start < 0 or replace_end < 0:
+              raise SystemExit("note links replace test not found")
+          replace_block = links_test[replace_start:replace_end]
+          replace_block = replace_block.replace(
+              '// Other user\'s link should still exist',
+              '// Links are owned by the source note, so replacement removes legacy rows regardless of saver.',
+          )
+          replace_block = replace_block.replace('assert.equal(otherLinks.length, 1);', 'assert.equal(otherLinks.length, 0);')
+          links_test = links_test[:replace_start] + replace_block + links_test[replace_end:]
+
+          backlink_test_name = 'test("getBacklinksAsync does not return links for other userId"'
+          backlink_start = links_test.find(backlink_test_name)
+          backlink_end = links_test.find('\n});', backlink_start)
+          if backlink_start < 0 or backlink_end < 0:
+              raise SystemExit("note links backlink test not found")
+          backlink_block = links_test[backlink_start:backlink_end]
+          backlink_block = backlink_block.replace(
+              'assert.equal(backlinks.length, 0);',
+              'assert.equal(backlinks.length, 1);\n  assert.equal(backlinks[0].sourceNoteId, NOTE_2);',
+          )
+          links_test = links_test[:backlink_start] + backlink_block + links_test[backlink_end:]
           links_test_path.write_text(links_test)
           PY
 
-          git add backend/src/services/nowenPackageImport.ts backend/tests/note-links-repository-async.test.ts
+          git add \
+            backend/src/services/attachment-indexer.ts \
+            backend/src/services/nowenPackageImport.ts \
+            backend/tests/note-links-repository-async.test.ts
           git rm -f .github/workflows/pg-sync-main.yml
           git commit --amend --no-edit
           echo "after=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -154,7 +167,7 @@ jobs:
             echo "Run: \`${{ github.run_id }}\`"
             echo
             echo '```text'
-            tail -n 200 /tmp/typecheck.log
+            tail -n 220 /tmp/typecheck.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
@@ -183,7 +196,7 @@ jobs:
             echo "Run: \`${{ github.run_id }}\`"
             echo
             echo '```text'
-            tail -n 240 /tmp/sqlite-audit.log
+            tail -n 260 /tmp/sqlite-audit.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
@@ -212,7 +225,7 @@ jobs:
             echo "Run: \`${{ github.run_id }}\`"
             echo
             echo '```text'
-            tail -n 260 /tmp/schema-parity.log
+            tail -n 280 /tmp/schema-parity.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
@@ -251,7 +264,7 @@ jobs:
             output=$(node --import tsx --import ./tests/setup-db-isolation.ts --test "tests/${file}" 2>&1)
             code=$?
             set -e
-            echo "$output" | tail -n 70 >> /tmp/sqlite-failures-detailed.log
+            echo "$output" | tail -n 90 >> /tmp/sqlite-failures-detailed.log
             echo "exit=${code}" >> /tmp/sqlite-failures-detailed.log
             echo >> /tmp/sqlite-failures-detailed.log
           done
@@ -279,7 +292,7 @@ jobs:
             echo 'Detailed diagnostics are attached as a workflow artifact.'
             echo
             echo '```text'
-            tail -n 420 /tmp/sqlite-failures-detailed.log
+            tail -n 480 /tmp/sqlite-failures-detailed.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
@@ -309,7 +322,8 @@ jobs:
           test -f dist/postgres/migrations/0004_notebook_members_unique.sql &&
           test -f dist/postgres/migrations/0005_api_token_resources.sql &&
           test -f dist/postgres/migrations/0006_share_capabilities.sql &&
-          test -f dist/postgres/migrations/0007_note_import_origins.sql
+          test -f dist/postgres/migrations/0007_note_import_origins.sql &&
+          test -f dist/postgres/migrations/0008_note_split_tables.sql
 
       - name: Push synchronized branch
         run: git push origin HEAD:pg-migration-unified
@@ -326,7 +340,7 @@ jobs:
             echo "Merge head: \`${{ steps.merge.outputs.after }}\`"
             echo "Run: \`${{ github.run_id }}\`"
             echo
-            echo 'TypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, production bundle, and migration packaging all passed.'
+            echo 'TypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, production bundle, and migrations 0001-0008 packaging all passed.'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
 
