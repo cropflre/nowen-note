@@ -219,6 +219,32 @@ describe("Tiptap Block Patch runtime shell", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not inherit another split pane note's optimized runtime", async () => {
+    const current = note("split-secondary", "Before");
+    const nextContent = content("After");
+    setActiveEditorRuntimeDecision("split-primary", optimizedDecision("x"));
+    const wholeSave = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />);
+    });
+    const payload = {
+      title: current.title,
+      content: nextContent,
+      contentText: "After",
+      _noteId: current.id,
+      _saveGeneration: 1,
+    };
+    await act(async () => {
+      fixture.baseProps.onUpdate(payload);
+      await flushAsync();
+    });
+
+    expect(wholeSave).toHaveBeenCalledWith(payload);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("waits for the patch version before forwarding a queued title save", async () => {
     const current = note("title-note", "Before");
     const nextContent = content("After");
