@@ -13,6 +13,7 @@ import {
   applyTiptapBlockPatch,
   TiptapBlockPatchError,
   validateTiptapBlockPatchOperations,
+  type TiptapBlockPatchOperation,
 } from "../lib/tiptapBlockPatch.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { logAudit } from "../services/audit.js";
@@ -127,7 +128,7 @@ async function patchBlocks(c: Context) {
   const cached = readIdempotentResult(userId, noteId, body.operationId);
   if (cached) return c.json({ ...(cached as any), idempotentReplay: true });
 
-  let operations;
+  let operations: TiptapBlockPatchOperation[];
   try {
     operations = validateTiptapBlockPatchOperations(body.operations);
   } catch (error) {
@@ -149,7 +150,10 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      const patch = applyTiptapBlockPatch(note.content, operations);
+      // Materialize missing/duplicate stable IDs inside the same transaction. If any later operation
+      // fails, both this normalization and every patch operation roll back together.
+      const normalizedBefore = syncNoteBlocks(db, noteId, note.content, note.contentFormat);
+      const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
       const contentText = plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
       const update = db.prepare(`
@@ -182,7 +186,7 @@ async function patchBlocks(c: Context) {
         deletedBlockIds,
         createdBlocks: patch.createdBlocks,
         blocks,
-        contentChangedByNormalization: synced.changed,
+        contentChangedByNormalization: normalizedBefore.changed || synced.changed,
       };
       storeIdempotentResult(userId, noteId, body.operationId, result);
       return result;
