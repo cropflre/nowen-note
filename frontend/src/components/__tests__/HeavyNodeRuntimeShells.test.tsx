@@ -26,6 +26,33 @@ function lightweightDecision() {
   });
 }
 
+function mediaDocument(attrs: Record<string, unknown>) {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Keep the initial cursor outside the media node." }],
+      },
+      { type: "video", attrs },
+    ],
+  };
+}
+
+async function renderMediaNode(attrs: Record<string, unknown>) {
+  const editor = new Editor({
+    extensions: [Document, Paragraph, Text, Video],
+    content: mediaDocument(attrs),
+  });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(createElement(EditorContent, { editor }));
+  });
+  return { editor, host, root };
+}
+
 afterEach(() => {
   clearActiveEditorRuntimeDecision();
   document.body.innerHTML = "";
@@ -34,45 +61,55 @@ afterEach(() => {
 describe("heavy node runtime shells", () => {
   it("does not create a video element in lightweight mode until the user requests it", async () => {
     setActiveEditorRuntimeDecision("video-note", lightweightDecision());
-    const editor = new Editor({
-      extensions: [Document, Paragraph, Text, Video],
-      content: {
-        type: "doc",
-        content: [{
-          type: "video",
-          attrs: {
-            src: "/api/attachments/video-1?inline=1",
-            originalUrl: "/api/attachments/video-1",
-            platform: "file",
-            kind: "file",
-            filename: "large.mp4",
-          },
-        }],
-      },
+    const fixture = await renderMediaNode({
+      src: "/api/attachments/video-1?inline=1",
+      originalUrl: "/api/attachments/video-1",
+      platform: "file",
+      kind: "file",
+      filename: "large.mp4",
     });
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
 
     try {
-      await act(async () => {
-        root.render(createElement(EditorContent, { editor }));
-      });
-
-      expect(host.querySelector("[data-video-placeholder]")).not.toBeNull();
-      expect(host.querySelector("video")).toBeNull();
-      expect(host.querySelector("iframe")).toBeNull();
+      expect(fixture.host.querySelector("[data-video-placeholder]")).not.toBeNull();
+      expect(fixture.host.querySelector("video")).toBeNull();
+      expect(fixture.host.querySelector("iframe")).toBeNull();
 
       await act(async () => {
-        host.querySelector<HTMLButtonElement>("[data-video-placeholder] button")?.click();
+        fixture.host.querySelector<HTMLButtonElement>("[data-video-placeholder] button")?.click();
       });
 
-      expect(host.querySelector("[data-video-placeholder]")).toBeNull();
-      expect(host.querySelector("video")).not.toBeNull();
+      expect(fixture.host.querySelector("[data-video-placeholder]")).toBeNull();
+      expect(fixture.host.querySelector("video")).not.toBeNull();
     } finally {
-      await act(async () => root.unmount());
-      editor.destroy();
-      host.remove();
+      await act(async () => fixture.root.unmount());
+      fixture.editor.destroy();
+      fixture.host.remove();
+    }
+  });
+
+  it("does not create an iframe in lightweight mode until the user requests it", async () => {
+    setActiveEditorRuntimeDecision("iframe-note", lightweightDecision());
+    const fixture = await renderMediaNode({
+      src: "https://www.youtube-nocookie.com/embed/example",
+      originalUrl: "https://www.youtube.com/watch?v=example",
+      platform: "youtube",
+      kind: "iframe",
+    });
+
+    try {
+      expect(fixture.host.querySelector("[data-video-placeholder]")).not.toBeNull();
+      expect(fixture.host.querySelector("iframe")).toBeNull();
+
+      await act(async () => {
+        fixture.host.querySelector<HTMLButtonElement>("[data-video-placeholder] button")?.click();
+      });
+
+      expect(fixture.host.querySelector("[data-video-placeholder]")).toBeNull();
+      expect(fixture.host.querySelector("iframe")).not.toBeNull();
+    } finally {
+      await act(async () => fixture.root.unmount());
+      fixture.editor.destroy();
+      fixture.host.remove();
     }
   });
 
