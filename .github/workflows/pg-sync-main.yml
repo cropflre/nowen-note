@@ -165,12 +165,37 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts
 
       - name: Full SQLite regression
+        id: sqlite_regression
+        continue-on-error: true
         working-directory: backend
         env:
           DB_DRIVER: sqlite
           DATABASE_URL: ""
           TEST_PG_DATABASE_URL: ""
-        run: npm run test:serial
+        shell: bash
+        run: |
+          set +e
+          npm run test:serial 2>&1 | tee /tmp/sqlite-regression.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish SQLite regression diagnostics
+        if: steps.sqlite_regression.outcome == 'failure'
+        shell: bash
+        run: |
+          {
+            echo '## ❌ main synchronization SQLite regression failed'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 300 /tmp/sqlite-regression.log
+            echo '```'
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
+
+      - name: Stop after SQLite regression failure
+        if: steps.sqlite_regression.outcome == 'failure'
+        run: exit 1
 
       - name: Real PostgreSQL regression
         working-directory: backend
@@ -192,7 +217,8 @@ jobs:
         run: >-
           test -f dist/postgres/migrations/0004_notebook_members_unique.sql &&
           test -f dist/postgres/migrations/0005_api_token_resources.sql &&
-          test -f dist/postgres/migrations/0006_share_capabilities.sql
+          test -f dist/postgres/migrations/0006_share_capabilities.sql &&
+          test -f dist/postgres/migrations/0007_note_import_origins.sql
 
       - name: Push synchronized branch
         run: git push origin HEAD:pg-migration-unified
@@ -214,7 +240,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
 
       - name: Publish generic failure
-        if: failure() && steps.typecheck.outcome != 'failure' && steps.sqlite_audit.outcome != 'failure' && steps.schema_parity.outcome != 'failure'
+        if: failure() && steps.typecheck.outcome != 'failure' && steps.sqlite_audit.outcome != 'failure' && steps.schema_parity.outcome != 'failure' && steps.sqlite_regression.outcome != 'failure'
         shell: bash
         run: |
           {
