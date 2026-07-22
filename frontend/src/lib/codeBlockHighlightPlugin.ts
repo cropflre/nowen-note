@@ -332,6 +332,15 @@ export function createCodeBlockHighlightPlugin({
       const scrollContainer = findScrollableAncestor(view.dom);
       const scrollTarget: HTMLElement | Window = scrollContainer || window;
       let viewportFrame = 0;
+      const requestFrame = (callback: FrameRequestCallback): number => (
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame(callback)
+          : window.setTimeout(() => callback(performance.now()), 16)
+      );
+      const cancelFrame = (handle: number) => {
+        if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(handle);
+        else window.clearTimeout(handle);
+      };
 
       const reportQueueDepth = () => report?.("highlight-queue-depth", { depth: scheduled.size });
 
@@ -349,6 +358,7 @@ export function createCodeBlockHighlightPlugin({
       };
 
       const schedulePending = () => {
+        if (view.isDestroyed) return;
         const pending = pluginKey.getState(view.state)?.pending || [];
         cancelMissingTasks(pending);
         if (view.composing || !isActiveEditorCapabilityEnabled("syntax-highlight")) return;
@@ -360,7 +370,7 @@ export function createCodeBlockHighlightPlugin({
           const run = () => {
             scheduled.delete(task.key);
             reportQueueDepth();
-            if (cancelled || view.composing || !isActiveEditorCapabilityEnabled("syntax-highlight")) {
+            if (cancelled || view.isDestroyed || view.composing || !isActiveEditorCapabilityEnabled("syntax-highlight")) {
               schedulePending();
               return;
             }
@@ -382,7 +392,7 @@ export function createCodeBlockHighlightPlugin({
               durationMs: performance.now() - startedAt,
             });
             const stillActive = pluginKey.getState(view.state)?.pending.some((candidate) => taskEquals(candidate, task));
-            if (!stillActive) {
+            if (!stillActive || view.isDestroyed) {
               report?.("highlight-task-stale", { pos: task.pos, codeLength: task.code.length });
               return;
             }
@@ -410,7 +420,7 @@ export function createCodeBlockHighlightPlugin({
       };
 
       const resolveViewportRange = (): ViewportRange | null => {
-        if (!usesViewportHighlighting()) return null;
+        if (!usesViewportHighlighting() || view.isDestroyed) return null;
         const docSize = view.state.doc.content.size;
         const fallbackFrom = view.state.selection.from;
         const fallbackTo = view.state.selection.to;
@@ -442,6 +452,7 @@ export function createCodeBlockHighlightPlugin({
       };
 
       const refreshViewport = (force = false) => {
+        if (view.isDestroyed) return;
         const next = resolveViewportRange();
         if (!force && rangesEqual(activeViewport, next)) return;
         view.dispatch(view.state.tr.setMeta(pluginKey, {
@@ -456,9 +467,9 @@ export function createCodeBlockHighlightPlugin({
       };
 
       const scheduleViewportRefresh = () => {
-        if (!usesViewportHighlighting()) return;
-        if (viewportFrame) window.cancelAnimationFrame(viewportFrame);
-        viewportFrame = window.requestAnimationFrame(() => {
+        if (!usesViewportHighlighting() || view.isDestroyed) return;
+        if (viewportFrame) cancelFrame(viewportFrame);
+        viewportFrame = requestFrame(() => {
           viewportFrame = 0;
           refreshViewport();
           schedulePending();
@@ -467,6 +478,7 @@ export function createCodeBlockHighlightPlugin({
 
       const handleCompositionEnd = () => window.queueMicrotask(schedulePending);
       const handleRuntimeChange = () => {
+        if (view.isDestroyed) return;
         if (usesViewportHighlighting()) {
           refreshViewport(true);
         } else {
@@ -499,7 +511,7 @@ export function createCodeBlockHighlightPlugin({
           scrollTarget.removeEventListener("scroll", handleScroll);
           window.removeEventListener("resize", handleResize);
           window.removeEventListener("nowen:editor-runtime-change", handleRuntimeChange);
-          if (viewportFrame) window.cancelAnimationFrame(viewportFrame);
+          if (viewportFrame) cancelFrame(viewportFrame);
           for (const item of scheduled.values()) {
             item.cancel();
             report?.("highlight-task-cancelled", {
