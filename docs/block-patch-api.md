@@ -48,7 +48,7 @@ The current V1 accepts only notes whose `contentFormat` is `tiptap-json`.
 ### Envelope fields
 
 - `expectedNoteVersion`: required optimistic-lock version. The complete patch is rejected with `409 VERSION_CONFLICT` when it does not match.
-- `operationId`: required idempotency key, 8–128 characters. A retry after an uncertain network result must reuse the same value.
+- `operationId`: required user-level idempotency key, 8–128 characters. It must be globally unique for the current user. A retry after an uncertain network result must reuse the same value for the same note; reusing it on another note returns `OPERATION_ID_CONFLICT`.
 - `operations`: ordered list containing 1–100 operations. The encoded request is limited to approximately 2 MB.
 
 ### Operations
@@ -173,6 +173,7 @@ Common error codes:
 - `INVALID_TIPTAP_DOCUMENT`
 - `NOTE_LOCKED`
 - `VERSION_CONFLICT`
+- `OPERATION_ID_CONFLICT`
 - `BLOCK_FORMAT_UNSUPPORTED`
 
 Permission failures intentionally use `404 NOT_FOUND` semantics so the endpoint does not disclose private note existence.
