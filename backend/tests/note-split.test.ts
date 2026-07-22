@@ -13,8 +13,8 @@ import { installNoteSplitRoutes } from "../src/runtime/note-split.ts";
 
 function stripRuntimeBlockIds(markdown: string): string {
   return markdown
-    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/gm, "")
-    .replace(/^\^blk_[A-Za-z0-9_-]{6,}\s*$/gm, "")
+    .replace(/[ \t]+\^blk_[A-Za-z0-9_-]{6,}[ \t]*$/gm, "")
+    .replace(/^\^blk_[A-Za-z0-9_-]{6,}[ \t]*$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
