@@ -13,7 +13,6 @@ import {
   submitRoundTripPackage,
   type RoundTripImportStrategy,
 } from "./roundTripImportReview";
-import { announceRoundTripImportCompleted } from "./roundTripImportBatches";
 
 export {
   tiptapExtensions,
@@ -209,8 +208,6 @@ export async function importNotes(
             ? `导入完成，共 ${createdNotes} 篇笔记，${warningCount} 项需要检查`
             : `导入完成，共 ${createdNotes} 篇笔记`,
     });
-    const batchId = String(result?.importBatch?.id || "");
-    if (batchId) announceRoundTripImportCompleted(batchId);
     return { success: true, count: decision.strategy === "sync" ? affectedCount : createdNotes };
   } catch (error) {
     onProgress?.({
