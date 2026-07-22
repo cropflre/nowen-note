@@ -39,10 +39,7 @@ type RuntimeTiptapEditorProps = NoteEditorProps & {
 };
 
 type InflightPatch = {
-  noteId: string;
-  expectedVersion: number;
   operationId: string;
-  saveGeneration: number;
   lifecycle: number;
 };
 
@@ -150,6 +147,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       const { result, payload, note, inflight } = options;
       if (lifecycleRef.current !== inflight.lifecycle) return;
       if (propsRef.current.note.id !== note.id) return;
+      if (inflightRef.current !== inflight) return;
 
       const snapshot = baseRef.current?.getSnapshot?.() ?? null;
       const preserveLocalEditor = Boolean(
@@ -233,10 +231,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
 
       const lifecycle = lifecycleRef.current;
       const inflight: InflightPatch = {
-        noteId: note.id,
-        expectedVersion: note.version,
         operationId: createBlockPatchOperationId(),
-        saveGeneration: payload._saveGeneration || 0,
         lifecycle,
       };
       inflightRef.current = inflight;
@@ -261,11 +256,20 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
             result = await patchTiptapBlocks(note.id, request);
           }
 
+          if (
+            lifecycleRef.current !== lifecycle
+            || propsRef.current.note.id !== note.id
+            || inflightRef.current !== inflight
+          ) return;
           applyConfirmedResult({ result, payload, note, inflight });
-          inflightRef.current = null;
+          if (inflightRef.current === inflight) inflightRef.current = null;
           if (queuedPayloadRef.current) drainAfterVersionRef.current = result.version;
         } catch (error) {
-          if (lifecycleRef.current !== lifecycle || propsRef.current.note.id !== note.id) return;
+          if (
+            lifecycleRef.current !== lifecycle
+            || propsRef.current.note.id !== note.id
+            || inflightRef.current !== inflight
+          ) return;
           inflightRef.current = null;
           const latest = queuedPayloadRef.current || payload;
           queuedPayloadRef.current = null;
