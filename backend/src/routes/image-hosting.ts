@@ -27,32 +27,24 @@ const ALLOWED_MIMES = new Set([
   "image/png", "image/jpeg", "image/gif", "image/webp",
 ]);
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-function readPublicConfigWithPolicy() {
-  return {
-    ...readImageHostingConfigPublic(),
-    fallbackToLocal: readImageHostingFallbackToLocal(),
-  };
+async function readPublicConfigWithPolicy() {
+  const [config, fallbackToLocal] = await Promise.all([
+    readImageHostingConfigPublic(),
+    readImageHostingFallbackToLocal(),
+  ]);
+  return { ...config, fallbackToLocal };
 }
 
-/**
- * GET /api/image-hosting/config
- * 读取脱敏配置
- */
-app.get("/config", (c) => {
+app.get("/config", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
-  // 只有管理员可以查看配置
   if (!isSystemAdmin(userId)) {
     return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
   }
-  return c.json(readPublicConfigWithPolicy());
+  return c.json(await readPublicConfigWithPolicy());
 });
 
-/**
- * PUT /api/image-hosting/config
- * 保存配置
- */
 app.put("/config", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!isSystemAdmin(userId)) {
@@ -75,55 +67,43 @@ app.put("/config", async (c) => {
     allowedTypes: body.allowedTypes || ["image/png", "image/jpeg", "image/gif", "image/webp"],
   };
 
-  writeImageHostingConfig(input);
-  writeImageHostingFallbackToLocal(body.fallbackToLocal !== false);
-  return c.json(readPublicConfigWithPolicy());
+  await Promise.all([
+    writeImageHostingConfig(input),
+    writeImageHostingFallbackToLocal(body.fallbackToLocal !== false),
+  ]);
+  return c.json(await readPublicConfigWithPolicy());
 });
 
-/**
- * DELETE /api/image-hosting/config
- * 删除配置
- */
-app.delete("/config", (c) => {
+app.delete("/config", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!isSystemAdmin(userId)) {
     return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
   }
-  deleteImageHostingConfig();
-  deleteImageHostingFallbackPolicy();
-  return c.json(readPublicConfigWithPolicy());
+  await Promise.all([
+    deleteImageHostingConfig(),
+    deleteImageHostingFallbackPolicy(),
+  ]);
+  return c.json(await readPublicConfigWithPolicy());
 });
 
-/**
- * POST /api/image-hosting/test
- * 测试配置是否可用
- */
 app.post("/test", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!isSystemAdmin(userId)) {
     return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
   }
-
-  const result = await testImageHostingConfig();
-  return c.json(result);
+  return c.json(await testImageHostingConfig());
 });
 
-/**
- * POST /api/image-hosting/upload
- * 上传图片到第三方图床
- */
 app.post("/upload", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) {
     return c.json({ error: "未登录", code: "UNAUTHORIZED" }, 401);
   }
 
-  // 检查图床是否启用
-  if (!isImageHostingEnabled()) {
+  if (!(await isImageHostingEnabled())) {
     return c.json({ error: "第三方图床未启用", code: "NOT_ENABLED" }, 400);
   }
 
-  // 解析 multipart form data
   const body = await c.req.parseBody();
   const file = body["file"];
   const source = (body["source"] as string) || "editor";
@@ -132,27 +112,17 @@ app.post("/upload", async (c) => {
     return c.json({ error: "未上传文件", code: "NO_FILE" }, 400);
   }
 
-  // 校验文件类型
   const mime = (file.type || "application/octet-stream").toLowerCase();
   if (!ALLOWED_MIMES.has(mime)) {
     return c.json({ error: `不支持的文件类型: ${mime}`, code: "INVALID_TYPE" }, 400);
   }
-
-  // 校验文件大小
   if (file.size > MAX_FILE_SIZE) {
     return c.json({ error: `文件过大（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, code: "FILE_TOO_LARGE" }, 400);
   }
 
-  // 读取文件内容
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  // 上传到图床
+  const buffer = Buffer.from(await file.arrayBuffer());
   const result = await uploadImageToHosting(buffer, file.name, mime);
-
-  if (!result.success) {
-    return c.json(result, 500);
-  }
+  if (!result.success) return c.json(result, 500);
 
   return c.json({
     success: true,
@@ -165,15 +135,12 @@ app.post("/upload", async (c) => {
   });
 });
 
-/**
- * GET /api/image-hosting/status
- * 检查图床是否启用，并下发不含敏感信息的失败回退策略。
- */
-app.get("/status", (c) => {
-  return c.json({
-    enabled: isImageHostingEnabled(),
-    fallbackToLocal: readImageHostingFallbackToLocal(),
-  });
+app.get("/status", async (c) => {
+  const [enabled, fallbackToLocal] = await Promise.all([
+    isImageHostingEnabled(),
+    readImageHostingFallbackToLocal(),
+  ]);
+  return c.json({ enabled, fallbackToLocal });
 });
 
 export default app;
