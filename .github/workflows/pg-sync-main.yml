@@ -13,7 +13,7 @@ jobs:
   sync:
     if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/sync-main-into-pg'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     services:
       postgres:
@@ -178,6 +178,23 @@ jobs:
           npm run test:serial 2>&1 | tee /tmp/sqlite-regression.log
           exit ${PIPESTATUS[0]}
 
+      - name: Rerun failed SQLite files with full errors
+        if: steps.sqlite_regression.outcome == 'failure'
+        working-directory: backend
+        shell: bash
+        run: |
+          : > /tmp/sqlite-failures-detailed.log
+          sed -n 's/^  - \(.*\.test\.ts\)$/\1/p' /tmp/sqlite-regression.log | while read -r file; do
+            echo "===== ${file} =====" >> /tmp/sqlite-failures-detailed.log
+            set +e
+            output=$(node --import tsx --import ./tests/setup-db-isolation.ts --test "tests/${file}" 2>&1)
+            code=$?
+            set -e
+            echo "$output" | tail -n 55 >> /tmp/sqlite-failures-detailed.log
+            echo "exit=${code}" >> /tmp/sqlite-failures-detailed.log
+            echo >> /tmp/sqlite-failures-detailed.log
+          done
+
       - name: Publish SQLite regression diagnostics
         if: steps.sqlite_regression.outcome == 'failure'
         shell: bash
@@ -188,7 +205,7 @@ jobs:
             echo "Run: \`${{ github.run_id }}\`"
             echo
             echo '```text'
-            tail -n 300 /tmp/sqlite-regression.log
+            tail -n 950 /tmp/sqlite-failures-detailed.log
             echo '```'
           } > /tmp/status.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
