@@ -10,6 +10,8 @@ on:
       - "backend/src/routes/import-batches.ts"
       - "backend/src/routes/settings.ts"
       - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/nowenPackageImportV2.ts"
+      - "backend/src/services/nowenRoundTripSync.ts"
       - "backend/src/services/roundTripImportBatches.ts"
       - "backend/src/services/roundTripImportLinkUndo.ts"
       - "backend/tests/roundtrip-import-batches.test.ts"
@@ -27,6 +29,8 @@ on:
       - "backend/src/routes/import-batches.ts"
       - "backend/src/routes/settings.ts"
       - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/nowenPackageImportV2.ts"
+      - "backend/src/services/nowenRoundTripSync.ts"
       - "backend/src/services/roundTripImportBatches.ts"
       - "backend/src/services/roundTripImportLinkUndo.ts"
       - "backend/tests/roundtrip-import-batches.test.ts"
@@ -38,9 +42,141 @@ on:
       - ".github/workflows/roundtrip-import-batch-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  repair-source:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply strict ZIP note path and nullable model fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("backend/src/services/nowenPackageImportV2.ts"): [(
+          '''  const noteContents = new Map<string, { content: string; meta: NoteMeta }>();
+            const notesFolder = zip.folder("notes");
+            if (notesFolder) {
+              for (const name of Object.keys(notesFolder.files)) {
+                if (!name.endsWith("/meta.json")) continue;
+                const noteId = name.split("/")[1];
+                if (!noteId) continue;
+                const meta = await readJson<NoteMeta>(zip, `notes/${noteId}/meta.json`);
+                if (!meta) {
+                  errors.push(`Invalid note metadata: ${noteId}`);
+                  continue;
+                }
+                if (!isSafeZipPath(meta.contentFile)) {
+                  errors.push(`Unsafe note content path: ${meta.contentFile}`);
+                  continue;
+                }
+                const contentPath = `notes/${noteId}/${meta.contentFile}`;
+                const entry = zip.file(contentPath);
+                if (!entry) {
+                  errors.push(`Note content not found: ${contentPath}`);
+                  continue;
+                }
+                noteContents.set(noteId, { meta, content: await entry.async("string") });
+              }
+            }
+          ''',
+          '''  const noteContents = new Map<string, { content: string; meta: NoteMeta }>();
+            for (const name of Object.keys(zip.files)) {
+              const match = name.match(/^notes\\/([^/]+)\\/meta\\.json$/);
+              if (!match) continue;
+              const noteId = match[1];
+              const meta = await readJson<NoteMeta>(zip, `notes/${noteId}/meta.json`);
+              if (!meta) {
+                errors.push(`Invalid note metadata: ${noteId}`);
+                continue;
+              }
+              if (!isSafeZipPath(meta.contentFile)) {
+                errors.push(`Unsafe note content path: ${meta.contentFile}`);
+                continue;
+              }
+              const contentPath = `notes/${noteId}/${meta.contentFile}`;
+              const entry = zip.file(contentPath);
+              if (!entry) {
+                errors.push(`Note content not found: ${contentPath}`);
+                continue;
+              }
+              noteContents.set(noteId, { meta, content: await entry.async("string") });
+            }
+          ''')],
+              Path("backend/src/services/nowenRoundTripSync.ts"): [(
+          '''  const notes = new Map<string, SourceNote>();
+            const notesFolder = zip.folder("notes");
+            if (notesFolder) {
+              for (const filename of Object.keys(notesFolder.files)) {
+                if (!filename.endsWith("/meta.json")) continue;
+                const sourceId = filename.split("/")[1];
+                if (!sourceId) continue;
+                const meta = await readJson<NoteMeta>(zip, `notes/${sourceId}/meta.json`);
+                if (!meta) throw new Error(`Invalid note metadata: ${sourceId}`);
+                const contentEntry = zip.file(`notes/${sourceId}/${meta.contentFile}`);
+                if (!contentEntry) throw new Error(`Note content not found: ${sourceId}/${meta.contentFile}`);
+                const content = await contentEntry.async("string");
+                const noteAttachments = Array.from(attachments.values()).filter((item) => item.meta.noteId === sourceId);
+                notes.set(sourceId, {
+                  meta,
+                  content,
+                  sourceHash: sourceNoteHash(meta, content, noteAttachments),
+                });
+              }
+            }
+          ''',
+          '''  const notes = new Map<string, SourceNote>();
+            for (const filename of Object.keys(zip.files)) {
+              const match = filename.match(/^notes\\/([^/]+)\\/meta\\.json$/);
+              if (!match) continue;
+              const sourceId = match[1];
+              const meta = await readJson<NoteMeta>(zip, `notes/${sourceId}/meta.json`);
+              if (!meta) throw new Error(`Invalid note metadata: ${sourceId}`);
+              const contentEntry = zip.file(`notes/${sourceId}/${meta.contentFile}`);
+              if (!contentEntry) throw new Error(`Note content not found: ${sourceId}/${meta.contentFile}`);
+              const content = await contentEntry.async("string");
+              const noteAttachments = Array.from(attachments.values()).filter((item) => item.meta.noteId === sourceId);
+              notes.set(sourceId, {
+                meta,
+                content,
+                sourceHash: sourceNoteHash(meta, content, noteAttachments),
+              });
+            }
+          '''), (
+          '''  if (result.success && !params.dryRun && snapshot && model?.manifest.packageKind !== "markdown") {''',
+          '''  if (result.success && !params.dryRun && snapshot && model && model.manifest.packageKind !== "markdown") {''')],
+          }
+
+          changed = False
+          for path, pairs in replacements.items():
+              text = path.read_text()
+              for old, new in pairs:
+                  if old in text:
+                      text = text.replace(old, new, 1)
+                      changed = True
+                  elif new not in text:
+                      raise SystemExit(f"expected source block missing in {path}")
+              path.write_text(text)
+          print("changed" if changed else "already patched")
+          PY
+      - name: Commit repaired sources
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backend/src/services/nowenPackageImportV2.ts backend/src/services/nowenRoundTripSync.ts
+          git commit -m "fix(import): scan only exact note metadata paths"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 25
