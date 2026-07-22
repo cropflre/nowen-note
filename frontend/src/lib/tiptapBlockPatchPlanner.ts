@@ -8,6 +8,8 @@ const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const STRUCTURAL_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 const TEXT_BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 
+type ReplaceOperation = Extract<BlockPatchOperation, { type: "replace" }>;
+
 interface JsonNode {
   type?: string;
   attrs?: Record<string, unknown> | null;
@@ -117,10 +119,6 @@ function uniqueBlocks(nodes: JsonNode[]): SimpleBlock[] | null {
 function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
   const base = uniqueBlocks(baseDoc.content || []);
   const next = uniqueBlocks(nextDoc.content || []);
-  // The backend repairs an empty document by generating a new paragraph Block ID. Until the
-  // protocol returns and reconciles that server-generated replacement as an explicit operation,
-  // keep delete-all on the established whole-document save path so local/server identities cannot
-  // diverge.
   if (!base || !next || next.length === 0) return null;
 
   const baseById = new Map(base.map((item) => [item.id, item]));
@@ -152,8 +150,6 @@ function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
     });
   }
 
-  // Deletes happen before creates. New blocks are appended first, then the following stable
-  // left-to-right reorder converts that temporary order into the exact editor order.
   const desired = next.map((item) => item.id);
   const desiredSet = new Set(desired);
   const current = base.map((item) => item.id).filter((id) => desiredSet.has(id));
@@ -298,7 +294,7 @@ function planNodeReplacements(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlock
   if (!base || !next || base.skeleton !== next.skeleton) return null;
   if (base.nodesById.size !== next.nodesById.size) return null;
 
-  const operations: BlockPatchOperation[] = [];
+  const operations: ReplaceOperation[] = [];
   for (const [blockId, nextEntry] of next.nodesById) {
     const baseEntry = base.nodesById.get(blockId);
     if (!baseEntry || baseEntry.parentType !== nextEntry.parentType) return null;
@@ -315,11 +311,6 @@ function planNodeReplacements(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlock
   };
 }
 
-/**
- * Convert two confirmed Tiptap snapshots into the narrow Block Patch protocol.
- *
- * Returning null is intentional and means the caller must use the existing whole-document save.
- */
 export function planTiptapBlockPatch(
   baseContent: string,
   nextContent: string,
