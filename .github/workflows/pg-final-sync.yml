@@ -1,0 +1,326 @@
+name: Final sync main into PostgreSQL migration branch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    if: github.event.issue.number == 372 && github.event.issue.pull_request && github.event.comment.body == '/sync-main-into-pg-final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      IMAGE_HOSTING_ENCRYPTION_KEY: pg-final-sync-image-hosting-key-2026
+      GH_TOKEN: ${{ github.token }}
+      STATUS_COMMENT_ID: "5042929483"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge latest main and preserve verified PG implementations
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          echo "before=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          git merge --no-ff --no-edit -X ours origin/main
+
+          pg_parent=$(git rev-parse HEAD^1)
+          git checkout "$pg_parent" -- \
+            .github/workflows/pg-runtime.yml \
+            backend/src/lib/api-tokens.ts \
+            backend/src/lib/attachment-signed-url.ts \
+            backend/src/routes/attachments.ts \
+            backend/src/routes/image-hosting.ts \
+            backend/src/routes/tokens.ts \
+            backend/src/repositories/apiTokensRepository.ts \
+            backend/src/repositories/apiTokenSchemaRepository.ts \
+            backend/src/repositories/attachmentSignedAccessRepository.ts \
+            backend/src/repositories/memberQueryRepository.ts \
+            backend/src/repositories/notebookShareLinksRepository.ts \
+            backend/src/repositories/shareCommentsRepository.ts \
+            backend/src/services/image-hosting.ts \
+            backend/src/services/image-hosting-policy.ts \
+            backend/src/services/roundTripMarkdownExportJobs.ts \
+            backend/src/services/yjs.ts \
+            backend/tests/api-token-resources-pg.test.ts \
+            backend/tests/attachment-signed-url-boundary.test.ts \
+            backend/tests/docker-hardened-entrypoint.test.ts \
+            backend/tests/image-hosting-settings-pg.test.ts \
+            backend/tests/note-transfer-hardening.test.ts \
+            backend/tests/note-transfer.test.ts \
+            backend/tests/postgres-migrations.test.ts \
+            backend/tests/siyuan-issue-284-regression.test.ts
+
+          python - <<'PY'
+          from pathlib import Path
+
+          indexer_path = Path("backend/src/services/attachment-indexer.ts")
+          indexer = indexer_path.read_text()
+          old_indexer_import = 'import { getAttachmentsDir } from "../routes/attachments";'
+          new_indexer_import = 'import { getAttachmentsDir } from "./attachment-storage";'
+          if old_indexer_import in indexer:
+              indexer = indexer.replace(old_indexer_import, new_indexer_import, 1)
+          elif new_indexer_import not in indexer:
+              raise SystemExit("attachment-indexer import pattern not found")
+          indexer_path.write_text(indexer)
+
+          import_path = Path("backend/src/services/nowenPackageImport.ts")
+          import_source = import_path.read_text()
+          old_notes_loop = '''  const notesFolder = zip.folder("notes");
+            if (notesFolder) {
+              for (const name of Object.keys(notesFolder.files)) {
+                if (!name.endsWith("/meta.json")) continue;
+          '''
+          new_notes_loop = '''  const notesFolder = zip.folder("notes");
+            if (notesFolder) {
+              for (const name of Object.keys(notesFolder.files)) {
+                if (!/^notes\\/[^/]+\\/meta\\.json$/.test(name)) continue;
+          '''
+          if old_notes_loop in import_source:
+              import_source = import_source.replace(old_notes_loop, new_notes_loop, 1)
+          elif new_notes_loop not in import_source:
+              raise SystemExit("nowenPackageImport notes loop pattern not found")
+          import_path.write_text(import_source)
+
+          links_test_path = Path("backend/tests/note-links-repository-async.test.ts")
+          links_test = links_test_path.read_text()
+
+          replace_name = 'test("replaceLinksForSourceAsync does not affect other userId"'
+          start = links_test.find(replace_name)
+          end = links_test.find('\n});', start)
+          if start < 0 or end < 0:
+              raise SystemExit("note links replace contract test not found")
+          block = links_test[start:end]
+          block = block.replace(
+              '// Other user\'s link should still exist',
+              '// Links are owned by the source note, so replacement removes legacy rows regardless of saver.',
+          )
+          block = block.replace('assert.equal(otherLinks.length, 1);', 'assert.equal(otherLinks.length, 0);')
+          links_test = links_test[:start] + block + links_test[end:]
+
+          backlink_name = 'test("getBacklinksAsync does not return links for other userId"'
+          start = links_test.find(backlink_name)
+          end = links_test.find('\n});', start)
+          if start < 0 or end < 0:
+              raise SystemExit("note links backlink contract test not found")
+          block = links_test[start:end]
+          if 'assert.equal(backlinks.length, 0);' in block:
+              block = block.replace(
+                  'assert.equal(backlinks.length, 0);',
+                  'assert.equal(backlinks.length, 1);\n  assert.equal(backlinks[0].sourceNoteId, NOTE_2);',
+                  1,
+              )
+          links_test = links_test[:start] + block + links_test[end:]
+          links_test_path.write_text(links_test)
+          PY
+
+          git add \
+            .github/workflows/pg-runtime.yml \
+            backend/src/services/attachment-indexer.ts \
+            backend/src/services/nowenPackageImport.ts \
+            backend/src/services/yjs.ts \
+            backend/tests/note-links-repository-async.test.ts
+
+          git rm -f --ignore-unmatch \
+            .github/pg-sync-main-trigger \
+            .github/pg-fix-yjs-version-trigger \
+            .github/pg-image-hosting-trigger \
+            .github/workflows/pg-sync-main.yml \
+            .github/workflows/pg-final-sync.yml \
+            .github/workflows/pg-fix-yjs-version.yml \
+            .github/workflows/pg-diagnose-note-split.yml \
+            .github/workflows/pg-image-hosting-finalize.yml
+
+          git commit --amend --no-edit
+          echo "after=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript, audits and SQL dialect
+        id: static_checks
+        continue-on-error: true
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo '=== TypeScript ==='
+            npm run build:tsc -- --noEmit
+            echo '=== SQLite boundary audit ==='
+            npm run audit:sqlite-boundaries
+            echo '=== PostgreSQL schema parity ==='
+            npm run audit:pg-schema-parity
+            echo '=== SQL dialect ==='
+            node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts
+          } 2>&1 | tee /tmp/pg-final-sync.log
+
+      - name: Stop after static failure
+        if: steps.static_checks.outcome == 'failure'
+        run: exit 1
+
+      - name: Full SQLite regression
+        id: sqlite
+        continue-on-error: true
+        working-directory: backend
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:serial 2>&1 | tee -a /tmp/pg-final-sync.log
+
+      - name: Stop after SQLite failure
+        if: steps.sqlite.outcome == 'failure'
+        run: exit 1
+
+      - name: Real PostgreSQL regression
+        id: postgres
+        continue-on-error: true
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test --test-concurrency=1 \
+            tests/postgres-adapter.test.ts \
+            tests/postgres-migrations.test.ts \
+            tests/repository-batch-a-pg.test.ts \
+            tests/repository-batch-b-pg.test.ts \
+            tests/repository-permissions-pg.test.ts \
+            tests/repository-access-session-pg.test.ts \
+            tests/api-token-resources-pg.test.ts \
+            tests/system-settings-repository-pg.test.ts \
+            tests/image-hosting-settings-pg.test.ts \
+            tests/custom-fonts-repository-pg.test.ts \
+            tests/favorites-repository-pg.test.ts \
+            tests/note-tags-repository-pg.test.ts 2>&1 | tee -a /tmp/pg-final-sync.log
+
+      - name: Stop after PostgreSQL failure
+        if: steps.postgres.outcome == 'failure'
+        run: exit 1
+
+      - name: Production backend bundle and migration packaging
+        id: bundle
+        continue-on-error: true
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee -a /tmp/pg-final-sync.log
+          test -f dist/postgres/schema.sql
+          test -f dist/postgres/schema.base.sql
+          for migration in \
+            0001_migration_state.sql \
+            0002_api_tokens_parity.sql \
+            0003_runtime_tables_parity.sql \
+            0004_notebook_members_unique.sql \
+            0005_api_token_resources.sql \
+            0006_share_capabilities.sql \
+            0007_note_import_origins.sql \
+            0008_note_split_tables.sql; do
+            test -f "dist/postgres/migrations/$migration"
+          done
+
+      - name: Stop after bundle failure
+        if: steps.bundle.outcome == 'failure'
+        run: exit 1
+
+      - name: PostgreSQL runtime-only smoke test
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DB_DRIVER=postgres
+          export PORT=3101
+          export DB_PATH=/tmp/nowen-pg-final-sync-no-sqlite.db
+          rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
+          node dist/index.js > /tmp/pg-runtime-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; cat /tmp/pg-runtime-smoke.log' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3101/api/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          node -e '
+            const fs = require("node:fs");
+            const health = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
+            if (health.database?.driver !== "postgres" || health.database?.ok !== true) throw new Error(JSON.stringify(health));
+            if (health.runtime?.mode !== "postgres-runtime-only") throw new Error(JSON.stringify(health.runtime));
+          '
+          test ! -e "$DB_PATH"
+          kill -TERM "$pid"
+          wait "$pid"
+          trap - EXIT
+
+      - name: Push synchronized branch
+        run: git push origin HEAD:pg-migration-unified
+
+      - name: Publish success
+        if: success()
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="## ✅ latest main synchronized into pg-migration-unified
+
+Before: \`${{ steps.merge.outputs.before }}\`
+Main: \`${{ steps.merge.outputs.main }}\`
+Merge head: \`${{ steps.merge.outputs.after }}\`
+Run: \`${{ github.run_id }}\`
+
+TypeScript, SQLite boundary audit, PostgreSQL schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression including image hosting settings, production bundle, migrations 0001–0008 packaging, and PostgreSQL runtime-only smoke all passed."
+
+      - name: Publish failure
+        if: failure()
+        run: |
+          {
+            echo '## ❌ final latest-main synchronization failed'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 420 /tmp/pg-final-sync.log 2>/dev/null || true
+            tail -n 100 /tmp/pg-runtime-smoke.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/status.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -X PATCH -f body="$(cat /tmp/status.md)"
