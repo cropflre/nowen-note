@@ -190,7 +190,8 @@ export function serializeTiptapSection(
   plan: TiptapSplitPlan,
   section: TiptapSplitSection,
 ): string {
-  return serializeDocument(plan.document, section.contentNodes);
+  const content = section.contentNodes.length > 0 ? section.contentNodes : [paragraph("")];
+  return serializeDocument(plan.document, content);
 }
 
 export function buildTiptapSplitSource(options: {
