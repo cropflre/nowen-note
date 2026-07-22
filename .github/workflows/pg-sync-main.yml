@@ -80,8 +80,14 @@ jobs:
             echo
             echo "Run: \`${{ github.run_id }}\`"
             echo
+            echo '### TypeScript'
             echo '```text'
             tail -n 120 /tmp/typecheck.log
+            echo '```'
+            echo
+            echo '### Merged tokens.ts lines 150-230'
+            echo '```text'
+            nl -ba backend/src/routes/tokens.ts | sed -n '150,230p'
             echo '```'
           } > /tmp/typecheck-comment.md
           gh pr comment 372 --body-file /tmp/typecheck-comment.md
