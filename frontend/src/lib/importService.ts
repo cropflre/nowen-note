@@ -11,6 +11,7 @@ import type {
 import {
   requestRoundTripImportReview,
   submitRoundTripPackage,
+  type RoundTripImportStrategy,
 } from "./roundTripImportReview";
 
 export {
@@ -131,14 +132,16 @@ export async function importNotes(
   }
 
   const file = packageItems[0].__nowenRoundTripPackage!;
-  const submitOptions = {
+  const submitOptionsFor = (strategy: RoundTripImportStrategy) => ({
     workspaceId: options?.workspaceId,
-    targetNotebookId: notebookId || undefined,
-  };
+    // Sync always follows the source→target mappings recorded by the first import. A folder
+    // currently selected in the import UI must not relocate mapped resources accidentally.
+    targetNotebookId: strategy === "sync" ? undefined : notebookId || undefined,
+  });
   try {
     onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和来源映射…" });
     const copyPreview = await submitRoundTripPackage(file, {
-      ...submitOptions,
+      ...submitOptionsFor("copy"),
       dryRun: true,
       strategy: "copy",
     });
@@ -148,7 +151,7 @@ export async function importNotes(
       source: "shared-import",
       initialStrategy: "copy",
       loadPreview: (strategy) => submitRoundTripPackage(file, {
-        ...submitOptions,
+        ...submitOptionsFor(strategy),
         dryRun: true,
         strategy,
       }),
@@ -161,7 +164,7 @@ export async function importNotes(
     const selectedPreview = decision.strategy === "copy"
       ? copyPreview
       : await submitRoundTripPackage(file, {
-        ...submitOptions,
+        ...submitOptionsFor(decision.strategy),
         dryRun: true,
         strategy: decision.strategy,
       });
@@ -179,7 +182,7 @@ export async function importNotes(
             : "预检已确认，正在原样恢复目录和附件…",
     });
     const result = await submitRoundTripPackage(file, {
-      ...submitOptions,
+      ...submitOptionsFor(decision.strategy),
       dryRun: false,
       strategy: decision.strategy,
     });
