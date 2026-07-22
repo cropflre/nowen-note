@@ -26,7 +26,7 @@
  */
 import fs from "fs";
 import path from "path";
-import { getAttachmentsDir } from "../routes/attachments";
+import { getAttachmentsDir } from "./attachment-storage";
 
 // 最大解析文件字节数（20MB）。更大的文件直接跳过，避免把内存打爆
 const MAX_PARSE_SIZE = 20 * 1024 * 1024;
