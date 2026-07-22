@@ -22,6 +22,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0004_notebook_members_unique",
     "0005_api_token_resources",
     "0006_share_capabilities",
+    "0007_note_import_origins",
   ]);
 
   const stateTable = await pool.query(
@@ -48,6 +49,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "habit_checkins",
     "habits",
     "mindmaps",
+    "note_import_origins",
     "notebook_acl_overrides",
     "notebook_public_comments",
     "notebook_publications",
@@ -105,6 +107,18 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
       ["notebook_share_links", "useCount", "NO"],
     ],
   );
+
+  const importOriginIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_note_import_origins_scope_external') AS scope_external,
+            to_regclass('public.idx_note_import_origins_note') AS note_index,
+            to_regclass('public.idx_note_import_origins_batch') AS batch_index`,
+  );
+  assert.equal(
+    importOriginIndexes.rows[0].scope_external,
+    "idx_note_import_origins_scope_external",
+  );
+  assert.equal(importOriginIndexes.rows[0].note_index, "idx_note_import_origins_note");
+  assert.equal(importOriginIndexes.rows[0].batch_index, "idx_note_import_origins_batch");
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
