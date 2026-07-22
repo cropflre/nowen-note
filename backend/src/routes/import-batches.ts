@@ -3,8 +3,8 @@ import {
   getRoundTripImportBatch,
   listRoundTripImportBatches,
   RoundTripImportUndoError,
-  undoRoundTripImportBatch,
 } from "../services/roundTripImportBatches";
+import { undoRoundTripImportBatchWithLinks } from "../services/roundTripImportLinkUndo";
 import { broadcastToUser } from "../services/realtime";
 
 const app = new Hono();
@@ -36,7 +36,7 @@ app.get("/:id", (c) => {
 app.post("/:id/undo", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   try {
-    const item = await undoRoundTripImportBatch(userId, c.req.param("id"));
+    const item = await undoRoundTripImportBatchWithLinks(userId, c.req.param("id"));
     try {
       broadcastToUser(userId, {
         type: "notes:imported",
