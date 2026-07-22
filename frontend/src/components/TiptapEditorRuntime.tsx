@@ -13,7 +13,7 @@ import type {
   NoteEditorUpdatePayload,
 } from "@/components/editors/types";
 import {
-  getActiveEditorRuntimeDecision,
+  getActiveEditorRuntimeState,
   subscribeEditorRuntime,
 } from "@/lib/editorRuntimeStore";
 import { shouldPublishRealtimeTiptapOutline } from "@/lib/tiptapDerivedRuntime";
@@ -96,13 +96,18 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     const drainAfterVersionRef = useRef<number | null>(null);
     const processPayloadRef = useRef<(payload: NoteEditorUpdatePayload) => void>(() => undefined);
 
-    const decision = useSyncExternalStore(
+    const runtimeState = useSyncExternalStore(
       subscribeEditorRuntime,
-      getActiveEditorRuntimeDecision,
-      getActiveEditorRuntimeDecision,
+      getActiveEditorRuntimeState,
+      getActiveEditorRuntimeState,
     );
-    const publishRealtimeOutline = shouldPublishRealtimeTiptapOutline(decision);
-    const blockPatchEnabled = resolveTiptapBlockPatchEnabled({
+    const runtimeBelongsToNote = runtimeState.noteId === props.note.id;
+    const decision = runtimeState.decision;
+    // Split/public editors may coexist with the active optimized editor. Only the note that owns
+    // the runtime decision may inherit its outline and persistence degradation policy.
+    const publishRealtimeOutline = !runtimeBelongsToNote
+      || shouldPublishRealtimeTiptapOutline(decision);
+    const blockPatchEnabled = runtimeBelongsToNote && resolveTiptapBlockPatchEnabled({
       mode: decision.mode,
       override: readBlockPatchOverride(),
       editable: props.editable !== false,
