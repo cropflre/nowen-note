@@ -117,6 +117,75 @@ test("formal round-trip import persists a report and can be safely undone", asyn
   assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM roundtrip_import_links").get()), 0);
 });
 
+test("sync undo restores the pre-sync target and source mappings", async () => {
+  const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
+  const { importNowenPackage } = await import("../src/services/nowenPackageImport");
+  const { importNowenPackageWithSync } = await import("../src/services/nowenRoundTripSync");
+  const { undoRoundTripImportBatchWithLinks } = await import("../src/services/roundTripImportLinkUndo");
+  const { getDb } = await import("../src/db/schema");
+  const db = getDb();
+
+  const firstPackage = await createNowenPackageExport({
+    userId: "batch-user",
+    workspaceId: null,
+    packageKind: "nowen",
+  });
+  const copied = await importNowenPackage(firstPackage.buffer, {
+    userId: "batch-user",
+    workspaceId: null,
+    importMode: "new-root",
+  });
+  assert.equal(copied.success, true, copied.errors?.join("; "));
+  const copiedNote = db.prepare(`
+    SELECT id, title, content FROM notes WHERE notebookId = ? LIMIT 1
+  `).get(copied.rootNotebookId) as { id: string; title: string; content: string } | undefined;
+  assert.ok(copiedNote);
+  const beforeSync = { title: copiedNote!.title, content: copiedNote!.content };
+
+  db.prepare(`
+    UPDATE notes
+       SET title = ?, content = ?, contentText = ?, updatedAt = ?
+     WHERE id = ?
+  `).run(
+    "来源更新后的标题",
+    "来源更新后的正文",
+    "来源更新后的正文",
+    "2026-07-22 12:00:00",
+    "batch-note",
+  );
+  const updatedPackage = await createNowenPackageExport({
+    userId: "batch-user",
+    workspaceId: null,
+    packageKind: "nowen",
+  });
+  const synced = await importNowenPackage(updatedPackage.buffer, {
+    userId: "batch-user",
+    workspaceId: null,
+    importMode: "sync",
+  });
+  assert.equal(synced.success, true, synced.errors?.join("; "));
+  assert.equal(synced.counts?.updatedNotes, 1);
+  assert.equal(synced.importBatch?.undoAvailable, true);
+
+  const syncedTarget = db.prepare("SELECT title, content FROM notes WHERE id = ?").get(copiedNote!.id) as { title: string; content: string } | undefined;
+  assert.equal(syncedTarget?.title, "来源更新后的标题");
+  assert.equal(syncedTarget?.content, "来源更新后的正文");
+
+  const undone = await undoRoundTripImportBatchWithLinks("batch-user", String(synced.importBatch.id));
+  assert.equal(undone.status, "undone");
+  const restoredTarget = db.prepare("SELECT title, content FROM notes WHERE id = ?").get(copiedNote!.id) as { title: string; content: string } | undefined;
+  assert.deepEqual(restoredTarget, beforeSync);
+
+  const retryPreview = await importNowenPackageWithSync(updatedPackage.buffer, {
+    userId: "batch-user",
+    workspaceId: null,
+    importMode: "sync",
+    dryRun: true,
+  });
+  assert.equal(retryPreview.success, true, retryPreview.errors?.join("; "));
+  assert.equal(retryPreview.counts?.updatedNotes, 1, "restored source hashes should make the same package syncable again");
+});
+
 test("undo refuses to remove a note edited after the import", async () => {
   const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
   const { importNowenPackage } = await import("../src/services/nowenPackageImport");
