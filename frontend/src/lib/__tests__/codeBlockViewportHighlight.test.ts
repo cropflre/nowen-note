@@ -3,7 +3,7 @@
 import { Schema } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCodeBlockHighlightPlugin,
   type LowlightLike,
@@ -36,7 +36,7 @@ function viewportDecision() {
 }
 
 function waitForViewportRefresh(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, 30));
+  return new Promise((resolve) => window.setTimeout(resolve, 20));
 }
 
 describe("viewport-scoped code highlighting", () => {
@@ -44,6 +44,10 @@ describe("viewport-scoped code highlighting", () => {
   let host: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => (
+      window.setTimeout(() => callback(performance.now()), 0)
+    ));
+    vi.stubGlobal("cancelAnimationFrame", (handle: number) => window.clearTimeout(handle));
     clearActiveEditorRuntimeDecision();
     setActiveEditorRuntimeDecision("viewport-note", viewportDecision());
   });
@@ -54,6 +58,7 @@ describe("viewport-scoped code highlighting", () => {
     view = null;
     host = null;
     clearActiveEditorRuntimeDecision();
+    vi.unstubAllGlobals();
   });
 
   it("highlights only the code block around the active viewport and updates after navigation", async () => {
