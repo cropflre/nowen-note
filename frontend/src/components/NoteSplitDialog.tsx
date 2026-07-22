@@ -3,6 +3,7 @@ import { AlertTriangle, CheckSquare, FileText, Loader2, RotateCcw, Scissors, Squ
 
 import { api } from "@/lib/api";
 import {
+  NoteSplitRequestError,
   splitMarkdownNote,
   undoMarkdownNoteSplit,
   type SplitNoteResult,
@@ -11,6 +12,7 @@ import {
   buildMarkdownSplitPreview,
   type NoteSplitHeadingLevel,
 } from "@/lib/noteSplit";
+import { buildTiptapSplitPreview } from "@/lib/tiptapNoteSplit";
 import { cn } from "@/lib/utils";
 import type { Note, Notebook } from "@/types";
 
@@ -49,6 +51,7 @@ export default function NoteSplitDialog({
   const [preservePreamble, setPreservePreamble] = useState(true);
   const [targetNotebookId, setTargetNotebookId] = useState(note.notebookId);
   const [selectedSectionIndexes, setSelectedSectionIndexes] = useState<number[]>([]);
+  const [blockLinkRiskCount, setBlockLinkRiskCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [undoing, setUndoing] = useState(false);
@@ -66,6 +69,7 @@ export default function NoteSplitDialog({
     setPreservePreamble(true);
     setTargetNotebookId(note.notebookId);
     setSelectedSectionIndexes([]);
+    setBlockLinkRiskCount(0);
 
     // EditorPane already listens to this event and flushes the active editor immediately.
     window.dispatchEvent(new CustomEvent("nowen:before-note-switch"));
@@ -73,8 +77,8 @@ export default function NoteSplitDialog({
       .then(() => api.getNote(note.id))
       .then((latest) => {
         if (cancelled) return;
-        if (latest.contentFormat !== "markdown") {
-          throw new Error("当前仅支持拆分 Markdown 笔记");
+        if (latest.contentFormat !== "markdown" && latest.contentFormat !== "tiptap-json") {
+          throw new Error("当前笔记格式不支持按标题拆分");
         }
         setFreshNote(latest);
       })
@@ -89,23 +93,28 @@ export default function NoteSplitDialog({
 
   const previews = useMemo(() => {
     const content = freshNote?.content || "";
+    const build = freshNote?.contentFormat === "tiptap-json"
+      ? buildTiptapSplitPreview
+      : buildMarkdownSplitPreview;
     return {
-      1: buildMarkdownSplitPreview(content, 1),
-      2: buildMarkdownSplitPreview(content, 2),
+      1: build(content, 1),
+      2: build(content, 2),
     };
-  }, [freshNote?.content]);
+  }, [freshNote?.content, freshNote?.contentFormat]);
   const preview = previews[headingLevel];
 
   // A heading-level switch means a different coordinate system. Select all valid sections again
   // instead of carrying stale H1 indexes into an H2 request.
   useEffect(() => {
     setSelectedSectionIndexes(preview.sections.map((section) => section.index));
+    setBlockLinkRiskCount(0);
   }, [freshNote?.content, headingLevel]);
 
   const selectedSet = useMemo(() => new Set(selectedSectionIndexes), [selectedSectionIndexes]);
   const selectedCount = selectedSectionIndexes.length;
   const retainedCount = Math.max(0, preview.sections.length - selectedCount);
   const allSelected = preview.sections.length > 0 && selectedCount === preview.sections.length;
+  const isRichText = freshNote?.contentFormat === "tiptap-json";
 
   const targetNotebooks = useMemo(
     () => flattenNotebooks(notebooks).filter((item) => {
@@ -118,16 +127,19 @@ export default function NoteSplitDialog({
   if (!open) return null;
 
   const toggleSection = (index: number) => {
+    setBlockLinkRiskCount(0);
     setSelectedSectionIndexes((current) => current.includes(index)
       ? current.filter((value) => value !== index)
       : [...current, index].sort((a, b) => a - b));
   };
 
   const selectAllSections = () => {
+    setBlockLinkRiskCount(0);
     setSelectedSectionIndexes(preview.sections.map((section) => section.index));
   };
 
   const invertSelection = () => {
+    setBlockLinkRiskCount(0);
     setSelectedSectionIndexes(
       preview.sections
         .filter((section) => !selectedSet.has(section.index))
@@ -146,12 +158,23 @@ export default function NoteSplitDialog({
         sectionIndexes: [...selectedSectionIndexes].sort((a, b) => a - b),
         targetNotebookId: targetNotebookId || freshNote.notebookId,
         preservePreamble,
+        acknowledgeBlockLinkRisk: blockLinkRiskCount > 0,
       });
       setResult(splitResult);
       setFreshNote(splitResult.sourceNote);
+      setBlockLinkRiskCount(0);
       onApplied(splitResult.sourceNote);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "拆分失败，原笔记未被修改");
+      if (
+        reason instanceof NoteSplitRequestError
+        && reason.code === "BLOCK_LINKS_REQUIRE_CONFIRMATION"
+        && (reason.blockLinkCount || 0) > 0
+      ) {
+        setBlockLinkRiskCount(reason.blockLinkCount || 0);
+        setError(null);
+      } else {
+        setError(reason instanceof Error ? reason.message : "拆分失败，原笔记未被修改");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -186,7 +209,9 @@ export default function NoteSplitDialog({
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="note-split-title" className="truncate text-base font-semibold text-tx-primary">按标题拆分笔记</h2>
-            <p className="mt-0.5 text-xs text-tx-tertiary">勾选要独立成篇的章节；未选择章节继续保留在原笔记中。</p>
+            <p className="mt-0.5 text-xs text-tx-tertiary">
+              {isRichText ? "富文本按顶层标题切分，嵌套标题不会成为边界。" : "勾选要独立成篇的章节；未选择章节继续保留在原笔记中。"}
+            </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover" aria-label="关闭">
             <X size={17} />
@@ -210,6 +235,11 @@ export default function NoteSplitDialog({
                     : "原笔记已转换为目录页。"}
                 </div>
               </div>
+              {Boolean(result.blockLinkWarningCount) && (
+                <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
+                  本次拆分包含 {result.blockLinkWarningCount} 个已确认的外部 Block 引用。旧链接仍指向原笔记，后续可从新章节重新复制链接。
+                </div>
+              )}
               <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-app-border bg-app-bg/40 p-3">
                 {result.createdNotes.map((created, index) => (
                   <div key={created.id} className="flex items-center gap-2 rounded-lg bg-app-surface px-3 py-2 text-sm text-tx-secondary">
@@ -326,7 +356,7 @@ export default function NoteSplitDialog({
                           <span className="w-7 shrink-0 text-right text-xs text-tx-tertiary">{section.index + 1}</span>
                           <FileText size={14} className="shrink-0 text-accent-primary" />
                           <span className="min-w-0 flex-1 truncate text-sm text-tx-secondary">{section.title}</span>
-                          <span className="shrink-0 text-[11px] text-tx-tertiary">{section.content.length.toLocaleString()} 字符</span>
+                          <span className="shrink-0 text-[11px] text-tx-tertiary">{section.sourceCharacters.toLocaleString()} 字符</span>
                         </label>
                       );
                     })}
@@ -337,6 +367,18 @@ export default function NoteSplitDialog({
                       请至少选择一个要拆分的章节。
                     </div>
                   )}
+                </div>
+              )}
+
+              {blockLinkRiskCount > 0 && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-medium">检测到 {blockLinkRiskCount} 个外部 Block 引用</div>
+                    <div className="mt-1 text-xs leading-5">
+                      所选富文本章节被其他笔记通过块链接引用。拆分后旧链接仍指向原笔记，可能无法定位到已迁移块。再次点击确认表示接受该风险。
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -371,10 +413,13 @@ export default function NoteSplitDialog({
                 type="button"
                 onClick={handleSplit}
                 disabled={loading || submitting || !freshNote || preview.sections.length < 2 || selectedCount === 0}
-                className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                  blockLinkRiskCount > 0 ? "bg-amber-600" : "bg-accent-primary",
+                )}
               >
                 {submitting ? <Loader2 size={15} className="animate-spin" /> : <Scissors size={15} />}
-                拆分所选 {selectedCount > 0 ? selectedCount : ""} 篇
+                {blockLinkRiskCount > 0 ? "确认风险并继续" : `拆分所选 ${selectedCount > 0 ? selectedCount : ""} 篇`}
               </button>
             </>
           )}
