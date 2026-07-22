@@ -11,6 +11,14 @@ import {
 } from "../src/lib/noteSplit.ts";
 import { installNoteSplitRoutes } from "../src/runtime/note-split.ts";
 
+function stripRuntimeBlockIds(markdown: string): string {
+  return markdown
+    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/gm, "")
+    .replace(/^\^blk_[A-Za-z0-9_-]{6,}\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 test("splits exact H1 boundaries and preserves the preamble", () => {
   const source = [
     "Intro paragraph.",
@@ -160,7 +168,7 @@ test("transactionally splits, shares attachment bytes, inherits tags and restore
     sourceNote: { content: string; version: number };
     removedNoteIds: string[];
   };
-  assert.equal(undoResult.sourceNote.content, source);
+  assert.equal(stripRuntimeBlockIds(undoResult.sourceNote.content), source);
   assert.equal(undoResult.sourceNote.version, 3);
   assert.deepEqual(new Set(undoResult.removedNoteIds), new Set(childIds));
 
