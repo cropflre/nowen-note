@@ -161,7 +161,7 @@ function directoryHeadingNode(level: TiptapSplitHeadingLevel): Record<string, un
 function directoryListNode(sections: TiptapDirectorySection[]): Record<string, unknown> {
   return {
     type: "orderedList",
-    attrs: { start: 1, type: null },
+    attrs: { start: 1 },
     content: sections.map((section) => ({
       type: "listItem",
       content: [{
@@ -172,7 +172,6 @@ function directoryListNode(sections: TiptapDirectorySection[]): Record<string, u
             href: `note:${section.id}`,
             target: null,
             rel: "noopener noreferrer nofollow nowen-title-alias",
-            class: null,
           },
         }])],
       }],
@@ -200,6 +199,9 @@ export function buildTiptapSplitSource(options: {
   sections: TiptapDirectorySection[];
   operationId: string;
 }): string {
+  // operationId is persisted in note_split_operations. Tiptap has no hidden comment node, so it
+  // must not be rendered into the visible document merely to mirror Markdown's HTML marker.
+  void options.operationId;
   const selected = new Set(options.sections.map((section) => section.index));
   const retained = options.plan.sections.filter((section) => !selected.has(section.index));
   const content: Array<Record<string, unknown>> = [];
@@ -209,7 +211,6 @@ export function buildTiptapSplitSource(options: {
       ? `已按 H${options.plan.headingLevel} 拆分为 ${options.sections.length} 篇章节笔记。原始正文已保存在版本历史中，可在未继续编辑前撤销。`
       : `已将 ${options.sections.length}/${options.plan.sections.length} 个 H${options.plan.headingLevel} 章节拆分为独立笔记；未选择的 ${retained.length} 个章节继续保留在当前笔记中。`,
   ));
-  content.push(paragraph(`nowen-note-split:${options.operationId}`));
   content.push(directoryHeadingNode(options.plan.headingLevel));
   content.push(directoryListNode(options.sections));
   if (retained.length > 0) {
