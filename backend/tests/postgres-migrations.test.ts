@@ -23,6 +23,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0005_api_token_resources",
     "0006_share_capabilities",
     "0007_note_import_origins",
+    "0008_note_split_tables",
   ]);
 
   const stateTable = await pool.query(
@@ -50,6 +51,9 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "habits",
     "mindmaps",
     "note_import_origins",
+    "note_split_attachment_copies",
+    "note_split_items",
+    "note_split_operations",
     "notebook_acl_overrides",
     "notebook_public_comments",
     "notebook_publications",
@@ -119,6 +123,21 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   );
   assert.equal(importOriginIndexes.rows[0].note_index, "idx_note_import_origins_note");
   assert.equal(importOriginIndexes.rows[0].batch_index, "idx_note_import_origins_batch");
+
+  const splitIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_note_split_operations_source') AS operations_index,
+            to_regclass('public.idx_note_split_items_operation') AS items_index,
+            to_regclass('public.idx_note_split_attachment_operation') AS attachments_index`,
+  );
+  assert.equal(
+    splitIndexes.rows[0].operations_index,
+    "idx_note_split_operations_source",
+  );
+  assert.equal(splitIndexes.rows[0].items_index, "idx_note_split_items_operation");
+  assert.equal(
+    splitIndexes.rows[0].attachments_index,
+    "idx_note_split_attachment_operation",
+  );
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
