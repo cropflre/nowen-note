@@ -56,7 +56,13 @@ export interface BlockPatchIndexRow {
 export interface BlockPatchResult {
   success: true;
   noteId: string;
+  title: string;
   version: number;
+  updatedAt: string;
+  content: string;
+  contentText: string;
+  contentFormat: string;
+  notebookId: string | null;
   operationCount: number;
   affectedBlockIds: string[];
   deletedBlockIds: string[];
