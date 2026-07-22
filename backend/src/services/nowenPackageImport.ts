@@ -1,13 +1,30 @@
 import { executeNowenPackageImportWithBatch } from "./roundTripImportBatches";
 import {
+  attachRoundTripImportLinkUndo,
+  captureRoundTripImportLinkUndo,
+} from "./roundTripImportLinkUndo";
+import {
   importNowenPackageWithSync,
   type RoundTripImportParams,
 } from "./nowenRoundTripSync";
 
 export async function importNowenPackage(zipBuffer: Buffer, params: RoundTripImportParams): Promise<any> {
-  return params.dryRun
-    ? importNowenPackageWithSync(zipBuffer, params)
-    : executeNowenPackageImportWithBatch(zipBuffer, params);
+  if (params.dryRun) return importNowenPackageWithSync(zipBuffer, params);
+
+  const linkSnapshot = await captureRoundTripImportLinkUndo(zipBuffer, params.userId, params.workspaceId);
+  const result = await executeNowenPackageImportWithBatch(zipBuffer, params);
+  const batchId = String(result?.importBatch?.id || "");
+  if (batchId && result?.success) {
+    const attached = attachRoundTripImportLinkUndo(params.userId, batchId, linkSnapshot);
+    if (!attached.available) {
+      result.importBatch = {
+        ...(result.importBatch || {}),
+        undoAvailable: false,
+        reason: attached.reason,
+      };
+    }
+  }
+  return result;
 }
 
 export type {
