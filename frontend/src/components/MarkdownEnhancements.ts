@@ -10,6 +10,7 @@
  * 暴露：
  *   - StrikeMarkdownRules：删除线 `~~text~~` input/paste rule
  *   - HighlightMarkdownRules：高亮 `==text==` input/paste rule
+ *   - BilibiliVideoPasteHandler：粘贴独立 B 站视频 URL 时直接插入视频节点
  *   - MarkdownPasteHandler：纯文本粘贴时检测是否是 markdown，是的话用项目里
  *       已经装好的 `marked` 渲染成 HTML 再让 ProseMirror 走 HTML 解析路径，
  *       直接得到结构化文档（标题/列表/表格/链接 等）。
@@ -22,6 +23,7 @@
 import { Extension } from "@tiptap/react";
 import { markInputRule, markPasteRule, InputRule } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { parseVideoUrl } from "@/components/VideoExtension";
 import { markdownToHtml } from "@/lib/contentFormat";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 
@@ -263,6 +265,85 @@ export const TaskListMarkdownRule = Extension.create({
 });
 
 /* -------------------------------------------------------------------------- */
+/*  B 站视频链接粘贴：独立 URL → video 节点                                    */
+/* -------------------------------------------------------------------------- */
+
+export type BilibiliVideoPasteAttrs = {
+  src: string;
+  platform: "bilibili";
+  kind: "iframe";
+  originalUrl: string;
+};
+
+/**
+ * 只识别剪贴板中“独立存在”的 B 站视频地址。
+ *
+ * 这样既能覆盖从浏览器地址栏复制 BV/av 链接的主要场景，又不会把文章中的 URL、
+ * Markdown 链接、代码块内容或替换选中文字的普通粘贴行为意外转换成视频节点。
+ */
+export function parseStandaloneBilibiliVideoPaste(text: string): BilibiliVideoPasteAttrs | null {
+  const originalUrl = (text || "").trim();
+  if (!originalUrl || /\s/.test(originalUrl)) return null;
+
+  const parsed = parseVideoUrl(originalUrl);
+  if (!parsed || parsed.platform !== "bilibili" || parsed.kind !== "iframe") return null;
+
+  return {
+    src: parsed.embedUrl,
+    platform: "bilibili",
+    kind: "iframe",
+    originalUrl,
+  };
+}
+
+const BILIBILI_VIDEO_PASTE_KEY = new PluginKey("bilibiliVideoPaste");
+
+export const BilibiliVideoPasteHandler = Extension.create({
+  name: "bilibiliVideoPaste",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: BILIBILI_VIDEO_PASTE_KEY,
+        props: {
+          // TiptapEditor 自己定义了 handlePaste，并且始终接管普通粘贴，因此这里必须在
+          // DOM paste 阶段优先识别视频链接，不能使用会被 editorProps 覆盖的 handlePaste。
+          handleDOMEvents: {
+            paste: (view, rawEvent) => {
+              const event = rawEvent as ClipboardEvent;
+              const clipboard = event.clipboardData;
+              if (!clipboard || !view.editable) return false;
+
+              const selection = view.state.selection;
+              if (!selection.empty || selection.$from.parent.type.spec.code) return false;
+
+              const text = clipboard.getData("text/plain") || clipboard.getData("text/uri-list");
+              const attrs = parseStandaloneBilibiliVideoPaste(text);
+              if (!attrs) return false;
+
+              const videoType = view.state.schema.nodes.video;
+              if (!videoType) return false;
+
+              try {
+                const videoNode = videoType.create(attrs);
+                const transaction = view.state.tr
+                  .replaceSelectionWith(videoNode, false)
+                  .scrollIntoView();
+                view.dispatch(transaction);
+                event.preventDefault();
+                return true;
+              } catch (error) {
+                console.warn("[bilibili-video-paste] insert failed", error);
+                return false;
+              }
+            },
+          },
+        },
+      }),
+    ];
+  },
+});
+
+/* -------------------------------------------------------------------------- */
 /*  Markdown 粘贴：纯文本 → HTML → ProseMirror                                */
 /* -------------------------------------------------------------------------- */
 
@@ -403,5 +484,6 @@ export const MarkdownEnhancements = [
   HighlightMarkdownRules,
   LinkMarkdownRule,
   TaskListMarkdownRule,
+  BilibiliVideoPasteHandler,
   MarkdownPasteHandler,
 ];
