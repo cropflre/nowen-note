@@ -1,7 +1,5 @@
 import type { Context } from "hono";
 import {
-  createReliableMarkdownExportJob,
-  getReliableExportJob,
   handleReliableExportDownload,
   MAX_MARKDOWN_EXPORT_REQUEST_BYTES,
   ReliableExportBusyError,
@@ -14,6 +12,11 @@ import {
   type PreparedMarkdownNote,
   type ReliableExportJobSnapshot,
 } from "./reliableExportJobs";
+import {
+  createRoundTripMarkdownExportJob,
+  getRoundTripMarkdownExportJob,
+  handleRoundTripMarkdownDownload,
+} from "./roundTripMarkdownExportJobs";
 
 export type { PreparedMarkdownAsset, PreparedMarkdownNote };
 export type MarkdownExportJobSnapshot = ReliableExportJobSnapshot;
@@ -30,7 +33,6 @@ async function readRequestJsonWithLimit(request: Request, maxBytes: number): Pro
       "MARKDOWN_EXPORT_REQUEST_TOO_LARGE",
     );
   }
-
   const body = request.body;
   if (!body) return null;
   const reader = body.getReader();
@@ -53,20 +55,15 @@ async function readRequestJsonWithLimit(request: Request, maxBytes: number): Pro
   } finally {
     reader.releaseLock();
   }
-
   try {
-    const parsed = JSON.parse(
-      Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total).toString("utf8"),
-    );
+    const parsed = JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total).toString("utf8"));
     if (Array.isArray(parsed?.notes)) validatePreparedMarkdownNotes(parsed.notes);
     return parsed;
   } catch (error) {
     if (
       error instanceof ReliableExportPayloadTooLargeError ||
       error instanceof ReliableExportValidationError
-    ) {
-      throw error;
-    }
+    ) throw error;
     throw new ReliableExportValidationError("导出请求 JSON 无效", "INVALID_EXPORT_JSON");
   }
 }
@@ -76,15 +73,8 @@ if (typeof Request !== "undefined" && !globalFlags[REQUEST_JSON_PATCH_FLAG]) {
   const nativeJson = Request.prototype.json;
   Request.prototype.json = async function patchedJson(): Promise<any> {
     let pathname = "";
-    try {
-      pathname = new URL(this.url).pathname;
-    } catch {
-      // fall through to native parser
-    }
-    if (
-      this.method.toUpperCase() === "POST" &&
-      pathname.endsWith("/api/export/markdown-package/jobs")
-    ) {
+    try { pathname = new URL(this.url).pathname; } catch { /* use native parser */ }
+    if (this.method.toUpperCase() === "POST" && pathname.endsWith("/api/export/markdown-package/jobs")) {
       return readRequestJsonWithLimit(this, MAX_MARKDOWN_EXPORT_REQUEST_BYTES);
     }
     return nativeJson.call(this);
@@ -93,21 +83,15 @@ if (typeof Request !== "undefined" && !globalFlags[REQUEST_JSON_PATCH_FLAG]) {
 
 export class MarkdownExportBusyError extends Error {
   code: string;
-
-  constructor(
-    message = "已有导出任务正在生成，请等待当前任务完成",
-    code = "EXPORT_JOB_BUSY",
-  ) {
+  constructor(message = "已有导出任务正在生成，请等待当前任务完成", code = "EXPORT_JOB_BUSY") {
     super(message);
     this.code = code;
   }
 }
 
-function toRouteCompatibleError(error: unknown): never {
-  if (error instanceof ReliableExportBusyError) {
-    throw new MarkdownExportBusyError(error.message, error.code);
-  }
+function translateError(error: unknown): never {
   if (
+    error instanceof ReliableExportBusyError ||
     error instanceof ReliableExportPayloadTooLargeError ||
     error instanceof ReliableExportValidationError
   ) {
@@ -124,17 +108,14 @@ export function createMarkdownExportJob(params: {
   filenameBase?: string;
 }): MarkdownExportJobSnapshot {
   try {
-    return createReliableMarkdownExportJob(params);
+    return createRoundTripMarkdownExportJob(params);
   } catch (error) {
-    return toRouteCompatibleError(error);
+    return translateError(error);
   }
 }
 
-export function getMarkdownExportJob(
-  jobId: string,
-  userId: string,
-): MarkdownExportJobSnapshot | null {
-  return getReliableExportJob(jobId, userId);
+export function getMarkdownExportJob(jobId: string, userId: string): MarkdownExportJobSnapshot | null {
+  return getRoundTripMarkdownExportJob(jobId, userId);
 }
 
 function inferContentType(filename: string, fallback: string): string {
@@ -142,9 +123,7 @@ function inferContentType(filename: string, fallback: string): string {
   if (lower.endsWith(".zip")) return "application/zip";
   if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
   if (lower.endsWith(".pdf")) return "application/pdf";
-  if (lower.endsWith(".docx")) {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  }
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   return fallback;
 }
 
@@ -162,5 +141,5 @@ export async function stageGeneratedExport(params: {
 }
 
 export function handleMarkdownExportDownload(c: Context): Response {
-  return handleReliableExportDownload(c);
+  return handleRoundTripMarkdownDownload(c) || handleReliableExportDownload(c);
 }

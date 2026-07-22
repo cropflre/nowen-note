@@ -1,17 +1,27 @@
+import crypto from "crypto";
+import JSZip from "jszip";
+import path from "path";
+import { getDb, getDbSchemaVersion } from "../db/schema";
+import { getUserWorkspaceRole, isSystemAdmin } from "../middleware/acl";
+import { readAttachmentObject } from "./attachment-storage";
+
 /**
- * Nowen 数据包导出服务
+ * Nowen v2 round-trip package.
  *
- * 生成 .nowen.zip 私有迁移包，用于 nowen-note 到 nowen-note 的无损迁移。
- * 保留 Markdown 原文、富文本 Tiptap JSON、笔记本结构、标签、附件关系。
+ * Native packages keep the original content format. Markdown packages reuse the same private
+ * manifest and attachment graph, while also exposing a human-readable folder tree at ZIP root.
  */
 
-import { getDb, getDbSchemaVersion } from "../db/schema";
-import JSZip from "jszip";
-import * as fs from "fs";
-import * as path from "path";
-import * as crypto from "crypto";
-
-// ====== 类型定义 ======
+export interface PreparedMarkdownPackageNote {
+  id: string;
+  title: string;
+  notebookName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contentFormat?: string;
+  markdown: string;
+  inlineAssets?: Array<{ relPath: string; base64: string }>;
+}
 
 interface ExportParams {
   userId: string;
@@ -19,6 +29,14 @@ interface ExportParams {
   notebookId?: string;
   includeSubNotebooks?: boolean;
   includeTrashed?: boolean;
+  /** Exact note selection used by Markdown/single-note export. */
+  noteIds?: string[];
+  preparedMarkdown?: PreparedMarkdownPackageNote[];
+  packageKind?: "nowen" | "markdown";
+  includeHumanReadableTree?: boolean;
+  inlineImages?: boolean;
+  layout?: "notebooks" | "flat";
+  filenameBase?: string;
 }
 
 interface ExportStats {
@@ -40,6 +58,8 @@ interface ExportWarning {
 
 interface ExportNotebook {
   id: string;
+  userId?: string;
+  workspaceId?: string | null;
   parentId: string | null;
   name: string;
   description: string | null;
@@ -53,6 +73,8 @@ interface ExportNotebook {
 
 interface ExportNote {
   id: string;
+  userId?: string;
+  workspaceId?: string | null;
   notebookId: string;
   title: string;
   content: string;
@@ -85,59 +107,233 @@ interface ExportAttachment {
   createdAt: string;
 }
 
-// ====== 工具函数 ======
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[\/\\?<>:*|"]/g, "_").replace(/\s+/g, " ").trim() || "untitled";
+interface PackageAttachmentMeta {
+  id: string;
+  noteId: string;
+  filename: string;
+  mimeType: string | null;
+  size: number;
+  createdAt: string;
+  sha256: string;
+  packagePath: string;
+  referencedInContent: boolean;
+  synthetic?: boolean;
 }
 
-function getDataDir(): string {
-  return process.env.NOWEN_DATA_DIR || path.join(process.cwd(), "data");
-}
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
-function getAttachmentsDir(): string {
-  return path.join(getDataDir(), "attachments");
-}
-
-/** 安全校验：防止 path traversal */
-function isSafePath(filePath: string, baseDir: string): boolean {
-  const resolved = path.resolve(baseDir, filePath);
-  return resolved.startsWith(path.resolve(baseDir));
-}
-
-/** 读取附件物理文件 */
-function readAttachmentFile(attachmentPath: string): Buffer | null {
-  const attachmentsDir = getAttachmentsDir();
-
-  // 支持新年月路径：YYYY/MM/<uuid>.<ext>
-  const fullPath = path.join(attachmentsDir, attachmentPath);
-  if (isSafePath(attachmentPath, attachmentsDir) && fs.existsSync(fullPath)) {
-    return fs.readFileSync(fullPath);
+function sanitizeSegment(value: string, fallback = "未命名"): string {
+  let out = String(value || "")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  if (!out) out = fallback;
+  if (WINDOWS_RESERVED.test(out)) out = `_${out}`;
+  const chars = Array.from(out);
+  if (chars.length > 80) {
+    const hash = crypto.createHash("sha1").update(out).digest("hex").slice(0, 8);
+    out = `${chars.slice(0, 68).join("")}~${hash}`;
   }
-
-  // 支持旧平铺路径：<uuid>.<ext>（从 path 中提取文件名）
-  const fileName = path.basename(attachmentPath);
-  const flatPath = path.join(attachmentsDir, fileName);
-  if (fs.existsSync(flatPath)) {
-    return fs.readFileSync(flatPath);
-  }
-
-  return null;
+  return out;
 }
 
-/** 从笔记内容中提取附件 ID */
-function extractAttachmentIds(content: string): string[] {
+function normalizeInlinePath(value: string): string | null {
+  const normalized = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalized || normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) return null;
+  const parts = normalized.split("/").filter(Boolean);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
+  return parts.map((part) => sanitizeSegment(part)).join("/");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceAttachmentUrl(content: string, attachmentId: string, replacement: string): string {
+  const escaped = escapeRegExp(attachmentId);
+  return content.replace(
+    new RegExp(`(?:https?:\\/\\/[^\\s)\"'<>]+)?\\/api\\/attachments\\/${escaped}(?:\\?[^\\s)\"'<>]*)?`, "gi"),
+    replacement,
+  );
+}
+
+function contentReferencesAttachment(content: string, id: string): boolean {
+  return new RegExp(`\\/api\\/attachments\\/${escapeRegExp(id)}(?:[/?#\\s)\"'<>]|$)`, "i").test(content || "");
+}
+
+function uniqueName(base: string, used: Set<string>): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let index = 2;
+  while (used.has(`${base} (${index})`)) index += 1;
+  const value = `${base} (${index})`;
+  used.add(value);
+  return value;
+}
+
+function assertWorkspaceReadable(userId: string, workspaceId: string | null | undefined): void {
+  if (!workspaceId || isSystemAdmin(userId)) return;
+  if (!getUserWorkspaceRole(workspaceId, userId)) {
+    throw new Error("No permission to export this workspace");
+  }
+}
+
+function queryScopeNotebooks(userId: string, workspaceId: string | null | undefined): ExportNotebook[] {
+  const db = getDb();
+  if (workspaceId) {
+    return db.prepare(`
+      SELECT id, userId, workspaceId, parentId, name, description, icon, color,
+             sortOrder, isExpanded, createdAt, updatedAt
+        FROM notebooks
+       WHERE workspaceId = ? AND (isDeleted IS NULL OR isDeleted = 0)
+       ORDER BY parentId, sortOrder, createdAt, id
+    `).all(workspaceId) as ExportNotebook[];
+  }
+  return db.prepare(`
+    SELECT id, userId, workspaceId, parentId, name, description, icon, color,
+           sortOrder, isExpanded, createdAt, updatedAt
+      FROM notebooks
+     WHERE userId = ? AND workspaceId IS NULL AND (isDeleted IS NULL OR isDeleted = 0)
+     ORDER BY parentId, sortOrder, createdAt, id
+  `).all(userId) as ExportNotebook[];
+}
+
+function collectDescendants(rootId: string, byParent: Map<string | null, ExportNotebook[]>): Set<string> {
   const ids = new Set<string>();
-  // 匹配 /api/attachments/<id> 模式
-  const re = /\/api\/attachments\/([a-f0-9-]+)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(content)) !== null) {
-    ids.add(m[1]);
+  const stack = [rootId];
+  while (stack.length) {
+    const current = stack.pop()!;
+    if (ids.has(current)) continue;
+    ids.add(current);
+    for (const child of byParent.get(current) || []) stack.push(child.id);
   }
-  return Array.from(ids);
+  return ids;
 }
 
-// ====== 主导出函数 ======
+function selectNotebooks(
+  all: ExportNotebook[],
+  params: Pick<ExportParams, "notebookId" | "includeSubNotebooks" | "noteIds">,
+  selectedNoteNotebookIds: Set<string>,
+  allScopeNoteCount: number,
+  selectedNoteCount: number,
+): ExportNotebook[] {
+  const byId = new Map(all.map((item) => [item.id, item]));
+  const byParent = new Map<string | null, ExportNotebook[]>();
+  for (const item of all) {
+    const key = item.parentId && byId.has(item.parentId) ? item.parentId : null;
+    const bucket = byParent.get(key) || [];
+    bucket.push(item);
+    byParent.set(key, bucket);
+  }
+
+  if (params.notebookId) {
+    if (!byId.has(params.notebookId)) return [];
+    const ids = params.includeSubNotebooks === false
+      ? new Set([params.notebookId])
+      : collectDescendants(params.notebookId, byParent);
+    return all.filter((item) => ids.has(item.id));
+  }
+
+  if (!params.noteIds || selectedNoteCount === allScopeNoteCount) return all;
+
+  const ids = new Set<string>(selectedNoteNotebookIds);
+  // Keep all ancestors so a re-import has the same path.
+  for (const notebookId of Array.from(selectedNoteNotebookIds)) {
+    let cursor = byId.get(notebookId);
+    while (cursor?.parentId && byId.has(cursor.parentId)) {
+      ids.add(cursor.parentId);
+      cursor = byId.get(cursor.parentId);
+    }
+  }
+  // Preserve empty descendants below selected notebooks where they can be inferred safely.
+  for (const notebookId of selectedNoteNotebookIds) {
+    for (const id of collectDescendants(notebookId, byParent)) ids.add(id);
+  }
+  return all.filter((item) => ids.has(item.id));
+}
+
+function buildExportPaths(notebooks: ExportNotebook[]): {
+  pathById: Map<string, string>;
+  exportNameById: Map<string, string>;
+  roots: string[];
+} {
+  const byId = new Map(notebooks.map((item) => [item.id, item]));
+  const byParent = new Map<string | null, ExportNotebook[]>();
+  for (const item of notebooks) {
+    const parent = item.parentId && byId.has(item.parentId) ? item.parentId : null;
+    const bucket = byParent.get(parent) || [];
+    bucket.push(item);
+    byParent.set(parent, bucket);
+  }
+  for (const bucket of byParent.values()) {
+    bucket.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  const exportNameById = new Map<string, string>();
+  for (const bucket of byParent.values()) {
+    const used = new Set<string>();
+    for (const item of bucket) exportNameById.set(item.id, uniqueName(sanitizeSegment(item.name), used));
+  }
+
+  const pathById = new Map<string, string>();
+  const resolving = new Set<string>();
+  const resolve = (id: string): string => {
+    const cached = pathById.get(id);
+    if (cached !== undefined) return cached;
+    if (resolving.has(id)) return exportNameById.get(id) || sanitizeSegment(byId.get(id)?.name || "未命名");
+    resolving.add(id);
+    const item = byId.get(id);
+    const own = exportNameById.get(id) || sanitizeSegment(item?.name || "未命名");
+    const parentPath = item?.parentId && byId.has(item.parentId) ? resolve(item.parentId) : "";
+    const result = parentPath ? `${parentPath}/${own}` : own;
+    pathById.set(id, result);
+    resolving.delete(id);
+    return result;
+  };
+  for (const item of notebooks) resolve(item.id);
+  const roots = notebooks
+    .filter((item) => !item.parentId || !byId.has(item.parentId))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
+    .map((item) => item.id);
+  return { pathById, exportNameById, roots };
+}
+
+function extractDataImages(
+  content: string,
+  noteId: string,
+): { content: string; assets: Array<{ id: string; filename: string; mimeType: string; buffer: Buffer }> } {
+  const assets: Array<{ id: string; filename: string; mimeType: string; buffer: Buffer }> = [];
+  let index = 0;
+  const rewritten = String(content || "").replace(
+    /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g,
+    (full, mime: string, base64: string) => {
+      try {
+        const buffer = Buffer.from(base64, "base64");
+        if (!buffer.length) return full;
+        index += 1;
+        const ext = mime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "") || "png";
+        const id = `inline-${noteId}-${index}`;
+        assets.push({ id, filename: `inline-${index}.${ext}`, mimeType: mime, buffer });
+        return `/api/attachments/${id}`;
+      } catch {
+        return full;
+      }
+    },
+  );
+  return { content: rewritten, assets };
+}
+
+function replaceInlineAssetReference(content: string, relPath: string, replacement: string): string {
+  const normalized = relPath.replace(/\\/g, "/").replace(/^\.\//, "");
+  const escaped = escapeRegExp(normalized);
+  return content
+    .replace(new RegExp(`\\.\\/${escaped}`, "g"), replacement)
+    .replace(new RegExp(`(?<![A-Za-z0-9_./-])${escaped}`, "g"), replacement);
+}
 
 export async function createNowenPackageExport(params: ExportParams): Promise<{
   buffer: Buffer;
@@ -147,214 +343,234 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
   const db = getDb();
   const {
     userId,
-    workspaceId,
+    workspaceId = null,
     notebookId,
     includeSubNotebooks = true,
     includeTrashed = false,
+    noteIds,
+    preparedMarkdown = [],
+    packageKind = "nowen",
+    includeHumanReadableTree = packageKind === "markdown",
+    layout = "notebooks",
+    filenameBase,
   } = params;
 
+  assertWorkspaceReadable(userId, workspaceId);
   const warnings: ExportWarning[] = [];
-  const stats: ExportStats = {
-    notes: 0,
-    notebooks: 0,
-    tags: 0,
-    noteTags: 0,
-    attachments: 0,
-    warnings: 0,
-  };
+  const allScopeNotebooks = queryScopeNotebooks(userId, workspaceId);
+  const allScopeNotebookIds = new Set(allScopeNotebooks.map((item) => item.id));
 
-  // ── 1. 确定导出范围：笔记本 ──
-
-  let notebookIds: string[];
-
-  if (notebookId) {
-    // 导出指定笔记本及其子孙
-    if (includeSubNotebooks) {
-      const rows = db.prepare(`
-        WITH RECURSIVE descendants(id) AS (
-          SELECT id FROM notebooks WHERE id = ? AND userId = ? AND (isDeleted IS NULL OR isDeleted = 0)
-          UNION ALL
-          SELECT n.id FROM notebooks n
-          INNER JOIN descendants d ON n.parentId = d.id
-          WHERE n.userId = ? AND (n.isDeleted IS NULL OR n.isDeleted = 0)
-        )
-        SELECT id FROM descendants
-      `).all(notebookId, userId, userId) as { id: string }[];
-      notebookIds = rows.map((r) => r.id);
-    } else {
-      const nb = db.prepare("SELECT id FROM notebooks WHERE id = ? AND userId = ? AND (isDeleted IS NULL OR isDeleted = 0)").get(notebookId, userId) as { id: string } | undefined;
-      notebookIds = nb ? [nb.id] : [];
-    }
-  } else {
-    // 导出当前工作区所有笔记本
-    const wsCondition = workspaceId
-      ? "AND workspaceId = ?"
-      : "AND (workspaceId IS NULL)";
-    const wsParams = workspaceId ? [userId, workspaceId] : [userId];
-    const rows = db.prepare(`
-      SELECT id FROM notebooks
-      WHERE userId = ? AND (isDeleted IS NULL OR isDeleted = 0) ${wsCondition}
-    `).all(...wsParams) as { id: string }[];
-    notebookIds = rows.map((r) => r.id);
-  }
-
-  if (notebookIds.length === 0) {
-    throw new Error("No notebooks found in export scope");
-  }
-
-  // ── 2. 查询笔记 ──
-
-  const placeholders = notebookIds.map(() => "?").join(",");
-  const trashedCondition = includeTrashed ? "" : "AND isTrashed = 0";
-  const notes = db.prepare(`
-    SELECT id, notebookId, title, content, contentText, contentFormat,
-           isPinned, isFavorite, isLocked, isArchived, version, sortOrder,
-           createdAt, updatedAt
-    FROM notes
-    WHERE notebookId IN (${placeholders}) ${trashedCondition}
-  `).all(...notebookIds) as ExportNote[];
-
-  const noteIds = new Set(notes.map((n) => n.id));
-
-  // ── 3. 查询笔记本详情 ──
-
-  const notebooks = db.prepare(`
-    SELECT id, parentId, name, description, icon, color, sortOrder, isExpanded,
-           createdAt, updatedAt
-    FROM notebooks
-    WHERE id IN (${placeholders})
-  `).all(...notebookIds) as ExportNotebook[];
-
-  // ── 4. 查询标签关系 ──
-
-  const notePlaceholders = notes.map(() => "?").join(",") || "NULL";
-  const noteTags = notes.length > 0
+  const trashedSql = includeTrashed ? "" : "AND isTrashed = 0";
+  const scopeNotes = allScopeNotebookIds.size
     ? db.prepare(`
-        SELECT noteId, tagId FROM note_tags
-        WHERE noteId IN (${notePlaceholders})
-      `).all(...notes.map((n) => n.id)) as { noteId: string; tagId: string }[]
+        SELECT id, userId, workspaceId, notebookId, title, content, contentText, contentFormat,
+               isPinned, isFavorite, isLocked, isArchived, version, sortOrder, createdAt, updatedAt
+          FROM notes
+         WHERE notebookId IN (${Array.from(allScopeNotebookIds).map(() => "?").join(",")}) ${trashedSql}
+         ORDER BY notebookId, sortOrder, createdAt, id
+      `).all(...allScopeNotebookIds) as ExportNote[]
     : [];
 
-  // 收集使用到的标签 ID
-  const usedTagIds = new Set(noteTags.map((nt) => nt.tagId));
+  const selectedIdSet = noteIds ? new Set(noteIds) : null;
+  let notes = selectedIdSet ? scopeNotes.filter((note) => selectedIdSet.has(note.id)) : scopeNotes;
+  if (selectedIdSet && notes.length !== selectedIdSet.size) {
+    throw new Error("Some selected notes do not exist or are outside the export scope");
+  }
 
-  // 查询标签详情
-  const tags = usedTagIds.size > 0
-    ? db.prepare(`
-        SELECT id, name, color, createdAt FROM tags
-        WHERE id IN (${Array.from(usedTagIds).map(() => "?").join(",")})
-      `).all(...Array.from(usedTagIds)) as ExportTag[]
+  const selectedNoteNotebookIds = new Set(notes.map((note) => note.notebookId));
+  const notebooks = selectNotebooks(
+    allScopeNotebooks,
+    { notebookId, includeSubNotebooks, noteIds },
+    selectedNoteNotebookIds,
+    scopeNotes.length,
+    notes.length,
+  );
+  const notebookIds = new Set(notebooks.map((item) => item.id));
+  if (notebookId) notes = notes.filter((note) => notebookIds.has(note.notebookId));
+  if (!notebooks.length && notes.length) throw new Error("No notebooks found for selected notes");
+  if (!notebooks.length && !notes.length) throw new Error("No data found in export scope");
+
+  const preparedById = new Map(preparedMarkdown.map((item) => [item.id, item]));
+  if (packageKind === "markdown" && preparedById.size !== notes.length) {
+    throw new Error("Markdown conversion result is incomplete");
+  }
+
+  const noteIdList = notes.map((note) => note.id);
+  const notePlaceholders = noteIdList.map(() => "?").join(",") || "NULL";
+  const noteTags = noteIdList.length
+    ? db.prepare(`SELECT noteId, tagId FROM note_tags WHERE noteId IN (${notePlaceholders})`).all(...noteIdList) as Array<{ noteId: string; tagId: string }>
     : [];
-
-  // ── 5. 查询附件 ──
-
-  // 从 attachments 表查询（按 noteId 关联）
-  const dbAttachments = notes.length > 0
+  const tagIds = Array.from(new Set(noteTags.map((item) => item.tagId)));
+  const tags = tagIds.length
+    ? db.prepare(`SELECT id, name, color, createdAt FROM tags WHERE id IN (${tagIds.map(() => "?").join(",")})`).all(...tagIds) as ExportTag[]
+    : [];
+  const dbAttachments = noteIdList.length
     ? db.prepare(`
         SELECT id, noteId, filename, mimeType, size, path, createdAt
-        FROM attachments
-        WHERE noteId IN (${notePlaceholders})
-      `).all(...notes.map((n) => n.id)) as ExportAttachment[]
+          FROM attachments
+         WHERE noteId IN (${notePlaceholders})
+         ORDER BY noteId, createdAt, id
+      `).all(...noteIdList) as ExportAttachment[]
     : [];
 
-  // 从笔记内容中提取额外的附件 ID
-  const contentAttachmentIds = new Set<string>();
-  for (const note of notes) {
-    const ids = extractAttachmentIds(note.content || "");
-    ids.forEach((id) => contentAttachmentIds.add(id));
-  }
-
-  // 计算 content 中引用但不在 dbAttachments 中的附件 ID
-  const dbAttachmentIds = new Set(dbAttachments.map((a) => a.id));
-  const extraAttachmentIds = Array.from(contentAttachmentIds).filter((id) => !dbAttachmentIds.has(id));
-
-  // 查询额外附件（必须加 userId 限制，避免越权）
-  let extraAttachments: ExportAttachment[] = [];
-  if (extraAttachmentIds.length > 0) {
-    extraAttachments = db.prepare(`
-      SELECT id, noteId, filename, mimeType, size, path, createdAt
-      FROM attachments
-      WHERE id IN (${extraAttachmentIds.map(() => "?").join(",")}) AND userId = ?
-    `).all(...extraAttachmentIds, userId) as ExportAttachment[];
-
-    // 对 content 里引用但 attachments 表查不到的 id，记录 warning
-    const foundIds = new Set(extraAttachments.map((a) => a.id));
-    for (const id of extraAttachmentIds) {
-      if (!foundIds.has(id)) {
-        warnings.push({
-          type: "attachment_row_missing",
-          attachmentId: id,
-          message: `Attachment ${id} referenced in content but not found in attachments table`,
-        });
-      }
-    }
-  }
-
-  const allAttachments = [...dbAttachments, ...extraAttachments];
-
-  // ── 6. 生成 zip ──
-
+  const { pathById, exportNameById, roots } = buildExportPaths(notebooks);
   const zip = new JSZip();
+  const packageAttachments: PackageAttachmentMeta[] = [];
+  const attachmentBufferById = new Map<string, Buffer>();
+  const attachmentById = new Map(dbAttachments.map((item) => [item.id, item]));
 
-  // 6.1 notebooks.json
-  zip.file("notebooks.json", JSON.stringify(notebooks, null, 2));
-  stats.notebooks = notebooks.length;
+  for (const attachment of dbAttachments) {
+    if (!attachment.path) {
+      warnings.push({ type: "attachment_no_path", attachmentId: attachment.id, noteId: attachment.noteId, message: "Attachment has no storage path" });
+      continue;
+    }
+    try {
+      const buffer = await readAttachmentObject(attachment.path);
+      if (!buffer) {
+        warnings.push({ type: "missing_attachment_file", attachmentId: attachment.id, noteId: attachment.noteId, path: attachment.path, message: "Attachment object not found" });
+        continue;
+      }
+      attachmentBufferById.set(attachment.id, buffer);
+    } catch (error) {
+      warnings.push({ type: "attachment_read_failed", attachmentId: attachment.id, noteId: attachment.noteId, path: attachment.path, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
-  // 6.2 tags.json
-  zip.file("tags.json", JSON.stringify(tags, null, 2));
-  stats.tags = tags.length;
-
-  // 6.3 note_tags.json
-  zip.file("note_tags.json", JSON.stringify(noteTags, null, 2));
-  stats.noteTags = noteTags.length;
-
-  // 6.4 notes/
+  const humanUsedNotePaths = new Set<string>();
   const formatStats = { markdown: 0, richText: 0, html: 0 };
+  const noteManifest: Array<Record<string, unknown>> = [];
+  const attachmentIdsByNote = new Map<string, string[]>();
+
+  // Empty directories are explicit ZIP entries and are also represented by tree.json.
+  if (includeHumanReadableTree && layout !== "flat") {
+    for (const notebook of notebooks) zip.folder(pathById.get(notebook.id) || sanitizeSegment(notebook.name));
+  }
 
   for (const note of notes) {
-    const noteDir = `notes/${sanitizeFilename(note.id)}`;
+    const prepared = preparedById.get(note.id);
+    const sourceFormat = note.contentFormat || "tiptap-json";
+    const effectiveFormat = packageKind === "markdown" ? "markdown" : sourceFormat;
+    let privateContent = packageKind === "markdown" ? prepared!.markdown : (note.content || "");
+    let humanMarkdown = packageKind === "markdown" ? prepared!.markdown : "";
+    const noteAttachmentIds = new Set<string>();
 
-    // 确定内容文件名
-    let contentFile: string;
-    const cf = note.contentFormat || "tiptap-json";
-    const knownFormats = ["markdown", "tiptap-json", "html"];
-    if (cf === "markdown") {
-      contentFile = "content.md";
-      formatStats.markdown++;
-    } else if (cf === "html") {
-      contentFile = "content.html";
-      formatStats.html++;
-    } else {
-      // 未知格式或 tiptap-json 都按富文本处理
-      contentFile = "content.tiptap.json";
-      formatStats.richText++;
-      // 记录未知格式 warning
-      if (note.contentFormat && !knownFormats.includes(note.contentFormat)) {
-        warnings.push({
-          type: "unknown_content_format",
+    for (const attachment of dbAttachments.filter((item) => item.noteId === note.id)) {
+      const buffer = attachmentBufferById.get(attachment.id);
+      if (!buffer) continue;
+      noteAttachmentIds.add(attachment.id);
+      const ext = path.extname(attachment.filename) || ".bin";
+      const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, "") || ".bin";
+      let packagePath: string;
+      if (includeHumanReadableTree) {
+        const folder = layout === "flat" ? "" : (pathById.get(note.notebookId) || "未分类");
+        const assetName = `att-${sanitizeSegment(attachment.id)}-${sanitizeSegment(attachment.filename)}`;
+        packagePath = `${folder ? `${folder}/` : ""}assets/${assetName}`;
+        if (packageKind === "markdown") {
+          humanMarkdown = replaceAttachmentUrl(humanMarkdown, attachment.id, `./assets/${assetName}`);
+        }
+      } else {
+        packagePath = `attachments/${sanitizeSegment(attachment.id)}/file${safeExt}`;
+      }
+      zip.file(packagePath, buffer);
+      const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+      packageAttachments.push({
+        id: attachment.id,
+        noteId: attachment.noteId,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: buffer.length,
+        createdAt: attachment.createdAt,
+        sha256,
+        packagePath,
+        referencedInContent: contentReferencesAttachment(note.content || "", attachment.id) || contentReferencesAttachment(privateContent, attachment.id),
+      });
+      if (!includeHumanReadableTree) {
+        zip.file(`attachments/${sanitizeSegment(attachment.id)}/meta.json`, JSON.stringify({
+          ...attachment,
+          file: path.basename(packagePath),
+          sha256,
+          packagePath,
+        }, null, 2));
+      }
+    }
+
+    if (packageKind === "markdown" && prepared) {
+      let inlineIndex = 0;
+      for (const asset of prepared.inlineAssets || []) {
+        const relPath = normalizeInlinePath(asset.relPath);
+        if (!relPath) {
+          warnings.push({ type: "invalid_inline_asset_path", noteId: note.id, path: asset.relPath, message: "Inline asset path is invalid" });
+          continue;
+        }
+        let buffer: Buffer;
+        try {
+          buffer = Buffer.from(asset.base64, "base64");
+        } catch {
+          warnings.push({ type: "invalid_inline_asset", noteId: note.id, path: relPath, message: "Inline asset is not valid base64" });
+          continue;
+        }
+        if (!buffer.length) continue;
+        inlineIndex += 1;
+        const syntheticId = `inline-${note.id}-${inlineIndex}`;
+        const folder = layout === "flat" ? "" : (pathById.get(note.notebookId) || "未分类");
+        const packagePath = `${folder ? `${folder}/` : ""}${relPath}`;
+        zip.file(packagePath, buffer);
+        privateContent = replaceInlineAssetReference(privateContent, relPath, `/api/attachments/${syntheticId}`);
+        noteAttachmentIds.add(syntheticId);
+        packageAttachments.push({
+          id: syntheticId,
           noteId: note.id,
-          message: `Unknown contentFormat "${note.contentFormat}", exported as tiptap-json`,
+          filename: path.basename(relPath),
+          mimeType: null,
+          size: buffer.length,
+          createdAt: note.updatedAt,
+          sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+          packagePath,
+          referencedInContent: true,
+          synthetic: true,
+        });
+      }
+
+      const extracted = extractDataImages(privateContent, note.id);
+      privateContent = extracted.content;
+      for (const asset of extracted.assets) {
+        const folder = layout === "flat" ? "" : (pathById.get(note.notebookId) || "未分类");
+        const packagePath = `${folder ? `${folder}/` : ""}assets/${sanitizeSegment(asset.id)}-${sanitizeSegment(asset.filename)}`;
+        zip.file(packagePath, asset.buffer);
+        noteAttachmentIds.add(asset.id);
+        packageAttachments.push({
+          id: asset.id,
+          noteId: note.id,
+          filename: asset.filename,
+          mimeType: asset.mimeType,
+          size: asset.buffer.length,
+          createdAt: note.updatedAt,
+          sha256: crypto.createHash("sha256").update(asset.buffer).digest("hex"),
+          packagePath,
+          referencedInContent: true,
+          synthetic: true,
         });
       }
     }
 
-    // 写内容文件
-    zip.file(`${noteDir}/${contentFile}`, note.content || "");
+    const contentFileName = effectiveFormat === "markdown"
+      ? "content.md"
+      : effectiveFormat === "html"
+        ? "content.html"
+        : "content.tiptap.json";
+    if (effectiveFormat === "markdown") formatStats.markdown += 1;
+    else if (effectiveFormat === "html") formatStats.html += 1;
+    else formatStats.richText += 1;
 
-    // 收集该笔记的附件 ID
-    const noteAttachmentIds = new Set(
-      allAttachments.filter((a) => a.noteId === note.id).map((a) => a.id)
-    );
-    // 从内容中提取的附件 ID 也加上
-    extractAttachmentIds(note.content || "").forEach((id) => noteAttachmentIds.add(id));
-
-    // 写 meta.json
+    const noteDir = `notes/${sanitizeSegment(note.id)}`;
+    zip.file(`${noteDir}/${contentFileName}`, privateContent);
     const meta = {
       id: note.id,
       notebookId: note.notebookId,
       title: note.title,
-      contentFormat: cf,
-      contentFile,
+      contentFormat: effectiveFormat,
+      sourceContentFormat: sourceFormat,
+      contentFile: contentFileName,
       contentText: note.contentText || "",
       isPinned: note.isPinned,
       isFavorite: note.isFavorite,
@@ -364,84 +580,87 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
       sortOrder: note.sortOrder,
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
-      tagIds: noteTags.filter((nt) => nt.noteId === note.id).map((nt) => nt.tagId),
+      tagIds: noteTags.filter((item) => item.noteId === note.id).map((item) => item.tagId),
       attachmentIds: Array.from(noteAttachmentIds),
     };
     zip.file(`${noteDir}/meta.json`, JSON.stringify(meta, null, 2));
-    stats.notes++;
-  }
+    noteManifest.push({ ...meta, contentPath: `${noteDir}/${contentFileName}` });
+    attachmentIdsByNote.set(note.id, Array.from(noteAttachmentIds));
 
-  // 6.5 attachments/
-  for (const att of allAttachments) {
-    const attDir = `attachments/${sanitizeFilename(att.id)}`;
-
-    // 写 meta.json
-    const attMeta = {
-      id: att.id,
-      noteId: att.noteId,
-      filename: att.filename,
-      mimeType: att.mimeType,
-      size: att.size,
-      path: att.path,
-      createdAt: att.createdAt,
-    };
-
-    // 读取物理文件
-    if (att.path) {
-      const fileBuffer = readAttachmentFile(att.path);
-      if (fileBuffer) {
-        const ext = path.extname(att.filename) || ".bin";
-        const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, "");
-        const fileName = `file${safeExt}`;
-
-        // 计算 sha256
-        const sha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-        (attMeta as any).file = fileName;
-        (attMeta as any).sha256 = sha256;
-
-        zip.file(`${attDir}/${fileName}`, fileBuffer);
-        zip.file(`${attDir}/meta.json`, JSON.stringify(attMeta, null, 2));
-        stats.attachments++;
-      } else {
-        warnings.push({
-          type: "missing_attachment_file",
-          attachmentId: att.id,
-          noteId: att.noteId,
-          path: att.path,
-          message: `Attachment file not found on disk: ${att.path}`,
-        });
-        // 仍然写 meta.json，但不写文件
-        zip.file(`${attDir}/meta.json`, JSON.stringify(attMeta, null, 2));
-      }
-    } else {
-      warnings.push({
-        type: "attachment_no_path",
-        attachmentId: att.id,
-        noteId: att.noteId,
-        message: "Attachment has no path in database",
-      });
-      zip.file(`${attDir}/meta.json`, JSON.stringify(attMeta, null, 2));
+    if (includeHumanReadableTree) {
+      const folder = layout === "flat" ? "" : (pathById.get(note.notebookId) || "未分类");
+      const prefix = folder ? `${folder}/` : "";
+      const baseName = sanitizeSegment(note.title);
+      let fileName = `${baseName}.md`;
+      let index = 2;
+      while (humanUsedNotePaths.has(`${prefix}${fileName}`)) fileName = `${baseName} (${index++}).md`;
+      humanUsedNotePaths.add(`${prefix}${fileName}`);
+      const frontmatter = [
+        "---",
+        `title: ${JSON.stringify(note.title)}`,
+        `contentFormat: ${JSON.stringify("markdown")}`,
+        `sourceContentFormat: ${JSON.stringify(sourceFormat)}`,
+        `sourceId: ${JSON.stringify(note.id)}`,
+        `created: ${note.createdAt}`,
+        `updated: ${note.updatedAt}`,
+        "---",
+        "",
+      ].join("\n");
+      zip.file(`${prefix}${fileName}`, frontmatter + humanMarkdown);
     }
   }
 
-  // 6.6 warnings.json
-  stats.warnings = warnings.length;
-  zip.file("warnings.json", JSON.stringify({ version: 1, items: warnings }, null, 2));
+  const tree = notebooks.map((notebook) => ({
+    sourceId: notebook.id,
+    type: "notebook",
+    parentSourceId: notebook.parentId && notebookIds.has(notebook.parentId) ? notebook.parentId : null,
+    name: notebook.name,
+    exportName: exportNameById.get(notebook.id) || sanitizeSegment(notebook.name),
+    exportPath: pathById.get(notebook.id) || sanitizeSegment(notebook.name),
+    description: notebook.description,
+    icon: notebook.icon,
+    color: notebook.color,
+    sortOrder: notebook.sortOrder,
+    isExpanded: notebook.isExpanded,
+    createdAt: notebook.createdAt,
+    updatedAt: notebook.updatedAt,
+  }));
 
-  // 6.7 manifest.json
+  // Compatibility files remain for v1 clients; v2 readers use tree/notes/attachments manifests.
+  zip.file("notebooks.json", JSON.stringify(notebooks, null, 2));
+  zip.file("tree.json", JSON.stringify({ version: 1, roots, nodes: tree }, null, 2));
+  zip.file("notes.json", JSON.stringify({ version: 1, items: noteManifest }, null, 2));
+  zip.file("attachments.json", JSON.stringify({ version: 1, items: packageAttachments }, null, 2));
+  zip.file("tags.json", JSON.stringify(tags, null, 2));
+  zip.file("note_tags.json", JSON.stringify(noteTags, null, 2));
+
+  const stats: ExportStats = {
+    notes: notes.length,
+    notebooks: notebooks.length,
+    tags: tags.length,
+    noteTags: noteTags.length,
+    attachments: packageAttachments.length,
+    warnings: warnings.length,
+  };
+  zip.file("warnings.json", JSON.stringify({ version: 1, items: warnings }, null, 2));
   const now = new Date().toISOString();
-  const schemaVersion = getDbSchemaVersion();
+  const exportBatchId = crypto.randomUUID();
   const manifest = {
     format: "nowen-package",
-    formatVersion: 1,
+    formatVersion: 2,
+    packageKind,
     app: "nowen-note",
-    schemaVersion,
+    schemaVersion: getDbSchemaVersion(),
     exportedAt: now,
+    exportBatchId,
+    sourceInstanceId: process.env.NOWEN_INSTANCE_ID || null,
     scope: {
-      type: notebookId ? "notebook" : "all",
+      type: notebookId ? "notebook" : noteIds ? "selection" : "all",
+      workspaceId: workspaceId || null,
       notebookId: notebookId || null,
       includeSubNotebooks,
       includeTrashed,
+      rootSourceIds: roots,
     },
     counts: {
       notebooks: stats.notebooks,
@@ -452,22 +671,35 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
     },
     formatStats,
     warnings: {
-      missingAttachments: warnings.filter((w) => w.type === "missing_attachment_file").length,
-      unknownContentFormat: warnings.filter((w) => w.type === "unknown_content_format").length,
+      total: warnings.length,
+      missingAttachments: warnings.filter((item) => item.type.includes("attachment") && item.type.includes("missing")).length,
     },
   };
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-
-  // ── 7. 生成 zip buffer ──
+  if (includeHumanReadableTree) {
+    zip.file("metadata.json", JSON.stringify({
+      version: "3.0",
+      packageVersion: 2,
+      app: "nowen-note",
+      roundTripPackage: true,
+      exportedAt: now,
+      totalNotes: notes.length,
+      totalNotebooks: notebooks.length,
+      totalAttachments: packageAttachments.length,
+      warnings: warnings.length,
+    }, null, 2));
+  }
 
   const buffer = await zip.generateAsync({
     type: "nodebuffer",
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
   });
-
-  const dateStr = now.slice(0, 10);
-  const filename = `nowen-package-${dateStr}.nowen.zip`;
-
+  const date = now.slice(0, 10);
+  const filename = filenameBase
+    ? `${sanitizeSegment(filenameBase)}.zip`
+    : packageKind === "markdown"
+      ? `nowen-note_backup_${date}.zip`
+      : `nowen-package-${date}.nowen.zip`;
   return { buffer, filename, stats };
 }
