@@ -55,6 +55,8 @@ jobs:
           echo "before=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
           git merge --no-ff --no-edit -X ours origin/main
+          git rm -f .github/workflows/pg-sync-main.yml
+          git commit --amend --no-edit
           echo "after=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install backend dependencies
@@ -80,14 +82,8 @@ jobs:
             echo
             echo "Run: \`${{ github.run_id }}\`"
             echo
-            echo '### TypeScript'
             echo '```text'
-            tail -n 120 /tmp/typecheck.log
-            echo '```'
-            echo
-            echo '### Merged tokens.ts lines 150-230'
-            echo '```text'
-            nl -ba backend/src/routes/tokens.ts | sed -n '150,230p'
+            tail -n 160 /tmp/typecheck.log
             echo '```'
           } > /tmp/typecheck-comment.md
           gh pr comment 372 --body-file /tmp/typecheck-comment.md
@@ -125,10 +121,17 @@ jobs:
           tests/repository-batch-b-pg.test.ts
           tests/repository-permissions-pg.test.ts
           tests/repository-access-session-pg.test.ts
+          tests/api-token-resources-pg.test.ts
 
       - name: Production backend bundle
         working-directory: backend
         run: npm run build
+
+      - name: Verify migration resources
+        working-directory: backend
+        run: >-
+          test -f dist/postgres/migrations/0004_notebook_members_unique.sql &&
+          test -f dist/postgres/migrations/0005_api_token_resources.sql
 
       - name: Push synchronized branch
         run: git push origin HEAD:pg-migration-unified
@@ -136,7 +139,7 @@ jobs:
       - name: Publish success
         if: success()
         run: |
-          gh pr comment 372 --body "## ✅ main synchronized into pg-migration-unified\n\nBefore: \`${{ steps.merge.outputs.before }}\`\nMain: \`${{ steps.merge.outputs.main }}\`\nMerge head: \`${{ steps.merge.outputs.after }}\`\nRun: \`${{ github.run_id }}\`\n\nTypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, and production bundle all passed."
+          gh pr comment 372 --body "## ✅ main synchronized into pg-migration-unified\n\nBefore: \`${{ steps.merge.outputs.before }}\`\nMain: \`${{ steps.merge.outputs.main }}\`\nMerge head: \`${{ steps.merge.outputs.after }}\`\nRun: \`${{ github.run_id }}\`\n\nTypeScript, SQLite audit, schema parity, SQL dialect, full SQLite regression, real PostgreSQL regression, production bundle, and migration packaging all passed."
 
       - name: Publish generic failure
         if: failure() && steps.typecheck.outcome != 'failure'
