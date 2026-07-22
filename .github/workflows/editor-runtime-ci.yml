@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "frontend/vite.config.ts"
+      - "frontend/vitest.config.ts"
       - "frontend/src/lib/editorComplexityProfile.ts"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
@@ -44,6 +45,7 @@ on:
   pull_request:
     paths:
       - "frontend/vite.config.ts"
+      - "frontend/vitest.config.ts"
       - "frontend/src/lib/editorComplexityProfile.ts"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/editorRuntimeStore.ts"
