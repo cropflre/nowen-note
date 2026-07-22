@@ -91,6 +91,27 @@ jobs:
               raise SystemExit("attachment-indexer import pattern not found")
           indexer_path.write_text(indexer.replace(old_indexer_import, new_indexer_import, 1))
 
+          yjs_path = Path("backend/src/services/yjs.ts")
+          yjs_source = yjs_path.read_text()
+          old_yjs = '''    room.updatesSinceSnapshot++;
+              if (userId) room.lastActorUserId = userId;
+
+              // 到达阈值顺手合并一次 snapshot，行为与 yApplyUpdate 对齐
+          '''
+          new_yjs = '''    room.updatesSinceSnapshot++;
+              if (userId) room.lastActorUserId = userId;
+              // The caller has already persisted and versioned the same canonical content.
+              // Prevent an immediate yFlush from counting that server replacement as another edit.
+              room.lastVersionBumpAt = Date.now();
+
+              // 到达阈值顺手合并一次 snapshot，行为与 yApplyUpdate 对齐
+          '''
+          if old_yjs in yjs_source:
+              yjs_source = yjs_source.replace(old_yjs, new_yjs, 1)
+          elif 'room.lastVersionBumpAt = Date.now();' not in yjs_source:
+              raise SystemExit("yReplaceContentAsUpdate patch anchor not found")
+          yjs_path.write_text(yjs_source)
+
           import_path = Path("backend/src/services/nowenPackageImport.ts")
           import_source = import_path.read_text()
           old_notes_loop = '''  const notesFolder = zip.folder("notes");
@@ -141,6 +162,7 @@ jobs:
 
           git add \
             backend/src/services/attachment-indexer.ts \
+            backend/src/services/yjs.ts \
             backend/src/services/nowenPackageImport.ts \
             backend/tests/note-links-repository-async.test.ts
           git rm -f .github/pg-sync-main-trigger .github/workflows/pg-sync-main.yml
