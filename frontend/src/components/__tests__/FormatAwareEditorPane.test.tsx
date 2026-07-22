@@ -2,6 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FormatAwareEditorPane from "../FormatAwareEditorPane";
+import { EDITOR_MODE_KEY } from "@/lib/editorMode";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,15 +11,10 @@ const mocks = vi.hoisted(() => ({
   state: {
     activeNote: null as null | { id: string; contentFormat?: string },
   },
-  persistEditorMode: vi.fn(),
 }));
 
 vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: mocks.state }),
-}));
-
-vi.mock("@/lib/editorMode", () => ({
-  persistEditorMode: mocks.persistEditorMode,
 }));
 
 vi.mock("@/components/EditorPane", () => ({
@@ -31,6 +27,7 @@ describe("FormatAwareEditorPane", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mocks.state.activeNote = null;
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -53,7 +50,7 @@ describe("FormatAwareEditorPane", () => {
 
     await render();
 
-    expect(mocks.persistEditorMode).toHaveBeenCalledWith("md");
+    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("md");
     expect(document.querySelector('[data-testid="editor-pane"]')).not.toBeNull();
   });
 
@@ -62,18 +59,29 @@ describe("FormatAwareEditorPane", () => {
 
     await render();
 
-    expect(mocks.persistEditorMode).toHaveBeenCalledWith("tiptap");
+    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
     expect(document.querySelector('[data-testid="editor-pane"]')).not.toBeNull();
   });
 
   it("切换不同格式的笔记时重新准备编辑器模式", async () => {
     mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
     await render();
+    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("md");
 
     mocks.state.activeNote = { id: "rich-note", contentFormat: "tiptap-json" };
     await render();
 
-    expect(mocks.persistEditorMode).toHaveBeenNthCalledWith(1, "md");
-    expect(mocks.persistEditorMode).toHaveBeenLastCalledWith("tiptap");
+    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
+  });
+
+  it("按笔记格式准备模式时不会广播账号默认编辑器变更", async () => {
+    const onPreferenceChange = vi.fn();
+    window.addEventListener("nowen:editor-mode-change", onPreferenceChange);
+    mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
+
+    await render();
+
+    expect(onPreferenceChange).not.toHaveBeenCalled();
+    window.removeEventListener("nowen:editor-mode-change", onPreferenceChange);
   });
 });
