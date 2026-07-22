@@ -18,6 +18,7 @@ interface ImportIdentitySnapshot {
   packageKind: string | null;
   sourceInstanceId: string | null;
   workspaceScope: string;
+  sourceIds: Record<ResourceType, string[]>;
   beforeRows: Array<Record<string, unknown>>;
 }
 
@@ -121,12 +122,86 @@ function descendantsFromCreatedRoots(rootIds: string[]): { notebookIds: Set<stri
   return { notebookIds, noteIds: new Set(notes.map((row) => row.id)) };
 }
 
+async function readJson(zip: JSZip, filename: string): Promise<unknown> {
+  const entry = zip.file(filename);
+  if (!entry) return null;
+  try { return JSON.parse(await entry.async("string")); }
+  catch { return null; }
+}
+
+function itemIds(value: unknown, idKey = "id"): string[] {
+  const items = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)
+      ? (value as { items: unknown[] }).items
+      : [];
+  return items
+    .map((item) => item && typeof item === "object" ? String((item as Record<string, unknown>)[idKey] || "") : "")
+    .filter(Boolean);
+}
+
+async function packageSourceIds(zip: JSZip): Promise<Record<ResourceType, string[]>> {
+  const tree = await readJson(zip, "tree.json");
+  const treeNodes = tree && typeof tree === "object" && Array.isArray((tree as { nodes?: unknown[] }).nodes)
+    ? (tree as { nodes: unknown[] }).nodes
+    : [];
+  let notebooks = treeNodes
+    .map((item) => item && typeof item === "object" ? String((item as Record<string, unknown>).sourceId || "") : "")
+    .filter(Boolean);
+  if (!notebooks.length) notebooks = itemIds(await readJson(zip, "notebooks.json"));
+
+  let notes = itemIds(await readJson(zip, "notes.json"));
+  if (!notes.length) {
+    notes = [...new Set(Object.keys(zip.files)
+      .map((filename) => filename.match(/^notes\/([^/]+)\/meta\.json$/)?.[1] || "")
+      .filter(Boolean))];
+  }
+
+  let attachments = itemIds(await readJson(zip, "attachments.json"));
+  if (!attachments.length) {
+    attachments = [...new Set(Object.keys(zip.files)
+      .map((filename) => filename.match(/^attachments\/([^/]+)\/(?:meta\.json|[^/]+)$/)?.[1] || "")
+      .filter(Boolean))];
+  }
+  return { notebook: notebooks, note: notes, attachment: attachments };
+}
+
+function packageLinks(
+  afterLinks: Array<Record<string, unknown>>,
+  sourceIds: Record<ResourceType, string[]>,
+): { rows: Array<Record<string, unknown>>; missing: string[] } {
+  const expected = new Map<ResourceType, Set<string>>([
+    ["notebook", new Set(sourceIds.notebook)],
+    ["note", new Set(sourceIds.note)],
+    ["attachment", new Set(sourceIds.attachment)],
+  ]);
+  const rows = afterLinks.filter((row) => {
+    const type = String(row.resourceType || "") as ResourceType;
+    return expected.get(type)?.has(String(row.sourceResourceId || "")) === true;
+  });
+  const covered = new Map<ResourceType, Set<string>>([
+    ["notebook", new Set()],
+    ["note", new Set()],
+    ["attachment", new Set()],
+  ]);
+  for (const row of rows) {
+    const type = String(row.resourceType || "") as ResourceType;
+    covered.get(type)?.add(String(row.sourceResourceId || ""));
+  }
+  const missing: string[] = [];
+  for (const [type, ids] of expected) {
+    for (const id of ids) if (!covered.get(type)?.has(id)) missing.push(`${type}:${id}`);
+  }
+  return { rows, missing };
+}
+
 function refineUndoState(args: {
   state: MutableUndoState;
   result: Record<string, unknown>;
   importMode: string;
   packageKind: string | null;
-  afterLinks: Array<Record<string, unknown>>;
+  packageLinks: Array<Record<string, unknown>>;
+  stableMappingsExpected: boolean;
 }): { available: boolean; reason: string | null } {
   const beforeNotebooks = stringSet(args.state.beforeScope?.notebooks);
   const beforeNotes = stringSet(args.state.beforeScope?.notes);
@@ -138,10 +213,10 @@ function refineUndoState(args: {
   let createdNotes = new Set<string>();
   let createdAttachments = new Set<string>();
 
-  if (args.afterLinks.length) {
-    createdNotebooks = new Set([...mappedTargets(args.afterLinks, "notebook")].filter((id) => !beforeNotebooks.has(id)));
-    createdNotes = new Set([...mappedTargets(args.afterLinks, "note")].filter((id) => !beforeNotes.has(id)));
-    createdAttachments = new Set([...mappedTargets(args.afterLinks, "attachment")].filter((id) => !beforeAttachments.has(id)));
+  if (args.stableMappingsExpected) {
+    createdNotebooks = new Set([...mappedTargets(args.packageLinks, "notebook")].filter((id) => !beforeNotebooks.has(id)));
+    createdNotes = new Set([...mappedTargets(args.packageLinks, "note")].filter((id) => !beforeNotes.has(id)));
+    createdAttachments = new Set([...mappedTargets(args.packageLinks, "attachment")].filter((id) => !beforeAttachments.has(id)));
   } else if (args.importMode !== "merge") {
     const roots = Array.isArray(args.result.rootNotebookIds)
       ? args.result.rootNotebookIds.map((value) => String(value || "")).filter(Boolean)
@@ -202,6 +277,7 @@ export async function captureRoundTripImportLinkUndo(
       packageKind,
       sourceInstanceId,
       workspaceScope: scope,
+      sourceIds: await packageSourceIds(zip),
       beforeRows: sourceInstanceId && packageKind !== "markdown"
         ? currentRows(userId, scope, sourceInstanceId)
         : [],
@@ -238,15 +314,31 @@ export function attachRoundTripImportLinkUndo(
     const result = JSON.parse(batch.resultJson || "{}") as Record<string, unknown>;
     const sourceInstanceId = snapshot?.sourceInstanceId || null;
     const packageKind = snapshot?.packageKind || batch.packageKind;
-    const afterLinks = sourceInstanceId && packageKind !== "markdown"
-      ? currentRows(userId, snapshot?.workspaceScope || "personal", sourceInstanceId)
+    const stableMappingsExpected = !!sourceInstanceId && packageKind !== "markdown";
+    const afterLinks = stableMappingsExpected
+      ? currentRows(userId, snapshot?.workspaceScope || "personal", sourceInstanceId!)
       : [];
+    const matched = snapshot && stableMappingsExpected
+      ? packageLinks(afterLinks, snapshot.sourceIds)
+      : { rows: [], missing: [] };
+    if (matched.missing.length) {
+      const reason = `来源映射不完整，缺少 ${matched.missing.length} 个资源，已关闭一键撤销`;
+      getDb().prepare(`
+        UPDATE roundtrip_import_batches
+           SET undoAvailable = 0, undoUnavailableReason = ?
+         WHERE id = ? AND userId = ?
+      `).run(reason, batchId, userId);
+      removeUndoBackup(batchId);
+      return { available: false, reason };
+    }
+
     const refined = refineUndoState({
       state,
       result,
       importMode: batch.importMode,
       packageKind,
-      afterLinks,
+      packageLinks: matched.rows,
+      stableMappingsExpected,
     });
     if (!refined.available) {
       getDb().prepare(`
