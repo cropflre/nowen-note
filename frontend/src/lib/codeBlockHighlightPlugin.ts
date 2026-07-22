@@ -1,7 +1,10 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { isActiveEditorCapabilityEnabled } from "@/lib/editorRuntimeStore";
+import {
+  getActiveEditorRuntimeState,
+  isActiveEditorCapabilityEnabled,
+} from "@/lib/editorRuntimeStore";
 
 type LowlightNode = {
   value?: string;
@@ -41,13 +44,16 @@ type AutoResult = {
   segments: HighlightSegment[];
 };
 
+type ViewportRange = { from: number; to: number };
 type RuntimeRefresh = { runtimeRefresh: true };
+type ViewportRefresh = { viewportRefresh: true; range: ViewportRange | null };
 
 const PLAIN_TEXT_LANGUAGES = new Set(["text", "plaintext", "plain", "txt"]);
 const NON_LOWLIGHT_LANGUAGES = new Set(["mermaid"]);
 const AUTO_LANGUAGE = "auto";
 const DEFAULT_AUTO_SYNC_MAX_CHARACTERS = 2_000;
 const DEFAULT_CACHE_ENTRIES = 200;
+const DEFAULT_VIEWPORT_CHARACTER_MARGIN = 12_000;
 const HIGHLIGHT_DIAGNOSTICS_ENABLED = import.meta.env.MODE === "test" || import.meta.env.VITE_PHASE_A_PERF === "1";
 
 export function isPlainTextLanguage(language: string | null | undefined): boolean {
@@ -93,11 +99,25 @@ function toSegments(result: unknown): HighlightSegment[] {
   return parseHighlightNodes(tree.children || tree.value || []).segments;
 }
 
-function codeBlocks(doc: ProseMirrorNode, name: string): Array<{ node: ProseMirrorNode; pos: number }> {
+function codeBlocks(
+  doc: ProseMirrorNode,
+  name: string,
+  range: ViewportRange | null,
+): Array<{ node: ProseMirrorNode; pos: number }> {
   const blocks: Array<{ node: ProseMirrorNode; pos: number }> = [];
-  doc.descendants((node, pos) => {
-    if (node.type.name === name) blocks.push({ node, pos });
-  });
+  const collect = (node: ProseMirrorNode, pos: number) => {
+    if (node.type.name !== name) return true;
+    blocks.push({ node, pos });
+    return false;
+  };
+
+  if (range) {
+    const from = Math.max(0, Math.min(doc.content.size, range.from));
+    const to = Math.max(from, Math.min(doc.content.size, range.to));
+    if (to > from) doc.nodesBetween(from, to, collect);
+  } else {
+    doc.descendants(collect);
+  }
   return blocks;
 }
 
@@ -113,12 +133,28 @@ function taskEquals(left: AutoTask, right: AutoTask): boolean {
   return left.key === right.key && left.pos === right.pos && left.language === right.language && left.code === right.code;
 }
 
+function rangesEqual(left: ViewportRange | null, right: ViewportRange | null): boolean {
+  return left === right || (!!left && !!right && left.from === right.from && left.to === right.to);
+}
+
+function findScrollableAncestor(element: HTMLElement): HTMLElement | null {
+  if (typeof window === "undefined") return null;
+  let current = element.parentElement;
+  while (current && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    if (/(auto|scroll|overlay)/.test(`${style.overflowY} ${style.overflow}`)) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
 export type CodeBlockHighlightPluginOptions = {
   name: string;
   lowlight: LowlightLike;
   defaultLanguage?: string | null;
   autoSyncMaxCharacters?: number;
   cacheEntries?: number;
+  viewportCharacterMargin?: number;
   onDiagnostic?: (event: HighlightDiagnosticEvent, detail: Record<string, number | string | boolean>) => void;
 };
 
@@ -128,15 +164,15 @@ export type HighlightDiagnosticEvent =
   | "highlight-task-executed"
   | "highlight-task-stale"
   | "highlight-task-applied"
-  | "highlight-queue-depth";
+  | "highlight-queue-depth"
+  | "highlight-viewport-range";
 
 /**
  * Incremental lowlight decorations for Tiptap code blocks.
  *
- * The upstream plugin re-highlights every code block after each edit inside any code block. This
- * plugin caches exact results and defers auto detection. In lightweight runtime mode it returns an
- * empty DecorationSet before traversing the document at all, keeping code editable without paying
- * the whole-document scan/highlight cost.
+ * Normal documents keep exact cached highlighting. Viewport-optimized documents only traverse the
+ * visible scroll window plus a character margin, so cost no longer grows linearly with every code
+ * block in the note. Lightweight mode returns an empty DecorationSet before traversing the document.
  */
 export function createCodeBlockHighlightPlugin({
   name,
@@ -144,11 +180,13 @@ export function createCodeBlockHighlightPlugin({
   defaultLanguage,
   autoSyncMaxCharacters = DEFAULT_AUTO_SYNC_MAX_CHARACTERS,
   cacheEntries = DEFAULT_CACHE_ENTRIES,
+  viewportCharacterMargin = DEFAULT_VIEWPORT_CHARACTER_MARGIN,
   onDiagnostic,
 }: CodeBlockHighlightPluginOptions): Plugin<HighlightPluginState> {
   const pluginKey = new PluginKey<HighlightPluginState>("nowenCodeBlockHighlight");
   const cache = new Map<string, HighlightSegment[]>();
   let currentView: EditorView | null = null;
+  let activeViewport: ViewportRange | null = null;
   const report = HIGHLIGHT_DIAGNOSTICS_ENABLED ? onDiagnostic : undefined;
 
   const getCached = (key: string): HighlightSegment[] | undefined => {
@@ -175,6 +213,10 @@ export function createCodeBlockHighlightPlugin({
     )
   );
 
+  const usesViewportHighlighting = () => (
+    getActiveEditorRuntimeState().decision.mode === "viewport-optimized"
+  );
+
   const emptyState = (): HighlightPluginState => ({
     decorations: DecorationSet.empty,
     pending: [],
@@ -182,11 +224,13 @@ export function createCodeBlockHighlightPlugin({
 
   const build = (doc: ProseMirrorNode): HighlightPluginState => {
     if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyState();
+    if (usesViewportHighlighting() && !activeViewport) return emptyState();
 
     const decorations: Decoration[] = [];
     const pendingByKey = new Map<string, AutoTask>();
+    const range = usesViewportHighlighting() ? activeViewport : null;
 
-    for (const block of codeBlocks(doc, name)) {
+    for (const block of codeBlocks(doc, name, range)) {
       const language = normalizedLanguage(block.node, defaultLanguage);
       const code = block.node.textContent;
       let segments: HighlightSegment[] | undefined;
@@ -241,8 +285,15 @@ export function createCodeBlockHighlightPlugin({
     state: {
       init: (_, state) => build(state.doc),
       apply: (transaction, previous) => {
-        const result = transaction.getMeta(pluginKey) as AutoResult | RuntimeRefresh | undefined;
-        if (result && "runtimeRefresh" in result) return build(transaction.doc);
+        const result = transaction.getMeta(pluginKey) as AutoResult | RuntimeRefresh | ViewportRefresh | undefined;
+        if (result && "viewportRefresh" in result) {
+          activeViewport = result.range;
+          return build(transaction.doc);
+        }
+        if (result && "runtimeRefresh" in result) {
+          if (!usesViewportHighlighting()) activeViewport = null;
+          return build(transaction.doc);
+        }
         if (result && "task" in result) {
           const node = transaction.doc.nodeAt(result.task.pos);
           if (
@@ -255,7 +306,15 @@ export function createCodeBlockHighlightPlugin({
           }
           return previous;
         }
-        if (transaction.docChanged) return build(transaction.doc);
+        if (transaction.docChanged) {
+          if (activeViewport) {
+            activeViewport = {
+              from: transaction.mapping.map(activeViewport.from, -1),
+              to: transaction.mapping.map(activeViewport.to, 1),
+            };
+          }
+          return build(transaction.doc);
+        }
         return {
           decorations: previous.decorations.map(transaction.mapping, transaction.doc),
           pending: previous.pending,
@@ -270,6 +329,9 @@ export function createCodeBlockHighlightPlugin({
     view(view) {
       currentView = view;
       const scheduled = new Map<string, { cancel: () => void; task: AutoTask }>();
+      const scrollContainer = findScrollableAncestor(view.dom);
+      const scrollTarget: HTMLElement | Window = scrollContainer || window;
+      let viewportFrame = 0;
 
       const reportQueueDepth = () => report?.("highlight-queue-depth", { depth: scheduled.size });
 
@@ -347,22 +409,97 @@ export function createCodeBlockHighlightPlugin({
         }
       };
 
+      const resolveViewportRange = (): ViewportRange | null => {
+        if (!usesViewportHighlighting()) return null;
+        const docSize = view.state.doc.content.size;
+        const fallbackFrom = view.state.selection.from;
+        const fallbackTo = view.state.selection.to;
+        let visibleFrom = fallbackFrom;
+        let visibleTo = fallbackTo;
+
+        try {
+          const editorRect = view.dom.getBoundingClientRect();
+          const viewportRect = scrollContainer?.getBoundingClientRect() || {
+            top: 0,
+            bottom: window.innerHeight,
+            left: 0,
+            right: window.innerWidth,
+          };
+          const top = Math.max(editorRect.top + 1, viewportRect.top + 1);
+          const bottom = Math.min(editorRect.bottom - 1, viewportRect.bottom - 1);
+          const left = Math.max(editorRect.left + 1, viewportRect.left + 1);
+          if (bottom > top) {
+            visibleFrom = view.posAtCoords({ left, top })?.pos ?? fallbackFrom;
+            visibleTo = view.posAtCoords({ left, top: bottom })?.pos ?? fallbackTo;
+          }
+        } catch {
+          // jsdom, hidden panes and detached editor transitions may not support coordinate lookup.
+        }
+
+        const from = Math.max(0, Math.min(visibleFrom, visibleTo) - viewportCharacterMargin);
+        const to = Math.min(docSize, Math.max(visibleFrom, visibleTo) + viewportCharacterMargin);
+        return { from, to: Math.max(from, to) };
+      };
+
+      const refreshViewport = (force = false) => {
+        const next = resolveViewportRange();
+        if (!force && rangesEqual(activeViewport, next)) return;
+        view.dispatch(view.state.tr.setMeta(pluginKey, {
+          viewportRefresh: true,
+          range: next,
+        } satisfies ViewportRefresh));
+        report?.("highlight-viewport-range", {
+          from: next?.from ?? 0,
+          to: next?.to ?? 0,
+          characters: next ? next.to - next.from : 0,
+        });
+      };
+
+      const scheduleViewportRefresh = () => {
+        if (!usesViewportHighlighting()) return;
+        if (viewportFrame) window.cancelAnimationFrame(viewportFrame);
+        viewportFrame = window.requestAnimationFrame(() => {
+          viewportFrame = 0;
+          refreshViewport();
+          schedulePending();
+        });
+      };
+
       const handleCompositionEnd = () => window.queueMicrotask(schedulePending);
       const handleRuntimeChange = () => {
-        view.dispatch(view.state.tr.setMeta(pluginKey, { runtimeRefresh: true } satisfies RuntimeRefresh));
+        if (usesViewportHighlighting()) {
+          refreshViewport(true);
+        } else {
+          activeViewport = null;
+          view.dispatch(view.state.tr.setMeta(pluginKey, { runtimeRefresh: true } satisfies RuntimeRefresh));
+        }
         schedulePending();
       };
+      const handleScroll = () => scheduleViewportRefresh();
+      const handleResize = () => scheduleViewportRefresh();
+
       view.dom.addEventListener("compositionend", handleCompositionEnd);
+      scrollTarget.addEventListener("scroll", handleScroll, { passive: true });
+      window.addEventListener("resize", handleResize);
       window.addEventListener("nowen:editor-runtime-change", handleRuntimeChange);
-      schedulePending();
+
+      if (usesViewportHighlighting()) {
+        window.queueMicrotask(() => refreshViewport(true));
+      } else {
+        schedulePending();
+      }
 
       return {
         update() {
           schedulePending();
+          scheduleViewportRefresh();
         },
         destroy() {
           view.dom.removeEventListener("compositionend", handleCompositionEnd);
+          scrollTarget.removeEventListener("scroll", handleScroll);
+          window.removeEventListener("resize", handleResize);
           window.removeEventListener("nowen:editor-runtime-change", handleRuntimeChange);
+          if (viewportFrame) window.cancelAnimationFrame(viewportFrame);
           for (const item of scheduled.values()) {
             item.cancel();
             report?.("highlight-task-cancelled", {
@@ -373,6 +510,7 @@ export function createCodeBlockHighlightPlugin({
           }
           scheduled.clear();
           reportQueueDepth();
+          activeViewport = null;
           if (currentView === view) currentView = null;
         },
       };
