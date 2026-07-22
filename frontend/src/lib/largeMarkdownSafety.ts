@@ -99,6 +99,9 @@ export interface SingleTextChange {
 /**
  * Compute one compact replacement range so a one-character edit does not replace/broadcast the
  * entire multi-megabyte Y.Text document.
+ *
+ * Repeated characters can produce several equally small ranges. Canonicalize pure insertions and
+ * deletions to the earliest valid position so local and remote runtimes derive the same operation.
  */
 export function computeSingleTextChange(
   previous: string,
@@ -123,10 +126,32 @@ export function computeSingleTextChange(
     nextEnd -= 1;
   }
 
+  const deleteCount = previousEnd - from;
+  let insert = next.slice(from, nextEnd);
+
+  if (deleteCount === 0 && insert.length > 0) {
+    while (
+      from > 0
+      && insert.charCodeAt(insert.length - 1) === previous.charCodeAt(from - 1)
+    ) {
+      insert = `${previous[from - 1]}${insert.slice(0, -1)}`;
+      from -= 1;
+    }
+  } else if (insert.length === 0 && deleteCount > 0) {
+    let deleted = previous.slice(from, previousEnd);
+    while (
+      from > 0
+      && deleted.charCodeAt(deleted.length - 1) === next.charCodeAt(from - 1)
+    ) {
+      deleted = `${next[from - 1]}${deleted.slice(0, -1)}`;
+      from -= 1;
+    }
+  }
+
   return {
     from,
-    deleteCount: previousEnd - from,
-    insert: next.slice(from, nextEnd),
+    deleteCount,
+    insert,
   };
 }
 
