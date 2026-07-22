@@ -18,11 +18,24 @@ function richText(length: number): string {
   return `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(length)}"}]}]}`;
 }
 
-function Harness({ forceMount = false }: { forceMount?: boolean }) {
-  const { observeRef, shouldRenderHeavyContent } = useLazyNodeView<HTMLDivElement>({ forceMount });
+function Harness({
+  forceMount = false,
+  manualInLightweight = false,
+}: {
+  forceMount?: boolean;
+  manualInLightweight?: boolean;
+}) {
+  const {
+    observeRef,
+    requiresInteraction,
+    shouldRenderHeavyContent,
+    requestRender,
+  } = useLazyNodeView<HTMLDivElement>({ forceMount, manualInLightweight });
   return (
     <div ref={observeRef}>
       <span data-testid="state">{shouldRenderHeavyContent ? "mounted" : "deferred"}</span>
+      <span data-testid="interaction">{requiresInteraction ? "manual" : "automatic"}</span>
+      <button type="button" onClick={requestRender}>load</button>
     </div>
   );
 }
@@ -69,6 +82,7 @@ describe("useLazyNodeView", () => {
 
     act(() => root.render(<Harness />));
     expect(container.querySelector("[data-testid=state]")?.textContent).toBe("deferred");
+    expect(container.querySelector("[data-testid=interaction]")?.textContent).toBe("automatic");
 
     act(() => {
       intersectionCallback?.([
@@ -78,6 +92,25 @@ describe("useLazyNodeView", () => {
     expect(container.querySelector("[data-testid=state]")?.textContent).toBe("mounted");
   });
 
+  it("requires an explicit action for expensive nodes in lightweight mode", () => {
+    const decision = resolveEditorRuntimeDecision({
+      content: richText(400_000),
+      contentFormat: "tiptap-json",
+    });
+    setActiveEditorRuntimeDecision("note-manual", decision);
+
+    act(() => root.render(<Harness manualInLightweight />));
+    expect(container.querySelector("[data-testid=state]")?.textContent).toBe("deferred");
+    expect(container.querySelector("[data-testid=interaction]")?.textContent).toBe("manual");
+    expect(intersectionCallback).toBeNull();
+
+    act(() => {
+      container.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid=state]")?.textContent).toBe("mounted");
+    expect(container.querySelector("[data-testid=interaction]")?.textContent).toBe("automatic");
+  });
+
   it("mounts immediately when the node is selected or otherwise forced", () => {
     const decision = resolveEditorRuntimeDecision({
       content: richText(400_000),
@@ -85,7 +118,8 @@ describe("useLazyNodeView", () => {
     });
     setActiveEditorRuntimeDecision("note-force", decision);
 
-    act(() => root.render(<Harness forceMount />));
+    act(() => root.render(<Harness forceMount manualInLightweight />));
     expect(container.querySelector("[data-testid=state]")?.textContent).toBe("mounted");
+    expect(container.querySelector("[data-testid=interaction]")?.textContent).toBe("automatic");
   });
 });
