@@ -1,7 +1,7 @@
-import crypto from "crypto";
-import { getDb } from "../db/schema";
+import {
+  nowenInstanceIdentityRepository,
+} from "../repositories/nowenInstanceIdentityRepository";
 
-const INSTANCE_ID_KEY = "nowen_instance_id";
 const VALID_INSTANCE_ID = /^[A-Za-z0-9._:-]{8,160}$/;
 
 function normalized(value: unknown): string | null {
@@ -10,37 +10,33 @@ function normalized(value: unknown): string | null {
 }
 
 /**
- * Return a stable ID for the logical Nowen instance.
- *
- * Operators may pin NOWEN_INSTANCE_ID explicitly. Otherwise the first export creates a UUID in
- * system_settings, so application restarts and ordinary upgrades keep the same source identity.
+ * Legacy synchronous accessor used by SQLite module-load compatibility code.
+ * PostgreSQL mode deliberately avoids touching SQLite; actual exports use the async accessor below.
  */
 export function getNowenInstanceId(): string {
   const configured = normalized(process.env.NOWEN_INSTANCE_ID);
   if (configured) return configured;
+  if (process.env.DB_DRIVER === "postgres") return "";
+  return normalized(nowenInstanceIdentityRepository.getOrCreateSync()) || "";
+}
 
-  const db = getDb();
-  const existing = db.prepare("SELECT value FROM system_settings WHERE key = ?").get(INSTANCE_ID_KEY) as
-    | { value: string }
-    | undefined;
-  const stored = normalized(existing?.value);
-  if (stored) return stored;
-
-  const generated = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO NOTHING
-  `).run(INSTANCE_ID_KEY, generated);
-  const persisted = db.prepare("SELECT value FROM system_settings WHERE key = ?").get(INSTANCE_ID_KEY) as
-    | { value: string }
-    | undefined;
-  return normalized(persisted?.value) || generated;
+export async function getNowenInstanceIdAsync(): Promise<string> {
+  const configured = normalized(process.env.NOWEN_INSTANCE_ID);
+  if (configured) return configured;
+  const persisted = await nowenInstanceIdentityRepository.getOrCreateAsync();
+  return normalized(persisted) || persisted;
 }
 
 /** The existing exporter reads NOWEN_INSTANCE_ID while building manifest.json. */
 export function ensureNowenInstanceEnvironment(): string {
   const id = getNowenInstanceId();
+  if (id && !normalized(process.env.NOWEN_INSTANCE_ID)) process.env.NOWEN_INSTANCE_ID = id;
+  return id;
+}
+
+/** Runtime-provider path used before every stable package export. */
+export async function ensureNowenInstanceEnvironmentAsync(): Promise<string> {
+  const id = await getNowenInstanceIdAsync();
   if (!normalized(process.env.NOWEN_INSTANCE_ID)) process.env.NOWEN_INSTANCE_ID = id;
   return id;
 }
