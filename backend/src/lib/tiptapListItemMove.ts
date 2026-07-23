@@ -36,6 +36,10 @@ interface ListItemLocation {
   outerListFrame: NodeFrame | null;
 }
 
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function validBlockId(value: unknown): value is string {
   return typeof value === "string" && BLOCK_ID_RE.test(value);
 }
@@ -121,7 +125,14 @@ function nestedListForSink(target: ListItemLocation): any {
     throw new TiptapListItemMoveError("前一列表项包含多个嵌套列表，无法确定缩进目标");
   }
   if (nestedLists.length === 1) return nestedLists[0];
-  const nested = { type: target.list.type, content: [] as any[] };
+  const attrs = target.list.attrs && typeof target.list.attrs === "object"
+    ? cloneJson(target.list.attrs)
+    : null;
+  const nested = {
+    type: target.list.type,
+    ...(attrs && Object.keys(attrs).length > 0 ? { attrs } : {}),
+    content: [] as any[],
+  };
   if (!Array.isArray(target.item.content)) target.item.content = [];
   target.item.content.push(nested);
   return nested;
