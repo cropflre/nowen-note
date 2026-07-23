@@ -37,6 +37,12 @@ export type BlockPatchOperation =
       blockId: string;
       targetBlockId: string;
       position?: "before" | "after";
+    }
+  | {
+      type: "moveListItem";
+      blockId: string;
+      targetBlockId: string;
+      position: "before" | "after" | "inside";
     };
 
 export interface BlockPatchRequest {
