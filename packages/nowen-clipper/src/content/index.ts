@@ -37,7 +37,6 @@ import type {
   type MessageType = ContentScriptPingRequest | ExtractRequest | PageDimensionsRequest | ScrollToRequest;
 
   function messageHandler(
-  function messageHandler(
     msg: MessageType,
     _sender: chrome.runtime.MessageSender,
     sendResponse: (r: ContentScriptPingResponse | ExtractResponse | PageDimensionsResponse | ScrollToResponse) => void,
