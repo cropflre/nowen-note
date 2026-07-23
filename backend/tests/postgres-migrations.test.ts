@@ -24,6 +24,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0006_share_capabilities",
     "0007_note_import_origins",
     "0008_note_split_tables",
+    "0009_roundtrip_import_resource_links",
+    "0010_roundtrip_import_batches",
   ]);
 
   const stateTable = await pool.query(
@@ -57,6 +59,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "notebook_acl_overrides",
     "notebook_public_comments",
     "notebook_publications",
+    "roundtrip_import_batches",
+    "roundtrip_import_links",
     "user_preferences",
     "webhook_deliveries",
     "webhooks",
@@ -138,6 +142,21 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     splitIndexes.rows[0].attachments_index,
     "idx_note_split_attachment_operation",
   );
+
+  const roundTripIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_roundtrip_links_source') AS link_source,
+            to_regclass('public.idx_roundtrip_links_target') AS link_target,
+            to_regclass('public.idx_roundtrip_links_batch') AS link_batch,
+            to_regclass('public.idx_roundtrip_import_batches_user_time') AS batch_user,
+            to_regclass('public.idx_roundtrip_import_batches_scope_time') AS batch_scope,
+            to_regclass('public.idx_roundtrip_import_batches_source') AS batch_source`,
+  );
+  assert.equal(roundTripIndexes.rows[0].link_source, "idx_roundtrip_links_source");
+  assert.equal(roundTripIndexes.rows[0].link_target, "idx_roundtrip_links_target");
+  assert.equal(roundTripIndexes.rows[0].link_batch, "idx_roundtrip_links_batch");
+  assert.equal(roundTripIndexes.rows[0].batch_user, "idx_roundtrip_import_batches_user_time");
+  assert.equal(roundTripIndexes.rows[0].batch_scope, "idx_roundtrip_import_batches_scope_time");
+  assert.equal(roundTripIndexes.rows[0].batch_source, "idx_roundtrip_import_batches_source");
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
