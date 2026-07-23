@@ -7,6 +7,7 @@ import {
   CloudOff,
   Columns2,
   Columns3,
+  DatabaseBackup,
   FolderOpen,
   ListTodo,
   LogOut,
@@ -184,6 +185,15 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT));
   }, []);
 
+  const openMigration = useCallback(() => {
+    setAccountMenuOpen(false);
+    window.dispatchEvent(
+      new CustomEvent(SERVER_CONNECTION_CENTER_OPEN_EVENT, {
+        detail: { tab: "migration" },
+      }),
+    );
+  }, []);
+
   const handleDesktopCloudButton = useCallback(async () => {
     setAccountMenuOpen(false);
     if (!canSwitchBackToLocal) {
@@ -288,92 +298,103 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const MobileSwitchIcon = effectiveMode === "label" ? Columns2 : Columns3;
   const accountMenuLeft = showLabel ? 72 : 56;
 
-  const accountMenu =
-    accountMenuOpen && isDesktopApp()
-      ? createPortal(
+  const accountMenu = accountMenuOpen
+    ? createPortal(
+        <div
+          className="fixed inset-0 z-[190]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAccountMenuOpen(false);
+          }}
+        >
           <div
-            className="fixed inset-0 z-[190]"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) setAccountMenuOpen(false);
-            }}
+            className="fixed bottom-3 w-64 rounded-lg border border-app-border bg-app-elevated py-1.5 shadow-xl"
+            style={{ left: accountMenuLeft }}
+            role="menu"
+            aria-label={t("sidebar.accountMenu")}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <div
-              className="fixed bottom-3 w-64 rounded-lg border border-app-border bg-app-elevated py-1.5 shadow-xl"
-              style={{ left: accountMenuLeft }}
-              role="menu"
-              aria-label={t("sidebar.accountMenu")}
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="px-3 py-2 border-b border-app-border/70">
-                <div className="flex items-center gap-2 text-xs font-medium text-tx-primary">
-                  <span className={cn("w-2 h-2 rounded-full shrink-0", serverStatusDotClass(activeServer?.status))} aria-hidden />
-                  <span className="truncate">{activeServer?.name || (canSwitchBackToLocal ? "远程服务器" : "本地服务")}</span>
-                </div>
-                <div className="mt-1 truncate text-[11px] text-tx-tertiary" title={activeServer?.serverUrl || serverUrl}>
-                  {activeServer?.serverUrl || serverUrl || "当前客户端未记录服务端地址"}
-                </div>
+            <div className="px-3 py-2 border-b border-app-border/70">
+              <div className="flex items-center gap-2 text-xs font-medium text-tx-primary">
+                <span className={cn("w-2 h-2 rounded-full shrink-0", serverStatusDotClass(activeServer?.status))} aria-hidden />
+                <span className="truncate">{activeServer?.name || (canSwitchBackToLocal ? "远程服务器" : "当前服务器")}</span>
               </div>
-
-              <button
-                type="button"
-                role="menuitem"
-                onClick={openConnectionAndAccounts}
-                className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-              >
-                <Server size={15} />
-                <span>连接与账号</span>
-              </button>
-
-              <div className="my-1 border-t border-app-border/70" />
-
-              {canSwitchBackToLocal ? (
-                <>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleDesktopCloudLogout}
-                    className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                  >
-                    <LogOut size={15} />
-                    <span>{t("sidebar.logoutDesktop")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleDesktopCloudButton}
-                    className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                  >
-                    <CloudOff size={15} />
-                    <span>{t("sidebar.switchToLocal")}</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleDesktopLogoutSession}
-                    className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                  >
-                    <LogOut size={15} />
-                    <span>{t("sidebar.logoutSession")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleDesktopResetLocalAuth}
-                    className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                  >
-                    <RotateCcw size={15} />
-                    <span>{t("sidebar.resetLocalAutoLogin")}</span>
-                  </button>
-                </>
-              )}
+              <div className="mt-1 truncate text-[11px] text-tx-tertiary" title={activeServer?.serverUrl || serverUrl}>
+                {activeServer?.serverUrl || serverUrl || "当前客户端未记录服务端地址"}
+              </div>
             </div>
-          </div>,
-          document.body,
-        )
-      : null;
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={openConnectionAndAccounts}
+              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+            >
+              <Server size={15} />
+              <span>连接与账号</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={openMigration}
+              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+            >
+              <DatabaseBackup size={15} />
+              <span>迁移数据</span>
+            </button>
+
+            {isDesktopApp() && (
+              <>
+                <div className="my-1 border-t border-app-border/70" />
+                {canSwitchBackToLocal ? (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopCloudLogout}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <LogOut size={15} />
+                      <span>{t("sidebar.logoutDesktop")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopCloudButton}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <CloudOff size={15} />
+                      <span>{t("sidebar.switchToLocal")}</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopLogoutSession}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <LogOut size={15} />
+                      <span>{t("sidebar.logoutSession")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopResetLocalAuth}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <RotateCcw size={15} />
+                      <span>{t("sidebar.resetLocalAutoLogin")}</span>
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )
+    : null;
 
   return (
     <div
@@ -441,22 +462,20 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
       </button>
 
-      {isDesktopApp() && (
-        <button
-          onClick={() => setAccountMenuOpen((open) => !open)}
-          title={showLabel ? undefined : t("sidebar.accountMenu")}
-          aria-label={t("sidebar.accountMenu")}
-          aria-expanded={accountMenuOpen}
-          className={cn(
-            itemBaseClass,
-            accountMenuOpen ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
-          )}
-        >
-          <User size={16} />
-          <span className={cn("absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar", serverStatusDotClass(activeServer?.status))} aria-hidden />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.accountMenu")}</span>}
-        </button>
-      )}
+      <button
+        onClick={() => setAccountMenuOpen((open) => !open)}
+        title={showLabel ? undefined : t("sidebar.accountMenu")}
+        aria-label={t("sidebar.accountMenu")}
+        aria-expanded={accountMenuOpen}
+        className={cn(
+          itemBaseClass,
+          accountMenuOpen ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+        )}
+      >
+        <User size={16} />
+        <span className={cn("absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar", serverStatusDotClass(activeServer?.status))} aria-hidden />
+        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.accountMenu")}</span>}
+      </button>
 
       {isDesktopApp() ? (
         <button
