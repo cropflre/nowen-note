@@ -6,15 +6,23 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Layers3,
   Loader2,
+  MessageSquare,
   RefreshCw,
   RotateCcw,
   Save,
   Server,
-  Sparkles,
+  Settings2,
 } from "lucide-react";
 import { api, getBaseUrl, getCurrentWorkspace } from "@/lib/api";
+import { aiProfiles, type AIProfile } from "@/lib/aiProfiles";
 import { getReliableAIStatus, type ReliableStatus } from "@/lib/aiReliable";
+import {
+  buildEmbeddingSettingsPayload,
+  inferEmbeddingCredentialSource,
+  type EmbeddingCredentialSource,
+} from "@/lib/embeddingProfileSelection";
 import { cn } from "@/lib/utils";
 
 interface AISettingsResponse {
@@ -23,6 +31,7 @@ interface AISettingsResponse {
   ai_api_key: string;
   ai_api_key_set: boolean;
   ai_model: string;
+  ai_embedding_profile_id?: string;
   ai_embedding_url?: string;
   ai_embedding_key?: string;
   ai_embedding_key_set?: boolean;
@@ -30,12 +39,12 @@ interface AISettingsResponse {
 }
 
 interface EmbeddingDraft {
-  provider: string;
+  source: EmbeddingCredentialSource;
+  profileId: string;
   url: string;
   key: string;
   keySet: boolean;
   model: string;
-  useChatCredentials: boolean;
 }
 
 type EmbeddingMessage = {
@@ -44,12 +53,12 @@ type EmbeddingMessage = {
 };
 
 const EMPTY_DRAFT: EmbeddingDraft = {
-  provider: "openai",
+  source: "chat",
+  profileId: "",
   url: "",
   key: "",
   keySet: false,
   model: "",
-  useChatCredentials: true,
 };
 
 const MODEL_SUGGESTIONS = ["text-embedding-3-small", "text-embedding-v3", "bge-m3"];
@@ -59,16 +68,27 @@ function getCopy() {
   if (!language.startsWith("zh")) {
     return {
       title: "Vector search (Embedding)",
-      description: "Configure a dedicated embedding model for semantic knowledge-base search. Leave it empty to keep keyword search only.",
+      description: "Choose where embedding credentials come from, while keeping the embedding model independent from chat models.",
       enabled: "Configured",
       disabled: "Keyword fallback",
-      reuseTitle: "Reuse the current chat API URL and key",
-      reuseDescription: "Saving in this mode clears the dedicated URL and key, then follows the active chat configuration.",
+      sourceLabel: "Embedding service",
+      chatTitle: "Follow current chat",
+      chatDescription: "Use the active chat profile URL and key.",
+      profileTitle: "Saved AI profile",
+      profileDescription: "Fix embedding to one saved profile. Chat profile switches will not affect it.",
+      customTitle: "Custom credentials",
+      customDescription: "Use a dedicated URL and key that are separate from saved profiles.",
+      selectProfile: "Select an AI profile",
+      noProfiles: "No saved AI profiles",
+      missingProfile: "Deleted profile",
+      profileRequired: "Select an AI profile before saving.",
+      profileMissingWarning: "The saved AI profile used by Embedding no longer exists. Select another profile or credential source.",
+      profileSummary: "Embedding reads this profile's provider, URL and key dynamically. Its chat model is not used.",
       embeddingUrl: "Embedding API URL",
       embeddingKey: "Embedding API key",
       embeddingModel: "Embedding model",
-      urlPlaceholder: "Leave empty to reuse the chat API URL",
-      keyPlaceholder: "Leave empty to reuse the chat API key",
+      urlPlaceholder: "For example: https://api.openai.com/v1",
+      keyPlaceholder: "Enter a dedicated embedding API key",
       savedKey: "Dedicated key saved (leave empty to keep it)",
       modelPlaceholder: "For example: text-embedding-3-small",
       examples: "Common examples; use a model supported by your provider:",
@@ -79,7 +99,7 @@ function getCopy() {
       rebuilding: "Rebuilding…",
       saved: "Embedding settings saved.",
       disabledSaved: "Embedding model cleared. Knowledge-base search will use keyword fallback.",
-      modelChanged: "Settings saved. Rebuild the index after changing the embedding model.",
+      configurationChanged: "Settings saved. The embedding service or model changed; rebuild the vector index.",
       rebuildConfirm: "Rebuild all note and attachment vectors now? This may consume API quota.",
       rebuildQueued: "Vector rebuild queued. Indexing continues in the background.",
       loadFailed: "Failed to load embedding settings",
@@ -95,23 +115,34 @@ function getCopy() {
       processing: "processing",
       failed: "failed",
       dimension: "dimensions",
-      notConfigured: "Configure a model before rebuilding the index.",
+      notConfigured: "Configure a valid embedding service and model before rebuilding the index.",
       statusLoading: "Loading index status…",
       backgroundHint: "Indexing runs in the background. Failed jobs can be retried by rebuilding the index.",
     };
   }
   return {
     title: "向量检索（Embedding）",
-    description: "配置独立的 Embedding 模型，为知识库提供语义检索；留空时继续使用关键词检索，不影响 AI 对话。",
+    description: "选择 Embedding 服务凭据来源，Embedding 模型继续独立配置，不会误用聊天模型。",
     enabled: "已配置",
     disabled: "关键词降级",
-    reuseTitle: "复用当前对话 API 地址与密钥",
-    reuseDescription: "保存后会清空独立地址和密钥，Embedding 自动跟随当前对话配置。",
+    sourceLabel: "Embedding 服务",
+    chatTitle: "跟随当前对话配置",
+    chatDescription: "使用当前激活 AI 配置的地址与密钥。",
+    profileTitle: "选择已有 AI 配置",
+    profileDescription: "固定引用一个已保存 Profile，切换聊天配置不会影响 Embedding。",
+    customTitle: "独立自定义配置",
+    customDescription: "单独填写 Embedding 地址与密钥，不引用已保存 Profile。",
+    selectProfile: "请选择 AI 配置",
+    noProfiles: "暂无已保存 AI 配置",
+    missingProfile: "配置已删除",
+    profileRequired: "请先选择一个 AI 配置再保存。",
+    profileMissingWarning: "Embedding 绑定的 AI 配置已被删除，请重新选择 Profile 或切换凭据来源。",
+    profileSummary: "Embedding 会动态读取该 Profile 的服务商、地址与密钥，不会使用其中的聊天模型。",
     embeddingUrl: "Embedding API 地址",
     embeddingKey: "Embedding API Key",
     embeddingModel: "Embedding 模型",
-    urlPlaceholder: "留空则复用当前对话 API 地址",
-    keyPlaceholder: "留空则复用当前对话 API Key",
+    urlPlaceholder: "例如：https://api.openai.com/v1",
+    keyPlaceholder: "请输入独立 Embedding API Key",
     savedKey: "已保存独立密钥（留空不修改）",
     modelPlaceholder: "例如：text-embedding-3-small",
     examples: "常用示例，请以服务商实际支持的模型为准：",
@@ -122,7 +153,7 @@ function getCopy() {
     rebuilding: "正在重建…",
     saved: "Embedding 配置已保存。",
     disabledSaved: "已清空 Embedding 模型，知识库将自动降级为关键词检索。",
-    modelChanged: "配置已保存。Embedding 模型发生变化，请重建向量索引。",
+    configurationChanged: "配置已保存。Embedding 服务或模型发生变化，请重建向量索引。",
     rebuildConfirm: "确定重建全部笔记和附件的向量索引吗？此操作可能消耗 API 配额。",
     rebuildQueued: "已提交向量重建任务，后台将持续处理。",
     loadFailed: "Embedding 配置加载失败",
@@ -138,7 +169,7 @@ function getCopy() {
     processing: "处理中",
     failed: "失败",
     dimension: "维",
-    notConfigured: "请先保存 Embedding 模型，再重建索引。",
+    notConfigured: "请先保存有效的 Embedding 服务和模型，再重建索引。",
     statusLoading: "正在读取索引状态…",
     backgroundHint: "索引在后台异步执行；失败任务可通过重新构建索引再次处理。",
   };
@@ -166,6 +197,7 @@ async function rebuildEmbeddingIndex(): Promise<void> {
 export default function EmbeddingSettingsPanel() {
   const copy = useMemo(getCopy, []);
   const [draft, setDraft] = useState<EmbeddingDraft>(EMPTY_DRAFT);
+  const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [status, setStatus] = useState<ReliableStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -179,9 +211,7 @@ export default function EmbeddingSettingsPanel() {
     try {
       setStatus(await getReliableAIStatus());
     } catch (error) {
-      if (!silent) {
-        setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
-      }
+      if (!silent) setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       if (!silent) setStatusLoading(false);
     }
@@ -191,26 +221,39 @@ export default function EmbeddingSettingsPanel() {
     setLoading(true);
     setMessage(null);
     try {
-      const settings = await api.getAISettings() as unknown as AISettingsResponse;
-      const customUrl = settings.ai_embedding_url || "";
-      const customKeySet = !!settings.ai_embedding_key_set;
+      const [settings, profileState] = await Promise.all([
+        api.getAISettings() as Promise<AISettingsResponse>,
+        aiProfiles.list(),
+      ]);
+      const source = inferEmbeddingCredentialSource(settings);
+      const profileId = settings.ai_embedding_profile_id || "";
+      const nextProfiles = profileState.profiles || [];
+      setProfiles(nextProfiles);
       setDraft({
-        provider: settings.ai_provider || "openai",
-        url: customUrl,
+        source,
+        profileId,
+        url: settings.ai_embedding_url || "",
         key: "",
-        keySet: customKeySet,
+        keySet: !!settings.ai_embedding_key_set,
         model: settings.ai_embedding_model || "",
-        useChatCredentials: !customUrl && !customKeySet,
       });
+      if (source === "profile" && profileId && !nextProfiles.some((profile) => profile.id === profileId)) {
+        setMessage({ type: "warning", text: copy.profileMissingWarning });
+      }
       await refreshStatus(true);
     } catch (error) {
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       setLoading(false);
     }
-  }, [copy.loadFailed, refreshStatus]);
+  }, [copy.loadFailed, copy.profileMissingWarning, refreshStatus]);
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
+  useEffect(() => {
+    const handleProfilesChanged = () => void loadSettings();
+    window.addEventListener("nowen:ai-profiles-changed", handleProfilesChanged);
+    return () => window.removeEventListener("nowen:ai-profiles-changed", handleProfilesChanged);
+  }, [loadSettings]);
 
   const queuedJobs = (status?.index.pending || 0) + (status?.index.processing || 0);
   useEffect(() => {
@@ -219,51 +262,54 @@ export default function EmbeddingSettingsPanel() {
     return () => window.clearInterval(timer);
   }, [queuedJobs, refreshStatus]);
 
+  const selectedProfile = profiles.find((profile) => profile.id === draft.profileId) || null;
+  const profileMissing = draft.source === "profile" && !!draft.profileId && !selectedProfile;
+
+  const chooseSource = (source: EmbeddingCredentialSource) => {
+    setDraft((current) => ({
+      ...current,
+      source,
+      profileId: source === "profile" ? current.profileId || profiles[0]?.id || "" : current.profileId,
+    }));
+    setMessage(null);
+  };
+
   const saveSettings = async () => {
+    if (draft.source === "profile" && !draft.profileId) {
+      setMessage({ type: "warning", text: copy.profileRequired });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     const previousModel = status?.embeddingModel || "";
+    const previousSource = status?.embedding?.source || "chat";
+    const previousProfileId = status?.embedding?.profileId || "";
     try {
-      const payload: {
-        ai_embedding_url: string;
-        ai_embedding_model: string;
-        ai_embedding_key?: string;
-      } = {
-        ai_embedding_url: draft.useChatCredentials ? "" : draft.url.trim(),
-        ai_embedding_model: draft.model.trim(),
-      };
-      if (draft.useChatCredentials) {
-        payload.ai_embedding_key = "";
-      } else if (draft.key.trim()) {
-        payload.ai_embedding_key = draft.key.trim();
-      } else if (!draft.keySet) {
-        payload.ai_embedding_key = "";
-      }
-
+      const payload = buildEmbeddingSettingsPayload(draft);
       const updateAISettings = api.updateAISettings as unknown as (
         data: typeof payload,
       ) => Promise<AISettingsResponse>;
       const result = await updateAISettings(payload);
+      const nextSource = inferEmbeddingCredentialSource(result);
+      const nextProfileId = result.ai_embedding_profile_id || "";
       const nextModel = result.ai_embedding_model || "";
-      const nextUrl = result.ai_embedding_url || "";
-      const nextKeySet = !!result.ai_embedding_key_set;
       setDraft((current) => ({
         ...current,
-        url: nextUrl,
+        source: nextSource,
+        profileId: nextProfileId,
+        url: result.ai_embedding_url || "",
         key: "",
-        keySet: nextKeySet,
+        keySet: !!result.ai_embedding_key_set,
         model: nextModel,
-        useChatCredentials: !nextUrl && !nextKeySet,
       }));
       await refreshStatus(true);
       window.dispatchEvent(new CustomEvent("nowen:ai-settings-changed"));
+      const changed = previousModel !== nextModel
+        || previousSource !== nextSource
+        || previousProfileId !== nextProfileId;
       setMessage({
-        type: !nextModel ? "warning" : previousModel && previousModel !== nextModel ? "warning" : "success",
-        text: !nextModel
-          ? copy.disabledSaved
-          : previousModel && previousModel !== nextModel
-            ? copy.modelChanged
-            : copy.saved,
+        type: !nextModel || changed ? "warning" : "success",
+        text: !nextModel ? copy.disabledSaved : changed ? copy.configurationChanged : copy.saved,
       });
     } catch (error) {
       setMessage({ type: "error", text: (error as Error)?.message || copy.saveFailed });
@@ -274,7 +320,7 @@ export default function EmbeddingSettingsPanel() {
 
   const rebuildIndex = async () => {
     if (!status?.index.configured) {
-      setMessage({ type: "warning", text: copy.notConfigured });
+      setMessage({ type: "warning", text: status?.embedding?.error || copy.notConfigured });
       return;
     }
     if (!window.confirm(copy.rebuildConfirm)) return;
@@ -294,6 +340,16 @@ export default function EmbeddingSettingsPanel() {
 
   const index = status?.index;
   const busy = loading || saving || rebuilding;
+  const sourceOptions: Array<{
+    value: EmbeddingCredentialSource;
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+  }> = [
+    { value: "chat", title: copy.chatTitle, description: copy.chatDescription, icon: <MessageSquare size={16} /> },
+    { value: "profile", title: copy.profileTitle, description: copy.profileDescription, icon: <Layers3 size={16} /> },
+    { value: "custom", title: copy.customTitle, description: copy.customDescription, icon: <Settings2 size={16} /> },
+  ];
 
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-5">
@@ -333,69 +389,104 @@ export default function EmbeddingSettingsPanel() {
         </div>
       ) : (
         <>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={draft.useChatCredentials}
-            onClick={() => setDraft((current) => ({ ...current, useChatCredentials: !current.useChatCredentials }))}
-            className="mt-5 flex w-full items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 text-left transition hover:border-accent-primary/30 dark:border-zinc-800 dark:bg-zinc-800/40"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-500 shadow-sm dark:bg-zinc-900 dark:text-zinc-300">
-              <Sparkles size={16} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{copy.reuseTitle}</div>
-              <div className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{copy.reuseDescription}</div>
-            </div>
-            <span className={cn(
-              "relative h-6 w-11 shrink-0 rounded-full transition",
-              draft.useChatCredentials ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700",
-            )}>
-              <span className={cn(
-                "absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all",
-                draft.useChatCredentials ? "left-6" : "left-1",
-              )} />
-            </span>
-          </button>
-
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            <label className="space-y-1.5">
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                <Server size={12} />{copy.embeddingUrl}
-              </span>
-              <input
-                value={draft.url}
-                disabled={draft.useChatCredentials}
-                onChange={(event) => setDraft((current) => ({ ...current, url: event.target.value }))}
-                placeholder={copy.urlPlaceholder}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-              />
-            </label>
-
-            <label className="space-y-1.5">
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                <KeyRound size={12} />{copy.embeddingKey}
-              </span>
-              <div className="relative">
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={draft.key}
-                  disabled={draft.useChatCredentials}
-                  onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))}
-                  placeholder={draft.keySet ? copy.savedKey : copy.keyPlaceholder}
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-                />
+          <div className="mt-5 space-y-2">
+            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.sourceLabel}</div>
+            <div className="grid gap-2 lg:grid-cols-3">
+              {sourceOptions.map((option) => (
                 <button
+                  key={option.value}
                   type="button"
-                  onClick={() => setShowKey((value) => !value)}
-                  disabled={draft.useChatCredentials}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 disabled:opacity-40 dark:hover:text-zinc-200"
+                  onClick={() => chooseSource(option.value)}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-3 text-left transition",
+                    draft.source === option.value
+                      ? "border-accent-primary bg-accent-primary/5 ring-2 ring-accent-primary/10"
+                      : "border-zinc-200 bg-zinc-50/70 hover:border-accent-primary/30 dark:border-zinc-800 dark:bg-zinc-800/40",
+                  )}
                 >
-                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  <span className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-zinc-900",
+                    draft.source === option.value ? "text-accent-primary" : "text-zinc-500 dark:text-zinc-300",
+                  )}>
+                    {option.icon}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-100">{option.title}</span>
+                    <span className="mt-0.5 block text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{option.description}</span>
+                  </span>
                 </button>
-              </div>
-            </label>
+              ))}
+            </div>
           </div>
+
+          {draft.source === "profile" && (
+            <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileTitle}</span>
+                <select
+                  value={draft.profileId}
+                  onChange={(event) => setDraft((current) => ({ ...current, profileId: event.target.value }))}
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="">{profiles.length ? copy.selectProfile : copy.noProfiles}</option>
+                  {profileMissing && <option value={draft.profileId}>{copy.missingProfile} · {draft.profileId}</option>}
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{profile.name} · {profile.provider}</option>
+                  ))}
+                </select>
+              </label>
+              {selectedProfile ? (
+                <div className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-5 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                  <div className="font-medium text-zinc-700 dark:text-zinc-200">{selectedProfile.name}</div>
+                  <div>{selectedProfile.provider} · {selectedProfile.apiUrl || "—"}</div>
+                  <div>{copy.profileSummary}</div>
+                </div>
+              ) : profileMissing ? (
+                <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                  <span>{copy.profileMissingWarning}</span>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {draft.source === "custom" && (
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <label className="space-y-1.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  <Server size={12} />{copy.embeddingUrl}
+                </span>
+                <input
+                  value={draft.url}
+                  onChange={(event) => setDraft((current) => ({ ...current, url: event.target.value }))}
+                  placeholder={copy.urlPlaceholder}
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  <KeyRound size={12} />{copy.embeddingKey}
+                </span>
+                <div className="relative">
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={draft.key}
+                    onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))}
+                    placeholder={draft.keySet ? copy.savedKey : copy.keyPlaceholder}
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey((value) => !value)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </label>
+            </div>
+          )}
 
           <label className="mt-3 block space-y-1.5">
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.embeddingModel}</span>
@@ -457,13 +548,19 @@ export default function EmbeddingSettingsPanel() {
             </div>
           </div>
 
+          {(status?.embedding?.error || profileMissing) && (
+            <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              <AlertCircle size={13} className="mt-0.5 shrink-0" />
+              <span>{status?.embedding?.error || copy.profileMissingWarning}</span>
+            </div>
+          )}
           <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>
 
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
             <button
               type="button"
               onClick={() => void saveSettings()}
-              disabled={busy}
+              disabled={busy || (draft.source === "profile" && !draft.profileId)}
               className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition hover:bg-accent-primary/90 disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
