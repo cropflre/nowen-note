@@ -12,11 +12,6 @@
       "reason": "Main added note-link title hydration after the reviewed baseline; the note-link runtime Repository batch owns this boundary.",
       "counts": { "better-sqlite3": 1, "prepare-call": 2 }
     },
-    "lib/public-web-origin.ts": {
-      "owner": "#249",
-      "reason": "Public web origin persistence was added on main and still uses SQLite transactions. It remains an explicit settings Repository migration item.",
-      "counts": { "getDb-call": 2, "prepare-call": 1, "transaction-call": 1 }
-    },
     "lib/searchIndex.ts": {
       "owner": "#252",
       "reason": "Search index maintenance is part of the deferred PostgreSQL FTS/vector redesign and must not be partially rewritten during branch synchronization.",
@@ -71,11 +66,6 @@
       "owner": "#252",
       "reason": "The embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by #252.",
       "counts": { "prepare-call": 15 }
-    },
-    "services/image-hosting-policy.ts": {
-      "owner": "#249",
-      "reason": "Image-hosting policy reads settings directly after mainline expansion; it requires a runtime settings Repository migration.",
-      "counts": { "getDb-call": 3 }
     },
     "services/note-links.ts": {
       "owner": "#249",
