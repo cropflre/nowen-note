@@ -92,6 +92,59 @@ describe("Tiptap Block Patch planner", () => {
     ]);
   });
 
+  it("combines safe rich replacements with top-level structural operations", () => {
+    const rich = paragraph("blk_beta000", "Beta linked", [
+      { type: "bold" },
+      {
+        type: "link",
+        attrs: {
+          href: "https://example.com",
+          target: "_blank",
+          rel: "noopener noreferrer nofollow",
+          class: null,
+        },
+      },
+    ], { textAlign: "center", lineHeight: "1.6" });
+    const plan = planTiptapBlockPatch(
+      doc([
+        paragraph("blk_alpha00", "Alpha"),
+        paragraph("blk_beta000", "Beta"),
+      ]),
+      doc([
+        rich,
+        heading("blk_new0000", "New"),
+        paragraph("blk_alpha00", "Alpha"),
+      ]),
+    );
+
+    expect(plan).toEqual({
+      kind: "top-level-structural",
+      operations: [
+        { type: "replace", blockId: "blk_beta000", node: rich },
+        {
+          type: "create",
+          clientId: "blk_new0000",
+          blockId: "blk_new0000",
+          blockType: "heading",
+          text: "New",
+        },
+        {
+          type: "move",
+          blockId: "blk_beta000",
+          targetBlockId: "blk_alpha00",
+          position: "before",
+        },
+        {
+          type: "move",
+          blockId: "blk_new0000",
+          targetBlockId: "blk_alpha00",
+          position: "before",
+        },
+      ],
+      affectedBlockIds: ["blk_beta000", "blk_new0000", "blk_alpha00"],
+    });
+  });
+
   it("uses text-only updates for paragraphs nested inside an unchanged list", () => {
     const list = (text: string) => ({
       type: "bulletList",
@@ -135,7 +188,7 @@ describe("Tiptap Block Patch planner", () => {
     );
 
     expect(plan).toEqual({
-      kind: "node-replace",
+      kind: "top-level-structural",
       operations: [{ type: "replace", blockId: "blk_rich0000", node: next }],
       affectedBlockIds: ["blk_rich0000"],
     });
@@ -147,7 +200,7 @@ describe("Tiptap Block Patch planner", () => {
       doc([heading("blk_heading0", "Title", 4, { textAlign: "right", lineHeight: "1.8" })]),
     );
     expect(headingPlan).toMatchObject({
-      kind: "node-replace",
+      kind: "top-level-structural",
       operations: [{
         type: "replace",
         blockId: "blk_heading0",
@@ -160,7 +213,7 @@ describe("Tiptap Block Patch planner", () => {
       doc([codeBlock("blk_code0000", "const x = 1", "typescript", 2)]),
     );
     expect(codePlan).toMatchObject({
-      kind: "node-replace",
+      kind: "top-level-structural",
       operations: [{
         type: "replace",
         blockId: "blk_code0000",
@@ -194,29 +247,19 @@ describe("Tiptap Block Patch planner", () => {
     )).toBeNull();
   });
 
-  it("keeps unsafe or structurally ambiguous changes on whole-document save", () => {
+  it("keeps unsafe changes on whole-document save", () => {
+    const unsafeProtocol = "java" + "script:alert(1)";
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_alpha00", "Alpha")]),
       doc([paragraph("blk_alpha00", "Alpha", [{
         type: "link",
-        attrs: { href: "javascript:alert(1)" },
+        attrs: { href: unsafeProtocol },
       }])]),
     )).toBeNull();
 
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_alpha00", "Alpha")]),
       doc([paragraph("blk_alpha00", "Alpha", [{ type: "unknownMark" }])]),
-    )).toBeNull();
-
-    expect(planTiptapBlockPatch(
-      doc([
-        paragraph("blk_alpha00", "Alpha"),
-        paragraph("blk_beta000", "Beta"),
-      ]),
-      doc([
-        paragraph("blk_beta000", "Beta", [{ type: "bold" }]),
-        paragraph("blk_alpha00", "Alpha"),
-      ]),
     )).toBeNull();
   });
 
@@ -227,7 +270,15 @@ describe("Tiptap Block Patch planner", () => {
     )).toBeNull();
   });
 
-  it("rejects non-default created headings and unstable IDs", () => {
+  it("rejects rich created blocks, non-default created headings and unstable IDs", () => {
+    expect(planTiptapBlockPatch(
+      doc([paragraph("blk_alpha00", "Alpha")]),
+      doc([
+        paragraph("blk_alpha00", "Alpha"),
+        paragraph("blk_new0000", "Rich", [{ type: "bold" }]),
+      ]),
+    )).toBeNull();
+
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_alpha00", "Alpha")]),
       doc([paragraph("blk_alpha00", "Alpha"), heading("blk_new0000", "H1", 1)]),

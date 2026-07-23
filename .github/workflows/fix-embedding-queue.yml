@@ -1,8 +1,8 @@
 name: Fix embedding queue recovery
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   fix:
-    if: github.event.pull_request.head.ref == 'chore/fix-embedding-queue-trigger'
+    if: contains(github.event.head_commit.message, 'ci: trigger embedding queue fix run')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

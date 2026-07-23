@@ -26,6 +26,14 @@ interface SimpleBlock {
   node: JsonNode;
 }
 
+interface TopLevelBlock {
+  id: string;
+  type: BlockPatchBlockType;
+  node: JsonNode;
+  normalized: TiptapPatchJsonNode;
+  simple: SimpleBlock | null;
+}
+
 export interface TiptapBlockPatchPlan {
   operations: BlockPatchOperation[];
   kind: "top-level-structural" | "text-only" | "node-replace";
@@ -103,22 +111,25 @@ function canCreateFromNode(block: SimpleBlock): boolean {
   return Object.values(attrs).every(isDefaultValue);
 }
 
-function uniqueBlocks(nodes: JsonNode[]): SimpleBlock[] | null {
-  const blocks: SimpleBlock[] = [];
+function uniqueTopLevelBlocks(nodes: JsonNode[]): TopLevelBlock[] | null {
+  const blocks: TopLevelBlock[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
     if (!node?.type || !STRUCTURAL_TYPES.has(node.type)) return null;
-    const block = asSimpleBlock(node);
-    if (!block || seen.has(block.id)) return null;
-    seen.add(block.id);
-    blocks.push(block);
+    const id = node.attrs?.blockId;
+    const type = blockType(node.type);
+    if (!validBlockId(id) || !type || seen.has(id)) return null;
+    const normalized = normalizeSafeTiptapReplacementNode(node, id);
+    if (!normalized) return null;
+    seen.add(id);
+    blocks.push({ id, type, node, normalized, simple: asSimpleBlock(node) });
   }
   return blocks;
 }
 
 function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
-  const base = uniqueBlocks(baseDoc.content || []);
-  const next = uniqueBlocks(nextDoc.content || []);
+  const base = uniqueTopLevelBlocks(baseDoc.content || []);
+  const next = uniqueTopLevelBlocks(nextDoc.content || []);
   if (!base || !next || next.length === 0) return null;
 
   const baseById = new Map(base.map((item) => [item.id, item]));
@@ -128,9 +139,16 @@ function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
   for (const item of next) {
     const previous = baseById.get(item.id);
     if (!previous) continue;
-    if (!sameNonTextShape(previous.node, item.node)) return null;
-    if (previous.text !== item.text) {
-      operations.push({ type: "update", blockId: item.id, text: item.text });
+    if (JSON.stringify(previous.normalized) === JSON.stringify(item.normalized)) continue;
+    if (
+      previous.simple
+      && item.simple
+      && sameNonTextShape(previous.simple.node, item.simple.node)
+      && previous.simple.text !== item.simple.text
+    ) {
+      operations.push({ type: "update", blockId: item.id, text: item.simple.text });
+    } else {
+      operations.push({ type: "replace", blockId: item.id, node: item.normalized });
     }
   }
 
@@ -140,13 +158,13 @@ function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
 
   const created = next.filter((item) => !baseById.has(item.id));
   for (const item of created) {
-    if (!canCreateFromNode(item)) return null;
+    if (!item.simple || !canCreateFromNode(item.simple)) return null;
     operations.push({
       type: "create",
       clientId: item.id,
       blockId: item.id,
       blockType: item.type,
-      text: item.text,
+      text: item.simple.text,
     });
   }
 

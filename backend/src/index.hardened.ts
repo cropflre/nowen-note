@@ -12,8 +12,13 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  // Preserve the current SQLite startup hardening order without evaluating it in PostgreSQL mode.
+  // Preserve main's SQLite startup hardening order without evaluating it in PostgreSQL mode.
   await import("./runtime/task-stats-hardening.js");
+  await import("./runtime/embedding-queue-hardening.js");
+  await import("./runtime/note-split-selection.js");
+  await import("./runtime/note-split-tiptap.js");
+  await import("./runtime/block-link-redirect.js");
+  await import("./runtime/block-patch.js");
   await import("./runtime/auto-full-backup.js");
   await import("./runtime/notebook-publication.js");
   await import("./index.js");

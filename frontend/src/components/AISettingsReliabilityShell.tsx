@@ -34,6 +34,32 @@ export default function AISettingsReliabilityShell() {
     };
   }, [refresh]);
 
+  const queuedJobs = (status?.index.pending || 0) + (status?.index.processing || 0);
+  useEffect(() => {
+    if (queuedJobs <= 0) return;
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [queuedJobs, refresh]);
+
+  const vectorEngineText = loading
+    ? "读取中…"
+    : !status?.index.configured
+      ? "未配置"
+      : status.index.vectorAvailable
+        ? `可用${status.index.vectorDimension ? ` · ${status.index.vectorDimension} 维` : ""}`
+        : queuedJobs > 0
+          ? `初始化中 · 剩余 ${queuedJobs}`
+          : status.index.failed > 0
+            ? `索引任务异常 · 失败 ${status.index.failed}`
+            : "仅关键词检索";
+  const vectorEngineTone = status?.index.vectorAvailable
+    ? "text-emerald-600 dark:text-emerald-400"
+    : queuedJobs > 0
+      ? "text-blue-600 dark:text-blue-400"
+      : status?.index.failed
+        ? "text-red-600 dark:text-red-400"
+        : "text-amber-600 dark:text-amber-400";
+
   const toggle = async () => {
     if (!status || saving) return;
     setSaving(true);
@@ -98,7 +124,7 @@ export default function AISettingsReliabilityShell() {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
             <div className="flex items-center gap-1.5 text-[11px] text-zinc-500"><ShieldCheck size={12} />当前对话模型</div>
             <div className="mt-1 truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
@@ -118,8 +144,14 @@ export default function AISettingsReliabilityShell() {
               status?.index.stale ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400",
             )}>
               {loading ? "读取中…" : status?.index.stale
-                ? `待处理 ${status.index.pending + status.index.processing}，失败 ${status.index.failed}`
+                ? `待处理 ${queuedJobs}，失败 ${status.index.failed}`
                 : `${status?.index.indexedNotes || 0}/${status?.index.totalNotes || 0} 篇已索引`}
+            </div>
+          </div>
+          <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
+            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500"><Database size={12} />向量引擎</div>
+            <div className={cn("mt-1 truncate text-xs font-medium", vectorEngineTone)}>
+              {vectorEngineText}
             </div>
           </div>
         </div>
@@ -142,6 +174,11 @@ export default function AISettingsReliabilityShell() {
       </div>
 
       <div className={cn(!status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
+        {status?.index.configured && !status.index.vectorAvailable && queuedJobs > 0 && (
+          <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+            向量索引正在初始化，任务完成后会自动切换为“可用”。服务重启时中断的任务会自动恢复，无需重复点击重建。
+          </div>
+        )}
         <EmbeddingSettingsPanel />
       </div>
     </div>

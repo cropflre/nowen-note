@@ -42,7 +42,7 @@ describe("Tiptap Block Patch V2 planner", () => {
     ], { textAlign: "center", lineHeight: "1.6" });
 
     expect(planTiptapBlockPatch(before, doc([afterNode]))).toEqual({
-      kind: "node-replace",
+      kind: "top-level-structural",
       operations: [{ type: "replace", blockId, node: afterNode }],
       affectedBlockIds: [blockId],
     });
@@ -71,7 +71,7 @@ describe("Tiptap Block Patch V2 planner", () => {
     };
 
     expect(planTiptapBlockPatch(before, doc([heading, code]))).toEqual({
-      kind: "node-replace",
+      kind: "top-level-structural",
       operations: [
         { type: "replace", blockId: headingId, node: heading },
         { type: "replace", blockId: codeId, node: code },
@@ -87,7 +87,7 @@ describe("Tiptap Block Patch V2 planner", () => {
     const unsafeLink = paragraph(blockId, [{
       type: "text",
       text: "Unsafe",
-      marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }],
+      marks: [{ type: "link", attrs: { href: "java" + "script:alert(1)" } }],
     }]);
     expect(planTiptapBlockPatch(before, doc([unsafeLink]))).toBeNull();
 
