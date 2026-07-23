@@ -23,6 +23,10 @@ type LeafPatchOperation = Extract<
   TiptapBlockPatchOperation,
   { type: "update" | "replace" }
 >;
+type StructuralPatchOperation = Extract<
+  TiptapBlockPatchOperation,
+  { type: "create" | "delete" | "move" }
+>;
 
 interface ExistingIndexRow {
   blockId: string;
@@ -47,12 +51,14 @@ interface TiptapAnalysis {
 
 export interface IncrementalPatchIndexPlan {
   mode: "incremental";
+  kind: "leaf" | "structural";
   contentText: string;
   affectedRows: NoteBlockIndexRow[];
+  deletedBlockIds: string[];
   links: NoteLinkEntry[];
-  /** Rows rewritten in note_blocks_index, including indexed ancestors with aggregate text. */
+  /** Block IDs inserted, updated or deleted in note_blocks_index. */
   indexedBlockIds: string[];
-  /** Source Block rows whose note_links entries are replaced. */
+  /** Source Block rows whose note_links entries are replaced or deleted. */
   linkBlockIds: string[];
 }
 
@@ -268,6 +274,20 @@ function isLeafOnlyPatch(
   );
 }
 
+function isStructuralOnlyPatch(
+  operations: TiptapBlockPatchOperation[],
+): operations is StructuralPatchOperation[] {
+  return operations.length > 0 && operations.every(
+    (operation) => operation.type === "create" || operation.type === "delete" || operation.type === "move",
+  );
+}
+
+function isTopLevelLeaf(row: Pick<ExistingIndexRow, "blockType" | "parentBlockId" | "path">): boolean {
+  return row.parentBlockId === null
+    && !row.path.includes(".")
+    && LEAF_BLOCK_TYPES.has(row.blockType);
+}
+
 function collectIndexedAncestors(analysis: TiptapAnalysis, leafBlockIds: string[]): string[] {
   const output = new Set<string>();
   for (const leafBlockId of leafBlockIds) {
@@ -282,9 +302,153 @@ function collectIndexedAncestors(analysis: TiptapAnalysis, leafBlockIds: string[
     .filter((blockId) => output.has(blockId));
 }
 
+function validateStructuralBase(
+  analysis: TiptapAnalysis,
+  operations: StructuralPatchOperation[],
+): boolean {
+  for (const operation of operations) {
+    if (operation.type === "create") {
+      if (!LEAF_BLOCK_TYPES.has(operation.blockType || "paragraph")) return false;
+      if (operation.afterBlockId) {
+        const anchor = analysis.byId.get(operation.afterBlockId)?.row;
+        if (!anchor || !isTopLevelLeaf(anchor)) return false;
+      }
+      continue;
+    }
+
+    const target = analysis.byId.get(operation.blockId)?.row;
+    if (!target || !isTopLevelLeaf(target)) return false;
+    if (operation.type === "move") {
+      const anchor = analysis.byId.get(operation.targetBlockId)?.row;
+      if (!anchor || !isTopLevelLeaf(anchor)) return false;
+    }
+  }
+  return true;
+}
+
+function filterExistingTargets(
+  db: Database.Database,
+  noteId: string,
+  links: NoteLinkEntry[],
+): NoteLinkEntry[] {
+  const targetExists = db.prepare("SELECT id FROM notes WHERE id = ?");
+  return links.filter(
+    (link) => !(link.targetNoteId === noteId.toLowerCase() && !link.targetBlockId)
+      && Boolean(targetExists.get(link.targetNoteId)),
+  );
+}
+
+function planLeafIndexes(
+  db: Database.Database,
+  noteId: string,
+  analysis: TiptapAnalysis,
+  operations: LeafPatchOperation[],
+): IncrementalPatchIndexPlan | null {
+  const linkBlockIds = [...new Set(operations.map((operation) => operation.blockId))];
+  for (const blockId of linkBlockIds) {
+    const block = analysis.byId.get(blockId);
+    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return null;
+  }
+
+  const indexedBlockIds = collectIndexedAncestors(analysis, linkBlockIds);
+  if (!structuresMatch(loadExistingRows(db, noteId), analysis, new Set(indexedBlockIds))) return null;
+  const links = filterExistingTargets(
+    db,
+    noteId,
+    linkBlockIds.flatMap((blockId) => {
+      const block = analysis.byId.get(blockId) as AnalyzedBlock;
+      return extractLinksFromLeaf(block.node, blockId, block.row.plainText);
+    }),
+  );
+
+  return {
+    mode: "incremental",
+    kind: "leaf",
+    contentText: analysis.contentText,
+    affectedRows: indexedBlockIds.map((blockId) => (analysis.byId.get(blockId) as AnalyzedBlock).row),
+    deletedBlockIds: [],
+    links,
+    indexedBlockIds,
+    linkBlockIds,
+  };
+}
+
+function planStructuralIndexes(
+  db: Database.Database,
+  noteId: string,
+  analysis: TiptapAnalysis,
+  operations: StructuralPatchOperation[],
+): IncrementalPatchIndexPlan | null {
+  const existing = loadExistingRows(db, noteId);
+  const existingById = new Map(existing.map((row) => [row.blockId, row]));
+  const postIds = new Set(analysis.blocks.map(({ row }) => row.blockId));
+  const addedBlockIds = analysis.blocks
+    .map(({ row }) => row.blockId)
+    .filter((blockId) => !existingById.has(blockId));
+  const deletedBlockIds = existing
+    .map((row) => row.blockId)
+    .filter((blockId) => !postIds.has(blockId));
+  const createCount = operations.filter((operation) => operation.type === "create").length;
+  const deleteCount = operations.filter((operation) => operation.type === "delete").length;
+
+  // Create-then-delete, delete-all auto repair and reuse of a deleted ID are valid document patches,
+  // but their identity reconciliation is deliberately left on the full rebuild path.
+  if (addedBlockIds.length !== createCount || deletedBlockIds.length !== deleteCount) return null;
+  for (const blockId of addedBlockIds) {
+    const row = analysis.byId.get(blockId)?.row;
+    if (!row || !isTopLevelLeaf(row)) return null;
+  }
+  for (const blockId of deletedBlockIds) {
+    const row = existingById.get(blockId);
+    if (!row || !isTopLevelLeaf(row)) return null;
+  }
+
+  const affectedRows: NoteBlockIndexRow[] = [];
+  for (const { row } of analysis.blocks) {
+    const previous = existingById.get(row.blockId);
+    if (!previous) {
+      affectedRows.push(row);
+      continue;
+    }
+    if (
+      previous.blockType !== row.blockType
+      || previous.parentBlockId !== row.parentBlockId
+      || previous.plainText !== row.plainText
+      || previous.contentHash !== row.contentHash
+    ) {
+      return null;
+    }
+    if (previous.blockOrder !== row.blockOrder || previous.path !== row.path) {
+      if (!isTopLevelLeaf(previous) || !isTopLevelLeaf(row)) return null;
+      affectedRows.push(row);
+    }
+  }
+
+  const addedLinks = addedBlockIds.flatMap((blockId) => {
+    const block = analysis.byId.get(blockId) as AnalyzedBlock;
+    return extractLinksFromLeaf(block.node, blockId, block.row.plainText);
+  });
+  const linkBlockIds = [...deletedBlockIds, ...addedBlockIds];
+  const indexedBlockIds = [
+    ...deletedBlockIds,
+    ...affectedRows.map((row) => row.blockId),
+  ];
+
+  return {
+    mode: "incremental",
+    kind: "structural",
+    contentText: analysis.contentText,
+    affectedRows,
+    deletedBlockIds,
+    links: filterExistingTargets(db, noteId, addedLinks),
+    indexedBlockIds,
+    linkBlockIds,
+  };
+}
+
 /**
- * Check whether the persisted Block index is a complete structural mirror of the current Tiptap
- * document. This intentionally fails closed: a stale/missing/duplicate ID forces full normalization.
+ * Check whether the persisted Block index is a complete mirror of the current Tiptap document and
+ * the requested operation class has a fail-closed incremental implementation.
  */
 export function canUseIncrementalPatchIndexes(
   db: Database.Database,
@@ -292,58 +456,31 @@ export function canUseIncrementalPatchIndexes(
   content: string,
   operations: TiptapBlockPatchOperation[],
 ): boolean {
-  if (!isLeafOnlyPatch(operations)) return false;
   const analysis = analyzeTiptap(noteId, content);
-  if (!analysis) return false;
-  const affected = new Set(operations.map((operation) => operation.blockId));
-  for (const blockId of affected) {
-    const block = analysis.byId.get(blockId);
-    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return false;
+  if (!analysis || !structuresMatch(loadExistingRows(db, noteId), analysis, new Set())) return false;
+
+  if (isLeafOnlyPatch(operations)) {
+    return operations.every((operation) => {
+      const block = analysis.byId.get(operation.blockId);
+      return Boolean(block && LEAF_BLOCK_TYPES.has(block.row.blockType));
+    });
   }
-  return structuresMatch(loadExistingRows(db, noteId), analysis, new Set());
+  return isStructuralOnlyPatch(operations) && validateStructuralBase(analysis, operations);
 }
 
 /** Build a post-patch incremental update plan without mutating persistence. */
 export function planIncrementalPatchIndexes(
   db: Database.Database,
-  userId: string,
+  _userId: string,
   noteId: string,
   content: string,
   operations: TiptapBlockPatchOperation[],
 ): IncrementalPatchIndexPlan | null {
-  if (!isLeafOnlyPatch(operations)) return null;
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis) return null;
-  const linkBlockIds = [...new Set(operations.map((operation) => operation.blockId))];
-
-  for (const blockId of linkBlockIds) {
-    const block = analysis.byId.get(blockId);
-    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return null;
-  }
-  const indexedBlockIds = collectIndexedAncestors(analysis, linkBlockIds);
-  const ignoredContentIds = new Set(indexedBlockIds);
-  if (!structuresMatch(loadExistingRows(db, noteId), analysis, ignoredContentIds)) return null;
-
-  const links = linkBlockIds.flatMap((blockId) => {
-    const block = analysis.byId.get(blockId) as AnalyzedBlock;
-    return extractLinksFromLeaf(block.node, blockId, block.row.plainText)
-      .filter((link) => !(link.targetNoteId === noteId.toLowerCase() && !link.targetBlockId));
-  });
-
-  // Filter nonexistent targets using the same existence rule as full link sync. ACL is checked when
-  // backlinks are read, so this does not disclose private targets to the patching client.
-  const targetExists = db.prepare("SELECT id FROM notes WHERE id = ?");
-  const validLinks = links.filter((link) => Boolean(targetExists.get(link.targetNoteId)));
-  void userId;
-
-  return {
-    mode: "incremental",
-    contentText: analysis.contentText,
-    affectedRows: indexedBlockIds.map((blockId) => (analysis.byId.get(blockId) as AnalyzedBlock).row),
-    links: validLinks,
-    indexedBlockIds,
-    linkBlockIds,
-  };
+  if (isLeafOnlyPatch(operations)) return planLeafIndexes(db, noteId, analysis, operations);
+  if (isStructuralOnlyPatch(operations)) return planStructuralIndexes(db, noteId, analysis, operations);
+  return null;
 }
 
 /** Apply one previously validated incremental plan inside the caller's SQLite transaction. */
@@ -353,6 +490,14 @@ export function applyIncrementalPatchIndexes(
   noteId: string,
   plan: IncrementalPatchIndexPlan,
 ): void {
+  if (plan.deletedBlockIds.length > 0) {
+    const placeholders = plan.deletedBlockIds.map(() => "?").join(",");
+    db.prepare(`
+      DELETE FROM note_blocks_index
+      WHERE noteId = ? AND blockId IN (${placeholders})
+    `).run(noteId, ...plan.deletedBlockIds);
+  }
+
   const upsert = db.prepare(`
     INSERT INTO note_blocks_index (
       noteId, blockId, blockType, parentBlockId, blockOrder, plainText,
@@ -384,11 +529,13 @@ export function applyIncrementalPatchIndexes(
     );
   }
 
-  const placeholders = plan.linkBlockIds.map(() => "?").join(",");
-  db.prepare(`
-    DELETE FROM note_links
-    WHERE sourceNoteId = ? AND sourceBlockId IN (${placeholders})
-  `).run(noteId, ...plan.linkBlockIds);
+  if (plan.linkBlockIds.length > 0) {
+    const placeholders = plan.linkBlockIds.map(() => "?").join(",");
+    db.prepare(`
+      DELETE FROM note_links
+      WHERE sourceNoteId = ? AND sourceBlockId IN (${placeholders})
+    `).run(noteId, ...plan.linkBlockIds);
+  }
 
   const insertLink = db.prepare(`
     INSERT OR IGNORE INTO note_links (
