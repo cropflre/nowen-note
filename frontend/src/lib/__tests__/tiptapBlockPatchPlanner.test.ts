@@ -263,11 +263,15 @@ describe("Tiptap Block Patch planner", () => {
     )).toBeNull();
   });
 
-  it("keeps delete-all on the whole-document path until empty Block IDs can reconcile", () => {
+  it("plans delete-all so the server can return a canonical empty Block ID", () => {
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_only000", "Only")]),
       doc([]),
-    )).toBeNull();
+    )).toEqual({
+      kind: "empty-document",
+      operations: [{ type: "delete", blockId: "blk_only000" }],
+      affectedBlockIds: ["blk_only000"],
+    });
   });
 
   it("rejects rich created blocks, non-default created headings and unstable IDs", () => {
