@@ -6,55 +6,83 @@ on:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/blockPatchIncrementalIndexes.ts"
+      - "backend/src/lib/blockPatchListIncrementalIndexes.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
       - "backend/src/lib/tiptapBlockPatchNode.ts"
+      - "backend/src/lib/tiptapListItemMove.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/block-patch-incremental-index.test.ts"
       - "backend/tests/block-patch-mixed-index.test.ts"
+      - "backend/tests/block-patch-list-route.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
+      - "backend/tests/tiptap-list-item-move.test.ts"
       - "backend/tests/block-patch-route.test.ts"
       - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlannerRuntime.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
+      - "frontend/src/lib/tiptapListItemMovePlanner.ts"
+      - "frontend/src/lib/tiptapEmptyBlockIdentityDispatch.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
       - "docs/block-patch-api.md"
+      - "docs/block-patch-empty-document.md"
+      - "docs/block-patch-list-hierarchy.md"
       - ".github/workflows/block-patch-ci.yml"
   pull_request:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/blockPatchIncrementalIndexes.ts"
+      - "backend/src/lib/blockPatchListIncrementalIndexes.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
       - "backend/src/lib/tiptapBlockPatchNode.ts"
+      - "backend/src/lib/tiptapListItemMove.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/block-patch-incremental-index.test.ts"
       - "backend/tests/block-patch-mixed-index.test.ts"
+      - "backend/tests/block-patch-list-route.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
+      - "backend/tests/tiptap-list-item-move.test.ts"
       - "backend/tests/block-patch-route.test.ts"
       - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
+      - "frontend/src/lib/tiptapBlockPatchPlannerRuntime.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
+      - "frontend/src/lib/tiptapListItemMovePlanner.ts"
+      - "frontend/src/lib/tiptapEmptyBlockIdentityDispatch.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
       - "docs/block-patch-api.md"
+      - "docs/block-patch-empty-document.md"
+      - "docs/block-patch-list-hierarchy.md"
       - ".github/workflows/block-patch-ci.yml"
 
 permissions:
@@ -75,15 +103,17 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Block patch engine, incremental index and route tests
+      - name: Block patch engine, list hierarchy, incremental index and route tests
         shell: bash
         run: |
           set -o pipefail
           node --import tsx --test \
             tests/tiptap-block-patch.test.ts \
             tests/tiptap-block-patch-v2.test.ts \
+            tests/tiptap-list-item-move.test.ts \
             tests/block-patch-route.test.ts \
             tests/block-patch-route-v2.test.ts \
+            tests/block-patch-list-route.test.ts \
             tests/block-patch-incremental-index.test.ts \
             tests/block-patch-mixed-index.test.ts \
             2>&1 | tee block-patch-backend.log
@@ -118,9 +148,14 @@ jobs:
           src/lib/__tests__/blockPatchApi.test.ts
           src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
           src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
+          src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts
           src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
+          src/lib/__tests__/tiptapListItemMovePlanner.test.ts
+          src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
+          src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx
+          src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
