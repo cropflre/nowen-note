@@ -1,3 +1,4 @@
+import { getDb } from "../db/schema.js";
 import { syncReferences, syncReferencesAsync } from "../lib/attachmentRefs.js";
 import { attachmentReferencesRepository } from "../repositories/index.js";
 import { rewriteAttachmentUrls, rewriteInternalNoteLinks } from "./workspaceNotebookTransfer.js";
@@ -39,18 +40,22 @@ function rewriteContentText(contentText: string | null, normalizedContent: strin
 
 /**
  * SQLite compatibility path used inside the existing note-transfer transaction.
+ * This remains synchronous until the whole note-transfer transaction is migrated.
  */
 export function syncAttachmentReferencesForNote(
   noteId: string,
   content: string | null | undefined,
 ): { added: number; removed: number } {
+  const db = getDb();
   const normalizedContent = content || "";
-  const currentContentText = attachmentReferencesRepository.getNoteContentText(noteId);
-  const nextContentText = rewriteContentText(currentContentText, normalizedContent);
-  if (nextContentText !== null && nextContentText !== currentContentText) {
-    attachmentReferencesRepository.updateNoteContentText(noteId, nextContentText);
+  const row = db.prepare('SELECT "contentText" FROM notes WHERE id = ?').get(noteId) as
+    | { contentText: string | null }
+    | undefined;
+  const nextContentText = rewriteContentText(row?.contentText ?? null, normalizedContent);
+  if (nextContentText !== null && nextContentText !== row?.contentText) {
+    db.prepare('UPDATE notes SET "contentText" = ? WHERE id = ?').run(nextContentText, noteId);
   }
-  return syncReferences(undefined, noteId, normalizedContent);
+  return syncReferences(db, noteId, normalizedContent);
 }
 
 /**
