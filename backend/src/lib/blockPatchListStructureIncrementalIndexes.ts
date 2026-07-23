@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import type { NoteLinkEntry } from "../repositories/types.js";
 import type { NoteBlockIndexRow, NoteBlockType } from "./noteBlocks.js";
 import type { IncrementalPatchIndexPlan } from "./blockPatchIncrementalIndexes.js";
+import type { TiptapBlockPatchOperation } from "./tiptapBlockPatch.js";
 import type { TiptapListItemStructuralOperation } from "./tiptapListItemStructure.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
@@ -45,21 +46,41 @@ function validBlockId(value: unknown): value is string {
   return typeof value === "string" && BLOCK_ID_RE.test(value);
 }
 
-function oneListStructureOperation(operations: unknown[]): TiptapListItemStructuralOperation | null {
-  if (operations.length !== 1) return null;
-  const operation = operations[0] as any;
-  if (!operation || operation.scope !== "listItem") return null;
-  if (operation.type === "create") {
-    return validBlockId(operation.blockId)
-      && validBlockId(operation.targetBlockId)
-      && ["before", "after"].includes(operation.position)
-      ? operation as TiptapListItemStructuralOperation
-      : null;
+type ListStructureOperation = TiptapListItemStructuralOperation
+  | Extract<TiptapBlockPatchOperation, { type: "lift" }>;
+
+function listStructureOperations(operations: unknown[]): ListStructureOperation[] | null {
+  if (!Array.isArray(operations) || operations.length < 1 || operations.length > 100) return null;
+  const scoped: ListStructureOperation[] = [];
+  let listMoveCount = 0;
+  for (const candidate of operations as any[]) {
+    if (!candidate || typeof candidate !== "object") return null;
+    if ((candidate.type === "create" || candidate.type === "delete") && candidate.scope === "listItem") {
+      if (candidate.type === "create") {
+        if (
+          !validBlockId(candidate.blockId)
+          || !validBlockId(candidate.targetBlockId)
+          || !["before", "after"].includes(candidate.position)
+        ) return null;
+      } else if (!validBlockId(candidate.blockId)) {
+        return null;
+      }
+      scoped.push(candidate as TiptapListItemStructuralOperation);
+      continue;
+    }
+    if (candidate.type === "lift" && candidate.scope === "listItem") {
+      if (!validBlockId(candidate.blockId) || !["before", "after"].includes(candidate.position)) return null;
+      scoped.push(candidate as ListStructureOperation);
+      continue;
+    }
+    if (candidate.type === "update" || candidate.type === "replace") continue;
+    if (candidate.type === "move" && candidate.scope === "listItem") {
+      listMoveCount += 1;
+      continue;
+    }
+    return null;
   }
-  if (operation.type === "delete") {
-    return validBlockId(operation.blockId) ? operation as TiptapListItemStructuralOperation : null;
-  }
-  return null;
+  return scoped.length > 0 || listMoveCount > 1 ? scoped : null;
 }
 
 function collectNodeText(node: any): string {
@@ -253,34 +274,44 @@ function filterExistingTargets(
   );
 }
 
-/** Allow pre-patch normalization bypass only when one scoped item create/delete starts from an exact index mirror. */
+/** Allow normalization bypass when a bounded list batch starts from an exact index mirror. */
 export function canUseIncrementalListStructureIndexes(
   db: Database.Database,
   noteId: string,
   content: string,
   operations: unknown[],
 ): boolean {
-  const operation = oneListStructureOperation(operations);
-  if (!operation) return false;
+  const scoped = listStructureOperations(operations);
+  if (!scoped) return false;
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis || !rowsMirrorAnalysis(loadExistingRows(db, noteId), analysis)) return false;
-  if (operation.type === "create") {
-    const target = analysis.byId.get(operation.targetBlockId)?.row;
-    return Boolean(target && LIST_ITEM_TYPES.has(target.blockType));
+  const knownItems = new Set(
+    analysis.blocks
+      .map(({ row }) => row)
+      .filter((row) => LIST_ITEM_TYPES.has(row.blockType))
+      .map((row) => row.blockId),
+  );
+  for (const operation of scoped) {
+    if (operation.type === "create") {
+      if (!knownItems.has(operation.targetBlockId) || knownItems.has(operation.blockId)) return false;
+      knownItems.add(operation.blockId);
+    } else {
+      if (!knownItems.has(operation.blockId)) return false;
+      knownItems.delete(operation.blockId);
+    }
   }
-  const source = analysis.byId.get(operation.blockId)?.row;
-  return Boolean(source && LIST_ITEM_TYPES.has(source.blockType));
+  return true;
 }
 
-/** Build a minimal post-patch plan for one scoped leaf list-item create/delete. */
+/** Build a minimal post-patch plan for a scoped list batch, including split content changes. */
 export function planIncrementalListStructureIndexes(
   db: Database.Database,
   noteId: string,
   content: string,
   operations: unknown[],
 ): IncrementalPatchIndexPlan | null {
-  const operation = oneListStructureOperation(operations);
-  if (!operation) return null;
+  const scoped = listStructureOperations(operations);
+  if (!scoped) return null;
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis) return null;
 
@@ -290,45 +321,69 @@ export function planIncrementalListStructureIndexes(
   const addedIds = analysis.blocks.map(({ row }) => row.blockId).filter((id) => !existingById.has(id));
   const deletedIds = existing.map((row) => row.blockId).filter((id) => !postIds.has(id));
 
-  if (operation.type === "create") {
-    const requestedIds = new Set([
-      operation.blockId,
-      (operation.node as any)?.content?.[0]?.attrs?.blockId,
-    ].filter(validBlockId));
-    if (addedIds.length !== 2 || requestedIds.size !== 2 || addedIds.some((id) => !requestedIds.has(id))) {
-      return null;
+  const expectedIds = new Set(existing.map((row) => row.blockId));
+  const createdParagraphByItem = new Map<string, string>();
+  const liftedParagraphIds = new Set<string>();
+  for (const operation of scoped) {
+    if (operation.type === "create") {
+      const paragraphId = (operation.node as any)?.content?.[0]?.attrs?.blockId;
+      if (!validBlockId(paragraphId) || paragraphId === operation.blockId) return null;
+      if (expectedIds.has(operation.blockId) || expectedIds.has(paragraphId)) return null;
+      expectedIds.add(operation.blockId);
+      expectedIds.add(paragraphId);
+      createdParagraphByItem.set(operation.blockId, paragraphId);
+      continue;
     }
-    if (deletedIds.length > 0) return null;
+    if (!expectedIds.has(operation.blockId)) return null;
+    const paragraphId = createdParagraphByItem.get(operation.blockId)
+      || existing.find((row) => row.parentBlockId === operation.blockId && row.blockType === "paragraph")?.blockId;
+    if (!paragraphId || !expectedIds.has(paragraphId)) return null;
+    expectedIds.delete(operation.blockId);
+    if (operation.type === "lift") liftedParagraphIds.add(paragraphId);
+    else expectedIds.delete(paragraphId);
+  }
+  const expectedAdded = [...expectedIds].filter((id) => !existingById.has(id));
+  const expectedDeleted = existing.map((row) => row.blockId).filter((id) => !expectedIds.has(id));
+  if (
+    expectedAdded.length !== addedIds.length
+    || expectedAdded.some((id) => !addedIds.includes(id))
+    || expectedDeleted.length !== deletedIds.length
+    || expectedDeleted.some((id) => !deletedIds.includes(id))
+  ) return null;
+
+  for (const operation of scoped.filter((candidate) => candidate.type === "create")) {
     const item = analysis.byId.get(operation.blockId)?.row;
-    const paragraphId = [...requestedIds].find((id) => id !== operation.blockId);
+    const paragraphId = createdParagraphByItem.get(operation.blockId);
     const paragraph = paragraphId ? analysis.byId.get(paragraphId)?.row : null;
-    const target = analysis.byId.get(operation.targetBlockId)?.row;
     if (
       !item
       || !paragraph
-      || !target
       || !LIST_ITEM_TYPES.has(item.blockType)
-      || item.blockType !== target.blockType
       || paragraph.blockType !== "paragraph"
       || paragraph.parentBlockId !== item.blockId
-      || item.parentBlockId !== target.parentBlockId
-    ) {
-      return null;
-    }
-  } else {
-    if (addedIds.length > 0 || deletedIds.length !== 2 || !deletedIds.includes(operation.blockId)) return null;
-    const deletedItem = existingById.get(operation.blockId);
-    const deletedParagraph = deletedIds
-      .map((id) => existingById.get(id))
-      .find((row) => row?.parentBlockId === operation.blockId && row.blockType === "paragraph");
-    if (!deletedItem || !LIST_ITEM_TYPES.has(deletedItem.blockType) || !deletedParagraph) return null;
+    ) return null;
   }
 
   const existingParentMap = new Map(existing.map((row) => [row.blockId, { parentBlockId: row.parentBlockId }]));
   const postParentMap = new Map(analysis.blocks.map(({ row }) => [row.blockId, { parentBlockId: row.parentBlockId }]));
-  const aggregateIds = operation.type === "create"
-    ? collectAncestorIds(postParentMap, [operation.blockId])
-    : collectAncestorIds(existingParentMap, [operation.blockId]);
+  const changedLeafIds = new Set(
+    (operations as TiptapBlockPatchOperation[])
+      .filter((operation) => operation.type === "update" || operation.type === "replace")
+      .map((operation) => operation.blockId),
+  );
+  const movedItemIds = new Set(
+    (operations as TiptapBlockPatchOperation[])
+      .filter((operation) => operation.type === "move" && operation.scope === "listItem")
+      .map((operation) => operation.blockId),
+  );
+  const reparentedIds = new Set([...movedItemIds, ...liftedParagraphIds]);
+  const aggregateIds = new Set<string>();
+  for (const id of [...addedIds, ...changedLeafIds, ...movedItemIds]) {
+    collectAncestorIds(postParentMap, [id]).forEach((ancestor) => aggregateIds.add(ancestor));
+  }
+  for (const id of deletedIds) {
+    collectAncestorIds(existingParentMap, [id]).forEach((ancestor) => aggregateIds.add(ancestor));
+  }
 
   const affectedRows: NoteBlockIndexRow[] = [];
   for (const { row } of analysis.blocks) {
@@ -344,25 +399,23 @@ export function planIncrementalListStructureIndexes(
     const orderChanged = previous.blockOrder !== row.blockOrder;
     const pathChanged = previous.path !== row.path;
 
-    if (contentChanged && LEAF_BLOCK_TYPES.has(row.blockType)) return null;
+    if (contentChanged && LEAF_BLOCK_TYPES.has(row.blockType) && !changedLeafIds.has(row.blockId)) return null;
     if (contentChanged && !aggregateIds.has(row.blockId)) return null;
-    if (parentChanged) return null;
+    if (parentChanged && !reparentedIds.has(row.blockId)) return null;
     if (contentChanged || orderChanged || pathChanged) affectedRows.push(row);
   }
 
-  const linkBlockIds = operation.type === "create" ? addedIds : deletedIds;
+  const linkBlockIds = [...new Set([...addedIds, ...deletedIds, ...changedLeafIds])];
   const links: NoteLinkEntry[] = [];
-  if (operation.type === "create") {
-    for (const blockId of addedIds) {
-      const block = analysis.byId.get(blockId);
-      if (!block || block.row.blockType !== "paragraph") continue;
-      links.push(...extractLinks(block.node, blockId, block.row.plainText));
-    }
+  for (const blockId of [...addedIds, ...changedLeafIds]) {
+    const block = analysis.byId.get(blockId);
+    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) continue;
+    links.push(...extractLinks(block.node, blockId, block.row.plainText));
   }
 
   return {
     mode: "incremental",
-    kind: "structural",
+    kind: changedLeafIds.size > 0 ? "mixed" : "structural",
     contentText: analysis.contentText,
     affectedRows,
     deletedBlockIds: deletedIds,

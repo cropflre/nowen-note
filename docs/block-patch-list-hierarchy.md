@@ -69,7 +69,18 @@ Requirements:
 
 The source becomes the immediate sibling after its former parent. An empty nested list wrapper is removed.
 
-Top-level lift out of a list into a paragraph is not part of V2 and remains on whole-note save.
+### Lift a root leaf item to a paragraph
+
+```json
+{
+  "type": "lift",
+  "scope": "listItem",
+  "blockId": "blk_root_item",
+  "position": "after"
+}
+```
+
+The source must be a root-list leaf item containing exactly one paragraph. The item wrapper ID is deleted, the paragraph ID and content are retained, and the paragraph is inserted immediately before or after the containing top-level list. Nested subtrees and list-type conversion are rejected.
 
 ### Move at the same depth
 
@@ -149,7 +160,7 @@ Two equivalent operations can describe an adjacent swap. When several safe candi
 A snapshot falls back to whole-note save when it includes:
 
 - list content edits together with hierarchy changes;
-- multiple independent list moves that no single operation can reproduce;
+- independent moves whose bounded ordered replay cannot reproduce the snapshot;
 - list type conversion;
 - item creation or deletion;
 - unstable or duplicate list-item IDs;
@@ -203,10 +214,7 @@ when the old index is stale, incomplete, missing stable IDs, or the post-patch d
 
 ## Remaining boundaries
 
-- No top-level lift from a list into a standalone paragraph.
 - No conversion between bullet, ordered and task lists.
 - No arbitrary cross-depth reparenting.
-- No multi-item list transaction planning.
-- No mixed list hierarchy plus content/mark patch in one request.
-- No list-item creation/deletion incremental plan yet.
+- No mixed hierarchy/content operation unless every ordered operation is within the bounded list contract.
 - `notes.content` remains the canonical complete Tiptap document.

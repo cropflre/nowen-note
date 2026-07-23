@@ -70,6 +70,12 @@ export type BlockPatchOperation =
       blockId: string;
       targetBlockId: string;
       position: "before" | "after" | "inside";
+    }
+  | {
+      type: "lift";
+      scope: "listItem";
+      blockId: string;
+      position: "before" | "after";
     };
 
 export interface BlockPatchRequest {
@@ -120,6 +126,7 @@ export interface BlockPatchResult {
     | "mixed"
     | "list-subtree"
     | "list-structural"
+    | "list-mixed"
     | "full";
   /** Block IDs inserted, updated or deleted by index synchronization. */
   indexedBlockIds: string[];

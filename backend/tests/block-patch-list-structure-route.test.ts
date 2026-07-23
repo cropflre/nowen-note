@@ -225,6 +225,82 @@ test("deletes one leaf list item and its link rows incrementally", async () => {
   ), 0);
 });
 
+test("persists an Enter split as one mixed list transaction", async () => {
+  const noteId = "79797979-7979-4797-8797-797979797979";
+  insertNote(noteId, tiptap(
+    paragraph("blk_outside2", "Outside"),
+    {
+      type: "bulletList",
+      content: [item("blk_split_a", "blk_split_pa", "Alpha Beta")],
+    },
+  ));
+  db.prepare(`
+    UPDATE note_blocks_index SET createdAt = '2000-01-01 00:00:00', updatedAt = '2000-01-01 00:00:00'
+    WHERE noteId = ?
+  `).run(noteId);
+
+  const response = await patch(noteId, "list-structure-split-route", [
+    {
+      type: "replace",
+      blockId: "blk_split_pa",
+      node: paragraph("blk_split_pa", "Alpha"),
+    },
+    {
+      type: "create",
+      scope: "listItem",
+      clientId: "blk_split_b",
+      blockId: "blk_split_b",
+      targetBlockId: "blk_split_a",
+      position: "after",
+      node: item("blk_split_b", "blk_split_pb", "Beta"),
+    },
+  ]);
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.version, 2);
+  assert.equal(payload.operationCount, 2);
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.equal(payload.indexUpdateKind, "list-mixed");
+  const parsed = JSON.parse(payload.content);
+  assert.deepEqual(parsed.content[1].content.map((entry: any) => entry.attrs.blockId), [
+    "blk_split_a",
+    "blk_split_b",
+  ]);
+  assert.equal(parsed.content[1].content[0].content[0].content[0].text, "Alpha");
+  assert.equal(row(noteId, "blk_outside2").updatedAt, "2000-01-01 00:00:00");
+  assert.equal(count("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?", noteId), 1);
+});
+
+test("lifts a root list item with incremental structural indexes", async () => {
+  const noteId = "81818181-8181-4818-8818-818181818181";
+  insertNote(noteId, tiptap({
+    type: "bulletList",
+    content: [
+      item("blk_lift_a0", "blk_lift_pa", "A"),
+      item("blk_lift_b0", "blk_lift_pb", "B"),
+    ],
+  }));
+
+  const response = await patch(noteId, "list-structure-top-lift", [{
+    type: "lift",
+    scope: "listItem",
+    blockId: "blk_lift_b0",
+    position: "after",
+  }]);
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.equal(payload.indexUpdateKind, "list-structural");
+  assert.deepEqual(payload.deletedBlockIds, ["blk_lift_b0"]);
+  assert.equal(row(noteId, "blk_lift_b0"), undefined);
+  assert.equal(row(noteId, "blk_lift_pb").parentBlockId, null);
+  const parsed = JSON.parse(payload.content);
+  assert.equal(parsed.content[1].type, "paragraph");
+  assert.equal(parsed.content[1].attrs.blockId, "blk_lift_pb");
+});
+
 test("falls back to full synchronization when the pre-patch index is stale", async () => {
   const noteId = "89898989-8989-4898-8989-898989898989";
   insertNote(noteId, tiptap({

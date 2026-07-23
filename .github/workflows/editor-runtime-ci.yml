@@ -19,6 +19,11 @@ on:
       - "frontend/src/lib/markdownAnalysis.ts"
       - "frontend/src/lib/markdownAnalysisClient.ts"
       - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/tiptapAnalysis.ts"
+      - "frontend/src/lib/tiptapAnalysisClient.ts"
+      - "frontend/src/lib/tiptapAnalysis.worker.ts"
+      - "frontend/src/lib/markdownPreviewSegments.ts"
+      - "frontend/src/lib/editorPerformanceBudget.ts"
       - "frontend/src/lib/markdownYTextSync.ts"
       - "frontend/src/lib/markdownYTextSyncRuntimeState.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
@@ -27,6 +32,9 @@ on:
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/BlockEmbedExtension.tsx"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditorRuntime.tsx"
@@ -40,6 +48,11 @@ on:
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
       - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/tiptapAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/markdownPreviewSegments.test.ts"
+      - "frontend/src/lib/__tests__/editorPerformanceBudget.test.ts"
+      - "scripts/generate-editor-performance-fixtures.mjs"
+      - "scripts/generate-large-markdown-fixture.mjs"
       - "frontend/src/lib/__tests__/markdownYText*.test.ts"
       - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
@@ -50,6 +63,7 @@ on:
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
@@ -71,6 +85,11 @@ on:
       - "frontend/src/lib/markdownAnalysis.ts"
       - "frontend/src/lib/markdownAnalysisClient.ts"
       - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/tiptapAnalysis.ts"
+      - "frontend/src/lib/tiptapAnalysisClient.ts"
+      - "frontend/src/lib/tiptapAnalysis.worker.ts"
+      - "frontend/src/lib/markdownPreviewSegments.ts"
+      - "frontend/src/lib/editorPerformanceBudget.ts"
       - "frontend/src/lib/markdownYTextSync.ts"
       - "frontend/src/lib/markdownYTextSyncRuntimeState.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
@@ -79,6 +98,9 @@ on:
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/MarkdownEditor.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/BlockEmbedExtension.tsx"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditorRuntime.tsx"
@@ -92,6 +114,11 @@ on:
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
       - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/tiptapAnalysis*.test.ts"
+      - "frontend/src/lib/__tests__/markdownPreviewSegments.test.ts"
+      - "frontend/src/lib/__tests__/editorPerformanceBudget.test.ts"
+      - "scripts/generate-editor-performance-fixtures.mjs"
+      - "scripts/generate-large-markdown-fixture.mjs"
       - "frontend/src/lib/__tests__/markdownYText*.test.ts"
       - "frontend/src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapDerivedRuntime.test.ts"
@@ -102,6 +129,7 @@ on:
       - "frontend/src/hooks/__tests__/useLazyNodeView.test.tsx"
       - "frontend/src/components/__tests__/VideoExtension.test.ts"
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
@@ -136,6 +164,10 @@ jobs:
           src/lib/__tests__/largeMarkdownSafety.test.ts
           src/lib/__tests__/markdownAnalysis.test.ts
           src/lib/__tests__/markdownAnalysisClient.test.ts
+          src/lib/__tests__/tiptapAnalysis.test.ts
+          src/lib/__tests__/tiptapAnalysisClient.test.ts
+          src/lib/__tests__/markdownPreviewSegments.test.ts
+          src/lib/__tests__/editorPerformanceBudget.test.ts
           src/lib/__tests__/markdownYTextSync.test.ts
           src/lib/__tests__/markdownYTextRuntime.test.ts
           src/lib/__tests__/proseMirrorPlainTextRuntime.test.ts
@@ -148,6 +180,7 @@ jobs:
           src/hooks/__tests__/useLazyNodeView.test.tsx
           src/components/__tests__/VideoExtension.test.ts
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
+          src/components/__tests__/MarkdownPreview.test.tsx
           src/components/__tests__/SearchReplaceRuntime.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx

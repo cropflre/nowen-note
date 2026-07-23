@@ -185,7 +185,7 @@ function simulateCreate(
   const targetIndex = (target.list.content || []).indexOf(target.item);
   if (targetIndex < 0) return false;
   const destination = operation.position === "after" ? targetIndex + 1 : targetIndex;
-  target.list.content!.splice(destination, 0, cloneJson(operation.node) as JsonNode);
+  target.list.content!.splice(destination, 0, cloneJson(operation.node) as unknown as JsonNode);
   return true;
 }
 
@@ -198,6 +198,17 @@ function simulateDelete(
   source.list.content!.splice(source.itemFrame.index, 1);
   removeListWrapperIfEmpty(source);
   return (doc.content || []).length > 0;
+}
+
+/** Apply one already-normalized list structure operation to a planning snapshot. */
+export function applyTiptapListItemStructureForPlanning(
+  doc: unknown,
+  operation: TiptapListItemStructureOperation,
+): boolean {
+  if (!doc || typeof doc !== "object") return false;
+  return operation.type === "create"
+    ? simulateCreate(doc as JsonNode, operation)
+    : simulateDelete(doc as JsonNode, operation);
 }
 
 /** Prove that one leaf list-item create/delete reproduces the complete next Tiptap JSON. */
@@ -244,7 +255,7 @@ export function planTiptapListItemStructure(
 
     const siblings = location.list.content || [];
     const index = siblings.indexOf(location.item);
-    const candidates: TiptapListItemStructureOperation[] = [];
+    const candidates: Array<Extract<TiptapListItemStructureOperation, { type: "create" }>> = [];
     const previousId = index > 0 ? siblings[index - 1]?.attrs?.blockId : null;
     const nextId = index + 1 < siblings.length ? siblings[index + 1]?.attrs?.blockId : null;
     if (validBlockId(previousId) && baseItems.has(previousId)) {

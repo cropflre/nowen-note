@@ -33,6 +33,7 @@ interface ItemDescriptor {
   id: string;
   itemType: string;
   listType: string;
+  order: number;
   depth: number;
   parentItemId: string | null;
   previousId: string | null;
@@ -190,6 +191,7 @@ function itemPayload(node: JsonNode): string {
 function collectDescriptors(doc: JsonNode): Map<string, ItemDescriptor> | null {
   const output = new Map<string, ItemDescriptor>();
   let invalid = false;
+  let order = 0;
 
   const visit = (nodes: JsonNode[], depth: number, parentItemId: string | null) => {
     for (const node of nodes) {
@@ -218,6 +220,7 @@ function collectDescriptors(doc: JsonNode): Map<string, ItemDescriptor> | null {
             id,
             itemType: item.type || "",
             listType: node.type || "",
+            order: order++,
             depth: depth + 1,
             parentItemId,
             previousId: previousId || null,
@@ -271,8 +274,18 @@ function operationRank(
     before.depth !== after.depth || before.parentItemId !== after.parentItemId
   );
   const semanticRank = operation.position === "inside" ? 0 : hierarchyChanged ? 1 : 2;
+  const directionRank = before && after && after.order < before.order ? 0 : 1;
   const positionRank = operation.position === "before" ? 0 : operation.position === "after" ? 1 : 2;
-  return `${semanticRank}:${positionRank}:${operation.blockId}:${operation.targetBlockId}`;
+  return `${semanticRank}:${directionRank}:${positionRank}:${operation.blockId}:${operation.targetBlockId}`;
+}
+
+/** Apply one controlled list move to a mutable planning snapshot. */
+export function applyTiptapListItemMoveForPlanning(
+  doc: unknown,
+  operation: ListMoveOperation,
+): boolean {
+  if (!doc || typeof doc !== "object") return false;
+  return applyListMove(doc as JsonNode, operation);
 }
 
 function compareRanks(left: string, right: string): number {

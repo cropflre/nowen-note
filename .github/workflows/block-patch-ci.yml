@@ -38,6 +38,8 @@ on:
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/tiptapListItemMovePlanner.ts"
       - "frontend/src/lib/tiptapListItemStructurePlanner.ts"
+      - "frontend/src/lib/tiptapListItemBatchPlanner.ts"
+      - "frontend/src/lib/tiptapListItemLiftPlanner.ts"
       - "frontend/src/lib/tiptapEmptyBlockIdentityDispatch.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/blockPatchListStructureApi.test.ts"
@@ -47,6 +49,8 @@ on:
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemStructurePlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemBatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemLiftPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
       - "docs/block-patch-api.md"
       - "docs/block-patch-empty-document.md"
@@ -89,6 +93,8 @@ on:
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/tiptapListItemMovePlanner.ts"
       - "frontend/src/lib/tiptapListItemStructurePlanner.ts"
+      - "frontend/src/lib/tiptapListItemBatchPlanner.ts"
+      - "frontend/src/lib/tiptapListItemLiftPlanner.ts"
       - "frontend/src/lib/tiptapEmptyBlockIdentityDispatch.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/blockPatchListStructureApi.test.ts"
@@ -98,6 +104,8 @@ on:
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemStructurePlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemBatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapListItemLiftPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
       - "docs/block-patch-api.md"
       - "docs/block-patch-empty-document.md"
@@ -164,6 +172,8 @@ jobs:
           src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
           src/lib/__tests__/tiptapListItemMovePlanner.test.ts
           src/lib/__tests__/tiptapListItemStructurePlanner.test.ts
+          src/lib/__tests__/tiptapListItemBatchPlanner.test.ts
+          src/lib/__tests__/tiptapListItemLiftPlanner.test.ts
           src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx

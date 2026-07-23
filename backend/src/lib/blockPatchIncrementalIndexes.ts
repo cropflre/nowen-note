@@ -23,9 +23,9 @@ type LeafPatchOperation = Extract<
   TiptapBlockPatchOperation,
   { type: "update" | "replace" }
 >;
-type StructuralPatchOperation = Extract<
-  TiptapBlockPatchOperation,
-  { type: "create" | "delete" | "move" }
+type StructuralPatchOperation = Exclude<
+  Extract<TiptapBlockPatchOperation, { type: "create" | "delete" | "move" }>,
+  { scope: "listItem" }
 >;
 
 interface ExistingIndexRow {
@@ -276,11 +276,12 @@ function extractLinksFromLeaf(node: any, sourceBlockId: string, plainText: strin
   return links;
 }
 
-function splitOperations(operations: TiptapBlockPatchOperation[]): PatchGroups {
+function splitOperations(operations: TiptapBlockPatchOperation[]): PatchGroups | null {
   const leaf: LeafPatchOperation[] = [];
   const structural: StructuralPatchOperation[] = [];
   for (const operation of operations) {
     if (operation.type === "update" || operation.type === "replace") leaf.push(operation);
+    else if (operation.scope === "listItem") return null;
     else structural.push(operation);
   }
   return { leaf, structural };
@@ -605,6 +606,7 @@ export function canUseIncrementalPatchIndexes(
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis || !structuresMatch(loadExistingRows(db, noteId), analysis, new Set())) return false;
   const groups = splitOperations(operations);
+  if (!groups) return false;
   if (groups.leaf.length > 0 && groups.structural.length > 0) {
     return validateMixedBase(analysis, groups.leaf, groups.structural);
   }
@@ -624,6 +626,7 @@ export function planIncrementalPatchIndexes(
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis) return null;
   const groups = splitOperations(operations);
+  if (!groups) return null;
   if (groups.leaf.length > 0 && groups.structural.length > 0) {
     return planMixedIndexes(db, noteId, analysis, groups.leaf, groups.structural);
   }

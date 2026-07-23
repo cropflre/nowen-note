@@ -4,6 +4,8 @@ import {
   type TiptapBlockPatchPlan as BaseTiptapBlockPatchPlan,
 } from "@/lib/tiptapBlockPatchPlanner";
 import { planTiptapListItemMove } from "@/lib/tiptapListItemMovePlanner";
+import { planTiptapListItemBatch } from "@/lib/tiptapListItemBatchPlanner";
+import { planTiptapListItemTopLevelLift } from "@/lib/tiptapListItemLiftPlanner";
 import {
   listItemStructureOperationForPatch,
   planTiptapListItemStructure,
@@ -19,7 +21,7 @@ interface JsonNode {
 
 export type TiptapBlockPatchPlan = BaseTiptapBlockPatchPlan | {
   operations: BlockPatchOperation[];
-  kind: "list-hierarchy" | "list-structure";
+  kind: "list-hierarchy" | "list-structure" | "list-batch" | "list-lift";
   affectedBlockIds: string[];
 };
 
@@ -58,6 +60,24 @@ export function planTiptapBlockPatch(
         ...(paragraphId ? [paragraphId] : []),
         ...(structure.type === "create" ? [structure.targetBlockId] : []),
       ])],
+    };
+  }
+
+  const batch = planTiptapListItemBatch(baseDoc, nextDoc);
+  if (batch) {
+    return {
+      operations: batch.operations,
+      kind: "list-batch",
+      affectedBlockIds: batch.affectedBlockIds,
+    };
+  }
+
+  const lift = planTiptapListItemTopLevelLift(baseDoc, nextDoc);
+  if (lift) {
+    return {
+      operations: [lift],
+      kind: "list-lift",
+      affectedBlockIds: [lift.blockId],
     };
   }
 

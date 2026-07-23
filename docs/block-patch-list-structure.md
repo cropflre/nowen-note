@@ -2,7 +2,7 @@
 
 ## Scope
 
-Optimized Tiptap sessions can persist one proven-safe list-item creation or deletion through:
+Optimized Tiptap sessions can persist a bounded, proven-safe list transaction through:
 
 ```http
 POST /api/blocks/:noteId/patch
@@ -48,7 +48,7 @@ The operations reuse `create` and `delete` with an explicit list-item scope. Thi
 
 Requirements:
 
-- the request contains exactly one operation;
+- the request contains at most 100 ordered operations;
 - `scope` is exactly `listItem`;
 - `blockId` and the paragraph Block ID are valid, distinct and not already present;
 - `targetBlockId` identifies an existing sibling list item;
@@ -76,7 +76,7 @@ The server returns the item identity in `createdBlocks`. The paragraph already c
 
 Requirements:
 
-- the request contains exactly one operation;
+- the request contains at most 100 ordered operations;
 - the target is a `listItem` or `taskItem` under a compatible list container;
 - the target contains exactly one paragraph;
 - the target has no nested list or other child subtree.
@@ -106,7 +106,7 @@ Before sending a delete request, it proves:
 - the removed item was a compatible leaf item;
 - deleting it and cleaning an empty list wrapper reproduces the full target JSON.
 
-The planner falls back to whole-note save when the edit also changes an existing item payload. This includes the common Enter-key split case where the original paragraph text changes while a new item is created.
+The planner replays the complete batch and requires byte-equivalent final JSON. This supports Enter-key split (`replace` plus scoped `create`), multi-item paste/delete and continuous same-list reorder. Ambiguous edits or batches above 100 operations fall back to whole-note save.
 
 ## Validation errors
 
@@ -133,11 +133,11 @@ Scoped list-item create/delete retains the standard Block Patch guarantees:
 - realtime note/list broadcasts;
 - full transaction rollback on any failure.
 
-Only one scoped structure operation is accepted per request in V1.
+All operations commit in one SQLite transaction and increment the note version once.
 
 ## Incremental index mode
 
-When the old Block index exactly mirrors the pre-patch Tiptap document, a successful operation returns:
+When the old Block index exactly mirrors the pre-patch Tiptap document, a successful structural operation returns:
 
 ```json
 {
@@ -145,6 +145,8 @@ When the old Block index exactly mirrors the pre-patch Tiptap document, a succes
   "indexUpdateKind": "list-structural"
 }
 ```
+
+A split or another batch that changes both content and list structure returns `list-mixed`.
 
 ### Create
 
@@ -170,10 +172,7 @@ Any stale index, identity mismatch, unexpected added/deleted row, leaf-content m
 
 ## Remaining boundaries
 
-- No item split transaction that also changes existing text.
 - No nested subtree creation or deletion.
-- No multiple create/delete operations in one request.
-- No mixed list structure plus formatting/content patch.
-- No top-level lift from a list into a standalone paragraph.
 - No conversion between bullet, ordered and task lists.
+- No arbitrary batch whose ordered replay does not exactly reproduce the submitted snapshot.
 - `notes.content` remains the canonical complete Tiptap document.

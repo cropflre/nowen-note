@@ -4,6 +4,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { AlertTriangle, Loader2, Quote } from "lucide-react";
 import { api } from "@/lib/api";
 import { openInternalNoteLink } from "@/lib/blockNavigation";
+import { useLazyNodeView } from "@/hooks/useLazyNodeView";
 
 const EMBED_RE = /!\[\[(note:[0-9a-f-]{36}#blk:[A-Za-z0-9_-]+)\]\]\s$/i;
 
@@ -28,8 +29,44 @@ function BlockEmbedCard({ href }: { href: string }) {
   );
 }
 
-function BlockEmbedNodeView({ node }: any) {
-  return <NodeViewWrapper className="my-3" data-nowen-block-embed={node.attrs.href}><BlockEmbedCard href={node.attrs.href} /></NodeViewWrapper>;
+function BlockEmbedNodeView({ node, selected }: any) {
+  const {
+    lazyEnabled,
+    requiresInteraction,
+    shouldRenderHeavyContent,
+    observeRef,
+    requestRender,
+  } = useLazyNodeView<HTMLDivElement>({
+    forceMount: selected,
+    rootMargin: "1000px 0px",
+    manualInLightweight: true,
+  });
+  return (
+    <NodeViewWrapper
+      ref={observeRef}
+      className="my-3"
+      data-nowen-block-embed={node.attrs.href}
+      data-block-embed-runtime-state={shouldRenderHeavyContent ? "mounted" : "deferred"}
+      style={{
+        minHeight: shouldRenderHeavyContent ? undefined : 96,
+        contentVisibility: lazyEnabled ? "auto" : undefined,
+        containIntrinsicSize: lazyEnabled ? "auto 120px" : undefined,
+      }}
+    >
+      {shouldRenderHeavyContent ? <BlockEmbedCard href={node.attrs.href} /> : (
+        <button
+          type="button"
+          contentEditable={false}
+          onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+          onClick={(event) => { event.preventDefault(); event.stopPropagation(); requestRender(); }}
+          className="flex min-h-24 w-full flex-col items-center justify-center gap-1 rounded-xl border border-app-border bg-app-hover/30 p-3 text-xs text-tx-tertiary"
+        >
+          <span>嵌入块暂未加载</span>
+          <span>{requiresInteraction ? "点击加载预览" : "滚动到附近后自动加载"}</span>
+        </button>
+      )}
+    </NodeViewWrapper>
+  );
 }
 
 export const BlockEmbedExtension = Node.create({

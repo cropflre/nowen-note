@@ -170,6 +170,26 @@ test("supports task-list sinking while preserving checked state", () => {
   assert.equal(parent.content[1].content[0].attrs.checked, false);
 });
 
+test("lifts a root list leaf into a standalone paragraph", () => {
+  const source = doc([list("bulletList", [
+    listItem("blk_item_a0", "A"),
+    listItem("blk_item_b0", "B"),
+  ])]);
+
+  const result = patch(source, {
+    type: "lift",
+    scope: "listItem",
+    blockId: "blk_item_b0",
+    position: "after",
+  });
+
+  assert.equal(result.content[0].type, "bulletList");
+  assert.deepEqual(result.content[0].content.map((entry: any) => entry.attrs.blockId), ["blk_item_a0"]);
+  assert.equal(result.content[1].type, "paragraph");
+  assert.equal(result.content[1].attrs.blockId, "blk_p_item_b0");
+  assert.equal(result.content[1].content[0].text, "B");
+});
+
 test("rejects non-adjacent sinking and list-type changes", () => {
   const nonAdjacent = doc([list("bulletList", [
     listItem("blk_item_a0", "A"),

@@ -107,7 +107,7 @@ describe("Tiptap controlled list item structure planner", () => {
     });
   });
 
-  it("rejects splits, nested creation, conflicting IDs and final-item deletion", () => {
+  it("plans splits while rejecting nested creation, conflicting IDs and final-item deletion", () => {
     const splitBase = doc([list("bulletList", [
       item("blk_item_a0", "blk_para_a0", "Alpha Beta"),
     ])]);
@@ -115,7 +115,7 @@ describe("Tiptap controlled list item structure planner", () => {
       item("blk_item_a0", "blk_para_a0", "Alpha"),
       item("blk_item_b0", "blk_para_b0", "Beta"),
     ])]);
-    expect(planTiptapBlockPatch(splitBase, splitNext)).toBeNull();
+    expect(planTiptapBlockPatch(splitBase, splitNext)).toMatchObject({ kind: "list-batch" });
 
     const nestedBase = doc([list("bulletList", [
       item("blk_item_a0", "blk_para_a0", "A"),
