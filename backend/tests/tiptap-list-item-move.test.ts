@@ -37,8 +37,12 @@ function taskItem(blockId: string, text: string, checked = false, nested?: unkno
   };
 }
 
-function list(type: "bulletList" | "orderedList" | "taskList", items: unknown[]) {
-  return { type, content: items };
+function list(
+  type: "bulletList" | "orderedList" | "taskList",
+  items: unknown[],
+  attrs?: Record<string, unknown>,
+) {
+  return { type, ...(attrs ? { attrs } : {}), content: items };
 }
 
 function doc(content: unknown[]): string {
@@ -73,6 +77,26 @@ test("sinks one list item under its immediate previous sibling", () => {
   assert.equal(nested.type, "bulletList");
   assert.deepEqual(nested.content.map((item: any) => item.attrs.blockId), ["blk_item_b0"]);
   assert.equal(nested.content[0].content[0].content[0].text, "B");
+});
+
+test("copies ordered-list attrs when a nested list is created", () => {
+  const source = doc([list("orderedList", [
+    listItem("blk_item_a0", "A"),
+    listItem("blk_item_b0", "B"),
+  ], { start: 1 })]);
+
+  const result = patch(source, {
+    type: "move",
+    scope: "listItem",
+    blockId: "blk_item_b0",
+    targetBlockId: "blk_item_a0",
+    position: "inside",
+  });
+
+  const outer = result.content[0];
+  assert.deepEqual(outer.attrs, { start: 1 });
+  assert.deepEqual(outer.content[0].content[1].attrs, { start: 1 });
+  assert.equal(outer.content[0].content[1].type, "orderedList");
 });
 
 test("lifts one nested list item directly after its parent and removes an empty nested list", () => {
@@ -165,7 +189,7 @@ test("rejects non-adjacent sinking and list-type changes", () => {
 
   const mixed = doc([
     list("bulletList", [listItem("blk_item_a0", "A")]),
-    list("orderedList", [listItem("blk_item_b0", "B")]),
+    list("orderedList", [listItem("blk_item_b0", "B")], { start: 1 }),
   ]);
   assert.throws(
     () => patch(mixed, {
