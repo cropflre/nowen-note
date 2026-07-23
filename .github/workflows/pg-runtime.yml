@@ -161,6 +161,7 @@ jobs:
           tests/custom-fonts-repository-pg.test.ts
           tests/favorites-repository-pg.test.ts
           tests/note-tags-repository-pg.test.ts
+          tests/note-link-titles-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -178,7 +179,8 @@ jobs:
           test -f dist/postgres/migrations/0007_note_import_origins.sql &&
           test -f dist/postgres/migrations/0008_note_split_tables.sql &&
           test -f dist/postgres/migrations/0009_roundtrip_import_resource_links.sql &&
-          test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql
+          test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql &&
+          test -f dist/postgres/migrations/0011_note_block_runtime.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
