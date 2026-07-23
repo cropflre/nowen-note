@@ -80,8 +80,8 @@ export interface BlockPatchResult {
   blocks: BlockPatchIndexRow[];
   /** Whether the server updated a proven-safe subset or rebuilt every note index row. */
   indexUpdateMode: "incremental" | "full";
-  /** Distinguishes leaf content updates, top-level structural updates and full fallback. */
-  indexUpdateKind: "leaf" | "structural" | "full";
+  /** Distinguishes leaf, structural, mixed incremental updates and full fallback. */
+  indexUpdateKind: "leaf" | "structural" | "mixed" | "full";
   /** Block IDs inserted, updated or deleted by index synchronization. */
   indexedBlockIds: string[];
   contentChangedByNormalization: boolean;
