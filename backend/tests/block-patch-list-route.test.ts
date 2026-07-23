@@ -102,10 +102,35 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test("persists a controlled sink with one version and authoritative full indexes", async () => {
+test("persists a controlled sink with one version and incremental list-subtree indexes", async () => {
   const noteId = "12121212-1212-4212-8212-121212121212";
+  const targetNoteId = "56565656-5656-4565-8565-565656565656";
   const original = documentContent();
   insertNote(noteId, original);
+  insertNote(targetNoteId, JSON.stringify({
+    type: "doc",
+    content: [paragraph("blk_target00", "Target")],
+  }));
+
+  db.prepare(`
+    UPDATE note_blocks_index
+    SET createdAt = '2000-01-01 00:00:00', updatedAt = '2000-01-01 00:00:00'
+    WHERE noteId = ?
+  `).run(noteId);
+  db.prepare(`
+    INSERT INTO note_links (
+      id, userId, sourceNoteId, targetNoteId, targetBlockId, sourceBlockId,
+      linkType, linkText, excerpt, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, NULL, ?, 'note', NULL, 'stable', ?, ?)
+  `).run(
+    "list-link-stable",
+    owner,
+    noteId,
+    targetNoteId,
+    "blk_para_b0",
+    "2000-01-01 00:00:00",
+    "2000-01-01 00:00:00",
+  );
 
   const operations = [{
     type: "move",
@@ -119,9 +144,16 @@ test("persists a controlled sink with one version and authoritative full indexes
   assert.equal(response.status, 200);
   const payload = await response.json() as any;
   assert.equal(payload.version, 2);
-  assert.equal(payload.indexUpdateMode, "full");
-  assert.equal(payload.indexUpdateKind, "full");
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.equal(payload.indexUpdateKind, "list-subtree");
   assert.deepEqual(payload.affectedBlockIds.sort(), ["blk_item_a0", "blk_item_b0"].sort());
+  assert.deepEqual(new Set(payload.indexedBlockIds), new Set([
+    "blk_item_a0",
+    "blk_item_b0",
+    "blk_para_b0",
+    "blk_item_c0",
+    "blk_para_c0",
+  ]));
 
   const parsed = JSON.parse(payload.content);
   assert.deepEqual(parsed.content[0].content.map((node: any) => node.attrs.blockId), [
@@ -131,15 +163,36 @@ test("persists a controlled sink with one version and authoritative full indexes
   assert.equal(parsed.content[0].content[0].content[1].content[0].attrs.blockId, "blk_item_b0");
 
   const rows = db.prepare(`
-    SELECT blockId, parentBlockId, path
+    SELECT blockId, parentBlockId, path, updatedAt
     FROM note_blocks_index
     WHERE noteId = ?
-  `).all(noteId) as Array<{ blockId: string; parentBlockId: string | null; path: string }>;
+  `).all(noteId) as Array<{
+    blockId: string;
+    parentBlockId: string | null;
+    path: string;
+    updatedAt: string;
+  }>;
   const byId = new Map(rows.map((row) => [row.blockId, row]));
   assert.equal(byId.get("blk_item_a0")?.parentBlockId, null);
   assert.equal(byId.get("blk_item_b0")?.parentBlockId, "blk_item_a0");
   assert.match(byId.get("blk_item_b0")?.path || "", /^0\.0\./);
   assert.equal(byId.get("blk_para_b0")?.parentBlockId, "blk_item_b0");
+  assert.equal(byId.get("blk_para_a0")?.updatedAt, "2000-01-01 00:00:00");
+  assert.notEqual(byId.get("blk_item_a0")?.updatedAt, "2000-01-01 00:00:00");
+
+  const link = db.prepare(`
+    SELECT id, createdAt, updatedAt FROM note_links
+    WHERE sourceNoteId = ? AND sourceBlockId = ?
+  `).get(noteId, "blk_para_b0") as {
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+  } | undefined;
+  assert.deepEqual(link, {
+    id: "list-link-stable",
+    createdAt: "2000-01-01 00:00:00",
+    updatedAt: "2000-01-01 00:00:00",
+  });
 
   const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
   assert.equal(stored.content, payload.content);
@@ -151,7 +204,36 @@ test("persists a controlled sink with one version and authoritative full indexes
   const replayPayload = await replay.json() as any;
   assert.equal(replayPayload.idempotentReplay, true);
   assert.equal(replayPayload.content, payload.content);
+  assert.equal(replayPayload.indexUpdateKind, "list-subtree");
   assert.equal(count("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?", noteId), 1);
+});
+
+test("falls back to full synchronization when the persisted list index is stale", async () => {
+  const noteId = "78787878-7878-4787-8787-787878787878";
+  insertNote(noteId, documentContent());
+  db.prepare(`
+    UPDATE note_blocks_index SET path = 'broken.path'
+    WHERE noteId = ? AND blockId = 'blk_item_b0'
+  `).run(noteId);
+
+  const response = await patch(noteId, "block-list-stale-index", [{
+    type: "move",
+    scope: "listItem",
+    blockId: "blk_item_b0",
+    targetBlockId: "blk_item_a0",
+    position: "inside",
+  }]);
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "full");
+  assert.equal(payload.indexUpdateKind, "full");
+  const row = db.prepare(`
+    SELECT parentBlockId, path FROM note_blocks_index
+    WHERE noteId = ? AND blockId = 'blk_item_b0'
+  `).get(noteId) as { parentBlockId: string | null; path: string };
+  assert.equal(row.parentBlockId, "blk_item_a0");
+  assert.notEqual(row.path, "broken.path");
 });
 
 test("rejects an unsafe non-adjacent sink without changing persistence", async () => {
