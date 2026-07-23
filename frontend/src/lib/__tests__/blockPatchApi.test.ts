@@ -79,11 +79,11 @@ describe("block patch API client", () => {
       expectedNoteVersion: 10,
       operationId: "block-patch-conflict-test",
       operations: [{ type: "delete", blockId: "blk_alpha00" }],
-    })).rejects.toMatchObject<BlockPatchRequestError>({
+    })).rejects.toMatchObject({
       code: "VERSION_CONFLICT",
       status: 409,
       currentVersion: 11,
-    });
+    } satisfies Partial<BlockPatchRequestError>);
   });
 
   it("creates retry-safe operation identifiers", () => {

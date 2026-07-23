@@ -66,6 +66,137 @@ test("applies ordered create, update, move and delete operations to one document
   ]);
 });
 
+test("replaces one leaf block with validated marks and block attributes", () => {
+  const operations = validateTiptapBlockPatchOperations([{
+    type: "replace",
+    blockId: "blk_rich0000",
+    node: {
+      type: "heading",
+      attrs: {
+        blockId: "blk_rich0000",
+        level: 3,
+        textAlign: "center",
+        lineHeight: "1.6",
+      },
+      content: [
+        {
+          type: "text",
+          text: "Nowen",
+          marks: [
+            { type: "bold" },
+            { type: "textStyle", attrs: { color: "#3b82f6", fontSize: "20px" } },
+          ],
+        },
+        { type: "hardBreak" },
+        {
+          type: "text",
+          text: "Docs",
+          marks: [{
+            type: "link",
+            attrs: {
+              href: "note:12345678-1234-1234-1234-123456789012#blk:blk_target00",
+              target: "_blank",
+              rel: "noopener noreferrer",
+            },
+          }],
+        },
+      ],
+    },
+  }]);
+
+  const result = applyTiptapBlockPatch(
+    doc([paragraph("blk_rich0000", "Before")]),
+    operations,
+  );
+  const replaced = JSON.parse(result.content).content[0];
+
+  assert.equal(replaced.type, "heading");
+  assert.equal(replaced.attrs.blockId, "blk_rich0000");
+  assert.equal(replaced.attrs.level, 3);
+  assert.equal(replaced.attrs.textAlign, "center");
+  assert.deepEqual(replaced.content[0].marks.map((mark: any) => mark.type), ["bold", "textStyle"]);
+  assert.equal(replaced.content[2].marks[0].attrs.href.startsWith("note:"), true);
+  assert.deepEqual(result.affectedBlockIds, ["blk_rich0000"]);
+});
+
+test("rejects unsafe links, unknown marks and mismatched replacement IDs", () => {
+  const invalidNodes = [
+    {
+      type: "paragraph",
+      attrs: { blockId: "blk_safe0000" },
+      content: [{
+        type: "text",
+        text: "Bad link",
+        marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }],
+      }],
+    },
+    {
+      type: "paragraph",
+      attrs: { blockId: "blk_safe0000" },
+      content: [{ type: "text", text: "Bad mark", marks: [{ type: "script" }] }],
+    },
+    {
+      type: "paragraph",
+      attrs: { blockId: "blk_other000" },
+      content: [{ type: "text", text: "Wrong ID" }],
+    },
+  ];
+
+  for (const node of invalidNodes) {
+    assert.throws(
+      () => validateTiptapBlockPatchOperations([{
+        type: "replace",
+        blockId: "blk_safe0000",
+        node,
+      }]),
+      (error: unknown) => (
+        error instanceof TiptapBlockPatchError
+        && error.code === "INVALID_BLOCK_NODE"
+      ),
+    );
+  }
+});
+
+test("keeps nested list paragraph replacement schema-compatible", () => {
+  const source = doc([{
+    type: "bulletList",
+    content: [{
+      type: "listItem",
+      attrs: { blockId: "blk_item000" },
+      content: [paragraph("blk_nested00", "Before")],
+    }],
+  }]);
+
+  const valid = applyTiptapBlockPatch(source, validateTiptapBlockPatchOperations([{
+    type: "replace",
+    blockId: "blk_nested00",
+    node: {
+      type: "paragraph",
+      attrs: { blockId: "blk_nested00", lineHeight: "1.8" },
+      content: [{ type: "text", text: "After", marks: [{ type: "italic" }] }],
+    },
+  }]));
+  const nested = JSON.parse(valid.content).content[0].content[0].content[0];
+  assert.equal(nested.type, "paragraph");
+  assert.equal(nested.content[0].marks[0].type, "italic");
+
+  assert.throws(
+    () => applyTiptapBlockPatch(source, validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_nested00",
+      node: {
+        type: "heading",
+        attrs: { blockId: "blk_nested00", level: 2 },
+        content: [{ type: "text", text: "Invalid nested heading" }],
+      },
+    }])),
+    (error: unknown) => (
+      error instanceof TiptapBlockPatchError
+      && error.code === "INVALID_BLOCK_NODE"
+    ),
+  );
+});
+
 test("keeps a valid editable paragraph after deleting the final block", () => {
   const result = applyTiptapBlockPatch(
     doc([paragraph("blk_only000", "Only")]),

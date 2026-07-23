@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
 import {
@@ -16,11 +17,13 @@ import {
   type TiptapBlockPatchOperation,
 } from "../lib/tiptapBlockPatch.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
+import { noteVersionsRepository } from "../repositories/noteVersionsRepository.js";
 import { logAudit } from "../services/audit.js";
 import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime.js";
 
 const BLOCK_PATCH_ROUTE = Symbol.for("nowen.blocks.batchPatchRoute");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
+const VERSION_MERGE_WINDOW_MS = 5 * 60 * 1000;
 
 interface NoteRecord {
   id: string;
@@ -102,6 +105,32 @@ function storeIdempotentResult(userId: string, noteId: string, operationId: stri
   `).run(userId, operationId, noteId, JSON.stringify(result));
 }
 
+function recordVersionSnapshot(note: NoteRecord, userId: string): void {
+  const lastEdit = noteVersionsRepository.getLastEditByNoteId(note.id);
+  if (lastEdit) {
+    const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(lastEdit.createdAt)
+      ? lastEdit.createdAt
+      : `${lastEdit.createdAt.replace(" ", "T")}Z`;
+    const lastTimestamp = new Date(normalized).getTime();
+    if (!Number.isNaN(lastTimestamp) && Date.now() - lastTimestamp < VERSION_MERGE_WINDOW_MS) {
+      return;
+    }
+  }
+
+  noteVersionsRepository.create({
+    id: uuid(),
+    noteId: note.id,
+    userId,
+    title: note.title,
+    content: note.content,
+    contentText: note.contentText,
+    contentFormat: note.contentFormat,
+    version: note.version,
+    changeType: "edit",
+    changeSummary: "Block Patch save",
+  });
+}
+
 function mapPatchError(c: Context, error: unknown): Response | null {
   if (error instanceof BlockPatchRouteError) {
     const message = error.code === "VERSION_CONFLICT"
@@ -172,6 +201,11 @@ async function patchBlocks(c: Context) {
       const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
       const contentText = plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
+
+      // Match PUT /notes/:id version-history semantics. This insert is inside the same transaction,
+      // so a later optimistic-lock or index failure removes the snapshot together with the patch.
+      recordVersionSnapshot(note, userId);
+
       const update = db.prepare(`
         UPDATE notes
         SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')

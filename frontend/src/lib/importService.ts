@@ -11,6 +11,7 @@ import type {
 import {
   requestRoundTripImportReview,
   submitRoundTripPackage,
+  type RoundTripImportStrategy,
 } from "./roundTripImportReview";
 
 export {
@@ -113,8 +114,8 @@ function targetLabel(workspaceId?: string): string {
 }
 
 /**
- * Round-trip package import is atomic. The review dialog defaults to an independent copy, while
- * explicit merge mode only reuses exact sibling folder names and never overwrites an existing note.
+ * Round-trip package import is atomic. Copy remains the safe default; merge reuses exact sibling
+ * folders; sync only updates stable source mappings that have no local edits.
  */
 export async function importNotes(
   fileInfos: ImportFileInfo[],
@@ -131,14 +132,16 @@ export async function importNotes(
   }
 
   const file = packageItems[0].__nowenRoundTripPackage!;
-  const submitOptions = {
+  const submitOptionsFor = (strategy: RoundTripImportStrategy) => ({
     workspaceId: options?.workspaceId,
-    targetNotebookId: notebookId || undefined,
-  };
+    // Sync always follows the source→target mappings recorded by the first import. A folder
+    // currently selected in the import UI must not relocate mapped resources accidentally.
+    targetNotebookId: strategy === "sync" ? undefined : notebookId || undefined,
+  });
   try {
-    onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和冲突…" });
+    onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和来源映射…" });
     const copyPreview = await submitRoundTripPackage(file, {
-      ...submitOptions,
+      ...submitOptionsFor("copy"),
       dryRun: true,
       strategy: "copy",
     });
@@ -148,7 +151,7 @@ export async function importNotes(
       source: "shared-import",
       initialStrategy: "copy",
       loadPreview: (strategy) => submitRoundTripPackage(file, {
-        ...submitOptions,
+        ...submitOptionsFor(strategy),
         dryRun: true,
         strategy,
       }),
@@ -161,7 +164,7 @@ export async function importNotes(
     const selectedPreview = decision.strategy === "copy"
       ? copyPreview
       : await submitRoundTripPackage(file, {
-        ...submitOptions,
+        ...submitOptionsFor(decision.strategy),
         dryRun: true,
         strategy: decision.strategy,
       });
@@ -170,32 +173,42 @@ export async function importNotes(
       phase: "uploading",
       current: 0,
       total: 1,
-      message: decision.strategy === "merge"
-        ? `正在按合并计划导入${conflicts ? `（${conflicts} 项处理）` : ""}…`
-        : conflicts > 0
-          ? `已确认 ${conflicts} 个重名处理方案，正在创建独立副本`
-          : "预检已确认，正在原样恢复目录和附件…",
+      message: decision.strategy === "sync"
+        ? `正在执行安全增量同步${conflicts ? `（${conflicts} 项变更或冲突）` : ""}…`
+        : decision.strategy === "merge"
+          ? `正在按合并计划导入${conflicts ? `（${conflicts} 项处理）` : ""}…`
+          : conflicts > 0
+            ? `已确认 ${conflicts} 个重名处理方案，正在创建独立副本`
+            : "预检已确认，正在原样恢复目录和附件…",
     });
     const result = await submitRoundTripPackage(file, {
-      ...submitOptions,
+      ...submitOptionsFor(decision.strategy),
       dryRun: false,
       strategy: decision.strategy,
     });
-    const importedCount = Number(result?.counts?.notes || 0);
+
+    const createdNotes = Number(result?.counts?.notes || 0);
+    const updatedNotes = Number(result?.counts?.updatedNotes || 0);
+    const affectedCount = createdNotes + updatedNotes;
     const warningCount = Array.isArray(result?.warnings) ? result.warnings.length : 0;
     const mergedCount = Number(result?.counts?.mergedNotebooks || 0);
     const renamedCount = Number(result?.counts?.renamedNotes || 0);
+    const unchangedCount = Number(result?.counts?.unchangedNotes || 0);
+    const localConflictCount = Number(result?.counts?.localConflicts || 0);
+
     onProgress?.({
       phase: "done",
-      current: importedCount,
-      total: importedCount,
-      message: decision.strategy === "merge"
-        ? `导入完成，共 ${importedCount} 篇笔记，复用 ${mergedCount} 个目录${renamedCount ? `，${renamedCount} 篇同名笔记已编号` : ""}`
-        : warningCount > 0
-          ? `导入完成，共 ${importedCount} 篇笔记，${warningCount} 项需要检查`
-          : `导入完成，共 ${importedCount} 篇笔记`,
+      current: affectedCount,
+      total: affectedCount,
+      message: decision.strategy === "sync"
+        ? `同步完成，新增 ${createdNotes} 篇、更新 ${updatedNotes} 篇、无需变更 ${unchangedCount} 篇${localConflictCount ? `，${localConflictCount} 项本地修改已保留` : ""}`
+        : decision.strategy === "merge"
+          ? `导入完成，共 ${createdNotes} 篇笔记，复用 ${mergedCount} 个目录${renamedCount ? `，${renamedCount} 篇同名笔记已编号` : ""}`
+          : warningCount > 0
+            ? `导入完成，共 ${createdNotes} 篇笔记，${warningCount} 项需要检查`
+            : `导入完成，共 ${createdNotes} 篇笔记`,
     });
-    return { success: true, count: importedCount };
+    return { success: true, count: decision.strategy === "sync" ? affectedCount : createdNotes };
   } catch (error) {
     onProgress?.({
       phase: "error",

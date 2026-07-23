@@ -26,6 +26,7 @@ describe("round-trip import review queue", () => {
         packageKind: "markdown",
         counts: { notebooks: 4, notes: 8, tags: 2, attachments: 3 },
         formatStats: { markdown: 8, richText: 0, html: 0 },
+        sync: { available: false, linkedResources: 0, reason: "Markdown 往返包不支持同步" },
       },
       conflicts: [{
         action: "rename-root",
@@ -46,6 +47,7 @@ describe("round-trip import review queue", () => {
     const request = snapshots.at(-1)?.[0];
     expect(request?.fileName).toBe("产品资料.zip");
     expect(request?.preview.package?.counts?.notes).toBe(8);
+    expect(request?.preview.package?.sync?.available).toBe(false);
     expect(request?.preview.conflicts?.[0]?.importedName).toBe("产品资料 (2)");
 
     resolveRoundTripImportReview(request!.id, { accepted: true, strategy: "copy" });
@@ -82,6 +84,63 @@ describe("round-trip import review queue", () => {
 
     resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "merge" });
     await expect(decision).resolves.toEqual({ accepted: true, strategy: "merge" });
+    unsubscribe();
+  });
+
+  it("loads a source-linked sync plan and returns an explicit safe-sync decision", async () => {
+    let current: RoundTripImportReviewRequest[] = [];
+    const loadPreview = vi.fn(async (strategy: "copy" | "merge" | "sync") => ({
+      success: true,
+      dryRun: true,
+      strategy,
+      package: {
+        format: "nowen-package",
+        formatVersion: 2,
+        packageKind: "nowen",
+        sourceInstanceId: "source-instance-1",
+        sync: { available: true, linkedResources: 12, reason: null },
+      },
+      counts: {
+        notes: 1,
+        updatedNotes: 3,
+        unchangedNotes: 8,
+        localConflicts: 1,
+      },
+      conflicts: [{
+        action: "sync-local-conflict" as const,
+        resourceType: "note" as const,
+        sourceId: "source-note",
+        targetId: "target-note",
+        originalName: "来源第三版",
+        importedName: "本地人工修改",
+      }],
+      warnings: [{ type: "sync_local_conflicts", message: "本地修改已保留" }],
+      errors: [],
+    }));
+    const unsubscribe = subscribeRoundTripImportReviews((items) => { current = items; });
+    const decision = requestRoundTripImportReview({
+      success: true,
+      strategy: "copy",
+      package: {
+        format: "nowen-package",
+        packageKind: "nowen",
+        sourceInstanceId: "source-instance-1",
+        sync: { available: true, linkedResources: 12, reason: null },
+      },
+    }, {
+      fileName: "incremental.nowen.zip",
+      loadPreview,
+    });
+
+    const syncPreview = await current[0].loadPreview?.("sync");
+    expect(loadPreview).toHaveBeenCalledWith("sync");
+    expect(syncPreview?.strategy).toBe("sync");
+    expect(syncPreview?.counts?.updatedNotes).toBe(3);
+    expect(syncPreview?.counts?.localConflicts).toBe(1);
+    expect(syncPreview?.conflicts?.[0]?.action).toBe("sync-local-conflict");
+
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "sync" });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "sync" });
     unsubscribe();
   });
 

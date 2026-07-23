@@ -65,6 +65,16 @@ async function patch(noteId: string, body: unknown) {
   });
 }
 
+function versionRows(noteId: string) {
+  return db.prepare(`
+    SELECT noteId, userId, title, content, contentText, contentFormat,
+           version, changeType, changeSummary
+    FROM note_versions
+    WHERE noteId = ?
+    ORDER BY version ASC
+  `).all(noteId) as any[];
+}
+
 test.before(async () => {
   const [schema, noteBlocks] = await Promise.all([
     import("../src/db/schema"),
@@ -92,13 +102,11 @@ test.after(() => {
 
 test("applies a multi-block patch atomically with one note version increment", async () => {
   const noteId = "11111111-1111-4111-8111-111111111111";
-  insertNote({
-    id: noteId,
-    content: tiptap(
-      paragraph("blk_alpha00", "Alpha"),
-      paragraph("blk_beta000", "Beta"),
-    ),
-  });
+  const original = tiptap(
+    paragraph("blk_alpha00", "Alpha"),
+    paragraph("blk_beta000", "Beta"),
+  );
+  insertNote({ id: noteId, content: original });
   const body = {
     expectedNoteVersion: 1,
     operationId: "block-patch-operation-0001",
@@ -154,6 +162,17 @@ test("applies a multi-block patch atomically with one note version increment", a
   assert.match(payload.contentText, /Alpha updated/);
   assert.match(payload.contentText, /Gamma/);
 
+  const versions = versionRows(noteId);
+  assert.equal(versions.length, 1);
+  assert.equal(versions[0].noteId, noteId);
+  assert.equal(versions[0].userId, owner);
+  assert.equal(versions[0].title, noteId);
+  assert.equal(versions[0].content, original);
+  assert.equal(versions[0].contentFormat, "tiptap-json");
+  assert.equal(versions[0].version, 1);
+  assert.equal(versions[0].changeType, "edit");
+  assert.equal(versions[0].changeSummary, "Block Patch save");
+
   const replay = await patch(noteId, body);
   assert.equal(replay.status, 200);
   const replayPayload = await replay.json() as any;
@@ -162,9 +181,10 @@ test("applies a multi-block patch atomically with one note version increment", a
   assert.equal(replayPayload.content, payload.content);
   assert.equal(replayPayload.contentText, payload.contentText);
   assert.equal(replayPayload.updatedAt, payload.updatedAt);
+  assert.equal(versionRows(noteId).length, 1);
 });
 
-test("rolls back every operation when a later block is missing", async () => {
+test("rolls back every operation and version snapshot when a later block is missing", async () => {
   const noteId = "22222222-2222-4222-8222-222222222222";
   const original = tiptap(
     paragraph("blk_first000", "First"),
@@ -191,9 +211,10 @@ test("rolls back every operation when a later block is missing", async () => {
     SELECT 1 FROM block_operations WHERE operationId = 'block-patch-operation-rollback'
   `).get();
   assert.equal(operation, undefined);
+  assert.equal(versionRows(noteId).length, 0);
 });
 
-test("returns a version conflict without touching the document", async () => {
+test("returns a version conflict without touching the document or history", async () => {
   const noteId = "33333333-3333-4333-8333-333333333333";
   const original = tiptap(paragraph("blk_version00", "Versioned"));
   insertNote({ id: noteId, content: original, version: 3 });
@@ -211,6 +232,7 @@ test("returns a version conflict without touching the document", async () => {
   const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
   assert.equal(stored.content, original);
   assert.equal(stored.version, 3);
+  assert.equal(versionRows(noteId).length, 0);
 });
 
 test("rejects reuse of one user-level operation ID on another note", async () => {
@@ -239,6 +261,7 @@ test("rejects reuse of one user-level operation ID on another note", async () =>
   const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(secondNoteId) as any;
   assert.equal(stored.version, 1);
   assert.equal(JSON.parse(stored.content).content[0].content[0].text, "Second");
+  assert.equal(versionRows(secondNoteId).length, 0);
 });
 
 test("rejects Markdown notes until their block patch protocol is format-aware", async () => {
@@ -257,4 +280,5 @@ test("rejects Markdown notes until their block patch protocol is format-aware", 
   assert.equal(response.status, 400);
   const payload = await response.json() as any;
   assert.equal(payload.code, "BLOCK_FORMAT_UNSUPPORTED");
+  assert.equal(versionRows(noteId).length, 0);
 });

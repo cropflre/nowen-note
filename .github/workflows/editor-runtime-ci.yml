@@ -52,6 +52,7 @@ on:
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
   pull_request:
     paths:
@@ -103,6 +104,7 @@ on:
       - "frontend/src/components/__tests__/HeavyNodeRuntimeShells.test.tsx"
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
 
 permissions:
@@ -148,5 +150,6 @@ jobs:
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
           src/components/__tests__/SearchReplaceRuntime.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
+          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b

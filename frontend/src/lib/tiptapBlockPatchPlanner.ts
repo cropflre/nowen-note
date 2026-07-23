@@ -1,8 +1,14 @@
 import type { BlockPatchOperation, BlockPatchBlockType } from "@/lib/blockPatchApi";
+import {
+  normalizeSafeTiptapReplacementNode,
+  type TiptapPatchJsonNode,
+} from "@/lib/tiptapBlockPatchNode";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const STRUCTURAL_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 const TEXT_BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
+
+type ReplaceOperation = Extract<BlockPatchOperation, { type: "replace" }>;
 
 interface JsonNode {
   type?: string;
@@ -22,7 +28,7 @@ interface SimpleBlock {
 
 export interface TiptapBlockPatchPlan {
   operations: BlockPatchOperation[];
-  kind: "top-level-structural" | "text-only";
+  kind: "top-level-structural" | "text-only" | "node-replace";
   affectedBlockIds: string[];
 }
 
@@ -113,7 +119,7 @@ function uniqueBlocks(nodes: JsonNode[]): SimpleBlock[] | null {
 function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
   const base = uniqueBlocks(baseDoc.content || []);
   const next = uniqueBlocks(nextDoc.content || []);
-  if (!base || !next) return null;
+  if (!base || !next || next.length === 0) return null;
 
   const baseById = new Map(base.map((item) => [item.id, item]));
   const nextById = new Map(next.map((item) => [item.id, item]));
@@ -144,8 +150,6 @@ function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
     });
   }
 
-  // Deletes happen before creates. New blocks are appended first, then the following stable
-  // left-to-right reorder converts that temporary order into the exact editor order.
   const desired = next.map((item) => item.id);
   const desiredSet = new Set(desired);
   const current = base.map((item) => item.id).filter((id) => desiredSet.has(id));
@@ -229,15 +233,84 @@ function planTextOnly(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPla
   return {
     operations,
     kind: "text-only",
-    affectedBlockIds: operations.map((operation) => operation.type === "update" ? operation.blockId : "").filter(Boolean),
+    affectedBlockIds: operations
+      .map((operation) => operation.type === "update" ? operation.blockId : "")
+      .filter(Boolean),
   };
 }
 
-/**
- * Convert two confirmed Tiptap snapshots into the narrow Block Patch V1 protocol.
- *
- * Returning null is intentional and means the caller must use the existing whole-document save.
- */
+interface ReplacementEntry {
+  node: TiptapPatchJsonNode;
+  parentType: string;
+}
+
+interface ReplacementSnapshot {
+  nodesById: Map<string, ReplacementEntry>;
+  skeleton: string;
+}
+
+function replacementSnapshot(doc: JsonNode): ReplacementSnapshot | null {
+  const clone = JSON.parse(JSON.stringify(doc)) as JsonNode;
+  const nodesById = new Map<string, ReplacementEntry>();
+  let invalid = false;
+
+  const visit = (nodes: JsonNode[], parentType: string) => {
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index];
+      if (!node || typeof node !== "object") continue;
+      if (node.type && TEXT_BLOCK_TYPES.has(node.type)) {
+        const blockId = node.attrs?.blockId;
+        if (!validBlockId(blockId) || nodesById.has(blockId)) {
+          invalid = true;
+          return;
+        }
+        const normalized = normalizeSafeTiptapReplacementNode(node, blockId);
+        if (!normalized) {
+          invalid = true;
+          return;
+        }
+        nodesById.set(blockId, { node: normalized, parentType });
+        nodes[index] = {
+          type: "__nowen_block_patch_slot",
+          attrs: { blockId },
+        };
+        continue;
+      }
+      if (Array.isArray(node.content)) {
+        visit(node.content, node.type || "unknown");
+        if (invalid) return;
+      }
+    }
+  };
+
+  visit(clone.content || [], "doc");
+  if (invalid || nodesById.size === 0) return null;
+  return { nodesById, skeleton: JSON.stringify(clone) };
+}
+
+function planNodeReplacements(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
+  const base = replacementSnapshot(baseDoc);
+  const next = replacementSnapshot(nextDoc);
+  if (!base || !next || base.skeleton !== next.skeleton) return null;
+  if (base.nodesById.size !== next.nodesById.size) return null;
+
+  const operations: ReplaceOperation[] = [];
+  for (const [blockId, nextEntry] of next.nodesById) {
+    const baseEntry = base.nodesById.get(blockId);
+    if (!baseEntry || baseEntry.parentType !== nextEntry.parentType) return null;
+    if (baseEntry.node.type !== nextEntry.node.type && nextEntry.parentType !== "doc") return null;
+    if (JSON.stringify(baseEntry.node) !== JSON.stringify(nextEntry.node)) {
+      operations.push({ type: "replace", blockId, node: nextEntry.node });
+    }
+  }
+  if (operations.length === 0 || operations.length > 100) return null;
+  return {
+    operations,
+    kind: "node-replace",
+    affectedBlockIds: operations.map((operation) => operation.blockId),
+  };
+}
+
 export function planTiptapBlockPatch(
   baseContent: string,
   nextContent: string,
@@ -246,5 +319,7 @@ export function planTiptapBlockPatch(
   const baseDoc = parseDocument(baseContent);
   const nextDoc = parseDocument(nextContent);
   if (!baseDoc || !nextDoc) return null;
-  return planTopLevelStructural(baseDoc, nextDoc) || planTextOnly(baseDoc, nextDoc);
+  return planTopLevelStructural(baseDoc, nextDoc)
+    || planTextOnly(baseDoc, nextDoc)
+    || planNodeReplacements(baseDoc, nextDoc);
 }

@@ -106,6 +106,26 @@ async function flushAsync() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function patchResponse(current: any, nextContent: string, version = 2) {
+  return new Response(JSON.stringify({
+    success: true,
+    noteId: current.id,
+    title: current.title,
+    version,
+    updatedAt: "2026-07-22T10:00:00.000Z",
+    content: nextContent,
+    contentText: "After",
+    contentFormat: "tiptap-json",
+    notebookId: current.notebookId,
+    operationCount: 1,
+    affectedBlockIds: ["blk_alpha00"],
+    deletedBlockIds: [],
+    createdBlocks: [],
+    blocks: [],
+    contentChangedByNormalization: false,
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
 let host: HTMLDivElement;
 let root: Root;
 
@@ -138,23 +158,9 @@ describe("Tiptap Block Patch runtime shell", () => {
     fixture.snapshot = { content: nextContent, contentText: "After" };
     setActiveEditorRuntimeDecision(current.id, optimizedDecision("x"));
     const wholeSave = vi.fn();
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      noteId: current.id,
-      title: current.title,
-      version: 2,
-      updatedAt: "2026-07-22T10:00:00.000Z",
-      content: nextContent,
-      contentText: "After",
-      contentFormat: "tiptap-json",
-      notebookId: current.notebookId,
-      operationCount: 1,
-      affectedBlockIds: ["blk_alpha00"],
-      deletedBlockIds: [],
-      createdBlocks: [],
-      blocks: [],
-      contentChangedByNormalization: false,
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      patchResponse(current, nextContent),
+    );
 
     await act(async () => {
       root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />);
@@ -213,6 +219,83 @@ describe("Tiptap Block Patch runtime shell", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not inherit another split pane note's optimized runtime", async () => {
+    const current = note("split-secondary", "Before");
+    const nextContent = content("After");
+    setActiveEditorRuntimeDecision("split-primary", optimizedDecision("x"));
+    const wholeSave = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />);
+    });
+    const payload = {
+      title: current.title,
+      content: nextContent,
+      contentText: "After",
+      _noteId: current.id,
+      _saveGeneration: 1,
+    };
+    await act(async () => {
+      fixture.baseProps.onUpdate(payload);
+      await flushAsync();
+    });
+
+    expect(wholeSave).toHaveBeenCalledWith(payload);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("waits for the patch version before forwarding a queued title save", async () => {
+    const current = note("title-note", "Before");
+    const nextContent = content("After");
+    fixture.snapshot = { content: nextContent, contentText: "After" };
+    setActiveEditorRuntimeDecision(current.id, optimizedDecision("x"));
+    const wholeSave = vi.fn();
+    let resolveFetch!: (response: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />);
+    });
+    await act(async () => {
+      fixture.baseProps.onUpdate({
+        title: current.title,
+        content: nextContent,
+        contentText: "After",
+        _noteId: current.id,
+        _saveGeneration: 1,
+      });
+      fixture.baseProps.onUpdate({
+        title: "Renamed",
+        _noteId: current.id,
+      });
+      await Promise.resolve();
+    });
+    expect(wholeSave).not.toHaveBeenCalled();
+
+    resolveFetch(patchResponse(current, nextContent));
+    await act(async () => flushAsync());
+    const confirmed = {
+      ...current,
+      content: nextContent,
+      contentText: "After",
+      version: 2,
+      updatedAt: "2026-07-22T10:00:00.000Z",
+    };
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={confirmed} onUpdate={wholeSave} />);
+      await flushAsync();
+    });
+
+    expect(wholeSave).toHaveBeenCalledTimes(1);
+    expect(wholeSave).toHaveBeenCalledWith({
+      title: "Renamed",
+      _noteId: current.id,
+    });
+  });
+
   it("ignores an old patch response after switching to another note", async () => {
     const first = note("note-old", "Before");
     const second = note("note-new", "New");
@@ -220,7 +303,7 @@ describe("Tiptap Block Patch runtime shell", () => {
     fixture.snapshot = { content: nextContent, contentText: "After" };
     setActiveEditorRuntimeDecision(first.id, optimizedDecision("x"));
     let resolveFetch!: (response: Response) => void;
-    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise((resolve) => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     }));
 
@@ -244,23 +327,7 @@ describe("Tiptap Block Patch runtime shell", () => {
     });
     fixture.actions.setActiveNote.mockClear();
 
-    resolveFetch(new Response(JSON.stringify({
-      success: true,
-      noteId: first.id,
-      title: first.title,
-      version: 2,
-      updatedAt: "2026-07-22T10:00:00.000Z",
-      content: nextContent,
-      contentText: "After",
-      contentFormat: "tiptap-json",
-      notebookId: first.notebookId,
-      operationCount: 1,
-      affectedBlockIds: ["blk_alpha00"],
-      deletedBlockIds: [],
-      createdBlocks: [],
-      blocks: [],
-      contentChangedByNormalization: false,
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    resolveFetch(patchResponse(first, nextContent));
     await act(async () => flushAsync());
 
     expect(fixture.actions.setActiveNote).not.toHaveBeenCalled();

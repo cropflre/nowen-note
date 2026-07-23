@@ -2,18 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import { planTiptapBlockPatch } from "@/lib/tiptapBlockPatchPlanner";
 
-function paragraph(blockId: string, text: string, marks?: unknown[]) {
+function paragraph(
+  blockId: string,
+  text: string,
+  marks?: unknown[],
+  attrs: Record<string, unknown> = {},
+) {
   return {
     type: "paragraph",
-    attrs: { blockId },
+    attrs: { blockId, ...attrs },
     content: text ? [{ type: "text", text, ...(marks ? { marks } : {}) }] : [],
   };
 }
 
-function heading(blockId: string, text: string, level = 2) {
+function heading(
+  blockId: string,
+  text: string,
+  level = 2,
+  attrs: Record<string, unknown> = {},
+) {
   return {
     type: "heading",
-    attrs: { level, blockId },
+    attrs: { level, blockId, ...attrs },
+    content: text ? [{ type: "text", text }] : [],
+  };
+}
+
+function codeBlock(blockId: string, text: string, language: string | null = null, indent = 0) {
+  return {
+    type: "codeBlock",
+    attrs: { language, indent, blockId },
     content: text ? [{ type: "text", text }] : [],
   };
 }
@@ -92,12 +110,124 @@ describe("Tiptap Block Patch planner", () => {
     });
   });
 
-  it("rejects mark changes, non-default created headings and unstable IDs", () => {
+  it("plans inline marks and safe paragraph attributes as one rich node replacement", () => {
+    const next = paragraph(
+      "blk_rich0000",
+      "Rich text",
+      [
+        { type: "bold" },
+        { type: "highlight", attrs: { color: "#fef9c3" } },
+        { type: "textStyle", attrs: { color: "#3b82f6", fontSize: "20px" } },
+        {
+          type: "link",
+          attrs: {
+            href: "https://example.com/docs",
+            target: "_blank",
+            rel: "noopener noreferrer",
+          },
+        },
+      ],
+      { textAlign: "center", lineHeight: "1.6" },
+    );
+    const plan = planTiptapBlockPatch(
+      doc([paragraph("blk_rich0000", "Rich text")]),
+      doc([next]),
+    );
+
+    expect(plan).toEqual({
+      kind: "node-replace",
+      operations: [{ type: "replace", blockId: "blk_rich0000", node: next }],
+      affectedBlockIds: ["blk_rich0000"],
+    });
+  });
+
+  it("plans heading level and code language changes without whole-document save", () => {
+    const headingPlan = planTiptapBlockPatch(
+      doc([heading("blk_heading0", "Title", 2)]),
+      doc([heading("blk_heading0", "Title", 4, { textAlign: "right", lineHeight: "1.8" })]),
+    );
+    expect(headingPlan).toMatchObject({
+      kind: "node-replace",
+      operations: [{
+        type: "replace",
+        blockId: "blk_heading0",
+        node: { type: "heading", attrs: { level: 4, blockId: "blk_heading0" } },
+      }],
+    });
+
+    const codePlan = planTiptapBlockPatch(
+      doc([codeBlock("blk_code0000", "const x = 1")]),
+      doc([codeBlock("blk_code0000", "const x = 1", "typescript", 2)]),
+    );
+    expect(codePlan).toMatchObject({
+      kind: "node-replace",
+      operations: [{
+        type: "replace",
+        blockId: "blk_code0000",
+        node: { type: "codeBlock", attrs: { language: "typescript", indent: 2 } },
+      }],
+    });
+  });
+
+  it("allows a marked nested paragraph but rejects a nested paragraph-to-heading conversion", () => {
+    const list = (child: unknown) => ({
+      type: "bulletList",
+      content: [{
+        type: "listItem",
+        attrs: { blockId: "blk_item000" },
+        content: [child],
+      }],
+    });
+
+    const marked = planTiptapBlockPatch(
+      doc([list(paragraph("blk_nested0", "Before"))]),
+      doc([list(paragraph("blk_nested0", "Before", [{ type: "italic" }]))]),
+    );
+    expect(marked).toMatchObject({
+      kind: "node-replace",
+      operations: [{ type: "replace", blockId: "blk_nested0" }],
+    });
+
+    expect(planTiptapBlockPatch(
+      doc([list(paragraph("blk_nested0", "Before"))]),
+      doc([list(heading("blk_nested0", "Before"))]),
+    )).toBeNull();
+  });
+
+  it("keeps unsafe or structurally ambiguous changes on whole-document save", () => {
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_alpha00", "Alpha")]),
-      doc([paragraph("blk_alpha00", "Alpha", [{ type: "bold" }])]),
+      doc([paragraph("blk_alpha00", "Alpha", [{
+        type: "link",
+        attrs: { href: "javascript:alert(1)" },
+      }])]),
     )).toBeNull();
 
+    expect(planTiptapBlockPatch(
+      doc([paragraph("blk_alpha00", "Alpha")]),
+      doc([paragraph("blk_alpha00", "Alpha", [{ type: "unknownMark" }])]),
+    )).toBeNull();
+
+    expect(planTiptapBlockPatch(
+      doc([
+        paragraph("blk_alpha00", "Alpha"),
+        paragraph("blk_beta000", "Beta"),
+      ]),
+      doc([
+        paragraph("blk_beta000", "Beta", [{ type: "bold" }]),
+        paragraph("blk_alpha00", "Alpha"),
+      ]),
+    )).toBeNull();
+  });
+
+  it("keeps delete-all on the whole-document path until empty Block IDs can reconcile", () => {
+    expect(planTiptapBlockPatch(
+      doc([paragraph("blk_only000", "Only")]),
+      doc([]),
+    )).toBeNull();
+  });
+
+  it("rejects non-default created headings and unstable IDs", () => {
     expect(planTiptapBlockPatch(
       doc([paragraph("blk_alpha00", "Alpha")]),
       doc([paragraph("blk_alpha00", "Alpha"), heading("blk_new0000", "H1", 1)]),

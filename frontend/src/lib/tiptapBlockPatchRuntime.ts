@@ -32,6 +32,7 @@ export function shouldFallbackTiptapBlockPatchToWholeSave(error: unknown): boole
     "INVALID_BLOCK_PATCH",
     "INVALID_PATCH",
     "INVALID_BLOCK_ID",
+    "INVALID_BLOCK_NODE",
     "BLOCK_ID_CONFLICT",
     "BLOCK_NOT_FOUND",
     "BLOCK_MOVE_SELF",

@@ -98,7 +98,7 @@ V1 replaces the editable text payload of the addressed supported block. Rich mar
 }
 ```
 
-The server repairs empty list/quote containers. Deleting the final document block creates an empty editable paragraph so the resulting Tiptap document remains mountable.
+The server repairs empty list/quote containers. Deleting the final document block creates an empty editable paragraph so the resulting Tiptap document remains mountable. The grey editor planner currently keeps delete-all on the whole-document path because V1 does not yet reconcile that server-generated replacement Block ID back to the local editor as an explicit operation.
 
 #### Move
 
@@ -122,12 +122,13 @@ The server performs the following work inside one SQLite transaction:
 1. Rechecks the note, write permission, lock state and expected version.
 2. Materializes missing stable Block IDs.
 3. Applies every operation in memory.
-4. Updates the note with `WHERE id = ? AND version = ?`.
-5. Rebuilds the Block index once.
-6. Rebuilds note links once.
-7. Stores the idempotent response.
+4. Records the pre-edit note version using the same five-minute merge window as `PUT /notes/:id`.
+5. Updates the note with `WHERE id = ? AND version = ?`.
+6. Rebuilds the Block index once.
+7. Rebuilds note links once.
+8. Stores the idempotent response.
 
-When any operation fails, all earlier operations and Block-ID normalization are rolled back. A successful patch increments the note version exactly once.
+When any operation fails, all earlier operations, Block-ID normalization and the tentative version snapshot are rolled back. A successful patch increments the note version exactly once. An idempotent replay returns the stored result and does not create another history entry.
 
 ## Response
 
@@ -206,9 +207,9 @@ The client bypasses the optimistic offline queue. The caller must receive the au
 
 ## Tiptap editor grey rollout
 
-`frontend/src/components/TiptapEditorRuntime.tsx` enables the patch path by default only for `viewport-optimized` and `lightweight-edit` sessions. Normal documents keep the existing whole-document save path until wider validation is complete.
+`frontend/src/components/TiptapEditorRuntime.tsx` enables the patch path by default only for the note which owns the active `viewport-optimized` or `lightweight-edit` runtime decision. Normal documents and other notes open in split panes keep the existing whole-document save path until wider validation is complete.
 
-A session can override the default with local storage:
+A session can override the mode threshold with local storage, but the runtime decision must still belong to the editor's note:
 
 ```js
 localStorage.setItem("nowen.tiptap_block_patch_v1", "on")
@@ -220,11 +221,14 @@ The planner intentionally accepts only changes which can be represented without 
 - plain-text updates on stable-ID paragraph, heading and code blocks;
 - plain-text updates inside an otherwise unchanged nested structure;
 - top-level simple block create/delete/reorder operations;
-- no marks, hard breaks, non-default created-node attributes or missing/duplicate Block IDs.
+- no marks, hard breaks, non-default created-node attributes or missing/duplicate Block IDs;
+- no delete-all operation until the replacement empty Block ID can be reconciled explicitly.
 
 Formatting changes, tables, media, complex pastes, list restructuring, title changes and any unrecognized transaction continue through the original whole-document save callback.
 
-Only one patch may be in flight per editor. Later edits are kept as the newest full local snapshot and re-planned after the authoritative version arrives. Timeout/network uncertainty retries once with the same idempotency key. If the outcome remains uncertain, the local draft is retained and the editor reports a sync error; it does not issue a blind whole-document overwrite. Known request validation failures that happened before persistence may safely fall back to whole-document save.
+Only one patch may be in flight per editor. Later edits and title/meta saves are kept as the newest local payload and processed only after the authoritative version arrives. Timeout/network uncertainty retries once with the same idempotency key. If the outcome remains uncertain, the local draft is retained and the editor reports a sync error; it does not issue a blind whole-document overwrite. Known request validation failures that happened before persistence may safely fall back to whole-document save.
+
+Public, guest and presentation routes never mount the authenticated Block Patch AppContext bridge, even when another editor has activated an optimized runtime mode.
 
 ## V1 boundaries
 

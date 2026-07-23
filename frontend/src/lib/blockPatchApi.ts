@@ -1,4 +1,5 @@
 import { getBaseUrl } from "@/lib/api.impl";
+import type { TiptapPatchJsonNode } from "@/lib/tiptapBlockPatchNode";
 
 export type BlockPatchBlockType =
   | "heading"
@@ -21,6 +22,11 @@ export type BlockPatchOperation =
       type: "update";
       blockId: string;
       text: string;
+    }
+  | {
+      type: "replace";
+      blockId: string;
+      node: TiptapPatchJsonNode;
     }
   | {
       type: "delete";

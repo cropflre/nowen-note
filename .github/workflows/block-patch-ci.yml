@@ -11,6 +11,7 @@ on:
       - "backend/tests/block-patch-route.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
@@ -28,6 +29,7 @@ on:
       - "backend/tests/block-patch-route.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
@@ -84,5 +86,6 @@ jobs:
           src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
           src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
+          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
