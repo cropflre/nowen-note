@@ -1,5 +1,15 @@
 import type { ExtractResult } from "./extractor";
 
+export const CONTENT_SCRIPT_PROTOCOL_VERSION = "1";
+
+export type ClipperConnectionErrorCode =
+  | "PAGE_NOT_INJECTABLE"
+  | "FILE_ACCESS_REQUIRED"
+  | "TAB_UNAVAILABLE"
+  | "CONTENT_SCRIPT_UNAVAILABLE"
+  | "CONTENT_SCRIPT_RESPONSE_INVALID"
+  | "BACKGROUND_UNAVAILABLE";
+
 export type ClipMode =
   | "quickNote"
   | "simplified"
@@ -71,6 +81,7 @@ export interface EnhancedClipRequest {
 export interface EnhancedClipResponse {
   ok: boolean;
   error?: string;
+  errorCode?: ClipperConnectionErrorCode;
   noteId?: string;
   noteTitle?: string;
   noteUrl?: string;
@@ -96,6 +107,17 @@ export interface ClipProgress {
   aiInfo?: { ok: boolean; error?: string };
 }
 
+export interface ContentScriptPingRequest {
+  type: "CONTENT_SCRIPT_PING";
+  protocolVersion: string;
+}
+
+export interface ContentScriptPingResponse {
+  type: "CONTENT_SCRIPT_PONG";
+  protocolVersion: string;
+  contentVersion: string;
+}
+
 export interface ExtractRequest {
   type: "EXTRACT_REQUEST";
   mode: "article" | "selection" | "simplified" | "fullpage";
@@ -105,6 +127,7 @@ export interface ExtractResponse {
   ok: boolean;
   data?: ExtractResult;
   error?: string;
+  errorCode?: ClipperConnectionErrorCode;
 }
 
 export interface PageDimensionsRequest {
