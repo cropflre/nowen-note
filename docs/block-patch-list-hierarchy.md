@@ -1,4 +1,4 @@
-# Block Patch list hierarchy V1
+# Block Patch list hierarchy V2
 
 ## Scope
 
@@ -69,7 +69,7 @@ Requirements:
 
 The source becomes the immediate sibling after its former parent. An empty nested list wrapper is removed.
 
-Top-level lift out of a list into a paragraph is not part of V1 and remains on whole-note save.
+Top-level lift out of a list into a paragraph is not part of V2 and remains on whole-note save.
 
 ### Move at the same depth
 
@@ -169,7 +169,28 @@ List hierarchy operations retain the normal Block Patch guarantees:
 - authoritative response content;
 - complete rollback on failure.
 
-V1 deliberately uses:
+When the persisted Block index exactly mirrors the pre-patch Tiptap document, one controlled list move uses:
+
+```json
+{
+  "indexUpdateMode": "incremental",
+  "indexUpdateKind": "list-subtree"
+}
+```
+
+The post-patch planner compares every indexed row by stable Block ID and allows only these differences:
+
+- the moved root list item's `parentBlockId` may change;
+- moved descendants and intervening rows may change `blockOrder` and `path`;
+- the old parent, new parent and their indexed ancestors may change aggregate `plainText` and `contentHash`;
+- Block type and identity must remain unchanged;
+- paragraph, heading and code-block content/hash must remain unchanged.
+
+Only rows with a proven difference are upserted. Unaffected rows keep their `createdAt` and `updatedAt` values.
+
+Because leaf content and marks are unchanged, `note_links` rows are not deleted or recreated. Links inside the moved subtree retain their IDs and timestamps. Attachment ownership is also unchanged because the complete subtree remains inside the same note.
+
+The server automatically returns to:
 
 ```json
 {
@@ -178,9 +199,7 @@ V1 deliberately uses:
 }
 ```
 
-Changing a list item's parent affects the item, its descendant paths, ancestor aggregate text and global Block order. Until a dedicated subtree index plan is proven, the server rebuilds Block and note-link indexes inside the same transaction.
-
-Attachment ownership is unchanged because the complete item subtree moves inside the same note.
+when the old index is stale, incomplete, missing stable IDs, or the post-patch difference exceeds the single controlled move contract. The fallback still runs inside the same SQLite transaction.
 
 ## Remaining boundaries
 
@@ -189,5 +208,5 @@ Attachment ownership is unchanged because the complete item subtree moves inside
 - No arbitrary cross-depth reparenting.
 - No multi-item list transaction planning.
 - No mixed list hierarchy plus content/mark patch in one request.
-- No list-subtree incremental index update yet.
+- No list-item creation/deletion incremental plan yet.
 - `notes.content` remains the canonical complete Tiptap document.
