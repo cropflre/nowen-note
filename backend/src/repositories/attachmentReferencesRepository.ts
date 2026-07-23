@@ -116,16 +116,16 @@ export function createAttachmentReferencesRepository(
     },
 
     async isReferencedByNoteAsync(attachmentId: string, noteId: string): Promise<boolean> {
-      const row = await getAdapter().queryOne<{ exists: number }>(
-        'SELECT 1 AS exists FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?',
+      const row = await getAdapter().queryOne<{ present: number }>(
+        'SELECT 1 AS present FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?',
         [attachmentId, noteId],
       );
       return Boolean(row);
     },
 
     async isReferencedAsync(attachmentId: string): Promise<boolean> {
-      const row = await getAdapter().queryOne<{ exists: number }>(
-        'SELECT 1 AS exists FROM attachment_references WHERE "attachmentId" = ?',
+      const row = await getAdapter().queryOne<{ present: number }>(
+        'SELECT 1 AS present FROM attachment_references WHERE "attachmentId" = ?',
         [attachmentId],
       );
       return Boolean(row);
