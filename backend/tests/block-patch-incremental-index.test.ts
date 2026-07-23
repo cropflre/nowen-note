@@ -77,6 +77,13 @@ function indexRow(noteId: string, blockId: string) {
   `).get(noteId, blockId) as Record<string, unknown> | undefined;
 }
 
+function orderedBlockIds(noteId: string): string[] {
+  return (db.prepare(`
+    SELECT blockId FROM note_blocks_index
+    WHERE noteId = ? ORDER BY blockOrder ASC
+  `).all(noteId) as Array<{ blockId: string }>).map((row) => row.blockId);
+}
+
 test.before(async () => {
   const [schema, noteBlocks, noteLinks] = await Promise.all([
     import("../src/db/schema"),
@@ -258,11 +265,19 @@ test("falls back to a full rebuild when the existing index is stale", async () =
   assert.equal(indexRow(noteId, otherBlockId)?.plainText, "Unchanged");
 });
 
-test("keeps structural create operations on the full rebuild path", async () => {
+test("inserts a top-level simple Block and only shifts the affected suffix", async () => {
   const noteId = "55555555-5555-4555-8555-555555555555";
   const firstBlockId = "blk_struct01";
   const createdBlockId = "blk_struct02";
-  insertNote(noteId, tiptap(paragraph(firstBlockId, "First")));
+  const lastBlockId = "blk_struct03";
+  insertNote(noteId, tiptap(
+    paragraph(firstBlockId, "First"),
+    paragraph(lastBlockId, "Last"),
+  ));
+
+  const sentinel = "2003-03-03 00:00:00";
+  db.prepare("UPDATE note_blocks_index SET updatedAt = ? WHERE noteId = ?")
+    .run(sentinel, noteId);
 
   const response = await patch(noteId, {
     expectedNoteVersion: 1,
@@ -272,7 +287,139 @@ test("keeps structural create operations on the full rebuild path", async () => 
       blockId: createdBlockId,
       clientId: createdBlockId,
       blockType: "paragraph",
-      text: "Created",
+      text: `[[note:${firstTarget}|Created]]`,
+      afterBlockId: firstBlockId,
+    }],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.deepEqual(payload.indexedBlockIds, [createdBlockId, lastBlockId]);
+  assert.deepEqual(orderedBlockIds(noteId), [firstBlockId, createdBlockId, lastBlockId]);
+  assert.equal(indexRow(noteId, firstBlockId)?.updatedAt, sentinel);
+  assert.notEqual(indexRow(noteId, lastBlockId)?.updatedAt, sentinel);
+  assert.equal(indexRow(noteId, createdBlockId)?.path, "1");
+  assert.equal(indexRow(noteId, lastBlockId)?.path, "2");
+  const createdLink = db.prepare(`
+    SELECT targetNoteId FROM note_links
+    WHERE sourceNoteId = ? AND sourceBlockId = ?
+  `).get(noteId, createdBlockId) as { targetNoteId: string } | undefined;
+  assert.equal(createdLink?.targetNoteId, firstTarget);
+});
+
+test("deletes a top-level simple Block without rebuilding unrelated prefixes or links", async () => {
+  const noteId = "88888888-8888-4888-8888-888888888888";
+  const firstBlockId = "blk_delete01";
+  const deletedBlockId = "blk_delete02";
+  const lastBlockId = "blk_delete03";
+  insertNote(noteId, tiptap(
+    paragraph(firstBlockId, "Keep first", firstTarget),
+    paragraph(deletedBlockId, "Delete link", secondTarget),
+    paragraph(lastBlockId, "Keep last"),
+  ));
+
+  const sentinel = "2004-04-04 00:00:00";
+  db.prepare("UPDATE note_blocks_index SET updatedAt = ? WHERE noteId = ?")
+    .run(sentinel, noteId);
+  db.prepare(`
+    UPDATE note_links SET id = 'keep-first-link', updatedAt = ?
+    WHERE sourceNoteId = ? AND sourceBlockId = ?
+  `).run(sentinel, noteId, firstBlockId);
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-incremental-index-delete",
+    operations: [{ type: "delete", blockId: deletedBlockId }],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.deepEqual(payload.indexedBlockIds, [deletedBlockId, lastBlockId]);
+  assert.deepEqual(orderedBlockIds(noteId), [firstBlockId, lastBlockId]);
+  assert.equal(indexRow(noteId, deletedBlockId), undefined);
+  assert.equal(indexRow(noteId, firstBlockId)?.updatedAt, sentinel);
+  assert.notEqual(indexRow(noteId, lastBlockId)?.updatedAt, sentinel);
+  assert.equal(indexRow(noteId, lastBlockId)?.path, "1");
+  const deletedLinks = db.prepare(`
+    SELECT COUNT(*) AS count FROM note_links
+    WHERE sourceNoteId = ? AND sourceBlockId = ?
+  `).get(noteId, deletedBlockId) as { count: number };
+  assert.equal(deletedLinks.count, 0);
+  const keptLink = db.prepare(`
+    SELECT id, updatedAt FROM note_links
+    WHERE sourceNoteId = ? AND sourceBlockId = ?
+  `).get(noteId, firstBlockId) as { id: string; updatedAt: string };
+  assert.equal(keptLink.id, "keep-first-link");
+  assert.equal(keptLink.updatedAt, sentinel);
+});
+
+test("moves top-level simple Blocks while preserving all existing link rows", async () => {
+  const noteId = "99999999-9999-4999-8999-999999999999";
+  const firstBlockId = "blk_move0001";
+  const secondBlockId = "blk_move0002";
+  const thirdBlockId = "blk_move0003";
+  insertNote(noteId, tiptap(
+    paragraph(firstBlockId, "First", firstTarget),
+    paragraph(secondBlockId, "Second", secondTarget),
+    paragraph(thirdBlockId, "Third"),
+  ));
+
+  const linkIdsBefore = db.prepare(`
+    SELECT sourceBlockId, id FROM note_links
+    WHERE sourceNoteId = ? ORDER BY sourceBlockId
+  `).all(noteId) as Array<{ sourceBlockId: string; id: string }>;
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-incremental-index-move",
+    operations: [{
+      type: "move",
+      blockId: thirdBlockId,
+      targetBlockId: firstBlockId,
+      position: "before",
+    }],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.deepEqual(payload.indexedBlockIds, [thirdBlockId, firstBlockId, secondBlockId]);
+  assert.deepEqual(orderedBlockIds(noteId), [thirdBlockId, firstBlockId, secondBlockId]);
+  const linkIdsAfter = db.prepare(`
+    SELECT sourceBlockId, id FROM note_links
+    WHERE sourceNoteId = ? ORDER BY sourceBlockId
+  `).all(noteId) as Array<{ sourceBlockId: string; id: string }>;
+  assert.deepEqual(linkIdsAfter, linkIdsBefore);
+});
+
+test("falls back when a structural shift would change nested container indexes", async () => {
+  const noteId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const firstBlockId = "blk_complex01";
+  const itemBlockId = "blk_complex02";
+  const nestedBlockId = "blk_complex03";
+  const createdBlockId = "blk_complex04";
+  insertNote(noteId, tiptap(
+    paragraph(firstBlockId, "First"),
+    {
+      type: "bulletList",
+      content: [{
+        type: "listItem",
+        attrs: { blockId: itemBlockId },
+        content: [paragraph(nestedBlockId, "Nested")],
+      }],
+    },
+  ));
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-incremental-index-complex-fallback",
+    operations: [{
+      type: "create",
+      blockId: createdBlockId,
+      blockType: "paragraph",
+      text: "Inserted before list",
       afterBlockId: firstBlockId,
     }],
   });
@@ -280,5 +427,26 @@ test("keeps structural create operations on the full rebuild path", async () => 
   assert.equal(response.status, 200);
   const payload = await response.json() as any;
   assert.equal(payload.indexUpdateMode, "full");
-  assert.equal(indexRow(noteId, createdBlockId)?.plainText, "Created");
+  assert.equal(indexRow(noteId, createdBlockId)?.plainText, "Inserted before list");
+  assert.equal(indexRow(noteId, itemBlockId)?.path, "2.0");
+  assert.equal(indexRow(noteId, nestedBlockId)?.path, "2.0.0");
+});
+
+test("keeps delete-all identity repair on the full rebuild path", async () => {
+  const noteId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const onlyBlockId = "blk_deleteall";
+  insertNote(noteId, tiptap(paragraph(onlyBlockId, "Only")));
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-incremental-index-delete-all",
+    operations: [{ type: "delete", blockId: onlyBlockId }],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "full");
+  assert.equal(payload.createdBlocks.length, 1);
+  assert.equal(orderedBlockIds(noteId).length, 1);
+  assert.notEqual(orderedBlockIds(noteId)[0], onlyBlockId);
 });
