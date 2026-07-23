@@ -245,15 +245,18 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
+      let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
         indexUpdateMode = "incremental";
+        indexedBlockIds = incrementalPlan.indexedBlockIds;
       } else {
         const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
         syncNoteLinks(db, userId, noteId, synced.content);
         persistedContent = synced.content;
         persistedContentText = synced.contentText;
         postSyncChanged = synced.changed;
+        indexedBlockIds = synced.blocks.map((row) => row.blockId);
       }
 
       const persisted = readNote(noteId);
@@ -281,9 +284,7 @@ async function patchBlocks(c: Context) {
         createdBlocks: patch.createdBlocks,
         blocks,
         indexUpdateMode,
-        indexedBlockIds: indexUpdateMode === "incremental"
-          ? incrementalPlan?.indexedBlockIds || []
-          : patch.affectedBlockIds,
+        indexedBlockIds,
         contentChangedByNormalization: normalizedBefore.changed || postSyncChanged,
       };
       storeIdempotentResult(userId, noteId, body.operationId, result);
@@ -297,6 +298,7 @@ async function patchBlocks(c: Context) {
       operationCount: result.operationCount,
       affectedBlockIds: result.affectedBlockIds,
       indexUpdateMode: result.indexUpdateMode,
+      indexedBlockCount: result.indexedBlockIds.length,
     }, { targetType: "note", targetId: noteId });
     broadcastNoteUpdated(noteId, {
       version: result.version,

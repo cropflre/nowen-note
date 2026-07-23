@@ -1,4 +1,4 @@
-# Block Patch API V2-A
+# Block Patch API V2-B
 
 Block Patch API applies several Tiptap block mutations as one confirmed transaction. It is the persistence boundary between whole-note saves and the future block-authoritative storage model.
 
@@ -42,7 +42,7 @@ The endpoint currently accepts only notes whose `contentFormat` is `tiptap-json`
 }
 ```
 
-Supported V1 create types:
+Supported create types:
 
 - `paragraph`
 - `heading` — created as H2
@@ -63,7 +63,7 @@ When `blockId` is omitted, the server generates one and returns the client/serve
 }
 ```
 
-This operation keeps the existing block type and attributes while replacing its editable text payload. It remains useful for the lowest-cost typing path.
+This keeps the existing block type and attributes while replacing its editable text payload.
 
 ### Safe rich block replacement
 
@@ -101,9 +101,9 @@ This operation keeps the existing block type and attributes while replacing its 
 }
 ```
 
-V2-A does not accept arbitrary ProseMirror JSON. Both frontend planning and backend validation enforce the same restricted schema.
+V2-A/V2-B do not accept arbitrary ProseMirror JSON. Frontend planning and backend validation enforce the same restricted schema.
 
-Allowed block node types:
+Allowed block nodes:
 
 - `paragraph`
 - `heading`
@@ -139,10 +139,10 @@ Safe link protocols include `http`, `https`, `mailto`, `tel`, `sms`, `note`, anc
 Additional guards:
 
 - `node.attrs.blockId` must equal the operation target.
-- A single replacement node is limited to 256 KB.
+- A replacement node is limited to 256 KB.
 - Code blocks cannot contain inline marks or hard breaks.
 - Top-level paragraph, heading and code blocks may convert among those three types.
-- Nested blocks must retain their original type so list/quote schemas cannot be broken.
+- Nested blocks must retain their original type.
 - Unknown fields, attrs, marks or inline nodes return `400 INVALID_BLOCK_NODE` before persistence.
 
 ### Delete
@@ -174,15 +174,49 @@ Moves are supported only inside the same parent. Cross-parent moves return `BLOC
 Operations are evaluated in request order. Inside one SQLite transaction, the server:
 
 1. Rechecks note existence, permission, lock state and version.
-2. Materializes missing stable Block IDs.
-3. Validates and applies every operation in memory.
-4. Records the pre-edit version using the same five-minute merge window as `PUT /notes/:id`.
-5. Updates `notes.content`, `contentText`, version and timestamp using optimistic locking.
-6. Rebuilds the Block index once.
-7. Rebuilds note links once.
+2. Verifies whether the current Block index is a complete mirror of the Tiptap document.
+3. Materializes missing stable Block IDs when the verification fails.
+4. Validates and applies every operation in memory.
+5. Records the pre-edit version using the same five-minute merge window as `PUT /notes/:id`.
+6. Updates `notes.content`, `contentText`, version and timestamp using optimistic locking.
+7. Applies either incremental or full index synchronization.
 8. Stores the idempotent response.
 
 Any failure rolls back the document, indexes, history row and idempotency record. One successful batch increments the note version exactly once. Replaying the same operation ID returns the stored authoritative result without adding another version.
+
+## Incremental index mode
+
+V2-B introduces fail-closed incremental synchronization for leaf-only `update` and `replace` batches.
+
+Before enabling it, the server compares the current document and `note_blocks_index` for:
+
+- total row count;
+- stable and unique Block IDs;
+- block type;
+- parent Block ID;
+- order and path;
+- plain text and content hash.
+
+Incremental mode is used only when this comparison succeeds and every operation targets a supported paragraph, heading or code block.
+
+When enabled:
+
+- only affected leaf Block rows are upserted;
+- indexed ancestors such as `listItem`, `taskItem` and `blockquote` are also refreshed because their aggregate text/hash changes;
+- only `note_links` rows whose `sourceBlockId` belongs to the changed leaf blocks are deleted and recreated;
+- unrelated Block rows keep their original `createdAt/updatedAt` values;
+- unrelated backlink rows keep their original IDs and timestamps;
+- `contentText` is produced from the same verified document analysis instead of running the legacy full index rebuild again.
+
+The server falls back to full synchronization for:
+
+- create/delete/move operations;
+- stale, missing or inconsistent Block indexes;
+- missing or duplicate Block IDs;
+- unsupported target nodes;
+- structural or parent/path changes that cannot be proven safe.
+
+The fallback occurs inside the same transaction and does not change the API's data-safety guarantees.
 
 ## Authoritative response
 
@@ -202,11 +236,17 @@ Any failure rolls back the document, indexes, history row and idempotency record
   "deletedBlockIds": [],
   "createdBlocks": [],
   "blocks": [],
+  "indexUpdateMode": "incremental",
+  "indexedBlockIds": ["blk_parent000", "blk_alpha000"],
   "contentChangedByNormalization": false
 }
 ```
 
-The client must use this snapshot and version as the base for the next dependent patch. Successful writes also emit the normal `note:updated` and `note:list-updated` realtime messages.
+- `indexUpdateMode` is `incremental` or `full`.
+- `indexedBlockIds` reports the Block rows explicitly refreshed. It may include indexed ancestors in incremental mode.
+- `affectedBlockIds` continues to describe the blocks addressed by the patch engine.
+
+The client must use the returned snapshot and version as the base for the next dependent patch. Successful writes emit `note:updated` and `note:list-updated` realtime messages.
 
 ## Error codes
 
@@ -239,20 +279,20 @@ localStorage.setItem("nowen.tiptap_block_patch_v1", "on")
 localStorage.setItem("nowen.tiptap_block_patch_v1", "off")
 ```
 
-The legacy key name is retained for compatibility even though the protocol now includes V2-A replacement operations.
+The legacy key name is retained for compatibility.
 
 The planner currently sends:
 
 - plain-text changes as `update`;
 - safe marks, links, line breaks, heading level, alignment, line height, code language and indent as `replace`;
-- simple top-level create/delete/reorder operations as V1 operations.
+- simple top-level create/delete/reorder operations as structural operations.
 
 The following continue through whole-note save:
 
 - tables and table structure changes;
 - images, videos, attachments, Mermaid, math and other atom nodes;
 - list hierarchy changes and cross-parent moves;
-- complex paste operations that combine structure and rich block changes;
+- complex paste operations combining structure and rich block changes;
 - unknown marks, attributes or extension nodes;
 - title/meta changes;
 - delete-all until empty-block identity reconciliation is implemented.
@@ -261,11 +301,16 @@ Only one patch may be in flight per editor. Later edits and title/meta saves wai
 
 Public, guest and presentation routes never mount the authenticated Block Patch AppContext bridge.
 
+## Attachment boundary
+
+The current schema stores attachment ownership in `attachments.noteId`; it does not maintain a separate content-reference index per Block. Therefore V2-B does not mutate attachment ownership or introduce an unused attachment-reference table. Media/attachment node edits still use whole-note save, while note split continues to handle attachment ownership and physical-path reuse transactionally.
+
 ## Remaining boundaries
 
 - `notes.content` is still the canonical complete document.
 - A successful patch still serializes the full JSON snapshot.
-- Block and link indexes are still rebuilt for the whole note.
-- Attachment reference indexes are not incrementally patched.
-- Arbitrary JSON node replacement, table patches, media patches and cross-parent moves are deferred.
+- Incremental indexes currently cover safe leaf `update/replace`; structural operations use full synchronization.
+- Table, media, attachment, formula and Mermaid node patches are deferred.
+- Cross-parent moves are deferred.
+- There is no independent Block-authoritative content table yet.
 - Markdown uses its separate CodeMirror/Y.Text incremental path.
