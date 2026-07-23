@@ -219,5 +219,6 @@ jobs:
         with:
           name: verified-image-hosting-removal
           path: .verified-removal
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
