@@ -49,9 +49,21 @@ interface TiptapAnalysis {
   contentText: string;
 }
 
+interface StructuralDelta {
+  existing: ExistingIndexRow[];
+  existingById: Map<string, ExistingIndexRow>;
+  addedBlockIds: string[];
+  deletedBlockIds: string[];
+}
+
+interface PatchGroups {
+  leaf: LeafPatchOperation[];
+  structural: StructuralPatchOperation[];
+}
+
 export interface IncrementalPatchIndexPlan {
   mode: "incremental";
-  kind: "leaf" | "structural";
+  kind: "leaf" | "structural" | "mixed";
   contentText: string;
   affectedRows: NoteBlockIndexRow[];
   deletedBlockIds: string[];
@@ -184,8 +196,6 @@ function structuresMatch(
     )) {
       return false;
     }
-    // Only top-level safe leaf replacements may change block type. Nested replacements are already
-    // rejected by the patch engine, and this check keeps the index planner fail-closed as well.
     if (
       ignoredContentIds.has(row.blockId)
       && previous.blockType !== row.blockType
@@ -266,20 +276,14 @@ function extractLinksFromLeaf(node: any, sourceBlockId: string, plainText: strin
   return links;
 }
 
-function isLeafOnlyPatch(
-  operations: TiptapBlockPatchOperation[],
-): operations is LeafPatchOperation[] {
-  return operations.length > 0 && operations.every(
-    (operation) => operation.type === "update" || operation.type === "replace",
-  );
-}
-
-function isStructuralOnlyPatch(
-  operations: TiptapBlockPatchOperation[],
-): operations is StructuralPatchOperation[] {
-  return operations.length > 0 && operations.every(
-    (operation) => operation.type === "create" || operation.type === "delete" || operation.type === "move",
-  );
+function splitOperations(operations: TiptapBlockPatchOperation[]): PatchGroups {
+  const leaf: LeafPatchOperation[] = [];
+  const structural: StructuralPatchOperation[] = [];
+  for (const operation of operations) {
+    if (operation.type === "update" || operation.type === "replace") leaf.push(operation);
+    else structural.push(operation);
+  }
+  return { leaf, structural };
 }
 
 function isTopLevelLeaf(row: Pick<ExistingIndexRow, "blockType" | "parentBlockId" | "path">): boolean {
@@ -300,6 +304,13 @@ function collectIndexedAncestors(analysis: TiptapAnalysis, leafBlockIds: string[
   return analysis.blocks
     .map(({ row }) => row.blockId)
     .filter((blockId) => output.has(blockId));
+}
+
+function validateLeafBase(analysis: TiptapAnalysis, operations: LeafPatchOperation[]): boolean {
+  return operations.every((operation) => {
+    const block = analysis.byId.get(operation.blockId);
+    return Boolean(block && LEAF_BLOCK_TYPES.has(block.row.blockType));
+  });
 }
 
 function validateStructuralBase(
@@ -326,6 +337,27 @@ function validateStructuralBase(
   return true;
 }
 
+function validateMixedBase(
+  analysis: TiptapAnalysis,
+  leaf: LeafPatchOperation[],
+  structural: StructuralPatchOperation[],
+): boolean {
+  if (!validateLeafBase(analysis, leaf) || !validateStructuralBase(analysis, structural)) return false;
+  const deleted = new Set(
+    structural.filter((operation) => operation.type === "delete").map((operation) => operation.blockId),
+  );
+  if (leaf.some((operation) => deleted.has(operation.blockId))) return false;
+  for (const operation of structural) {
+    if (operation.type === "move" && (
+      deleted.has(operation.blockId) || deleted.has(operation.targetBlockId)
+    )) return false;
+    if (operation.type === "create" && operation.afterBlockId && deleted.has(operation.afterBlockId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function filterExistingTargets(
   db: Database.Database,
   noteId: string,
@@ -338,28 +370,73 @@ function filterExistingTargets(
   );
 }
 
+function uniqueIds(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function classifyStructuralDelta(
+  analysis: TiptapAnalysis,
+  existing: ExistingIndexRow[],
+  operations: StructuralPatchOperation[],
+): StructuralDelta | null {
+  const existingById = new Map(existing.map((row) => [row.blockId, row]));
+  const postIds = new Set(analysis.blocks.map(({ row }) => row.blockId));
+  const addedBlockIds = analysis.blocks
+    .map(({ row }) => row.blockId)
+    .filter((blockId) => !existingById.has(blockId));
+  const deletedBlockIds = existing
+    .map((row) => row.blockId)
+    .filter((blockId) => !postIds.has(blockId));
+  const createOperations = operations.filter((operation) => operation.type === "create");
+  const deleteOperations = operations.filter((operation) => operation.type === "delete");
+
+  if (addedBlockIds.length !== createOperations.length || deletedBlockIds.length !== deleteOperations.length) {
+    return null;
+  }
+  const requestedDeleted = new Set(deleteOperations.map((operation) => operation.blockId));
+  if (deletedBlockIds.some((blockId) => !requestedDeleted.has(blockId))) return null;
+  for (const operation of createOperations) {
+    if (operation.blockId && !addedBlockIds.includes(operation.blockId)) return null;
+  }
+  for (const blockId of addedBlockIds) {
+    const row = analysis.byId.get(blockId)?.row;
+    if (!row || !isTopLevelLeaf(row)) return null;
+  }
+  for (const blockId of deletedBlockIds) {
+    const row = existingById.get(blockId);
+    if (!row || !isTopLevelLeaf(row)) return null;
+  }
+
+  return { existing, existingById, addedBlockIds, deletedBlockIds };
+}
+
+function linksForSources(
+  db: Database.Database,
+  noteId: string,
+  analysis: TiptapAnalysis,
+  sourceBlockIds: string[],
+): NoteLinkEntry[] | null {
+  const links: NoteLinkEntry[] = [];
+  for (const blockId of uniqueIds(sourceBlockIds)) {
+    const block = analysis.byId.get(blockId);
+    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return null;
+    links.push(...extractLinksFromLeaf(block.node, blockId, block.row.plainText));
+  }
+  return filterExistingTargets(db, noteId, links);
+}
+
 function planLeafIndexes(
   db: Database.Database,
   noteId: string,
   analysis: TiptapAnalysis,
   operations: LeafPatchOperation[],
 ): IncrementalPatchIndexPlan | null {
-  const linkBlockIds = [...new Set(operations.map((operation) => operation.blockId))];
-  for (const blockId of linkBlockIds) {
-    const block = analysis.byId.get(blockId);
-    if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return null;
-  }
-
+  const linkBlockIds = uniqueIds(operations.map((operation) => operation.blockId));
+  if (!validateLeafBase(analysis, operations)) return null;
   const indexedBlockIds = collectIndexedAncestors(analysis, linkBlockIds);
   if (!structuresMatch(loadExistingRows(db, noteId), analysis, new Set(indexedBlockIds))) return null;
-  const links = filterExistingTargets(
-    db,
-    noteId,
-    linkBlockIds.flatMap((blockId) => {
-      const block = analysis.byId.get(blockId) as AnalyzedBlock;
-      return extractLinksFromLeaf(block.node, blockId, block.row.plainText);
-    }),
-  );
+  const links = linksForSources(db, noteId, analysis, linkBlockIds);
+  if (!links) return null;
 
   return {
     mode: "incremental",
@@ -379,33 +456,12 @@ function planStructuralIndexes(
   analysis: TiptapAnalysis,
   operations: StructuralPatchOperation[],
 ): IncrementalPatchIndexPlan | null {
-  const existing = loadExistingRows(db, noteId);
-  const existingById = new Map(existing.map((row) => [row.blockId, row]));
-  const postIds = new Set(analysis.blocks.map(({ row }) => row.blockId));
-  const addedBlockIds = analysis.blocks
-    .map(({ row }) => row.blockId)
-    .filter((blockId) => !existingById.has(blockId));
-  const deletedBlockIds = existing
-    .map((row) => row.blockId)
-    .filter((blockId) => !postIds.has(blockId));
-  const createCount = operations.filter((operation) => operation.type === "create").length;
-  const deleteCount = operations.filter((operation) => operation.type === "delete").length;
-
-  // Create-then-delete, delete-all auto repair and reuse of a deleted ID are valid document patches,
-  // but their identity reconciliation is deliberately left on the full rebuild path.
-  if (addedBlockIds.length !== createCount || deletedBlockIds.length !== deleteCount) return null;
-  for (const blockId of addedBlockIds) {
-    const row = analysis.byId.get(blockId)?.row;
-    if (!row || !isTopLevelLeaf(row)) return null;
-  }
-  for (const blockId of deletedBlockIds) {
-    const row = existingById.get(blockId);
-    if (!row || !isTopLevelLeaf(row)) return null;
-  }
+  const delta = classifyStructuralDelta(analysis, loadExistingRows(db, noteId), operations);
+  if (!delta) return null;
 
   const affectedRows: NoteBlockIndexRow[] = [];
   for (const { row } of analysis.blocks) {
-    const previous = existingById.get(row.blockId);
+    const previous = delta.existingById.get(row.blockId);
     if (!previous) {
       affectedRows.push(row);
       continue;
@@ -424,23 +480,100 @@ function planStructuralIndexes(
     }
   }
 
-  const addedLinks = addedBlockIds.flatMap((blockId) => {
-    const block = analysis.byId.get(blockId) as AnalyzedBlock;
-    return extractLinksFromLeaf(block.node, blockId, block.row.plainText);
-  });
-  const linkBlockIds = [...deletedBlockIds, ...addedBlockIds];
-  const indexedBlockIds = [
-    ...deletedBlockIds,
+  const links = linksForSources(db, noteId, analysis, delta.addedBlockIds);
+  if (!links) return null;
+  const linkBlockIds = uniqueIds([...delta.deletedBlockIds, ...delta.addedBlockIds]);
+  const indexedBlockIds = uniqueIds([
+    ...delta.deletedBlockIds,
     ...affectedRows.map((row) => row.blockId),
-  ];
+  ]);
 
   return {
     mode: "incremental",
     kind: "structural",
     contentText: analysis.contentText,
     affectedRows,
-    deletedBlockIds,
-    links: filterExistingTargets(db, noteId, addedLinks),
+    deletedBlockIds: delta.deletedBlockIds,
+    links,
+    indexedBlockIds,
+    linkBlockIds,
+  };
+}
+
+function planMixedIndexes(
+  db: Database.Database,
+  noteId: string,
+  analysis: TiptapAnalysis,
+  leaf: LeafPatchOperation[],
+  structural: StructuralPatchOperation[],
+): IncrementalPatchIndexPlan | null {
+  const delta = classifyStructuralDelta(analysis, loadExistingRows(db, noteId), structural);
+  if (!delta) return null;
+
+  const leafBlockIds = uniqueIds(leaf.map((operation) => operation.blockId));
+  const deletedSet = new Set(delta.deletedBlockIds);
+  for (const blockId of leafBlockIds) {
+    const previous = delta.existingById.get(blockId);
+    const current = analysis.byId.get(blockId)?.row;
+    if (
+      deletedSet.has(blockId)
+      || !previous
+      || !current
+      || !LEAF_BLOCK_TYPES.has(previous.blockType)
+      || !LEAF_BLOCK_TYPES.has(current.blockType)
+    ) {
+      return null;
+    }
+  }
+
+  const contentRowIds = collectIndexedAncestors(analysis, leafBlockIds);
+  const contentRowSet = new Set(contentRowIds);
+  const affectedRows: NoteBlockIndexRow[] = [];
+  for (const { row } of analysis.blocks) {
+    const previous = delta.existingById.get(row.blockId);
+    if (!previous) {
+      affectedRows.push(row);
+      continue;
+    }
+
+    const contentChanged = previous.blockType !== row.blockType
+      || previous.plainText !== row.plainText
+      || previous.contentHash !== row.contentHash;
+    const structureChanged = previous.parentBlockId !== row.parentBlockId
+      || previous.blockOrder !== row.blockOrder
+      || previous.path !== row.path;
+
+    if (contentChanged) {
+      if (!contentRowSet.has(row.blockId)) return null;
+      if (previous.blockType !== row.blockType && row.parentBlockId !== null) return null;
+    }
+    if (structureChanged) {
+      if (previous.parentBlockId !== row.parentBlockId) return null;
+      if (!isTopLevelLeaf(previous) || !isTopLevelLeaf(row)) return null;
+    }
+    if (contentRowSet.has(row.blockId) || structureChanged) affectedRows.push(row);
+  }
+
+  const postLinkSources = uniqueIds([...delta.addedBlockIds, ...leafBlockIds]);
+  const links = linksForSources(db, noteId, analysis, postLinkSources);
+  if (!links) return null;
+  const linkBlockIds = uniqueIds([
+    ...delta.deletedBlockIds,
+    ...delta.addedBlockIds,
+    ...leafBlockIds,
+  ]);
+  const indexedBlockIds = uniqueIds([
+    ...delta.deletedBlockIds,
+    ...affectedRows.map((row) => row.blockId),
+  ]);
+
+  return {
+    mode: "incremental",
+    kind: "mixed",
+    contentText: analysis.contentText,
+    affectedRows,
+    deletedBlockIds: delta.deletedBlockIds,
+    links,
     indexedBlockIds,
     linkBlockIds,
   };
@@ -458,14 +591,13 @@ export function canUseIncrementalPatchIndexes(
 ): boolean {
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis || !structuresMatch(loadExistingRows(db, noteId), analysis, new Set())) return false;
-
-  if (isLeafOnlyPatch(operations)) {
-    return operations.every((operation) => {
-      const block = analysis.byId.get(operation.blockId);
-      return Boolean(block && LEAF_BLOCK_TYPES.has(block.row.blockType));
-    });
+  const groups = splitOperations(operations);
+  if (groups.leaf.length > 0 && groups.structural.length > 0) {
+    return validateMixedBase(analysis, groups.leaf, groups.structural);
   }
-  return isStructuralOnlyPatch(operations) && validateStructuralBase(analysis, operations);
+  if (groups.leaf.length > 0) return validateLeafBase(analysis, groups.leaf);
+  if (groups.structural.length > 0) return validateStructuralBase(analysis, groups.structural);
+  return false;
 }
 
 /** Build a post-patch incremental update plan without mutating persistence. */
@@ -478,8 +610,12 @@ export function planIncrementalPatchIndexes(
 ): IncrementalPatchIndexPlan | null {
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis) return null;
-  if (isLeafOnlyPatch(operations)) return planLeafIndexes(db, noteId, analysis, operations);
-  if (isStructuralOnlyPatch(operations)) return planStructuralIndexes(db, noteId, analysis, operations);
+  const groups = splitOperations(operations);
+  if (groups.leaf.length > 0 && groups.structural.length > 0) {
+    return planMixedIndexes(db, noteId, analysis, groups.leaf, groups.structural);
+  }
+  if (groups.leaf.length > 0) return planLeafIndexes(db, noteId, analysis, groups.leaf);
+  if (groups.structural.length > 0) return planStructuralIndexes(db, noteId, analysis, groups.structural);
   return null;
 }
 
