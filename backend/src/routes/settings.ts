@@ -8,6 +8,7 @@ import {
 } from "../lib/public-web-origin";
 import systemUpdateRouter from "./system-update";
 import importBatchesRouter from "./import-batches";
+import roundTripPermissionsRouter from "./roundtrip-permissions";
 
 const settings = new Hono();
 
@@ -127,5 +128,7 @@ settings.put("/", async (c) => {
 settings.route("/system-update", systemUpdateRouter);
 // Round-trip 导入批次报告属于当前登录用户的数据，不要求管理员权限。
 settings.route("/import-batches", importBatchesRouter);
+// 可选工作区成员权限迁移：默认包不包含权限，只有 owner/系统管理员能显式导出和应用映射。
+settings.route("/roundtrip-permissions", roundTripPermissionsRouter);
 
 export default settings;
