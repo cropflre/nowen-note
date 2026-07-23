@@ -8,13 +8,11 @@ function read(relativePath: string): string {
 }
 
 const realtimeSource = read("services/realtime.ts");
-const imageHostingSource = read("services/image-hosting.ts");
 const attachmentStorageSource = read("services/attachment-storage.ts");
 const realtimeRepositorySource = read("repositories/realtimeAuthRepository.ts");
 
 for (const [name, source] of [
   ["realtime", realtimeSource],
-  ["image-hosting", imageHostingSource],
   ["attachment-storage", attachmentStorageSource],
 ] as const) {
   test(`${name} service keeps database access behind repositories`, () => {
@@ -24,10 +22,7 @@ for (const [name, source] of [
   });
 }
 
-test("storage services use the shared system settings repository", () => {
-  assert.match(imageHostingSource, /systemSettingsRepository\.get\(SETTING_KEY\)/);
-  assert.match(imageHostingSource, /systemSettingsRepository\.set\(SETTING_KEY/);
-  assert.match(imageHostingSource, /systemSettingsRepository\.delete\(SETTING_KEY\)/);
+test("attachment storage uses the shared system settings repository", () => {
   assert.match(attachmentStorageSource, /systemSettingsRepository\.get\(SETTING_KEY\)/);
   assert.match(attachmentStorageSource, /systemSettingsRepository\.set\(SETTING_KEY/);
   assert.match(attachmentStorageSource, /systemSettingsRepository\.delete\(SETTING_KEY\)/);
