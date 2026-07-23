@@ -78,6 +78,9 @@ export interface BlockPatchResult {
     blockId: string;
   }>;
   blocks: BlockPatchIndexRow[];
+  /** Whether the server touched only the affected leaf rows or rebuilt every note index row. */
+  indexUpdateMode: "incremental" | "full";
+  indexedBlockIds: string[];
   contentChangedByNormalization: boolean;
   idempotentReplay?: boolean;
 }

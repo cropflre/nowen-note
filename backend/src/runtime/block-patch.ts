@@ -4,6 +4,11 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
 import {
+  applyIncrementalPatchIndexes,
+  canUseIncrementalPatchIndexes,
+  planIncrementalPatchIndexes,
+} from "../lib/blockPatchIncrementalIndexes.js";
+import {
   ensureNoteBlockTables,
   getNoteBlock,
   plainTextFromNoteContent,
@@ -195,11 +200,29 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Materialize missing/duplicate stable IDs inside the same transaction. If any later operation
-      // fails, both this normalization and every patch operation roll back together.
-      const normalizedBefore = syncNoteBlocks(db, noteId, note.content, note.contentFormat);
+      // Leaf-only patches can skip the legacy pre-patch DELETE + full reinsert when the persisted
+      // index is already a complete mirror of the current document. Any mismatch fails closed and
+      // falls back to the original normalization path inside this same transaction.
+      const incrementalBase = canUseIncrementalPatchIndexes(
+        db,
+        noteId,
+        note.content,
+        operations,
+      );
+      const normalizedBefore = incrementalBase
+        ? {
+            content: note.content,
+            contentText: note.contentText,
+            blocks: [],
+            changed: false,
+          }
+        : syncNoteBlocks(db, noteId, note.content, note.contentFormat);
       const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
-      const contentText = plainTextFromNoteContent(patch.content, note.contentFormat);
+      const incrementalPlan = incrementalBase
+        ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
+        : null;
+      const contentText = incrementalPlan?.contentText
+        ?? plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
 
       // Match PUT /notes/:id version-history semantics. This insert is inside the same transaction,
@@ -218,8 +241,21 @@ async function patchBlocks(c: Context) {
         });
       }
 
-      const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
-      syncNoteLinks(db, userId, noteId, synced.content);
+      let persistedContent = patch.content;
+      let persistedContentText = contentText;
+      let postSyncChanged = false;
+      let indexUpdateMode: "incremental" | "full" = "full";
+      if (incrementalPlan) {
+        applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
+        indexUpdateMode = "incremental";
+      } else {
+        const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
+        syncNoteLinks(db, userId, noteId, synced.content);
+        persistedContent = synced.content;
+        persistedContentText = synced.contentText;
+        postSyncChanged = synced.changed;
+      }
+
       const persisted = readNote(noteId);
       if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
 
@@ -235,8 +271,8 @@ async function patchBlocks(c: Context) {
         title: persisted.title,
         version: nextVersion,
         updatedAt: persisted.updatedAt,
-        content: synced.content,
-        contentText: synced.contentText,
+        content: persistedContent,
+        contentText: persistedContentText,
         contentFormat: persisted.contentFormat,
         notebookId: persisted.notebookId,
         operationCount: operations.length,
@@ -244,7 +280,11 @@ async function patchBlocks(c: Context) {
         deletedBlockIds,
         createdBlocks: patch.createdBlocks,
         blocks,
-        contentChangedByNormalization: normalizedBefore.changed || synced.changed,
+        indexUpdateMode,
+        indexedBlockIds: indexUpdateMode === "incremental"
+          ? incrementalPlan?.indexedBlockIds || []
+          : patch.affectedBlockIds,
+        contentChangedByNormalization: normalizedBefore.changed || postSyncChanged,
       };
       storeIdempotentResult(userId, noteId, body.operationId, result);
       return result;
@@ -256,6 +296,7 @@ async function patchBlocks(c: Context) {
       version: result.version,
       operationCount: result.operationCount,
       affectedBlockIds: result.affectedBlockIds,
+      indexUpdateMode: result.indexUpdateMode,
     }, { targetType: "note", targetId: noteId });
     broadcastNoteUpdated(noteId, {
       version: result.version,

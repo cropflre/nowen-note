@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - "backend/src/index.hardened.ts"
+      - "backend/src/lib/blockPatchIncrementalIndexes.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
       - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
+      - "backend/tests/block-patch-incremental-index.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -29,9 +31,11 @@ on:
   pull_request:
     paths:
       - "backend/src/index.hardened.ts"
+      - "backend/src/lib/blockPatchIncrementalIndexes.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
       - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
+      - "backend/tests/block-patch-incremental-index.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -69,13 +73,14 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Block patch engine and route tests
+      - name: Block patch engine, incremental index and route tests
         run: >-
           node --import tsx --test
           tests/tiptap-block-patch.test.ts
           tests/tiptap-block-patch-v2.test.ts
           tests/block-patch-route.test.ts
           tests/block-patch-route-v2.test.ts
+          tests/block-patch-incremental-index.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 
