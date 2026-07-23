@@ -2,7 +2,7 @@
 
 ## Scope
 
-Tiptap optimized modes may now persist deletion of the final identified top-level Block through `POST /api/blocks/:noteId/patch` instead of forcing a whole-note save.
+Tiptap optimized modes may persist deletion of the final identified top-level Block through `POST /api/blocks/:noteId/patch` instead of forcing a whole-note save.
 
 The frontend planner recognizes two transient empty representations:
 
@@ -35,7 +35,7 @@ Complex nested documents remain on whole-note save because deleting an arbitrary
 
 ## Server identity
 
-The existing patch engine already guarantees that a Tiptap document never remains empty. After all requested operations are applied, it creates one empty paragraph with a fresh stable Block ID and returns it through the authoritative response:
+The patch engine guarantees that a Tiptap document never remains empty. After all requested operations are applied, it creates one empty paragraph with a fresh stable Block ID and returns it through the authoritative response:
 
 ```json
 {
@@ -60,11 +60,46 @@ Delete-all deliberately remains on the full index synchronization path. The gene
 
 The runtime always stores the server response as the next authoritative note version.
 
-When the editor snapshot still equals the sent empty snapshot, `preserveLocalEditor` is false. The established Tiptap ACK guard therefore allows the note-content synchronization effect to load the server-generated paragraph. That effect suppresses save emission and clamps the previous selection into the new document, leaving the caret in a valid editable position.
+When the editor snapshot still equals the sent empty snapshot, `preserveLocalEditor` is false. The normal note-content synchronization effect receives the server-generated paragraph. Before Tiptap applies its whole-document `setContent` transaction, `tiptapEmptyBlockIdentityDispatch` verifies that:
 
-When the user types again while the delete request is in flight, the current editor snapshot differs from the sent empty snapshot. `preserveLocalEditor` is true, so the response does not overwrite the newer local input. The queued save is planned against the confirmed server version; it can delete the server-generated empty Block and create or update the local identified Block in one later transaction.
+- both current and incoming documents contain exactly one empty paragraph;
+- document attributes are identical;
+- paragraph attributes are identical except for `blockId`;
+- the incoming Block ID is valid and differs from the local ID.
 
-This preserves the more important user input while still ensuring that the next persistence baseline contains a stable server-confirmed Block identity.
+Only under those conditions, the incoming transaction is replaced with:
+
+```text
+setNodeMarkup(0, { ...currentAttrs, blockId: serverBlockId })
++ addToHistory = false
++ preventUpdate inherited from setContent
+```
+
+Consequences:
+
+- the editor DOM and document content are not rebuilt;
+- the current selection and caret position remain unchanged;
+- no save event is emitted;
+- the server Block ID becomes the local canonical identity;
+- the metadata update is not added to ProseMirror history.
+
+Any text, structure, document attribute or presentation attribute difference bypasses the interceptor and executes the original synchronization transaction.
+
+When the user types again while the delete request is in flight, the current editor snapshot differs from the sent empty snapshot. `preserveLocalEditor` is true, so the response does not overwrite the newer local input. The queued save is planned against the confirmed server version and reconciles the local Block identity in the next confirmed patch.
+
+## Undo behavior
+
+The user's delete transaction remains the latest history event. The later server Block ID assignment is mapped through history but is not stored as an additional undo item.
+
+Therefore, the first Undo after reconciliation restores the content that the user deleted. It does not merely switch the empty paragraph from the server Block ID back to the temporary local Block ID.
+
+The dedicated ProseMirror regression covers:
+
+1. deleting the last paragraph;
+2. applying a server-generated empty paragraph through a setContent-style transaction;
+3. verifying the applied transaction has `addToHistory=false`;
+4. preserving the caret position;
+5. executing Undo and restoring the original text and Block ID.
 
 ## Idempotency and recovery
 
@@ -76,4 +111,4 @@ This preserves the more important user input while still ensuring that the next 
 
 ## Remaining boundary
 
-The current content synchronization effect replays authoritative JSON through the established `setContent(..., { emitUpdate: false })` path. Selection restoration is covered; a dedicated no-history ProseMirror metadata-only reconciliation can be considered later if product testing finds that undo UX after delete-all needs stronger preservation across the server-generated identity change.
+This interceptor is intentionally limited to a single empty paragraph and a Block-ID-only difference. It is not a generic remote-document merge mechanism. Non-empty Block identity changes, multiple-Block documents, formatting changes and structural changes continue through the established guarded content synchronization path.
