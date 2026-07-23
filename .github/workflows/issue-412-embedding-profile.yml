@@ -46,9 +46,12 @@ jobs:
       - name: Backend embedding profile resolver tests
         working-directory: backend
         run: node --import tsx --test tests/embedding-profile-config.test.ts
-      - name: Backend embedding worker tests
+      - name: Backend fixed profile request test
         working-directory: backend
-        run: node --import tsx --test tests/embedding-user-ai-settings.test.ts
+        run: node --import tsx --test --test-name-pattern="fixed saved profile" tests/embedding-user-ai-settings.test.ts
+      - name: Backend existing embedding compatibility tests
+        working-directory: backend
+        run: node --import tsx --test --test-name-pattern="requested user's URL|blank embedding URL|background queue" tests/embedding-user-ai-settings.test.ts
       - name: Backend user settings isolation tests
         working-directory: backend
         run: node --import tsx --test tests/user-ai-settings-isolation.test.ts
