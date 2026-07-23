@@ -53,7 +53,7 @@ app.post("/preview", async (c) => {
     const body = await c.req.json() as { workspaceId?: string; manifest?: unknown };
     const workspaceId = String(body.workspaceId || "").trim();
     if (!workspaceId) return c.json({ error: "缺少目标工作区", code: "WORKSPACE_REQUIRED" }, 400);
-    const suggestions = previewRoundTripPermissionMappings(userId, workspaceId, body.manifest);
+    const suggestions = await previewRoundTripPermissionMappings(userId, workspaceId, body.manifest);
     return c.json({ success: true, suggestions });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : String(error), code: codeOf(error) }, statusOf(error) as any);
@@ -70,7 +70,7 @@ app.post("/preview-package", async (c) => {
     if (!(file instanceof File)) return c.json({ error: "缺少导入包", code: "FILE_REQUIRED" }, 400);
     const manifest = await parsePermissionsFromPackageBuffer(Buffer.from(await file.arrayBuffer()));
     if (!manifest) return c.json({ success: true, included: false, suggestions: [] });
-    const suggestions = previewRoundTripPermissionMappings(userId, workspaceId, manifest);
+    const suggestions = await previewRoundTripPermissionMappings(userId, workspaceId, manifest);
     return c.json({ success: true, included: true, manifest, suggestions });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : String(error), code: codeOf(error) }, statusOf(error) as any);
@@ -87,7 +87,7 @@ app.post("/apply", async (c) => {
     };
     const workspaceId = String(body.workspaceId || "").trim();
     if (!workspaceId) return c.json({ error: "缺少目标工作区", code: "WORKSPACE_REQUIRED" }, 400);
-    const result = applyRoundTripPermissionMappings({
+    const result = await applyRoundTripPermissionMappings({
       actorUserId: userId,
       workspaceId,
       manifest: body.manifest,
