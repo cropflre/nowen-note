@@ -154,6 +154,7 @@ jobs:
           tests/repository-access-session-pg.test.ts
           tests/api-token-resources-pg.test.ts
           tests/system-settings-repository-pg.test.ts
+          tests/public-web-origin-pg.test.ts
           tests/roundtrip-import-batches-repository-pg.test.ts
           tests/roundtrip-permission-mapping-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
