@@ -118,7 +118,14 @@ function nestedListForSink(target: ListItemLocation): JsonNode | null {
     return null;
   }
   if (nestedLists.length === 1) return nestedLists[0];
-  const nested: JsonNode = { type: target.list.type, content: [] };
+  const attrs = target.list.attrs && typeof target.list.attrs === "object"
+    ? cloneJson(target.list.attrs)
+    : null;
+  const nested: JsonNode = {
+    type: target.list.type,
+    ...(attrs && Object.keys(attrs).length > 0 ? { attrs } : {}),
+    content: [],
+  };
   if (!Array.isArray(target.item.content)) target.item.content = [];
   target.item.content.push(nested);
   return nested;
@@ -253,9 +260,25 @@ function descriptorChanged(left: ItemDescriptor, right: ItemDescriptor): boolean
     || left.listType !== right.listType;
 }
 
+function operationRank(
+  operation: ListMoveOperation,
+  base: Map<string, ItemDescriptor>,
+  next: Map<string, ItemDescriptor>,
+): string {
+  const before = base.get(operation.blockId);
+  const after = next.get(operation.blockId);
+  const hierarchyChanged = before && after && (
+    before.depth !== after.depth || before.parentItemId !== after.parentItemId
+  );
+  const semanticRank = operation.position === "inside" ? 0 : hierarchyChanged ? 1 : 2;
+  const positionRank = operation.position === "before" ? 0 : operation.position === "after" ? 1 : 2;
+  return `${semanticRank}:${positionRank}:${operation.blockId}:${operation.targetBlockId}`;
+}
+
 /**
- * Prove that exactly one controlled list item move transforms the complete base JSON into next JSON.
- * Content, marks, checked state and non-list structure must remain byte-for-byte equivalent.
+ * Prove that one controlled list item move can reproduce the complete target JSON. Content, marks,
+ * checked state and non-list structure must remain byte-for-byte equivalent. When two equivalent
+ * moves produce the same target (for example an adjacent swap), a stable rank selects one request.
  */
 export function planTiptapListItemMove(
   baseDoc: JsonNode,
@@ -305,5 +328,6 @@ export function planTiptapListItemMove(
       matches.push(operation);
     }
   }
-  return matches.length === 1 ? matches[0] : null;
+  matches.sort((left, right) => operationRank(left, base, next).localeCompare(operationRank(right, base, next)));
+  return matches[0] || null;
 }
