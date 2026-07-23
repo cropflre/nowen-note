@@ -26,6 +26,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0008_note_split_tables",
     "0009_roundtrip_import_resource_links",
     "0010_roundtrip_import_batches",
+    "0011_note_block_runtime",
   ]);
 
   const stateTable = await pool.query(
@@ -49,9 +50,11 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   const parityTables = [
     "api_token_resources",
     "audit_logs",
+    "block_operations",
     "habit_checkins",
     "habits",
     "mindmaps",
+    "note_blocks_index",
     "note_import_origins",
     "note_split_attachment_copies",
     "note_split_items",
@@ -157,6 +160,15 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.equal(roundTripIndexes.rows[0].batch_user, "idx_roundtrip_import_batches_user_time");
   assert.equal(roundTripIndexes.rows[0].batch_scope, "idx_roundtrip_import_batches_scope_time");
   assert.equal(roundTripIndexes.rows[0].batch_source, "idx_roundtrip_import_batches_source");
+
+  const blockIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_note_blocks_note_order') AS note_order,
+            to_regclass('public.idx_note_blocks_hash') AS hash_index,
+            to_regclass('public.idx_block_operations_note') AS operation_index`,
+  );
+  assert.equal(blockIndexes.rows[0].note_order, "idx_note_blocks_note_order");
+  assert.equal(blockIndexes.rows[0].hash_index, "idx_note_blocks_hash");
+  assert.equal(blockIndexes.rows[0].operation_index, "idx_block_operations_note");
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
