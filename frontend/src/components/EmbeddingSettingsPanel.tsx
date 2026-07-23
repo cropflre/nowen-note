@@ -7,8 +7,10 @@ import {
   EyeOff,
   KeyRound,
   Layers3,
+  ListFilter,
   Loader2,
   MessageSquare,
+  PlugZap,
   RefreshCw,
   RotateCcw,
   Save,
@@ -18,6 +20,13 @@ import {
 import { api, getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import { aiProfiles, type AIProfile } from "@/lib/aiProfiles";
 import { getReliableAIStatus, type ReliableStatus } from "@/lib/aiReliable";
+import {
+  discoverEmbeddingModels,
+  mergeEmbeddingModelOptions,
+  testEmbeddingModel,
+  type EmbeddingModelOption,
+  type EmbeddingTestResult,
+} from "@/lib/embeddingModelDiscovery";
 import {
   buildEmbeddingSettingsPayload,
   inferEmbeddingCredentialSource,
@@ -92,6 +101,18 @@ function getCopy() {
       savedKey: "Dedicated key saved (leave empty to keep it)",
       modelPlaceholder: "For example: text-embedding-3-small",
       examples: "Common examples; use a model supported by your provider:",
+      discoverModels: "Refresh models",
+      discoveringModels: "Refreshing…",
+      testModel: "Test embedding model",
+      testingModel: "Testing…",
+      discoveredModels: "Discovered models",
+      recommended: "recommended",
+      noEmbeddingModels: "No likely embedding models were found. You can still enter a model name manually.",
+      modelsFound: (count: number, recommended: number) => `Found ${count} candidate models (${recommended} recommended).`,
+      testSucceeded: (dimension: number, durationMs: number) => `Embedding test passed: ${dimension} dimensions · ${durationMs} ms.`,
+      modelRequired: "Enter an embedding model before testing.",
+      discoverFailed: "Failed to refresh embedding models",
+      testFailed: "Embedding model test failed",
       save: "Save embedding settings",
       rebuild: "Rebuild vector index",
       refresh: "Refresh status",
@@ -146,6 +167,18 @@ function getCopy() {
     savedKey: "已保存独立密钥（留空不修改）",
     modelPlaceholder: "例如：text-embedding-3-small",
     examples: "常用示例，请以服务商实际支持的模型为准：",
+    discoverModels: "刷新模型列表",
+    discoveringModels: "正在刷新…",
+    testModel: "测试 Embedding 模型",
+    testingModel: "正在测试…",
+    discoveredModels: "发现的模型",
+    recommended: "推荐",
+    noEmbeddingModels: "未发现疑似 Embedding 模型，仍可手动填写模型名称。",
+    modelsFound: (count: number, recommended: number) => `发现 ${count} 个候选模型，其中 ${recommended} 个推荐。`,
+    testSucceeded: (dimension: number, durationMs: number) => `Embedding 测试成功：${dimension} 维 · ${durationMs} 毫秒。`,
+    modelRequired: "请先填写要测试的 Embedding 模型。",
+    discoverFailed: "刷新 Embedding 模型失败",
+    testFailed: "Embedding 模型测试失败",
     save: "保存 Embedding 配置",
     rebuild: "重建向量索引",
     refresh: "刷新状态",
@@ -203,6 +236,10 @@ export default function EmbeddingSettingsPanel() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [discoveredModels, setDiscoveredModels] = useState<EmbeddingModelOption[]>([]);
+  const [testResult, setTestResult] = useState<EmbeddingTestResult | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [message, setMessage] = useState<EmbeddingMessage | null>(null);
 
@@ -237,6 +274,8 @@ export default function EmbeddingSettingsPanel() {
         keySet: !!settings.ai_embedding_key_set,
         model: settings.ai_embedding_model || "",
       });
+      setDiscoveredModels([]);
+      setTestResult(null);
       if (source === "profile" && profileId && !nextProfiles.some((profile) => profile.id === profileId)) {
         setMessage({ type: "warning", text: copy.profileMissingWarning });
       }
@@ -264,6 +303,15 @@ export default function EmbeddingSettingsPanel() {
 
   const selectedProfile = profiles.find((profile) => profile.id === draft.profileId) || null;
   const profileMissing = draft.source === "profile" && !!draft.profileId && !selectedProfile;
+  const modelOptions = useMemo(
+    () => mergeEmbeddingModelOptions(MODEL_SUGGESTIONS, discoveredModels),
+    [discoveredModels],
+  );
+
+  const clearProbeState = () => {
+    setDiscoveredModels([]);
+    setTestResult(null);
+  };
 
   const chooseSource = (source: EmbeddingCredentialSource) => {
     setDraft((current) => ({
@@ -271,7 +319,57 @@ export default function EmbeddingSettingsPanel() {
       source,
       profileId: source === "profile" ? current.profileId || profiles[0]?.id || "" : current.profileId,
     }));
+    clearProbeState();
     setMessage(null);
+  };
+
+  const refreshModels = async () => {
+    if (draft.source === "profile" && !draft.profileId) {
+      setMessage({ type: "warning", text: copy.profileRequired });
+      return;
+    }
+    setDiscovering(true);
+    setMessage(null);
+    setTestResult(null);
+    try {
+      const result = await discoverEmbeddingModels(draft);
+      setDiscoveredModels(result.models);
+      const recommendedCount = result.models.filter((model) => model.recommended).length;
+      setMessage({
+        type: result.models.length > 0 ? "success" : "warning",
+        text: result.models.length > 0
+          ? copy.modelsFound(result.models.length, recommendedCount)
+          : copy.noEmbeddingModels,
+      });
+    } catch (error) {
+      setDiscoveredModels([]);
+      setMessage({ type: "error", text: (error as Error)?.message || copy.discoverFailed });
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const runEmbeddingTest = async () => {
+    if (draft.source === "profile" && !draft.profileId) {
+      setMessage({ type: "warning", text: copy.profileRequired });
+      return;
+    }
+    if (!draft.model.trim()) {
+      setMessage({ type: "warning", text: copy.modelRequired });
+      return;
+    }
+    setTesting(true);
+    setMessage(null);
+    setTestResult(null);
+    try {
+      const result = await testEmbeddingModel(draft);
+      setTestResult(result);
+      setMessage({ type: "success", text: copy.testSucceeded(result.dimension, result.durationMs) });
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error)?.message || copy.testFailed });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const saveSettings = async () => {
@@ -425,7 +523,11 @@ export default function EmbeddingSettingsPanel() {
                 <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileTitle}</span>
                 <select
                   value={draft.profileId}
-                  onChange={(event) => setDraft((current) => ({ ...current, profileId: event.target.value }))}
+                  onChange={(event) => {
+                    setDraft((current) => ({ ...current, profileId: event.target.value }));
+                    clearProbeState();
+                    setMessage(null);
+                  }}
                   className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   <option value="">{profiles.length ? copy.selectProfile : copy.noProfiles}</option>
@@ -458,7 +560,10 @@ export default function EmbeddingSettingsPanel() {
                 </span>
                 <input
                   value={draft.url}
-                  onChange={(event) => setDraft((current) => ({ ...current, url: event.target.value }))}
+                  onChange={(event) => {
+                    setDraft((current) => ({ ...current, url: event.target.value }));
+                    clearProbeState();
+                  }}
                   placeholder={copy.urlPlaceholder}
                   className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
                 />
@@ -472,7 +577,10 @@ export default function EmbeddingSettingsPanel() {
                   <input
                     type={showKey ? "text" : "password"}
                     value={draft.key}
-                    onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))}
+                    onChange={(event) => {
+                      setDraft((current) => ({ ...current, key: event.target.value }));
+                      clearProbeState();
+                    }}
                     placeholder={draft.keySet ? copy.savedKey : copy.keyPlaceholder}
                     className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
                   />
@@ -492,13 +600,16 @@ export default function EmbeddingSettingsPanel() {
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.embeddingModel}</span>
             <input
               value={draft.model}
-              onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+              onChange={(event) => {
+                setDraft((current) => ({ ...current, model: event.target.value }));
+                setTestResult(null);
+              }}
               placeholder={copy.modelPlaceholder}
               list="nowen-embedding-model-suggestions"
               className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
             />
             <datalist id="nowen-embedding-model-suggestions">
-              {MODEL_SUGGESTIONS.map((model) => <option key={model} value={model} />)}
+              {modelOptions.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
             </datalist>
             <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-zinc-400">
               <span>{copy.examples}</span>
@@ -506,13 +617,60 @@ export default function EmbeddingSettingsPanel() {
                 <button
                   key={model}
                   type="button"
-                  onClick={() => setDraft((current) => ({ ...current, model }))}
+                  onClick={() => {
+                    setDraft((current) => ({ ...current, model }));
+                    setTestResult(null);
+                  }}
                   className="rounded-full border border-zinc-200 px-2 py-1 font-mono text-zinc-500 transition hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:text-zinc-400"
                 >
                   {model}
                 </button>
               ))}
             </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void refreshModels()}
+                disabled={discovering || testing || busy || profileMissing}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+              >
+                {discovering ? <Loader2 size={13} className="animate-spin" /> : <ListFilter size={13} />}
+                {discovering ? copy.discoveringModels : copy.discoverModels}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runEmbeddingTest()}
+                disabled={discovering || testing || busy || profileMissing || !draft.model.trim()}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-violet-500/30 px-3 py-2 text-xs font-medium text-violet-600 transition hover:bg-violet-500/5 disabled:opacity-50 dark:text-violet-400"
+              >
+                {testing ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
+                {testing ? copy.testingModel : copy.testModel}
+              </button>
+              {discoveredModels.length > 0 && (
+                <select
+                  value=""
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    setDraft((current) => ({ ...current, model: event.target.value }));
+                    setTestResult(null);
+                  }}
+                  className="min-h-9 min-w-52 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs outline-none transition focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="">{copy.discoveredModels} · {discoveredModels.length}</option>
+                  {discoveredModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.recommended ? "★ " + model.name + " · " + copy.recommended : model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            {testResult && (
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 size={13} />
+                <span>{testResult.dimension} {copy.dimension} · {testResult.durationMs} ms · {testResult.provider}</span>
+              </div>
+            )}
           </label>
 
           <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
