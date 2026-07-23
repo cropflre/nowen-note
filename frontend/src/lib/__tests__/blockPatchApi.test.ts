@@ -42,6 +42,7 @@ describe("block patch API client", () => {
       createdBlocks: [],
       blocks: [],
       indexUpdateMode: "incremental",
+      indexUpdateKind: "leaf",
       indexedBlockIds: ["blk_alpha00"],
       contentChangedByNormalization: false,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -59,6 +60,7 @@ describe("block patch API client", () => {
       contentFormat: "tiptap-json",
       updatedAt: "2026-07-22T10:00:00.000Z",
       indexUpdateMode: "incremental",
+      indexUpdateKind: "leaf",
       indexedBlockIds: ["blk_alpha00"],
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
