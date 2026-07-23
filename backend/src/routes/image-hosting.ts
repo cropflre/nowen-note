@@ -1,179 +1,126 @@
-/**
- * 第三方图床路由
- *
- * 提供图床配置管理、测试连接、图片上传接口。
- */
-
 import { Hono } from "hono";
-import {
-  readImageHostingConfigPublic,
-  writeImageHostingConfig,
-  deleteImageHostingConfig,
-  testImageHostingConfig,
-  uploadImageToHosting,
-  isImageHostingEnabled,
-  type WriteImageHostingConfigInput,
-} from "../services/image-hosting";
-import {
-  deleteImageHostingFallbackPolicy,
-  readImageHostingFallbackToLocal,
-  writeImageHostingFallbackToLocal,
-} from "../services/image-hosting-policy";
+import { getDb } from "../db/schema";
 import { isSystemAdmin } from "../middleware/acl";
 
 const app = new Hono();
+const CONFIG_KEY = "imageHosting:config";
+const FALLBACK_KEY = "imageHosting:fallbackToLocal";
 
-const ALLOWED_MIMES = new Set([
-  "image/png", "image/jpeg", "image/gif", "image/webp",
-]);
+interface LegacyConfigRow {
+  value: string;
+  updatedAt?: string | null;
+}
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+function readLegacyConfig() {
+  let row: LegacyConfigRow | undefined;
+  try {
+    row = getDb()
+      .prepare("SELECT value, updatedAt FROM system_settings WHERE key = ?")
+      .get(CONFIG_KEY) as LegacyConfigRow | undefined;
+  } catch (error) {
+    console.warn("[image-hosting-retired] failed to read legacy config", error);
+  }
 
-function readPublicConfigWithPolicy() {
+  let parsed: Record<string, unknown> = {};
+  if (row?.value) {
+    try {
+      parsed = JSON.parse(row.value) as Record<string, unknown>;
+    } catch (error) {
+      console.warn("[image-hosting-retired] invalid legacy config JSON", error);
+    }
+  }
+
+  const readString = (key: string, fallback = "") =>
+    typeof parsed[key] === "string" ? String(parsed[key]).trim() : fallback;
+
   return {
-    ...readImageHostingConfigPublic(),
-    fallbackToLocal: readImageHostingFallbackToLocal(),
+    retired: true,
+    configured: Boolean(row),
+    enabled: false,
+    legacyEnabled: parsed.enabled === true,
+    provider: readString("provider", "s3-compatible"),
+    endpoint: readString("endpoint").replace(/\/+$/, ""),
+    region: readString("region", "auto") || "auto",
+    bucket: readString("bucket"),
+    accessKeyId: readString("accessKeyId"),
+    secretAccessKeySet: Boolean(parsed.secretAccessKeyEnc || parsed.secretAccessKey),
+    publicBaseUrl: readString("publicBaseUrl").replace(/\/+$/, ""),
+    pathPrefix: readString("pathPrefix", "images").replace(/^\/+|\/+$/g, ""),
+    usePathStyle: parsed.usePathStyle !== false,
+    maxFileSizeMb: Number(parsed.maxFileSizeMb) || 10,
+    allowedTypes: Array.isArray(parsed.allowedTypes)
+      ? parsed.allowedTypes
+      : ["image/png", "image/jpeg", "image/gif", "image/webp"],
+    fallbackToLocal: true,
+    updatedAt: row?.updatedAt || null,
   };
 }
 
+function requireAdmin(c: any): Response | null {
+  const userId = c.req.header("X-User-Id") || "";
+  if (isSystemAdmin(userId)) return null;
+  return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
+}
+
+function retiredResponse(c: any) {
+  return c.json(
+    {
+      error: "第三方图床已经退役。请使用 Nowen 附件存储，并在设置中迁移历史图床图片。",
+      code: "IMAGE_HOSTING_RETIRED",
+      retired: true,
+    },
+    410,
+  );
+}
+
 /**
- * GET /api/image-hosting/config
- * 读取脱敏配置
+ * 旧配置只读接口。
+ *
+ * 保留 publicBaseUrl/pathPrefix 等非敏感元数据，是为了让管理员把历史公开图片链接
+ * 批量迁移为 Nowen 附件。这里不再解密、返回或使用任何第三方存储密钥。
  */
 app.get("/config", (c) => {
-  const userId = c.req.header("X-User-Id") || "";
-  // 只有管理员可以查看配置
-  if (!isSystemAdmin(userId)) {
-    return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
-  }
-  return c.json(readPublicConfigWithPolicy());
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  return c.json(readLegacyConfig());
+});
+
+/** 禁止重新开启或修改第三方图床。 */
+app.put("/config", (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  return retiredResponse(c);
 });
 
 /**
- * PUT /api/image-hosting/config
- * 保存配置
- */
-app.put("/config", async (c) => {
-  const userId = c.req.header("X-User-Id") || "";
-  if (!isSystemAdmin(userId)) {
-    return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
-  }
-
-  const body = await c.req.json();
-  const input: WriteImageHostingConfigInput = {
-    enabled: body.enabled === true,
-    provider: body.provider || "s3-compatible",
-    endpoint: body.endpoint || "",
-    region: body.region || "auto",
-    bucket: body.bucket || "",
-    accessKeyId: body.accessKeyId || "",
-    secretAccessKey: body.secretAccessKey || undefined,
-    publicBaseUrl: body.publicBaseUrl || "",
-    pathPrefix: body.pathPrefix || "images",
-    usePathStyle: body.usePathStyle !== false,
-    maxFileSizeMb: body.maxFileSizeMb || 10,
-    allowedTypes: body.allowedTypes || ["image/png", "image/jpeg", "image/gif", "image/webp"],
-  };
-
-  writeImageHostingConfig(input);
-  writeImageHostingFallbackToLocal(body.fallbackToLocal !== false);
-  return c.json(readPublicConfigWithPolicy());
-});
-
-/**
- * DELETE /api/image-hosting/config
- * 删除配置
+ * 删除本机保存的旧配置。
+ * 不会访问或删除第三方 Bucket 中的任何对象。
  */
 app.delete("/config", (c) => {
-  const userId = c.req.header("X-User-Id") || "";
-  if (!isSystemAdmin(userId)) {
-    return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
-  }
-  deleteImageHostingConfig();
-  deleteImageHostingFallbackPolicy();
-  return c.json(readPublicConfigWithPolicy());
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = getDb();
+  db.prepare("DELETE FROM system_settings WHERE key = ?").run(CONFIG_KEY);
+  db.prepare("DELETE FROM system_settings WHERE key = ?").run(FALLBACK_KEY);
+  return c.json(readLegacyConfig());
 });
 
-/**
- * POST /api/image-hosting/test
- * 测试配置是否可用
- */
-app.post("/test", async (c) => {
-  const userId = c.req.header("X-User-Id") || "";
-  if (!isSystemAdmin(userId)) {
-    return c.json({ error: "需要管理员权限", code: "FORBIDDEN" }, 403);
-  }
-
-  const result = await testImageHostingConfig();
-  return c.json(result);
+app.post("/test", (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  return retiredResponse(c);
 });
 
-/**
- * POST /api/image-hosting/upload
- * 上传图片到第三方图床
- */
-app.post("/upload", async (c) => {
-  const userId = c.req.header("X-User-Id") || "";
-  if (!userId) {
-    return c.json({ error: "未登录", code: "UNAUTHORIZED" }, 401);
-  }
+/** 旧客户端即使直接调用上传接口，也不会再产生新的外部图床链接。 */
+app.post("/upload", (c) => retiredResponse(c));
 
-  // 检查图床是否启用
-  if (!isImageHostingEnabled()) {
-    return c.json({ error: "第三方图床未启用", code: "NOT_ENABLED" }, 400);
-  }
-
-  // 解析 multipart form data
-  const body = await c.req.parseBody();
-  const file = body["file"];
-  const source = (body["source"] as string) || "editor";
-
-  if (!file || !(file instanceof File)) {
-    return c.json({ error: "未上传文件", code: "NO_FILE" }, 400);
-  }
-
-  // 校验文件类型
-  const mime = (file.type || "application/octet-stream").toLowerCase();
-  if (!ALLOWED_MIMES.has(mime)) {
-    return c.json({ error: `不支持的文件类型: ${mime}`, code: "INVALID_TYPE" }, 400);
-  }
-
-  // 校验文件大小
-  if (file.size > MAX_FILE_SIZE) {
-    return c.json({ error: `文件过大（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, code: "FILE_TOO_LARGE" }, 400);
-  }
-
-  // 读取文件内容
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  // 上传到图床
-  const result = await uploadImageToHosting(buffer, file.name, mime);
-
-  if (!result.success) {
-    return c.json(result, 500);
-  }
-
-  return c.json({
-    success: true,
-    url: result.url,
-    filename: result.filename,
-    size: result.size,
-    mimeType: result.mimeType,
-    uploadSource: "third-party-image-hosting",
-    source,
-  });
-});
-
-/**
- * GET /api/image-hosting/status
- * 检查图床是否启用，并下发不含敏感信息的失败回退策略。
- */
-app.get("/status", (c) => {
-  return c.json({
-    enabled: isImageHostingEnabled(),
-    fallbackToLocal: readImageHostingFallbackToLocal(),
-  });
-});
+/** 所有客户端都会得到关闭状态，从上传入口统一走 Nowen 附件。 */
+app.get("/status", (c) =>
+  c.json({
+    enabled: false,
+    fallbackToLocal: true,
+    retired: true,
+  }),
+);
 
 export default app;
