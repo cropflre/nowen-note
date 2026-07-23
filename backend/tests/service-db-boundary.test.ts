@@ -18,7 +18,6 @@ const noteLinksRepositorySource = read("repositories/noteLinksRepository.ts");
 for (const [name, source] of [
   ["realtime", realtimeSource],
   ["attachment-storage", attachmentStorageSource],
-  ["attachment-reference", attachmentReferenceSource],
   ["note-links", noteLinksServiceSource],
 ] as const) {
   test(`${name} service keeps database access behind repositories`, () => {
@@ -34,9 +33,10 @@ test("attachment storage uses the shared system settings repository", () => {
   assert.match(attachmentStorageSource, /systemSettingsRepository\.delete\(SETTING_KEY\)/);
 });
 
-test("attachment reference service exposes SQLite-compatible and runtime paths", () => {
-  assert.match(attachmentReferenceSource, /attachmentReferencesRepository\.getNoteContentText\(noteId\)/);
+test("attachment reference service exposes a runtime PostgreSQL path", () => {
+  assert.match(attachmentReferenceSource, /export async function syncAttachmentReferencesForNoteAsync/);
   assert.match(attachmentReferenceSource, /attachmentReferencesRepository\.getNoteContentTextAsync\(noteId\)/);
+  assert.match(attachmentReferenceSource, /attachmentReferencesRepository\.updateNoteContentTextAsync\(noteId, nextContentText\)/);
   assert.match(attachmentReferenceSource, /syncReferencesAsync\(noteId, normalizedContent\)/);
   assert.match(attachmentReferencesRepositorySource, /getDatabaseAdapter/);
   assert.match(attachmentReferencesRepositorySource, /ON CONFLICT \("attachmentId", "noteId"\) DO NOTHING/);
