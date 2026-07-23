@@ -43,6 +43,7 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
     const { roundTripImportBatchesRepository: repository } = await import(
       "../src/repositories/roundTripImportBatchesRepository"
     );
+    const metadata = await import("../src/services/roundTripImportBatchMetadata");
 
     await repository.create({
       id: completedId,
@@ -53,7 +54,10 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
       packageKind: "nowen",
       sourceInstanceId: "source-instance",
       sourceExportBatchId: "export-batch",
-      previewJson: JSON.stringify({ counts: { notes: 1 } }),
+      previewJson: JSON.stringify({
+        counts: { notes: 1 },
+        warnings: [{ type: "preview" }],
+      }),
       undoStateJson: JSON.stringify({ version: 1 }),
       undoAvailable: true,
       undoUnavailableReason: null,
@@ -62,7 +66,11 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
 
     await repository.markCompleted({
       batchId: completedId,
-      resultJson: JSON.stringify({ success: true, counts: { notes: 1 } }),
+      resultJson: JSON.stringify({
+        success: true,
+        counts: { notes: 1 },
+        warnings: [{ type: "completed" }],
+      }),
       undoStateJson: JSON.stringify({ version: 1, ready: true }),
       undoAvailable: true,
       undoUnavailableReason: null,
@@ -76,14 +84,20 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
     assert.deepEqual(JSON.parse(completed?.resultJson || "{}"), {
       success: true,
       counts: { notes: 1 },
+      warnings: [{ type: "completed" }],
     });
 
-    const expired = await repository.findExpiredUndoIds(new Date().toISOString());
+    const expired = await metadata.cleanupExpiredRoundTripImportUndoMetadata();
     assert.ok(expired.includes(completedId));
-    await repository.markUndoExpired([completedId]);
-    const expiredRow = await repository.getByUserAndId(userId, completedId);
-    assert.equal(expiredRow?.undoAvailable, false);
-    assert.equal(expiredRow?.undoUnavailableReason, "撤销窗口已过期");
+
+    const detail = await metadata.getRoundTripImportBatchMetadata(userId, completedId);
+    assert.equal(detail?.id, completedId);
+    assert.equal(detail?.status, "completed");
+    assert.equal(detail?.undo.available, false);
+    assert.equal(detail?.undo.reason, "撤销窗口已过期");
+    assert.deepEqual(detail?.counts, { notes: 1 });
+    assert.equal(detail?.warningCount, 1);
+    assert.equal(detail?.errorCount, 0);
 
     await repository.create({
       id: failedId,
@@ -102,7 +116,7 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
     });
     await repository.markFailed(
       failedId,
-      JSON.stringify({ success: false }),
+      JSON.stringify({ success: false, errors: ["failed"] }),
       "failed safely",
     );
     await repository.setUndoError(failedId, "diagnostic");
@@ -113,12 +127,13 @@ test("PG round-trip import batch metadata uses the Runtime Repository", { skip }
     assert.equal(failed?.undoUnavailableReason, "failed safely");
     assert.equal(failed?.undoError, "diagnostic");
 
-    const personalRows = await repository.listByUser(userId, {
-      workspaceScope: "personal",
+    const summaries = await metadata.listRoundTripImportBatchMetadata(userId, {
+      workspaceId: null,
       limit: 10,
     });
-    assert.equal(personalRows.length, 2);
-    assert.deepEqual(new Set(personalRows.map((row) => row.id)), new Set([completedId, failedId]));
+    assert.equal(summaries.length, 2);
+    assert.deepEqual(new Set(summaries.map((row) => row.id)), new Set([completedId, failedId]));
+    assert.equal(summaries.find((row) => row.id === failedId)?.errorCount, 1);
 
     const allRows = await repository.listByUser(userId, { limit: 1 });
     assert.equal(allRows.length, 1);
