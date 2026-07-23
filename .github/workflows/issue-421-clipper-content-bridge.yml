@@ -52,8 +52,21 @@ jobs:
           cat clipper-tsc.log
           exit 1
       - name: Build Chrome extension
+        id: clipper-build
+        continue-on-error: true
         working-directory: packages/nowen-clipper
-        run: npm run build:chrome
+        run: npm run build:chrome 2>&1 | tee clipper-build.log
+      - uses: actions/upload-artifact@v4
+        if: steps.clipper-build.outcome == 'failure'
+        with:
+          name: issue-421-clipper-build
+          path: packages/nowen-clipper/clipper-build.log
+      - name: Validate Chrome build
+        if: steps.clipper-build.outcome == 'failure'
+        working-directory: packages/nowen-clipper
+        run: |
+          cat clipper-build.log
+          exit 1
       - name: Verify generated extension entries
         working-directory: packages/nowen-clipper
         run: |
