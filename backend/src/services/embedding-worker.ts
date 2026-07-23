@@ -34,7 +34,7 @@ import {
 } from "./vec-store";
 import { extractAttachmentText, chunkAttachmentText } from "./attachment-indexer";
 import { attachmentChunksRepository, embeddingQueueRepository } from "../repositories";
-import { getUserAISettings } from "./user-ai-settings";
+import { resolveEmbeddingConfig, type EmbeddingConfig } from "./embedding-config";
 
 // ====== 调参 ======
 const POLL_INTERVAL_MS = 5_000;          // 轮询间隔（无任务时）
@@ -62,35 +62,6 @@ let stopped = false;            // 是否已 stop（防止 tick 在 stop 后再�
 //   ai_embedding_model  — embedding 模型名，例如 "text-embedding-3-small"、"bge-m3"
 //                         留空 worker 直接 noop
 //   ai_embedding_key    — 单独 key，留空时回退到 ai_api_key
-interface EmbeddingConfig {
-  url: string;            // 已规范化（去尾斜杠）
-  model: string;
-  apiKey: string;         // 可空（Ollama 等本地模型）
-  provider: string;       // 透传 ai_provider，用于潜在 provider-specific 适配
-}
-
-function readEmbeddingConfig(userId: string): EmbeddingConfig | null {
-  const settings = getUserAISettings(userId);
-  const model = settings.ai_embedding_model.trim();
-  if (!model) return null;
-
-  const embeddingUrl = settings.ai_embedding_url.trim();
-  const apiUrl = settings.ai_api_url.trim();
-  const url = (embeddingUrl || apiUrl).replace(/\/+$/, "");
-  if (!url) return null;
-
-  const embeddingKey = settings.ai_embedding_key.trim();
-  const apiKey = embeddingKey || settings.ai_api_key.trim();
-  const provider = settings.ai_provider.trim();
-
-  // Ollama 是少数允许空 key 的 provider；其它 provider 一般必须给 key
-  if (!apiKey && provider !== "ollama") {
-    // 仍然返回配置，让 worker 尝试一次；如果接口确实需要 key 会以 401 失败标 failed
-    // 这样用户在 UI 上能看到具体错误，而不是"为啥 worker 一直不跑"
-  }
-
-  return { url, model, apiKey, provider };
-}
 
 // ============================================================
 // 文本切分（粗略版）
@@ -428,8 +399,8 @@ async function tick(): Promise<void> {
   try {
     const db = getDb();
 
-    // 只领取已配置 embedding 模型的用户任务；URL 的默认/回退规则统一由
-    // readEmbeddingConfig 处理，避免队列与查询路径对同一配置得出不同结论。
+    // Keep the previous URL pre-filter so invalid chat/custom configurations cannot occupy an
+    // entire batch. A fixed Profile ID is an additional eligible source and is validated below.
     const tasks = db.prepare(`
       SELECT q.noteId, q.userId, q.retries
       FROM embedding_queue q
@@ -442,6 +413,12 @@ async function tick(): Promise<void> {
         )
         AND (
           EXISTS (
+            SELECT 1 FROM user_ai_settings embedding_profile
+            WHERE embedding_profile.userId = q.userId
+              AND embedding_profile.key = 'ai_embedding_profile_id'
+              AND trim(embedding_profile.value) <> ''
+          )
+          OR EXISTS (
             SELECT 1 FROM user_ai_settings embedding_url
             WHERE embedding_url.userId = q.userId
               AND embedding_url.key = 'ai_embedding_url'
@@ -466,8 +443,17 @@ async function tick(): Promise<void> {
     if (tasks.length === 0) return;
 
     for (const task of tasks) {
-      const cfg = readEmbeddingConfig(task.userId);
-      if (!cfg) continue;
+      const resolution = resolveEmbeddingConfig(task.userId);
+      if (!resolution.config) {
+        embeddingQueueRepository.updateStatus(
+          task.noteId,
+          "failed",
+          MAX_RETRIES,
+          (resolution.error || "Embedding 配置不可用").slice(0, 500),
+        );
+        continue;
+      }
+      const cfg = resolution.config;
       embeddingQueueRepository.markProcessing(task.noteId);
       try {
         await processOne(db, cfg, task);
@@ -509,6 +495,12 @@ async function tickAttachments(): Promise<void> {
             )
             AND (
               EXISTS (
+                SELECT 1 FROM user_ai_settings embedding_profile
+                WHERE embedding_profile.userId = q.userId
+                  AND embedding_profile.key = 'ai_embedding_profile_id'
+                  AND trim(embedding_profile.value) <> ''
+              )
+              OR EXISTS (
                 SELECT 1 FROM user_ai_settings embedding_url
                 WHERE embedding_url.userId = q.userId
                   AND embedding_url.key = 'ai_embedding_url'
@@ -541,8 +533,16 @@ async function tickAttachments(): Promise<void> {
       "UPDATE attachment_embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE attachmentId = ?",
     );
     for (const task of tasks) {
-      const cfg = readEmbeddingConfig(task.userId);
-      if (!cfg) continue;
+      const resolution = resolveEmbeddingConfig(task.userId);
+      if (!resolution.config) {
+        db.prepare(
+          `UPDATE attachment_embedding_queue
+              SET status = 'failed', retries = ?, lastError = ?, updatedAt = datetime('now')
+            WHERE attachmentId = ?`,
+        ).run(MAX_RETRIES, (resolution.error || "Embedding 配置不可用").slice(0, 500), task.attachmentId);
+        continue;
+      }
+      const cfg = resolution.config;
       markProcessing.run(task.attachmentId);
       try {
         await processAttachmentOne(db, cfg, task);
@@ -792,7 +792,8 @@ export function getEmbeddingStats(opts: {
   vecDim: number | null;
 } {
   const db = getDb();
-  const cfg = readEmbeddingConfig(opts.userId);
+  const resolution = resolveEmbeddingConfig(opts.userId);
+  const cfg = resolution.config;
 
   const conds: string[] = [];
   const params: any[] = [];
@@ -933,7 +934,7 @@ export async function embedQuery(userId: string, text: string): Promise<number[]
   const t = (text || "").trim();
   if (t.length < 2) return null;
 
-  const cfg = readEmbeddingConfig(userId);
+  const cfg = resolveEmbeddingConfig(userId).config;
   if (!cfg) return null;
 
   try {

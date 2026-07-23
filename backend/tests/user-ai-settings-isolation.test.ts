@@ -92,6 +92,7 @@ test("service resolves chat and embedding settings by user", () => {
     ai_api_url: "https://api.openai.com/v1",
     ai_api_key: "key-a",
     ai_model: "model-a",
+    ai_embedding_profile_id: "",
     ai_embedding_url: "",
     ai_embedding_key: "",
     ai_embedding_model: "embed-a",
@@ -127,6 +128,7 @@ test("AI settings endpoints do not leak configuration across users", async () =>
       ai_api_url: "https://route-a.example/v1/",
       ai_api_key: "route-a-secret",
       ai_model: "route-a-model",
+      ai_embedding_profile_id: "route-a-embedding-profile",
     }),
   });
   assert.equal(updated.status, 200);
@@ -143,6 +145,8 @@ test("AI settings endpoints do not leak configuration across users", async () =>
 
   assert.equal(userABody.ai_api_url, "https://route-a.example/v1");
   assert.equal(userABody.ai_api_key_set, true);
+  assert.equal(userABody.ai_embedding_profile_id, "route-a-embedding-profile");
+  assert.equal(userBBody.ai_embedding_profile_id, "");
   assert.equal(userBBody.ai_api_url, "https://api.openai.com/v1");
   assert.equal(userBBody.ai_api_key_set, false);
   assert.equal(missingUser.status, 401);
