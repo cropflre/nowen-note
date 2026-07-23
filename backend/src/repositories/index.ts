@@ -63,6 +63,7 @@ export { notebookMembersRepository } from "./notebookMembersRepository";
 export { shareCommentsRepository } from "./shareCommentsRepository";
 export { diaryAttachmentsRepository } from "./diaryAttachmentsRepository";
 export { embeddingQueueRepository } from "./embeddingQueueRepository";
+export { roundTripPermissionMappingRepository } from "./roundTripPermissionMappingRepository";
 
 // 类型导出
 export type {
@@ -98,3 +99,8 @@ export type { MindmapSchemaDatabase } from "./mindmapSchemaRepository";
 export type { AiCustomPromptRecord } from "./aiCustomPromptsRepository";
 export type { UserAISetting } from "./userAISettingsRepository";
 export type { NoteVersionListItem, NoteVersionRecord } from "./noteVersionsRepository";
+export type {
+  RoundTripPermissionMemberRow,
+  RoundTripPermissionTargetUserRow,
+  RoundTripWorkspaceAccessRow,
+} from "./roundTripPermissionMappingRepository";
