@@ -6,9 +6,12 @@ on:
     paths:
       - "scripts/issue-348-task-order.mjs"
       - ".github/workflows/issue-348-task-order.yml"
+      - "frontend/src/components/TaskCenterImpl.tsx"
+      - "frontend/src/components/tasks/taskCompletionOrder.ts"
+      - "frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -16,6 +19,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -32,14 +37,12 @@ jobs:
       - name: Frontend typecheck
         working-directory: frontend
         run: npx tsc -b
-      - name: Prepare verified source artifact
+      - name: Commit verified implementation
         run: |
-          mkdir -p verified-output/frontend/src/components/tasks/__tests__
-          cp frontend/src/components/TaskCenterImpl.tsx verified-output/frontend/src/components/TaskCenterImpl.tsx
-          cp frontend/src/components/tasks/taskCompletionOrder.ts verified-output/frontend/src/components/tasks/taskCompletionOrder.ts
-          cp frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts verified-output/frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts
-      - uses: actions/upload-artifact@v4
-        with:
-          name: issue-348-verified-source
-          path: verified-output
-          if-no-files-found: error
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/TaskCenterImpl.tsx
+          git add frontend/src/components/tasks/taskCompletionOrder.ts
+          git add frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts
+          git commit -m "feat(tasks): move completed tasks below pending tasks"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
