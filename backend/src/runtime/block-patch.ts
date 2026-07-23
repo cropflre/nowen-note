@@ -200,9 +200,9 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Safe leaf and top-level structural patches can skip the legacy pre-patch DELETE + full
-      // reinsert when the persisted index is already a complete mirror of the current document.
-      // Any mismatch fails closed and falls back inside this same transaction.
+      // Safe leaf, top-level structural and proven mixed patches can skip the legacy pre-patch
+      // DELETE + full reinsert when the persisted index mirrors the current document. Any mismatch
+      // fails closed and falls back inside this same transaction.
       const incrementalBase = canUseIncrementalPatchIndexes(
         db,
         noteId,
@@ -245,7 +245,7 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
-      let indexUpdateKind: "leaf" | "structural" | "full" = "full";
+      let indexUpdateKind: "leaf" | "structural" | "mixed" | "full" = "full";
       let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
