@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
+import { RoundTripImportUndoError } from "../services/roundTripImportBatches";
 import {
-  getRoundTripImportBatch,
-  listRoundTripImportBatches,
-  RoundTripImportUndoError,
-} from "../services/roundTripImportBatches";
+  getRoundTripImportBatchMetadata,
+  listRoundTripImportBatchMetadata,
+} from "../services/roundTripImportBatchMetadata";
 import { undoRoundTripImportBatchWithLinks } from "../services/roundTripImportLinkUndo";
 import { broadcastToUser } from "../services/realtime";
 
@@ -15,21 +15,21 @@ function parseWorkspaceFilter(raw: string | undefined): string | null | undefine
   return raw === "personal" ? null : raw;
 }
 
-app.get("/", (c) => {
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const workspaceId = parseWorkspaceFilter(c.req.query("workspaceId"));
   const limit = Number(c.req.query("limit"));
   return c.json({
-    items: listRoundTripImportBatches(userId, {
+    items: await listRoundTripImportBatchMetadata(userId, {
       workspaceId,
       limit: Number.isFinite(limit) ? limit : undefined,
     }),
   });
 });
 
-app.get("/:id", (c) => {
+app.get("/:id", async (c) => {
   const userId = c.req.header("X-User-Id")!;
-  const item = getRoundTripImportBatch(userId, c.req.param("id"));
+  const item = await getRoundTripImportBatchMetadata(userId, c.req.param("id"));
   if (!item) return c.json({ error: "导入批次不存在", code: "IMPORT_BATCH_NOT_FOUND" }, 404);
   return c.json(item);
 });
@@ -37,7 +37,7 @@ app.get("/:id", (c) => {
 app.post("/:id/undo", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const batchId = c.req.param("id");
-  const existing = getRoundTripImportBatch(userId, batchId);
+  const existing = await getRoundTripImportBatchMetadata(userId, batchId);
   if (!existing) return c.json({ error: "导入批次不存在", code: "IMPORT_BATCH_NOT_FOUND" }, 404);
   if (
     existing.workspaceId
