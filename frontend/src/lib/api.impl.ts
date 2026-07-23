@@ -2166,39 +2166,6 @@ export const api = {
     return data;
   },
 
-  // Image Hosting
-  imageHosting: {
-    /** 获取图床配置（脱敏） */
-    getConfig: () => request<any>("/image-hosting/config"),
-    /** 保存图床配置 */
-    saveConfig: (config: any) => request<any>("/image-hosting/config", {
-      method: "PUT",
-      body: JSON.stringify(config),
-    }),
-    /** 删除图床配置 */
-    deleteConfig: () => request<any>("/image-hosting/config", { method: "DELETE" }),
-    /** 测试图床连接 */
-    test: () => request<{ ok: boolean; url?: string; error?: string }>("/image-hosting/test", { method: "POST" }),
-    /** 上传图片到图床 */
-    upload: async (file: File | Blob, source?: string) => {
-      const token = getToken();
-      const form = new FormData();
-      form.append("file", file);
-      if (source) form.append("source", source);
-      const res = await fetch(`${getBaseUrl()}/image-hosting/upload`, {
-        method: "POST",
-        credentials: "include",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: form,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      return data as { success: boolean; url: string; filename: string; size: number; mimeType: string; uploadSource: string };
-    },
-    /** 检查图床是否启用 */
-    getStatus: () => request<{ enabled: boolean }>("/image-hosting/status"),
-  },
-
   // Site Settings
   getSiteSettings: () =>
     request<{

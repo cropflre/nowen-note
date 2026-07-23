@@ -2388,29 +2388,6 @@
       "empty": "No content"
     }
   },
-  "imageHosting": {
-    "title": "Third-party Image Hosting",
-    "description": "Upload images to third-party storage services (S3, R2, MinIO) and get public URLs to embed in notes.",
-    "enabled": "Image hosting enabled",
-    "disabled": "Image hosting disabled",
-    "enableImageHosting": "Enable third-party image hosting",
-    "secretSet": "Set",
-    "secretPlaceholder": "Leave empty to keep unchanged",
-    "publicBaseUrlHint": "Public URL prefix for images, e.g. https://cdn.example.com",
-    "usePathStyle": "Use path style (required for MinIO, etc.)",
-    "maxFileSize": "Max file size (MB)",
-    "fallbackToLocal": "Fall back to local attachment storage on upload failure",
-    "save": "Save Configuration",
-    "testConnection": "Test Connection",
-    "deleteConfig": "Delete Configuration",
-    "configSaved": "Configuration saved",
-    "saveFailed": "Failed to save",
-    "testSuccess": "Connection test successful",
-    "testFailed": "Connection test failed",
-    "configDeleted": "Configuration deleted",
-    "deleteFailed": "Failed to delete",
-    "deleteConfirm": "Are you sure you want to delete the image hosting configuration? Local attachment storage will be used instead."
-  },
   "folderSync": {
     "title": "Folder Sync",
     "description": "Sync files from a local folder to your Nowen knowledge base. New or modified files will be imported as notes.",

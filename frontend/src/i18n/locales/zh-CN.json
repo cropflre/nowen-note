@@ -2552,29 +2552,6 @@
       "empty": "暂无内容"
     }
   },
-  "imageHosting": {
-    "title": "第三方图床",
-    "description": "将图片上传到第三方存储服务（如 S3、R2、MinIO），获取公开 URL 直接嵌入笔记。",
-    "enabled": "图床已启用",
-    "disabled": "图床未启用",
-    "enableImageHosting": "启用第三方图床",
-    "secretSet": "已设置",
-    "secretPlaceholder": "留空表示不修改",
-    "publicBaseUrlHint": "图片的公开访问地址前缀，如 https://cdn.example.com",
-    "usePathStyle": "使用路径风格（MinIO 等需要）",
-    "maxFileSize": "最大文件大小 (MB)",
-    "fallbackToLocal": "上传失败时回退到本地附件存储",
-    "save": "保存配置",
-    "testConnection": "测试连接",
-    "deleteConfig": "删除配置",
-    "configSaved": "配置已保存",
-    "saveFailed": "保存失败",
-    "testSuccess": "连接测试成功",
-    "testFailed": "连接测试失败",
-    "configDeleted": "配置已删除",
-    "deleteFailed": "删除失败",
-    "deleteConfirm": "确定要删除图床配置吗？删除后将使用本地附件存储。"
-  },
   "folderSync": {
     "title": "文件夹同步",
     "description": "将本地文件夹中的文件同步到 Nowen 知识库。选择文件夹后，新增或修改的文件将自动导入为笔记。",

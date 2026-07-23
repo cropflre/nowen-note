@@ -29,7 +29,6 @@ import taskCalendarRouter from "./routes/task-calendar";
 import habitsRouter from "./routes/habits";
 import folderSyncRouter from "./routes/folder-sync";
 import attachmentFoldersRouter from "./routes/attachment-folders";
-import imageHostingRouter from "./routes/image-hosting";
 import filesRouter from "./routes/files";
 import micloudRouter from "./routes/micloud";
 import oppoCloudRouter from "./routes/oppocloud";
@@ -521,7 +520,6 @@ app.route("/api/task-dependencies", taskDependenciesRouter);
 app.route("/api/task-calendar", taskCalendarRouter);
 app.route("/api/folder-sync", folderSyncRouter);
 app.route("/api/attachment-folders", attachmentFoldersRouter);
-app.route("/api/image-hosting", imageHostingRouter);
 app.route("/api/files", filesRouter);
 
 
