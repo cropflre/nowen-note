@@ -28,8 +28,23 @@ jobs:
         working-directory: packages/nowen-clipper
         run: npm test
       - name: Clipper TypeScript check
+        id: clipper-tsc
+        continue-on-error: true
         working-directory: packages/nowen-clipper
-        run: npm run lint
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee clipper-tsc.log
+      - uses: actions/upload-artifact@v4
+        if: steps.clipper-tsc.outcome == 'failure'
+        with:
+          name: issue-421-final-tsc
+          path: packages/nowen-clipper/clipper-tsc.log
+      - name: Validate TypeScript check
+        if: steps.clipper-tsc.outcome == 'failure'
+        working-directory: packages/nowen-clipper
+        run: |
+          cat clipper-tsc.log
+          exit 1
       - name: Build Chrome extension
         working-directory: packages/nowen-clipper
         run: npm run build:chrome
