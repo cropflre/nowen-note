@@ -62,6 +62,11 @@
       "reason": "WeChat favorites import is a data migration/import path and is intentionally owned by the SQLite-to-PostgreSQL migration tooling stage.",
       "counts": { "getDb-call": 1 }
     },
+    "runtime/embedding-queue-hardening.ts": {
+      "owner": "#252",
+      "reason": "Main added SQLite-only startup and lease recovery for embedding queues. The hardened entrypoint loads it only after selecting SQLite; PostgreSQL mode never evaluates this module. Cross-driver queue recovery belongs to the #252 search/vector redesign.",
+      "counts": { "getDb-call": 3, "prepare-call": 7, "transaction-call": 2 }
+    },
     "services/attachment-reference.ts": {
       "owner": "#249",
       "reason": "The synchronous path remains inside noteTransfer's SQLite transaction. A PostgreSQL Runtime async path now exists, but the legacy exception cannot be removed until the whole transfer transaction is migrated.",
