@@ -43,6 +43,7 @@ export type TiptapBlockPatchOperation =
     }
   | {
       type: "move";
+      scope?: undefined;
       blockId: string;
       targetBlockId: string;
       position?: "before" | "after";
@@ -204,7 +205,7 @@ function validateOperation(operation: any, index: number): asserts operation is 
   if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 必须是对象`);
   }
-  if (!["create", "update", "replace", "delete", "move", "moveListItem"].includes(operation.type)) {
+  if (!["create", "update", "replace", "delete", "move"].includes(operation.type)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].type 无效`);
   }
 
@@ -249,17 +250,20 @@ function validateOperation(operation: any, index: number): asserts operation is 
     }
     return;
   }
-  if (operation.type === "move" || operation.type === "moveListItem") {
+  if (operation.type === "move") {
     if (!validBlockId(operation.targetBlockId)) {
       throw new TiptapBlockPatchError("INVALID_BLOCK_ID", `operations[${index}].targetBlockId 无效`);
     }
-    const allowedPositions = operation.type === "moveListItem"
-      ? ["before", "after", "inside"]
-      : ["before", "after"];
-    if (
-      operation.position == null
-      || !allowedPositions.includes(operation.position)
-    ) {
+    if (operation.scope === "listItem") {
+      if (!["before", "after", "inside"].includes(operation.position)) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].position 无效`);
+      }
+      return;
+    }
+    if (operation.scope != null) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].scope 无效`);
+    }
+    if (operation.position != null && !["before", "after"].includes(operation.position)) {
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].position 无效`);
     }
   }
@@ -332,7 +336,7 @@ export function applyTiptapBlockPatch(
       return;
     }
 
-    if (operation.type === "moveListItem") {
+    if (operation.type === "move" && operation.scope === "listItem") {
       try {
         affectedBlockIds.push(...applyTiptapListItemMove(doc, operation));
       } catch (error) {
