@@ -258,11 +258,17 @@ test("falls back to a full rebuild when the existing index is stale", async () =
   assert.equal(indexRow(noteId, otherBlockId)?.plainText, "Unchanged");
 });
 
-test("keeps structural create operations on the full rebuild path", async () => {
+test("indexes a top-level structural create incrementally and preserves the anchor row", async () => {
   const noteId = "55555555-5555-4555-8555-555555555555";
   const firstBlockId = "blk_struct01";
   const createdBlockId = "blk_struct02";
   insertNote(noteId, tiptap(paragraph(firstBlockId, "First")));
+
+  const sentinel = "2003-03-03 00:00:00";
+  db.prepare(`
+    UPDATE note_blocks_index SET createdAt = ?, updatedAt = ?
+    WHERE noteId = ? AND blockId = ?
+  `).run(sentinel, sentinel, noteId, firstBlockId);
 
   const response = await patch(noteId, {
     expectedNoteVersion: 1,
@@ -279,6 +285,9 @@ test("keeps structural create operations on the full rebuild path", async () => 
 
   assert.equal(response.status, 200);
   const payload = await response.json() as any;
-  assert.equal(payload.indexUpdateMode, "full");
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.deepEqual(payload.indexedBlockIds, [createdBlockId]);
   assert.equal(indexRow(noteId, createdBlockId)?.plainText, "Created");
+  assert.equal(indexRow(noteId, firstBlockId)?.createdAt, sentinel);
+  assert.equal(indexRow(noteId, firstBlockId)?.updatedAt, sentinel);
 });
