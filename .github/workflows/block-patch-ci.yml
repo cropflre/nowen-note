@@ -6,17 +6,23 @@ on:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
+      - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
+      - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
+      - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "docs/block-patch-api.md"
       - ".github/workflows/block-patch-ci.yml"
@@ -24,17 +30,23 @@ on:
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/tiptapBlockPatch.ts"
+      - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
+      - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
+      - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
       - "frontend/src/lib/blockPatchApi.ts"
+      - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/tiptapBlockPatchPlanner.ts"
       - "frontend/src/lib/tiptapBlockPatchRuntime.ts"
       - "frontend/src/lib/__tests__/blockPatchApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "docs/block-patch-api.md"
       - ".github/workflows/block-patch-ci.yml"
@@ -61,7 +73,9 @@ jobs:
         run: >-
           node --import tsx --test
           tests/tiptap-block-patch.test.ts
+          tests/tiptap-block-patch-v2.test.ts
           tests/block-patch-route.test.ts
+          tests/block-patch-route-v2.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 
@@ -84,8 +98,10 @@ jobs:
           npm run test:run --
           src/lib/__tests__/blockPatchApi.test.ts
           src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
+          src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
           src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
+          src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b

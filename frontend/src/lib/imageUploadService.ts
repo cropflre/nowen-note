@@ -67,9 +67,8 @@ function failedResult(prefix: string, error: unknown): ImageUploadResult {
 /**
  * 统一图片上传。
  *
- * 第三方图床已经退役。所有新图片都先成为 Nowen 附件，再由服务端的附件存储驱动
- * 决定二进制实际写入本地磁盘、S3、R2 或 MinIO。这样图片始终拥有附件记录、权限、
- * 哈希、备份和迁移关系，不再把公开外链当作笔记资产。
+ * 所有图片都会先成为 Nowen 附件，再由服务端的附件存储驱动决定二进制实际写入
+ * 本地磁盘、S3、R2 或 MinIO。图片始终拥有附件记录、权限、哈希、备份和迁移关系。
  */
 export async function uploadImage(options: ImageUploadOptions): Promise<ImageUploadResult> {
   const { file, filename, noteId } = options;

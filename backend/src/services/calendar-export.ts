@@ -2,7 +2,7 @@
  * 日历 ICS 镜像导出到 S3 服务
  *
  * 支持将任务日历 ICS 文件上传到 S3 兼容对象存储。
- * 复用 image-hosting.ts 的 S3 签名逻辑，不新增 AWS SDK。
+ * 使用内置的轻量 S3 签名逻辑，不新增 AWS SDK。
  */
 
 import crypto from "crypto";
@@ -62,12 +62,12 @@ export interface CalendarExportTargetPublic {
   updatedAt: string;
 }
 
-// ====== 加密工具（复用 image-hosting.ts 逻辑） ======
+// ====== 加密工具 ======
 
 function getEncryptionKeySource(): { key: string; source: string } {
-  const dedicatedKey = process.env.IMAGE_HOSTING_ENCRYPTION_KEY;
+  const dedicatedKey = process.env.CALENDAR_EXPORT_ENCRYPTION_KEY;
   if (dedicatedKey) {
-    return { key: dedicatedKey, source: "IMAGE_HOSTING_ENCRYPTION_KEY" };
+    return { key: dedicatedKey, source: "CALENDAR_EXPORT_ENCRYPTION_KEY" };
   }
 
   const jwtSecret = process.env.JWT_SECRET;
@@ -78,13 +78,13 @@ function getEncryptionKeySource(): { key: string; source: string } {
   const isProduction = process.env.NODE_ENV === "production";
   if (isProduction) {
     throw new Error(
-      "[calendar-export] Production environment requires IMAGE_HOSTING_ENCRYPTION_KEY or JWT_SECRET. " +
+      "[calendar-export] Production environment requires CALENDAR_EXPORT_ENCRYPTION_KEY or JWT_SECRET. " +
       "Please set one of these environment variables before using calendar export."
     );
   }
 
   console.warn(
-    "[calendar-export] Neither IMAGE_HOSTING_ENCRYPTION_KEY nor JWT_SECRET is set. " +
+    "[calendar-export] Neither CALENDAR_EXPORT_ENCRYPTION_KEY nor JWT_SECRET is set. " +
     "Using development fallback key. This is NOT safe for production."
   );
   return { key: "nowen-note-dev-fallback-key-not-for-production", source: "development-fallback" };
