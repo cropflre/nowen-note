@@ -1247,6 +1247,7 @@ function formatDataDirError(error) {
     TARGET_IS_CURRENT: "该目录就是默认数据目录，无需额外选择。",
     TARGET_INSIDE_CURRENT: "新目录不能放在默认数据目录内部。",
     TARGET_IS_ROOT: "不能选择磁盘根目录。",
+    TARGET_INSIDE_SYSTEM: "不能选择 Program Files 等系统安装目录。",
     TARGET_INSIDE_APP: "不能选择应用安装目录或资源目录。",
     TARGET_NOT_DIRECTORY: "目标路径不是文件夹。",
     TARGET_NOT_EMPTY: "目标目录非空，请选择空目录或已有 nowen-note 数据目录。",
