@@ -107,7 +107,7 @@ describe("Tiptap controlled list item structure planner", () => {
     });
   });
 
-  it("rejects item splitting, nested item creation and final-item deletion", () => {
+  it("rejects splits, nested creation, conflicting IDs and final-item deletion", () => {
     const splitBase = doc([list("bulletList", [
       item("blk_item_a0", "blk_para_a0", "Alpha Beta"),
     ])]);
@@ -130,6 +130,17 @@ describe("Tiptap controlled list item structure planner", () => {
       ),
     ])]);
     expect(planTiptapBlockPatch(nestedBase, nestedNext)).toBeNull();
+
+    const conflictingParagraph = doc([list("bulletList", [
+      item("blk_item_a0", "blk_para_a0", "A"),
+      item("blk_item_b0", "blk_para_a0", "B"),
+    ])]);
+    expect(planTiptapBlockPatch(nestedBase, conflictingParagraph)).toBeNull();
+
+    const malformedTaskList = doc([list("taskList", [
+      item("blk_item_b0", "blk_para_b0", "Wrong item type"),
+    ])]);
+    expect(planTiptapBlockPatch(nestedBase, malformedTaskList)).toBeNull();
 
     const finalNext = doc([paragraph("blk_empty000", "")]);
     expect(planTiptapBlockPatch(splitBase, finalNext)).toBeNull();
