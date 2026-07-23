@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   importRemoteImageForNote,
   RemoteImageError,
@@ -17,7 +17,7 @@ import wechatFavoritesImportRouter from "./wechat-favorites-import";
 
 const router = new Hono();
 
-async function readJsonBody(c: Parameters<typeof router.post>[1] extends (context: infer C) => unknown ? C : never) {
+async function readJsonBody(c: Context): Promise<Record<string, unknown> | null> {
   try {
     return await c.req.json() as Record<string, unknown>;
   } catch {
@@ -25,7 +25,7 @@ async function readJsonBody(c: Parameters<typeof router.post>[1] extends (contex
   }
 }
 
-function localizationErrorResponse(c: any, error: unknown) {
+function localizationErrorResponse(c: Context, error: unknown) {
   if (error instanceof LocalizationJobError || error instanceof RemoteImageError) {
     return c.json({ error: error.message, code: error.code }, error.status);
   }
