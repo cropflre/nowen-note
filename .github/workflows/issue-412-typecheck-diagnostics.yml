@@ -1,0 +1,50 @@
+name: Issue 412 Typecheck Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-412-typecheck-diagnostics.yml"
+      - "scripts/issue-412-embedding-profile.mjs"
+      - "scripts/issue-412-worker-eligibility.mjs"
+      - "backend/**"
+      - "frontend/**"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply implementation
+        run: |
+          node scripts/issue-412-embedding-profile.mjs
+          node scripts/issue-412-worker-eligibility.mjs
+      - name: Install backend
+        working-directory: backend
+        run: npm ci --silent
+      - name: Capture backend typecheck
+        working-directory: backend
+        run: npm run build:tsc > ../backend-typecheck.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-412-backend-typecheck
+          path: backend-typecheck.log
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Capture frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b > ../frontend-typecheck.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-412-frontend-typecheck
+          path: frontend-typecheck.log
