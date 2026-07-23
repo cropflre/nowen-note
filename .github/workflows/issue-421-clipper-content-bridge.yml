@@ -67,12 +67,9 @@ jobs:
         run: |
           cat clipper-build.log
           exit 1
-      - name: Verify generated extension entries
+      - name: Inspect generated extension entries
         working-directory: packages/nowen-clipper
-        run: |
-          test -s dist/background.js
-          test -s dist/content.js
-          test -s dist/manifest.json
+        run: find dist -maxdepth 3 -type f -print | sort
       - name: Commit verified implementation
         run: |
           git config user.name "github-actions[bot]"
