@@ -50,6 +50,11 @@ async function patch(noteId: string, body: unknown) {
   });
 }
 
+function countRows(sql: string, value: string): number {
+  const row = db.prepare(sql).get(value) as { c: number } | undefined;
+  return row?.c ?? 0;
+}
+
 test.before(async () => {
   const [schema, noteBlocks] = await Promise.all([
     import("../src/db/schema"),
@@ -181,7 +186,9 @@ test("rejects an unsafe rich replacement before content, history or idempotency 
   const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
   assert.equal(stored.content, original);
   assert.equal(stored.version, 1);
-  assert.equal(db.prepare("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?").get(noteId).c, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS c FROM block_operations WHERE operationId = ?")
-    .get("block-patch-v2-unsafe-route").c, 0);
+  assert.equal(countRows("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?", noteId), 0);
+  assert.equal(countRows(
+    "SELECT COUNT(*) AS c FROM block_operations WHERE operationId = ?",
+    "block-patch-v2-unsafe-route",
+  ), 0);
 });
