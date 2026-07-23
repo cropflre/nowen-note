@@ -34,12 +34,14 @@ export type BlockPatchOperation =
     }
   | {
       type: "move";
+      scope?: undefined;
       blockId: string;
       targetBlockId: string;
       position?: "before" | "after";
     }
   | {
-      type: "moveListItem";
+      type: "move";
+      scope: "listItem";
       blockId: string;
       targetBlockId: string;
       position: "before" | "after" | "inside";
