@@ -9,6 +9,10 @@ import {
   planIncrementalPatchIndexes,
 } from "../lib/blockPatchIncrementalIndexes.js";
 import {
+  canUseIncrementalListMoveIndexes,
+  planIncrementalListMoveIndexes,
+} from "../lib/blockPatchListIncrementalIndexes.js";
+import {
   ensureNoteBlockTables,
   getNoteBlock,
   plainTextFromNoteContent,
@@ -200,15 +204,22 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Safe leaf, top-level structural and proven mixed patches can skip the legacy pre-patch
-      // DELETE + full reinsert when the persisted index mirrors the current document. Any mismatch
-      // fails closed and falls back inside this same transaction.
-      const incrementalBase = canUseIncrementalPatchIndexes(
+      // Safe leaf, top-level structural, proven mixed, and one controlled list-subtree move can skip
+      // the legacy pre-patch DELETE + full reinsert when the persisted index mirrors the document.
+      // Any mismatch fails closed and falls back inside this same transaction.
+      const listIncrementalBase = canUseIncrementalListMoveIndexes(
         db,
         noteId,
         note.content,
         operations,
       );
+      const genericIncrementalBase = !listIncrementalBase && canUseIncrementalPatchIndexes(
+        db,
+        noteId,
+        note.content,
+        operations,
+      );
+      const incrementalBase = listIncrementalBase || genericIncrementalBase;
       const normalizedBefore = incrementalBase
         ? {
             content: note.content,
@@ -218,9 +229,12 @@ async function patchBlocks(c: Context) {
           }
         : syncNoteBlocks(db, noteId, note.content, note.contentFormat);
       const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
-      const incrementalPlan = incrementalBase
-        ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
+      const listIncrementalPlan = listIncrementalBase
+        ? planIncrementalListMoveIndexes(db, noteId, patch.content, operations)
         : null;
+      const incrementalPlan = listIncrementalPlan ?? (genericIncrementalBase
+        ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
+        : null);
       const contentText = incrementalPlan?.contentText
         ?? plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
@@ -245,12 +259,12 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
-      let indexUpdateKind: "leaf" | "structural" | "mixed" | "full" = "full";
+      let indexUpdateKind: "leaf" | "structural" | "mixed" | "list-subtree" | "full" = "full";
       let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
         indexUpdateMode = "incremental";
-        indexUpdateKind = incrementalPlan.kind;
+        indexUpdateKind = listIncrementalPlan ? "list-subtree" : incrementalPlan.kind;
         indexedBlockIds = incrementalPlan.indexedBlockIds;
       } else {
         const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);

@@ -45,6 +45,11 @@ describe("Tiptap Block Patch rollout", () => {
     expect(shouldRetryTiptapBlockPatch(invalidNode)).toBe(false);
     expect(shouldFallbackTiptapBlockPatchToWholeSave(invalidNode)).toBe(true);
 
+    const invalidListMove = new BlockPatchRequestError("invalid list move");
+    invalidListMove.code = "LIST_MOVE_INVALID";
+    expect(shouldRetryTiptapBlockPatch(invalidListMove)).toBe(false);
+    expect(shouldFallbackTiptapBlockPatchToWholeSave(invalidListMove)).toBe(true);
+
     const conflict = new BlockPatchRequestError("conflict");
     conflict.code = "VERSION_CONFLICT";
     expect(shouldFallbackTiptapBlockPatchToWholeSave(conflict)).toBe(false);

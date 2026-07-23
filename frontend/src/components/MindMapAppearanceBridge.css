@@ -1,0 +1,38 @@
+html[data-nowen-mindmap-node-style="minimal"] [data-mindmap-node-id]:not([data-mindmap-node-id="root"]) {
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: 4px !important;
+  color: rgb(55, 65, 81) !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+
+html[data-nowen-mindmap-node-style="minimal"] [data-mindmap-node-id]:not([data-mindmap-node-id="root"]):not(.ring-2):not([style*="59, 130, 246"]) {
+  box-shadow: none !important;
+}
+
+html[data-nowen-mindmap-node-style="minimal"] [data-mindmap-node-id]:not([data-mindmap-node-id="root"]):hover {
+  background: rgba(15, 23, 42, 0.045) !important;
+}
+
+.dark[data-nowen-mindmap-node-style="minimal"] [data-mindmap-node-id]:not([data-mindmap-node-id="root"]):hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+html[data-nowen-mindmap-node-style="minimal"] svg[data-nowen-mindmap-minimap="true"] rect:not(:last-of-type) {
+  stroke: transparent !important;
+}
+
+@media (max-width: 767px) {
+  [data-mindmap-appearance-control="true"] {
+    display: flex !important;
+    position: fixed;
+    right: 12px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 45;
+  }
+}
+
+.dark[data-nowen-mindmap-node-style="minimal"] [data-mindmap-node-id]:not([data-mindmap-node-id="root"]) {
+  color: rgb(228, 228, 231) !important;
+}

@@ -22,7 +22,7 @@ import {
   createBlockPatchOperationId,
   patchTiptapBlocks,
 } from "@/lib/blockPatchApi";
-import { planTiptapBlockPatch } from "@/lib/tiptapBlockPatchPlanner";
+import { planTiptapBlockPatch } from "@/lib/tiptapBlockPatchPlannerRuntime";
 import {
   resolveTiptapBlockPatchEnabled,
   shouldFallbackTiptapBlockPatchToWholeSave,

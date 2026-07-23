@@ -36,7 +36,7 @@ interface TopLevelBlock {
 
 export interface TiptapBlockPatchPlan {
   operations: BlockPatchOperation[];
-  kind: "top-level-structural" | "text-only" | "node-replace";
+  kind: "top-level-structural" | "empty-document" | "text-only" | "node-replace";
   affectedBlockIds: string[];
 }
 
@@ -125,6 +125,38 @@ function uniqueTopLevelBlocks(nodes: JsonNode[]): TopLevelBlock[] | null {
     blocks.push({ id, type, node, normalized, simple: asSimpleBlock(node) });
   }
   return blocks;
+}
+
+function isUnidentifiedEmptyDocument(doc: JsonNode): boolean {
+  const nodes = Array.isArray(doc.content) ? doc.content : [];
+  if (nodes.length === 0) return true;
+  if (nodes.length !== 1) return false;
+
+  const node = nodes[0];
+  if (!node || node.type !== "paragraph" || validBlockId(node.attrs?.blockId)) return false;
+  const attrs = normalizedAttrs(node);
+  if (!Object.values(attrs).every(isDefaultValue)) return false;
+  const content = Array.isArray(node.content) ? node.content : [];
+  return content.every((child) => (
+    child?.type === "text"
+    && (child.text || "") === ""
+    && (!Array.isArray(child.marks) || child.marks.length === 0)
+  ));
+}
+
+function planEmptyDocumentReset(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
+  if (!isUnidentifiedEmptyDocument(nextDoc)) return null;
+  const base = uniqueTopLevelBlocks(baseDoc.content || []);
+  if (!base || base.length === 0 || base.length > 100) return null;
+  const operations: BlockPatchOperation[] = base.map((block) => ({
+    type: "delete",
+    blockId: block.id,
+  }));
+  return {
+    operations,
+    kind: "empty-document",
+    affectedBlockIds: base.map((block) => block.id),
+  };
 }
 
 function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
@@ -337,7 +369,8 @@ export function planTiptapBlockPatch(
   const baseDoc = parseDocument(baseContent);
   const nextDoc = parseDocument(nextContent);
   if (!baseDoc || !nextDoc) return null;
-  return planTopLevelStructural(baseDoc, nextDoc)
+  return planEmptyDocumentReset(baseDoc, nextDoc)
+    || planTopLevelStructural(baseDoc, nextDoc)
     || planTextOnly(baseDoc, nextDoc)
     || planNodeReplacements(baseDoc, nextDoc);
 }

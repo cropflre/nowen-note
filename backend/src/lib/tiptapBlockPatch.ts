@@ -5,6 +5,11 @@ import {
   type NoteBlockType,
 } from "./noteBlocks.js";
 import {
+  applyTiptapListItemMove,
+  TiptapListItemMoveError,
+  type TiptapListItemMoveOperation,
+} from "./tiptapListItemMove.js";
+import {
   normalizeTiptapReplacementNode,
   TiptapBlockNodeValidationError,
   type TiptapPatchJsonNode,
@@ -38,10 +43,12 @@ export type TiptapBlockPatchOperation =
     }
   | {
       type: "move";
+      scope?: undefined;
       blockId: string;
       targetBlockId: string;
       position?: "before" | "after";
-    };
+    }
+  | TiptapListItemMoveOperation;
 
 export interface TiptapBlockPatchResult {
   content: string;
@@ -59,6 +66,7 @@ export class TiptapBlockPatchError extends Error {
       | "BLOCK_NOT_FOUND"
       | "BLOCK_MOVE_PARENT_MISMATCH"
       | "BLOCK_MOVE_SELF"
+      | "LIST_MOVE_INVALID"
       | "INVALID_TIPTAP_DOCUMENT",
     message: string,
   ) {
@@ -246,6 +254,15 @@ function validateOperation(operation: any, index: number): asserts operation is 
     if (!validBlockId(operation.targetBlockId)) {
       throw new TiptapBlockPatchError("INVALID_BLOCK_ID", `operations[${index}].targetBlockId 无效`);
     }
+    if (operation.scope === "listItem") {
+      if (!["before", "after", "inside"].includes(operation.position)) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].position 无效`);
+      }
+      return;
+    }
+    if (operation.scope != null) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].scope 无效`);
+    }
     if (operation.position != null && !["before", "after"].includes(operation.position)) {
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].position 无效`);
     }
@@ -316,6 +333,18 @@ export function applyTiptapBlockPatch(
         clientId: operation.clientId || null,
         blockId,
       });
+      return;
+    }
+
+    if (operation.type === "move" && operation.scope === "listItem") {
+      try {
+        affectedBlockIds.push(...applyTiptapListItemMove(doc, operation));
+      } catch (error) {
+        const message = error instanceof TiptapListItemMoveError
+          ? error.message
+          : "列表层级移动无效";
+        throw new TiptapBlockPatchError("LIST_MOVE_INVALID", message);
+      }
       return;
     }
 

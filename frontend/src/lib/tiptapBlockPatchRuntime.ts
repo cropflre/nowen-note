@@ -1,5 +1,6 @@
 import type { EditorRuntimeMode } from "@/lib/editorRuntimePolicy";
 import { BlockPatchRequestError } from "@/lib/blockPatchApi";
+import "@/lib/tiptapEmptyBlockIdentityDispatch";
 
 export const TIPTAP_BLOCK_PATCH_OVERRIDE_KEY = "nowen.tiptap_block_patch_v1";
 
@@ -37,6 +38,7 @@ export function shouldFallbackTiptapBlockPatchToWholeSave(error: unknown): boole
     "BLOCK_NOT_FOUND",
     "BLOCK_MOVE_SELF",
     "BLOCK_MOVE_PARENT_MISMATCH",
+    "LIST_MOVE_INVALID",
     "INVALID_TIPTAP_DOCUMENT",
   ].includes(error.code || "");
 }
