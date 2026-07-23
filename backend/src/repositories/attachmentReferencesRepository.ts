@@ -79,6 +79,7 @@ export function createAttachmentReferencesRepository(
     },
 
     // ---- 异步方法（Runtime Adapter / SQLite + PostgreSQL） ----
+    // 调用方负责更高层事务；Repository 不在这里开启嵌套事务。
 
     async listByNoteIdAsync(noteId: string): Promise<string[]> {
       const rows = await getAdapter().queryMany<{ attachmentId: string }>(
