@@ -19,6 +19,11 @@ const INDEXED_BLOCK_TYPES = new Set([
 const NOTE_LINK_RE = /\[\[note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:#blk:([a-zA-Z0-9_-]+))?(?:\|([^\]]*))?\]\]/g;
 const NOTE_HREF_RE = /note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:#blk:([a-zA-Z0-9_-]+))?/g;
 
+type LeafPatchOperation = Extract<
+  TiptapBlockPatchOperation,
+  { type: "update" | "replace" }
+>;
+
 interface ExistingIndexRow {
   blockId: string;
   blockType: string;
@@ -255,7 +260,9 @@ function extractLinksFromLeaf(node: any, sourceBlockId: string, plainText: strin
   return links;
 }
 
-function isLeafOnlyPatch(operations: TiptapBlockPatchOperation[]): boolean {
+function isLeafOnlyPatch(
+  operations: TiptapBlockPatchOperation[],
+): operations is LeafPatchOperation[] {
   return operations.length > 0 && operations.every(
     (operation) => operation.type === "update" || operation.type === "replace",
   );
