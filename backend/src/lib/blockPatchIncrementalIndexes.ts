@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type Database from "better-sqlite3";
 
+import type { NoteLinkEntry } from "../repositories/types.js";
 import type { NoteBlockIndexRow, NoteBlockType } from "./noteBlocks.js";
 import type { TiptapBlockPatchOperation } from "./tiptapBlockPatch.js";
-import type { NoteLinkEntry } from "../repositories/types.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const LEAF_BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
@@ -45,7 +45,10 @@ export interface IncrementalPatchIndexPlan {
   contentText: string;
   affectedRows: NoteBlockIndexRow[];
   links: NoteLinkEntry[];
-  affectedBlockIds: string[];
+  /** Rows rewritten in note_blocks_index, including indexed ancestors with aggregate text. */
+  indexedBlockIds: string[];
+  /** Source Block rows whose note_links entries are replaced. */
+  linkBlockIds: string[];
 }
 
 function validBlockId(value: unknown): value is string {
@@ -157,17 +160,26 @@ function structuresMatch(
     const previous = existingById.get(row.blockId);
     if (!previous) return false;
     if (
-      previous.blockType !== row.blockType
-      || previous.parentBlockId !== row.parentBlockId
+      previous.parentBlockId !== row.parentBlockId
       || previous.blockOrder !== row.blockOrder
       || previous.path !== row.path
     ) {
       return false;
     }
     if (!ignoredContentIds.has(row.blockId) && (
-      previous.contentHash !== row.contentHash
+      previous.blockType !== row.blockType
+      || previous.contentHash !== row.contentHash
       || previous.plainText !== row.plainText
     )) {
+      return false;
+    }
+    // Only top-level safe leaf replacements may change block type. Nested replacements are already
+    // rejected by the patch engine, and this check keeps the index planner fail-closed as well.
+    if (
+      ignoredContentIds.has(row.blockId)
+      && previous.blockType !== row.blockType
+      && row.parentBlockId !== null
+    ) {
       return false;
     }
   }
@@ -249,6 +261,20 @@ function isLeafOnlyPatch(operations: TiptapBlockPatchOperation[]): boolean {
   );
 }
 
+function collectIndexedAncestors(analysis: TiptapAnalysis, leafBlockIds: string[]): string[] {
+  const output = new Set<string>();
+  for (const leafBlockId of leafBlockIds) {
+    let current: string | null = leafBlockId;
+    while (current && !output.has(current)) {
+      output.add(current);
+      current = analysis.byId.get(current)?.row.parentBlockId || null;
+    }
+  }
+  return analysis.blocks
+    .map(({ row }) => row.blockId)
+    .filter((blockId) => output.has(blockId));
+}
+
 /**
  * Check whether the persisted Block index is a complete structural mirror of the current Tiptap
  * document. This intentionally fails closed: a stale/missing/duplicate ID forces full normalization.
@@ -281,23 +307,24 @@ export function planIncrementalPatchIndexes(
   if (!isLeafOnlyPatch(operations)) return null;
   const analysis = analyzeTiptap(noteId, content);
   if (!analysis) return null;
-  const affectedBlockIds = [...new Set(operations.map((operation) => operation.blockId))];
-  const affected = new Set(affectedBlockIds);
+  const linkBlockIds = [...new Set(operations.map((operation) => operation.blockId))];
 
-  for (const blockId of affectedBlockIds) {
+  for (const blockId of linkBlockIds) {
     const block = analysis.byId.get(blockId);
     if (!block || !LEAF_BLOCK_TYPES.has(block.row.blockType)) return null;
   }
-  if (!structuresMatch(loadExistingRows(db, noteId), analysis, affected)) return null;
+  const indexedBlockIds = collectIndexedAncestors(analysis, linkBlockIds);
+  const ignoredContentIds = new Set(indexedBlockIds);
+  if (!structuresMatch(loadExistingRows(db, noteId), analysis, ignoredContentIds)) return null;
 
-  const links = affectedBlockIds.flatMap((blockId) => {
+  const links = linkBlockIds.flatMap((blockId) => {
     const block = analysis.byId.get(blockId) as AnalyzedBlock;
     return extractLinksFromLeaf(block.node, blockId, block.row.plainText)
       .filter((link) => !(link.targetNoteId === noteId.toLowerCase() && !link.targetBlockId));
   });
 
-  // Filter inaccessible/nonexistent targets using the same existence rule as full link sync. ACL is
-  // checked when backlinks are read; this avoids leaking targets while preserving source metadata.
+  // Filter nonexistent targets using the same existence rule as full link sync. ACL is checked when
+  // backlinks are read, so this does not disclose private targets to the patching client.
   const targetExists = db.prepare("SELECT id FROM notes WHERE id = ?");
   const validLinks = links.filter((link) => Boolean(targetExists.get(link.targetNoteId)));
   void userId;
@@ -305,9 +332,10 @@ export function planIncrementalPatchIndexes(
   return {
     mode: "incremental",
     contentText: analysis.contentText,
-    affectedRows: affectedBlockIds.map((blockId) => (analysis.byId.get(blockId) as AnalyzedBlock).row),
+    affectedRows: indexedBlockIds.map((blockId) => (analysis.byId.get(blockId) as AnalyzedBlock).row),
     links: validLinks,
-    affectedBlockIds,
+    indexedBlockIds,
+    linkBlockIds,
   };
 }
 
@@ -349,11 +377,11 @@ export function applyIncrementalPatchIndexes(
     );
   }
 
-  const placeholders = plan.affectedBlockIds.map(() => "?").join(",");
+  const placeholders = plan.linkBlockIds.map(() => "?").join(",");
   db.prepare(`
     DELETE FROM note_links
     WHERE sourceNoteId = ? AND sourceBlockId IN (${placeholders})
-  `).run(noteId, ...plan.affectedBlockIds);
+  `).run(noteId, ...plan.linkBlockIds);
 
   const insertLink = db.prepare(`
     INSERT OR IGNORE INTO note_links (
