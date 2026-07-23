@@ -200,9 +200,9 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Leaf-only patches can skip the legacy pre-patch DELETE + full reinsert when the persisted
-      // index is already a complete mirror of the current document. Any mismatch fails closed and
-      // falls back to the original normalization path inside this same transaction.
+      // Safe leaf and top-level structural patches can skip the legacy pre-patch DELETE + full
+      // reinsert when the persisted index is already a complete mirror of the current document.
+      // Any mismatch fails closed and falls back inside this same transaction.
       const incrementalBase = canUseIncrementalPatchIndexes(
         db,
         noteId,
@@ -245,10 +245,12 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
+      let indexUpdateKind: "leaf" | "structural" | "full" = "full";
       let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
         indexUpdateMode = "incremental";
+        indexUpdateKind = incrementalPlan.kind;
         indexedBlockIds = incrementalPlan.indexedBlockIds;
       } else {
         const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
@@ -284,6 +286,7 @@ async function patchBlocks(c: Context) {
         createdBlocks: patch.createdBlocks,
         blocks,
         indexUpdateMode,
+        indexUpdateKind,
         indexedBlockIds,
         contentChangedByNormalization: normalizedBefore.changed || postSyncChanged,
       };
@@ -298,6 +301,7 @@ async function patchBlocks(c: Context) {
       operationCount: result.operationCount,
       affectedBlockIds: result.affectedBlockIds,
       indexUpdateMode: result.indexUpdateMode,
+      indexUpdateKind: result.indexUpdateKind,
       indexedBlockCount: result.indexedBlockIds.length,
     }, { targetType: "note", targetId: noteId });
     broadcastNoteUpdated(noteId, {
