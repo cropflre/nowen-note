@@ -7,6 +7,11 @@ import {
   type RoundTripImportReviewRequest,
 } from "../roundTripImportReview";
 
+const noPermissions = {
+  applyPermissions: false,
+  permissionMappings: {},
+} as const;
+
 afterEach(() => {
   roundTripImportReviewTestUtils.reset();
 });
@@ -50,8 +55,8 @@ describe("round-trip import review queue", () => {
     expect(request?.preview.package?.sync?.available).toBe(false);
     expect(request?.preview.conflicts?.[0]?.importedName).toBe("产品资料 (2)");
 
-    resolveRoundTripImportReview(request!.id, { accepted: true, strategy: "copy" });
-    await expect(decision).resolves.toEqual({ accepted: true, strategy: "copy" });
+    resolveRoundTripImportReview(request!.id, { accepted: true, strategy: "copy", ...noPermissions });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "copy", ...noPermissions });
     expect(roundTripImportReviewTestUtils.pendingCount()).toBe(0);
     expect(snapshots.at(-1)).toEqual([]);
     unsubscribe();
@@ -82,8 +87,8 @@ describe("round-trip import review queue", () => {
     expect(loadPreview).toHaveBeenCalledWith("merge");
     expect(mergePreview?.counts?.mergedNotebooks).toBe(3);
 
-    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "merge" });
-    await expect(decision).resolves.toEqual({ accepted: true, strategy: "merge" });
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "merge", ...noPermissions });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "merge", ...noPermissions });
     unsubscribe();
   });
 
@@ -139,8 +144,55 @@ describe("round-trip import review queue", () => {
     expect(syncPreview?.counts?.localConflicts).toBe(1);
     expect(syncPreview?.conflicts?.[0]?.action).toBe("sync-local-conflict");
 
-    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "sync" });
-    await expect(decision).resolves.toEqual({ accepted: true, strategy: "sync" });
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "sync", ...noPermissions });
+    await expect(decision).resolves.toEqual({ accepted: true, strategy: "sync", ...noPermissions });
+    unsubscribe();
+  });
+
+  it("returns only explicit source-to-target account mappings", async () => {
+    let current: RoundTripImportReviewRequest[] = [];
+    const unsubscribe = subscribeRoundTripImportReviews((items) => { current = items; });
+    const decision = requestRoundTripImportReview({
+      success: true,
+      strategy: "copy",
+      package: {
+        permissions: {
+          included: true,
+          valid: true,
+          canApply: true,
+          reason: null,
+          counts: { principals: 2, workspaceMembers: 2, notebookMembers: 1 },
+          principals: [{
+            sourceUserId: "source-user-1",
+            username: "alice",
+            displayName: "Alice",
+            email: "alice@example.com",
+            workspaceRole: "editor",
+            suggestedTarget: {
+              id: "target-user-1",
+              username: "alice-target",
+              displayName: "Alice Target",
+              avatarUrl: null,
+            },
+            match: "email",
+          }],
+          issues: [],
+        },
+      },
+    }, { fileName: "permissions.nowen.zip" });
+
+    resolveRoundTripImportReview(current[0].id, {
+      accepted: true,
+      strategy: "copy",
+      applyPermissions: true,
+      permissionMappings: { "source-user-1": "target-user-1" },
+    });
+    await expect(decision).resolves.toEqual({
+      accepted: true,
+      strategy: "copy",
+      applyPermissions: true,
+      permissionMappings: { "source-user-1": "target-user-1" },
+    });
     unsubscribe();
   });
 
@@ -155,8 +207,8 @@ describe("round-trip import review queue", () => {
     await expect(first).resolves.toEqual({ accepted: false });
     expect(current.map((item) => item.fileName)).toEqual(["b.nowen.zip"]);
 
-    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "copy" });
-    await expect(second).resolves.toEqual({ accepted: true, strategy: "copy" });
+    resolveRoundTripImportReview(current[0].id, { accepted: true, strategy: "copy", ...noPermissions });
+    await expect(second).resolves.toEqual({ accepted: true, strategy: "copy", ...noPermissions });
     expect(current).toEqual([]);
     unsubscribe();
   });

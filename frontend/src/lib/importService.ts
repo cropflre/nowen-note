@@ -139,7 +139,7 @@ export async function importNotes(
     targetNotebookId: strategy === "sync" ? undefined : notebookId || undefined,
   });
   try {
-    onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件和来源映射…" });
+    onProgress?.({ phase: "reading", current: 0, total: 1, message: "正在校验目录、附件、来源映射和成员清单…" });
     const copyPreview = await submitRoundTripPackage(file, {
       ...submitOptionsFor("copy"),
       dryRun: true,
@@ -169,22 +169,27 @@ export async function importNotes(
         strategy: decision.strategy,
       });
     const conflicts = Array.isArray(selectedPreview?.conflicts) ? selectedPreview.conflicts.length : 0;
+    const permissionSuffix = decision.applyPermissions
+      ? `，并恢复 ${Object.keys(decision.permissionMappings).length} 个已映射成员`
+      : "";
     onProgress?.({
       phase: "uploading",
       current: 0,
       total: 1,
       message: decision.strategy === "sync"
-        ? `正在执行安全增量同步${conflicts ? `（${conflicts} 项变更或冲突）` : ""}…`
+        ? `正在执行安全增量同步${conflicts ? `（${conflicts} 项变更或冲突）` : ""}${permissionSuffix}…`
         : decision.strategy === "merge"
-          ? `正在按合并计划导入${conflicts ? `（${conflicts} 项处理）` : ""}…`
+          ? `正在按合并计划导入${conflicts ? `（${conflicts} 项处理）` : ""}${permissionSuffix}…`
           : conflicts > 0
-            ? `已确认 ${conflicts} 个重名处理方案，正在创建独立副本`
-            : "预检已确认，正在原样恢复目录和附件…",
+            ? `已确认 ${conflicts} 个重名处理方案，正在创建独立副本${permissionSuffix}`
+            : `预检已确认，正在原样恢复目录和附件${permissionSuffix}…`,
     });
     const result = await submitRoundTripPackage(file, {
       ...submitOptionsFor(decision.strategy),
       dryRun: false,
       strategy: decision.strategy,
+      applyPermissions: decision.applyPermissions,
+      permissionMappings: decision.permissionMappings,
     });
 
     const createdNotes = Number(result?.counts?.notes || 0);
@@ -195,18 +200,28 @@ export async function importNotes(
     const renamedCount = Number(result?.counts?.renamedNotes || 0);
     const unchangedCount = Number(result?.counts?.unchangedNotes || 0);
     const localConflictCount = Number(result?.counts?.localConflicts || 0);
+    const permissionReport = result.permissionImport;
+    const appliedPermissionCount = Number(permissionReport?.counts?.workspaceAdded || 0)
+      + Number(permissionReport?.counts?.workspaceUpgraded || 0)
+      + Number(permissionReport?.counts?.notebookAdded || 0)
+      + Number(permissionReport?.counts?.notebookUpgraded || 0);
+    const permissionDoneSuffix = decision.applyPermissions
+      ? appliedPermissionCount > 0
+        ? `，已应用 ${appliedPermissionCount} 项成员权限`
+        : "，成员权限未产生变更"
+      : "";
 
     onProgress?.({
       phase: "done",
       current: affectedCount,
       total: affectedCount,
       message: decision.strategy === "sync"
-        ? `同步完成，新增 ${createdNotes} 篇、更新 ${updatedNotes} 篇、无需变更 ${unchangedCount} 篇${localConflictCount ? `，${localConflictCount} 项本地修改已保留` : ""}`
+        ? `同步完成，新增 ${createdNotes} 篇、更新 ${updatedNotes} 篇、无需变更 ${unchangedCount} 篇${localConflictCount ? `，${localConflictCount} 项本地修改已保留` : ""}${permissionDoneSuffix}`
         : decision.strategy === "merge"
-          ? `导入完成，共 ${createdNotes} 篇笔记，复用 ${mergedCount} 个目录${renamedCount ? `，${renamedCount} 篇同名笔记已编号` : ""}`
+          ? `导入完成，共 ${createdNotes} 篇笔记，复用 ${mergedCount} 个目录${renamedCount ? `，${renamedCount} 篇同名笔记已编号` : ""}${permissionDoneSuffix}`
           : warningCount > 0
-            ? `导入完成，共 ${createdNotes} 篇笔记，${warningCount} 项需要检查`
-            : `导入完成，共 ${createdNotes} 篇笔记`,
+            ? `导入完成，共 ${createdNotes} 篇笔记，${warningCount} 项需要检查${permissionDoneSuffix}`
+            : `导入完成，共 ${createdNotes} 篇笔记${permissionDoneSuffix}`,
     });
     return { success: true, count: decision.strategy === "sync" ? affectedCount : createdNotes };
   } catch (error) {

@@ -3,16 +3,29 @@ import {
   type PreparedMarkdownPackageNote,
 } from "./nowenPackageExport";
 import { ensureNowenInstanceEnvironment } from "./nowenInstanceIdentity";
+import { addPermissionsToNowenPackageExport } from "./roundTripPermissionTransfer";
 
 export type { PreparedMarkdownPackageNote };
 
+type StableExportParams = Parameters<typeof createNowenPackageExport>[0] & {
+  includePermissions?: boolean;
+};
+
 /**
  * Ensure all user-facing Round-trip packages carry a stable sourceInstanceId.
- * The underlying exporter keeps its existing ZIP layout and streaming/storage behavior.
+ * Permission/member data is an explicit admin-only extension and remains outside the base exporter.
  */
 export async function createStableNowenPackageExport(
-  params: Parameters<typeof createNowenPackageExport>[0],
-): ReturnType<typeof createNowenPackageExport> {
+  params: StableExportParams,
+): Promise<Awaited<ReturnType<typeof createNowenPackageExport>>> {
   ensureNowenInstanceEnvironment();
-  return createNowenPackageExport(params);
+  const { includePermissions = false, ...baseParams } = params;
+  const result = await createNowenPackageExport(baseParams);
+  if (!includePermissions) return result;
+  if (!baseParams.workspaceId) throw new Error("成员与权限只能随工作区 Nowen 无损包导出");
+  return addPermissionsToNowenPackageExport({
+    result,
+    userId: baseParams.userId,
+    workspaceId: baseParams.workspaceId,
+  });
 }

@@ -21,6 +21,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
+import { downloadRoundTripPermissionPackage } from "@/lib/roundTripPermissionExport";
 import {
   chooseDesktopDataDir,
   getAppInfo,
@@ -394,6 +395,10 @@ export default function DataManager() {
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingNowen, setIsExportingNowen] = useState(false);
+  const [exportIncludePermissions, setExportIncludePermissions] = useState(false);
+  useEffect(() => {
+    if (scope !== "workspace") setExportIncludePermissions(false);
+  }, [scope]);
 
   // Import state
   const [importFiles, setImportFiles] = useState<ImportFileInfo[]>([]);
@@ -454,9 +459,13 @@ export default function DataManager() {
 
   // Nowen 数据包导出
   const handleExportNowenPackage = async () => {
+    if (!effectiveWorkspaceId) return;
     setIsExportingNowen(true);
     try {
-      const { blob, filename } = await api.downloadNowenPackage();
+      const { blob, filename } = await downloadRoundTripPermissionPackage({
+        workspaceId: effectiveWorkspaceId,
+        includePermissions: scope === "workspace" && exportIncludePermissions,
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1211,10 +1220,29 @@ export default function DataManager() {
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
                 {t('note.nowenPackageDesc')}
               </p>
+              {scope === "workspace" && (
+                <label className="mb-3 flex cursor-pointer items-start gap-2 rounded-lg border border-violet-200/70 bg-violet-50/60 px-3 py-2.5 dark:border-violet-900/50 dark:bg-violet-500/5">
+                  <input
+                    type="checkbox"
+                    checked={exportIncludePermissions}
+                    onChange={(event) => setExportIncludePermissions(event.target.checked)}
+                    disabled={isExportingNowen || workspaceScopeNotReady}
+                    className="mt-0.5 h-4 w-4 accent-violet-600"
+                  />
+                  <span className="text-xs">
+                    <span className="block font-medium text-violet-800 dark:text-violet-200">
+                      包含成员与权限（管理员高级选项）
+                    </span>
+                    <span className="mt-0.5 block leading-5 text-violet-700/75 dark:text-violet-300/75">
+                      数据包会包含成员邮箱和目录直接授权。导入时仍需逐个映射目标账号，默认不会自动应用。
+                    </span>
+                  </span>
+                </label>
+              )}
               <button
                 onClick={handleExportNowenPackage}
-                disabled={isExportingNowen || personalExportLocked}
-                className={`flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${isExportingNowen || personalExportLocked
+                disabled={isExportingNowen || workspaceScopeNotReady || personalExportLocked}
+                className={`flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${isExportingNowen || workspaceScopeNotReady || personalExportLocked
                   ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
                   : "bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg"
                   }`}

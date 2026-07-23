@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -20,6 +20,7 @@ import {
   Tags,
   X,
 } from "lucide-react";
+import RoundTripPermissionMappingPanel from "@/components/RoundTripPermissionMappingPanel";
 import {
   resolveRoundTripImportReview,
   subscribeRoundTripImportReviews,
@@ -47,6 +48,13 @@ function count(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function suggestedMappings(preview: RoundTripPackagePreview): Record<string, string> {
+  const principals = preview.package?.permissions?.principals || [];
+  return Object.fromEntries(principals
+    .filter((item) => item.suggestedTarget?.id)
+    .map((item) => [item.sourceUserId, item.suggestedTarget!.id]));
+}
+
 function RoundTripImportReviewDialog({ request }: { request: RoundTripImportReviewRequest }) {
   const zh = isChineseLocale();
   const [strategy, setStrategy] = useState<RoundTripImportStrategy>(request.initialStrategy);
@@ -56,6 +64,8 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
   const [loadingStrategy, setLoadingStrategy] = useState<RoundTripImportStrategy | null>(null);
   const [loadError, setLoadError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [applyPermissions, setApplyPermissions] = useState(false);
+  const [permissionMappings, setPermissionMappings] = useState<Record<string, string>>(() => suggestedMappings(request.preview));
 
   const preview = previews[strategy] || request.preview;
   const pkg = preview.package || {};
@@ -68,10 +78,22 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
   const canChooseStrategy = typeof request.loadPreview === "function";
   const syncAvailability = request.preview.package?.sync;
   const syncEnabled = syncAvailability?.available === true;
+  const permissionInspection = pkg.permissions;
+
+  useEffect(() => {
+    const suggestions = suggestedMappings(preview);
+    setPermissionMappings((current) => {
+      const next = { ...suggestions, ...current };
+      const allowed = new Set((preview.package?.permissions?.principals || []).map((item) => item.sourceUserId));
+      for (const sourceId of Object.keys(next)) if (!allowed.has(sourceId)) delete next[sourceId];
+      return next;
+    });
+    if (!permissionInspection?.included || !permissionInspection.canApply) setApplyPermissions(false);
+  }, [permissionInspection?.canApply, permissionInspection?.included, preview]);
 
   const copy = zh ? {
     title: "导入预检报告",
-    subtitle: "选择导入方式，并核对目录、附件和冲突处理结果",
+    subtitle: "选择导入方式，并核对目录、附件、账号映射和冲突处理结果",
     packageFile: "数据包",
     target: "导入目标",
     exportedAt: "导出时间",
@@ -100,15 +122,6 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     mergePlanDesc: "同名目录会复用；导入的同名笔记改为“名称 (2)”，不会覆盖正文。",
     syncPlanDesc: "来源和本地同时变化时保留本地版本；来源包中缺少的目录和笔记不会从本地删除。",
     noPlan: strategy === "sync" ? "没有需要新增、更新或处理冲突的资源。" : strategy === "merge" ? "没有需要合并或重命名的内容。" : "目标中未发现同名根目录。",
-    mergeDirectory: "复用目录",
-    renameRoot: "根目录改名",
-    renameNote: "笔记改名",
-    syncCreateDirectory: "新增目录",
-    syncUpdateDirectory: "更新目录",
-    syncCreateNote: "新增笔记",
-    syncUpdateNote: "更新笔记",
-    syncLocalConflict: "保留本地",
-    syncReplaceAttachment: "替换附件",
     actionSummary: "执行摘要",
     createdDirectories: "新建目录",
     mergedDirectories: "复用目录",
@@ -127,7 +140,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     syncSafety: "只有稳定来源映射、来源已变化且目标未被本地修改的资源才会更新。",
     safetyB: strategy === "sync" ? "本地和来源同时变化时保留本地版本，并在报告中标为冲突。" : "附件会生成新的 ID，并重写正文中的附件地址。",
     safetyC: strategy === "sync" ? "同步不会删除目标中已有但本次数据包未包含的目录或笔记。" : "任一步骤失败都会回滚数据库并清理已写入文件。",
-    safetyD: "任一步骤失败都会回滚数据库并清理已写入文件。",
+    permissionSafety: applyPermissions ? "成员权限只应用到已映射账号；目标所有者和更高的已有权限保持不变。" : "成员与权限恢复保持关闭，数据包中的账号信息不会写入目标。",
     cancel: "取消导入",
     confirm: strategy === "sync" ? "确认安全同步" : strategy === "merge" ? "确认合并导入" : "确认创建副本",
     currentSpace: "当前导入空间",
@@ -137,7 +150,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     loadFailed: "无法生成该策略的预检结果",
   } : {
     title: "Import preflight report",
-    subtitle: "Choose an import mode and review the tree, attachments and conflict plan",
+    subtitle: "Choose an import mode and review the tree, attachments, account mappings and conflicts",
     packageFile: "Package",
     target: "Target",
     exportedAt: "Exported",
@@ -166,15 +179,6 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     mergePlanDesc: "Matching folders are reused and duplicate imported notes become “Name (2)”.",
     syncPlanDesc: "Local edits win when both sides changed. Missing source items are not deleted from the target.",
     noPlan: strategy === "sync" ? "No resources need to be created, updated or resolved." : strategy === "merge" ? "Nothing needs to be merged or renamed." : "No conflicting root folders were found.",
-    mergeDirectory: "Reuse folder",
-    renameRoot: "Rename root",
-    renameNote: "Rename note",
-    syncCreateDirectory: "Create folder",
-    syncUpdateDirectory: "Update folder",
-    syncCreateNote: "Create note",
-    syncUpdateNote: "Update note",
-    syncLocalConflict: "Keep local",
-    syncReplaceAttachment: "Replace attachment",
     actionSummary: "Action summary",
     createdDirectories: "New folders",
     mergedDirectories: "Reused folders",
@@ -193,7 +197,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     syncSafety: "Only stable mapped resources changed at the source and untouched locally are updated.",
     safetyB: strategy === "sync" ? "When source and local content both changed, the local version is preserved and reported." : "Attachments receive new IDs and content references are rewritten.",
     safetyC: strategy === "sync" ? "Sync never deletes target folders or notes missing from this package." : "Any failure rolls back the database and removes files already written.",
-    safetyD: "Any failure rolls back the database and removes files already written.",
+    permissionSafety: applyPermissions ? "Permissions are applied only to mapped accounts; the target owner and stronger existing roles are preserved." : "Permission restore remains disabled and no package identities are written to the target.",
     cancel: "Cancel import",
     confirm: strategy === "sync" ? "Confirm safe sync" : strategy === "merge" ? "Confirm merge import" : "Confirm independent copy",
     currentSpace: "Current import space",
@@ -237,20 +241,40 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     setSubmitting(true);
     resolveRoundTripImportReview(
       request.id,
-      accepted ? { accepted: true, strategy } : { accepted: false },
+      accepted
+        ? {
+            accepted: true,
+            strategy,
+            applyPermissions: applyPermissions && permissionInspection?.canApply === true,
+            permissionMappings: applyPermissions ? permissionMappings : {},
+          }
+        : { accepted: false },
     );
   };
 
   const actionLabel = (action?: RoundTripImportConflictAction): string => {
-    if (action === "merge-directory") return copy.mergeDirectory;
-    if (action === "rename-note") return copy.renameNote;
-    if (action === "sync-create-directory") return copy.syncCreateDirectory;
-    if (action === "sync-update-directory") return copy.syncUpdateDirectory;
-    if (action === "sync-create-note") return copy.syncCreateNote;
-    if (action === "sync-update-note") return copy.syncUpdateNote;
-    if (action === "sync-local-conflict") return copy.syncLocalConflict;
-    if (action === "sync-replace-attachment") return copy.syncReplaceAttachment;
-    return copy.renameRoot;
+    const labels: Record<string, string> = zh ? {
+      "merge-directory": "复用目录",
+      "rename-root": "根目录改名",
+      "rename-note": "笔记改名",
+      "sync-create-directory": "新增目录",
+      "sync-update-directory": "更新目录",
+      "sync-create-note": "新增笔记",
+      "sync-update-note": "更新笔记",
+      "sync-local-conflict": "保留本地",
+      "sync-replace-attachment": "替换附件",
+    } : {
+      "merge-directory": "Reuse folder",
+      "rename-root": "Rename root",
+      "rename-note": "Rename note",
+      "sync-create-directory": "Create folder",
+      "sync-update-directory": "Update folder",
+      "sync-create-note": "Create note",
+      "sync-update-note": "Update note",
+      "sync-local-conflict": "Keep local",
+      "sync-replace-attachment": "Replace attachment",
+    };
+    return labels[action || "rename-root"] || labels["rename-root"];
   };
 
   const stats = [
@@ -259,12 +283,27 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
     { label: copy.tags, value: count(counts.tags), icon: Tags },
     { label: copy.attachments, value: count(counts.attachments), icon: Paperclip },
   ];
-
   const strategyClass = strategy === "sync"
     ? "bg-blue-600 hover:bg-blue-700"
     : strategy === "merge"
       ? "bg-violet-600 hover:bg-violet-700"
       : "bg-emerald-600 hover:bg-emerald-700";
+  const summaryItems = strategy === "sync"
+    ? [
+        [copy.createdDirectories, actionCounts.notebooks, FolderPlus],
+        [copy.createdNotes, actionCounts.notes, FileText],
+        [copy.updatedDirectories, actionCounts.updatedNotebooks, FolderTree],
+        [copy.updatedNotes, actionCounts.updatedNotes, PencilLine],
+        [copy.unchangedNotes, actionCounts.unchangedNotes, ShieldCheck],
+        [copy.localConflicts, actionCounts.localConflicts, ShieldAlert],
+      ] as const
+    : strategy === "merge"
+      ? [
+          [copy.createdDirectories, actionCounts.notebooks, FolderPlus],
+          [copy.mergedDirectories, actionCounts.mergedNotebooks, FolderInput],
+          [copy.renamedNotes, actionCounts.renamedNotes, PencilLine],
+        ] as const
+      : [];
 
   return createPortal(
     <div className="fixed inset-0 z-[12000] flex items-end justify-center bg-black/45 backdrop-blur-[1px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="round-trip-import-review-title">
@@ -319,28 +358,20 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
             <div className="mt-2 flex flex-wrap gap-2 text-xs"><span className="rounded-lg bg-sky-50 px-2.5 py-1.5 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{copy.markdown} {count(formats.markdown)}</span><span className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">{copy.richText} {count(formats.richText)}</span><span className="rounded-lg bg-orange-50 px-2.5 py-1.5 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">{copy.html} {count(formats.html)}</span></div>
           </section>
 
-          {strategy === "merge" && (
-            <section className="rounded-xl border border-violet-200 bg-violet-50/45 p-3 dark:border-violet-900/45 dark:bg-violet-500/5">
-              <h3 className="text-xs font-semibold text-violet-800 dark:text-violet-200">{copy.actionSummary}</h3>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[11px]"><div className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{count(actionCounts.notebooks)}</div><div className="text-zinc-500">{copy.createdDirectories}</div></div><div className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><div className="text-lg font-bold text-violet-700 dark:text-violet-300">{count(actionCounts.mergedNotebooks)}</div><div className="text-zinc-500">{copy.mergedDirectories}</div></div><div className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><div className="text-lg font-bold text-amber-700 dark:text-amber-300">{count(actionCounts.renamedNotes)}</div><div className="text-zinc-500">{copy.renamedNotes}</div></div></div>
-            </section>
-          )}
+          <RoundTripPermissionMappingPanel
+            inspection={permissionInspection}
+            enabled={applyPermissions}
+            onEnabledChange={setApplyPermissions}
+            mappings={permissionMappings}
+            onMappingsChange={setPermissionMappings}
+            disabled={submitting || !!loadingStrategy}
+          />
 
-          {strategy === "sync" && (
-            <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5">
-              <h3 className="text-xs font-semibold text-blue-800 dark:text-blue-200">{copy.actionSummary}</h3>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-center text-[11px] sm:grid-cols-3 lg:grid-cols-6">
-                {[
-                  [copy.createdDirectories, actionCounts.notebooks, FolderPlus],
-                  [copy.createdNotes, actionCounts.notes, FileText],
-                  [copy.updatedDirectories, actionCounts.updatedNotebooks, FolderTree],
-                  [copy.updatedNotes, actionCounts.updatedNotes, PencilLine],
-                  [copy.unchangedNotes, actionCounts.unchangedNotes, ShieldCheck],
-                  [copy.localConflicts, actionCounts.localConflicts, ShieldAlert],
-                ].map(([label, value, Icon]) => {
-                  const SummaryIcon = Icon as React.ComponentType<{ size?: number; className?: string }>;
-                  return <div key={String(label)} className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><SummaryIcon size={14} className="mx-auto mb-1 text-blue-500" /><div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{count(value)}</div><div className="text-zinc-500">{String(label)}</div></div>;
-                })}
+          {summaryItems.length > 0 && (
+            <section className={`rounded-xl border p-3 ${strategy === "sync" ? "border-blue-200 bg-blue-50/45 dark:border-blue-900/45 dark:bg-blue-500/5" : "border-violet-200 bg-violet-50/45 dark:border-violet-900/45 dark:bg-violet-500/5"}`}>
+              <h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.actionSummary}</h3>
+              <div className={`mt-2 grid grid-cols-2 gap-2 text-center text-[11px] ${strategy === "sync" ? "sm:grid-cols-3 lg:grid-cols-6" : "sm:grid-cols-3"}`}>
+                {summaryItems.map(([label, value, Icon]) => <div key={String(label)} className="rounded-lg bg-white/75 p-2 dark:bg-zinc-900/50"><Icon size={14} className="mx-auto mb-1 text-blue-500" /><div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{count(value)}</div><div className="text-zinc-500">{String(label)}</div></div>)}
               </div>
               {count(actionCounts.recreatedResources) > 0 && <p className="mt-2 text-[11px] text-blue-700 dark:text-blue-300">{copy.recreatedResources}：{count(actionCounts.recreatedResources)}</p>}
             </section>
@@ -352,7 +383,7 @@ function RoundTripImportReviewDialog({ request }: { request: RoundTripImportRevi
 
           <section className={`rounded-xl border p-3 ${warnings.length || errors.length ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-500/5" : "border-zinc-200 dark:border-zinc-800"}`}><h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{copy.warningsTitle} · {warnings.length + errors.length}</h3>{warnings.length || errors.length ? <div className="mt-2 max-h-36 space-y-1 overflow-y-auto text-[11px] leading-5 text-red-700 dark:text-red-300">{errors.map((message, index) => <p key={`error-${index}`}>• {message}</p>)}{warnings.map((warning, index) => <p key={`${warning.type || "warning"}-${index}`}>• {warning.message || warning.type || "warning"}</p>)}</div> : <p className="mt-1 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">{copy.noWarnings}</p>}</section>
 
-          <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5"><h3 className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-blue-200"><ShieldCheck size={15} />{copy.safetyTitle}</h3><div className="mt-2 space-y-1 text-[11px] leading-5 text-blue-700/90 dark:text-blue-300/90"><p>• {strategy === "sync" ? copy.syncSafety : strategy === "merge" ? copy.mergeSafety : copy.copySafety}</p><p>• {copy.safetyB}</p><p>• {copy.safetyC}</p>{strategy === "sync" && <p>• {copy.safetyD}</p>}</div></section>
+          <section className="rounded-xl border border-blue-200 bg-blue-50/45 p-3 dark:border-blue-900/45 dark:bg-blue-500/5"><h3 className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-blue-200"><ShieldCheck size={15} />{copy.safetyTitle}</h3><div className="mt-2 space-y-1 text-[11px] leading-5 text-blue-700/90 dark:text-blue-300/90"><p>• {strategy === "sync" ? copy.syncSafety : strategy === "merge" ? copy.mergeSafety : copy.copySafety}</p><p>• {copy.safetyB}</p><p>• {copy.safetyC}</p>{permissionInspection?.included && <p>• {copy.permissionSafety}</p>}</div></section>
         </div>
 
         <footer className="flex shrink-0 gap-2 border-t border-zinc-200 px-4 pt-3 pb-[max(0.9rem,env(safe-area-inset-bottom))] dark:border-zinc-800 sm:justify-end sm:px-5 sm:pb-4">
