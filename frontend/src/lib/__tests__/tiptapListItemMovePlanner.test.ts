@@ -40,6 +40,18 @@ function list(
   return { type, ...(attrs ? { attrs } : {}), content };
 }
 
+function nestedChain(length: number): unknown {
+  let current: unknown = item(`blk_deep_${String(length).padStart(2, "0")}`, `Deep ${length}`);
+  for (let index = length - 1; index >= 0; index -= 1) {
+    current = item(
+      `blk_deep_${String(index).padStart(2, "0")}`,
+      `Deep ${index}`,
+      list("bulletList", [current]),
+    );
+  }
+  return current;
+}
+
 function doc(content: unknown[]) {
   return JSON.stringify({ type: "doc", content });
 }
@@ -66,6 +78,31 @@ describe("Tiptap controlled list hierarchy planner", () => {
         position: "inside",
       }],
       affectedBlockIds: ["blk_item_b0", "blk_item_a0"],
+    });
+  });
+
+  it("plans sinking an item whose subtree changes more than eight descendant depths", () => {
+    const subtree = nestedChain(10);
+    const movable = item("blk_item_b0", "B", list("bulletList", [subtree]));
+    const base = doc([list("bulletList", [
+      item("blk_item_a0", "A"),
+      movable,
+      item("blk_item_c0", "C"),
+    ])]);
+    const next = doc([list("bulletList", [
+      item("blk_item_a0", "A", list("bulletList", [movable])),
+      item("blk_item_c0", "C"),
+    ])]);
+
+    expect(planTiptapBlockPatch(base, next)).toMatchObject({
+      kind: "list-hierarchy",
+      operations: [{
+        type: "move",
+        scope: "listItem",
+        blockId: "blk_item_b0",
+        targetBlockId: "blk_item_a0",
+        position: "inside",
+      }],
     });
   });
 
