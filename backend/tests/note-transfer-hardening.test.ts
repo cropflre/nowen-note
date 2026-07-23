@@ -13,7 +13,6 @@ let closeDb: () => void;
 let db: any;
 let getAttachmentsDir: () => string;
 let executeNoteTransferSafe: (input: any) => Promise<any>;
-let NoteTransferError: any;
 let noteTransfersRouter: any;
 
 const NOTE_ONE = "11111111-1111-4111-8111-111111111111";
@@ -25,14 +24,12 @@ before(async () => {
   const audit = await import("../src/services/audit.js");
   const storage = await import("../src/services/attachment-storage.js");
   const safety = await import("../src/services/noteTransferSafety.js");
-  const transfer = await import("../src/services/noteTransfer.js");
   const routes = await import("../src/routes/note-transfers.js");
 
   closeDb = schema.closeDb;
   db = schema.getDb();
   getAttachmentsDir = storage.getAttachmentsDir;
   executeNoteTransferSafe = safety.executeNoteTransferSafe;
-  NoteTransferError = transfer.NoteTransferError;
   noteTransfersRouter = routes.default;
   audit.initAuditTables();
 });
@@ -97,9 +94,13 @@ test("move execution rejects an empty or partial preview version map", async () 
       mode: "move",
       expectedVersions: {},
     }),
-    (error: unknown) => error instanceof NoteTransferError
-      && error.code === "TRANSFER_PREVIEW_REQUIRED"
-      && error.status === 409,
+    (error: unknown) => {
+      const typed = error as { name?: unknown; code?: unknown; status?: unknown };
+      return error instanceof Error
+        && typed.name === "NoteTransferError"
+        && typed.code === "TRANSFER_PREVIEW_REQUIRED"
+        && typed.status === 409;
+    },
   );
   const source = db.prepare("SELECT isTrashed, version FROM notes WHERE id = ?").get(NOTE_ONE) as any;
   assert.equal(source.isTrashed, 0);
