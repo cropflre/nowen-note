@@ -244,7 +244,7 @@ export function planTiptapListItemStructure(
 
     const siblings = location.list.content || [];
     const index = siblings.indexOf(location.item);
-    const candidates: TiptapListItemStructureOperation[] = [];
+    const candidates: Array<Extract<TiptapListItemStructureOperation, { type: "create" }>> = [];
     const previousId = index > 0 ? siblings[index - 1]?.attrs?.blockId : null;
     const nextId = index + 1 < siblings.length ? siblings[index + 1]?.attrs?.blockId : null;
     if (validBlockId(previousId) && baseItems.has(previousId)) {
