@@ -1,0 +1,63 @@
+name: Fix embedding queue recovery
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-embedding-queue
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.ref == 'chore/fix-embedding-queue-trigger'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply embedding queue fix
+        run: python .github/scripts/fix-embedding-queue.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Validate backend
+        working-directory: backend
+        run: |
+          npm ci --no-audit --no-fund
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/embedding-user-ai-settings.test.ts
+          npm run build:tsc -- --noEmit
+
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Publish verified fix branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B chore/fix-embedding-queue-result
+          git add \
+            backend/src/services/vec-store.ts \
+            backend/src/services/embedding-worker.ts \
+            backend/src/routes/ai-reliable.ts \
+            backend/tests/embedding-user-ai-settings.test.ts \
+            frontend/src/lib/aiReliable.ts \
+            frontend/src/components/EmbeddingSettingsPanel.tsx
+          git commit -m "fix(ai): recover interrupted embedding queues"
+          git push --force origin chore/fix-embedding-queue-result
