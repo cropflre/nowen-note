@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 const databaseUrl = process.env.TEST_PG_DATABASE_URL;
@@ -31,6 +32,14 @@ test("PG Batch A repositories use the runtime adapter", { skip }, async () => {
   const targetId = `${userId}-target`;
   const tokenId = `${userId}-api-token`;
   const usageDay = "2026-07-16";
+  const notebookId = randomUUID();
+  const noteId = randomUUID();
+  const oldAttachmentId = randomUUID();
+  const newAttachmentId = randomUUID();
+  const oldTargetNoteId = randomUUID();
+  const newTargetNoteId = randomUUID();
+  const oldContentText = `附件 /api/attachments/${oldAttachmentId}，关联 note:${oldTargetNoteId}`;
+  const normalizedContent = `附件 /api/attachments/${newAttachmentId}，关联 note:${newTargetNoteId}`;
 
   await pool.query(
     `INSERT INTO users (id, username, "passwordHash") VALUES ($1, $2, $3)`,
@@ -39,6 +48,34 @@ test("PG Batch A repositories use the runtime adapter", { skip }, async () => {
   await pool.query(
     `INSERT INTO task_calendar_feeds (id, "userId", token) VALUES ($1, $2, $3)`,
     [feedId, userId, `${userId}-token`],
+  );
+  await pool.query(
+    `INSERT INTO notebooks (id, "userId", name) VALUES ($1, $2, $3)`,
+    [notebookId, userId, "Attachment reference PG"],
+  );
+  await pool.query(
+    `INSERT INTO notes (id, "userId", "notebookId", title, content, "contentText", "contentFormat")
+     VALUES ($1, $2, $3, $4, $5, $6, 'markdown')`,
+    [noteId, userId, notebookId, "Attachment reference note", normalizedContent, oldContentText],
+  );
+  await pool.query(
+    `INSERT INTO attachments (id, "noteId", "userId", filename, "mimeType", size, path)
+     VALUES ($1, $2, $3, $4, 'text/plain', 1, $5),
+            ($6, $2, $3, $7, 'text/plain', 1, $8)`,
+    [
+      oldAttachmentId,
+      noteId,
+      userId,
+      "old.txt",
+      `${oldAttachmentId}.txt`,
+      newAttachmentId,
+      "new.txt",
+      `${newAttachmentId}.txt`,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO attachment_references ("attachmentId", "noteId") VALUES ($1, $2)`,
+    [oldAttachmentId, noteId],
   );
 
   try {
@@ -108,9 +145,32 @@ test("PG Batch A repositories use the runtime adapter", { skip }, async () => {
     const revoked = await apiTokensRepository.getByIdAndUserAsync(tokenId, userId);
     assert.ok(revoked?.revokedAt);
 
+    const { syncAttachmentReferencesForNoteAsync } = await import("../src/services/attachment-reference");
+    const synced = await syncAttachmentReferencesForNoteAsync(noteId, normalizedContent);
+    assert.deepEqual(synced, { added: 1, removed: 1 });
+
+    const referenceRows = await pool.query(
+      `SELECT "attachmentId" FROM attachment_references WHERE "noteId" = $1 ORDER BY "attachmentId"`,
+      [noteId],
+    );
+    assert.deepEqual(referenceRows.rows.map((row) => row.attachmentId), [newAttachmentId]);
+
+    const noteRow = await pool.query(
+      `SELECT "contentText" FROM notes WHERE id = $1`,
+      [noteId],
+    );
+    assert.equal(noteRow.rows[0]?.contentText, normalizedContent);
+
+    const repeated = await syncAttachmentReferencesForNoteAsync(noteId, normalizedContent);
+    assert.deepEqual(repeated, { added: 0, removed: 0 });
+
     assert.equal(await calendarExportTargetsRepository.deleteByIdAndUserAsync(targetId, userId), true);
     assert.equal(await aiCustomPromptsRepository.deleteByIdAndUserAsync(promptId, userId), true);
   } finally {
+    await pool.query(`DELETE FROM attachment_references WHERE "noteId" = $1`, [noteId]);
+    await pool.query(`DELETE FROM attachments WHERE "noteId" = $1`, [noteId]);
+    await pool.query(`DELETE FROM notes WHERE id = $1`, [noteId]);
+    await pool.query(`DELETE FROM notebooks WHERE id = $1`, [notebookId]);
     await pool.query(`DELETE FROM api_token_usage WHERE "tokenId" = $1`, [tokenId]);
     await pool.query(`DELETE FROM api_tokens WHERE id = $1`, [tokenId]);
     await pool.query(`DELETE FROM calendar_export_targets WHERE id = $1`, [targetId]);
