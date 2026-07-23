@@ -44,7 +44,9 @@ Requirements:
 - list container types match exactly;
 - an existing nested list under the target must have the same type and be unique.
 
-The source item is appended to the target's nested list. If no nested list exists, the server creates one with the same type as the source list.
+The source item is appended to the target's nested list. If no nested list exists, the server creates one with the same type and a cloned copy of the current list's JSON attributes. This preserves canonical ordered-list attributes such as `start` without inventing schema fields.
+
+The frontend still compares the complete result with the actual Tiptap snapshot. A custom ordered-list configuration whose generated nested attrs differ from this canonical copy fails closed to whole-note save.
 
 ### Lift one level
 
@@ -99,7 +101,7 @@ The source and target may be in the same list or in separate list containers, pr
 - list types match exactly;
 - item types match exactly.
 
-When the source list becomes empty, its wrapper is removed. The complete item subtree, including nested lists, marks, checked state and stable Block IDs, moves unchanged.
+When the source list becomes empty, its wrapper is removed. The complete item subtree, including large nested subtrees, marks, checked state and stable Block IDs, moves unchanged.
 
 ## Type compatibility
 
@@ -130,7 +132,7 @@ This is a known pre-persistence rejection, so the editor may safely use the esta
 
 ## Frontend proof
 
-The runtime does not infer a list operation merely because the document shape changed. It compares the complete pre-save and post-save Tiptap JSON and sends a list patch only when one controlled move can reproduce the final JSON.
+The runtime does not infer a list operation merely because the document shape changed. It compares the complete pre-save and post-save Tiptap JSON and sends a list patch only when a controlled single move can reproduce the final JSON.
 
 Before planning, it verifies:
 
@@ -138,12 +140,16 @@ Before planning, it verifies:
 - each item's content, marks, checked state and non-list attributes are unchanged;
 - non-list document structure is unchanged;
 - list and item types remain compatible;
-- the final JSON is exactly reproduced by the candidate move.
+- the final JSON is exactly reproduced by a candidate move.
+
+Large moved subtrees are supported without treating every descendant depth change as a separate move. Candidate generation is limited to items whose parent or sibling identity changed; all descendants are still validated by the final full-JSON replay.
+
+Two equivalent operations can describe an adjacent swap. When several safe candidates reproduce the exact same JSON, the planner uses a stable semantic and lexical rank to choose one deterministic request.
 
 A snapshot falls back to whole-note save when it includes:
 
 - list content edits together with hierarchy changes;
-- multiple independent list moves;
+- multiple independent list moves that no single operation can reproduce;
 - list type conversion;
 - item creation or deletion;
 - unstable or duplicate list-item IDs;
