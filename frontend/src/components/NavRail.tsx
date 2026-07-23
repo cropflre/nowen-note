@@ -1,52 +1,38 @@
-/**
- * NavRail（v16 P3 双层导航 Rail）
- *
- * 设计目标：把"模块切换"从主侧栏拆出，放到左侧永久可见的 Rail。
- * 主侧栏因此可以专注于"当前模块的子内容"（笔记本/标签）。
- *
- * 视觉模式（由 useRailMode 控制）：
- *   - "icon"  ：48px 纯图标（紧凑）
- *   - "label" ：64px 图标 + 下方 10px 标签文字（识别度优先，企微/钉钉风格）
- *   - "hidden"：桌面变体下整块不渲染（由 App.tsx 处理，本组件不会被挂载）。
- *               mobile 变体下抽屉永远显式打开来看导航，不接受 hidden——遇到 hidden 时
- *               强制按 icon 渲染。
- *
- * 行为约定：
- * - desktop 变体：hidden md:flex，配合 sidebarCollapsed 由 App.tsx 控制可见性。
- *   折叠按钮、设置、登出 都收编到 Rail（替代主侧栏 Footer + Header 折叠按钮的位置）。
- * - mobile 变体（v16 P3 后续：移动端也拆 Rail+主区两栏）：
- *   只在抽屉里渲染（外层已 md:hidden），顶部按钮是"关闭抽屉" X 而非折叠；
- *   设置 / 登出同样收编到 Rail 底部，与桌面对齐视觉风格。
- *
- * 与 Sidebar 内 navItemsRaw 的关系：
- *   两边各持一份"导航项配置"——拆分得干净（NavRail 不依赖 Sidebar 的内部 state）。
- *   维护成本：增删模块时两处都要改。后续如果出现第三个消费者，可考虑提到统一 hook。
- *
- * 关于回收站清空：
- *   v15 的逻辑（带 lock 检测 / 体量统计 / VACUUM 提示）在 Sidebar 内，复杂且与 toast 强耦合。
- *   Rail 上不再支持"右键清空"——这是低频破坏性操作，用户进入「回收站」视图后再清空更合理。
- *   不为了功能对齐而把 ~80 行复杂逻辑复制到这里。
- */
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  BookOpen, Star, Trash2, ListTodo, BrainCircuit,
-  Sparkles, NotebookPen, FolderOpen,
-  Settings, LogOut, PanelLeftClose, PanelLeft, X,
-  Columns2, Columns3, Cloud, CloudOff, User, RotateCcw, Server,
+  BookOpen,
+  BrainCircuit,
+  Cloud,
+  CloudOff,
+  Columns2,
+  Columns3,
+  DatabaseBackup,
+  FolderOpen,
+  ListTodo,
+  LogOut,
+  NotebookPen,
+  PanelLeft,
+  PanelLeftClose,
+  RotateCcw,
+  Server,
+  Settings,
+  Sparkles,
+  Star,
+  Trash2,
+  User,
+  X,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions } from "@/store/AppContext";
-import { api, broadcastLogout, getCurrentWorkspace, getServerUrl, clearServerUrl } from "@/lib/api";
+import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import SettingsModal from "@/components/SettingsModal";
-import MigrationModal from "@/components/MigrationModal";
 import { SERVER_CONNECTION_CENTER_OPEN_EVENT } from "@/components/ServerConnectionCenter";
-import { useRailMode, nextRailMode, RailMode } from "@/hooks/useRailMode";
+import { RailMode, useRailMode } from "@/hooks/useRailMode";
 import {
-  changeDesktopServer,
   clearDesktopLocalAuth,
   getAppInfo,
   getDiagnosticsInfo,
@@ -63,40 +49,27 @@ type NavGroup = "workspace" | "modules" | "tools";
 
 interface NavConfigItem {
   icon: React.ReactNode;
-  labelKey: string;       // i18n key
+  labelKey: string;
   mode: ViewMode;
   feature?: keyof WorkspaceFeatures;
   group: NavGroup;
 }
 
-// Rail 上图标统一 18px——比主侧栏 16px 略大，因为没有文字陪衬时需要更醒目；
-// label 模式下也保持 18px，配 10px 字号视觉层级正好。
 const RAIL_ICON_SIZE = 18;
 
 const NAV_CONFIG: NavConfigItem[] = [
-  // ─── 工作台 ───
-  { icon: <BookOpen size={RAIL_ICON_SIZE} />,    labelKey: "sidebar.allNotes",    mode: "all",        feature: "notes",     group: "workspace" },
-  { icon: <Star size={RAIL_ICON_SIZE} />,        labelKey: "sidebar.favorites",   mode: "favorites",  feature: "favorites", group: "workspace" },
-  { icon: <FolderOpen size={RAIL_ICON_SIZE} />,  labelKey: "sidebar.fileManager", mode: "files",      feature: "files",     group: "workspace" },
-  { icon: <Trash2 size={RAIL_ICON_SIZE} />,      labelKey: "sidebar.trash",       mode: "trash",                            group: "workspace" },
-  // ─── 内容模块 ───
-  { icon: <NotebookPen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.diary",       mode: "diary",      feature: "diaries",   group: "modules" },
-  { icon: <ListTodo size={RAIL_ICON_SIZE} />,    labelKey: "sidebar.tasks",       mode: "tasks",      feature: "tasks",     group: "modules" },
-  { icon: <BrainCircuit size={RAIL_ICON_SIZE} />,labelKey: "sidebar.mindMaps",    mode: "mindmaps",   feature: "mindmaps",  group: "modules" },
-  // ─── 工具 ───
-  { icon: <Sparkles size={RAIL_ICON_SIZE} />,    labelKey: "sidebar.aiChat",      mode: "ai-chat",                           group: "tools" },
+  { icon: <BookOpen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.allNotes", mode: "all", feature: "notes", group: "workspace" },
+  { icon: <Star size={RAIL_ICON_SIZE} />, labelKey: "sidebar.favorites", mode: "favorites", feature: "favorites", group: "workspace" },
+  { icon: <FolderOpen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.fileManager", mode: "files", feature: "files", group: "workspace" },
+  { icon: <Trash2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.trash", mode: "trash", group: "workspace" },
+  { icon: <NotebookPen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.diary", mode: "diary", feature: "diaries", group: "modules" },
+  { icon: <ListTodo size={RAIL_ICON_SIZE} />, labelKey: "sidebar.tasks", mode: "tasks", feature: "tasks", group: "modules" },
+  { icon: <BrainCircuit size={RAIL_ICON_SIZE} />, labelKey: "sidebar.mindMaps", mode: "mindmaps", feature: "mindmaps", group: "modules" },
+  { icon: <Sparkles size={RAIL_ICON_SIZE} />, labelKey: "sidebar.aiChat", mode: "ai-chat", group: "tools" },
 ];
 
-/**
- * 判断 Rail 上某个 mode 是否处于"激活态"。
- * 产品决策：当用户选了某个具体的 notebook（viewMode="all" + selectedNotebookId 不为 null）
- * 或具体的 tag（viewMode="tag"）、搜索结果（viewMode="search"）时，Rail 应该高亮"所有笔记"——
- * 因为这些视图本质上都是笔记的派生视图。
- */
 function isActive(itemMode: ViewMode, viewMode: ViewMode): boolean {
-  if (itemMode === "all") {
-    return viewMode === "all" || viewMode === "search" || viewMode === "tag";
-  }
+  if (itemMode === "all") return viewMode === "all" || viewMode === "search" || viewMode === "tag";
   return viewMode === itemMode;
 }
 
@@ -112,15 +85,16 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const { state } = useApp();
   const actions = useAppActions();
   const [railMode, setRailMode] = useRailMode();
-  // mobile 变体：hidden 在抽屉里没意义（用户已经主动打开抽屉就是要看导航），
-  // 强制按 icon 渲染——不修改持久化值，桌面端切回 hidden 仍然有效。
   const effectiveMode: RailMode = variant === "mobile" && railMode === "hidden" ? "icon" : railMode;
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
 
-  // 工作区功能开关——独立订阅一份（与 Sidebar 内部各自一份，互不干扰）。
-  // 个人空间或加载失败时为 null = 全开。
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
+  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => getActiveServerProfile());
+
   useEffect(() => {
     const load = () => {
       const ws = getCurrentWorkspace();
@@ -131,23 +105,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       api.getWorkspaceFeatures(ws).then(setFeatures).catch(() => setFeatures(null));
     };
     load();
-    const onChange = () => load();
-    window.addEventListener("nowen:workspace-changed", onChange);
-    window.addEventListener("nowen:workspace-features-changed", onChange);
+    window.addEventListener("nowen:workspace-changed", load);
+    window.addEventListener("nowen:workspace-features-changed", load);
     return () => {
-      window.removeEventListener("nowen:workspace-changed", onChange);
-      window.removeEventListener("nowen:workspace-features-changed", onChange);
+      window.removeEventListener("nowen:workspace-changed", load);
+      window.removeEventListener("nowen:workspace-features-changed", load);
     };
   }, []);
-
-  // 设置弹窗（与 Sidebar 内的 settings 入口逻辑一致——这里独占一份，
-  // 因为 Sidebar 桌面变体不再渲染 Settings 入口）
-  const [showSettings, setShowSettings] = useState(false);
-  // D-2：迁移向导弹窗。点"切换到云端"会先弹出，让用户选择是否把本地数据迁过去。
-  const [showMigration, setShowMigration] = useState(false);
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
-  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => getActiveServerProfile());
 
   useEffect(() => {
     const refreshActiveServer = () => setActiveServer(getActiveServerProfile());
@@ -158,7 +122,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   useEffect(() => {
     if (!isDesktopApp()) return;
     let cancelled = false;
-    // SEC-ELECTRON-01-C: 分开获取安全信息和诊断信息
     getAppInfo()
       .then((info) => {
         if (!cancelled) setDesktopInfo(info ?? null);
@@ -168,16 +131,18 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       });
     getDiagnosticsInfo()
       .then((diag) => {
-        if (!cancelled && diag) setDesktopInfo((prev) => prev ? { ...prev, ...diag } : prev);
+        if (!cancelled && diag) setDesktopInfo((prev) => (prev ? { ...prev, ...diag } : prev));
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAccountMenuOpen(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -186,63 +151,70 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const normalizeUrl = (url: string) => url.replace(/\/+$/, "").toLowerCase();
   const isLoopbackUrl = (url: string) => {
     try {
-      const u = new URL(url);
-      return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+      const parsed = new URL(url);
+      return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1";
     } catch {
       return false;
     }
   };
+
   const serverUrl = getServerUrl();
-  const currentOrigin = typeof window !== "undefined" && window.location.origin.startsWith("http")
-    ? window.location.origin
-    : "";
-  const desktopMode = desktopInfo?.mode ?? null;
-  const usingDesktopLiteMode = desktopMode === "lite";
+  const currentOrigin = typeof window !== "undefined" && window.location.origin.startsWith("http") ? window.location.origin : "";
+  const usingDesktopLiteMode = desktopInfo?.mode === "lite";
   const desktopLocalUrl = desktopInfo?.backendPort ? `http://127.0.0.1:${desktopInfo.backendPort}` : "";
   const usingCurrentLocalBackend = !!serverUrl && !!desktopLocalUrl && normalizeUrl(serverUrl) === normalizeUrl(desktopLocalUrl);
-  // Electron 打包态是 file:// origin，不能用 "!currentOrigin" 判定远端；否则本地后端
-  // http://127.0.0.1:<port> 也会被误判成云端，点击“本地”会反复清状态/刷新。
-  const usingRemoteServer = !!serverUrl
-    && !usingCurrentLocalBackend
-    && (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
+  const usingRemoteServer =
+    !!serverUrl &&
+    !usingCurrentLocalBackend &&
+    (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
-  const items = features
-    ? NAV_CONFIG.filter((it) => !it.feature || features[it.feature] !== false)
-    : NAV_CONFIG;
+  const items = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
 
-  const handleClick = useCallback((mode: ViewMode) => {
-    actions.setViewMode(mode);
-    actions.setSelectedNotebook(null);
+  const handleClick = useCallback(
+    (mode: ViewMode) => {
+      actions.setViewMode(mode);
+      actions.setSelectedNotebook(null);
+      if (isMobile) actions.setMobileSidebar(false);
+    },
+    [actions, isMobile],
+  );
 
-    // 移动端切换模块后自动关闭抽屉，露出对应内容区
-    if (isMobile) {
-      actions.setMobileSidebar(false);
-    }
-  }, [actions, isMobile]);
+  const openConnectionAndAccounts = useCallback(() => {
+    setAccountMenuOpen(false);
+    window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT));
+  }, []);
+
+  const openMigration = useCallback(() => {
+    setAccountMenuOpen(false);
+    window.dispatchEvent(
+      new CustomEvent(SERVER_CONNECTION_CENTER_OPEN_EVENT, {
+        detail: { tab: "migration" },
+      }),
+    );
+  }, []);
 
   const handleDesktopCloudButton = useCallback(async () => {
     setAccountMenuOpen(false);
     if (!canSwitchBackToLocal) {
-      setShowMigration(true);
+      window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT));
       return;
     }
 
     const queuedCount = getQueueLength();
     if (queuedCount > 0) {
       const confirmed = window.confirm(
-        t('sidebar.switchToLocalConfirmWithQueue', '切回本地离线模式？当前云端账号还有未同步操作，切换后这些待同步操作会被丢弃，云端数据不会被删除。')
+        t(
+          "sidebar.switchToLocalConfirmWithQueue",
+          "切回本地离线模式？当前云端账号还有未同步操作，切换后这些待同步操作会被丢弃，云端数据不会被删除。",
+        ),
       );
       if (!confirmed) return;
     }
 
-    // 桌面端切回本地统一交给主进程：写 settings、清 Electron session storage、
-    // 停/启后端并 relaunch。renderer 内部 location.reload() 在 file:// + query serverUrl
-    // 场景下容易和 AuthGate / serverUrl 持久化互相打架，表现为黑屏/闪屏。
     const result = await switchDesktopToFull();
     if (result?.ok !== false) return;
 
-    // 旧版 preload 不支持 mode IPC 时的兜底：只做 renderer 级清理并刷新。
     clearQueue();
     clearLocalIdMap();
     await broadcastLogout("switch_to_local");
@@ -252,7 +224,9 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       localStorage.removeItem("nowen-prefer-cloud");
       localStorage.removeItem("nowen-offline-queue");
       localStorage.removeItem("nowen-offline-id-map");
-    } catch { /* ignore */ }
+    } catch {
+      // ignore storage failures
+    }
     window.location.reload();
   }, [canSwitchBackToLocal, t]);
 
@@ -262,7 +236,9 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     await clearDesktopLocalAuth().catch(() => ({ ok: false }));
     try {
       localStorage.setItem("nowen-prefer-cloud", "1");
-    } catch { /* ignore */ }
+    } catch {
+      // ignore storage failures
+    }
     await broadcastLogout("desktop_logout_session");
     window.location.reload();
   }, []);
@@ -274,12 +250,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     window.location.reload();
   }, []);
 
-  const handleDesktopChangeServer = useCallback(async () => {
-    setAccountMenuOpen(false);
-    await clearRememberedCredentials();
-    await changeDesktopServer();
-  }, []);
-
   const handleDesktopResetLocalAuth = useCallback(async () => {
     setAccountMenuOpen(false);
     const result = await resetDesktopLocalAuth();
@@ -287,18 +257,15 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       try {
         localStorage.setItem("nowen-token", result.token);
         localStorage.removeItem("nowen-prefer-cloud");
-      } catch { /* ignore */ }
+      } catch {
+        // ignore storage failures
+      }
       window.location.reload();
       return;
     }
-    if (result?.error) {
-      window.alert(result.error);
-    }
+    if (result?.error) window.alert(result.error);
   }, []);
 
-  // ===== 尺寸常量 =====
-  // icon 模式：48px 宽栏 / 40px 方按钮
-  // label 模式：64px 宽栏 / 整宽纵向按钮（图标 + 文字两行）
   const railWidthClass = showLabel ? "w-16" : "w-12";
   const itemBaseClass = showLabel
     ? "relative w-14 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-colors"
@@ -306,129 +273,121 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
   const renderItem = (item: NavConfigItem) => {
     const active = isActive(item.mode, state.viewMode);
-    const isTrashItem = item.mode === "trash";
     const label = t(item.labelKey);
     return (
       <button
         key={item.mode}
         onClick={() => handleClick(item.mode)}
-        // icon 模式靠 title 兜底识别；label 模式文字已显式呈现，无需 tooltip
         title={showLabel ? undefined : label}
         aria-label={label}
         className={cn(
           itemBaseClass,
-          active
-            ? "bg-accent-primary/12 text-accent-primary"
-            : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
-          // 回收站破坏性入口降级：未选中时再弱半度
-          isTrashItem && !active && "opacity-70 hover:opacity-100",
+          active ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+          item.mode === "trash" && !active && "opacity-70 hover:opacity-100",
         )}
       >
-        {/* Active 左侧 2px 高亮条——与主侧栏 v15 风格一致 */}
-        {active && (
-          <span
-            className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary"
-            aria-hidden
-          />
-        )}
+        {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary" aria-hidden />}
         {item.icon}
-        {showLabel && (
-          // 文字限定单行，超长用 ellipsis；leading-none 让两行视觉间距更紧凑
-          <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-            {label}
-          </span>
-        )}
+        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{label}</span>}
       </button>
     );
   };
 
-  // 分组之间用细分隔线（不要文字组标题——Rail 上分组标题 = 噪音）
   const groups: NavGroup[] = ["workspace", "modules", "tools"];
-
-  // mobile 变体下 Rail 模式切换只在 icon ↔ label 之间循环（hidden 被强制忽略）。
-  // 这样用户能在抽屉里调整图标紧凑度，但不会把自己折叠成无导航死局。
   const mobileNextMode: RailMode = effectiveMode === "label" ? "icon" : "label";
   const MobileSwitchIcon = effectiveMode === "label" ? Columns2 : Columns3;
   const accountMenuLeft = showLabel ? 72 : 56;
-  const accountMenu = accountMenuOpen && isDesktopApp()
+
+  const accountMenu = accountMenuOpen
     ? createPortal(
         <div
           className="fixed inset-0 z-[190]"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setAccountMenuOpen(false);
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAccountMenuOpen(false);
           }}
         >
           <div
-            className="fixed bottom-3 w-56 rounded-lg border border-app-border bg-app-elevated py-1.5 shadow-xl"
+            className="fixed bottom-3 w-64 rounded-lg border border-app-border bg-app-elevated py-1.5 shadow-xl"
             style={{ left: accountMenuLeft }}
             role="menu"
             aria-label={t("sidebar.accountMenu")}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="px-3 py-2 text-xs text-tx-tertiary border-b border-app-border/70">
-              {canSwitchBackToLocal
-                ? t("sidebar.currentCloudAccount")
-                : t("sidebar.currentLocalAccount")}
+            <div className="px-3 py-2 border-b border-app-border/70">
+              <div className="flex items-center gap-2 text-xs font-medium text-tx-primary">
+                <span className={cn("w-2 h-2 rounded-full shrink-0", serverStatusDotClass(activeServer?.status))} aria-hidden />
+                <span className="truncate">{activeServer?.name || (canSwitchBackToLocal ? "远程服务器" : "当前服务器")}</span>
+              </div>
+              <div className="mt-1 truncate text-[11px] text-tx-tertiary" title={activeServer?.serverUrl || serverUrl}>
+                {activeServer?.serverUrl || serverUrl || "当前客户端未记录服务端地址"}
+              </div>
             </div>
-            {canSwitchBackToLocal ? (
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={openConnectionAndAccounts}
+              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+            >
+              <Server size={15} />
+              <span>连接与账号</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={openMigration}
+              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+            >
+              <DatabaseBackup size={15} />
+              <span>迁移数据</span>
+            </button>
+
+            {isDesktopApp() && (
               <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopCloudLogout}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <LogOut size={15} />
-                  <span>{t("sidebar.logoutDesktop")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopChangeServer}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <Server size={15} />
-                  <span>{t("sidebar.changeServer")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopCloudButton}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <CloudOff size={15} />
-                  <span>{t("sidebar.switchToLocal")}</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopLogoutSession}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <LogOut size={15} />
-                  <span>{t("sidebar.logoutSession")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopCloudButton}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <Cloud size={15} />
-                  <span>{t("sidebar.switchToCloud")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleDesktopResetLocalAuth}
-                  className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-                >
-                  <RotateCcw size={15} />
-                  <span>{t("sidebar.resetLocalAutoLogin")}</span>
-                </button>
+                <div className="my-1 border-t border-app-border/70" />
+                {canSwitchBackToLocal ? (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopCloudLogout}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <LogOut size={15} />
+                      <span>{t("sidebar.logoutDesktop")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopCloudButton}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <CloudOff size={15} />
+                      <span>{t("sidebar.switchToLocal")}</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopLogoutSession}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <LogOut size={15} />
+                      <span>{t("sidebar.logoutSession")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDesktopResetLocalAuth}
+                      className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
+                    >
+                      <RotateCcw size={15} />
+                      <span>{t("sidebar.resetLocalAutoLogin")}</span>
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -440,28 +399,18 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   return (
     <div
       className={cn(
-        // desktop：桌面专用，md 及以上才显示
-        // mobile：仅在抽屉里使用，本身已被 md:hidden 包裹的容器约束；这里再加 md:hidden 双保险
-        isMobile
-          ? "flex md:hidden h-full"
-          : "hidden md:flex h-full",
+        isMobile ? "flex md:hidden h-full" : "hidden md:flex h-full",
         "nav-rail vibrancy-sidebar bg-app-sidebar border-r border-app-border flex-col items-center shrink-0 transition-[width] duration-150",
         railWidthClass,
       )}
-      style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)', paddingBottom: '8px' }}
+      style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
     >
-      {/* 顶部按钮区：
-          - desktop：折叠/展开主侧栏（合并 Sidebar 原 Header 折叠按钮的功能）。
-          - mobile：关闭抽屉 X（替代 Sidebar mobile Header 的关闭按钮，统一收编到 Rail）+
-                    Rail 模式切换（icon ↔ label）。
-          决策：这两个按钮都是工具按钮，不属于"导航项"——保持 40px 方形紧凑感，
-          不与下方导航项的 label 模式纵向对齐。 */}
       {isMobile ? (
         <>
           <button
             onClick={() => actions.setMobileSidebar(false)}
-            title={t('common.close')}
-            aria-label={t('common.close')}
+            title={t("common.close")}
+            aria-label={t("common.close")}
             className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
           >
             <X size={16} />
@@ -478,8 +427,8 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       ) : (
         <button
           onClick={actions.toggleSidebar}
-          title={state.sidebarCollapsed ? t('common.expand') : t('common.collapse')}
-          aria-label={state.sidebarCollapsed ? t('common.expand') : t('common.collapse')}
+          title={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
+          aria-label={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
           className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
         >
           {state.sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
@@ -488,22 +437,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
-      {/* 主导航：3 组，组间细线分隔。
-          v16 P3 后续：用 .no-scrollbar 隐藏 native 滚动条——Rail 是极简导航栏，
-          滚动条会破坏视觉权重；label 模式下 8+ 项可能溢出窄屏视口，但鼠标滚轮/触摸板
-          仍可滚动。极端窄屏用户更倾向直接切到 hidden 模式，停留在 label 是少数场景。 */}
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
-        {groups.map((g, idx) => {
-          const groupItems = items.filter((it) => it.group === g);
+        {groups.map((group, index) => {
+          const groupItems = items.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;
           return (
-            <React.Fragment key={g}>
-              {idx > 0 && (
-                <div
-                  className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")}
-                  aria-hidden
-                />
-              )}
+            <React.Fragment key={group}>
+              {index > 0 && <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />}
               {groupItems.map(renderItem)}
             </React.Fragment>
           );
@@ -512,142 +452,62 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
-      {/* 底部：设置 + 登出（label 模式下与导航项视觉对齐——也带文字，因为它们语义上是入口） */}
-      <button
-        type="button"
-        onClick={() => window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT))}
-        title={showLabel ? undefined : "服务端与迁移中心"}
-        aria-label="服务端与迁移中心"
-        className={cn(
-          itemBaseClass,
-          "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary",
-        )}
-      >
-        <Server size={16} />
-        <span
-          className={cn(
-            "absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar",
-            serverStatusDotClass(activeServer?.status),
-          )}
-          aria-hidden
-        />
-        {showLabel && (
-          <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">服务端</span>
-        )}
-      </button>
       <button
         onClick={() => setShowSettings(true)}
-        title={showLabel ? undefined : t('sidebar.settings')}
-        aria-label={t('sidebar.settings')}
-        className={cn(
-          itemBaseClass,
-          "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
-        )}
+        title={showLabel ? undefined : t("sidebar.settings")}
+        aria-label={t("sidebar.settings")}
+        className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
       >
         <Settings size={16} />
-        {showLabel && (
-          <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-            {t('sidebar.settings')}
-          </span>
-        )}
+        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
       </button>
-      {isDesktopApp() && (
-        <button
-          onClick={() => setAccountMenuOpen((open) => !open)}
-          title={showLabel ? undefined : t('sidebar.accountMenu')}
-          aria-label={t('sidebar.accountMenu')}
-          aria-expanded={accountMenuOpen}
-          className={cn(
-            itemBaseClass,
-            accountMenuOpen
-              ? "bg-accent-primary/12 text-accent-primary"
-              : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
-          )}
-        >
-          <User size={16} />
-          {showLabel && (
-            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-              {t('sidebar.accountMenu')}
-            </span>
-          )}
-        </button>
-      )}
-      {/*
-        桌面端底部账号模式入口：
-          - 本地态：显示 Cloud，打开 MigrationModal；登录后可选择「直接进入云端」
-            或「迁移本地数据到云端」；
-          - 云端态：显示 CloudOff，切回本地零登录；
-          - lite 运行模式：交给主进程切回 full 并重启。
-        Web/移动端保持原本的退出登录行为。
-      */}
+
+      <button
+        onClick={() => setAccountMenuOpen((open) => !open)}
+        title={showLabel ? undefined : t("sidebar.accountMenu")}
+        aria-label={t("sidebar.accountMenu")}
+        aria-expanded={accountMenuOpen}
+        className={cn(
+          itemBaseClass,
+          accountMenuOpen ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+        )}
+      >
+        <User size={16} />
+        <span className={cn("absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar", serverStatusDotClass(activeServer?.status))} aria-hidden />
+        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.accountMenu")}</span>}
+      </button>
+
       {isDesktopApp() ? (
         <button
           onClick={handleDesktopCloudButton}
-          title={showLabel ? undefined : (canSwitchBackToLocal
-            ? t('sidebar.switchToLocal', '切回本地离线模式')
-            : t('sidebar.switchToCloud', '切换到云端账号'))}
-          aria-label={canSwitchBackToLocal
-            ? t('sidebar.switchToLocal', '切回本地离线模式')
-            : t('sidebar.switchToCloud', '切换到云端账号')}
-          className={cn(
-            itemBaseClass,
-            "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary",
-          )}
+          title={showLabel ? undefined : canSwitchBackToLocal ? t("sidebar.switchToLocal", "切回本地离线模式") : "连接 NAS / 云端"}
+          aria-label={canSwitchBackToLocal ? t("sidebar.switchToLocal", "切回本地离线模式") : "连接 NAS / 云端"}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
         >
           {canSwitchBackToLocal ? <CloudOff size={16} /> : <Cloud size={16} />}
           {showLabel && (
             <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-              {canSwitchBackToLocal
-                ? t('sidebar.switchToLocalShort', '本地')
-                : t('sidebar.switchToCloudShort', '云端')}
+              {canSwitchBackToLocal ? t("sidebar.switchToLocalShort", "本地") : "连接"}
             </span>
           )}
         </button>
       ) : (
         <button
           onClick={async () => {
-            // Android/移动端如果开启"下次自动登录"，必须先清除记住密码凭据；
-            // 否则 reload 后 LoginPage 会读取 SecureStorage 并再次自动登录，表现为"退出不了"。
             await clearRememberedCredentials();
-            // L10: 广播给其他 tab 一起下线，与 Sidebar Footer 保持一致
             await broadcastLogout("user_logout");
             window.location.reload();
           }}
-          title={showLabel ? undefined : t('sidebar.logout')}
-          aria-label={t('sidebar.logout')}
-          className={cn(
-            itemBaseClass,
-            "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10",
-          )}
+          title={showLabel ? undefined : t("sidebar.logout")}
+          aria-label={t("sidebar.logout")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
         >
           <LogOut size={16} />
-          {showLabel && (
-            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-              {t('sidebar.logout')}
-            </span>
-          )}
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
         </button>
       )}
 
-      {/* Settings Modal（Rail 自持一份，与 Sidebar 互不影响） */}
-      <AnimatePresence>
-        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-        {showMigration && (
-          <MigrationModal
-            onClose={() => {
-              // 迁移完成 → reload 进入云端模式（MigrationModal 已写好 token & url）
-              setShowMigration(false);
-              window.location.reload();
-            }}
-            onCancel={() => {
-              // 取消 = 关弹窗，保持当前（本地）模式不动。
-              // 不 reload、不清 token，避免出现"主页 → 闪登录页 → 主页"的抖动。
-              // 若用户确实想去云端，再次点"切换云端"即可，或在登录页手动走流程。
-              setShowMigration(false);
-            }}
-          />
-        )}
-      </AnimatePresence>
+      <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}</AnimatePresence>
       {accountMenu}
     </div>
   );

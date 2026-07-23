@@ -75,7 +75,6 @@ jobs:
     env:
       TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
       DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
-      IMAGE_HOSTING_ENCRYPTION_KEY: pg-image-hosting-ci-key-2026
 
     steps:
       - name: Checkout
@@ -155,7 +154,6 @@ jobs:
           tests/repository-access-session-pg.test.ts
           tests/api-token-resources-pg.test.ts
           tests/system-settings-repository-pg.test.ts
-          tests/image-hosting-settings-pg.test.ts
           tests/roundtrip-import-batches-repository-pg.test.ts
           tests/roundtrip-permission-mapping-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts

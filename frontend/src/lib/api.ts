@@ -6,7 +6,6 @@ import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
 import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
 import {
   fetchJsonWithUploadDeadline,
-  IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
   isElectronFullLocalRuntime,
   LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
   UploadRequestError,
@@ -237,33 +236,9 @@ api.search = ((q: string, options: SearchRequestOptions = {}) => {
   });
 }) as EnhancedApi["search"];
 
-// Multipart uploads intentionally bypass api.impl's JSON request() wrapper. Give both image
-// targets a hard deadline and a real AbortController so an unreachable NAS or image host can no
+// Multipart attachment uploads intentionally bypass api.impl's JSON request() wrapper. Give the
+// Nowen attachment target a hard deadline and a real AbortController so an unreachable NAS can no
 // longer leave the editor lifecycle stuck in "uploading" indefinitely.
-api.imageHosting.upload = (async (file: File | Blob, source?: string) => {
-  if (isExplicitlyOffline()) {
-    throw offlineUploadError("当前处于离线状态，第三方图床不可用");
-  }
-  const token = localStorage.getItem("nowen-token");
-  const form = new FormData();
-  form.append("file", file);
-  if (source) form.append("source", source);
-  return fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.imageHosting.upload>>>(
-    `${getBaseUrl()}/image-hosting/upload`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    },
-    {
-      timeoutMs: IMAGE_HOSTING_UPLOAD_TIMEOUT_MS,
-      timeoutMessage: "图床上传超时，正在尝试本地存储",
-      httpErrorMessage: "图床上传失败",
-    },
-  );
-}) as typeof baseApi.imageHosting.upload;
-
 api.attachments.upload = (async (noteId: string, file: File) => {
   if (isExplicitlyOffline() && !isDesktopFullLocalUploadRuntime()) {
     throw offlineUploadError("当前处于离线状态，图片尚未上传；请恢复网络后重试");

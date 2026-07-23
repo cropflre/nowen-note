@@ -1,5 +1,3 @@
-export const IMAGE_HOSTING_POLICY_TIMEOUT_MS = 4_000;
-export const IMAGE_HOSTING_UPLOAD_TIMEOUT_MS = 12_000;
 export const LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS = 20_000;
 
 export type UploadErrorCode =

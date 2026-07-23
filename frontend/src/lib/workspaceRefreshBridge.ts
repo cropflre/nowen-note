@@ -182,15 +182,13 @@ function createRefreshButton(): HTMLButtonElement {
 }
 
 function mountDesktopRefreshButton(): void {
-  // PanelLeftClose is the first stable semantic marker in the desktop NoteList
-  // toolbar. Insert the refresh action immediately before it so the layout remains
-  // aligned with sort/date/create controls without changing NoteList's render tree.
-  document.querySelectorAll<SVGElement>("svg.lucide-panel-left-close").forEach((icon) => {
-    const collapseButton = icon.closest("button");
-    const toolbar = collapseButton?.parentElement;
-    if (!collapseButton || !toolbar) return;
+  // Sidebar's notebook sort action is the stable desktop anchor. Keep refresh
+  // with the notebook controls instead of the global panel-collapse control.
+  document.querySelectorAll<HTMLButtonElement>("button[data-nowen-notebook-sort]").forEach((sortButton) => {
+    const toolbar = sortButton.parentElement;
+    if (!toolbar) return;
     if (toolbar.querySelector(`button[${BUTTON_ATTRIBUTE}]`)) return;
-    toolbar.insertBefore(createRefreshButton(), collapseButton);
+    toolbar.insertBefore(createRefreshButton(), sortButton);
   });
 }
 

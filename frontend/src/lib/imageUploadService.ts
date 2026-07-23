@@ -1,19 +1,7 @@
-/**
- * 统一图片上传服务
- *
- * 根据图床配置和运行模式自动选择上传目标：
- * 1. Electron Full 本地模式明确离线 → 跳过外部图床，直接保存本地附件
- * 2. 远程模式明确离线 → 快速失败，不进入无限“上传中”
- * 3. 图床启用 → 在截止时间内上传，失败后按 fallbackToLocal 回退
- * 4. 图床未启用 → 上传到本地/远程附件服务
- */
-
-import { api, getBaseUrl, getServerUrl } from "./api";
+import { api, getServerUrl } from "./api";
 import { toast } from "./toast";
 import { emitMediaUploadLifecycle } from "./mediaUploadLifecycle";
 import {
-  fetchJsonWithUploadDeadline,
-  IMAGE_HOSTING_POLICY_TIMEOUT_MS,
   isElectronFullLocalRuntime,
   shouldRejectRemoteOffline,
   uploadErrorMetadata,
@@ -25,7 +13,7 @@ export interface ImageUploadOptions {
   file: File | Blob;
   /** 文件名 */
   filename: string;
-  /** 关联笔记 ID（本地附件上传需要） */
+  /** 关联笔记 ID */
   noteId?: string;
   /** 上传来源 */
   source?: "editor" | "markdown" | "paste" | "drag-drop";
@@ -33,25 +21,18 @@ export interface ImageUploadOptions {
 
 export interface ImageUploadResult {
   success: boolean;
-  /** 最终可访问的图片 URL */
+  /** 最终可访问的 Nowen 附件 URL */
   url?: string;
   /** 文件名 */
   filename?: string;
-  /** 上传目标：image-hosting 或 local */
-  target?: "image-hosting" | "local";
-  /** 附件 ID（本地上传时有） */
+  /** 上传目标固定为 Nowen 附件系统 */
+  target?: "local";
+  /** 附件 ID */
   attachmentId?: string;
-  /** 是否由图床失败后回退到本地 */
-  fallbackUsed?: boolean;
   error?: string;
   errorCode?: UploadErrorCode;
   retryable?: boolean;
 }
-
-type ImageHostingPolicy = {
-  enabled: boolean;
-  fallbackToLocal: boolean;
-};
 
 function browserOnlineState(): boolean | undefined {
   return typeof navigator === "undefined" ? undefined : navigator.onLine;
@@ -63,41 +44,6 @@ function isDesktopFullLocalRuntime(): boolean {
     getServerUrl(),
     Boolean((window as any).nowenDesktop?.isDesktop),
   );
-}
-
-async function readImageHostingPolicy(options: {
-  fullLocalRuntime: boolean;
-  online: boolean | undefined;
-}): Promise<ImageHostingPolicy> {
-  // Full 模式离线时本机后端仍可用，但第三方图床一定依赖外网；直接走本地附件，
-  // 避免先等待一次注定失败的 S3 请求。
-  if (options.fullLocalRuntime && options.online === false) {
-    return { enabled: false, fallbackToLocal: true };
-  }
-
-  try {
-    const status = await fetchJsonWithUploadDeadline<{
-      enabled?: boolean;
-      fallbackToLocal?: boolean;
-    }>(
-      `${getBaseUrl()}/image-hosting/status`,
-      { method: "GET", cache: "no-store" },
-      {
-        timeoutMs: IMAGE_HOSTING_POLICY_TIMEOUT_MS,
-        timeoutMessage: "读取图床策略超时",
-        httpErrorMessage: "读取图床策略失败",
-      },
-    );
-    return {
-      enabled: status.enabled === true,
-      fallbackToLocal: status.fallbackToLocal !== false,
-    };
-  } catch (error) {
-    // 策略接口不可达时采用保守策略：不尝试外部图床，直接尝试附件服务。
-    // 如果附件服务本身也不可达，它有独立硬超时并会进入明确错误状态。
-    console.warn("[imageUpload] image hosting policy unavailable; using local attachment path", error);
-    return { enabled: false, fallbackToLocal: true };
-  }
 }
 
 function asFile(file: File | Blob, filename: string): File {
@@ -121,11 +67,12 @@ function failedResult(prefix: string, error: unknown): ImageUploadResult {
 /**
  * 统一图片上传。
  *
- * 完整的离线 Blob 持久化不属于本函数职责；远程服务离线时返回可重试错误，
- * 确保调用方结束 loading 状态并允许用户恢复网络后重新选择/重试。
+ * 第三方图床已经退役。所有新图片都先成为 Nowen 附件，再由服务端的附件存储驱动
+ * 决定二进制实际写入本地磁盘、S3、R2 或 MinIO。这样图片始终拥有附件记录、权限、
+ * 哈希、备份和迁移关系，不再把公开外链当作笔记资产。
  */
 export async function uploadImage(options: ImageUploadOptions): Promise<ImageUploadResult> {
-  const { file, filename, noteId, source = "editor" } = options;
+  const { file, filename, noteId } = options;
   const online = browserOnlineState();
   const fullLocalRuntime = isDesktopFullLocalRuntime();
 
@@ -138,38 +85,10 @@ export async function uploadImage(options: ImageUploadOptions): Promise<ImageUpl
     };
   }
 
-  const policy = await readImageHostingPolicy({ fullLocalRuntime, online });
-  let fallbackUsed = false;
-
-  if (policy.enabled) {
-    try {
-      const result = await api.imageHosting.upload(file, source);
-      return {
-        success: true,
-        url: result.url,
-        filename: result.filename,
-        target: "image-hosting",
-      };
-    } catch (error) {
-      const metadata = uploadErrorMetadata(error);
-      console.warn("[imageUpload] image hosting upload failed:", metadata.message);
-      if (!policy.fallbackToLocal) {
-        return {
-          success: false,
-          error: `图床上传失败: ${metadata.message}`,
-          errorCode: metadata.code,
-          retryable: metadata.retryable,
-        };
-      }
-      fallbackUsed = true;
-      console.info("[imageUpload] falling back to local attachment storage");
-    }
-  }
-
   if (!noteId) {
     return {
       success: false,
-      error: "本地附件上传需要 noteId",
+      error: "附件上传需要 noteId",
       errorCode: "HTTP_ERROR",
       retryable: false,
     };
@@ -183,10 +102,9 @@ export async function uploadImage(options: ImageUploadOptions): Promise<ImageUpl
       filename: result.filename || filename,
       target: "local",
       attachmentId: result.id,
-      fallbackUsed,
     };
   } catch (error) {
-    return failedResult("本地附件上传失败", error);
+    return failedResult("附件上传失败", error);
   }
 }
 
@@ -221,10 +139,6 @@ export async function uploadAndInsertImage(
         mediaType: "image",
         result,
       });
-
-      if (result.fallbackUsed) {
-        toast.info("图床不可用，图片已回退到本地存储");
-      }
       return;
     }
 

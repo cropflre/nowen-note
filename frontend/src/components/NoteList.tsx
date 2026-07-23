@@ -24,6 +24,7 @@ import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
 import { getNoteListDragHint, reorderNotesWithinNotebook, shouldUseHtmlNoteDragging } from "@/lib/noteManualSort";
 import { sortNotesPinnedFirst } from "@/lib/notePinnedOrder";
+import { resolveExternalDropNotebookId } from "@/lib/notebookExternalDropTarget";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -2723,16 +2724,11 @@ export default function NoteList() {
     const list = Array.from(files);
     if (list.length === 0) return;
 
-    // 先确定目标笔记本（复用 handleCreateNote 的归属规则，但拖拽场景不弹选择器：
-    // 若没有明确归属就拒绝，避免拖错位置）。
-    let notebookId = state.selectedNotebookId;
+    // 未选中笔记本时，导入到当前空间有序列表中的第一个笔记本。
+    const notebookId = resolveExternalDropNotebookId(state.selectedNotebookId, state.notebooks);
     if (!notebookId) {
-      if (state.notebooks.length === 1) {
-        notebookId = state.notebooks[0].id;
-      } else {
-        toast.warning("请先选择一个笔记本，再拖入文件");
-        return;
-      }
+      toast.warning("当前空间没有可用笔记本，无法导入文件");
+      return;
     }
 
     const supported: File[] = [];
@@ -2776,8 +2772,8 @@ export default function NoteList() {
       try {
         const isDocx = /\.docx$/i.test(f.name);
         const result = isDocx
-          ? await importDocxAsNote({ notebookId: notebookId!, file: f })
-          : await importMarkdownAsNote({ notebookId: notebookId!, file: f });
+          ? await importDocxAsNote({ notebookId, file: f })
+          : await importMarkdownAsNote({ notebookId, file: f });
         const note = result.note;
         if (!firstNote) firstNote = note;
         actions.addNoteToList({
