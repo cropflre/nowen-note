@@ -37,7 +37,7 @@
 | **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包、Ollama；支持写作辅助、标题与标签、总结、Embedding 与 RAG 知识问答 |
 | **协作与发布** | Yjs + WebSocket 实时同步、工作区、成员权限、分享密码与有效期、访客评论、公开知识空间与目录权限 |
 | **导入与导出** | Markdown、Word / DOCX、Obsidian Vault、微信收藏等迁移入口；支持 Markdown、PDF、Word、PNG、JPG 等导出 |
-| **附件与存储** | 本地附件目录、按 `YYYY/MM` 归档、图片缩略图、引用检查与孤儿清理；可接入 S3、Cloudflare R2、MinIO 和第三方图床 |
+| **附件与存储** | 本地附件目录、按 `YYYY/MM` 归档、图片缩略图、引用检查与孤儿清理；可接入 S3、Cloudflare R2、MinIO  |
 | **自动化与开发者能力** | 自动备份、邮件备份、Webhook、审计日志、插件系统、OpenAPI、TypeScript SDK、CLI、MCP Server、浏览器剪藏扩展 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程 |
 
@@ -164,7 +164,7 @@ docker run -d \
 | `CORS_ORIGINS` | 内置原生客户端来源 | 额外允许的网页 Origin，逗号分隔 |
 | `MAX_ATTACHMENT_SIZE_MB` | `100` | 单个附件大小上限 |
 | `ATTACHMENT_STORAGE` | `local` | 设为 `s3` 后可接入 S3 / R2 / MinIO |
-| `IMAGE_HOSTING_ENCRYPTION_KEY` | 空 | 加密第三方图床密钥 |
+| `CALENDAR_EXPORT_ENCRYPTION_KEY` | 空 | 加密日历 S3 镜像导出凭据 |
 | `NOWEN_UPDATER_TOKEN` | 空 | 启用 Docker 在线升级代理 |
 
 对象存储配置见 [附件对象存储](./docs/object-storage.md)。
@@ -240,7 +240,7 @@ npm run cap:open:ios
 | **后端** | Node.js 20、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
 | **桌面端** | Electron 33、electron-builder、electron-updater |
 | **移动端** | Capacitor 8（Android / iOS）、ArkTS + ArkWeb（HarmonyOS） |
-| **存储** | SQLite、本地附件、S3 / R2 / MinIO、第三方图床 |
+| **存储** | SQLite、本地附件、S3 / R2 / MinIO |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、MCP Server、Webhook |
 
 ## 项目结构

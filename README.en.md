@@ -37,7 +37,7 @@
 | **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama; writing tools, title/tag generation, summaries, embeddings, and RAG Q&A |
 | **Collaboration and publishing** | Yjs + WebSocket real-time sync, workspaces, member roles, password/expiry-protected sharing, guest comments, and public knowledge spaces |
 | **Import and export** | Migration paths for Markdown, Word/DOCX, Obsidian Vault, WeChat Favorites, and more; exports to Markdown, PDF, Word, PNG, and JPG |
-| **Files and storage** | Local attachments organized by `YYYY/MM`, thumbnails, reference checks, orphan cleanup, S3/R2/MinIO, and third-party image hosting |
+| **Files and storage** | Local attachments organized by `YYYY/MM`, thumbnails, reference checks, orphan cleanup, S3/R2/MinIO, |
 | **Automation and developer tools** | Automatic and email backups, Webhooks, audit logs, plugins, OpenAPI, TypeScript SDK, CLI, MCP Server, and a browser clipper |
 | **Platforms** | Web, Electron for Windows/macOS/Linux, Android, an iOS project, and a HarmonyOS project |
 
@@ -164,7 +164,7 @@ See [`.env.example`](./.env.example) for the complete template.
 | `CORS_ORIGINS` | native client origins | Extra browser origins, comma-separated |
 | `MAX_ATTACHMENT_SIZE_MB` | `100` | Maximum size of one attachment |
 | `ATTACHMENT_STORAGE` | `local` | Set to `s3` for S3, R2, or MinIO |
-| `IMAGE_HOSTING_ENCRYPTION_KEY` | empty | Encrypts third-party image-host credentials |
+| `CALENDAR_EXPORT_ENCRYPTION_KEY` | empty | Encrypts third-party image-host credentials |
 | `NOWEN_UPDATER_TOKEN` | empty | Enables the Docker online updater |
 
 See [object storage](./docs/object-storage.md).
