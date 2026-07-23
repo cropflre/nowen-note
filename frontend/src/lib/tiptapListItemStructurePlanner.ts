@@ -64,6 +64,10 @@ function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
+function expectedItemType(listType: string): "listItem" | "taskItem" {
+  return listType === "taskList" ? "taskItem" : "listItem";
+}
+
 function findPath(nodes: JsonNode[], blockId: string, ancestors: NodeFrame[] = []): NodeFrame[] | null {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
@@ -84,13 +88,12 @@ function locateItem(doc: JsonNode, blockId: string): ItemLocation | null {
   if (!path || path.length < 2) return null;
   const itemFrame = path[path.length - 1];
   const listFrame = path[path.length - 2];
-  if (!ITEM_TYPES.has(itemFrame.node.type || "") || !LIST_TYPES.has(listFrame.node.type || "")) return null;
+  const itemType = itemFrame.node.type || "";
+  const listType = listFrame.node.type || "";
+  if (!ITEM_TYPES.has(itemType) || !LIST_TYPES.has(listType)) return null;
+  if (itemType !== expectedItemType(listType)) return null;
   if (listFrame.node.content !== itemFrame.parent) return null;
   return { item: itemFrame.node, itemFrame, list: listFrame.node, listFrame };
-}
-
-function expectedItemType(listType: string): "listItem" | "taskItem" {
-  return listType === "taskList" ? "taskItem" : "listItem";
 }
 
 function normalizeItem(node: JsonNode, expectedBlockId: string): TiptapListItemPatchNode | null {
@@ -122,7 +125,12 @@ function collectItemIds(doc: JsonNode): Map<string, JsonNode> | null {
       if (!node || typeof node !== "object") continue;
       if (ITEM_TYPES.has(node.type || "")) {
         const blockId = node.attrs?.blockId;
-        if (!LIST_TYPES.has(parentType) || !validBlockId(blockId) || output.has(blockId)) {
+        if (
+          !LIST_TYPES.has(parentType)
+          || node.type !== expectedItemType(parentType)
+          || !validBlockId(blockId)
+          || output.has(blockId)
+        ) {
           invalid = true;
           return;
         }
@@ -138,13 +146,40 @@ function collectItemIds(doc: JsonNode): Map<string, JsonNode> | null {
   return invalid ? null : output;
 }
 
+function collectAllBlockIds(doc: JsonNode): Set<string> | null {
+  const output = new Set<string>();
+  let invalid = false;
+  const visit = (nodes: JsonNode[]) => {
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      const blockId = node.attrs?.blockId;
+      if (blockId != null) {
+        if (!validBlockId(blockId) || output.has(blockId)) {
+          invalid = true;
+          return;
+        }
+        output.add(blockId);
+      }
+      if (Array.isArray(node.content)) {
+        visit(node.content);
+        if (invalid) return;
+      }
+    }
+  };
+  visit(doc.content || []);
+  return invalid ? null : output;
+}
+
 function removeListWrapperIfEmpty(location: ItemLocation): void {
   if ((location.list.content || []).length > 0) return;
   const index = location.listFrame.parent.indexOf(location.list);
   if (index >= 0) location.listFrame.parent.splice(index, 1);
 }
 
-function simulateCreate(doc: JsonNode, operation: Extract<TiptapListItemStructureOperation, { type: "create" }>): boolean {
+function simulateCreate(
+  doc: JsonNode,
+  operation: Extract<TiptapListItemStructureOperation, { type: "create" }>,
+): boolean {
   const target = locateItem(doc, operation.targetBlockId);
   if (!target || operation.node.type !== expectedItemType(target.list.type || "")) return false;
   const targetIndex = (target.list.content || []).indexOf(target.item);
@@ -154,16 +189,15 @@ function simulateCreate(doc: JsonNode, operation: Extract<TiptapListItemStructur
   return true;
 }
 
-function simulateDelete(doc: JsonNode, operation: Extract<TiptapListItemStructureOperation, { type: "delete" }>): boolean {
+function simulateDelete(
+  doc: JsonNode,
+  operation: Extract<TiptapListItemStructureOperation, { type: "delete" }>,
+): boolean {
   const source = locateItem(doc, operation.blockId);
   if (!source || !normalizeItem(source.item, operation.blockId)) return false;
   source.list.content!.splice(source.itemFrame.index, 1);
   removeListWrapperIfEmpty(source);
   return (doc.content || []).length > 0;
-}
-
-function asBlockPatchOperation(operation: TiptapListItemStructureOperation): BlockPatchOperation {
-  return operation as unknown as BlockPatchOperation;
 }
 
 /** Prove that one leaf list-item create/delete reproduces the complete next Tiptap JSON. */
@@ -173,17 +207,41 @@ export function planTiptapListItemStructure(
 ): TiptapListItemStructureOperation | null {
   const baseItems = collectItemIds(baseDoc);
   const nextItems = collectItemIds(nextDoc);
-  if (!baseItems || !nextItems || Math.max(baseItems.size, nextItems.size) > 5000) return null;
+  const baseBlockIds = collectAllBlockIds(baseDoc);
+  const nextBlockIds = collectAllBlockIds(nextDoc);
+  if (
+    !baseItems
+    || !nextItems
+    || !baseBlockIds
+    || !nextBlockIds
+    || Math.max(baseItems.size, nextItems.size) > 5000
+  ) {
+    return null;
+  }
 
-  const added = [...nextItems.keys()].filter((id) => !baseItems.has(id));
-  const deleted = [...baseItems.keys()].filter((id) => !nextItems.has(id));
+  const addedItems = [...nextItems.keys()].filter((id) => !baseItems.has(id));
+  const deletedItems = [...baseItems.keys()].filter((id) => !nextItems.has(id));
+  const addedBlocks = [...nextBlockIds].filter((id) => !baseBlockIds.has(id));
+  const deletedBlocks = [...baseBlockIds].filter((id) => !nextBlockIds.has(id));
   const targetJson = JSON.stringify(nextDoc);
 
-  if (added.length === 1 && deleted.length === 0) {
-    const blockId = added[0];
+  if (addedItems.length === 1 && deletedItems.length === 0) {
+    const blockId = addedItems[0];
     const location = locateItem(nextDoc, blockId);
     const node = location ? normalizeItem(location.item, blockId) : null;
-    if (!location || !node) return null;
+    const paragraphId = node?.content[0].attrs.blockId;
+    if (
+      !location
+      || !node
+      || !validBlockId(paragraphId)
+      || addedBlocks.length !== 2
+      || !addedBlocks.includes(blockId)
+      || !addedBlocks.includes(paragraphId)
+      || deletedBlocks.length > 0
+    ) {
+      return null;
+    }
+
     const siblings = location.list.content || [];
     const index = siblings.indexOf(location.item);
     const candidates: TiptapListItemStructureOperation[] = [];
@@ -218,10 +276,22 @@ export function planTiptapListItemStructure(
     return null;
   }
 
-  if (deleted.length === 1 && added.length === 0) {
-    const blockId = deleted[0];
+  if (deletedItems.length === 1 && addedItems.length === 0) {
+    const blockId = deletedItems[0];
     const source = baseItems.get(blockId);
-    if (!source || !normalizeItem(source, blockId)) return null;
+    const normalized = source ? normalizeItem(source, blockId) : null;
+    const paragraphId = normalized?.content[0].attrs.blockId;
+    if (
+      !source
+      || !normalized
+      || !validBlockId(paragraphId)
+      || deletedBlocks.length !== 2
+      || !deletedBlocks.includes(blockId)
+      || !deletedBlocks.includes(paragraphId)
+      || addedBlocks.length > 0
+    ) {
+      return null;
+    }
     const operation: TiptapListItemStructureOperation = { type: "delete", scope: "listItem", blockId };
     const simulated = cloneJson(baseDoc);
     return simulateDelete(simulated, operation) && JSON.stringify(simulated) === targetJson
@@ -235,5 +305,5 @@ export function planTiptapListItemStructure(
 export function listItemStructureOperationForPatch(
   operation: TiptapListItemStructureOperation,
 ): BlockPatchOperation {
-  return asBlockPatchOperation(operation);
+  return operation;
 }

@@ -15,6 +15,13 @@ import { getUserWorkspaceRole } from "../middleware/acl";
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
 import { getUserAISettings, setGuardedUserAISettings } from "../services/user-ai-settings";
+import {
+  discoverEmbeddingModels,
+  embeddingDiscoveryErrorBody,
+  EmbeddingDiscoveryError,
+  testEmbeddingModel,
+  type EmbeddingProbeInput,
+} from "../services/embedding-model-discovery";
 
 const ai = new Hono();
 
@@ -179,6 +186,29 @@ ai.put("/settings", async (c) => {
     ai_embedding_key: settings.ai_embedding_key ? "sk-****" + settings.ai_embedding_key.slice(-4) : "",
     ai_embedding_key_set: !!settings.ai_embedding_key,
   });
+});
+
+// ===== Embedding 模型发现与连通性测试 =====
+ai.post("/embeddings/models", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const body = await c.req.json().catch(() => ({})) as EmbeddingProbeInput;
+  try {
+    return c.json(await discoverEmbeddingModels(userId, body));
+  } catch (error) {
+    const status = error instanceof EmbeddingDiscoveryError ? error.httpStatus : 500;
+    return c.json(embeddingDiscoveryErrorBody(error), status as any);
+  }
+});
+
+ai.post("/embeddings/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const body = await c.req.json().catch(() => ({})) as EmbeddingProbeInput;
+  try {
+    return c.json(await testEmbeddingModel(userId, body));
+  } catch (error) {
+    const status = error instanceof EmbeddingDiscoveryError ? error.httpStatus : 500;
+    return c.json(embeddingDiscoveryErrorBody(error), status as any);
+  }
 });
 
 // ===== AI 连接测试 =====

@@ -1,4 +1,4 @@
-# Block Patch API V2-H
+# Block Patch API V2-I
 
 Block Patch applies ordered Tiptap Block mutations as one confirmed transaction. It is the persistence boundary between whole-note saves and the future Block-authoritative storage model.
 
@@ -30,7 +30,7 @@ Only notes whose `contentFormat` is `tiptap-json` are accepted.
 
 ## Operations
 
-### Create
+### Create a normal Block
 
 ```json
 {
@@ -45,7 +45,57 @@ Only notes whose `contentFormat` is `tiptap-json` are accepted.
 
 Supported types are `paragraph`, `heading`, `codeBlock`, `blockquote`, `listItem` and `taskItem`. Heading creation defaults to H2.
 
-When `blockId` is omitted, the server generates one and returns the client/server mapping in `createdBlocks`. Only top-level paragraph, heading and code-block creation is currently eligible for structural or mixed incremental indexing.
+When `blockId` is omitted, the server generates one and returns the client/server mapping in `createdBlocks`. Only top-level paragraph, heading and code-block creation is currently eligible for normal structural or mixed incremental indexing.
+
+### Create one leaf list item
+
+```json
+{
+  "type": "create",
+  "scope": "listItem",
+  "clientId": "blk_item_new",
+  "blockId": "blk_item_new",
+  "targetBlockId": "blk_existing_item",
+  "position": "after",
+  "node": {
+    "type": "listItem",
+    "attrs": {
+      "blockId": "blk_item_new"
+    },
+    "content": [
+      {
+        "type": "paragraph",
+        "attrs": {
+          "blockId": "blk_paragraph_new",
+          "textAlign": null,
+          "lineHeight": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "New item",
+            "marks": [{ "type": "bold" }]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+V2-I accepts exactly one scoped list-item create operation per request.
+
+Requirements:
+
+- `position` is `before` or `after` an existing sibling;
+- item and paragraph Block IDs are valid, distinct and globally unused;
+- `listItem` targets a bullet/ordered list;
+- `taskItem` targets a task list and includes boolean `checked`;
+- the item contains exactly one safe paragraph;
+- no nested list, table, media, formula, Mermaid or second paragraph is accepted;
+- the item node is limited to 256 KB.
+
+See `docs/block-patch-list-structure.md` for the complete replay proof and fallback contract.
 
 ### Plain-text update
 
@@ -88,7 +138,7 @@ The API does not accept arbitrary ProseMirror JSON. Allowed Block nodes are `par
 
 Allowed marks include bold, italic, underline, strike, inline code, safe links, highlight and text style. Unknown nodes, marks, attrs, fields, dangerous URL schemes, mismatched Block IDs and oversized replacement nodes return `INVALID_BLOCK_NODE` before persistence.
 
-### Delete
+### Delete a normal Block
 
 ```json
 {
@@ -98,6 +148,20 @@ Allowed marks include bold, italic, underline, strike, inline code, safe links, 
 ```
 
 The server repairs empty list and quote containers. Deleting every top-level identified Block creates one canonical empty paragraph with a fresh stable Block ID. Delete-all uses full index synchronization because the replacement Block did not exist in the pre-patch index.
+
+### Delete one leaf list item
+
+```json
+{
+  "type": "delete",
+  "scope": "listItem",
+  "blockId": "blk_item_old"
+}
+```
+
+The target must contain exactly one paragraph and no nested list or subtree. The item and paragraph Block rows are deleted together. An empty list wrapper is removed.
+
+Deleting the only list item when it would make the complete Tiptap document empty returns `LIST_STRUCTURE_INVALID`. The editor then uses the established whole-note empty-document save path and Block ID reconciliation.
 
 ### Move a normal Block
 
@@ -142,10 +206,10 @@ Operations are evaluated in request order. Inside one SQLite transaction, the se
 4. Validates and applies every operation in memory.
 5. Records the pre-edit version using the same five-minute merge window as whole-note save.
 6. Updates `notes.content`, `contentText`, version and timestamp with optimistic locking.
-7. Applies a leaf, structural, mixed, list-subtree or full index synchronization plan.
+7. Applies a leaf, structural, mixed, list-subtree, list-structural or full index synchronization plan.
 8. Stores the idempotent authoritative response.
 
-Any failure rolls back the document, indexes, history row and idempotency record. One successful batch increments the note version exactly once. Idempotent replay returns the same authoritative content and generated IDs.
+Any failure rolls back the document, indexes, history row and idempotency record. One successful request increments the note version exactly once. Idempotent replay returns the same authoritative content and generated IDs.
 
 ## Index update modes
 
@@ -187,11 +251,31 @@ Used for one controlled scoped list-item move when the old index is an exact mir
 - Old/new parent items and their indexed ancestors may change aggregate `plainText/contentHash`.
 - Paragraph, heading and code-block content/hash must remain unchanged.
 - Only proven-different rows are upserted.
-- No `note_links` rows are deleted or recreated, so links inside the moved subtree preserve their IDs and timestamps.
+- No `note_links` rows are deleted or recreated.
+
+### `list-structural`
+
+Used for one controlled leaf list-item create or delete.
+
+For create:
+
+- exactly the new item and its paragraph are inserted;
+- nested parent/ancestor aggregate text and hash are refreshed when needed;
+- only shifted `blockOrder/path` rows are updated;
+- links are extracted only from the new paragraph.
+
+For delete:
+
+- exactly the item and its paragraph are removed;
+- nested parent/ancestor aggregate text and hash are refreshed when needed;
+- only shifted `blockOrder/path` rows are updated;
+- links sourced from the removed item/paragraph are deleted.
+
+Existing leaf content must remain unchanged. Any extra added/deleted Block, unexpected parent change or unproved structural difference disables this mode.
 
 ### `full`
 
-Used whenever incremental correctness cannot be proven, including stale indexes, missing or duplicate IDs, unsupported nested mutations, identity ambiguity, complex nodes, delete-all replacement, or a list difference exceeding the single controlled move contract.
+Used whenever incremental correctness cannot be proven, including stale indexes, missing or duplicate IDs, unsupported nested mutations, identity ambiguity, complex nodes, delete-all replacement, multi-item list edits, or a list difference exceeding a controlled operation contract.
 
 All fallback decisions happen inside the same transaction.
 
@@ -209,13 +293,19 @@ All fallback decisions happen inside the same transaction.
   "contentFormat": "tiptap-json",
   "notebookId": "notebook-id",
   "operationCount": 1,
-  "affectedBlockIds": ["blk_source_item", "blk_target_item"],
+  "affectedBlockIds": ["blk_item_new", "blk_paragraph_new"],
   "deletedBlockIds": [],
-  "createdBlocks": [],
+  "createdBlocks": [
+    {
+      "operationIndex": 0,
+      "clientId": "blk_item_new",
+      "blockId": "blk_item_new"
+    }
+  ],
   "blocks": [],
   "indexUpdateMode": "incremental",
-  "indexUpdateKind": "list-subtree",
-  "indexedBlockIds": ["blk_source_item", "blk_descendant"],
+  "indexUpdateKind": "list-structural",
+  "indexedBlockIds": ["blk_item_new", "blk_paragraph_new"],
   "contentChangedByNormalization": false
 }
 ```
@@ -240,14 +330,18 @@ The runtime planner currently sends:
 - top-level create/delete/reorder operations;
 - safe content and structure changes as one mixed transaction;
 - final-Block deletion as an empty-document delete batch;
-- one proven-safe list sink, lift or same-depth move as scoped `move`.
+- one proven-safe list sink, lift or same-depth move;
+- one proven-safe leaf list-item create or delete.
 
-The following continue through whole-note save:
+List-item create/delete planning requires an exact full-JSON replay and a globally unique Block identity delta. The following continue through whole-note save:
 
+- item split where the original paragraph also changes;
+- nested list-subtree creation or deletion;
+- multiple list-item create/delete operations;
+- mixed list structure plus content/formatting changes;
+- deleting the only list item when the whole document becomes empty;
 - tables and table structure changes;
 - images, videos, attachments, Mermaid, math and other atom nodes;
-- list content changes combined with hierarchy changes;
-- multiple independent list moves;
 - top-level lift out of a list;
 - conversion between bullet, ordered and task lists;
 - arbitrary cross-depth or cross-type reparenting;
@@ -261,7 +355,7 @@ Only one patch may be in flight per editor. Uncertain outcomes retry with the sa
 
 - `notes.content` remains the canonical complete document.
 - A successful patch still serializes a full JSON snapshot.
-- List-item create/delete and multi-item transactions still use full synchronization.
+- Multi-item and mixed list-structure transactions remain deferred.
 - Arbitrary nested structural operations remain deferred.
 - Table, media, attachment, formula and Mermaid node patches are deferred.
 - There is no independent Block-authoritative content table yet.

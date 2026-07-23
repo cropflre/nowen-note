@@ -108,6 +108,7 @@ test("creates one list item with incremental indexes and links", async () => {
   const targetNoteId = "56565656-5656-4565-8565-565656565656";
   insertNote(targetNoteId, tiptap(paragraph("blk_target00", "Target")));
   insertNote(noteId, tiptap(
+    paragraph("blk_outside0", "Outside"),
     {
       type: "bulletList",
       content: [
@@ -115,7 +116,6 @@ test("creates one list item with incremental indexes and links", async () => {
         item("blk_item_c0", "blk_para_c0", "C"),
       ],
     },
-    paragraph("blk_outside0", "Outside"),
   ));
   db.prepare(`
     UPDATE note_blocks_index SET createdAt = '2000-01-01 00:00:00', updatedAt = '2000-01-01 00:00:00'
@@ -153,7 +153,7 @@ test("creates one list item with incremental indexes and links", async () => {
   assert.deepEqual(payload.deletedBlockIds, []);
 
   const parsed = JSON.parse(payload.content);
-  assert.deepEqual(parsed.content[0].content.map((entry: any) => entry.attrs.blockId), [
+  assert.deepEqual(parsed.content[1].content.map((entry: any) => entry.attrs.blockId), [
     "blk_item_a0",
     "blk_item_b0",
     "blk_item_c0",
@@ -181,6 +181,7 @@ test("deletes one leaf list item and its link rows incrementally", async () => {
   const targetNoteId = "78787878-7878-4787-8787-787878787878";
   insertNote(targetNoteId, tiptap(paragraph("blk_target10", "Target")));
   insertNote(noteId, tiptap(
+    paragraph("blk_outside1", "Outside"),
     {
       type: "bulletList",
       content: [
@@ -197,7 +198,6 @@ test("deletes one leaf list item and its link rows incrementally", async () => {
         item("blk_item_f0", "blk_para_f0", "F"),
       ],
     },
-    paragraph("blk_outside1", "Outside"),
   ));
   db.prepare(`
     UPDATE note_blocks_index SET createdAt = '2000-01-01 00:00:00', updatedAt = '2000-01-01 00:00:00'
