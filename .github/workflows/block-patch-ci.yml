@@ -132,19 +132,30 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Block patch client, planner and rollout tests
-        run: >-
-          npm run test:run --
-          src/lib/__tests__/blockPatchApi.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
-          src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts
-          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
-          src/lib/__tests__/tiptapListItemMovePlanner.test.ts
-          src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
-          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
-          src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx
-          src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx
-          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:run -- \
+            src/lib/__tests__/blockPatchApi.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts \
+            src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts \
+            src/lib/__tests__/tiptapBlockPatchRuntime.test.ts \
+            src/lib/__tests__/tiptapListItemMovePlanner.test.ts \
+            src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts \
+            src/components/__tests__/TiptapBlockPatchRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx \
+            src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx \
+            src/components/__tests__/TiptapRuntimePublicContext.test.tsx \
+            2>&1 | tee block-patch-frontend.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-patch-frontend-${{ github.run_id }}
+          path: frontend/block-patch-frontend.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Frontend typecheck
         run: npx tsc -b
