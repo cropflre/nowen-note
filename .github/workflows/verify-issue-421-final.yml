@@ -1,0 +1,38 @@
+name: Verify Issue 421 Final
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-issue-421-final.yml"
+      - "packages/nowen-clipper/**"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/nowen-clipper/package-lock.json
+      - name: Install clipper dependencies
+        working-directory: packages/nowen-clipper
+        run: npm ci
+      - name: Content bridge regression tests
+        working-directory: packages/nowen-clipper
+        run: npm test
+      - name: Clipper TypeScript check
+        working-directory: packages/nowen-clipper
+        run: npm run lint
+      - name: Build Chrome extension
+        working-directory: packages/nowen-clipper
+        run: npm run build:chrome
+      - name: Inspect generated extension entries
+        working-directory: packages/nowen-clipper
+        run: find dist -maxdepth 3 -type f -print | sort
