@@ -165,6 +165,7 @@ ai.put("/settings", async (c) => {
   if (body.ai_api_url !== undefined) entries.push({ key: "ai_api_url", value: body.ai_api_url.replace(/\/+$/, "") });
   if (body.ai_api_key !== undefined && !body.ai_api_key.includes("****")) entries.push({ key: "ai_api_key", value: body.ai_api_key });
   if (body.ai_model !== undefined) entries.push({ key: "ai_model", value: body.ai_model });
+  if (body.ai_embedding_profile_id !== undefined) entries.push({ key: "ai_embedding_profile_id", value: body.ai_embedding_profile_id.trim() });
   if (body.ai_embedding_url !== undefined) entries.push({ key: "ai_embedding_url", value: body.ai_embedding_url.replace(/\/+$/, "") });
   if (body.ai_embedding_key !== undefined && !body.ai_embedding_key.includes("****")) entries.push({ key: "ai_embedding_key", value: body.ai_embedding_key });
   if (body.ai_embedding_model !== undefined) entries.push({ key: "ai_embedding_model", value: body.ai_embedding_model });

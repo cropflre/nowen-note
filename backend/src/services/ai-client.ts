@@ -12,6 +12,7 @@ export interface AISettings {
   ai_api_url: string;
   ai_api_key: string;
   ai_model: string;
+  ai_embedding_profile_id: string;
   ai_embedding_url: string;
   ai_embedding_key: string;
   ai_embedding_model: string;

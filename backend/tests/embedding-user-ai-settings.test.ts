@@ -31,6 +31,7 @@ test.before(async () => {
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-default", "embed-default", "hash");
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-invalid", "embed-invalid", "hash");
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-whitespace", "embed-whitespace", "hash");
+  schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-profile", "embed-profile", "hash");
 });
 
 test.after(async () => {
@@ -86,6 +87,50 @@ test("embedQuery uses the requested user's URL, key, and model", async () => {
     { url: "https://embed-a.example/v1/embeddings", authorization: "Bearer embed-key-a", model: "embed-model-a" },
     { url: "https://embed-b.example/v1/embeddings", authorization: "Bearer embed-key-b", model: "embed-model-b" },
   ]);
+});
+
+test("embedQuery uses a fixed saved profile instead of the active chat credentials", async () => {
+  setUserAISettings("embed-profile", [
+    { key: "ai_provider", value: "deepseek" },
+    { key: "ai_api_url", value: "https://chat.example/v1" },
+    { key: "ai_api_key", value: "chat-key" },
+    { key: "ai_profiles_v1", value: JSON.stringify([{
+      id: "profile-fixed",
+      name: "Fixed",
+      provider: "openai",
+      apiUrl: "https://fixed.example/v1",
+      apiKey: "fixed-key",
+      model: "chat-only-model",
+    }]) },
+    { key: "ai_embedding_profile_id", value: "profile-fixed" },
+    { key: "ai_embedding_model", value: "fixed-embedding-model" },
+  ]);
+
+  let request: { url: string; authorization: string; model: string } | null = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    request = {
+      url: String(input),
+      authorization: new Headers(init?.headers).get("authorization") || "",
+      model: JSON.parse(String(init?.body)).model,
+    };
+    return new Response(JSON.stringify({ data: [{ index: 0, embedding: [0.1, 0.2] }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await embedQuery("embed-profile", "profile question");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(request, {
+    url: "https://fixed.example/v1/embeddings",
+    authorization: "Bearer fixed-key",
+    model: "fixed-embedding-model",
+  });
 });
 
 test("blank embedding URL falls back after trimming", async () => {

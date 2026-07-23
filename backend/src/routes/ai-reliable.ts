@@ -19,6 +19,7 @@ import {
   isManualAIEnabled as isUserManualAIEnabled,
   setUserAISettings,
 } from "../services/user-ai-settings";
+import { resolveEmbeddingConfig } from "../services/embedding-config";
 
 const app = new Hono();
 app.use("*", async (c, next) => {
@@ -33,6 +34,7 @@ const GUARDED_AI_KEYS = [
   "ai_api_url",
   "ai_api_key",
   "ai_model",
+  "ai_embedding_profile_id",
   "ai_embedding_url",
   "ai_embedding_key",
   "ai_embedding_model",
@@ -115,7 +117,7 @@ function restoreActiveProfile(userId: string): void {
       value: getUserAISetting(userId, `ai_disabled_backup_${key}`),
     })));
   }
-  setUserAISettings(userId, ["ai_embedding_url", "ai_embedding_key", "ai_embedding_model"].map((key) => ({
+  setUserAISettings(userId, ["ai_embedding_profile_id", "ai_embedding_url", "ai_embedding_key", "ai_embedding_model"].map((key) => ({
     key,
     value: getUserAISetting(userId, `ai_disabled_backup_${key}`),
   })));
@@ -439,12 +441,20 @@ function getIndexStatus(scope: Scope) {
 
 function publicStatus(scope: Scope) {
   const settings = getUserAISettings(scope.userId);
+  const embedding = resolveEmbeddingConfig(scope.userId);
   return {
     enabled: isUserManualAIEnabled(scope.userId),
     provider: settings.ai_provider || null,
     model: settings.ai_model || null,
     apiHost: apiHost(settings.ai_api_url),
     embeddingModel: settings.ai_embedding_model || null,
+    embedding: {
+      source: embedding.source,
+      profileId: embedding.profileId,
+      profileName: embedding.profileName,
+      errorCode: embedding.errorCode,
+      error: embedding.error,
+    },
     scope: {
       workspaceId: scope.workspaceId,
       notebookCount: scope.notebookIds?.length || null,
