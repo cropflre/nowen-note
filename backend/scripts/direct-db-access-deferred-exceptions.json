@@ -2,6 +2,11 @@
   "version": 2,
   "note": "Temporary, issue-owned direct-access allowances introduced by mainline drift. Every entry has an exact per-kind ceiling and must decrease as #249/#251/#252/#253 are completed.",
   "files": {
+    "lib/blockPatchIncrementalIndexes.ts": {
+      "owner": "#249",
+      "reason": "Main introduced incremental Block Patch index maintenance after the reviewed baseline. It executes inside the existing core note/block SQLite transaction and must migrate with the complete #249 block transaction boundary.",
+      "counts": { "better-sqlite3": 1, "prepare-call": 5 }
+    },
     "lib/noteBlocks.ts": {
       "owner": "#249",
       "reason": "Main added block-level note operations after the original Repository boundary snapshot. These business operations must move behind the runtime adapter in a later #249 core-note batch.",
