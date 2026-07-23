@@ -1,22 +1,15 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { isSystemAdmin } from "../middleware/acl";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 const app = new Hono();
 const CONFIG_KEY = "imageHosting:config";
 const FALLBACK_KEY = "imageHosting:fallbackToLocal";
 
-interface LegacyConfigRow {
-  value: string;
-  updatedAt?: string | null;
-}
-
 function readLegacyConfig() {
-  let row: LegacyConfigRow | undefined;
+  let row: { value: string; updatedAt?: string | null } | undefined;
   try {
-    row = getDb()
-      .prepare("SELECT value, updatedAt FROM system_settings WHERE key = ?")
-      .get(CONFIG_KEY) as LegacyConfigRow | undefined;
+    row = systemSettingsRepository.get(CONFIG_KEY);
   } catch (error) {
     console.warn("[image-hosting-retired] failed to read legacy config", error);
   }
@@ -99,9 +92,7 @@ app.put("/config", (c) => {
 app.delete("/config", (c) => {
   const denied = requireAdmin(c);
   if (denied) return denied;
-  const db = getDb();
-  db.prepare("DELETE FROM system_settings WHERE key = ?").run(CONFIG_KEY);
-  db.prepare("DELETE FROM system_settings WHERE key = ?").run(FALLBACK_KEY);
+  systemSettingsRepository.deleteMany([CONFIG_KEY, FALLBACK_KEY]);
   return c.json(readLegacyConfig());
 });
 
