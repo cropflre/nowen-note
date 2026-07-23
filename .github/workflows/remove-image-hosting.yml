@@ -5,8 +5,7 @@ on:
     types: [opened, synchronize]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: remove-third-party-image-hosting
@@ -182,15 +181,43 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build:tsc -- --noEmit
 
-      - name: Publish verified result branch
+      - name: Stage verified files
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f --ignore-unmatch \
-            .github/remove-image-hosting-trigger \
-            .github/workflows/remove-image-hosting.yml
-          git add -A
-          git commit -m "refactor(attachments): remove third-party image hosting"
-          git push --force origin HEAD:refs/heads/chore/remove-third-party-image-hosting-result
+          mkdir -p .verified-removal
+          while IFS= read -r path; do
+            [ -f "$path" ] || continue
+            mkdir -p ".verified-removal/$(dirname "$path")"
+            cp "$path" ".verified-removal/$path"
+          done <<'EOF'
+          frontend/src/components/SettingsModal.tsx
+          frontend/src/lib/api.impl.ts
+          frontend/src/i18n/locales/zh-CN.json
+          frontend/src/i18n/locales/en.json
+          backend/src/index.ts
+          backend/src/services/calendar-export.ts
+          README.md
+          README.en.md
+          .env.example
+          docs/tutorials/quick-start.md
+          .github/workflows/pg-sync-main.yml
+          .github/workflows/pg-final-sync.yml
+          .github/workflows/pg-diagnose-note-split.yml
+          EOF
+          cat > .verified-removal/deletions.txt <<'EOF'
+          frontend/src/components/settings/ImageHostingSettings.tsx
+          frontend/src/lib/__tests__/imageHostingRetirement.test.ts
+          backend/src/routes/image-hosting.ts
+          backend/tests/image-hosting-retirement.test.ts
+          docs/image-hosting-retirement.md
+          .github/remove-image-hosting-trigger
+          .github/workflows/remove-image-hosting.yml
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-image-hosting-removal
+          path: .verified-removal
+          if-no-files-found: error
+          retention-days: 1
