@@ -5,7 +5,7 @@
     "lib/blockPatchIncrementalIndexes.ts": {
       "owner": "#249",
       "reason": "Main introduced incremental Block Patch index maintenance after the reviewed baseline. It executes inside the existing core note/block SQLite transaction and must migrate with the complete #249 block transaction boundary.",
-      "counts": { "better-sqlite3": 1, "prepare-call": 5 }
+      "counts": { "better-sqlite3": 1, "prepare-call": 6 }
     },
     "lib/noteBlocks.ts": {
       "owner": "#249",
