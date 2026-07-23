@@ -84,6 +84,10 @@ function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
+function expectedItemType(listType: string): "listItem" | "taskItem" {
+  return listType === "taskList" ? "taskItem" : "listItem";
+}
+
 function findPath(nodes: any[], blockId: string, ancestors: NodeFrame[] = []): NodeFrame[] | null {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
@@ -109,6 +113,9 @@ function locateListItem(doc: any, blockId: string): ListItemLocation {
   if (!ITEM_TYPES.has(itemFrame.node?.type) || !LIST_TYPES.has(listFrame.node?.type)) {
     throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", `目标不是受支持的列表项: ${blockId}`);
   }
+  if (itemFrame.node.type !== expectedItemType(listFrame.node.type)) {
+    throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", "列表项类型与父列表不兼容");
+  }
   if (listFrame.node.content !== itemFrame.parent) {
     throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", "列表项父容器无效");
   }
@@ -127,10 +134,6 @@ function locateListItem(doc: any, blockId: string): ListItemLocation {
     listFrame,
     parentItemFrame,
   };
-}
-
-function expectedItemType(listType: string): "listItem" | "taskItem" {
-  return listType === "taskList" ? "taskItem" : "listItem";
 }
 
 function collectBlockIds(node: any, output = new Set<string>()): Set<string> {
