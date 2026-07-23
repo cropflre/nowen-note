@@ -36,6 +36,7 @@ import { TaskBoardView } from "./tasks/TaskBoardView";
 import { TaskCalendarView } from "./tasks/TaskCalendarView";
 import TaskGanttView from "./tasks/TaskGanttView";
 import { compareTasksByDueTime, moveTaskToDate } from "./tasks/taskDateUtils";
+import { haveSameTaskCompletionState, orderTasksCompletedLast } from "./tasks/taskCompletionOrder";
 import { TaskTemplatePicker } from "./tasks/TaskTemplatePicker";
 import { ReminderCenter } from "./tasks/ReminderCenter";
 import { TaskCalendarFeedSettings } from "./tasks/TaskCalendarFeedSettings";
@@ -184,10 +185,12 @@ export default function TaskCenter() {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const treeSourceTasks = useMemo(() => {
-    if (!sortByDueTime) return tasks;
-    const roots = tasks.filter((task) => !task.parentId).sort(compareTasksByDueTime);
+    const roots = tasks.filter((task) => !task.parentId);
     const children = tasks.filter((task) => task.parentId);
-    return [...roots, ...children];
+    return [
+      ...orderTasksCompletedLast(roots, sortByDueTime ? compareTasksByDueTime : undefined),
+      ...orderTasksCompletedLast(children),
+    ];
   }, [tasks, sortByDueTime]);
 
   // tree hook
@@ -235,8 +238,14 @@ export default function TaskCenter() {
   // filtered tasks by search query
   const displayTasks = useMemo(() => {
     const source = searchQuery.trim() ? tasks.filter((t) => taskMatchesSearch(t, searchQuery)) : tasks;
-    return sortByDueTime ? [...source].sort(compareTasksByDueTime) : source;
-  }, [tasks, searchQuery, sortByDueTime]);
+    if (viewMode !== "list") {
+      return sortByDueTime ? [...source].sort(compareTasksByDueTime) : source;
+    }
+    return orderTasksCompletedLast(
+      source,
+      sortByDueTime ? compareTasksByDueTime : undefined,
+    );
+  }, [tasks, searchQuery, sortByDueTime, viewMode]);
 
   // recompute flatOrdered for display (search-filtered)
   const displayFlatOrdered = useMemo(() => {
@@ -688,6 +697,11 @@ export default function TaskCenter() {
     const targetTask = tasks.find((t) => t.id === targetId);
     if (!dragTask || !targetTask) { setDragId(null); setDragOverId(null); return; }
     if ((dragTask.parentId ?? null) !== (targetTask.parentId ?? null)) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    if (!haveSameTaskCompletionState(dragTask, targetTask)) {
       setDragId(null);
       setDragOverId(null);
       return;
