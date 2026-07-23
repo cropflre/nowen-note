@@ -18,7 +18,7 @@ export interface EmbeddingConfigResolution {
   error: string | null;
 }
 
-interface StoredAIProfile {
+export interface StoredAIProfile {
   id: string;
   name: string;
   provider: string;
@@ -28,7 +28,7 @@ interface StoredAIProfile {
 
 const OLLAMA_DOCKER_URL = process.env.OLLAMA_URL || "";
 
-function normalizeServiceUrl(provider: string, rawUrl: string): string {
+export function normalizeServiceUrl(provider: string, rawUrl: string): string {
   let url = rawUrl.trim().replace(/\/+$/, "");
   if (
     OLLAMA_DOCKER_URL
@@ -40,7 +40,7 @@ function normalizeServiceUrl(provider: string, rawUrl: string): string {
   return url;
 }
 
-function readProfiles(userId: string): StoredAIProfile[] {
+export function readProfiles(userId: string): StoredAIProfile[] {
   const raw = getUserAISetting(userId, "ai_profiles_v1");
   if (!raw) return [];
   try {
