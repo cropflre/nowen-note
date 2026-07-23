@@ -159,11 +159,11 @@ describe("Tiptap controlled list hierarchy planner", () => {
       operations: [{
         type: "move",
         scope: "listItem",
-        blockId: "blk_item_a0",
-        targetBlockId: "blk_item_b0",
-        position: "after",
+        blockId: "blk_item_b0",
+        targetBlockId: "blk_item_a0",
+        position: "before",
       }],
-      affectedBlockIds: ["blk_item_a0", "blk_item_b0"],
+      affectedBlockIds: ["blk_item_b0", "blk_item_a0"],
     });
   });
 
