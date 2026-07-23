@@ -14,6 +14,8 @@ test("third-party image hosting upload is retired without deleting legacy metada
   assert.match(route, /enabled:\s*false/);
   assert.match(route, /publicBaseUrl/);
   assert.match(route, /不会访问或删除第三方 Bucket/);
+  assert.match(route, /systemSettingsRepository\.deleteMany/);
+  assert.doesNotMatch(route, /getDb/);
   assert.doesNotMatch(route, /uploadImageToHosting/);
   assert.doesNotMatch(route, /secretAccessKeyEnc\s*:/);
 });
