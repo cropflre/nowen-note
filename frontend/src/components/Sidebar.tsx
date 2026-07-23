@@ -60,8 +60,6 @@ import {
   DEFAULT_NOTEBOOK_SORT_PREF,
   getNotebookDropZone,
   getNotebookDragHint,
-  getNotebookSortPrefForParent,
-  notebookSortKey,
   notebookTreeContainsId,
   notebookTreeMapChanged,
   notebookTreeSetChanged,
@@ -72,7 +70,6 @@ import {
   type NotebookDropZone,
   type NotebookSortBy,
   type NotebookSortPref,
-  type NotebookSortPrefMap,
 } from "@/lib/notebookSort";
 import {
   cleanupCancelledNotebook,
@@ -106,29 +103,20 @@ function useStableEvent<Args extends unknown[], Result>(handler: (...args: Args)
   return useCallback((...args: Args) => handlerRef.current(...args), []);
 }
 
-function loadNotebookSortPrefs(): NotebookSortPrefMap {
+function loadNotebookSortPref(): NotebookSortPref {
   try {
     const raw = localStorage.getItem(NOTEBOOK_SORT_STORAGE_KEY);
-    if (!raw) return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
+    if (!raw) return DEFAULT_NOTEBOOK_SORT_PREF;
     const parsed = JSON.parse(raw);
-    if (parsed?.by) {
-      return { [ROOT_NOTEBOOK_SORT_KEY]: normalizeNotebookSortPref(parsed) };
-    }
-    if (!parsed || typeof parsed !== "object") {
-      return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
-    }
-    const result: NotebookSortPrefMap = {};
-    Object.entries(parsed).forEach(([key, value]) => {
-      result[key] = normalizeNotebookSortPref(value);
-    });
-    return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF, ...result };
+    if (parsed?.by) return normalizeNotebookSortPref(parsed);
+    return normalizeNotebookSortPref(parsed?.[ROOT_NOTEBOOK_SORT_KEY]);
   } catch {
-    return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
+    return DEFAULT_NOTEBOOK_SORT_PREF;
   }
 }
 
-function saveNotebookSortPrefs(prefMap: NotebookSortPrefMap) {
-  try { localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, JSON.stringify(prefMap)); } catch {}
+function saveNotebookSortPref(pref: NotebookSortPref) {
+  try { localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, JSON.stringify(pref)); } catch {}
 }
 
 /* ===== 移动笔记本：树形选择器条目 ===== */
@@ -527,7 +515,7 @@ function NotebookItem({
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
   dragHint,
   canDragInParent,
-  getSortValue, sortMenuOpenId, onSortMenuToggle, onSortChange, onSortClose,
+  getSortValue,
   noteDragOverId, noteItemDragOverId, noteItemDragOverZone,
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
   onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onNoteItemDragOver, onNoteItemDrop,
@@ -552,10 +540,6 @@ function NotebookItem({
   dragHint?: string;
   canDragInParent?: (parentId: string | null) => boolean;
   getSortValue: (id: string) => NotebookSortPref;
-  sortMenuOpenId?: string | null;
-  onSortMenuToggle?: (id: string) => void;
-  onSortChange?: (id: string, next: NotebookSortPref) => void;
-  onSortClose?: () => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
   onDragOver?: (e: React.DragEvent, id: string) => void;
   onDragEnd?: () => void;
@@ -694,7 +678,6 @@ function NotebookItem({
         className={cn(
           "relative flex items-center gap-1 px-2 rounded-md cursor-pointer text-sm group transition-colors",
           constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
-          sortMenuOpenId === notebook.id && "z-[80]",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
           showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15",
@@ -852,34 +835,7 @@ function NotebookItem({
               )}
             </span>
             {showNotes && onCreateNote && !createOperation && (
-              <div className={cn(
-                "sticky right-1 ml-auto flex shrink-0 items-center gap-0.5 rounded-md bg-app-sidebar/95 pl-1",
-                sortMenuOpenId === notebook.id ? "z-[90]" : "z-10"
-              )}>
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSortMenuToggle?.(notebook.id);
-                    }}
-                    className={cn(
-                      "w-5 h-5 shrink-0 flex items-center justify-center rounded text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors opacity-0 group-hover:opacity-100",
-                      childSortValue.by !== "manual" && "opacity-100 text-accent-primary bg-accent-primary/10"
-                    )}
-                    title={t("sidebar.notebookSort", "笔记本排序")}
-                    aria-label={t("sidebar.notebookSort", "笔记本排序")}
-                  >
-                    <ArrowUpDown size={12} />
-                  </button>
-                  {sortMenuOpenId === notebook.id && (
-                    <NotebookSortMenu
-                      value={childSortValue}
-                      onChange={(next) => onSortChange?.(notebook.id, next)}
-                      onClose={() => onSortClose?.()}
-                    />
-                  )}
-                </div>
+              <div className="sticky right-1 z-10 ml-auto flex shrink-0 items-center gap-0.5 rounded-md bg-app-sidebar/95 pl-1">
                 <button
                   ref={createMenuBtnRef}
                   type="button"
@@ -970,10 +926,6 @@ function NotebookItem({
                 dragHint={dragHint}
                 canDragInParent={canDragInParent}
                 getSortValue={getSortValue}
-                sortMenuOpenId={sortMenuOpenId}
-                onSortMenuToggle={onSortMenuToggle}
-                onSortChange={onSortChange}
-                onSortClose={onSortClose}
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
                 onDragEnd={onDragEnd}
@@ -1357,7 +1309,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const [dragOverNoteNotebookId, setDragOverNoteNotebookId] = useState<string | null>(null);
   const [dragOverSidebarNoteId, setDragOverSidebarNoteId] = useState<string | null>(null);
   const [dragOverSidebarNoteZone, setDragOverSidebarNoteZone] = useState<NoteDropZone | null>(null);
-  const [notebookSortPrefs, setNotebookSortPrefs] = useState<NotebookSortPrefMap>(() => loadNotebookSortPrefs());
+  const [notebookSortPref, setNotebookSortPref] = useState<NotebookSortPref>(() => loadNotebookSortPref());
   const [openNotebookSortParentId, setOpenNotebookSortParentId] = useState<string | null>(null);
   const notebookSortMenuRef = useRef<HTMLDivElement>(null);
 
@@ -1374,17 +1326,14 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const tagLongPressFired = useRef(false);
 
   const getNotebookSortPref = useCallback(
-    (parentId: string | null) => getNotebookSortPrefForParent(notebookSortPrefs, parentId),
-    [notebookSortPrefs],
+    (_parentId: string | null) => notebookSortPref,
+    [notebookSortPref],
   );
-  const setNotebookSortPrefForParent = useCallback((parentId: string | null, next: NotebookSortPref) => {
-    setNotebookSortPrefs((prev) => {
-      const updated = { ...prev, [notebookSortKey(parentId)]: next };
-      saveNotebookSortPrefs(updated);
-      return updated;
-    });
+  const setRootNotebookSortPref = useCallback((next: NotebookSortPref) => {
+    setNotebookSortPref(next);
+    saveNotebookSortPref(next);
   }, []);
-  const rootNotebookSortPref = getNotebookSortPref(null);
+  const rootNotebookSortPref = notebookSortPref;
   const isManualNotebookGroup = useCallback(
     (parentId: string | null) => getNotebookSortPref(parentId).by === "manual",
     [getNotebookSortPref],
@@ -2793,13 +2742,6 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const stableNotebookDragEnd = useStableEvent(handleNbDragEnd);
   const stableNotebookDrop = useStableEvent(handleNbDrop);
   const stableGetSortValue = useStableEvent((id: string) => getNotebookSortPref(id));
-  const stableSortMenuToggle = useStableEvent((id: string) => {
-    setOpenNotebookSortParentId((current) => current === id ? null : id);
-  });
-  const stableSortChange = useStableEvent(
-    (id: string, next: NotebookSortPref) => setNotebookSortPrefForParent(id, next),
-  );
-  const stableSortClose = useStableEvent(() => setOpenNotebookSortParentId(null));
   const stableSelectNote = useStableEvent(handleSelectSidebarNote);
   const stableNoteContextMenu = useStableEvent(
     (event: React.MouseEvent, id: string) => openMenu(event, id, "note"),
@@ -2922,6 +2864,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               e.stopPropagation();
               setOpenNotebookSortParentId((current) => current === ROOT_NOTEBOOK_SORT_KEY ? null : ROOT_NOTEBOOK_SORT_KEY);
             }}
+            data-nowen-notebook-sort={isDesktop ? "true" : undefined}
             title={notebookSortTitle}
             aria-label={notebookSortTitle}
           >
@@ -2931,7 +2874,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             <NotebookSortMenu
               value={rootNotebookSortPref}
               onChange={(next) => {
-                setNotebookSortPrefForParent(null, next);
+                setRootNotebookSortPref(next);
               }}
               onClose={() => setOpenNotebookSortParentId(null)}
             />
@@ -3002,10 +2945,6 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     dragHint={notebookDragHint}
                     canDragInParent={isManualNotebookGroup}
                     getSortValue={stableGetSortValue}
-                    sortMenuOpenId={openNotebookSortParentId}
-                    onSortMenuToggle={stableSortMenuToggle}
-                    onSortChange={stableSortChange}
-                    onSortClose={stableSortClose}
                     onDragStart={stableNotebookDragStart}
                     onDragOver={stableNotebookDragOver}
                     onDragEnd={stableNotebookDragEnd}
