@@ -185,7 +185,7 @@ function simulateCreate(
   const targetIndex = (target.list.content || []).indexOf(target.item);
   if (targetIndex < 0) return false;
   const destination = operation.position === "after" ? targetIndex + 1 : targetIndex;
-  target.list.content!.splice(destination, 0, cloneJson(operation.node) as JsonNode);
+  target.list.content!.splice(destination, 0, cloneJson(operation.node) as unknown as JsonNode);
   return true;
 }
 
@@ -292,7 +292,11 @@ export function planTiptapListItemStructure(
     ) {
       return null;
     }
-    const operation: TiptapListItemStructureOperation = { type: "delete", scope: "listItem", blockId };
+    const operation: Extract<TiptapListItemStructureOperation, { type: "delete" }> = {
+      type: "delete",
+      scope: "listItem",
+      blockId,
+    };
     const simulated = cloneJson(baseDoc);
     return simulateDelete(simulated, operation) && JSON.stringify(simulated) === targetJson
       ? operation
