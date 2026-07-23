@@ -7,11 +7,16 @@ import {
   applyIncrementalPatchIndexes,
   canUseIncrementalPatchIndexes,
   planIncrementalPatchIndexes,
+  type IncrementalPatchIndexPlan,
 } from "../lib/blockPatchIncrementalIndexes.js";
 import {
   canUseIncrementalListMoveIndexes,
   planIncrementalListMoveIndexes,
 } from "../lib/blockPatchListIncrementalIndexes.js";
+import {
+  canUseIncrementalListStructureIndexes,
+  planIncrementalListStructureIndexes,
+} from "../lib/blockPatchListStructureIncrementalIndexes.js";
 import {
   ensureNoteBlockTables,
   getNoteBlock,
@@ -25,6 +30,11 @@ import {
   validateTiptapBlockPatchOperations,
   type TiptapBlockPatchOperation,
 } from "../lib/tiptapBlockPatch.js";
+import {
+  TiptapListItemStructureError,
+  type TiptapListItemStructuralOperation,
+} from "../lib/tiptapListItemStructure.js";
+import { applyTiptapListItemStructurePatch } from "../lib/tiptapListItemStructurePatch.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { noteVersionsRepository } from "../repositories/noteVersionsRepository.js";
 import { logAudit } from "../services/audit.js";
@@ -33,6 +43,7 @@ import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime.js";
 const BLOCK_PATCH_ROUTE = Symbol.for("nowen.blocks.batchPatchRoute");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
 const VERSION_MERGE_WINDOW_MS = 5 * 60 * 1000;
+const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 
 interface NoteRecord {
   id: string;
@@ -46,6 +57,13 @@ interface NoteRecord {
   isLocked: number;
   isTrashed: number;
   updatedAt: string;
+}
+
+interface AppliedPatchResult {
+  content: string;
+  affectedBlockIds: string[];
+  createdBlocks: Array<{ operationIndex: number; clientId: string | null; blockId: string }>;
+  deletedBlockIds?: string[];
 }
 
 class BlockPatchRouteError extends Error {
@@ -90,6 +108,62 @@ function validateEnvelope(body: any): string | null {
     return "operationId 长度必须为 8-128";
   }
   return null;
+}
+
+function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+function validBlockId(value: unknown): value is string {
+  return typeof value === "string" && BLOCK_ID_RE.test(value);
+}
+
+function resolveListStructureOperation(raw: unknown): TiptapListItemStructuralOperation | null {
+  if (!Array.isArray(raw)) return null;
+  const scoped = raw.filter((candidate: any) => (
+    candidate
+    && (candidate.type === "create" || candidate.type === "delete")
+    && candidate.scope != null
+  ));
+  if (scoped.some((candidate: any) => candidate.scope !== "listItem")) {
+    throw new TiptapBlockPatchError("INVALID_PATCH", "create/delete.scope 仅支持 listItem");
+  }
+  if (scoped.length === 0) return null;
+  if (raw.length !== 1 || scoped.length !== 1) {
+    throw new TiptapListItemStructureError(
+      "LIST_STRUCTURE_INVALID",
+      "列表项创建或删除 V1 必须是单独的一笔操作",
+    );
+  }
+
+  const operation = scoped[0] as Record<string, any>;
+  if (operation.type === "create") {
+    if (!exactKeys(operation, [
+      "type",
+      "scope",
+      "clientId",
+      "blockId",
+      "targetBlockId",
+      "position",
+      "node",
+    ])) {
+      throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", "列表项 create 包含未知字段");
+    }
+    if (!validBlockId(operation.blockId) || !validBlockId(operation.targetBlockId)) {
+      throw new TiptapBlockPatchError("INVALID_BLOCK_ID", "列表项 create Block ID 无效");
+    }
+    if (!['before', 'after'].includes(operation.position)) {
+      throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", "列表项 create.position 无效");
+    }
+  } else {
+    if (!exactKeys(operation, ["type", "scope", "blockId"])) {
+      throw new TiptapListItemStructureError("LIST_STRUCTURE_INVALID", "列表项 delete 包含未知字段");
+    }
+    if (!validBlockId(operation.blockId)) {
+      throw new TiptapBlockPatchError("INVALID_BLOCK_ID", "列表项 delete Block ID 无效");
+    }
+  }
+  return operation as unknown as TiptapListItemStructuralOperation;
 }
 
 function readIdempotentResult(userId: string, noteId: string, operationId: string): IdempotencyLookup {
@@ -151,6 +225,10 @@ function mapPatchError(c: Context, error: unknown): Response | null {
           : "笔记不存在或无权限";
     return c.json({ error: message, code: error.code, ...error.details }, error.status);
   }
+  if (error instanceof TiptapListItemStructureError) {
+    const status = error.code === "BLOCK_ID_CONFLICT" ? 409 : error.code === "BLOCK_NOT_FOUND" ? 404 : 400;
+    return c.json({ error: error.message, code: error.code }, status);
+  }
   if (!(error instanceof TiptapBlockPatchError)) return null;
   if (error.code === "BLOCK_NOT_FOUND") {
     return c.json({ error: error.message, code: error.code }, 404);
@@ -183,7 +261,9 @@ async function patchBlocks(c: Context) {
   }
 
   let operations: TiptapBlockPatchOperation[];
+  let listStructureOperation: TiptapListItemStructuralOperation | null;
   try {
+    listStructureOperation = resolveListStructureOperation(body.operations);
     operations = validateTiptapBlockPatchOperations(body.operations);
   } catch (error) {
     return mapPatchError(c, error) || c.json({ error: "无效块补丁", code: "INVALID_BLOCK_PATCH" }, 400);
@@ -204,22 +284,25 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Safe leaf, top-level structural, proven mixed, and one controlled list-subtree move can skip
-      // the legacy pre-patch DELETE + full reinsert when the persisted index mirrors the document.
-      // Any mismatch fails closed and falls back inside this same transaction.
-      const listIncrementalBase = canUseIncrementalListMoveIndexes(
+      const listStructureBase = Boolean(listStructureOperation) && canUseIncrementalListStructureIndexes(
         db,
         noteId,
         note.content,
         operations,
       );
-      const genericIncrementalBase = !listIncrementalBase && canUseIncrementalPatchIndexes(
+      const listMoveBase = !listStructureBase && canUseIncrementalListMoveIndexes(
         db,
         noteId,
         note.content,
         operations,
       );
-      const incrementalBase = listIncrementalBase || genericIncrementalBase;
+      const genericIncrementalBase = !listStructureBase && !listMoveBase && canUseIncrementalPatchIndexes(
+        db,
+        noteId,
+        note.content,
+        operations,
+      );
+      const incrementalBase = listStructureBase || listMoveBase || genericIncrementalBase;
       const normalizedBefore = incrementalBase
         ? {
             content: note.content,
@@ -228,19 +311,24 @@ async function patchBlocks(c: Context) {
             changed: false,
           }
         : syncNoteBlocks(db, noteId, note.content, note.contentFormat);
-      const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
-      const listIncrementalPlan = listIncrementalBase
+
+      const patch: AppliedPatchResult = listStructureOperation
+        ? applyTiptapListItemStructurePatch(normalizedBefore.content, listStructureOperation)
+        : applyTiptapBlockPatch(normalizedBefore.content, operations);
+      const listStructurePlan = listStructureBase
+        ? planIncrementalListStructureIndexes(db, noteId, patch.content, operations)
+        : null;
+      const listMovePlan = listMoveBase
         ? planIncrementalListMoveIndexes(db, noteId, patch.content, operations)
         : null;
-      const incrementalPlan = listIncrementalPlan ?? (genericIncrementalBase
+      const genericPlan = genericIncrementalBase
         ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
-        : null);
+        : null;
+      const incrementalPlan = (listStructurePlan || listMovePlan || genericPlan) as IncrementalPatchIndexPlan | null;
       const contentText = incrementalPlan?.contentText
         ?? plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
 
-      // Match PUT /notes/:id version-history semantics. This insert is inside the same transaction,
-      // so a later optimistic-lock or index failure removes the snapshot together with the patch.
       recordVersionSnapshot(note, userId);
 
       const update = db.prepare(`
@@ -259,12 +347,22 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
-      let indexUpdateKind: "leaf" | "structural" | "mixed" | "list-subtree" | "full" = "full";
+      let indexUpdateKind:
+        | "leaf"
+        | "structural"
+        | "mixed"
+        | "list-subtree"
+        | "list-structural"
+        | "full" = "full";
       let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
         indexUpdateMode = "incremental";
-        indexUpdateKind = listIncrementalPlan ? "list-subtree" : incrementalPlan.kind;
+        indexUpdateKind = listStructurePlan
+          ? "list-structural"
+          : listMovePlan
+            ? "list-subtree"
+            : incrementalPlan.kind;
         indexedBlockIds = incrementalPlan.indexedBlockIds;
       } else {
         const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
@@ -278,7 +376,7 @@ async function patchBlocks(c: Context) {
       const persisted = readNote(noteId);
       if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
 
-      const deletedBlockIds = operations
+      const deletedBlockIds = patch.deletedBlockIds ?? operations
         .filter((operation) => operation.type === "delete")
         .map((operation) => operation.blockId);
       const blocks = patch.affectedBlockIds
