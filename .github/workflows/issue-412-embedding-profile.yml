@@ -43,13 +43,15 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
-      - name: Backend profile and isolation tests
+      - name: Backend embedding profile resolver tests
         working-directory: backend
-        run: >-
-          node --import tsx --import ./tests/setup-db-isolation.ts --test
-          tests/embedding-profile-config.test.ts
-          tests/embedding-user-ai-settings.test.ts
-          tests/user-ai-settings-isolation.test.ts
+        run: node --import tsx --test tests/embedding-profile-config.test.ts
+      - name: Backend embedding worker tests
+        working-directory: backend
+        run: node --import tsx --test tests/embedding-user-ai-settings.test.ts
+      - name: Backend user settings isolation tests
+        working-directory: backend
+        run: node --import tsx --test tests/user-ai-settings-isolation.test.ts
       - name: Backend typecheck
         working-directory: backend
         run: npm run build:tsc
