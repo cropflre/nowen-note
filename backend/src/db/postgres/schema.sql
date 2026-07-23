@@ -12,6 +12,7 @@ END
 $$;
 
 \ir schema.base.sql
+\ir migrations/0011_note_block_runtime.sql
 
 CREATE TABLE IF NOT EXISTS task_activity_events (
   id TEXT PRIMARY KEY,
