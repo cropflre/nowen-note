@@ -46,6 +46,19 @@ function isPathInside(child, parent) {
   return !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
+function isProtectedSystemPath(targetPath) {
+  const systemRoots = [
+    process.env.ProgramFiles,
+    process.env.ProgramW6432,
+    process.env["ProgramFiles(x86)"],
+  ];
+
+  return systemRoots.some((root) => {
+    const normalizedRoot = normalizeAbsolutePath(root);
+    return normalizedRoot && (isSamePath(targetPath, normalizedRoot) || isPathInside(targetPath, normalizedRoot));
+  });
+}
+
 function readCustomDataDir(userDataRoot) {
   const pointerPath = getDataDirPointerPath(userDataRoot);
   try {
@@ -53,6 +66,10 @@ function readCustomDataDir(userDataRoot) {
     const raw = JSON.parse(fs.readFileSync(pointerPath, "utf8"));
     const dataDir = normalizeAbsolutePath(raw?.dataDir);
     if (!dataDir) return null;
+    if (isProtectedSystemPath(dataDir)) {
+      console.warn("[dataDir] ignored custom data directory under Program Files:", dataDir);
+      return null;
+    }
 
     if (fs.existsSync(dataDir)) return dataDir;
     const parent = path.dirname(dataDir);
@@ -108,6 +125,7 @@ function validateMigrationTarget(targetDir, {
   if (isSamePath(resolved, current)) return { ok: false, error: "TARGET_IS_CURRENT" };
   if (isPathInside(resolved, current)) return { ok: false, error: "TARGET_INSIDE_CURRENT" };
   if (isSamePath(resolved, path.parse(resolved).root)) return { ok: false, error: "TARGET_IS_ROOT" };
+  if (isProtectedSystemPath(resolved)) return { ok: false, error: "TARGET_INSIDE_SYSTEM" };
 
   for (const protectedPath of [appPath, resourcesPath]) {
     if (!protectedPath) continue;

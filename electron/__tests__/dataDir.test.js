@@ -35,6 +35,23 @@ test("reads a valid custom data directory from the bootstrap pointer", () => {
   assert.equal(getUserDataPathFromRoot(root), custom);
 });
 
+test("ignores a custom data directory under Program Files", () => {
+  const root = tempRoot();
+  const programFiles = path.join(root, "Program Files");
+  const custom = path.join(programFiles, "Nowen Note");
+  fs.mkdirSync(custom, { recursive: true });
+  writeCustomDataDir(root, custom);
+
+  const originalProgramFiles = process.env.ProgramFiles;
+  process.env.ProgramFiles = programFiles;
+  try {
+    assert.equal(getUserDataPathFromRoot(root), getDefaultDataPath(root));
+  } finally {
+    if (originalProgramFiles === undefined) delete process.env.ProgramFiles;
+    else process.env.ProgramFiles = originalProgramFiles;
+  }
+});
+
 test("rejects unsafe migration targets", () => {
   const root = tempRoot();
   const currentDir = getDefaultDataPath(root);
@@ -48,6 +65,16 @@ test("rejects unsafe migration targets", () => {
   assert.equal(validateMigrationTarget(childDir, { currentDir }).ok, false);
   assert.equal(validateMigrationTarget(rootDir, { currentDir }).ok, false);
   assert.equal(validateMigrationTarget(nonEmptyDir, { currentDir }).ok, false);
+
+  const originalProgramFiles = process.env.ProgramFiles;
+  process.env.ProgramFiles = path.join(root, "Program Files");
+  try {
+    const programFilesTarget = path.join(process.env.ProgramFiles, "Nowen Note");
+    assert.equal(validateMigrationTarget(programFilesTarget, { currentDir }).ok, false);
+  } finally {
+    if (originalProgramFiles === undefined) delete process.env.ProgramFiles;
+    else process.env.ProgramFiles = originalProgramFiles;
+  }
 });
 
 test("prompts for data directory on full first run without existing data", () => {
