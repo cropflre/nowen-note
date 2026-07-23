@@ -1,5 +1,6 @@
 import type { EditorRuntimeMode } from "@/lib/editorRuntimePolicy";
 import { BlockPatchRequestError } from "@/lib/blockPatchApi";
+import "@/lib/tiptapEmptyBlockIdentityDispatch";
 
 export const TIPTAP_BLOCK_PATCH_OVERRIDE_KEY = "nowen.tiptap_block_patch_v1";
 
