@@ -1,4 +1,4 @@
-# Block Patch API V2-E
+# Block Patch API V2-G
 
 Block Patch applies ordered Tiptap Block mutations as one confirmed transaction. It is the persistence boundary between whole-note saves and the future Block-authoritative storage model.
 
@@ -142,7 +142,7 @@ Additional guards:
 
 The server repairs empty list and quote containers.
 
-Deleting every top-level identified Block now remains on Block Patch. The server creates one canonical empty paragraph with a fresh stable Block ID. Its mapping is returned as a server-created entry:
+Deleting every top-level identified Block remains on Block Patch. The server creates one canonical empty paragraph with a fresh stable Block ID. Its mapping is returned as a server-created entry:
 
 ```json
 {
@@ -156,7 +156,7 @@ For an automatic empty replacement, `operationIndex === operationCount` and `cli
 
 Delete-all uses full index synchronization because the generated Block did not exist in the pre-patch index. See `docs/block-patch-empty-document.md` for the editor ACK behavior.
 
-### Move
+### Move a normal Block
 
 ```json
 {
@@ -167,9 +167,45 @@ Delete-all uses full index synchronization because the generated Block did not e
 }
 ```
 
-Moves are currently supported only inside the same parent. Cross-parent moves return `BLOCK_MOVE_PARENT_MISMATCH`.
+Legacy Block moves are supported inside the same parent. Cross-parent moves return `BLOCK_MOVE_PARENT_MISMATCH`.
 
 Incremental indexing requires the moved Block and anchor to be top-level paragraphs, headings or code blocks. They may exist before the request or be explicit Blocks created earlier in the same request.
+
+The legacy `position` remains optional and defaults to `after`.
+
+### Move a list item
+
+List hierarchy operations reuse `move` with an explicit scope:
+
+```json
+{
+  "type": "move",
+  "scope": "listItem",
+  "blockId": "blk_source_item",
+  "targetBlockId": "blk_target_item",
+  "position": "inside"
+}
+```
+
+Supported positions:
+
+- `inside`: sink the source one level under its immediate previous sibling;
+- `after`: lift a nested item after its direct parent, or move at the same depth after another item;
+- `before`: move at the same depth before another item.
+
+Safety requirements:
+
+- source and target item types must match;
+- source and target list types must match exactly;
+- `inside` requires the target to be the immediate previous sibling;
+- lift requires the target to be the source's direct parent item;
+- other cross-depth reparenting is rejected;
+- an empty source list wrapper is removed;
+- the complete item subtree moves unchanged.
+
+Supported type pairs are `listItem/bulletList`, `listItem/orderedList`, and `taskItem/taskList`.
+
+Invalid list hierarchy moves return `400 LIST_MOVE_INVALID`. See `docs/block-patch-list-hierarchy.md` for the complete proof and fallback rules.
 
 ## Atomic semantics
 
@@ -219,7 +255,9 @@ Used when safe leaf and top-level structural operations occur together.
 
 ### `full`
 
-Used when incremental correctness cannot be proven, including stale indexes, nested structural changes, cross-parent operations, identity ambiguity, complex nodes, or delete-all server replacement.
+Used when incremental correctness cannot be proven, including stale indexes, nested structural changes, scoped list-item moves, identity ambiguity, complex nodes, or delete-all server replacement.
+
+List hierarchy V1 deliberately uses full synchronization because changing one item parent changes descendant paths, ancestor aggregate text and global Block order.
 
 All fallback decisions happen inside the same transaction.
 
@@ -263,24 +301,26 @@ localStorage.setItem("nowen.tiptap_block_patch_v1", "off")
 
 The legacy key name is retained for compatibility.
 
-The planner currently sends:
+The runtime planner currently sends:
 
 - plain-text changes as `update`;
 - safe formatting and attrs as `replace`;
 - top-level create/delete/reorder operations;
 - safe content and structure changes as one mixed transaction;
-- final-Block deletion as an `empty-document` delete batch.
+- final-Block deletion as an `empty-document` delete batch;
+- one proven-safe list sink, lift or same-depth move as scoped `move`.
 
-For empty-document ACKs:
-
-- no newer local input: the authoritative server paragraph is replayed and the previous selection is clamped into it;
-- newer local input exists: local content is preserved and the queued patch reconciles against the confirmed server version.
+For list hierarchy snapshots, frontend planning requires the same stable item IDs, unchanged item payloads and non-list structure, and exact reproduction of the final JSON by one controlled operation.
 
 The following continue through whole-note save:
 
 - tables and table structure changes;
 - images, videos, attachments, Mermaid, math and other atom nodes;
-- list hierarchy changes and cross-parent moves;
+- list content changes combined with hierarchy changes;
+- multiple independent list moves;
+- top-level lift out of a list;
+- conversion between bullet, ordered and task lists;
+- arbitrary cross-depth or cross-type reparenting;
 - unsupported complex paste operations;
 - unknown extension nodes or attributes;
 - title/meta changes.
@@ -293,7 +333,8 @@ Public, guest and presentation routes never mount the authenticated Block Patch 
 
 - `notes.content` remains the canonical complete document.
 - A successful patch still serializes a full JSON snapshot.
-- Nested structural and cross-parent operations are deferred.
+- List subtree index updates still use full synchronization.
+- Arbitrary nested structural operations remain deferred.
 - Table, media, attachment, formula and Mermaid node patches are deferred.
 - There is no independent Block-authoritative content table yet.
 - Markdown uses its separate CodeMirror/Y.Text incremental path.
