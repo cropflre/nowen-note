@@ -67,11 +67,6 @@
       "reason": "The embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by #252.",
       "counts": { "prepare-call": 15 }
     },
-    "services/note-links.ts": {
-      "owner": "#249",
-      "reason": "Main added a note-link service lookup outside the existing Repository. It is tracked with the note-link runtime batch.",
-      "counts": { "getDb-call": 1, "prepare-call": 1 }
-    },
     "services/noteTransfer.ts": {
       "owner": "#249",
       "reason": "Note transfer is a high-risk multi-table transaction added after the baseline and requires an explicit cross-driver transaction design.",
