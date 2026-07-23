@@ -2,12 +2,11 @@ name: Remove third-party image hosting
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 permissions:
   contents: write
   pull-requests: write
-  issues: write
 
 concurrency:
   group: remove-third-party-image-hosting
@@ -183,10 +182,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build:tsc -- --noEmit
 
-      - name: Commit removal and self-clean
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+      - name: Publish verified result branch
         shell: bash
         run: |
           set -euo pipefail
@@ -197,6 +193,4 @@ jobs:
             .github/workflows/remove-image-hosting.yml
           git add -A
           git commit -m "refactor(attachments): remove third-party image hosting"
-          git push origin HEAD:main
-          gh pr close "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --comment "第三方图床已从 main 完全移除。"
-          gh issue close 392 --repo "$GITHUB_REPOSITORY" --reason completed || true
+          git push --force origin HEAD:refs/heads/chore/remove-third-party-image-hosting-result
