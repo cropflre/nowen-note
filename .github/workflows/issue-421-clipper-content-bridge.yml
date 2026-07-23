@@ -1,0 +1,64 @@
+name: Issue 421 Clipper Content Bridge
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-421-clipper-content-bridge.yml"
+      - "scripts/issue-421-clipper-content-bridge.mjs"
+      - "packages/nowen-clipper/**"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/nowen-clipper/package-lock.json
+      - name: Apply implementation patch
+        run: node scripts/issue-421-clipper-content-bridge.mjs
+      - name: Refresh clipper lockfile
+        working-directory: packages/nowen-clipper
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Install clipper dependencies
+        working-directory: packages/nowen-clipper
+        run: npm ci
+      - name: Content bridge regression tests
+        working-directory: packages/nowen-clipper
+        run: npm test
+      - name: Clipper TypeScript check
+        working-directory: packages/nowen-clipper
+        run: npm run lint
+      - name: Build Chrome extension
+        working-directory: packages/nowen-clipper
+        run: npm run build:chrome
+      - name: Verify generated extension entries
+        working-directory: packages/nowen-clipper
+        run: |
+          test -s dist/background.js
+          test -s dist/content.js
+          test -s dist/manifest.json
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/nowen-clipper/package.json
+          git add packages/nowen-clipper/package-lock.json
+          git add packages/nowen-clipper/src/lib/protocol.ts
+          git add packages/nowen-clipper/src/background/index.ts
+          git add packages/nowen-clipper/src/background/enhanced.ts
+          git add packages/nowen-clipper/src/content/index.ts
+          git add packages/nowen-clipper/src/popup/popup.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "fix(clipper): recover missing content script receivers"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
