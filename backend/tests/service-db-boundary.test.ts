@@ -9,11 +9,14 @@ function read(relativePath: string): string {
 
 const realtimeSource = read("services/realtime.ts");
 const attachmentStorageSource = read("services/attachment-storage.ts");
+const noteLinksServiceSource = read("services/note-links.ts");
 const realtimeRepositorySource = read("repositories/realtimeAuthRepository.ts");
+const noteLinksRepositorySource = read("repositories/noteLinksRepository.ts");
 
 for (const [name, source] of [
   ["realtime", realtimeSource],
   ["attachment-storage", attachmentStorageSource],
+  ["note-links", noteLinksServiceSource],
 ] as const) {
   test(`${name} service keeps database access behind repositories`, () => {
     assert.doesNotMatch(source, /from\s+["']\.\.\/db\/schema["']/);
@@ -33,4 +36,9 @@ test("realtime authentication delegates user lookup to its repository", () => {
   assert.match(realtimeRepositorySource, /SELECT id, username/);
   assert.match(realtimeRepositorySource, /"isDisabled"/);
   assert.match(realtimeRepositorySource, /"tokenVersion"/);
+});
+
+test("note links service delegates source owner lookup to its repository", () => {
+  assert.match(noteLinksServiceSource, /noteLinksRepository\.getSourceNoteUserId\(noteId\)/);
+  assert.match(noteLinksRepositorySource, /SELECT userId FROM notes WHERE id = \?/);
 });
