@@ -38,6 +38,7 @@ export function shouldFallbackTiptapBlockPatchToWholeSave(error: unknown): boole
     "BLOCK_NOT_FOUND",
     "BLOCK_MOVE_SELF",
     "BLOCK_MOVE_PARENT_MISMATCH",
+    "LIST_MOVE_INVALID",
     "INVALID_TIPTAP_DOCUMENT",
   ].includes(error.code || "");
 }
