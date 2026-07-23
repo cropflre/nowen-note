@@ -4,7 +4,7 @@ const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
 const ITEM_TYPES = new Set(["listItem", "taskItem"]);
 
-type ListMoveOperation = Extract<BlockPatchOperation, { type: "moveListItem" }>;
+type ListMoveOperation = Extract<BlockPatchOperation, { type: "move"; scope: "listItem" }>;
 
 interface JsonNode {
   type?: string;
@@ -284,16 +284,16 @@ export function planTiptapListItemMove(
     const before = base.get(blockId)!;
     const after = next.get(blockId)!;
     if (after.parentItemId && after.depth === before.depth + 1) {
-      add({ type: "moveListItem", blockId, targetBlockId: after.parentItemId, position: "inside" });
+      add({ type: "move", scope: "listItem", blockId, targetBlockId: after.parentItemId, position: "inside" });
     }
     if (after.previousId) {
-      add({ type: "moveListItem", blockId, targetBlockId: after.previousId, position: "after" });
+      add({ type: "move", scope: "listItem", blockId, targetBlockId: after.previousId, position: "after" });
     }
     if (after.nextId) {
-      add({ type: "moveListItem", blockId, targetBlockId: after.nextId, position: "before" });
+      add({ type: "move", scope: "listItem", blockId, targetBlockId: after.nextId, position: "before" });
     }
     if (before.parentItemId && after.depth === before.depth - 1) {
-      add({ type: "moveListItem", blockId, targetBlockId: before.parentItemId, position: "after" });
+      add({ type: "move", scope: "listItem", blockId, targetBlockId: before.parentItemId, position: "after" });
     }
   }
 
