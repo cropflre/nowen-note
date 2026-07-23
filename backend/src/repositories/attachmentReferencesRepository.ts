@@ -78,17 +78,6 @@ export function createAttachmentReferencesRepository(
         .get(attachmentId));
     },
 
-    getNoteContentText(noteId: string): string | null {
-      const row = getDb()
-        .prepare('SELECT "contentText" FROM notes WHERE id = ?')
-        .get(noteId) as { contentText: string | null } | undefined;
-      return row?.contentText ?? null;
-    },
-
-    updateNoteContentText(noteId: string, contentText: string): void {
-      getDb().prepare('UPDATE notes SET "contentText" = ? WHERE id = ?').run(contentText, noteId);
-    },
-
     // ---- 异步方法（Runtime Adapter / SQLite + PostgreSQL） ----
 
     async listByNoteIdAsync(noteId: string): Promise<string[]> {
