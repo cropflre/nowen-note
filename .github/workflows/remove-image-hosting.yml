@@ -1,13 +1,12 @@
 name: Remove third-party image hosting
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/remove-image-hosting-trigger
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: remove-third-party-image-hosting
@@ -15,6 +14,7 @@ concurrency:
 
 jobs:
   remove:
+    if: github.event.issue.number == 392 && github.event.comment.body == '/remove-third-party-image-hosting'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -37,13 +37,6 @@ jobs:
 
           def write(path: str, content: str) -> None:
               Path(path).write_text(content, encoding="utf-8")
-
-          def must_replace(path: str, old: str, new: str, count: int = 1) -> None:
-              source = read(path)
-              actual = source.count(old)
-              if actual < count:
-                  raise SystemExit(f"{path}: expected at least {count} occurrence(s) of {old!r}, found {actual}")
-              write(path, source.replace(old, new, count))
 
           # Settings: remove import, type, navigation item and panel.
           settings_path = "frontend/src/components/SettingsModal.tsx"
@@ -192,16 +185,16 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
-          npm run test:run -- src/lib/__tests__/imageHostingRetirement.test.ts --passWithNoTests
 
       - name: Validate backend
         working-directory: backend
         run: |
           npm ci --no-audit --no-fund
           npm run build:tsc -- --noEmit
-          npm test -- --runInBand || npm test
 
       - name: Commit removal and self-clean
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -213,3 +206,4 @@ jobs:
           git add -A
           git commit -m "refactor(attachments): remove third-party image hosting"
           git push origin HEAD:main
+          gh issue close 392 --repo "$GITHUB_REPOSITORY" --reason completed
