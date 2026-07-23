@@ -317,21 +317,34 @@ function validateStructuralBase(
   analysis: TiptapAnalysis,
   operations: StructuralPatchOperation[],
 ): boolean {
+  const knownTopLevelIds = new Set(
+    analysis.blocks
+      .map(({ row }) => row)
+      .filter(isTopLevelLeaf)
+      .map((row) => row.blockId),
+  );
+
   for (const operation of operations) {
     if (operation.type === "create") {
       if (!LEAF_BLOCK_TYPES.has(operation.blockType || "paragraph")) return false;
-      if (operation.afterBlockId) {
-        const anchor = analysis.byId.get(operation.afterBlockId)?.row;
-        if (!anchor || !isTopLevelLeaf(anchor)) return false;
+      if (operation.afterBlockId && !knownTopLevelIds.has(operation.afterBlockId)) return false;
+      if (operation.blockId) {
+        if (knownTopLevelIds.has(operation.blockId)) return false;
+        knownTopLevelIds.add(operation.blockId);
       }
       continue;
     }
-
-    const target = analysis.byId.get(operation.blockId)?.row;
-    if (!target || !isTopLevelLeaf(target)) return false;
-    if (operation.type === "move") {
-      const anchor = analysis.byId.get(operation.targetBlockId)?.row;
-      if (!anchor || !isTopLevelLeaf(anchor)) return false;
+    if (operation.type === "delete") {
+      if (!knownTopLevelIds.has(operation.blockId)) return false;
+      knownTopLevelIds.delete(operation.blockId);
+      continue;
+    }
+    if (
+      operation.blockId === operation.targetBlockId
+      || !knownTopLevelIds.has(operation.blockId)
+      || !knownTopLevelIds.has(operation.targetBlockId)
+    ) {
+      return false;
     }
   }
   return true;

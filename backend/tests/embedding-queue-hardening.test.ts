@@ -35,6 +35,12 @@ function insertAttachmentQueue(id: string, noteId: string, status: string, updat
   db.pragma("foreign_keys = ON");
 }
 
+function settleExistingQueues(): void {
+  const db = getDb();
+  db.prepare("UPDATE embedding_queue SET status = 'done'").run();
+  db.prepare("DELETE FROM attachment_embedding_queue").run();
+}
+
 test.before(async () => {
   const [schema, hardening] = await Promise.all([
     import("../src/db/schema"),
@@ -53,6 +59,7 @@ test.after(() => {
 });
 
 test("startup recovery returns interrupted note and attachment jobs to pending", () => {
+  settleExistingQueues();
   createNote("queue-restart-note");
   getDb().prepare("UPDATE embedding_queue SET status = 'processing' WHERE noteId = ?")
     .run("queue-restart-note");
@@ -70,6 +77,7 @@ test("startup recovery returns interrupted note and attachment jobs to pending",
 });
 
 test("lease recovery only requeues stale processing jobs", () => {
+  settleExistingQueues();
   createNote("queue-stale-note");
   createNote("queue-active-note");
   getDb().prepare("UPDATE embedding_queue SET status = 'processing', updatedAt = '2000-01-01 00:00:00' WHERE noteId = ?")
@@ -91,6 +99,7 @@ test("lease recovery only requeues stale processing jobs", () => {
 });
 
 test("pending attachment work wakes the legacy worker when the note queue is idle", () => {
+  settleExistingQueues();
   createNote("queue-attachment-only-note");
   getDb().prepare("UPDATE embedding_queue SET status = 'done' WHERE noteId = ?")
     .run("queue-attachment-only-note");

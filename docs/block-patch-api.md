@@ -1,6 +1,6 @@
-# Block Patch API V2-C
+# Block Patch API V2-D
 
-Block Patch API applies ordered Tiptap block mutations as one confirmed transaction. It is the persistence boundary between whole-note saves and the future block-authoritative storage model.
+Block Patch API applies ordered Tiptap Block mutations as one confirmed transaction. It is the persistence boundary between whole-note saves and the future Block-authoritative storage model.
 
 ## Endpoint
 
@@ -53,7 +53,9 @@ Supported create types:
 
 When `blockId` is omitted, the server generates one and returns the client/server mapping in `createdBlocks`.
 
-Only top-level `paragraph`, `heading` and `codeBlock` creation is currently eligible for structural incremental indexing. Other create types remain valid API operations but use full index synchronization.
+Only top-level `paragraph`, `heading` and `codeBlock` creation is currently eligible for structural or mixed incremental indexing. Other create types remain valid API operations but use full index synchronization.
+
+An explicitly identified Block created earlier in the same request may be referenced by a later top-level `move`. The server validates these temporary identities in operation order before enabling incremental mode.
 
 ### Plain-text update
 
@@ -65,9 +67,9 @@ Only top-level `paragraph`, `heading` and `codeBlock` creation is currently elig
 }
 ```
 
-This keeps the existing block type and attributes while replacing its editable text payload.
+This keeps the existing Block type and attributes while replacing its editable text payload.
 
-### Safe rich block replacement
+### Safe rich Block replacement
 
 ```json
 {
@@ -94,7 +96,7 @@ This keeps the existing block type and attributes while replacing its editable t
 
 V2 does not accept arbitrary ProseMirror JSON. Frontend planning and backend validation enforce the same restricted schema.
 
-Allowed block nodes:
+Allowed Block nodes:
 
 - `paragraph`
 - `heading`
@@ -125,7 +127,7 @@ Allowed attributes:
 - highlight: safe hexadecimal `color`
 - link: `href`, `target`, `rel`, `class`
 
-Safe link protocols include `http`, `https`, `mailto`, `tel`, `sms`, `note`, anchors and relative paths. `javascript:`, `vbscript:`, `data:` and `file:` are rejected.
+Safe link protocols include `http`, `https`, `mailto`, `tel`, `sms`, `note`, anchors and relative paths. Script-execution, data and local-file schemes are rejected.
 
 Additional guards:
 
@@ -145,9 +147,9 @@ Additional guards:
 }
 ```
 
-The server repairs empty list/quote containers. Deleting the final document block creates a valid empty paragraph. The editor rollout still keeps delete-all on whole-note save until the generated replacement Block ID can be reconciled explicitly.
+The server repairs empty list/quote containers. Deleting the final document Block creates a valid empty paragraph. The editor rollout still keeps delete-all on whole-note save until the generated replacement Block ID can be reconciled explicitly.
 
-Only deletion of an existing top-level paragraph, heading or code block is eligible for structural incremental indexing.
+Only deletion of an existing top-level paragraph, heading or code block is eligible for structural or mixed incremental indexing.
 
 ### Move
 
@@ -162,7 +164,7 @@ Only deletion of an existing top-level paragraph, heading or code block is eligi
 
 Moves are supported only inside the same parent. Cross-parent moves return `BLOCK_MOVE_PARENT_MISMATCH`.
 
-Structural incremental indexing additionally requires both the moved block and anchor to be existing top-level paragraphs, headings or code blocks.
+Incremental indexing additionally requires the moved Block and anchor to be top-level paragraphs, headings or code blocks. They may either exist before the request or be explicitly identified Blocks created earlier in the same request.
 
 ## Atomic semantics
 
@@ -174,18 +176,18 @@ Operations are evaluated in request order. Inside one SQLite transaction, the se
 4. Validates and applies every operation in memory.
 5. Records the pre-edit version using the same five-minute merge window as `PUT /notes/:id`.
 6. Updates `notes.content`, `contentText`, version and timestamp using optimistic locking.
-7. Applies a leaf incremental, structural incremental or full index synchronization plan.
+7. Applies a leaf, structural, mixed or full index synchronization plan.
 8. Stores the idempotent response.
 
 Any failure rolls back the document, indexes, history row and idempotency record. One successful batch increments the note version exactly once. Replaying the same operation ID returns the stored authoritative result without adding another version.
 
 ## Incremental index modes
 
-Before either incremental mode is enabled, the server compares the current document and `note_blocks_index` for:
+Before any incremental mode is enabled, the server compares the current document and `note_blocks_index` for:
 
 - total row count;
 - stable and unique Block IDs;
-- block type;
+- Block type;
 - parent Block ID;
 - order and path;
 - plain text and content hash.
@@ -198,43 +200,60 @@ Used for batches containing only safe `update` and `replace` operations.
 
 - Only changed leaf rows are upserted.
 - Indexed ancestors such as `listItem`, `taskItem` and `blockquote` are refreshed when their aggregate text/hash changes.
-- Only `note_links` rows belonging to changed source leaf blocks are recreated.
+- Only `note_links` rows belonging to changed source leaf Blocks are recreated.
 - Unrelated Block rows and backlink rows keep their IDs and timestamps.
 
 ### Structural incremental mode
 
-Used for batches containing only `create`, `delete` and `move`, when every referenced existing block is a top-level paragraph, heading or code block.
+Used for batches containing only `create`, `delete` and `move`, when all affected structures are top-level paragraphs, headings or code blocks.
 
-The planner compares the persisted pre-patch index with the final document and computes:
+The planner computes:
 
 - newly inserted index rows;
 - deleted index rows;
 - existing rows whose `blockOrder` or `path` changed;
-- links belonging to newly created or deleted source blocks.
+- links belonging to newly created or deleted source Blocks.
 
 Behavior:
 
-- inserting a top-level simple block upserts the new row and only the shifted suffix;
-- deleting a top-level simple block removes that row and only updates the shifted suffix;
-- moving top-level simple blocks updates only rows whose order/path changed;
-- move operations preserve all existing backlink row IDs and timestamps;
-- links from deleted blocks are removed;
-- links in newly created block text are indexed;
-- unaffected prefixes retain their original timestamps.
+- inserting a top-level simple Block upserts the new row and only the shifted range;
+- deleting a top-level simple Block removes that row and only updates the shifted range;
+- moving top-level simple Blocks updates only rows whose order/path changed;
+- a newly created explicit Block ID may be moved later in the same request;
+- pure moves preserve existing backlink row IDs and timestamps;
+- links from deleted Blocks are removed;
+- links in newly created Block text are indexed.
 
-Structural mode falls back to full synchronization when:
+### Mixed incremental mode
 
-- the patch mixes structural operations with `update/replace`;
-- a create operation uses `blockquote`, `listItem` or `taskItem`;
-- a delete or move targets a nested/container Block;
-- a move anchor is nested or a container;
-- a changed order/path would also require rewriting list, task or quote descendants;
-- a create-then-delete sequence makes final identity ambiguous;
-- a deleted ID is reused in the same batch;
-- delete-all creates the server-generated empty replacement Block;
-- added/deleted Block counts do not exactly match the structural operations.
+Used when one request contains both:
 
-The fallback happens inside the same transaction and preserves the API's data-safety guarantees.
+- safe `update` or `replace` leaf operations; and
+- safe top-level `create`, `delete` or `move` operations.
+
+The final document is analyzed once and converted into one unified database plan:
+
+- changed leaf rows and their indexed ancestors are refreshed;
+- newly created and deleted rows are inserted or removed;
+- top-level rows whose order/path changed are updated;
+- links are recreated only for changed leaf sources and newly created Blocks;
+- links for deleted Blocks are removed;
+- pure-move source links remain untouched;
+- unaffected rows and links keep their existing IDs and timestamps.
+
+A mixed plan is rejected and falls back to full synchronization when:
+
+- a leaf target is created or deleted in the same request;
+- a move or create anchor is deleted in the same request;
+- a structural shift changes nested list, task or quote paths;
+- a nested Block changes parent or type;
+- create/delete counts do not exactly match the final identity delta;
+- a deleted ID is reused;
+- create-then-delete makes final identity ambiguous;
+- delete-all creates a server-generated empty replacement Block;
+- any content change cannot be explained by the declared leaf operations and their indexed ancestors.
+
+All incremental fallback decisions happen inside the same transaction and preserve the API's data-safety guarantees.
 
 ## Authoritative response
 
@@ -249,22 +268,22 @@ The fallback happens inside the same transaction and preserves the API's data-sa
   "contentText": "Searchable plain text",
   "contentFormat": "tiptap-json",
   "notebookId": "notebook-id",
-  "operationCount": 1,
-  "affectedBlockIds": ["blk_alpha000"],
+  "operationCount": 3,
+  "affectedBlockIds": ["blk_alpha000", "blk_created00"],
   "deletedBlockIds": [],
   "createdBlocks": [],
   "blocks": [],
   "indexUpdateMode": "incremental",
-  "indexUpdateKind": "structural",
-  "indexedBlockIds": ["blk_created00", "blk_shifted00"],
+  "indexUpdateKind": "mixed",
+  "indexedBlockIds": ["blk_alpha000", "blk_created00", "blk_shifted00"],
   "contentChangedByNormalization": false
 }
 ```
 
 - `indexUpdateMode` is `incremental` or `full`.
-- `indexUpdateKind` is `leaf`, `structural` or `full`.
+- `indexUpdateKind` is `leaf`, `structural`, `mixed` or `full`.
 - `indexedBlockIds` contains Block IDs inserted, updated or deleted by index synchronization. Full mode returns every rebuilt Block ID.
-- `affectedBlockIds` continues to describe the blocks addressed by the patch engine.
+- `affectedBlockIds` continues to describe Blocks addressed by the patch engine.
 
 The client must use the returned snapshot and version as the base for the next dependent patch. Successful writes emit `note:updated` and `note:list-updated` realtime messages.
 
@@ -305,17 +324,18 @@ The planner currently sends:
 
 - plain-text changes as `update`;
 - safe marks, links, line breaks, heading level, alignment, line height, code language and indent as `replace`;
-- simple top-level create/delete/reorder operations as structural operations.
+- simple top-level create/delete/reorder operations as structural operations;
+- safe rich replacements and top-level structural operations together as one mixed transaction.
 
 The following continue through whole-note save:
 
 - tables and table structure changes;
 - images, videos, attachments, Mermaid, math and other atom nodes;
 - list hierarchy changes and cross-parent moves;
-- complex paste operations combining structure and rich block changes;
+- unsupported or ambiguous complex paste operations;
 - unknown marks, attributes or extension nodes;
 - title/meta changes;
-- delete-all until empty-block identity reconciliation is implemented.
+- delete-all until empty-Block identity reconciliation is implemented.
 
 Only one patch may be in flight per editor. Later edits and title/meta saves wait for the authoritative version. Timeout/network uncertainty retries once with the same idempotency key; if the result remains unknown, the local draft is retained and no blind whole-note overwrite is issued.
 
@@ -323,14 +343,14 @@ Public, guest and presentation routes never mount the authenticated Block Patch 
 
 ## Attachment boundary
 
-The current schema stores attachment ownership in `attachments.noteId`; it does not maintain a separate content-reference index per Block. V2-C does not mutate attachment ownership or introduce an unused attachment-reference table. Media/attachment node edits still use whole-note save, while note split continues to handle attachment ownership and physical-path reuse transactionally.
+The current schema stores attachment ownership in `attachments.noteId`; it does not maintain a separate content-reference index per Block. V2-D does not mutate attachment ownership or introduce an unused attachment-reference table. Media/attachment node edits still use whole-note save, while note split continues to handle attachment ownership and physical-path reuse transactionally.
 
 ## Remaining boundaries
 
 - `notes.content` is still the canonical complete document.
 - A successful patch still serializes the full JSON snapshot.
-- Mixed content-and-structure batches still use full synchronization.
 - Nested structural operations and cross-parent moves are deferred.
 - Table, media, attachment, formula and Mermaid node patches are deferred.
+- Empty-document replacement Block ID reconciliation is deferred.
 - There is no independent Block-authoritative content table yet.
 - Markdown uses its separate CodeMirror/Y.Text incremental path.

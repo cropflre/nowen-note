@@ -189,6 +189,46 @@ test("updates rich content, creates and moves top-level Blocks in one mixed incr
   assert.equal(linkRow(noteId, createdBlockId)?.targetNoteId, firstTarget);
 });
 
+test("tracks a newly created Block through a later move in the same mixed batch", async () => {
+  const noteId = "66666666-6666-4666-8666-666666666666";
+  const firstBlockId = "blk_mixnew01";
+  const changedBlockId = "blk_mixnew02";
+  const createdBlockId = "blk_mixnew03";
+  insertNote(noteId, tiptap(
+    paragraph(firstBlockId, "First"),
+    paragraph(changedBlockId, "Before"),
+  ));
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-mixed-index-create-then-move",
+    operations: [
+      { type: "update", blockId: changedBlockId, text: "After" },
+      {
+        type: "create",
+        blockId: createdBlockId,
+        clientId: createdBlockId,
+        blockType: "paragraph",
+        text: "Created",
+      },
+      {
+        type: "move",
+        blockId: createdBlockId,
+        targetBlockId: firstBlockId,
+        position: "before",
+      },
+    ],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.indexUpdateMode, "incremental");
+  assert.equal(payload.indexUpdateKind, "mixed");
+  assert.deepEqual(payload.indexedBlockIds, [createdBlockId, firstBlockId, changedBlockId]);
+  assert.deepEqual(orderedBlockIds(noteId), [createdBlockId, firstBlockId, changedBlockId]);
+  assert.equal(indexRow(noteId, changedBlockId)?.plainText, "After");
+});
+
 test("updates one Block and deletes another without rebuilding an unrelated link", async () => {
   const noteId = "44444444-4444-4444-8444-444444444444";
   const changedBlockId = "blk_mixdel01";

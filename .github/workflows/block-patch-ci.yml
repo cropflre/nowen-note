@@ -10,6 +10,7 @@ on:
       - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/block-patch-incremental-index.test.ts"
+      - "backend/tests/block-patch-mixed-index.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -36,6 +37,7 @@ on:
       - "backend/src/lib/tiptapBlockPatchNode.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/tests/block-patch-incremental-index.test.ts"
+      - "backend/tests/block-patch-mixed-index.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -81,6 +83,7 @@ jobs:
           tests/block-patch-route.test.ts
           tests/block-patch-route-v2.test.ts
           tests/block-patch-incremental-index.test.ts
+          tests/block-patch-mixed-index.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 
