@@ -7,14 +7,16 @@ vi.mock("@/lib/api.impl", () => ({
 import {
   BlockPatchRequestError,
   patchTiptapBlocks,
+  type BlockPatchListItemNode,
 } from "@/lib/blockPatchApi";
+import type { TiptapPatchJsonNode } from "@/lib/tiptapBlockPatchNode";
 import { shouldFallbackTiptapBlockPatchToWholeSave } from "@/lib/tiptapBlockPatchRuntime";
 
-function paragraph(blockId: string, text: string) {
+function paragraph(blockId: string, text: string): TiptapPatchJsonNode {
   return {
-    type: "paragraph" as const,
+    type: "paragraph",
     attrs: { blockId, textAlign: null, lineHeight: null },
-    content: text ? [{ type: "text" as const, text }] : [],
+    content: text ? [{ type: "text", text }] : [],
   };
 }
 
@@ -25,8 +27,8 @@ describe("list item structure Block Patch API", () => {
   });
 
   it("sends a scoped create and accepts the list-structural response", async () => {
-    const node = {
-      type: "listItem" as const,
+    const node: BlockPatchListItemNode = {
+      type: "listItem",
       attrs: { blockId: "blk_item_new" },
       content: [paragraph("blk_para_new", "New")],
     };
