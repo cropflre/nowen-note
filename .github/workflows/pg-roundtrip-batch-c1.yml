@@ -1,0 +1,417 @@
+name: Migrate PG round-trip batch metadata
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  migrate:
+    if: github.event.issue.number == 299 && github.event.issue.pull_request && github.event.comment.body == '/migrate-pg-roundtrip-batch-c1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Apply Runtime Repository integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          repo_path = Path('backend/src/repositories/roundTripImportBatchesRepository.ts')
+          repo = repo_path.read_text()
+          repo = repo.replace(
+              ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, '{}', ?, ?, ?, ?)",
+              ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, '{}', ?, CASE WHEN ? = 1 THEN TRUE ELSE FALSE END, ?, ?)",
+          )
+          repo = repo.replace('          input.undoAvailable,', '          input.undoAvailable ? 1 : 0,', 1)
+          repo = repo.replace(
+              '"undoAvailable" = ?, "undoUnavailableReason" = ?, "completedAt" = ${now}',
+              '"undoAvailable" = CASE WHEN ? = 1 THEN TRUE ELSE FALSE END, "undoUnavailableReason" = ?, "completedAt" = ${now}',
+          )
+          repo = repo.replace('          args.undoAvailable,', '          args.undoAvailable ? 1 : 0,', 1)
+          if 'CASE WHEN ? = 1 THEN TRUE ELSE FALSE END' not in repo:
+              raise SystemExit('boolean normalization patch failed')
+          repo_path.write_text(repo)
+
+          service_path = Path('backend/src/services/roundTripImportBatches.ts')
+          source = service_path.read_text()
+          old_import = 'import { ensureRoundTripImportBatchesSchema } from "../db/roundtripImportBatchesMigration";'
+          new_import = '''import {
+            roundTripImportBatchesRepository,
+            type RoundTripImportBatchRow as BatchRow,
+          } from "../repositories/roundTripImportBatchesRepository";'''
+          if old_import not in source:
+              raise SystemExit('service migration import anchor missing')
+          source = source.replace(old_import, new_import, 1)
+
+          interface_start = source.index('interface BatchRow {')
+          interface_end = source.index('export interface RoundTripImportBatchSummary', interface_start)
+          source = source[:interface_start] + source[interface_end:]
+          source = source.replace('available: row.undoAvailable === 1 && row.status === "completed",', 'available: row.undoAvailable && row.status === "completed",')
+
+          cleanup_start = source.index('export function cleanupExpiredRoundTripImportUndo(): void {')
+          cleanup_end = source.index('async function prepareUndoState', cleanup_start)
+          cleanup_block = '''export async function cleanupExpiredRoundTripImportUndo(): Promise<void> {
+            const ids = await roundTripImportBatchesRepository.findExpiredUndoIds(new Date().toISOString());
+            if (!ids.length) return;
+            await roundTripImportBatchesRepository.markUndoExpired(ids);
+            ids.forEach(removeUndoDir);
+          }
+
+          '''
+          source = source[:cleanup_start] + cleanup_block + source[cleanup_end:]
+
+          create_start = source.index('function createBatchRow(args: {')
+          create_end = source.index('export async function executeNowenPackageImportWithBatch', create_start)
+          create_block = '''async function createBatchRow(args: {
+            id: string;
+            userId: string;
+            workspaceId: string | null;
+            importMode: string;
+            identity: PackageIdentity;
+            preview: any;
+            undo: { state: UndoState; available: boolean; reason: string | null };
+          }): Promise<void> {
+            const expiresAt = new Date(Date.now() + undoTtlMs()).toISOString();
+            await roundTripImportBatchesRepository.create({
+              id: args.id,
+              userId: args.userId,
+              workspaceId: args.workspaceId,
+              workspaceScope: workspaceScope(args.workspaceId),
+              importMode: args.importMode,
+              packageKind: args.identity.packageKind,
+              sourceInstanceId: args.identity.sourceInstanceId,
+              sourceExportBatchId: args.identity.sourceExportBatchId,
+              previewJson: JSON.stringify(args.preview || {}),
+              undoStateJson: JSON.stringify(args.undo.state),
+              undoAvailable: args.undo.available,
+              undoUnavailableReason: args.undo.reason,
+              undoExpiresAt: expiresAt,
+            });
+          }
+
+          async function markBatchFailed(batchId: string, result: any, message?: string): Promise<void> {
+            await roundTripImportBatchesRepository.markFailed(
+              batchId,
+              JSON.stringify(result || {}),
+              message || null,
+            );
+            removeUndoDir(batchId);
+          }
+
+          '''
+          source = source[:create_start] + create_block + source[create_end:]
+
+          source = source.replace('  cleanupExpiredRoundTripImportUndo();', '  await cleanupExpiredRoundTripImportUndo();')
+          source = source.replace('  createBatchRow({ id: batchId, userId: params.userId, workspaceId, importMode, identity, preview, undo });', '  await createBatchRow({ id: batchId, userId: params.userId, workspaceId, importMode, identity, preview, undo });')
+          source = source.replace('      markBatchFailed(batchId, result);', '      await markBatchFailed(batchId, result);')
+          source = source.replace('    markBatchFailed(batchId, { success: false, errors: [message] }, message);', '    await markBatchFailed(batchId, { success: false, errors: [message] }, message);')
+
+          completed_start = source.index('    getDb().prepare(`\n      UPDATE roundtrip_import_batches')
+          completed_end = source.index('    return {', completed_start)
+          completed_block = '''    await roundTripImportBatchesRepository.markCompleted({
+              batchId,
+              resultJson: JSON.stringify(result || {}),
+              undoStateJson: JSON.stringify(finalized.state),
+              undoAvailable: finalized.available,
+              undoUnavailableReason: finalized.reason,
+            });
+          '''
+          source = source[:completed_start] + completed_block + source[completed_end:]
+
+          query_start = source.index('function getBatchRow(userId: string, batchId: string): BatchRow | null {')
+          query_end = source.index('function quoteIdentifier', query_start)
+          query_block = '''async function getBatchRow(userId: string, batchId: string): Promise<BatchRow | null> {
+            return roundTripImportBatchesRepository.getByUserAndId(userId, batchId);
+          }
+
+          export async function listRoundTripImportBatches(
+            userId: string,
+            options: { workspaceId?: string | null; limit?: number } = {},
+          ): Promise<RoundTripImportBatchSummary[]> {
+            await cleanupExpiredRoundTripImportUndo();
+            const limit = Math.max(1, Math.min(Number(options.limit) || 30, 100));
+            const rows = await roundTripImportBatchesRepository.listByUser(userId, {
+              workspaceScope: options.workspaceId === undefined ? undefined : workspaceScope(options.workspaceId),
+              limit,
+            });
+            return rows.map((row) => {
+              const detail = publicBatch(row);
+              const { preview: _preview, result: _result, ...summary } = detail;
+              return summary;
+            });
+          }
+
+          export async function getRoundTripImportBatch(
+            userId: string,
+            batchId: string,
+          ): Promise<RoundTripImportBatchDetail | null> {
+            await cleanupExpiredRoundTripImportUndo();
+            const row = await getBatchRow(userId, batchId);
+            return row ? publicBatch(row) : null;
+          }
+
+          '''
+          source = source[:query_start] + query_block + source[query_end:]
+
+          source = source.replace('  const row = getBatchRow(userId, batchId);', '  const row = await getBatchRow(userId, batchId);')
+          source = source.replace(
+              '    getDb().prepare("UPDATE roundtrip_import_batches SET undoError = ? WHERE id = ?")\n      .run(`检测到导入后的本地修改：${conflicts.join("；")}`, batchId);',
+              '    await roundTripImportBatchesRepository.setUndoError(\n      batchId,\n      `检测到导入后的本地修改：${conflicts.join("；")}`,\n    );',
+          )
+          source = source.replace(
+              '    getDb().prepare("UPDATE roundtrip_import_batches SET undoError = ? WHERE id = ?").run(message, batchId);',
+              '    await roundTripImportBatchesRepository.setUndoError(batchId, message);',
+          )
+          source = source.replace('  return publicBatch(getBatchRow(userId, batchId)!);', '  return publicBatch((await getBatchRow(userId, batchId))!);')
+
+          if 'ensureRoundTripImportBatchesSchema' in source:
+              raise SystemExit('legacy batch schema helper remains')
+          service_path.write_text(source)
+
+          route_path = Path('backend/src/routes/import-batches.ts')
+          route = route_path.read_text()
+          route = route.replace('app.get("/", (c) => {', 'app.get("/", async (c) => {')
+          route = route.replace('    items: listRoundTripImportBatches(userId, {', '    items: await listRoundTripImportBatches(userId, {')
+          route = route.replace('app.get("/:id", (c) => {', 'app.get("/:id", async (c) => {')
+          route = route.replace('  const item = getRoundTripImportBatch(userId, c.req.param("id"));', '  const item = await getRoundTripImportBatch(userId, c.req.param("id"));')
+          route = route.replace('  const existing = getRoundTripImportBatch(userId, batchId);', '  const existing = await getRoundTripImportBatch(userId, batchId);')
+          route_path.write_text(route)
+
+          sqlite_test_path = Path('backend/tests/roundtrip-import-batches.test.ts')
+          sqlite_test = sqlite_test_path.read_text()
+          sqlite_test = sqlite_test.replace('  const list = listRoundTripImportBatches("batch-user", { workspaceId: null });', '  const list = await listRoundTripImportBatches("batch-user", { workspaceId: null });')
+          sqlite_test = sqlite_test.replace('  const detail = getRoundTripImportBatch("batch-user", batchId);', '  const detail = await getRoundTripImportBatch("batch-user", batchId);')
+          sqlite_test_path.write_text(sqlite_test)
+          PY
+
+          cat > backend/tests/roundtrip-import-batches-repository-pg.test.ts <<'EOF'
+          import assert from "node:assert/strict";
+          import test from "node:test";
+
+          const databaseUrl = process.env.TEST_PG_DATABASE_URL;
+          const skip = !databaseUrl;
+
+          test("PG round-trip import batch metadata uses Runtime Repository", { skip }, async () => {
+            const { Pool } = await import("pg");
+            const pool = new Pool({ connectionString: databaseUrl });
+            const runtime = await import("../src/db/runtime");
+
+            await runtime.resetDatabaseRuntimeForTests();
+            await runtime.initializeDatabase({
+              env: { ...process.env, DB_DRIVER: "postgres", DATABASE_URL: databaseUrl },
+              dependencies: {
+                createPostgresPool: () => pool,
+                logger: { log: () => undefined, warn: () => undefined },
+              },
+            });
+
+            const { runPostgresMigrations } = await import("../src/db/postgres/migrations");
+            const applied = await runPostgresMigrations();
+            assert.ok(applied.some((item) => item.version === "0009_roundtrip_import_resource_links"));
+            assert.ok(applied.some((item) => item.version === "0010_roundtrip_import_batches"));
+
+            const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const userId = `pg-roundtrip-user-${suffix}`;
+            const completedId = `pg-roundtrip-completed-${suffix}`;
+            const failedId = `pg-roundtrip-failed-${suffix}`;
+            const past = new Date(Date.now() - 60_000).toISOString();
+            const future = new Date(Date.now() + 60_000).toISOString();
+
+            await pool.query(
+              'INSERT INTO users (id, username, "passwordHash") VALUES ($1, $2, $3)',
+              [userId, userId, "hash"],
+            );
+
+            try {
+              const { roundTripImportBatchesRepository: repository } = await import(
+                "../src/repositories/roundTripImportBatchesRepository"
+              );
+
+              await repository.create({
+                id: completedId,
+                userId,
+                workspaceId: null,
+                workspaceScope: "personal",
+                importMode: "new-root",
+                packageKind: "nowen",
+                sourceInstanceId: "source-instance",
+                sourceExportBatchId: "export-batch",
+                previewJson: JSON.stringify({ counts: { notes: 1 } }),
+                undoStateJson: JSON.stringify({ version: 1 }),
+                undoAvailable: true,
+                undoUnavailableReason: null,
+                undoExpiresAt: past,
+              });
+              await repository.markCompleted({
+                batchId: completedId,
+                resultJson: JSON.stringify({ success: true, counts: { notes: 1 } }),
+                undoStateJson: JSON.stringify({ version: 1, ready: true }),
+                undoAvailable: true,
+                undoUnavailableReason: null,
+              });
+
+              const row = await repository.getByUserAndId(userId, completedId);
+              assert.equal(row?.status, "completed");
+              assert.equal(row?.undoAvailable, true);
+              assert.equal(typeof row?.createdAt, "string");
+              assert.equal(typeof row?.completedAt, "string");
+
+              const expired = await repository.findExpiredUndoIds(new Date().toISOString());
+              assert.ok(expired.includes(completedId));
+              await repository.markUndoExpired([completedId]);
+              assert.equal((await repository.getByUserAndId(userId, completedId))?.undoAvailable, false);
+
+              await repository.create({
+                id: failedId,
+                userId,
+                workspaceId: null,
+                workspaceScope: "personal",
+                importMode: "sync",
+                packageKind: "nowen",
+                sourceInstanceId: null,
+                sourceExportBatchId: null,
+                previewJson: "{}",
+                undoStateJson: "{}",
+                undoAvailable: false,
+                undoUnavailableReason: null,
+                undoExpiresAt: future,
+              });
+              await repository.markFailed(failedId, JSON.stringify({ success: false }), "failed safely");
+              await repository.setUndoError(failedId, "diagnostic");
+              const failed = await repository.getByUserAndId(userId, failedId);
+              assert.equal(failed?.status, "failed");
+              assert.equal(failed?.undoAvailable, false);
+              assert.equal(failed?.undoError, "diagnostic");
+
+              const rows = await repository.listByUser(userId, { workspaceScope: "personal", limit: 10 });
+              assert.equal(rows.length, 2);
+            } finally {
+              await pool.query('DELETE FROM roundtrip_import_batches WHERE "userId" = $1', [userId]);
+              await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+              await runtime.resetDatabaseRuntimeForTests();
+            }
+          });
+          EOF
+
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/pg-runtime.yml')
+          text = workflow.read_text()
+          anchor = '          tests/image-hosting-settings-pg.test.ts\n'
+          addition = anchor + '          tests/roundtrip-import-batches-repository-pg.test.ts\n'
+          if 'tests/roundtrip-import-batches-repository-pg.test.ts' not in text:
+              if anchor not in text:
+                  raise SystemExit('PG test workflow anchor missing')
+              text = text.replace(anchor, addition, 1)
+          package_anchor = '          test -f dist/postgres/migrations/0008_note_split_tables.sql\n'
+          package_addition = package_anchor + '          test -f dist/postgres/migrations/0009_roundtrip_import_resource_links.sql &&\n          test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql\n'
+          if '0009_roundtrip_import_resource_links.sql' not in text:
+              if package_anchor not in text:
+                  raise SystemExit('migration packaging anchor missing')
+              text = text.replace(package_anchor, package_addition, 1)
+          workflow.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate migration batch
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            npm run build:tsc -- --noEmit
+            npm run audit:sqlite-boundaries
+            npm run audit:pg-schema-parity
+            node --import tsx --test --test-concurrency=1 tests/roundtrip-import-batches.test.ts
+            node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts tests/roundtrip-import-batches-repository-pg.test.ts
+            npm run build
+            test -f dist/postgres/migrations/0009_roundtrip_import_resource_links.sql
+            test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql
+          } 2>&1 | tee /tmp/pg-roundtrip-c1.log
+
+      - name: Commit and push
+        id: commit
+        run: |
+          git add backend/src/repositories/roundTripImportBatchesRepository.ts \
+            backend/src/services/roundTripImportBatches.ts \
+            backend/src/routes/import-batches.ts \
+            backend/tests/roundtrip-import-batches.test.ts \
+            backend/tests/roundtrip-import-batches-repository-pg.test.ts \
+            .github/workflows/pg-runtime.yml
+          git commit -m "feat(pg): migrate round-trip batch metadata repository"
+          git push origin HEAD:pg-migration-unified
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish success
+        if: success()
+        run: |
+          gh pr comment 299 --body "## ✅ Round-trip Import Batch C-1 completed
+
+Commit: \`${{ steps.commit.outputs.sha }}\`
+
+- migrations 0009/0010 recognized and packaged
+- batch metadata CRUD uses Runtime Repository
+- list/detail routes are async
+- SQLite round-trip regression passed
+- real PostgreSQL migration and repository tests passed
+- TypeScript, SQLite boundary audit, schema parity and production bundle passed"
+
+      - name: Publish failure
+        if: failure()
+        run: |
+          {
+            echo '## ❌ Round-trip Import Batch C-1 failed'
+            echo
+            echo "Run: \`${{ github.run_id }}\`"
+            echo
+            echo '```text'
+            tail -n 360 /tmp/pg-roundtrip-c1.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/status.md
+          gh pr comment 299 --body-file /tmp/status.md
