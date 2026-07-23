@@ -9,13 +9,16 @@ function read(relativePath: string): string {
 
 const realtimeSource = read("services/realtime.ts");
 const attachmentStorageSource = read("services/attachment-storage.ts");
+const attachmentReferenceSource = read("services/attachment-reference.ts");
 const noteLinksServiceSource = read("services/note-links.ts");
 const realtimeRepositorySource = read("repositories/realtimeAuthRepository.ts");
+const attachmentReferencesRepositorySource = read("repositories/attachmentReferencesRepository.ts");
 const noteLinksRepositorySource = read("repositories/noteLinksRepository.ts");
 
 for (const [name, source] of [
   ["realtime", realtimeSource],
   ["attachment-storage", attachmentStorageSource],
+  ["attachment-reference", attachmentReferenceSource],
   ["note-links", noteLinksServiceSource],
 ] as const) {
   test(`${name} service keeps database access behind repositories`, () => {
@@ -29,6 +32,14 @@ test("attachment storage uses the shared system settings repository", () => {
   assert.match(attachmentStorageSource, /systemSettingsRepository\.get\(SETTING_KEY\)/);
   assert.match(attachmentStorageSource, /systemSettingsRepository\.set\(SETTING_KEY/);
   assert.match(attachmentStorageSource, /systemSettingsRepository\.delete\(SETTING_KEY\)/);
+});
+
+test("attachment reference service exposes SQLite-compatible and runtime paths", () => {
+  assert.match(attachmentReferenceSource, /attachmentReferencesRepository\.getNoteContentText\(noteId\)/);
+  assert.match(attachmentReferenceSource, /attachmentReferencesRepository\.getNoteContentTextAsync\(noteId\)/);
+  assert.match(attachmentReferenceSource, /syncReferencesAsync\(noteId, normalizedContent\)/);
+  assert.match(attachmentReferencesRepositorySource, /getDatabaseAdapter/);
+  assert.match(attachmentReferencesRepositorySource, /ON CONFLICT \("attachmentId", "noteId"\) DO NOTHING/);
 });
 
 test("realtime authentication delegates user lookup to its repository", () => {
