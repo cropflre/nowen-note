@@ -1,0 +1,45 @@
+name: Issue 348 Task Completion Order
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/issue-348-task-order.mjs"
+      - ".github/workflows/issue-348-task-order.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generate implementation
+        run: node scripts/issue-348-task-order.mjs
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run task completion ordering tests
+        working-directory: frontend
+        run: npm run test:run -- src/components/tasks/__tests__/taskCompletionOrder.test.ts
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Prepare verified source artifact
+        run: |
+          mkdir -p verified-output/frontend/src/components/tasks/__tests__
+          cp frontend/src/components/TaskCenterImpl.tsx verified-output/frontend/src/components/TaskCenterImpl.tsx
+          cp frontend/src/components/tasks/taskCompletionOrder.ts verified-output/frontend/src/components/tasks/taskCompletionOrder.ts
+          cp frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts verified-output/frontend/src/components/tasks/__tests__/taskCompletionOrder.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-348-verified-source
+          path: verified-output
+          if-no-files-found: error
