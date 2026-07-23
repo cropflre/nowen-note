@@ -98,7 +98,7 @@ export function createRoundTripImportBatchesRepository(adapter?: DatabaseAdapter
           id, "userId", "workspaceId", "workspaceScope", "importMode", "packageKind",
           "sourceInstanceId", "sourceExportBatchId", status, "previewJson", "resultJson",
           "undoStateJson", "undoAvailable", "undoUnavailableReason", "undoExpiresAt"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, '{}', ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, '{}', ?, CASE WHEN ? = 1 THEN TRUE ELSE FALSE END, ?, ?)`,
         [
           input.id,
           input.userId,
@@ -110,7 +110,7 @@ export function createRoundTripImportBatchesRepository(adapter?: DatabaseAdapter
           input.sourceExportBatchId,
           input.previewJson,
           input.undoStateJson,
-          input.undoAvailable,
+          input.undoAvailable ? 1 : 0,
           input.undoUnavailableReason,
           input.undoExpiresAt,
         ],
@@ -140,12 +140,13 @@ export function createRoundTripImportBatchesRepository(adapter?: DatabaseAdapter
       await getAdapter().execute(
         `UPDATE roundtrip_import_batches
             SET status = 'completed', "resultJson" = ?, "undoStateJson" = ?,
-                "undoAvailable" = ?, "undoUnavailableReason" = ?, "completedAt" = ${now}
+                "undoAvailable" = CASE WHEN ? = 1 THEN TRUE ELSE FALSE END,
+                "undoUnavailableReason" = ?, "completedAt" = ${now}
           WHERE id = ?`,
         [
           args.resultJson,
           args.undoStateJson,
-          args.undoAvailable,
+          args.undoAvailable ? 1 : 0,
           args.undoUnavailableReason,
           args.batchId,
         ],
