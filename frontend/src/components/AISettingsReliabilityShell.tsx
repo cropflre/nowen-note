@@ -11,15 +11,17 @@ export default function AISettingsReliabilityShell() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       setStatus(await getReliableAIStatus());
     } catch (reason) {
-      setError((reason as Error)?.message || "AI 配置状态加载失败");
+      if (!silent) setError((reason as Error)?.message || "AI 配置状态加载失败");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -37,7 +39,7 @@ export default function AISettingsReliabilityShell() {
   const queuedJobs = (status?.index.pending || 0) + (status?.index.processing || 0);
   useEffect(() => {
     if (queuedJobs <= 0) return;
-    const timer = window.setInterval(() => void refresh(), 5_000);
+    const timer = window.setInterval(() => void refresh(true), 5_000);
     return () => window.clearInterval(timer);
   }, [queuedJobs, refresh]);
 
@@ -173,7 +175,8 @@ export default function AISettingsReliabilityShell() {
         <OriginalAISettingsPanel />
       </div>
 
-      <div className={cn(!status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
+      <div className={cn("nowen-embedding-settings", !status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
+        <style>{`.nowen-embedding-settings > section > div.mt-5.grid > div:nth-child(4) { display: none; }`}</style>
         {status?.index.configured && !status.index.vectorAvailable && queuedJobs > 0 && (
           <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
             向量索引正在初始化，任务完成后会自动切换为“可用”。服务重启时中断的任务会自动恢复，无需重复点击重建。
