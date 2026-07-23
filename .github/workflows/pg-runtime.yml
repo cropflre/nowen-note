@@ -156,6 +156,7 @@ jobs:
           tests/api-token-resources-pg.test.ts
           tests/system-settings-repository-pg.test.ts
           tests/image-hosting-settings-pg.test.ts
+          tests/roundtrip-import-batches-repository-pg.test.ts
           tests/custom-fonts-repository-pg.test.ts
           tests/favorites-repository-pg.test.ts
           tests/note-tags-repository-pg.test.ts
@@ -174,7 +175,9 @@ jobs:
           test -f dist/postgres/migrations/0005_api_token_resources.sql &&
           test -f dist/postgres/migrations/0006_share_capabilities.sql &&
           test -f dist/postgres/migrations/0007_note_import_origins.sql &&
-          test -f dist/postgres/migrations/0008_note_split_tables.sql
+          test -f dist/postgres/migrations/0008_note_split_tables.sql &&
+          test -f dist/postgres/migrations/0009_roundtrip_import_resource_links.sql &&
+          test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
