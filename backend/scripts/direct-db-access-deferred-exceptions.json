@@ -97,6 +97,26 @@
       "reason": "Main expanded Nowen package import metadata handling. The bulk copy/checkpoint PostgreSQL implementation remains owned by #251.",
       "counts": { "db-exec-call": 3, "getDb-call": 1, "prepare-call": 10 }
     },
+    "services/nowenPackageImportV2.ts": {
+      "owner": "#251",
+      "reason": "The V2 round-trip importer performs a single atomic multi-table copy transaction. It must move as a whole to the cross-driver import transaction layer rather than being partially converted.",
+      "counts": { "db-exec-call": 3, "getDb-call": 1, "prepare-call": 11 }
+    },
+    "services/nowenRoundTripSync.ts": {
+      "owner": "#251",
+      "reason": "Round-trip incremental sync combines source mapping, notebook/note/attachment writes and object storage cleanup in one transaction boundary. Repository extraction is tracked by the next #251 sync batch.",
+      "counts": { "db-exec-call": 3, "getDb-call": 8, "prepare-call": 22, "transaction-call": 1 }
+    },
+    "services/roundTripImportBatches.ts": {
+      "owner": "#251",
+      "reason": "Batch metadata now has a Runtime Repository and migrations 0009/0010. The remaining direct accesses implement snapshot capture and destructive undo across notebooks, notes, tags, attachments and object storage; they are kept intact for the next atomic #251 transaction batch.",
+      "counts": { "getDb-call": 38, "prepare-call": 4 }
+    },
+    "services/roundTripImportLinkUndo.ts": {
+      "owner": "#251",
+      "reason": "Source-link undo refines and restores mappings around the import undo transaction. It remains coupled to the destructive rollback path and is deferred as one #251 cross-driver transaction unit.",
+      "counts": { "getDb-call": 15 }
+    },
     "services/roundTripMarkdownExportJobs.ts": {
       "owner": "#251",
       "reason": "Round-trip Markdown export jobs were added after the baseline and are part of the import/export data migration surface tracked by #251.",
