@@ -57,11 +57,6 @@
       "reason": "WeChat favorites import is a data migration/import path and is intentionally owned by the SQLite-to-PostgreSQL migration tooling stage.",
       "counts": { "getDb-call": 1 }
     },
-    "services/attachment-reference.ts": {
-      "owner": "#249",
-      "reason": "Main added attachment reference maintenance outside the existing runtime Repository; it belongs to the attachment batch.",
-      "counts": { "getDb-call": 1, "prepare-call": 2 }
-    },
     "services/embedding-worker.ts": {
       "owner": "#252",
       "reason": "The embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by #252.",
