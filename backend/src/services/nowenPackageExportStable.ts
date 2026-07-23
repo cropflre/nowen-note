@@ -2,7 +2,7 @@ import {
   createNowenPackageExport,
   type PreparedMarkdownPackageNote,
 } from "./nowenPackageExport";
-import { ensureNowenInstanceEnvironment } from "./nowenInstanceIdentity";
+import { ensureNowenInstanceEnvironmentAsync } from "./nowenInstanceIdentity";
 
 export type { PreparedMarkdownPackageNote };
 
@@ -13,6 +13,6 @@ export type { PreparedMarkdownPackageNote };
 export async function createStableNowenPackageExport(
   params: Parameters<typeof createNowenPackageExport>[0],
 ): ReturnType<typeof createNowenPackageExport> {
-  ensureNowenInstanceEnvironment();
+  await ensureNowenInstanceEnvironmentAsync();
   return createNowenPackageExport(params);
 }
