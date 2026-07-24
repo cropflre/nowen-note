@@ -26,6 +26,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Checkout PR source branch
+        if: github.event_name == 'pull_request'
+        run: git checkout -B "${{ github.head_ref }}" "origin/${{ github.head_ref }}"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -57,7 +60,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout "${{ github.head_ref }}"
           git add -A
           git commit -m "fix(api/editor): hide Markdown block IDs and route by content format (#355)"
           git push origin HEAD:"${{ github.head_ref }}"
