@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   sdk-contract:
@@ -35,7 +36,29 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Build SDK
-        run: npm run build
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee /tmp/sdk-build.log
+      - name: Report SDK build failure
+        if: steps.build.outcome == 'failure' && github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'SDK Contract CI 构建失败：'
+            echo
+            echo '```text'
+            tail -n 80 /tmp/sdk-build.log
+            echo '```'
+          } > /tmp/sdk-build-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/sdk-build-comment.md
+          exit 1
+      - name: Fail non-PR build
+        if: steps.build.outcome == 'failure' && github.event_name != 'pull_request'
+        run: exit 1
       - name: Run existing SDK tests
         run: node --test tests/attachments.test.mjs
       - name: Run Markdown note contract tests
