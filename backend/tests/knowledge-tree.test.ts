@@ -14,7 +14,7 @@ test.after(() => {
   delete process.env.DB_PATH;
 });
 
-test("v62 migration builds a mixed tree and enforces inherited capabilities", async () => {
+test("v63 migration builds a mixed tree and enforces inherited capabilities", async () => {
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
   closeDatabase = closeDb;
@@ -33,7 +33,7 @@ test("v62 migration builds a mixed tree and enforces inherited capabilities", as
   } = await import("../src/services/knowledgeCapabilities.js");
 
   const db = getDb();
-  assert.equal(getDbSchemaVersion(), 62);
+  assert.equal(getDbSchemaVersion(), 63);
 
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run("owner", "owner", "hash");
