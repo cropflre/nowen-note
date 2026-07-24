@@ -7,6 +7,7 @@ import test from "node:test";
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-knowledge-tree-"));
 process.env.DB_PATH = path.join(tempDir, "knowledge-tree.db");
 let closeDatabase: (() => void) | null = null;
+const phase = (name: string) => console.log(`[knowledge-tree-test] ${name}`);
 
 test.after(() => {
   closeDatabase?.();
@@ -15,6 +16,7 @@ test.after(() => {
 });
 
 test("v64 migration builds a mixed tree and enforces inherited capabilities", async () => {
+  phase("bootstrap");
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
   closeDatabase = closeDb;
@@ -35,6 +37,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   const db = getDb();
   assert.equal(getDbSchemaVersion(), 64);
 
+  phase("seed users and workspace");
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run("owner", "owner", "hash");
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
@@ -46,6 +49,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   db.prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)")
     .run("ws", "member", "viewer");
 
+  phase("create root folder");
   const root = createKnowledgeChild({
     actorUserId: "owner",
     workspaceId: "ws",
@@ -54,6 +58,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     title: "产品资料",
     db,
   });
+  phase("create product document under folder");
   const product = createKnowledgeChild({
     actorUserId: "owner",
     workspaceId: "ws",
@@ -62,6 +67,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     title: "13012230-V/R-TANK",
     db,
   });
+  phase("create order folder under document");
   const orderFolder = createKnowledgeChild({
     actorUserId: "owner",
     workspaceId: "ws",
@@ -70,6 +76,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     title: "PO20260715",
     db,
   });
+  phase("create production document");
   const production = createKnowledgeChild({
     actorUserId: "owner",
     workspaceId: "ws",
@@ -79,12 +86,13 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     db,
   });
 
+  phase("list mixed tree");
   const tree = listKnowledgeTree({ userId: "owner", workspaceId: "ws", db });
   assert.equal(tree.find((node) => node.id === orderFolder.id)?.parentId, product.id);
   assert.equal(tree.find((node) => node.id === production.id)?.parentId, orderFolder.id);
   assert.equal(tree.find((node) => node.id === product.id)?.childCount, 1);
 
-  // A legacy sort/expand update must not collapse a folder-under-document relationship.
+  phase("legacy sort and expand update");
   db.prepare("UPDATE notebooks SET sortOrder = sortOrder + 1, isExpanded = 0 WHERE id = ?")
     .run(orderFolder.resourceId);
   assert.equal(
@@ -92,6 +100,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     product.id,
   );
 
+  phase("grant editor role");
   setKnowledgeNodeRole({
     nodeId: product.id,
     targetUserId: "member",
@@ -105,6 +114,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   assert.equal(inheritedEditor.capabilities.canMove, false);
   assert.equal(inheritedEditor.capabilities.canDelete, false);
 
+  phase("editor creates child document");
   const editorCreated = createKnowledgeChild({
     actorUserId: "member",
     workspaceId: "ws",
@@ -119,6 +129,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   assert.equal(creatorAccess.capabilities.canDelete, false);
   assert.equal(creatorAccess.capabilities.canManageMembers, false);
 
+  phase("deny editor move");
   assert.throws(
     () => moveKnowledgeNode({
       actorUserId: "member",
@@ -129,6 +140,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     (error: unknown) => error instanceof KnowledgeTreeError && error.code === "KNOWLEDGE_CAPABILITY_FORBIDDEN",
   );
 
+  phase("grant maintainer role");
   setKnowledgeNodeRole({
     nodeId: product.id,
     targetUserId: "member",
@@ -141,6 +153,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   assert.equal(inheritedMaintainer.capabilities.canDelete, true);
   assert.equal(inheritedMaintainer.capabilities.canManageMembers, false);
 
+  phase("cycle guard");
   assert.throws(
     () => moveKnowledgeNode({
       actorUserId: "member",
@@ -151,6 +164,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     (error: unknown) => error instanceof KnowledgeTreeError && error.code === "KNOWLEDGE_TREE_CYCLE",
   );
 
+  phase("create restore subtree");
   const restoreFolder = createKnowledgeChild({
     actorUserId: "owner",
     workspaceId: "ws",
@@ -167,6 +181,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     title: "待恢复文档",
     db,
   });
+  phase("delete restore subtree");
   const deletedSubtree = deleteKnowledgeNode({
     actorUserId: "member",
     nodeId: restoreFolder.id,
@@ -174,6 +189,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     db,
   });
   assert.deepEqual(new Set(deletedSubtree.affectedNodeIds), new Set([restoreFolder.id, restoreChild.id]));
+  phase("restore complete subtree");
   const restoredSubtree = restoreKnowledgeNode({
     actorUserId: "owner",
     nodeId: restoreFolder.id,
@@ -185,6 +201,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     .all(restoreFolder.id, restoreChild.id) as Array<{ id: string; isDeleted: number }>;
   assert.equal(restoredRows.every((row) => row.isDeleted === 0), true);
 
+  phase("delete parent and promote child");
   const deleted = deleteKnowledgeNode({
     actorUserId: "member",
     nodeId: orderFolder.id,
@@ -197,6 +214,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     product.id,
   );
 
+  phase("clear direct role and use legacy viewer");
   assert.equal(clearKnowledgeNodeRole({
     nodeId: product.id,
     targetUserId: "member",
