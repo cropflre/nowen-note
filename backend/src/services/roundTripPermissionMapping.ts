@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { getDb } from "../db/schema";
-import { getUserWorkspaceRole, hasRole, isSystemAdmin, type WorkspaceRole } from "../middleware/acl";
+import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import { createStableNowenPackageExport } from "./nowenPackageExportStable";
 
 export const ROUND_TRIP_PERMISSIONS_VERSION = 1;
@@ -44,11 +44,11 @@ export interface PermissionMappingInput {
   role?: Exclude<ExportedWorkspaceRole, "owner">;
 }
 
-function assertWorkspaceOwner(userId: string, workspaceId: string): void {
+function assertWorkspaceManager(userId: string, workspaceId: string): void {
   if (isSystemAdmin(userId)) return;
-  if (!hasRole(getUserWorkspaceRole(workspaceId, userId), "owner")) {
-    const error = new Error("仅目标工作区所有者或系统管理员可迁移成员权限");
-    (error as Error & { code?: string; status?: number }).code = "WORKSPACE_OWNER_REQUIRED";
+  if (!hasRole(getUserWorkspaceRole(workspaceId, userId), "admin")) {
+    const error = new Error("仅目标工作区所有者、管理员或系统管理员可迁移成员权限");
+    (error as Error & { code?: string; status?: number }).code = "WORKSPACE_ADMIN_REQUIRED";
     (error as Error & { code?: string; status?: number }).status = 403;
     throw error;
   }
@@ -64,8 +64,18 @@ function roleForApply(role: ExportedWorkspaceRole): Exclude<ExportedWorkspaceRol
   return role === "owner" ? "admin" : role;
 }
 
+function roleRank(role: string | null | undefined): number {
+  switch (role) {
+    case "owner": return 4;
+    case "admin": return 3;
+    case "editor": return 2;
+    case "viewer": return 1;
+    default: return 0;
+  }
+}
+
 export function buildRoundTripPermissionsManifest(userId: string, workspaceId: string): RoundTripPermissionsManifest {
-  assertWorkspaceOwner(userId, workspaceId);
+  assertWorkspaceManager(userId, workspaceId);
   const db = getDb();
   const workspace = db.prepare("SELECT id, name FROM workspaces WHERE id = ?").get(workspaceId) as
     | { id: string; name: string }
@@ -121,13 +131,15 @@ export function validateRoundTripPermissionsManifest(value: unknown): RoundTripP
     (error as Error & { code?: string; status?: number }).status = 400;
     throw error;
   }
+  const seen = new Set<string>();
   const members = manifest.members.map((member) => {
-    if (!member?.sourceUserId || !member.username) {
-      const error = new Error("权限清单包含无效成员");
+    if (!member?.sourceUserId || !member.username || seen.has(String(member.sourceUserId))) {
+      const error = new Error("权限清单包含无效或重复成员");
       (error as Error & { code?: string; status?: number }).code = "INVALID_PERMISSION_MEMBER";
       (error as Error & { code?: string; status?: number }).status = 400;
       throw error;
     }
+    seen.add(String(member.sourceUserId));
     return {
       sourceUserId: String(member.sourceUserId),
       username: String(member.username),
@@ -178,10 +190,10 @@ export function previewRoundTripPermissionMappings(
   workspaceId: string,
   manifestValue: unknown,
 ): PermissionMappingSuggestion[] {
-  assertWorkspaceOwner(userId, workspaceId);
+  assertWorkspaceManager(userId, workspaceId);
   const manifest = validateRoundTripPermissionsManifest(manifestValue);
   const db = getDb();
-  const users = db.prepare("SELECT id, username, email FROM users ORDER BY id").all() as Array<{
+  const users = db.prepare("SELECT id, username, email FROM users WHERE COALESCE(isDisabled, 0) = 0 ORDER BY id").all() as Array<{
     id: string;
     username: string;
     email: string | null;
@@ -219,7 +231,7 @@ export function applyRoundTripPermissionMappings(params: {
   manifest: unknown;
   mappings: PermissionMappingInput[];
 }): { applied: number; skipped: number; items: Array<{ sourceUserId: string; targetUserId: string; role: string }> } {
-  assertWorkspaceOwner(params.actorUserId, params.workspaceId);
+  assertWorkspaceManager(params.actorUserId, params.workspaceId);
   const manifest = validateRoundTripPermissionsManifest(params.manifest);
   const sourceById = new Map(manifest.members.map((member) => [member.sourceUserId, member]));
   const db = getDb();
@@ -230,32 +242,38 @@ export function applyRoundTripPermissionMappings(params: {
 
   const items: Array<{ sourceUserId: string; targetUserId: string; role: string }> = [];
   let skipped = 0;
+  const usedTargets = new Set<string>();
   const transaction = db.transaction(() => {
     for (const mapping of params.mappings || []) {
       const source = sourceById.get(String(mapping.sourceUserId || ""));
       const targetUserId = String(mapping.targetUserId || "");
-      if (!source || !targetUserId) {
+      if (!source || !targetUserId || usedTargets.has(targetUserId)) {
         skipped += 1;
         continue;
       }
-      const target = db.prepare("SELECT id FROM users WHERE id = ?").get(targetUserId) as { id: string } | undefined;
-      if (!target) {
+      usedTargets.add(targetUserId);
+      const target = db.prepare("SELECT id FROM users WHERE id = ? AND COALESCE(isDisabled, 0) = 0").get(targetUserId) as { id: string } | undefined;
+      if (!target || targetUserId === targetWorkspace.ownerId) {
         skipped += 1;
         continue;
       }
-      if (targetUserId === targetWorkspace.ownerId) {
-        skipped += 1;
-        continue;
-      }
-      const role = mapping.role === "admin" || mapping.role === "editor" || mapping.role === "viewer"
+      const desired = mapping.role === "admin" || mapping.role === "editor" || mapping.role === "viewer"
         ? mapping.role
         : roleForApply(source.role);
-      db.prepare(`
-        INSERT INTO workspace_members (workspaceId, userId, role)
-        VALUES (?, ?, ?)
-        ON CONFLICT(workspaceId, userId) DO UPDATE SET role = excluded.role
-      `).run(params.workspaceId, targetUserId, role);
-      items.push({ sourceUserId: source.sourceUserId, targetUserId, role });
+      const existing = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
+        .get(params.workspaceId, targetUserId) as { role: string } | undefined;
+      if (existing && roleRank(existing.role) >= roleRank(desired)) {
+        skipped += 1;
+        continue;
+      }
+      if (existing) {
+        db.prepare("UPDATE workspace_members SET role = ? WHERE workspaceId = ? AND userId = ?")
+          .run(desired, params.workspaceId, targetUserId);
+      } else {
+        db.prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)")
+          .run(params.workspaceId, targetUserId, desired);
+      }
+      items.push({ sourceUserId: source.sourceUserId, targetUserId, role: desired });
     }
   });
   transaction();
