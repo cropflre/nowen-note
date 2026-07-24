@@ -10,6 +10,10 @@ const legacySyncSql = fs.readFileSync(
   path.join(__dirname, "../src/db/postgres/063_knowledge_tree_legacy_sync.sql"),
   "utf8",
 );
+const structuralGuardSql = fs.readFileSync(
+  path.join(__dirname, "../src/db/postgres/064_knowledge_tree_structural_guard.sql"),
+  "utf8",
+);
 
 test("PostgreSQL knowledge tree schema has node, capability, history and cycle guards", () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_tree_nodes/i);
@@ -42,4 +46,11 @@ test("PostgreSQL legacy sync preserves document parents on harmless notebook upd
   assert.match(legacySyncSql, /next_parent := existing_parent/i);
   assert.match(legacySyncSql, /"parentId" = EXCLUDED\."parentId"/i);
   assert.match(legacySyncSql, /CREATE TRIGGER knowledge_tree_notebooks_sync/i);
+});
+
+test("PostgreSQL structural guard ignores unchanged parent and scope", () => {
+  assert.match(structuralGuardSql, /CREATE TRIGGER knowledge_tree_parent_guard_insert/i);
+  assert.match(structuralGuardSql, /CREATE TRIGGER knowledge_tree_parent_guard_update/i);
+  assert.match(structuralGuardSql, /OLD\."parentId" IS DISTINCT FROM NEW\."parentId"/i);
+  assert.match(structuralGuardSql, /OLD\."scopeKey" IS DISTINCT FROM NEW\."scopeKey"/i);
 });
