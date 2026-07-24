@@ -21,6 +21,7 @@ on:
       - "backend/tests/block-patch-list-structure-route.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
+      - "backend/tests/tiptap-block-patch-image.test.ts"
       - "backend/tests/tiptap-list-item-move.test.ts"
       - "backend/tests/tiptap-list-item-structure.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -46,6 +47,7 @@ on:
       - "frontend/src/lib/__tests__/blockPatchListStructureApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
@@ -76,6 +78,7 @@ on:
       - "backend/tests/block-patch-list-structure-route.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
+      - "backend/tests/tiptap-block-patch-image.test.ts"
       - "backend/tests/tiptap-list-item-move.test.ts"
       - "backend/tests/tiptap-list-item-structure.test.ts"
       - "backend/tests/block-patch-route.test.ts"
@@ -101,6 +104,7 @@ on:
       - "frontend/src/lib/__tests__/blockPatchListStructureApi.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts"
+      - "frontend/src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchRuntime.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemMovePlanner.test.ts"
@@ -137,6 +141,7 @@ jobs:
           node --import tsx --test
           tests/tiptap-block-patch.test.ts
           tests/tiptap-block-patch-v2.test.ts
+          tests/tiptap-block-patch-image.test.ts
           tests/tiptap-list-item-move.test.ts
           tests/tiptap-list-item-structure.test.ts
           tests/block-patch-route.test.ts
@@ -169,6 +174,7 @@ jobs:
           src/lib/__tests__/blockPatchListStructureApi.test.ts
           src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
           src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
+          src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts
           src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts
           src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
           src/lib/__tests__/tiptapListItemMovePlanner.test.ts
