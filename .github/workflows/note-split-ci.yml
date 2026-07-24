@@ -102,12 +102,23 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - name: Split planner, transaction, and redirect tests
-        run: >-
-          node --import tsx --import ./tests/setup-db-isolation.ts --test
-          tests/note-split.test.ts
-          tests/note-split-title.test.ts
-          tests/tiptap-note-split.test.ts
-          tests/tiptap-note-split-empty.test.ts
-          tests/block-link-redirect.test.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+            tests/note-split.test.ts \
+            tests/note-split-title.test.ts \
+            tests/tiptap-note-split.test.ts \
+            tests/tiptap-note-split-empty.test.ts \
+            tests/block-link-redirect.test.ts \
+            2>&1 | tee /tmp/note-split-backend.log
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: note-split-backend-${{ github.run_id }}
+          path: /tmp/note-split-backend.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Backend typecheck
         run: npm run build:tsc
