@@ -58,8 +58,24 @@ jobs:
         if: steps.frontend-tests.outputs.status != '0'
         run: exit 1
       - name: Type-check frontend
+        id: frontend-typecheck
         working-directory: frontend
-        run: npx tsc -b
+        shell: bash
+        run: |
+          set +e
+          npx tsc -b > /tmp/issue-447-typecheck.log 2>&1
+          status=$?
+          cat /tmp/issue-447-typecheck.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload TypeScript diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-447-typecheck
+          path: /tmp/issue-447-typecheck.log
+      - name: Require frontend typecheck
+        if: steps.frontend-typecheck.outputs.status != '0'
+        run: exit 1
       - name: Commit verified implementation
         run: |
           git config user.name "github-actions[bot]"
