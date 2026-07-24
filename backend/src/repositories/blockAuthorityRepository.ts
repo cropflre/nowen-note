@@ -6,6 +6,7 @@
 import { getDb } from "../db/schema";
 import { SqliteAdapter } from "../db/adapters";
 import type { DatabaseAdapter } from "../db/adapters/types";
+import { randomUUID } from "node:crypto";
 
 export interface BlockAuthorityDocumentRow {
   noteId: string;
@@ -112,16 +113,55 @@ export function createBlockAuthorityRepository(adapter?: DatabaseAdapter) {
     },
 
     async replaceAuthorityState(state: BlockAuthorityWriteState): Promise<{ changes: number }> {
-      const statements: Array<{ sql: string; params?: unknown[] }> = [
+      const guardedOperation = state.operation?.operationId
+        ? { operation: state.operation, claimId: randomUUID() }
+        : null;
+      const guardSql = guardedOperation
+        ? ` AND EXISTS (
+            SELECT 1 FROM note_block_operations
+            WHERE "noteId" = ? AND "operationId" = ? AND id = ?
+          )`
+        : "";
+      const guardParams = guardedOperation
+        ? [state.document.noteId, guardedOperation.operation.operationId, guardedOperation.claimId]
+        : [];
+      const insertGuardSql = guardedOperation
+        ? ` WHERE EXISTS (
+            SELECT 1 FROM note_block_operations
+            WHERE "noteId" = ? AND "operationId" = ? AND id = ?
+          )`
+        : "";
+      const statements: Array<{ sql: string; params?: unknown[] }> = [];
+
+      if (guardedOperation) {
+        const { operation, claimId } = guardedOperation;
+        // 每次调用使用独立 claimId；只有首次插入 operationId 的调用能命中后续写入守卫。
+        statements.push({
+          sql: `
+            INSERT INTO note_block_operations (
+              id, "noteId", "operationId", "operationType", "noteVersion", "blockVersion",
+              "structureVersion", "operationJson", "createdAt"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT ("noteId", "operationId") WHERE "operationId" IS NOT NULL DO NOTHING
+          `,
+          params: [
+            claimId, operation.noteId, operation.operationId, operation.operationType,
+            operation.noteVersion, operation.blockVersion, operation.structureVersion,
+            operation.operationJson, operation.createdAt,
+          ],
+        });
+      }
+
+      statements.push(
         {
-          sql: `DELETE FROM note_block_attachment_refs WHERE "noteId" = ?`,
-          params: [state.document.noteId],
+          sql: `DELETE FROM note_block_attachment_refs WHERE "noteId" = ?${guardSql}`,
+          params: [state.document.noteId, ...guardParams],
         },
         {
-          sql: `DELETE FROM note_block_records WHERE "noteId" = ?`,
-          params: [state.document.noteId],
+          sql: `DELETE FROM note_block_records WHERE "noteId" = ?${guardSql}`,
+          params: [state.document.noteId, ...guardParams],
         },
-      ];
+      );
 
       for (const record of state.records) {
         statements.push({
@@ -129,12 +169,13 @@ export function createBlockAuthorityRepository(adapter?: DatabaseAdapter) {
             INSERT INTO note_block_records (
               "noteId", "blockId", "parentBlockId", "blockType", "blockOrder", path, version,
               payload, "payloadHash", "plainText", "contentHash", "createdAt", "updatedAt"
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${insertGuardSql}
           `,
           params: [
             record.noteId, record.blockId, record.parentBlockId, record.blockType,
             record.blockOrder, record.path, record.version, record.payload, record.payloadHash,
             record.plainText, record.contentHash, record.createdAt, record.updatedAt,
+            ...guardParams,
           ],
         });
       }
@@ -144,9 +185,9 @@ export function createBlockAuthorityRepository(adapter?: DatabaseAdapter) {
           sql: `
             INSERT INTO note_block_attachment_refs (
               "noteId", "blockId", "attachmentId", "createdAt"
-            ) VALUES (?, ?, ?, ?)
+            ) SELECT ?, ?, ?, ?${insertGuardSql}
           `,
-          params: [ref.noteId, ref.blockId, ref.attachmentId, ref.createdAt],
+          params: [ref.noteId, ref.blockId, ref.attachmentId, ref.createdAt, ...guardParams],
         });
       }
 
@@ -157,7 +198,7 @@ export function createBlockAuthorityRepository(adapter?: DatabaseAdapter) {
             "noteId", "contentFormat", "noteVersion", "blockVersion", "structureVersion",
             "snapshotHash", "materializedHash", "snapshotContent", "rootOrderJson", status,
             "mismatchReason", "createdAt", "updatedAt"
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${insertGuardSql}
           ON CONFLICT ("noteId") DO UPDATE SET
             "contentFormat" = excluded."contentFormat",
             "noteVersion" = excluded."noteVersion",
@@ -176,10 +217,11 @@ export function createBlockAuthorityRepository(adapter?: DatabaseAdapter) {
           document.structureVersion, document.snapshotHash, document.materializedHash,
           document.snapshotContent, document.rootOrderJson, document.status,
           document.mismatchReason, document.createdAt, document.updatedAt,
+          ...guardParams,
         ],
       });
 
-      if (state.operation) {
+      if (state.operation && !guardedOperation) {
         const operation = state.operation;
         statements.push({
           sql: `

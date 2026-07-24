@@ -172,17 +172,24 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       if (snapshot?.content) valuesRef.current.set(sectionId, snapshot.content);
     }, []);
 
-    const requestFallback = useCallback((reason: string) => {
+    const requestFallback = useCallback((
+      reason: string,
+      committedSnapshot?: { content: string; contentText: string },
+    ) => {
       if (!sections) {
-        fallbackRef.current?.(reason);
+        fallbackRef.current?.(reason, committedSnapshot);
         return;
       }
-      editorRefs.current.forEach((_editor, sectionId) => snapshotSection(sectionId));
-      const content = mergeSectionContents(sections, valuesRef.current);
-      fallbackRef.current?.(reason, content ? {
-        content,
-        contentText: plainTextFromTiptap(content),
-      } : undefined);
+      let snapshot = committedSnapshot;
+      if (editorRefs.current.size > 0) {
+        editorRefs.current.forEach((_editor, sectionId) => snapshotSection(sectionId));
+        const content = mergeSectionContents(sections, valuesRef.current);
+        if (content) snapshot = { content, contentText: plainTextFromTiptap(content) };
+      } else if (!snapshot) {
+        const content = mergeSectionContents(sections, valuesRef.current);
+        if (content) snapshot = { content, contentText: plainTextFromTiptap(content) };
+      }
+      fallbackRef.current?.(reason, snapshot);
     }, [sections, snapshotSection]);
 
     const loadSection = useCallback(async (sectionId: string) => {
@@ -246,10 +253,15 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
                 result.generation !== manifest.generation
                 || result.structureVersion !== manifest.structureVersion
               ) {
-                fallbackRef.current?.("subdocument-structure-changed", {
+                // 服务端重分段后旧 controller 不能再发送旧代际增量；保留请求期间
+                // 新产生的 pending，并用当前所有编辑器的最新值回退单体编辑器。
+                controllerRef.current?.destroy(true);
+                controllerRef.current = null;
+                requestFallback("subdocument-structure-changed", {
                   content: result.content,
                   contentText: result.contentText,
                 });
+                throw new Error("SUBDOCUMENT_CONTROLLER_INVALIDATED");
               }
             }
           },

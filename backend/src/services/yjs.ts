@@ -539,14 +539,21 @@ export function yApplySubdocumentUpdate(
   if (!isYjsSubdocumentsEnabled()) return null;
   const db = getDb();
   assertYjsSubdocumentGeneration(db, noteId, expectedGeneration);
-  // 旧的整篇 Y.js room 与章节协议不能同时作为写入者，否则 debounce 会用旧内容覆盖章节更新。
-  yDestroyDoc(noteId);
-  db.transaction(() => {
-    noteYupdatesRepository.deleteByNoteId(noteId);
-    noteYsnapshotsRepository.deleteByNoteId(noteId);
-  })();
+  // 活跃或待回收的旧 room 可能仍含未落盘内容，协议切换必须 fail-closed。
+  // 不能在章节 update 完成校验和原子提交前销毁 room 或删除旧历史。
+  if (rooms.has(noteId)) throw new Error("SUBDOCUMENT_LEGACY_ROOM_ACTIVE");
   const update = base64ToUint8(updateBase64);
-  return applyYjsSubdocumentUpdate(db, noteId, sectionId, update, userId, expectedGeneration);
+  const result = applyYjsSubdocumentUpdate(db, noteId, sectionId, update, userId, expectedGeneration);
+  // 章节写入成功后旧协议历史已不再是写入源；清理失败不能把已提交请求伪装成失败。
+  try {
+    db.transaction(() => {
+      noteYupdatesRepository.deleteByNoteId(noteId);
+      noteYsnapshotsRepository.deleteByNoteId(noteId);
+    })();
+  } catch (error) {
+    console.warn(`[yjs] retire legacy history failed for ${noteId}:`, error);
+  }
+  return result;
 }
 
 /**

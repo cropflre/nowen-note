@@ -1313,6 +1313,12 @@ app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
     if (error instanceof Error && error.message === "SUBDOCUMENT_NOT_FOUND") {
       return c.json({ error: "章节不存在", code: "SUBDOCUMENT_NOT_FOUND" }, 404);
     }
+    if (error instanceof Error && error.message === "SUBDOCUMENT_LEGACY_ROOM_ACTIVE") {
+      return c.json({
+        error: "旧版协同会话仍在活动，请关闭旧编辑器后重试",
+        code: "SUBDOCUMENT_LEGACY_ROOM_ACTIVE",
+      }, 409);
+    }
     if (error instanceof Error && error.message === "INVALID_SUBDOCUMENT_UPDATE_SIZE") {
       return c.json({ error: "章节更新过大", code: "SUBDOCUMENT_UPDATE_TOO_LARGE" }, 413);
     }

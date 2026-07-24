@@ -37,12 +37,32 @@ test("persists stable section GUIDs and restores a lossless Tiptap snapshot", as
     { generation: 1, structureVersion: 1 },
   );
   assert.equal(service.readYjsSubdocumentBundle(db, "ys-note", content).content, content);
+  const oldSectionId = first.sections[0].id;
+  const oldSnapshot = service.getYjsSubdocumentSnapshot(db, "ys-note", oldSectionId)!;
+  const oldSectionUpdate = service.createYjsSubdocumentContentUpdate(
+    oldSnapshot.guid,
+    oldSnapshot.snapshot,
+    first.sections[0].content.replace("one", "offline-on-old-history"),
+  );
   const changed = content.replace("one", "changed");
   db.prepare("UPDATE notes SET content = ? WHERE id = 'ys-note'").run(changed);
   const second = service.rebuildYjsSubdocuments(db, "ys-note", changed, 10);
   assert.deepEqual(first.sections.map((section) => section.guid), second.sections.map((section) => section.guid));
-  assert.equal(second.generation, 1, "只修改章节文本不得推进代际");
+  assert.equal(second.generation, 2, "重建 CRDT 历史必须推进代际");
   assert.equal(second.structureVersion, 1);
+  assert.throws(
+    () => service.applyYjsSubdocumentUpdate(
+      db,
+      "ys-note",
+      oldSectionId,
+      oldSectionUpdate,
+      "ys-user",
+      first.generation,
+    ),
+    (error: unknown) => error instanceof service.SubdocumentGenerationConflictError
+      && error.manifest.generation === second.generation,
+    "旧历史生成的离线 update 不得被成功但无效地接受",
+  );
 });
 
 test("fails closed when a section snapshot is corrupted", async () => {

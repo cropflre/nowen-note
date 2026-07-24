@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Hono } from "hono";
+import * as Y from "yjs";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-y-subdocument-route-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
@@ -162,4 +163,59 @@ test("Subdocument 路由在功能关闭和非法更新时 fail closed", async ()
   process.env.NOWEN_YJS_SUBDOCUMENTS = "1";
 
   assert.equal((db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(noteId) as any).count, 1);
+});
+
+test("旧版 Y room 活跃时拒绝协议切换且保留持久化历史", async () => {
+  const [{ getDb }, yjs] = await Promise.all([
+    import("../src/db/schema"),
+    import("../src/services/yjs.js"),
+  ]);
+  const db = getDb();
+  const noteId = "17171717-1717-4717-8717-171717171717";
+  const ownerId = "subdocument-route-owner";
+  process.env.NOWEN_YJS_SUBDOCUMENTS = "0";
+  const joined = yjs.yJoin(noteId, ownerId);
+  const legacyDoc = new Y.Doc();
+  Y.applyUpdate(legacyDoc, new Uint8Array(Buffer.from(joined.stateBase64, "base64")));
+  const vector = Y.encodeStateVector(legacyDoc);
+  legacyDoc.getText("content").insert(0, "legacy-pending ");
+  const legacyUpdate = Y.encodeStateAsUpdate(legacyDoc, vector);
+  assert.equal(yjs.yApplyUpdate(noteId, Buffer.from(legacyUpdate).toString("base64"), ownerId), "ok");
+  legacyDoc.destroy();
+  const historyCount = (db.prepare("SELECT COUNT(*) AS count FROM note_yupdates WHERE noteId = ?")
+    .get(noteId) as any).count as number;
+  assert.ok(historyCount > 0);
+
+  process.env.NOWEN_YJS_SUBDOCUMENTS = "1";
+  const manifest = yjs.yPrepareSubdocuments(noteId)!;
+  assert.throws(
+    () => yjs.yApplySubdocumentUpdate(
+      noteId,
+      manifest.sections[0].id,
+      "AAAA",
+      ownerId,
+      manifest.generation,
+    ),
+    (error: unknown) => error instanceof Error && error.message === "SUBDOCUMENT_LEGACY_ROOM_ACTIVE",
+  );
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM note_yupdates WHERE noteId = ?").get(noteId) as any).count,
+    historyCount,
+  );
+  yjs.yDestroyDoc(noteId);
+  assert.throws(
+    () => yjs.yApplySubdocumentUpdate(
+      noteId,
+      "missing-section",
+      "AAAA",
+      ownerId,
+      manifest.generation,
+    ),
+    (error: unknown) => error instanceof Error && error.message === "SUBDOCUMENT_NOT_FOUND",
+  );
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM note_yupdates WHERE noteId = ?").get(noteId) as any).count,
+    historyCount,
+    "章节校验失败前不得删除旧协议历史",
+  );
 });

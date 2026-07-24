@@ -48,7 +48,7 @@ export interface TiptapSubdocumentRestSyncController {
   applyRemote(sectionId: string, update: Uint8Array): boolean;
   flushPending(): Promise<number>;
   pendingCount(): number;
-  destroy(): void;
+  destroy(preservePending?: boolean): void;
 }
 
 const SUBDOCUMENT_PENDING_STORAGE_PREFIX = "nowen:yjs-subdocument-pending:";
@@ -399,12 +399,14 @@ export function createTiptapSubdocumentRestSyncController(
       return sent;
     },
     pendingCount: () => new Set([...pending.keys(), ...inflight.keys()]).size,
-    destroy: () => {
+    destroy: (preservePending = false) => {
       destroyed = true;
       for (const remove of removers.values()) remove();
       removers.clear();
-      pending.clear();
-      inflight.clear();
+      if (!preservePending) {
+        pending.clear();
+        inflight.clear();
+      }
       loading.clear();
       loaded.clear();
     },

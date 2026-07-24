@@ -60,6 +60,12 @@ test("recovery synchronizes healthy notes and preserves invalid note snapshots",
   assert.equal(result.failures.length, 1);
   assert.equal(result.failures[0]?.noteId, invalidId);
   assert.equal((db.prepare("SELECT status FROM note_block_documents WHERE noteId = ?").get(healthyId) as any).status, "healthy");
+  const persistedHealthyContent = (db.prepare("SELECT content FROM notes WHERE id = ?").get(healthyId) as any).content;
+  assert.notEqual(persistedHealthyContent, healthyContent, "恢复时补齐的 Block ID 必须写回 notes.content");
+  assert.deepEqual(
+    store.readAuthoritativeNoteContent(db, healthyId, persistedHealthyContent),
+    { content: persistedHealthyContent, source: "blocks", status: "healthy" },
+  );
   assert.equal((db.prepare("SELECT status FROM note_block_documents WHERE noteId = ?").get(invalidId) as any).status, "mismatch");
   assert.equal((db.prepare("SELECT content FROM notes WHERE id = ?").get(invalidId) as any).content, invalidContent);
   assert.equal(

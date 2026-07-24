@@ -236,7 +236,9 @@ function replaceYjsSubdocumentRows(
 ): { rootGuid: string; sections: YjsSubdocumentSection[]; generation: number; structureVersion: number } {
   const previous = readManifest(db, noteId);
   const structureChanged = previous != null && !sameSectionStructure(previous.sections, sections);
-  const generation = previous ? previous.generation + (structureChanged ? 1 : 0) : 1;
+  // 这里会删除旧快照并用全新的 Y.Doc 历史重建；即使章节边界不变，
+  // 旧客户端基于上一份 CRDT 历史生成的增量也不能继续复用，必须推进代际。
+  const generation = previous ? previous.generation + 1 : 1;
   const structureVersion = previous ? previous.structureVersion + (structureChanged ? 1 : 0) : 1;
   const { rootGuid, rootSnapshot } = buildRootSnapshot(noteId, sections);
 

@@ -84,6 +84,22 @@ function encodeState(content: string, guid: string): string {
   return btoa(binary);
 }
 
+function encodeContentUpdate(content: string, guid: string, replacement: string): string {
+  const doc = new Y.Doc({ guid });
+  const text = doc.getText("content");
+  text.insert(0, content);
+  const vector = Y.encodeStateVector(doc);
+  doc.transact(() => {
+    text.delete(0, text.length);
+    text.insert(0, replacement);
+  });
+  const bytes = Y.encodeStateAsUpdate(doc, vector);
+  doc.destroy();
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function changeTextarea(editor: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
   setter?.call(editor, value);
@@ -238,7 +254,7 @@ describe("WindowedTiptapEditor", () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
-  it("falls back immediately with the committed snapshot after server resegmentation", async () => {
+  it("falls back immediately with the latest local snapshot after server resegmentation", async () => {
     const resegmentedContent = largeNote().content.replace("p0", "server-resegmented");
     apiMocks.applyUpdate.mockResolvedValue({
       success: true,
@@ -260,7 +276,7 @@ describe("WindowedTiptapEditor", () => {
 
     await vi.waitFor(() => expect(onFallback).toHaveBeenCalledWith(
       "subdocument-structure-changed",
-      { content: resegmentedContent, contentText: "server-resegmented" },
+      expect.objectContaining({ content: expect.stringContaining("local-change") }),
     ));
     expect(apiMocks.applyUpdate).toHaveBeenCalledWith(
       "window-note",
@@ -268,6 +284,71 @@ describe("WindowedTiptapEditor", () => {
       expect.any(String),
       1,
     );
+  });
+
+  it("preserves a second local edit made while a resegmentation request is in flight", async () => {
+    let resolveUpdate!: (value: any) => void;
+    apiMocks.applyUpdate.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
+    const onFallback = vi.fn();
+    await act(async () => root.render(
+      <WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} onFallback={onFallback} />,
+    ));
+    await vi.waitFor(() => expect(host.querySelector("[data-section-editor]")).not.toBeNull());
+    const editor = host.querySelector<HTMLTextAreaElement>("[data-section-editor]")!;
+
+    await act(async () => changeTextarea(editor, editor.value.replace("p0", "first-edit")));
+    await vi.waitFor(() => expect(apiMocks.applyUpdate).toHaveBeenCalledTimes(1));
+    await act(async () => changeTextarea(editor, editor.value.replace("first-edit", "latest-inflight-edit")));
+    await act(async () => resolveUpdate({
+      success: true,
+      content: largeNote().content.replace("p0", "first-edit"),
+      contentText: "first-edit",
+      sectionGuid: "guid-after-resegment",
+      version: 2,
+      generation: 2,
+      structureVersion: 2,
+    }));
+
+    await vi.waitFor(() => expect(onFallback).toHaveBeenCalledWith(
+      "subdocument-structure-changed",
+      expect.objectContaining({ content: expect.stringContaining("latest-inflight-edit") }),
+    ));
+    expect(apiMocks.applyUpdate).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("nowen:yjs-subdocument-pending:window-note")).toContain("\"generation\":1");
+  });
+
+  it("uses the committed server snapshot when restored pending resegments before any section mounts", async () => {
+    const note = largeNote();
+    const sections = splitTiptapSubdocumentSections(note.id, note.content, 250)!;
+    const replacement = sections[0].content.replace("p0", "restored-structural-edit");
+    localStorage.setItem("nowen:yjs-subdocument-pending:window-note", JSON.stringify({
+      version: 2,
+      generation: 1,
+      sections: {
+        [sections[0].id]: encodeContentUpdate(sections[0].content, sections[0].guid, replacement),
+      },
+    }));
+    const committedContent = note.content.replace("p0", "restored-structural-edit");
+    apiMocks.applyUpdate.mockResolvedValueOnce({
+      success: true,
+      content: committedContent,
+      contentText: "restored-structural-edit",
+      sectionGuid: sections[0].guid,
+      version: 2,
+      generation: 2,
+      structureVersion: 2,
+    });
+    const onFallback = vi.fn();
+
+    await act(async () => root.render(
+      <WindowedTiptapEditor note={note} onUpdate={vi.fn()} onFallback={onFallback} />,
+    ));
+
+    await vi.waitFor(() => expect(onFallback).toHaveBeenCalledWith(
+      "subdocument-structure-changed",
+      { content: committedContent, contentText: "restored-structural-edit" },
+    ));
+    expect(apiMocks.getState).not.toHaveBeenCalled();
   });
 
   it("propagates only a real title change through the parent update callback", async () => {
