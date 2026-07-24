@@ -75,7 +75,6 @@ export function restoreKnowledgeNode(input: {
     // Activate every navigation row first. Legacy resource triggers then see an active parent even
     // when their own restore UPDATE writes scopeKey/parentId as part of an idempotent sync.
     for (const node of nodes) {
-      console.log("[knowledge-tree-restore] activate-node", node.id, node.parentId);
       db.prepare(`
         UPDATE knowledge_tree_nodes
         SET isDeleted = 0, deletedAt = NULL, updatedAt = datetime('now')
@@ -85,7 +84,6 @@ export function restoreKnowledgeNode(input: {
     }
 
     for (const node of nodes) {
-      console.log("[knowledge-tree-restore] restore-resource", node.resourceType, node.resourceId, node.parentId);
       if (node.resourceType === "note") {
         db.prepare("UPDATE notes SET isTrashed = 0, trashedAt = NULL, updatedAt = datetime('now') WHERE id = ?")
           .run(node.resourceId);
