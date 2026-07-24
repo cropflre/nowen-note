@@ -35,7 +35,7 @@ export function suggestedPermissionMappings(
 export function requestRoundTripPermissionReview(
   inspection: RoundTripPermissionInspection | undefined,
 ): Promise<RoundTripPermissionReviewDecision> {
-  if (!inspection?.included || !inspection.canApply) {
+  if (!inspection?.included) {
     return Promise.resolve({ applyPermissions: false, permissionMappings: {} });
   }
   const id = sequence++;
