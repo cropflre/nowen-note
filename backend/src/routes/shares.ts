@@ -12,6 +12,7 @@ import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRef
 import { logAudit } from "../services/audit";
 import { noteVersionsRepository, shareCommentsRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import { parseShareManagementQuery, queryShareManagement } from "../services/share-management";
 import { consumeShareViewSession, findSingleShareByToken, installSingleShareGuard, resetShareViewSessions } from "../services/single-share-access";
 import { checkCredentialAttempt, getClientIp as getCredentialClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit";
 import { syncNoteBlocks } from "../lib/noteBlocks";
@@ -135,10 +136,14 @@ sharesRouter.post("/", async (c) => {
   return c.json(share, 201);
 });
 
-// 获取当前用户的所有分享
+// 获取当前用户的所有分享。management=1 启用分享管理中心的筛选、统计和分页响应；
+// 未携带该参数时继续返回旧数组结构，避免破坏 SDK 与历史客户端。
 sharesRouter.get("/", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
+  if (c.req.query("management") === "1") {
+    return c.json(queryShareManagement(db, userId, parseShareManagementQuery(c.req.query())));
+  }
 
   const shares = db.prepare(`
     SELECT s.*, n.title AS noteTitle
@@ -148,7 +153,6 @@ sharesRouter.get("/", (c) => {
     ORDER BY s.createdAt DESC
   `).all(userId) as any[];
 
-  // 移除密码 hash，添加 hasPassword 标记
   return c.json(shares.map((s: any) => {
     const hasPassword = !!s.password;
     delete s.password;
@@ -162,9 +166,10 @@ sharesRouter.get("/note/:noteId", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const noteId = c.req.param("noteId");
 
-  const shares = db.prepare(`
-    SELECT * FROM shares WHERE noteId = ? AND ownerId = ? ORDER BY createdAt DESC
-  `).all(noteId, userId) as any[];
+  const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
+  const shares = capabilities.manage
+    ? db.prepare("SELECT * FROM shares WHERE noteId = ? ORDER BY createdAt DESC").all(noteId)
+    : db.prepare("SELECT * FROM shares WHERE noteId = ? AND ownerId = ? ORDER BY createdAt DESC").all(noteId, userId) as any[];
 
   return c.json(shares.map((s: any) => {
     const hasPassword = !!s.password;
@@ -179,8 +184,12 @@ sharesRouter.get("/:id", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const share = db.prepare("SELECT * FROM shares WHERE id = ? AND ownerId = ?").get(id, userId) as any;
+  const share = db.prepare("SELECT * FROM shares WHERE id = ?").get(id) as any;
   if (!share) return c.json({ error: "分享不存在" }, 404);
+  const capabilities = resolveEffectiveNoteCapabilities(share.noteId, userId);
+  if (share.ownerId !== userId && !capabilities.manage) {
+    return c.json({ error: "分享不存在" }, 404);
+  }
 
   const hasPassword = !!share.password;
   delete share.password;

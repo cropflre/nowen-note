@@ -250,7 +250,7 @@ export interface SearchResult {
   matchedField?: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "shares";
 
 // ========== 文件管理（/api/files 聚合视图） ==========
 
@@ -742,7 +742,45 @@ export interface Share {
   isActive: number;
   createdAt: string;
   updatedAt: string;
-  noteTitle?: string;
+  noteTitle?: string | null;
+}
+
+export type ShareEffectiveStatus = "active" | "disabled" | "expired" | "exhausted";
+
+export interface ShareManagementItem extends Share {
+  noteTitle: string | null;
+  notebookId: string | null;
+  notebookName: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  noteIsTrashed: boolean;
+  noteMissing: boolean;
+  effectiveStatus: ShareEffectiveStatus;
+}
+
+export interface ShareManagementResponse {
+  items: ShareManagementItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    total: number;
+    active: number;
+    disabled: number;
+    expired: number;
+    exhausted: number;
+  };
+}
+
+export interface ShareManagementQuery {
+  q?: string;
+  status?: ShareEffectiveStatus;
+  permission?: SharePermission;
+  hasPassword?: boolean;
+  sort?: "createdAt" | "updatedAt" | "expiresAt" | "noteTitle";
+  order?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
 }
 
 export interface ShareInfo {

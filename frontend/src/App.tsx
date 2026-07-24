@@ -13,6 +13,7 @@ import MindMapCenter from "@/components/MindMapEditor";
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
+import ShareManagementPage from "@/components/ShareManagementPage";
 import SharedNoteView from "@/components/SharedNoteView";
 import NotebookShareJoinView from "@/components/NotebookShareJoinView";
 import LoginPage from "@/components/LoginPage";
@@ -353,6 +354,7 @@ function AppLayout() {
   const isAIChatView = state.viewMode === "ai-chat";
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
+  const isSharesView = state.viewMode === "shares";
   const isRegularNoteBrowser = state.viewMode === "all" || state.viewMode === "notebook";
   const editorFocusLayout = resolveEditorFocusLayout({
     editorFullscreen: state.editorFullscreen,
@@ -730,6 +732,11 @@ function AppLayout() {
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
           <FileManager />
+        </div>
+      ) : isSharesView ? (
+        <div className="flex-1 flex min-w-0 flex-col">
+          <MobileTopBar />
+          <ShareManagementPage />
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
