@@ -2,13 +2,14 @@ import { common, createLowlight, type LanguageFn } from "lowlight";
 import maxscript from "@/lib/codeBlockLanguages/maxscript";
 
 const commonRegistry = common as Record<string, LanguageFn>;
+const EXPLICIT_ONLY_LANGUAGES = new Set(["maxscript"]);
 
 /**
  * Extend lowlight's shared `common` registry before editor-level instances are created.
  *
- * TiptapEditor currently constructs its lowlight instance at module evaluation time. CodeBlockView
- * is one of its static dependencies, so importing this module there guarantees MAXScript is present
- * before `createLowlight(common)` runs, without duplicating the grammar in editor and Markdown paths.
+ * TiptapEditor constructs its lowlight instance at module evaluation time. Importing this module
+ * from the shared instrumentation and code-block view guarantees MAXScript is registered before
+ * that instance is created, without maintaining separate rich-text and Markdown registries.
  */
 export function installCodeBlockLanguages(): Record<string, LanguageFn> {
   if (!commonRegistry.maxscript) commonRegistry.maxscript = maxscript;
@@ -17,9 +18,24 @@ export function installCodeBlockLanguages(): Record<string, LanguageFn> {
 
 installCodeBlockLanguages();
 
+/** Keep opt-in grammars out of `auto` so adding them cannot change existing detection results. */
+export function getCodeBlockAutoLanguageSubset(
+  lowlight: { listLanguages: () => string[] },
+): string[] {
+  return lowlight.listLanguages().filter((language) => !EXPLICIT_ONLY_LANGUAGES.has(language));
+}
+
 /** Create an isolated lowlight instance with every Nowen code-block language registered. */
 export function createCodeBlockLowlight() {
-  return createLowlight({ ...installCodeBlockLanguages() });
+  const lowlight = createLowlight({ ...installCodeBlockLanguages() });
+  const highlightAuto = lowlight.highlightAuto.bind(lowlight);
+
+  lowlight.highlightAuto = ((value, options) => highlightAuto(value, {
+    ...(options || {}),
+    subset: options?.subset || getCodeBlockAutoLanguageSubset(lowlight),
+  })) as typeof lowlight.highlightAuto;
+
+  return lowlight;
 }
 
 /** User-facing label for language badges and selectors. */
