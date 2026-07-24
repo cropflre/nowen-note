@@ -169,18 +169,20 @@ jobs:
           test -f backend/.yjs-noop-persist-fix-trigger
           python - <<'PY'
           from pathlib import Path
+          import re
 
           yjs = Path("backend/src/services/yjs.ts")
           text = yjs.read_text()
           marker = "if (existing.content === markdown && existing.contentText === contentText) return;"
           if marker in text:
               raise SystemExit(0)
-          old = '''  const existing = db.prepare("SELECT version FROM notes WHERE id = ?").get(room.noteId) as
-            | { version: number }
-            | undefined;
-          if (!existing) return;
-          '''
-          new = '''  const existing = db.prepare(
+          pattern = re.compile(
+              r'  const existing = db\.prepare\("SELECT version FROM notes WHERE id = \?"\)\.get\(room\.noteId\) as\n'
+              r'\s+\| \{ version: number \}\n'
+              r'\s+\| undefined;\n'
+              r'  if \(!existing\) return;\n'
+          )
+          replacement = '''  const existing = db.prepare(
             "SELECT version, content, contentText FROM notes WHERE id = ?",
           ).get(room.noteId) as
             | { version: number; content: string; contentText: string }
@@ -190,9 +192,10 @@ jobs:
           // Flushing the same body must not create a phantom edit or bump note.version.
           if (existing.content === markdown && existing.contentText === contentText) return;
           '''
-          if old not in text:
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
               raise SystemExit("target Yjs persistence block not found")
-          yjs.write_text(text.replace(old, new, 1))
+          yjs.write_text(updated)
           PY
 
           if git diff --quiet -- backend/src/services/yjs.ts; then
