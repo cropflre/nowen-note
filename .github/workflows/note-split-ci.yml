@@ -13,6 +13,7 @@ on:
       - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
+      - "backend/tests/setup-note-split-cleanup.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
@@ -41,6 +42,7 @@ on:
       - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
+      - "backend/tests/setup-note-split-cleanup.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
@@ -115,7 +117,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          node --import tsx --import ./tests/setup-db-isolation.ts --test "tests/${{ matrix.test_file }}" \
+          node --import tsx \
+            --import ./tests/setup-db-isolation.ts \
+            --import ./tests/setup-note-split-cleanup.ts \
+            --test "tests/${{ matrix.test_file }}" \
             2>&1 | tee "/tmp/${{ matrix.test_file }}.log"
       - name: Upload backend diagnostics
         if: always()
