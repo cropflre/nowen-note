@@ -30,7 +30,7 @@ test.before(async () => {
     import("../src/db/schema"),
   ]);
   app = new Hono();
-  app.route("/shares", sharesModule.default);
+  app.route("/shares", sharesModule.sharesRouter);
   getDb = schemaModule.getDb;
   closeDb = schemaModule.closeDb;
 
