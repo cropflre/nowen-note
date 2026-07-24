@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -85,7 +85,15 @@ import { canWriteNote } from "@/lib/notePermissions";
 //   需要在开发调试时显示按钮，把下方变量改为 true；正式发布请保持 false。
 const SHOW_EDITOR_MODE_TOGGLE = false;
 
-export default function EditorPane() {
+interface EditorPaneProps {
+  canSplitDocument?: boolean;
+  onSplitDocument?: () => void;
+}
+
+export default function EditorPane({
+  canSplitDocument = false,
+  onSplitDocument,
+}: EditorPaneProps) {
   const { state } = useApp();
   const actions = useAppActions();
   const { loadNote, retryNoteLoad } = useNoteLoader();
@@ -2440,6 +2448,18 @@ const moveToTrash = useCallback(async () => {
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
                   </button>
+                  {canSplitDocument && onSplitDocument && (
+                    <button
+                      onClick={() => {
+                        onSplitDocument();
+                        setShowMobileMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                    >
+                      <Scissors size={15} className="text-accent-primary" />
+                      <span>拆分文档</span>
+                    </button>
+                  )}
                   {/* HTML Ԥ�� / �༭�л����� HTML Ƭ�αʼ���ʾ����ȫ��¡��֧�ֱ༭�� */}
                   {noteIsHtml && !noteIsFullHtmlDoc && (
                     <>
@@ -2913,6 +2933,15 @@ const moveToTrash = useCallback(async () => {
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
                   </button>
+                  {canSplitDocument && onSplitDocument && (
+                    <button
+                      onClick={() => { onSplitDocument(); setShowDesktopMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                    >
+                      <Scissors size={15} className="text-accent-primary" />
+                      <span>拆分文档</span>
+                    </button>
+                  )}
 
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button

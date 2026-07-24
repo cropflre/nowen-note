@@ -31,6 +31,22 @@ function desktopToolbarWithMoreButtonSource() {
   return editorPaneSource.slice(start, end);
 }
 
+function mobileMoreMenuSource() {
+  const start = editorPaneSource.indexOf("{showMobileMenu && (");
+  const end = editorPaneSource.indexOf("{/* Mobile Outline Panel", start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return editorPaneSource.slice(start, end);
+}
+
+function desktopMoreMenuSource() {
+  const start = editorPaneSource.indexOf("{showDesktopMoreMenu && (");
+  const end = editorPaneSource.indexOf("</AnimatePresence>", start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return editorPaneSource.slice(start, end);
+}
+
 describe("EditorPane mobile header", () => {
   it("pins lock toggle before search and keeps it out of the mobile more menu", () => {
     const header = mobileHeaderSource();
@@ -65,5 +81,15 @@ describe("EditorPane mobile header", () => {
     expect(moreButton).toBeGreaterThan(switchButton);
     expect(toolbar).toContain("editor.htmlPreview.switchToEditTooltip");
     expect(toolbar).toContain("<Pencil");
+  });
+
+  it("places the split document action in both more menus", () => {
+    const mobileMenu = mobileMoreMenuSource();
+    const desktopMenu = desktopMoreMenuSource();
+
+    expect(mobileMenu).toContain("onSplitDocument");
+    expect(mobileMenu).toContain("<Scissors");
+    expect(desktopMenu).toContain("onSplitDocument");
+    expect(desktopMenu).toContain("<Scissors");
   });
 });
