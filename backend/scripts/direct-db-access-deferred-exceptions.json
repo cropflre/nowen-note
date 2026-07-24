@@ -2,6 +2,11 @@
   "version": 2,
   "note": "Temporary, issue-owned direct-access allowances introduced by mainline drift. Every entry has an exact per-kind ceiling and must decrease as #249/#251/#252/#253 are completed.",
   "files": {
+    "lib/blockAuthorityStore.ts": {
+      "owner": "#249",
+      "reason": "Main introduced the SQLite-backed Block Authority store and recovery history. It is loaded only by the default SQLite note/block routes; PostgreSQL runtime-only routes continue using Adapter transactions until the complete Block Authority Repository boundary is migrated.",
+      "counts": { "better-sqlite3": 1, "db-exec-call": 1, "prepare-call": 20, "transaction-call": 2 }
+    },
     "lib/blockPatchIncrementalIndexes.ts": {
       "owner": "#249",
       "reason": "Main introduced incremental Block Patch index maintenance after the reviewed baseline. It executes inside the existing core note/block SQLite transaction and must migrate with the complete #249 block transaction boundary.",
@@ -19,7 +24,7 @@
     },
     "lib/noteBlocks.ts": {
       "owner": "#249",
-      "reason": "Main added block-level note operations after the original Repository boundary snapshot. A PostgreSQL-safe title-propagation planner now exists, while the general synchronous Block API remains coupled to SQLite routes and transactions.",
+      "reason": "Main added block-level note operations after the original Repository boundary snapshot. A PostgreSQL-safe multi-format planner now exists, while the general synchronous Block API remains coupled to SQLite routes and transactions.",
       "counts": { "better-sqlite3": 1, "db-exec-call": 1, "prepare-call": 9, "transaction-call": 1 }
     },
     "lib/noteLinkTitles.ts": {
@@ -49,8 +54,8 @@
     },
     "routes/notes.ts": {
       "owner": "#249",
-      "reason": "The PostgreSQL Runtime now owns single-note GET and Tiptap content PUT. The default SQLite route still contains create, metadata, trash, delete, Yjs and remaining format transactions tracked by #249.",
-      "counts": { "prepare-call": 31 }
+      "reason": "The PostgreSQL Runtime now owns single-note GET plus Tiptap/Markdown/HTML and core metadata PUT. The default SQLite route still contains create, notebook moves, trash, delete, Yjs and Block Authority transactions tracked by #249.",
+      "counts": { "getDb-call": 12, "prepare-call": 32, "sqlite-file-runtime": 1, "transaction-call": 3 }
     },
     "routes/remote-image-import.ts": {
       "owner": "#249",
@@ -141,6 +146,16 @@
       "owner": "#251",
       "reason": "The WeChat package importer is a bulk data migration path and must be redesigned with the #251 copy/checkpoint/resume tooling.",
       "counts": { "getDb-call": 15, "prepare-call": 12 }
+    },
+    "services/yjs-subdocuments.ts": {
+      "owner": "#249",
+      "reason": "Main introduced experimental SQLite-backed Yjs Subdocuments and generation checks. PostgreSQL runtime-only does not load or expose this protocol; it must migrate together with the complete Yjs binary persistence transaction boundary.",
+      "counts": { "better-sqlite3": 1, "db-exec-call": 1, "prepare-call": 19, "transaction-call": 2 }
+    },
+    "services/yjs.ts": {
+      "owner": "#249",
+      "reason": "Main expanded the legacy SQLite Yjs service with Subdocument orchestration. PostgreSQL runtime-only keeps Yjs disabled until snapshots, updates and binary transaction semantics are migrated as one unit.",
+      "counts": { "getDb-call": 7, "prepare-call": 6, "transaction-call": 2 }
     }
   }
 }
