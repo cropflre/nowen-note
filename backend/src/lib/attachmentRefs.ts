@@ -5,25 +5,10 @@
  * 用于 PostgreSQL 业务路径。两条路径共享同一内容解析和差异计算语义。
  */
 
-import { attachmentReferencesRepository } from "../repositories";
+import { attachmentReferencesRepository } from "../repositories/attachmentReferencesRepository";
+import { extractAttachmentIdsFromContent } from "./noteContentReferences";
 
-const ATTACHMENT_ID_RE =
-  /\/api\/attachments\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/g;
-
-export function extractAttachmentIdsFromContent(
-  content: string | null | undefined,
-): Set<string> {
-  const output = new Set<string>();
-  if (!content || typeof content !== "string") return output;
-  if (!content.includes("/api/attachments/")) return output;
-
-  const pattern = new RegExp(ATTACHMENT_ID_RE.source, "g");
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(content)) !== null) {
-    output.add(match[1].toLowerCase());
-  }
-  return output;
-}
+export { extractAttachmentIdsFromContent } from "./noteContentReferences";
 
 function referenceDiff(
   currentIds: string[],
