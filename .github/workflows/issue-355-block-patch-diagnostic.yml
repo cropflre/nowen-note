@@ -41,12 +41,14 @@ jobs:
             tests/block-patch-incremental-index.test.ts \
             tests/block-patch-mixed-index.test.ts > /tmp/block-patch-backend.log 2>&1
           status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "===== BACKEND FAILURE TAIL ====="
-            tail -n 180 /tmp/block-patch-backend.log
-            exit "$status"
-          fi
-          tail -n 30 /tmp/block-patch-backend.log
+          tail -n 180 /tmp/block-patch-backend.log
+          exit "$status"
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-355-block-patch-backend
+          path: /tmp/block-patch-backend.log
 
   frontend:
     runs-on: ubuntu-latest
@@ -87,9 +89,11 @@ jobs:
             src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx \
             src/components/__tests__/TiptapRuntimePublicContext.test.tsx > /tmp/block-patch-frontend.log 2>&1
           status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "===== FRONTEND FAILURE TAIL ====="
-            tail -n 180 /tmp/block-patch-frontend.log
-            exit "$status"
-          fi
-          tail -n 30 /tmp/block-patch-frontend.log
+          tail -n 180 /tmp/block-patch-frontend.log
+          exit "$status"
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-355-block-patch-frontend
+          path: /tmp/block-patch-frontend.log
