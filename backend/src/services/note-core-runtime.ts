@@ -7,9 +7,15 @@ import {
 } from "../db/adapters/types";
 import type { DatabaseDialect } from "../db/dialect";
 import { getDatabaseAdapter, getDatabaseDialect } from "../db/runtime";
-import { extractAttachmentIdsFromContent } from "../lib/attachmentRefs";
-import { buildTiptapBlockIndexPlan } from "../lib/noteBlocksRuntime";
-import { extractNoteLinksFromContent } from "../lib/noteLinks";
+import {
+  extractAttachmentIdsFromContent,
+  extractNoteLinksFromContent,
+} from "../lib/noteContentReferences";
+import {
+  buildNoteBlockIndexPlan,
+  type NoteBlockIndexPlan,
+} from "../lib/noteBlocksRuntime";
+import type { NoteBlockIndexRow } from "../lib/noteBlocks";
 import type { Permission } from "../middleware/acl";
 import { createNoteTagsRepository } from "../repositories/noteTagsRepository";
 import type { NoteLinkEntry } from "../repositories/types";
@@ -33,6 +39,17 @@ const ROLE_PERMISSION: Record<string, Permission> = {
   viewer: "read",
   read: "read",
 };
+
+const CONTENT_FIELDS = ["title", "content", "contentText", "contentFormat"] as const;
+const WRITE_METADATA_FIELDS = ["isPinned", "isFavorite", "isArchived"] as const;
+const MANAGE_METADATA_FIELDS = ["isLocked"] as const;
+const ALLOWED_FIELDS = new Set<string>([
+  "version",
+  ...CONTENT_FIELDS,
+  ...WRITE_METADATA_FIELDS,
+  ...MANAGE_METADATA_FIELDS,
+]);
+const SUPPORTED_CONTENT_FORMATS = new Set(["tiptap-json", "markdown", "html"]);
 
 export class NoteCoreRuntimeError extends Error {
   constructor(
@@ -84,6 +101,10 @@ export interface NoteCoreSaveInput {
   content?: unknown;
   contentText?: unknown;
   contentFormat?: unknown;
+  isPinned?: unknown;
+  isFavorite?: unknown;
+  isLocked?: unknown;
+  isArchived?: unknown;
   [key: string]: unknown;
 }
 
@@ -116,6 +137,17 @@ function rolePermission(role: string | null | undefined): Permission | null {
 
 function booleanNumber(value: boolean | number | null | undefined): number {
   return value === true || value === 1 ? 1 : 0;
+}
+
+function booleanInput(value: unknown, field: string): number {
+  if (value === true || value === 1 || value === "1") return 1;
+  if (value === false || value === 0 || value === "0") return 0;
+  throw new NoteCoreRuntimeError(
+    `${field} 必须是 boolean 或 0/1`,
+    "INVALID_BOOLEAN_FIELD",
+    400,
+    { field },
+  );
 }
 
 function normalizeNote(row: NoteRow, slim: boolean): Record<string, unknown> {
@@ -165,6 +197,12 @@ async function filterExistingAttachments(
     ids,
   );
   return rows.map((row) => String(row.id).toLowerCase());
+}
+
+function changeSummary(titleChanged: boolean, contentChanged: boolean): string {
+  if (titleChanged && contentChanged) return "更新标题和正文";
+  if (titleChanged) return "更新标题";
+  return "更新正文";
 }
 
 export function createNoteCoreRuntime(
@@ -265,6 +303,43 @@ export function createNoteCoreRuntime(
     };
   }
 
+  async function readPreviousBlocks(noteId: string): Promise<NoteBlockIndexRow[]> {
+    return db.queryMany<NoteBlockIndexRow>(
+      `SELECT "noteId" AS "noteId", "blockId" AS "blockId", "blockType" AS "blockType",
+              "parentBlockId" AS "parentBlockId", "blockOrder" AS "blockOrder",
+              "plainText" AS "plainText", "contentHash" AS "contentHash", path,
+              "startOffset" AS "startOffset", "endOffset" AS "endOffset"
+         FROM note_blocks_index
+        WHERE "noteId" = ?
+        ORDER BY "blockOrder" ASC`,
+      [noteId],
+    );
+  }
+
+  async function planContent(
+    noteId: string,
+    content: string,
+    contentFormat: string,
+  ): Promise<NoteBlockIndexPlan> {
+    if (!SUPPORTED_CONTENT_FORMATS.has(contentFormat)) {
+      throw new NoteCoreRuntimeError(
+        `不支持的内容格式：${contentFormat}`,
+        "INVALID_CONTENT_FORMAT",
+        400,
+        { contentFormat },
+      );
+    }
+    const previousRows = contentFormat === "markdown" ? await readPreviousBlocks(noteId) : [];
+    const plan = buildNoteBlockIndexPlan(noteId, content, contentFormat, previousRows);
+    if (plan) return plan;
+    throw new NoteCoreRuntimeError(
+      contentFormat === "tiptap-json" ? "Tiptap JSON 内容无效" : "内容格式无效",
+      contentFormat === "tiptap-json" ? "INVALID_TIPTAP_CONTENT" : "INVALID_CONTENT",
+      400,
+      { contentFormat },
+    );
+  }
+
   async function saveNote(
     userId: string,
     noteId: string,
@@ -274,9 +349,7 @@ export function createNoteCoreRuntime(
       throw new NoteCoreRuntimeError("请求格式错误", "INVALID_BODY", 400);
     }
 
-    const unsupported = Object.keys(input).filter(
-      (key) => !["version", "title", "content", "contentText", "contentFormat"].includes(key),
-    );
+    const unsupported = Object.keys(input).filter((key) => !ALLOWED_FIELDS.has(key));
     if (unsupported.length > 0) {
       throw new NoteCoreRuntimeError(
         `PostgreSQL Runtime 尚未迁移字段：${unsupported.join(", ")}`,
@@ -286,12 +359,14 @@ export function createNoteCoreRuntime(
       );
     }
 
-    const requestedChange = ["title", "content", "contentText", "contentFormat"]
-      .some((field) => input[field] !== undefined);
-    if (!requestedChange) {
+    const requestedContentChange = CONTENT_FIELDS.some((field) => input[field] !== undefined);
+    const requestedWriteMetadata = WRITE_METADATA_FIELDS.some((field) => input[field] !== undefined);
+    const requestedManageMetadata = MANAGE_METADATA_FIELDS.some((field) => input[field] !== undefined);
+    if (!requestedContentChange && !requestedWriteMetadata && !requestedManageMetadata) {
       return { note: await getNote(userId, noteId), warnings: [] };
     }
-    if (!Number.isInteger(input.version) || Number(input.version) < 0) {
+
+    if (requestedContentChange && (!Number.isInteger(input.version) || Number(input.version) < 0)) {
       throw new NoteCoreRuntimeError(
         "缺少 version 字段，无法安全保存",
         "VERSION_REQUIRED",
@@ -300,13 +375,16 @@ export function createNoteCoreRuntime(
     }
 
     const resolved = await resolvePermission(noteId, userId);
-    if (!hasPermission(resolved.permission, "write")) {
+    if (requestedManageMetadata && !hasPermission(resolved.permission, "manage")) {
+      throw new NoteCoreRuntimeError("需要 manage 权限", "FORBIDDEN", 403);
+    }
+    if ((requestedContentChange || requestedWriteMetadata) && !hasPermission(resolved.permission, "write")) {
       throw new NoteCoreRuntimeError("权限不足", "FORBIDDEN", 403);
     }
 
     const current = await readNoteRow(userId, noteId);
     if (!current) throw new NoteCoreRuntimeError("Note not found", "NOT_FOUND", 404);
-    if (current.version !== input.version) {
+    if (input.version !== undefined && current.version !== Number(input.version)) {
       throw new NoteCoreRuntimeError(
         "Version conflict",
         "VERSION_CONFLICT",
@@ -314,7 +392,7 @@ export function createNoteCoreRuntime(
         { currentVersion: current.version },
       );
     }
-    if (booleanNumber(current.isLocked) === 1) {
+    if (requestedContentChange && booleanNumber(current.isLocked) === 1) {
       throw new NoteCoreRuntimeError("Note is locked", "NOTE_LOCKED", 403);
     }
 
@@ -325,52 +403,84 @@ export function createNoteCoreRuntime(
     const submittedContent = input.content === undefined
       ? current.content
       : String(input.content);
+    const blockPlan = requestedContentChange
+      ? await planContent(noteId, submittedContent, nextFormat)
+      : {
+          content: current.content,
+          contentText: current.contentText,
+          rows: [],
+          changed: false,
+        };
 
-    if (nextFormat !== "tiptap-json") {
-      throw new NoteCoreRuntimeError(
-        "PostgreSQL Runtime 当前仅迁移 Tiptap JSON 内容保存；Markdown/HTML 将在下一切片完成",
-        "POSTGRES_NOTE_FORMAT_MIGRATION_PENDING",
-        503,
-        { contentFormat: nextFormat },
-      );
-    }
+    const nextPinned = input.isPinned === undefined
+      ? booleanNumber(current.isPinned)
+      : booleanInput(input.isPinned, "isPinned");
+    const nextFavorite = input.isFavorite === undefined
+      ? booleanNumber(current.isFavorite)
+      : booleanInput(input.isFavorite, "isFavorite");
+    const nextLocked = input.isLocked === undefined
+      ? booleanNumber(current.isLocked)
+      : booleanInput(input.isLocked, "isLocked");
+    const nextArchived = input.isArchived === undefined
+      ? booleanNumber(current.isArchived)
+      : booleanInput(input.isArchived, "isArchived");
 
-    const blockPlan = buildTiptapBlockIndexPlan(noteId, submittedContent);
-    if (!blockPlan) {
-      throw new NoteCoreRuntimeError("Tiptap JSON 内容无效", "INVALID_TIPTAP_CONTENT", 400);
-    }
-
-    const nextContent = blockPlan.content;
-    const nextContentText = blockPlan.contentText;
-    const contentChanged = nextContent !== current.content
-      || nextContentText !== current.contentText
-      || nextFormat !== current.contentFormat;
     const titleChanged = nextTitle !== current.title;
-    if (!contentChanged && !titleChanged) {
+    const contentChanged = requestedContentChange && (
+      blockPlan.content !== current.content
+      || blockPlan.contentText !== current.contentText
+      || nextFormat !== current.contentFormat
+    );
+    const pinnedChanged = nextPinned !== booleanNumber(current.isPinned);
+    const favoriteChanged = nextFavorite !== booleanNumber(current.isFavorite);
+    const lockedChanged = nextLocked !== booleanNumber(current.isLocked);
+    const archivedChanged = nextArchived !== booleanNumber(current.isArchived);
+    const historyChanged = titleChanged || contentChanged;
+    const noteColumnChanged = historyChanged || pinnedChanged || lockedChanged || archivedChanged;
+
+    if (!noteColumnChanged && !favoriteChanged) {
       return { note: await getNote(userId, noteId), warnings: [] };
     }
 
-    const statements: DbStatement[] = [
-      {
-        sql: `UPDATE notes
-                 SET title = ?,
-                     content = ?,
-                     "contentText" = ?,
-                     "contentFormat" = ?,
-                     version = version + 1,
-                     "updatedAt" = CURRENT_TIMESTAMP
-               WHERE id = ? AND version = ?`,
-        params: [
-          nextTitle,
-          nextContent,
-          nextContentText,
-          nextFormat,
-          noteId,
-          current.version,
-        ],
+    const statements: DbStatement[] = [];
+    if (noteColumnChanged) {
+      const assignments = ["version = version + 1"];
+      const params: unknown[] = [];
+      if (titleChanged) {
+        assignments.unshift("title = ?");
+        params.push(nextTitle);
+      }
+      if (contentChanged) {
+        assignments.unshift('"contentFormat" = ?');
+        params.unshift(nextFormat);
+        assignments.unshift('"contentText" = ?');
+        params.unshift(blockPlan.contentText);
+        assignments.unshift("content = ?");
+        params.unshift(blockPlan.content);
+      }
+      if (pinnedChanged) {
+        assignments.unshift('"isPinned" = ?');
+        params.unshift(nextPinned);
+      }
+      if (lockedChanged) {
+        assignments.unshift('"isLocked" = ?');
+        params.unshift(nextLocked);
+      }
+      if (archivedChanged) {
+        assignments.unshift('"isArchived" = ?');
+        params.unshift(nextArchived);
+      }
+      if (historyChanged) assignments.push('"updatedAt" = CURRENT_TIMESTAMP');
+      params.push(noteId, current.version);
+      statements.push({
+        sql: `UPDATE notes SET ${assignments.join(", ")} WHERE id = ? AND version = ?`,
+        params,
         requireChanges: 1,
-      },
-      {
+      });
+    }
+
+    if (historyChanged) {
+      statements.push({
         sql: `INSERT INTO note_versions (
                 id, "noteId", "userId", title, content, "contentText",
                 "contentFormat", version, "changeType", "changeSummary", "createdAt"
@@ -384,22 +494,18 @@ export function createNoteCoreRuntime(
           current.contentText,
           current.contentFormat,
           current.version,
-          titleChanged && contentChanged
-            ? "更新标题和正文"
-            : titleChanged
-              ? "更新标题"
-              : "更新正文",
+          changeSummary(titleChanged, contentChanged),
         ],
-      },
-    ];
+      });
+    }
 
     if (contentChanged) {
       const links = await filterExistingTargets(
         db,
         noteId,
-        extractNoteLinksFromContent(nextContent),
+        extractNoteLinksFromContent(blockPlan.content),
       );
-      const attachmentIds = await filterExistingAttachments(db, nextContent);
+      const attachmentIds = await filterExistingAttachments(db, blockPlan.content);
 
       statements.push({
         sql: `DELETE FROM note_blocks_index WHERE "noteId" = ?`,
@@ -464,6 +570,26 @@ export function createNoteCoreRuntime(
                   "attachmentId", "noteId", "createdAt"
                 ) VALUES (?, ?, CURRENT_TIMESTAMP)${conflictSuffix}`,
           params: [attachmentId, noteId],
+        });
+      }
+    }
+
+    if (favoriteChanged) {
+      if (nextFavorite === 1) {
+        const insertPrefix = dbDialect === "postgres" ? "INSERT INTO" : "INSERT OR IGNORE INTO";
+        const conflictSuffix = dbDialect === "postgres"
+          ? ' ON CONFLICT ("userId", "noteId") DO NOTHING'
+          : "";
+        statements.push({
+          sql: `${insertPrefix} favorites (
+                  "userId", "noteId", "workspaceId", "createdAt"
+                ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)${conflictSuffix}`,
+          params: [userId, noteId, current.workspaceId],
+        });
+      } else {
+        statements.push({
+          sql: `DELETE FROM favorites WHERE "userId" = ? AND "noteId" = ?`,
+          params: [userId, noteId],
         });
       }
     }
