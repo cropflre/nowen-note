@@ -1,0 +1,88 @@
+name: Issue 355 Content Format CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/lib/markdownUserContent.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/export.ts"
+      - "backend/tests/markdown-user-content.test.ts"
+      - "backend/tests/notes-content-view.test.ts"
+      - "frontend/src/lib/editorMode.ts"
+      - "frontend/src/lib/noteEditorRouting.ts"
+      - "frontend/src/lib/markdownUserContent.ts"
+      - "frontend/src/lib/markdownInternalMarkers.ts"
+      - "frontend/src/lib/contentFormat.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/api.ts"
+      - "frontend/src/components/FormatAwareEditorPane.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/__tests__/FormatAwareEditorPane.test.tsx"
+      - "frontend/src/lib/__tests__/markdownUserContent.test.ts"
+      - ".github/workflows/issue-355-content-format-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/lib/markdownUserContent.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/export.ts"
+      - "backend/tests/markdown-user-content.test.ts"
+      - "backend/tests/notes-content-view.test.ts"
+      - "frontend/src/lib/editorMode.ts"
+      - "frontend/src/lib/noteEditorRouting.ts"
+      - "frontend/src/lib/markdownUserContent.ts"
+      - "frontend/src/lib/markdownInternalMarkers.ts"
+      - "frontend/src/lib/contentFormat.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/api.ts"
+      - "frontend/src/components/FormatAwareEditorPane.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/__tests__/FormatAwareEditorPane.test.tsx"
+      - "frontend/src/lib/__tests__/markdownUserContent.test.ts"
+      - ".github/workflows/issue-355-content-format-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: >-
+          node --import tsx --test
+          tests/markdown-user-content.test.ts
+          tests/notes-content-view.test.ts
+      - run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: >-
+          npm run test:run --
+          src/lib/__tests__/markdownUserContent.test.ts
+          src/components/__tests__/FormatAwareEditorPane.test.tsx
+      - run: npx tsc -b

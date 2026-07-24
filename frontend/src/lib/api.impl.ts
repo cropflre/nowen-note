@@ -748,6 +748,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     }
     const buildHeaders = (includeConnId: boolean): HeadersInit => ({
       "Content-Type": "application/json",
+      "Accept": "application/vnd.nowen.internal-note+json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(sudoToken ? { "X-Sudo-Token": sudoToken } : {}),
       ...(includeConnId && connId ? { "X-Connection-Id": connId } : {}),

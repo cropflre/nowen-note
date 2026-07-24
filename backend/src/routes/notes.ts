@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
@@ -41,6 +42,17 @@ import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 
 const app = new Hono();
+
+function wantsInternalNoteContent(c: any): boolean {
+  return (c.req.header("Accept") || "")
+    .toLowerCase()
+    .includes("application/vnd.nowen.internal-note+json");
+}
+
+function presentNoteForResponse(db: any, c: any, note: any): any {
+  if (!note || wantsInternalNoteContent(c)) return note;
+  return projectMarkdownNoteForUser(db, note);
+}
 
 /**
  * 获取笔记列表
@@ -430,7 +442,8 @@ app.get("/:id", (c) => {
 
   const tags = noteTagsRepository.listTagsByNoteId(id);
 
-  return c.json({ ...note as any, tags, permission });
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags, permission });
 });
 
 // 创建笔记
@@ -565,7 +578,8 @@ app.post("/", async (c) => {
   `).get(userId, id);
   logAudit(userId, "note", "create", { noteId: id, title: body.title }, { targetType: "note", targetId: id });
 
-  return c.json({ ...note as any, tags: [] }, 201);
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags: [] }, 201);
 });
 
 // 更新笔记
@@ -1043,7 +1057,8 @@ app.put("/:id", async (c) => {
     }
   }
 
-  return c.json({ ...note as any, tags });
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags });
 });
 
 // BACKLINKS-02: 获取笔记的反向链接（哪些笔记引用了当前笔记）
