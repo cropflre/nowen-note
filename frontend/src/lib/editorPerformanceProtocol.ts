@@ -44,6 +44,9 @@ export interface EditorPerformanceRun extends EditorPerformanceSample {
   lifecycleBaseline?: EditorPerformanceLifecycleSnapshot;
   lifecycleSnapshots: EditorPerformanceLifecycleSnapshot[];
   markdownRenderMatches?: boolean;
+  editorMode: "monolithic" | "windowed";
+  sectionCount: number;
+  peakMountedSections: number;
 }
 
 export interface EditorPerformanceMatrixResult {
@@ -132,6 +135,19 @@ export function evaluateEditorPerformanceMatrix(runs: EditorPerformanceRun[]): E
       const failures = [...budget.failures];
       if (run.longTaskObservationSupported !== true) failures.push("longTaskObservationSupported must be true");
       if (!isFiniteNonNegative(run.firstInteractiveMs)) failures.push("firstInteractiveMs is missing or invalid");
+      if (run.editorMode !== "monolithic" && run.editorMode !== "windowed") {
+        failures.push("editorMode is missing or invalid");
+      }
+      if (!Number.isInteger(run.sectionCount) || run.sectionCount < 1) {
+        failures.push("sectionCount is missing or invalid");
+      }
+      if (
+        !Number.isInteger(run.peakMountedSections)
+        || run.peakMountedSections < 1
+        || (Number.isInteger(run.sectionCount) && run.peakMountedSections > run.sectionCount)
+      ) {
+        failures.push("peakMountedSections is missing or invalid");
+      }
       if (scenario === "switch-20-and-close") failures.push(...validateSwitchLifecycle(run));
       if (scenario === "markdown-2.4mb" && run.markdownRenderMatches !== true) failures.push("markdown segmented render mismatch");
       if (failures.length > 0) failed.push({ platform, scenario, failures });
@@ -146,6 +162,7 @@ export interface EditorPerformanceCollector {
   recordHeap(stage: "before" | "opened" | "scrolled" | "after", bytes: number): void;
   recordDomNodes(count: number): void;
   recordNodeViews(count: number): void;
+  recordEditorWindow(mode: "monolithic" | "windowed", sectionCount: number, mountedSections: number): void;
   recordFirstInteractive(ms: number): void;
   recordLifecycleBaseline(workers: number, nodeViews: number, mediaRequests: number): void;
   recordSwitchLifecycle(workers: number, nodeViews: number, mediaRequests: number): void;
@@ -173,6 +190,9 @@ export function createEditorPerformanceCollector(
   let firstInteractiveMs = Number.NaN;
   let peakDomNodes = Number.NaN;
   let peakNodeViews = Number.NaN;
+  let editorMode: "monolithic" | "windowed" | undefined;
+  let sectionCount = Number.NaN;
+  let peakMountedSections = Number.NaN;
   let lifecycleBaseline: EditorPerformanceLifecycleSnapshot | undefined;
   let activeWorkersAfterClose = Number.NaN;
   let activeNodeViewsAfterClose = Number.NaN;
@@ -215,6 +235,16 @@ export function createEditorPerformanceCollector(
     recordNodeViews: (count) => {
       if (isFiniteNonNegative(count)) peakNodeViews = Number.isNaN(peakNodeViews) ? count : Math.max(peakNodeViews, count);
     },
+    recordEditorWindow: (mode, totalSections, mountedSections) => {
+      if (mode !== "monolithic" && mode !== "windowed") return;
+      if (!Number.isInteger(totalSections) || totalSections < 1) return;
+      if (!Number.isInteger(mountedSections) || mountedSections < 1 || mountedSections > totalSections) return;
+      editorMode = mode;
+      sectionCount = totalSections;
+      peakMountedSections = Number.isNaN(peakMountedSections)
+        ? mountedSections
+        : Math.max(peakMountedSections, mountedSections);
+    },
     recordFirstInteractive: (ms) => { firstInteractiveMs = ms; },
     recordLifecycleBaseline: (workers, nodeViews, mediaRequests) => {
       lifecycleBaseline = snapshot(workers, nodeViews, mediaRequests);
@@ -247,6 +277,9 @@ export function createEditorPerformanceCollector(
       lifecycleBaseline: lifecycleBaseline ? { ...lifecycleBaseline } : undefined,
       lifecycleSnapshots: lifecycleSnapshots.map((value) => ({ ...value })),
       markdownRenderMatches,
+      editorMode: editorMode as "monolithic" | "windowed",
+      sectionCount,
+      peakMountedSections,
     }),
     dispose: () => observer?.disconnect(),
   };

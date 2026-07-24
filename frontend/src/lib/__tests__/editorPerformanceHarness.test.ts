@@ -77,6 +77,9 @@ function createDriver(options: {
     async readNodeViewCount() {
       return nodeViews;
     },
+    async readEditorWindow() {
+      return { editorMode: "windowed", sectionCount: 3, mountedSections: 2 } as const;
+    },
     async readLifecycleSnapshot() {
       const snapshot = lifecycle.shift();
       if (!snapshot) throw new Error("测试生命周期快照不足");
@@ -133,6 +136,9 @@ describe("editor performance executable harness", () => {
       activeWorkersAfterClose: 0,
       activeNodeViewsAfterClose: 0,
       activeMediaRequestsAfterClose: 0,
+      editorMode: "windowed",
+      sectionCount: 3,
+      peakMountedSections: 2,
     });
   });
 

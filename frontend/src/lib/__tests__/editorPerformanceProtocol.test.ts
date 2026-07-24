@@ -31,6 +31,9 @@ function passingRun(platform: EditorPerformanceRun["platform"], scenario: Editor
       ? Array.from({ length: 20 }, () => ({ ...baseline }))
       : [],
     markdownRenderMatches: scenario === "markdown-2.4mb" ? true : undefined,
+    editorMode: "windowed",
+    sectionCount: 8,
+    peakMountedSections: 3,
   };
 }
 
@@ -66,6 +69,9 @@ describe("editor performance sign-off protocol", () => {
       "noteSwitchMs",
       "lifecycleBaseline",
       "lifecycleSnapshots",
+      "editorMode",
+      "sectionCount",
+      "peakMountedSections",
     ] as const) {
       const run = passingRun("web", "switch-20-and-close") as unknown as Record<string, unknown>;
       delete run[field];
@@ -136,6 +142,8 @@ describe("editor performance sign-off protocol", () => {
     collector.recordDomNodes(120);
     collector.recordNodeViews(7);
     collector.recordNodeViews(5);
+    collector.recordEditorWindow("windowed", 8, 3);
+    collector.recordEditorWindow("windowed", 8, 4);
     collector.recordFirstInteractive(25);
     collector.recordLifecycle(0, 0, 0);
     expect(collector.finish()).toMatchObject({
@@ -149,6 +157,9 @@ describe("editor performance sign-off protocol", () => {
       activeWorkersAfterClose: 0,
       activeNodeViewsAfterClose: 0,
       activeMediaRequestsAfterClose: 0,
+      editorMode: "windowed",
+      sectionCount: 8,
+      peakMountedSections: 4,
     });
     collector.dispose();
   });

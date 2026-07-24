@@ -25,6 +25,11 @@ export interface EditorPerformanceHarnessDriver {
   closeScenario(): Promise<void>;
   readDomNodeCount(): Promise<number>;
   readNodeViewCount(): Promise<number>;
+  readEditorWindow(): Promise<{
+    editorMode: "monolithic" | "windowed";
+    sectionCount: number;
+    mountedSections: number;
+  }>;
   readLifecycleSnapshot(): Promise<EditorPerformanceLifecycleSnapshot>;
   readMarkdownRenderMatches?(): Promise<boolean>;
 }
@@ -101,6 +106,7 @@ function validateRequest(request: EditorPerformanceHarnessRequest): number {
     "closeScenario",
     "readDomNodeCount",
     "readNodeViewCount",
+    "readEditorWindow",
     "readLifecycleSnapshot",
   ] as const) {
     requireDriverMethod(request.driver, method);
@@ -177,14 +183,31 @@ export async function runEditorPerformanceScenario(
     return metrics.heapBytes;
   };
   const readPeaks = async () => {
-    const [domNodes, nodeViews] = await Promise.all([
+    const [domNodes, nodeViews, editorWindow] = await Promise.all([
       request.driver.readDomNodeCount(),
       request.driver.readNodeViewCount(),
+      request.driver.readEditorWindow(),
     ]);
     if (!isFiniteNonNegative(domNodes)) throw new Error("DOM node count is missing or invalid");
     if (!isFiniteNonNegative(nodeViews)) throw new Error("NodeView count is missing or invalid");
+    if (
+      !editorWindow
+      || (editorWindow.editorMode !== "monolithic" && editorWindow.editorMode !== "windowed")
+      || !Number.isInteger(editorWindow.sectionCount)
+      || editorWindow.sectionCount < 1
+      || !Number.isInteger(editorWindow.mountedSections)
+      || editorWindow.mountedSections < 1
+      || editorWindow.mountedSections > editorWindow.sectionCount
+    ) {
+      throw new Error("editor window metrics are missing or invalid");
+    }
     collector.recordDomNodes(domNodes);
     collector.recordNodeViews(nodeViews);
+    collector.recordEditorWindow(
+      editorWindow.editorMode,
+      editorWindow.sectionCount,
+      editorWindow.mountedSections,
+    );
   };
   let scenarioOpened = false;
   let closeAttempted = false;
