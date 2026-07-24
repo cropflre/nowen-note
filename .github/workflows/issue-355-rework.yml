@@ -7,6 +7,12 @@ on:
     paths:
       - ".github/workflows/issue-355-rework.yml"
       - ".github/scripts/issue355_rework.py"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/issue-355-rework.yml"
+      - ".github/scripts/issue355_rework.py"
 
 permissions:
   contents: write
@@ -47,9 +53,11 @@ jobs:
         working-directory: frontend
         run: npx tsc -b
       - name: Commit verified implementation
+        if: github.event_name == 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout "${{ github.head_ref }}"
           git add -A
           git commit -m "fix(api/editor): hide Markdown block IDs and route by content format (#355)"
-          git push origin HEAD:fix/issue-355-content-projection
+          git push origin HEAD:"${{ github.head_ref }}"
