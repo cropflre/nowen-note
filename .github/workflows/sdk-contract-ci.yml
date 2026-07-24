@@ -19,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   sdk-contract:
@@ -35,27 +34,12 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Build SDK
-        run: npm run build
-      - name: Run existing SDK tests
-        id: existing_tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          node --test tests/attachments.test.mjs 2>&1 | tee /tmp/sdk-existing-tests.log
-      - name: Run Markdown note contract tests
-        id: markdown_tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          node --test tests/markdown-notes.test.mjs 2>&1 | tee /tmp/sdk-markdown-tests.log
+      - name: Build and test SDK
+        run: npm test
       - name: Validate Markdown API documentation
-        id: docs_contract
-        continue-on-error: true
         working-directory: .
         run: |
-          set -o pipefail
-          node <<'NODE' 2>&1 | tee /tmp/sdk-docs-contract.log
+          node <<'NODE'
           const fs = require('node:fs');
           const api = fs.readFileSync('docs/tutorials/api.md', 'utf8');
           const sdk = fs.readFileSync('docs/tutorials/sdk.md', 'utf8');
@@ -67,30 +51,3 @@ jobs:
             throw new Error('api.md must explain that contentText is server-derived');
           }
           NODE
-      - name: Report contract failures
-        if: always() && (steps.existing_tests.outcome == 'failure' || steps.markdown_tests.outcome == 'failure' || steps.docs_contract.outcome == 'failure')
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          {
-            echo 'SDK Contract CI 验证失败：'
-            for item in \
-              '现有 SDK 测试:/tmp/sdk-existing-tests.log' \
-              'Markdown 契约测试:/tmp/sdk-markdown-tests.log' \
-              '文档契约测试:/tmp/sdk-docs-contract.log'; do
-              title="${item%%:*}"
-              file="${item#*:}"
-              echo
-              echo "### $title"
-              echo '```text'
-              if [ -f "$file" ]; then tail -n 100 "$file"; else echo '未生成日志'; fi
-              echo '```'
-            done
-          } > /tmp/sdk-contract-comment.md
-          if [ "${{ github.event_name }}" = 'pull_request' ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/sdk-contract-comment.md
-          else
-            cat /tmp/sdk-contract-comment.md
-          fi
-          exit 1
