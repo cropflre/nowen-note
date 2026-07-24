@@ -28,7 +28,7 @@ async function seed(pool: import("pg").Pool) {
     [OWNER, MEMBER, OUTSIDER],
   );
   await pool.query(
-    `INSERT INTO workspaces (id, "userId", name) VALUES ($1, $2, 'Collection workspace')`,
+    `INSERT INTO workspaces (id, "ownerId", name) VALUES ($1, $2, 'Collection workspace')`,
     [WORKSPACE, OWNER],
   );
   await pool.query(
