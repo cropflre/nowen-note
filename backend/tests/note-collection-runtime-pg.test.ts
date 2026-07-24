@@ -119,7 +119,7 @@ test("PostgreSQL notes collection lists scoped notes and creates normalized cont
       content: "# Heading\n\nBody",
     });
     assert.equal(created.id, CREATED_NOTE);
-    assert.equal(created.permission, "write");
+    assert.equal(created.permission, "manage");
     assert.equal(created.workspaceId, WORKSPACE);
     assert.equal(created.contentFormat, "markdown");
     assert.match(String(created.content), /\^blk_/);
