@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Star, Trash2, Search, ChevronRight,
@@ -17,6 +17,7 @@ import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
+import SharedNotebookTree from "@/components/SharedNotebookTree";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
@@ -2984,32 +2985,19 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
       {/* Tags —— 使用 shrink-0 + 内部 max-height + scroll，避免在小屏（如 1366x768）挤压上方 Notebooks 或与 Footer 交叠 */}
       {sharedNotebooks.length > 0 && (
-        <div className="border-t border-app-border shrink-0 px-2 py-2">
-          <div className="px-1 pb-1 text-xs font-medium text-tx-tertiary uppercase tracking-wider">
-            共享笔记本
-          </div>
-          <div className="space-y-0.5">
-            {sharedNotebooks.map((nb) => (
-              <button
-                key={nb.id}
-                type="button"
-                onClick={() => handleNotebookSelect(nb.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors",
-                  state.selectedNotebookId === nb.id
-                    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
-                    : "hover:bg-app-hover text-tx-secondary"
-                )}
-              >
-                <span className="shrink-0 text-base leading-none">{nb.icon || "📒"}</span>
-                <span className="min-w-0 flex-1 truncate">{nb.name}</span>
-                <span className="shrink-0 text-[10px] text-tx-tertiary">
-                  {nb.myRole === "editor" ? "可编辑" : "只读"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <SharedNotebookTree
+          notebooks={sharedNotebooks}
+          selectedNotebookId={state.selectedNotebookId}
+          activeNoteId={state.activeNote?.id ?? null}
+          showNotes={showNotesInNotebookTree}
+          notesByNotebookId={notesByNotebookId}
+          loadingNotebookIds={loadingNotebookIds}
+          refreshToken={state.notesRefreshToken}
+          onSelectNotebook={stableNotebookSelect}
+          onSelectNote={stableSelectNote}
+          onLoadNotes={loadNotesForNotebook}
+          onCreateNote={stableCreateNote}
+        />
       )}
 
       <div className="border-t border-app-border shrink-0">
