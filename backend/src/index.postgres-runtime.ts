@@ -21,7 +21,7 @@ const adapter = getDatabaseAdapter();
 app.use("*", logger());
 app.use("*", cors({
   origin: (origin) => origin || "*",
-  allowMethods: ["GET", "PUT", "OPTIONS"],
+  allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
   allowHeaders: ["Content-Type", "Authorization", "X-Connection-Id"],
   credentials: true,
 }));
@@ -41,8 +41,14 @@ app.get("/api/health", async (c) => {
       mode: "postgres-runtime-only",
       businessRoutesReady: false,
       migratedRoutes: [
+        "GET /api/notes",
+        "POST /api/notes",
         "GET /api/notes/:id",
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata)",
+      ],
+      pendingCapabilities: [
+        "notes full-text search (#252)",
+        "trash/delete/reorder/transfer/yjs write routes",
       ],
     },
   }, status);
@@ -109,17 +115,8 @@ async function authenticateNoteRequest(c: Context, next: Next) {
   await next();
 }
 
-// The notes collection (list/create) is not part of this migration slice.
-// Register it explicitly so clients get a note-specific pending code instead of the global fallback.
-app.all("/api/notes", (c) => c.json({
-  error: "该笔记集合操作尚未迁移到 PostgreSQL Runtime",
-  code: "POSTGRES_NOTE_ROUTE_MIGRATION_PENDING",
-}, 503));
-
-// Only the migrated single-note boundary is authenticated and enabled.
-// Remaining note subroutes continue to return the note-specific runtime-pending response.
-app.use("/api/notes/:id", authenticateNoteRequest);
-app.use("/api/notes/:id/*", authenticateNoteRequest);
+app.use("/api/notes", authenticateNoteRequest);
+app.use("/api/notes/*", authenticateNoteRequest);
 app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres"));
 
 app.all("*", (c) => c.json({
@@ -129,7 +126,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Single-note read plus multi-format/core-metadata save is enabled; remaining business routes stay disabled until #249 completes");
+console.warn("[db] Notes collection plus single-note core runtime is enabled; remaining business routes stay disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 let shuttingDown = false;
