@@ -3,26 +3,46 @@ const BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 const SIMPLE_MARKS = new Set(["bold", "italic", "underline", "strike", "code"]);
 const NODE_KEYS = new Set(["type", "attrs", "content"]);
 const INLINE_KEYS = new Set(["type", "text", "marks"]);
+const IMAGE_KEYS = new Set(["type", "attrs"]);
+const IMAGE_ATTR_KEYS = new Set(["src", "alt", "title", "width", "height", "rotation", "flipX"]);
 const MARK_KEYS = new Set(["type", "attrs"]);
 const HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
 const FONT_SIZE_RE = /^(?:\d+(?:\.\d+)?)(?:px|em|rem|%)$/;
 const LANGUAGE_RE = /^[A-Za-z0-9_+.#-]{0,64}$/;
 const SAFE_REL_RE = /^[A-Za-z0-9_\s-]{0,256}$/;
 const SAFE_CLASS_RE = /^[A-Za-z0-9_\s-]{0,128}$/;
+const SAFE_DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\r\n]+$/i;
 
 export interface TiptapPatchMark {
   type: string;
   attrs?: Record<string, unknown> | null;
 }
 
+export interface TiptapPatchImageNode {
+  type: "image";
+  attrs: {
+    src: string;
+    alt?: string | null;
+    title?: string | null;
+    width?: number | string | null;
+    height?: number | string | null;
+    rotation?: 0 | 90 | 180 | 270;
+    flipX?: boolean;
+  };
+}
+
+export type TiptapPatchInlineNode =
+  | {
+      type: "text" | "hardBreak";
+      text?: string;
+      marks?: TiptapPatchMark[];
+    }
+  | TiptapPatchImageNode;
+
 export interface TiptapPatchJsonNode {
   type: "paragraph" | "heading" | "codeBlock";
   attrs: Record<string, unknown>;
-  content?: Array<{
-    type: "text" | "hardBreak";
-    text?: string;
-    marks?: TiptapPatchMark[];
-  }>;
+  content?: TiptapPatchInlineNode[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,6 +82,66 @@ function isSafeHref(value: unknown): value is string {
     || trimmed.startsWith("/")
     || trimmed.startsWith("./")
     || trimmed.startsWith("../");
+}
+
+function isSafeImageSrc(value: unknown): value is string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 240_000) return false;
+  if (/[\u0000-\u001f\u007f]/.test(value.replace(/[\r\n]/g, ""))) return false;
+  const trimmed = value.trim();
+  if (!trimmed || /^(?:javascript|vbscript|file|blob):/i.test(trimmed)) return false;
+  return /^https?:/i.test(trimmed)
+    || trimmed.startsWith("/")
+    || trimmed.startsWith("./")
+    || trimmed.startsWith("../")
+    || SAFE_DATA_IMAGE_RE.test(trimmed);
+}
+
+function normalizeOptionalLabel(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value)) return undefined;
+  return value;
+}
+
+function normalizeImageDimension(value: unknown): number | string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^\d+$/.test(value)
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 10_000) return undefined;
+  return value as number | string;
+}
+
+function normalizeImage(raw: Record<string, unknown>): TiptapPatchImageNode | null {
+  if (!hasOnlyKeys(raw, IMAGE_KEYS) || !isRecord(raw.attrs) || !hasOnlyKeys(raw.attrs, IMAGE_ATTR_KEYS)) return null;
+  if (!isSafeImageSrc(raw.attrs.src)) return null;
+  const normalized: TiptapPatchImageNode["attrs"] = { src: raw.attrs.src.trim() };
+
+  for (const key of ["alt", "title"] as const) {
+    if (!(key in raw.attrs)) continue;
+    const value = normalizeOptionalLabel(raw.attrs[key]);
+    if (value === undefined && raw.attrs[key] !== undefined) return null;
+    if (value !== undefined) normalized[key] = value;
+  }
+  for (const key of ["width", "height"] as const) {
+    if (!(key in raw.attrs)) continue;
+    const value = normalizeImageDimension(raw.attrs[key]);
+    if (value === undefined && raw.attrs[key] !== undefined) return null;
+    if (value !== undefined) normalized[key] = value;
+  }
+  if ("rotation" in raw.attrs) {
+    const rotation = Number(raw.attrs.rotation);
+    if (![0, 90, 180, 270].includes(rotation)) return null;
+    normalized.rotation = rotation as 0 | 90 | 180 | 270;
+  }
+  if ("flipX" in raw.attrs) {
+    if (typeof raw.attrs.flipX !== "boolean") return null;
+    normalized.flipX = raw.attrs.flipX;
+  }
+  return { type: "image", attrs: normalized };
 }
 
 function normalizeMark(raw: unknown): TiptapPatchMark | null {
@@ -129,7 +209,15 @@ export function normalizeSafeTiptapReplacementNode(
 
   const normalizedContent: NonNullable<TiptapPatchJsonNode["content"]> = [];
   for (const child of content) {
-    if (!isRecord(child) || typeof child.type !== "string" || !hasOnlyKeys(child, INLINE_KEYS)) return null;
+    if (!isRecord(child) || typeof child.type !== "string") return null;
+    if (child.type === "image") {
+      if (type === "codeBlock") return null;
+      const image = normalizeImage(child);
+      if (!image) return null;
+      normalizedContent.push(image);
+      continue;
+    }
+    if (!hasOnlyKeys(child, INLINE_KEYS)) return null;
     if (child.type === "hardBreak") {
       if (type === "codeBlock" || child.text != null || child.marks != null) return null;
       normalizedContent.push({ type: "hardBreak" });
