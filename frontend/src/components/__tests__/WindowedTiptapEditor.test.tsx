@@ -268,7 +268,7 @@ describe("WindowedTiptapEditor", () => {
     const selectionSpy = vi.spyOn(document, "getSelection").mockReturnValue({
       anchorNode: editors[0],
       focusNode: editors[1],
-    } as Selection);
+    } as unknown as Selection);
 
     await act(async () => document.dispatchEvent(new Event("selectionchange")));
 
