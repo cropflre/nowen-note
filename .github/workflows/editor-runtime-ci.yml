@@ -167,7 +167,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: MAXScript grammar tests
+        run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts
+      - name: MAXScript Markdown tests
+        if: always()
+        run: npm run test:run -- src/components/__tests__/MarkdownCodeBlock.maxscript.test.tsx
+      - name: MAXScript picker tests
+        if: always()
+        run: npm run test:run -- src/components/__tests__/CodeBlockView.maxscript.test.tsx
       - name: Focused runtime tests
+        if: always()
         run: >-
           npm run test:run --
           src/lib/__tests__/editorRuntimePolicy.test.ts
@@ -190,10 +199,7 @@ jobs:
           src/lib/__tests__/blockPatchApi.test.ts
           src/lib/__tests__/codeBlockHighlightPlugin.test.ts
           src/lib/__tests__/codeBlockViewportHighlight.test.ts
-          src/lib/__tests__/codeBlockLowlight.test.ts
           src/hooks/__tests__/useLazyNodeView.test.tsx
-          src/components/__tests__/CodeBlockView.maxscript.test.tsx
-          src/components/__tests__/MarkdownCodeBlock.maxscript.test.tsx
           src/components/__tests__/VideoExtension.test.ts
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
           src/components/__tests__/MarkdownPreview.test.tsx
@@ -201,4 +207,5 @@ jobs:
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
+        if: always()
         run: npx tsc -b
