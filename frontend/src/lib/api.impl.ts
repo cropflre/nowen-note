@@ -2791,6 +2791,18 @@ export const api = {
   createShare: (data: { noteId: string; permission?: string; password?: string; expiresAt?: string; maxViews?: number }) =>
     request<Share>("/shares", { method: "POST", body: JSON.stringify(data) }),
   getShares: () => request<Share[]>("/shares"),
+  getShareManagement: (params: import("@/types").ShareManagementQuery = {}) => {
+    const qs = new URLSearchParams({ management: "1" });
+    if (params.q) qs.set("q", params.q);
+    if (params.status) qs.set("status", params.status);
+    if (params.permission) qs.set("permission", params.permission);
+    if (params.hasPassword !== undefined) qs.set("hasPassword", params.hasPassword ? "1" : "0");
+    if (params.sort) qs.set("sort", params.sort);
+    if (params.order) qs.set("order", params.order);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<import("@/types").ShareManagementResponse>(`/shares?${qs.toString()}`);
+  },
   getSharesByNote: (noteId: string) => request<Share[]>(`/shares/note/${noteId}`),
   getShare: (id: string) => request<Share>(`/shares/${id}`),
   updateShare: (id: string, data: Partial<{ permission: string; password: string | null; expiresAt: string | null; maxViews: number | null; isActive: number; resetViews: boolean; rotateToken: boolean }>) =>
