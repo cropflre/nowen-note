@@ -1,5 +1,4 @@
 import type { Editor } from "@tiptap/react";
-import "@/lib/codeBlockLowlight";
 
 export type CodeBlockToolbarAction =
   | "copy"
