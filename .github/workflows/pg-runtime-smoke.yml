@@ -10,6 +10,7 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
@@ -23,6 +24,7 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
@@ -94,12 +96,12 @@ jobs:
             sleep 1
           done
 
-          pending_status=$(curl --silent --output /tmp/pg-runtime-smoke/pending.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes || true)
-          unauthorized_status=$(curl --silent --output /tmp/pg-runtime-smoke/unauthorized.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes/11111111-1111-4111-8111-111111111111 || true)
+          collection_status=$(curl --silent --output /tmp/pg-runtime-smoke/collection.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes || true)
+          single_status=$(curl --silent --output /tmp/pg-runtime-smoke/single.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes/11111111-1111-4111-8111-111111111111 || true)
           {
             echo "health_status=$health_status"
-            echo "pending_status=$pending_status"
-            echo "unauthorized_status=$unauthorized_status"
+            echo "collection_status=$collection_status"
+            echo "single_status=$single_status"
             for file in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
               if [ -e "$file" ]; then echo "sqlite_exists=$file"; else echo "sqlite_absent=$file"; fi
             done
@@ -115,20 +117,22 @@ jobs:
           const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
           const status = fs.readFileSync("/tmp/pg-runtime-smoke/status.txt", "utf8");
           const health = readJson("/tmp/pg-runtime-smoke/health.json");
-          const pending = readJson("/tmp/pg-runtime-smoke/pending.json");
-          const unauthorized = readJson("/tmp/pg-runtime-smoke/unauthorized.json");
+          const collection = readJson("/tmp/pg-runtime-smoke/collection.json");
+          const single = readJson("/tmp/pg-runtime-smoke/single.json");
           if (!status.includes("health_status=200")) throw new Error(status);
           if (health.status !== "ok" || health.database?.driver !== "postgres" || health.database?.ok !== true) {
             throw new Error(`unexpected health: ${JSON.stringify(health)}`);
           }
-          if (!health.runtime?.migratedRoutes?.includes("GET /api/notes/:id")) {
-            throw new Error(`missing migrated route: ${JSON.stringify(health.runtime)}`);
+          for (const route of ["GET /api/notes", "POST /api/notes", "GET /api/notes/:id"]) {
+            if (!health.runtime?.migratedRoutes?.includes(route)) {
+              throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
+            }
           }
-          if (!status.includes("pending_status=503") || pending.code !== "POSTGRES_NOTE_ROUTE_MIGRATION_PENDING") {
-            throw new Error(`unexpected pending route: ${status}\n${JSON.stringify(pending)}`);
+          if (!status.includes("collection_status=401") || collection.code !== "UNAUTHENTICATED") {
+            throw new Error(`unexpected collection authentication boundary: ${status}\n${JSON.stringify(collection)}`);
           }
-          if (!status.includes("unauthorized_status=401") || unauthorized.code !== "UNAUTHENTICATED") {
-            throw new Error(`unexpected authentication boundary: ${status}\n${JSON.stringify(unauthorized)}`);
+          if (!status.includes("single_status=401") || single.code !== "UNAUTHENTICATED") {
+            throw new Error(`unexpected single-note authentication boundary: ${status}\n${JSON.stringify(single)}`);
           }
           if (status.includes("sqlite_exists=")) throw new Error(`SQLite side effect detected:\n${status}`);
           if (!status.includes("runtime_exit=0")) throw new Error(`runtime did not shut down cleanly:\n${status}`);
