@@ -19,6 +19,7 @@ on:
       - "backend/tests/block-patch-mixed-index.test.ts"
       - "backend/tests/block-patch-list-route.test.ts"
       - "backend/tests/block-patch-list-structure-route.test.ts"
+      - "backend/tests/block-patch-route-image.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/tiptap-block-patch-image.test.ts"
@@ -29,6 +30,7 @@ on:
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx"
@@ -76,6 +78,7 @@ on:
       - "backend/tests/block-patch-mixed-index.test.ts"
       - "backend/tests/block-patch-list-route.test.ts"
       - "backend/tests/block-patch-list-structure-route.test.ts"
+      - "backend/tests/block-patch-route-image.test.ts"
       - "backend/tests/tiptap-block-patch.test.ts"
       - "backend/tests/tiptap-block-patch-v2.test.ts"
       - "backend/tests/tiptap-block-patch-image.test.ts"
@@ -86,6 +89,7 @@ on:
       - "frontend/src/components/TiptapEditorRuntime.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
+      - "frontend/src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx"
@@ -146,6 +150,7 @@ jobs:
           tests/tiptap-list-item-structure.test.ts
           tests/block-patch-route.test.ts
           tests/block-patch-route-v2.test.ts
+          tests/block-patch-route-image.test.ts
           tests/block-patch-list-route.test.ts
           tests/block-patch-list-structure-route.test.ts
           tests/block-patch-incremental-index.test.ts
@@ -184,6 +189,7 @@ jobs:
           src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
+          src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx
           src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx
           src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx
           src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx
