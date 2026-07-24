@@ -125,6 +125,7 @@ export class NowenAttachmentClient {
   private readonly timeout: number;
   private readonly fetchImpl: typeof fetch;
   private token: string | null = null;
+  private loginPromise: Promise<void> | null = null;
 
   constructor(config: NowenConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
@@ -150,7 +151,13 @@ export class NowenAttachmentClient {
   }
 
   private async ensureAuth(): Promise<void> {
-    if (!this.token) await this.login();
+    if (this.token) return;
+    if (!this.loginPromise) {
+      this.loginPromise = this.login().finally(() => {
+        this.loginPromise = null;
+      });
+    }
+    await this.loginPromise;
   }
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -173,7 +180,7 @@ export class NowenAttachmentClient {
     let response = await this.fetchImpl(url, initFactory(this.token!));
     if (response.status === 401) {
       this.token = null;
-      await this.login();
+      await this.ensureAuth();
       response = await this.fetchImpl(url, initFactory(this.token!));
     }
     if (!response.ok) {
