@@ -63,11 +63,11 @@ export { notebookMembersRepository } from "./notebookMembersRepository";
 export { shareCommentsRepository } from "./shareCommentsRepository";
 export { diaryAttachmentsRepository } from "./diaryAttachmentsRepository";
 export { embeddingQueueRepository } from "./embeddingQueueRepository";
-export { roundTripPermissionMappingRepository } from "./roundTripPermissionMappingRepository";
 export {
   blockAuthorityRepository,
   createBlockAuthorityRepository,
 } from "./blockAuthorityRepository";
+export { roundTripPermissionMappingRepository } from "./roundTripPermissionMappingRepository";
 
 // 类型导出
 export type {
