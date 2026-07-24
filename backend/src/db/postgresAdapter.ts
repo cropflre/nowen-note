@@ -7,7 +7,7 @@
  */
 
 import type { Pool, PoolClient, QueryResult } from "pg";
-import type { DatabaseAdapter, DbRunResult } from "./adapters/types";
+import type { DatabaseAdapter, DbRunResult, DbStatement } from "./adapters/types";
 import { convertSql } from "./dialect";
 
 async function poolQuery(pool: Pool, sql: string, params: unknown[]): Promise<QueryResult> {
@@ -16,6 +16,13 @@ async function poolQuery(pool: Pool, sql: string, params: unknown[]): Promise<Qu
 
 async function clientQuery(client: PoolClient, sql: string, params: unknown[]): Promise<QueryResult> {
   return params.length > 0 ? client.query(sql, params) : client.query(sql);
+}
+
+function assertRequiredChanges(statement: DbStatement, changes: number): void {
+  if (statement.requireChanges === undefined || changes === statement.requireChanges) return;
+  throw new Error(
+    `[db] transactional statement expected ${statement.requireChanges} changed row(s), received ${changes}`,
+  );
 }
 
 export class PostgresAdapter implements DatabaseAdapter {
@@ -62,7 +69,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async executeStatements(statements: Array<{ sql: string; params?: unknown[] }>): Promise<{ changes: number }> {
+  async executeStatements(statements: DbStatement[]): Promise<{ changes: number }> {
     if (statements.length === 0) return { changes: 0 };
 
     const client = await this.pool.connect();
@@ -76,7 +83,9 @@ export class PostgresAdapter implements DatabaseAdapter {
           convertSql(statement.sql, "postgres"),
           statement.params ?? [],
         );
-        totalChanges += result.rowCount ?? 0;
+        const changes = result.rowCount ?? 0;
+        assertRequiredChanges(statement, changes);
+        totalChanges += changes;
       }
 
       await client.query("COMMIT");
