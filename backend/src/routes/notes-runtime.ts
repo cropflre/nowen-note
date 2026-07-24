@@ -3,6 +3,10 @@ import { Hono, type Context } from "hono";
 import type { DatabaseAdapter } from "../db/adapters/types";
 import type { DatabaseDialect } from "../db/dialect";
 import {
+  createNoteCollectionRuntime,
+  type NoteCollectionCreateInput,
+} from "../services/note-collection-runtime";
+import {
   createNoteCoreRuntime,
   NoteCoreRuntimeError,
   type NoteCoreSaveInput,
@@ -28,12 +32,52 @@ export function createNotesRuntimeRouter(
   dialect?: DatabaseDialect,
 ) {
   const app = new Hono();
-  const runtime = createNoteCoreRuntime(adapter, dialect);
+  const core = createNoteCoreRuntime(adapter, dialect);
+  const collection = createNoteCollectionRuntime(adapter, dialect);
+
+  app.get("/", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    try {
+      const notes = await collection.listNotes(userId, {
+        workspaceId: c.req.query("workspaceId"),
+        notebookId: c.req.query("notebookId"),
+        isFavorite: c.req.query("isFavorite"),
+        isTrashed: c.req.query("isTrashed"),
+        search: c.req.query("search"),
+        tagId: c.req.query("tagId"),
+        tagIds: c.req.query("tagIds"),
+        tagMode: c.req.query("tagMode"),
+        dateFrom: c.req.query("dateFrom"),
+        dateTo: c.req.query("dateTo"),
+        sortBy: c.req.query("sortBy"),
+        sortOrder: c.req.query("sortOrder"),
+      });
+      return c.json(notes);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    let body: NoteCollectionCreateInput;
+    try {
+      body = await c.req.json<NoteCollectionCreateInput>();
+    } catch {
+      return c.json({ error: "请求格式错误", code: "INVALID_BODY" }, 400);
+    }
+
+    try {
+      return c.json(await collection.createNote(userId, body), 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
 
   app.get("/:id", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     try {
-      const note = await runtime.getNote(userId, c.req.param("id"), {
+      const note = await core.getNote(userId, c.req.param("id"), {
         slim: c.req.query("slim") === "1",
       });
       return c.json(note);
@@ -52,7 +96,7 @@ export function createNotesRuntimeRouter(
     }
 
     try {
-      const result = await runtime.saveNote(userId, c.req.param("id"), body);
+      const result = await core.saveNote(userId, c.req.param("id"), body);
       if (result.warnings.length > 0) {
         c.header("X-Nowen-Runtime-Warnings", String(result.warnings.length));
       }
