@@ -1,0 +1,49 @@
+name: Tag Idempotency CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/src/routes/tags.ts"
+      - "backend/src/services/tagScope.ts"
+      - "backend/src/db/tagScopeUniquenessMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/tests/tag-idempotency.test.ts"
+      - "backend/tests/tag-scope-uniqueness-migration.test.ts"
+      - ".github/workflows/tag-idempotency-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/tags.ts"
+      - "backend/src/services/tagScope.ts"
+      - "backend/src/db/tagScopeUniquenessMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/tests/tag-idempotency.test.ts"
+      - "backend/tests/tag-scope-uniqueness-migration.test.ts"
+      - ".github/workflows/tag-idempotency-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tag-idempotency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check backend
+        run: npm run build:tsc
+      - name: Run tag idempotency regression tests
+        run: >-
+          node --import tsx --test
+          tests/tag-idempotency.test.ts
+          tests/tag-scope-uniqueness-migration.test.ts

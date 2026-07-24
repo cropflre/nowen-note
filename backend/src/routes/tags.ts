@@ -3,6 +3,11 @@ import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { getUserWorkspaceRole, hasRole } from "../middleware/acl";
 import { tagsRepository, noteTagsRepository } from "../repositories";
+import {
+  ensureScopedTag,
+  isTagUniqueConstraintError,
+  normalizeTagName,
+} from "../services/tagScope.js";
 
 /**
  * Tags 路由 —— 支持工作区隔离
@@ -16,10 +21,10 @@ import { tagsRepository, noteTagsRepository } from "../repositories";
  *       <workspaceUuid>           → 落到该工作区（要求 editor 以上角色）
  *   - 更新 / 删除 / 给笔记打标签：通过 tag.id 反查 owner & workspace 后再做 ACL 校验
  *
- * 注意：
- *   - 标签的 UNIQUE(userId, name) 约束未变，仍然是"同用户名全局唯一"；
- *     workspaceId 只是限定可见范围，不参与唯一性。这是为了避免重建表
- *     （详见 schema.ts 中的注释），同时保持标签作为用户分类体系的语义简单。
+ * 标签名称唯一性：
+ *   - 个人空间：同一 userId 内唯一；
+ *   - 工作区：同一 workspaceId 内唯一，与创建者 userId 无关；
+ *   - 创建接口是幂等的：同名标签已存在时直接返回已有记录，不向调用方暴露 409。
  */
 
 const app = new Hono();
@@ -79,14 +84,15 @@ app.get("/", (c) => {
  * POST /tags
  * body: { name, color?, workspaceId? }
  *   workspaceId 为 'personal'/缺省 → 个人空间；为 uuid → 工作区（要求 editor+）
+ *
+ * 同一作用域重复创建时返回已有标签（200）；首次创建返回 201。
  */
 app.post("/", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "demo";
   const body = await c.req.json();
 
-  // 标签名称校验
-  const name = (body.name || "").trim();
+  const name = normalizeTagName(body.name);
   if (!name) {
     return c.json({ error: "标签名称不能为空" }, 400);
   }
@@ -102,42 +108,25 @@ app.post("/", async (c) => {
     }
   }
 
-  const id = uuid();
-  try {
-    tagsRepository.create({
-      id,
-      userId,
-      workspaceId: ws,
-      name,
-      color: body.color || "#58a6ff",
-    });
-  } catch (err: any) {
-    // UNIQUE(userId, name) 冲突 → 当前账号已有同名标签（可能在其他空间）
-    if (String(err?.message || err).includes("UNIQUE")) {
-      return c.json(
-        {
-          error:
-            "您已经有一个同名标签（标签名在账号内全局唯一），请换一个名字",
-        },
-        409,
-      );
-    }
-    throw err;
-  }
-  const tag = tagsRepository.getById(id);
-  return c.json(tag, 201);
+  const result = ensureScopedTag(db, {
+    id: uuid(),
+    userId,
+    workspaceId: ws,
+    name,
+    color: body.color || "#58a6ff",
+  });
+
+  return c.json(result.tag, result.created ? 201 : 200);
 });
 
 // 更新标签（名称/颜色）
 app.put("/:id", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
   const body = await c.req.json();
 
-  // 标签名称校验
   if (body.name !== undefined) {
-    const name = (body.name || "").trim();
+    const name = normalizeTagName(body.name);
     if (!name) {
       return c.json({ error: "标签名称不能为空" }, 400);
     }
@@ -160,13 +149,20 @@ app.put("/:id", async (c) => {
   }
   if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
 
-  tagsRepository.updateById(id, patch);
+  try {
+    tagsRepository.updateById(id, patch);
+  } catch (error) {
+    if (isTagUniqueConstraintError(error)) {
+      return c.json({ error: "当前空间已存在同名标签，请直接使用该标签" }, 409);
+    }
+    throw error;
+  }
+
   const tag = tagsRepository.getByIdWithCount(id);
   return c.json(tag);
 });
 
 app.delete("/:id", (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
@@ -205,7 +201,6 @@ app.post("/note/:noteId/tag/:tagId", (c) => {
 
 // 移除笔记标签
 app.delete("/note/:noteId/tag/:tagId", (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const { noteId, tagId } = c.req.param();
 
