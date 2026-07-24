@@ -1,0 +1,102 @@
+name: Round-trip Permission Transfer V2 CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/routes/import-batches.ts"
+      - "backend/src/services/nowenPackageExportStable.ts"
+      - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/roundTripPermissionMapping.ts"
+      - "backend/src/services/roundTripPermissionTransfer.ts"
+      - "backend/src/services/roundTripImportPermissionUndo.ts"
+      - "backend/tests/roundtrip-permission-transfer-v2.test.ts"
+      - "frontend/src/components/RoundTripPermissionMappingPanel.tsx"
+      - "frontend/src/components/RoundTripPermissionMappingCenter.tsx"
+      - "frontend/src/components/RoundTripPermissionExportCenter.tsx"
+      - "frontend/src/lib/roundTripImportReview.ts"
+      - "frontend/src/lib/roundTripPermissionReview.ts"
+      - "frontend/src/lib/roundTripPermissionExport.ts"
+      - "frontend/src/lib/__tests__/roundTripPermissionTransfer.test.ts"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/roundtrip-permission-transfer-v2-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/import-batches.ts"
+      - "backend/src/services/nowenPackageExportStable.ts"
+      - "backend/src/services/nowenPackageImport.ts"
+      - "backend/src/services/roundTripPermissionMapping.ts"
+      - "backend/src/services/roundTripPermissionTransfer.ts"
+      - "backend/src/services/roundTripImportPermissionUndo.ts"
+      - "backend/tests/roundtrip-permission-transfer-v2.test.ts"
+      - "frontend/src/components/RoundTripPermissionMappingPanel.tsx"
+      - "frontend/src/components/RoundTripPermissionMappingCenter.tsx"
+      - "frontend/src/components/RoundTripPermissionExportCenter.tsx"
+      - "frontend/src/lib/roundTripImportReview.ts"
+      - "frontend/src/lib/roundTripPermissionReview.ts"
+      - "frontend/src/lib/roundTripPermissionExport.ts"
+      - "frontend/src/lib/__tests__/roundTripPermissionTransfer.test.ts"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/roundtrip-permission-transfer-v2-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: mkdir -p ../ci-logs
+      - name: Permission manifest, mapping and undo tests
+        run: set -o pipefail; node --import tsx --import ./tests/setup-db-isolation.ts --test tests/roundtrip-permission-transfer-v2.test.ts 2>&1 | tee ../ci-logs/backend-tests.log
+      - name: Backend typecheck
+        if: always()
+        run: set -o pipefail; npm run build:tsc 2>&1 | tee ../ci-logs/backend-typecheck.log
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtrip-permission-v2-backend-logs
+          path: ci-logs/backend-*.log
+          if-no-files-found: error
+          retention-days: 7
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: mkdir -p ../ci-logs
+      - name: Permission review and request tests
+        run: set -o pipefail; npm run test:run -- src/lib/__tests__/roundTripImportReview.test.ts src/lib/__tests__/roundTripPermissionTransfer.test.ts 2>&1 | tee ../ci-logs/frontend-tests.log
+      - name: Frontend typecheck
+        if: always()
+        run: set -o pipefail; npx tsc -b 2>&1 | tee ../ci-logs/frontend-typecheck.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtrip-permission-v2-frontend-logs
+          path: ci-logs/frontend-*.log
+          if-no-files-found: error
+          retention-days: 7
