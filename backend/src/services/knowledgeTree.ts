@@ -12,7 +12,7 @@ export {
   listKnowledgeTreeHistory,
   moveKnowledgeNode,
   reorderKnowledgeNodes,
-  restoreKnowledgeNode,
 } from "./knowledgeTreeCore.js";
 
 export { listKnowledgeTree } from "./knowledgeTreeListing.js";
+export { restoreKnowledgeNode } from "./knowledgeTreeRestore.js";
