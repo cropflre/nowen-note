@@ -87,9 +87,19 @@ jobs:
       - name: Frontend typecheck
         run: npx tsc -b
 
-  backend:
+  backend-test:
+    name: backend (${{ matrix.test_file }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        test_file:
+          - note-split.test.ts
+          - note-split-title.test.ts
+          - tiptap-note-split.test.ts
+          - tiptap-note-split-empty.test.ts
+          - block-link-redirect.test.ts
     defaults:
       run:
         working-directory: backend
@@ -101,24 +111,33 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Split planner, transaction, and redirect tests
+      - name: Run isolated backend test
         shell: bash
         run: |
           set -o pipefail
-          node --import tsx --import ./tests/setup-db-isolation.ts --test --test-concurrency=1 \
-            tests/note-split.test.ts \
-            tests/note-split-title.test.ts \
-            tests/tiptap-note-split.test.ts \
-            tests/tiptap-note-split-empty.test.ts \
-            tests/block-link-redirect.test.ts \
-            2>&1 | tee /tmp/note-split-backend.log
+          node --import tsx --import ./tests/setup-db-isolation.ts --test "tests/${{ matrix.test_file }}" \
+            2>&1 | tee "/tmp/${{ matrix.test_file }}.log"
       - name: Upload backend diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: note-split-backend-${{ github.run_id }}
-          path: /tmp/note-split-backend.log
+          name: note-split-${{ matrix.test_file }}-${{ github.run_id }}
+          path: /tmp/${{ matrix.test_file }}.log
           if-no-files-found: warn
           retention-days: 7
-      - name: Backend typecheck
-        run: npm run build:tsc
+
+  backend-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build:tsc
