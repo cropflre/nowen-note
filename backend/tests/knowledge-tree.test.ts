@@ -104,6 +104,20 @@ test("v62 migration builds a mixed tree and enforces inherited capabilities", as
   assert.equal(inheritedEditor.capabilities.canMove, false);
   assert.equal(inheritedEditor.capabilities.canDelete, false);
 
+  const editorCreated = createKnowledgeChild({
+    actorUserId: "member",
+    workspaceId: "ws",
+    parentId: product.id,
+    nodeType: "note",
+    title: "编辑成员创建的文档",
+    db,
+  });
+  const creatorAccess = resolveKnowledgeNodeAccess(editorCreated.id, "member", db);
+  assert.equal(creatorAccess.source, "inherited");
+  assert.equal(creatorAccess.capabilities.canEdit, true);
+  assert.equal(creatorAccess.capabilities.canDelete, false);
+  assert.equal(creatorAccess.capabilities.canManageMembers, false);
+
   assert.throws(
     () => moveKnowledgeNode({
       actorUserId: "member",
