@@ -6,10 +6,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-import type { NoteEditorHandle, NoteEditorProps, NoteEditorUpdatePayload } from "@/components/editors/types";
+import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps, NoteEditorUpdatePayload } from "@/components/editors/types";
 import { ArrowUp } from "lucide-react";
 import { api } from "@/lib/api";
 import type { YjsSubdocumentUpdateResult } from "@/lib/api";
+import { analyzeTiptapDocument, type TiptapJsonNode } from "@/lib/tiptapAnalysis";
 import {
   createTiptapSubdocumentBundle,
   createTiptapSubdocumentRestSyncController,
@@ -144,6 +145,7 @@ function SectionFrame({
  */
 const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorProps>(
   function WindowedTiptapEditor(props, ref) {
+    const { onEditorReady } = props;
     const sourceRef = useRef<{
       noteId: string;
       content: string;
@@ -160,6 +162,10 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     const sections = source.sections;
     const valuesRef = useRef(new Map<string, string>());
     const editorRefs = useRef(new Map<string, NoteEditorHandle>());
+    const outlineScrollersRef = useRef(new Map<string, (pos: number) => void>());
+    const outlineHeadingsBySectionRef = useRef(new Map<string, NoteEditorHeading[]>());
+    const outlineTargetsRef = useRef(new Map<number, { sectionId: string; localPos: number }>());
+    const pendingOutlineTargetRef = useRef<{ sectionId: string; localPos: number } | null>(null);
     const composingRef = useRef(new Set<string>());
     const bundleRef = useRef<TiptapSubdocumentBundle | null>(null);
     const controllerRef = useRef<TiptapSubdocumentRestSyncController | null>(null);
@@ -173,11 +179,45 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
     const [heights, setHeights] = useState<Record<string, number>>({});
     const [showBackToTop, setShowBackToTop] = useState(false);
+    const onHeadingsChangeRef = useRef(props.onHeadingsChange);
+    onHeadingsChangeRef.current = props.onHeadingsChange;
+
+    const publishOutline = useCallback((changedSectionId?: string) => {
+      if (!changedSectionId) outlineHeadingsBySectionRef.current.clear();
+      for (const section of sections || []) {
+        if (changedSectionId && section.id !== changedSectionId) continue;
+        try {
+          const content = valuesRef.current.get(section.id) || section.content;
+          const result = analyzeTiptapDocument(JSON.parse(content) as TiptapJsonNode);
+          outlineHeadingsBySectionRef.current.set(section.id, result.headings);
+        } catch {
+          outlineHeadingsBySectionRef.current.set(section.id, []);
+        }
+      }
+
+      const headings: NoteEditorHeading[] = [];
+      const targets = new Map<number, { sectionId: string; localPos: number }>();
+      for (const section of sections || []) {
+        for (const heading of outlineHeadingsBySectionRef.current.get(section.id) || []) {
+          const token = headings.length;
+          headings.push({
+            ...heading,
+            id: `${section.id}:${heading.id}`,
+            pos: token,
+          });
+          targets.set(token, { sectionId: section.id, localPos: heading.pos });
+        }
+      }
+      outlineTargetsRef.current = targets;
+      onHeadingsChangeRef.current?.(headings);
+    }, [sections]);
 
     const snapshotSection = useCallback((sectionId: string) => {
       const snapshot = editorRefs.current.get(sectionId)?.getSnapshot?.();
-      if (snapshot?.content) valuesRef.current.set(sectionId, snapshot.content);
-    }, []);
+      if (!snapshot?.content || valuesRef.current.get(sectionId) === snapshot.content) return;
+      valuesRef.current.set(sectionId, snapshot.content);
+      publishOutline(sectionId);
+    }, [publishOutline]);
 
     const requestFallback = useCallback((
       reason: string,
@@ -206,19 +246,25 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
         const content = await controller.loadSection(sectionId);
         if (!content || controllerRef.current !== controller) return;
         valuesRef.current.set(sectionId, content);
+        publishOutline(sectionId);
         setMountedIds((current) => current.has(sectionId) ? current : new Set(current).add(sectionId));
       } catch {
         if (controllerRef.current === controller) requestFallback("subdocument-snapshot-load-failed");
       }
-    }, [requestFallback]);
+    }, [publishOutline, requestFallback]);
 
     useEffect(() => {
       valuesRef.current = new Map((sections || []).map((section) => [section.id, section.content]));
       editorRefs.current.clear();
+      outlineScrollersRef.current.clear();
+      outlineHeadingsBySectionRef.current.clear();
+      outlineTargetsRef.current.clear();
+      pendingOutlineTargetRef.current = null;
       composingRef.current.clear();
       setMountedIds(new Set());
       setManifestReady(false);
       setHeights({});
+      onHeadingsChangeRef.current?.([]);
       if (!sections || sections.length <= 1) return;
       if (
         typeof api.getYjsSubdocumentManifest !== "function"
@@ -297,7 +343,25 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
         destroyTiptapSubdocumentBundle(bundle);
         if (bundleRef.current === bundle) bundleRef.current = null;
       };
-    }, [loadSection, props.note.id, requestFallback, sections, source.content]);
+    }, [loadSection, props.note.id, publishOutline, requestFallback, sections, source.content]);
+
+    useEffect(() => {
+      if (!sections || sections.length <= 1) return;
+      let cancelled = false;
+      let sectionIndex = 0;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const analyzeNextSection = () => {
+        if (cancelled || sectionIndex >= sections.length) return;
+        publishOutline(sections[sectionIndex].id);
+        sectionIndex += 1;
+        if (sectionIndex < sections.length) timer = globalThis.setTimeout(analyzeNextSection, 0);
+      };
+      timer = globalThis.setTimeout(analyzeNextSection, 16);
+      return () => {
+        cancelled = true;
+        if (timer) globalThis.clearTimeout(timer);
+      };
+    }, [props.note.id, publishOutline, sections]);
 
     useEffect(() => {
       const flush = () => { void controllerRef.current?.flushPending(); };
@@ -319,17 +383,42 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       windowedHostRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     }, []);
 
+    useEffect(() => {
+      onEditorReady?.((token: number) => {
+        const target = outlineTargetsRef.current.get(token);
+        if (!target) return;
+        pendingOutlineTargetRef.current = target;
+        const scrollLocal = outlineScrollersRef.current.get(target.sectionId);
+        if (scrollLocal) {
+          pendingOutlineTargetRef.current = null;
+          scrollLocal(target.localPos);
+          return;
+        }
+        void loadSection(target.sectionId);
+        requestAnimationFrame(() => {
+          const frame = windowedHostRef.current?.querySelector<HTMLElement>(
+            `[data-windowed-tiptap-section="${target.sectionId}"]`,
+          );
+          frame?.scrollIntoView({ block: "start", behavior: "smooth" });
+        });
+      });
+    }, [loadSection, onEditorReady]);
+
     const handleVisibility = useCallback((sectionId: string, visible: boolean, height?: number) => {
       if (height && height > 0) setHeights((current) => current[sectionId] === height ? current : { ...current, [sectionId]: height });
       if (visible) {
         void loadSection(sectionId);
         return;
       }
+      const firstId = sections?.[0]?.id;
+      if (
+        sectionId === firstId
+        || composingRef.current.has(sectionId)
+        || !editorRefs.current.has(sectionId)
+      ) return;
+      snapshotSection(sectionId);
       setMountedIds((current) => {
-        const firstId = sections?.[0]?.id;
-        if (visible) return current.has(sectionId) ? current : new Set(current).add(sectionId);
-        if (sectionId === firstId || composingRef.current.has(sectionId) || !current.has(sectionId)) return current;
-        snapshotSection(sectionId);
+        if (!current.has(sectionId)) return current;
         const next = new Set(current);
         next.delete(sectionId);
         return next;
@@ -387,6 +476,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
         return;
       }
       valuesRef.current.set(sectionId, payload.content);
+      publishOutline(sectionId);
       if (!controllerRef.current?.updateSectionContent(sectionId, payload.content)) {
         requestFallback("subdocument-section-update-failed");
         return;
@@ -400,7 +490,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       if (sectionId === sections[0]?.id && payload.title !== props.note.title) {
         props.onUpdate({ title: payload.title, _noteId: props.note.id });
       }
-    }, [props.note.id, props.note.title, props.onUpdate, requestFallback, sections]);
+    }, [props.note.id, props.note.title, props.onUpdate, publishOutline, requestFallback, sections]);
 
     useEffect(() => {
       if (!props.searchQuery || !sections) return;
@@ -464,12 +554,23 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
                     note={sectionNote}
                     ref={(editor) => {
                       if (editor) editorRefs.current.set(section.id, editor);
-                      else editorRefs.current.delete(section.id);
+                      else {
+                        editorRefs.current.delete(section.id);
+                        outlineScrollersRef.current.delete(section.id);
+                      }
                     }}
                     presentationMode={index > 0}
                     windowedSection={index > 0}
                     useParentScrollContainer
-                    onHeadingsChange={index === 0 ? props.onHeadingsChange : undefined}
+                    onHeadingsChange={undefined}
+                    onEditorReady={(scrollTo) => {
+                      outlineScrollersRef.current.set(section.id, scrollTo);
+                      const pending = pendingOutlineTargetRef.current;
+                      if (pending?.sectionId === section.id) {
+                        pendingOutlineTargetRef.current = null;
+                        scrollTo(pending.localPos);
+                      }
+                    }}
                     onUpdate={(payload) => emitMergedUpdate(section.id, payload)}
                   />
                 )}

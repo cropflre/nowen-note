@@ -29,27 +29,18 @@ describe("editor runtime notice", () => {
     setActiveEditorRuntimeDecision("viewport-note", decision);
 
     expect(getActiveEditorRuntimeState().decision.mode).toBe("viewport-optimized");
-    expect(document.getElementById("nowen-editor-runtime-notice")?.hidden).toBe(true);
+    expect(document.getElementById("nowen-editor-runtime-notice")).toBeNull();
   });
 
-  it("explains lightweight mode and lets the user retry full mode for this session", () => {
+  it("does not show a notice for lightweight-edit mode", () => {
     const decision = resolveEditorRuntimeDecision({
       content: richText(400_000),
       contentFormat: "tiptap-json",
     });
     setActiveEditorRuntimeDecision("notice-note", decision);
 
-    const notice = document.getElementById("nowen-editor-runtime-notice") as HTMLDivElement | null;
-    expect(notice).not.toBeNull();
-    expect(notice?.hidden).toBe(false);
-    expect(notice?.textContent).toContain("轻量编辑模式");
-    expect(notice?.textContent).toContain("正文仍可编辑保存");
-
-    const action = notice?.querySelector("button") as HTMLButtonElement | null;
-    action?.click();
-
-    expect(getActiveEditorRuntimeState().decision.mode).toBe("normal");
-    expect(notice?.hidden).toBe(true);
+    expect(getActiveEditorRuntimeState().decision.mode).toBe("lightweight-edit");
+    expect(document.getElementById("nowen-editor-runtime-notice")).toBeNull();
   });
 
   it("does not allow the session restore API to bypass emergency readonly", () => {
@@ -62,6 +53,6 @@ describe("editor runtime notice", () => {
     requestActiveEditorRuntimeMode("normal");
 
     expect(getActiveEditorRuntimeState().decision.mode).toBe("emergency-readonly");
-    expect(document.getElementById("nowen-editor-runtime-notice")?.hidden).toBe(true);
+    expect(document.getElementById("nowen-editor-runtime-notice")).toBeNull();
   });
 });

@@ -1,36 +1,105 @@
 # OpenAPI 接入指南
 
-> 通过 REST API 与 nowen-note 集成，构建自定义应用。
+> 通过 REST API 与 nowen-note 集成，构建 CLI、自动化脚本、AI Agent 或自定义客户端。
 
 ---
 
 ## API 概览
 
-nowen-note 提供完整的 REST API，访问 `/api/openapi.json` 查看 OpenAPI 3.0 规范文档。
+nowen-note 提供完整的 REST API。服务启动后可访问 `/api/openapi.json` 获取 OpenAPI 3.0 规范。
 
----
+所有业务 API 均使用 JWT Token 认证。
 
 ## 认证
-
-所有 API 需要 JWT Token 认证。
 
 ### 获取 Token
 
 ```bash
-curl -X POST http://localhost:3001/api/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+  -d '{"username":"admin","password":"admin123"}' | jq -r '.token')
 ```
 
-返回：`{ "token": "eyJ..." }`
+后续请求添加：
 
-### 使用 Token
-
-在请求 Header 中添加：
-
-```
+```text
 Authorization: Bearer <token>
 ```
+
+---
+
+## 笔记内容格式
+
+笔记正文由 `content` 和 `contentFormat` 共同定义：
+
+| `contentFormat` | `content` 内容 |
+|---|---|
+| `markdown` | Markdown 源文，推荐第三方工具使用 |
+| `tiptap-json` | 序列化后的 Tiptap / ProseMirror JSON 字符串 |
+| `html` | HTML 内容 |
+
+`contentText` 是服务端从 `content` 派生的纯文本搜索字段，不是正文真源。第三方调用方创建或更新笔记时，应提交 `content` 和对应的 `contentFormat`，不要只写 `contentText`。
+
+Markdown 笔记会在客户端中自动使用 Markdown 编辑器打开，不需要先转换为 Tiptap JSON，也不需要调用独立的格式转换 API。
+
+---
+
+## 示例：创建 Markdown 笔记
+
+### 1. 创建笔记本
+
+```bash
+NOTEBOOK_ID=$(curl -s -X POST http://localhost:3001/api/notebooks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"API 测试"}' | jq -r '.id')
+```
+
+### 2. 创建笔记
+
+```bash
+curl -X POST http://localhost:3001/api/notes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg notebookId "$NOTEBOOK_ID" \
+    --arg title "通过 API 创建的 Markdown 笔记" \
+    --arg content $'# 标题\n\n正文 **加粗**\n\n- 第一项\n- 第二项' \
+    '{
+      notebookId: $notebookId,
+      title: $title,
+      content: $content,
+      contentFormat: "markdown"
+    }')"
+```
+
+服务端会自动生成 `contentText`，并维护搜索索引、块索引和内部链接等派生数据。
+
+---
+
+## 示例：更新 Markdown 笔记
+
+更新标题、正文或内容格式时必须携带当前 `version`，用于乐观锁冲突保护。
+
+```bash
+NOTE_ID="<note-id>"
+VERSION=$(curl -s http://localhost:3001/api/notes/$NOTE_ID \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.version')
+
+curl -X PUT http://localhost:3001/api/notes/$NOTE_ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg content $'# 更新后的标题\n\n这是新正文。' \
+    --argjson version "$VERSION" \
+    '{
+      content: $content,
+      contentFormat: "markdown",
+      version: $version
+    }')"
+```
+
+当服务端返回 `409 VERSION_CONFLICT` 时，应重新读取最新笔记和版本号，再由调用方决定重试或提示冲突。
 
 ---
 
@@ -41,8 +110,8 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/auth/login` | 登录 |
-| POST | `/api/auth/verify` | 验证 Token |
-| PUT | `/api/auth/change-password` | 修改密码 |
+| GET | `/api/auth/verify` | 验证 Token |
+| POST | `/api/auth/change-password` | 修改密码 |
 
 ### 笔记本
 
@@ -62,139 +131,47 @@ Authorization: Bearer <token>
 | GET | `/api/notes` | 获取笔记列表 |
 | GET | `/api/notes/:id` | 获取笔记详情 |
 | POST | `/api/notes` | 创建笔记 |
-| PUT | `/api/notes/:id` | 更新笔记 |
-| DELETE | `/api/notes/:id` | 删除笔记 |
+| PUT | `/api/notes/:id` | 更新笔记；内容类更新需携带 `version` |
+| DELETE | `/api/notes/:id` | 永久删除笔记 |
 
-### 标签
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/tags` | 获取标签列表 |
-| POST | `/api/tags` | 创建标签 |
-| PUT | `/api/tags/:id` | 更新标签 |
-| DELETE | `/api/tags/:id` | 删除标签 |
-
-### 搜索
+### 搜索、标签与任务
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/search?q=关键词` | 全文搜索 |
+| GET / POST | `/api/tags` | 获取或创建标签 |
+| PUT / DELETE | `/api/tags/:id` | 更新或删除标签 |
+| GET / POST | `/api/tasks` | 获取或创建任务 |
+| PUT | `/api/tasks/:id` | 更新任务 |
 
 ### 附件和文件
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/attachments` | 上传并绑定到指定笔记，`multipart/form-data` 字段为 `file`、`noteId` |
+| POST | `/api/attachments` | 上传并绑定到笔记，表单字段为 `file`、`noteId` |
 | GET | `/api/attachments/:id` | 下载或内联预览附件 |
 | DELETE | `/api/attachments/:id` | 删除附件 |
-| GET | `/api/files` | 文件管理列表，支持 `noteId`、`category`、`q`、`page` 等筛选 |
+| GET | `/api/files` | 文件管理列表 |
 | GET | `/api/files/stats` | 文件统计 |
 | GET | `/api/files/:id` | 文件详情和引用信息 |
-| POST | `/api/files/upload` | 上传到文件管理，暂不绑定业务笔记 |
+| POST | `/api/files/upload` | 上传到文件管理 |
 | PATCH | `/api/files/:id` | 重命名文件 |
 | DELETE | `/api/files/:id` | 删除文件 |
 | POST | `/api/files/batch-delete` | 批量删除文件 |
 
-### AI
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/ai/chat` | AI 对话 |
-| POST | `/api/ai/ask` | AI 知识库问答 |
-
-### 任务
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/tasks` | 获取任务列表 |
-| POST | `/api/tasks` | 创建任务 |
-| PUT | `/api/tasks/:id` | 更新任务 |
-
-### 思维导图
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/mindmaps` | 获取思维导图列表 |
-| POST | `/api/mindmaps` | 创建思维导图 |
-
-### 其他
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/settings` | 系统设置 |
-| GET | `/api/audit` | 审计日志 |
-| GET | `/api/backups` | 备份列表 |
-
----
-
-## 示例：创建笔记
-
-```bash
-# 1. 登录获取 Token
-TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r '.token')
-
-# 2. 创建笔记本
-curl -X POST http://localhost:3001/api/notebooks \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"API 测试"}'
-
-# 3. 创建笔记
-curl -X POST http://localhost:3001/api/notes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"通过 API 创建的笔记","contentText":"这是内容"}'
-```
-
----
-
-## 示例：上传附件
-
-绑定到指定笔记上传：
-
-```bash
-curl -X POST http://localhost:3001/api/attachments \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "noteId=<note-id>" \
-  -F "file=@./screenshot.png;type=image/png"
-```
-
-先上传到文件管理：
-
-```bash
-curl -X POST http://localhost:3001/api/files/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@./manual.pdf;type=application/pdf"
-```
-
-上传成功会返回 `url`，例如 `/api/attachments/<id>`。Markdown 笔记中可写入：
+上传成功后返回的附件地址可以直接写入 Markdown：
 
 ```markdown
 ![截图](/api/attachments/<id>)
-[PDF 附件](/api/attachments/<id>?download=1)
+[下载 PDF](/api/attachments/<id>?download=1)
 ```
 
 ---
 
-## SDK 和 CLI
+## SDK、CLI 和 MCP
 
-不想直接调用 HTTP API？还有更方便的方式：
-
-- [TypeScript SDK](./sdk.md) — Node.js/TypeScript 集成
+- [TypeScript SDK](./sdk.md) — Node.js / TypeScript 集成
 - [CLI 工具](./cli.md) — 命令行操作
-- [MCP Server](./mcp.md) — AI 助手集成
+- [MCP Server](./mcp.md) — Codex、Claude Desktop、Cursor 等 AI 工具集成
 
----
-
-## 下一步
-
-- [SDK 使用教程](./sdk.md)
-- [MCP Server 教程](./mcp.md)
-- [CLI 工具教程](./cli.md)
-
----
-
-> 本教程基于 nowen-note v1.1.18 编写。
+OpenAPI 规范是接口契约的最终参考；升级服务后建议重新读取 `/api/openapi.json`。

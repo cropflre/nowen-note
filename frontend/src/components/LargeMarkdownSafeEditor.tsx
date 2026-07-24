@@ -45,6 +45,7 @@ import type {
   NoteEditorProps,
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
+import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   buildLargeMarkdownSearchText,
   computeSingleTextChange,
@@ -151,6 +152,7 @@ const LargeMarkdownSafeEditor = forwardRef<
 ) {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const previewRootRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -503,6 +505,10 @@ const LargeMarkdownSafeEditor = forwardRef<
 
   useEffect(() => {
     onEditorReady?.((position: number) => {
+      if (previewActiveRef.current && previewRootRef.current) {
+        scrollMarkdownPreviewToPosition(previewRootRef.current, position);
+        return;
+      }
       const view = viewRef.current;
       if (!view) return;
       const clamped = Math.max(0, Math.min(view.state.doc.length, position));
@@ -684,6 +690,7 @@ const LargeMarkdownSafeEditor = forwardRef<
           >
             <MarkdownPreview
               markdown={previewMarkdown}
+              containerRef={previewRootRef}
               className="h-full"
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
             />

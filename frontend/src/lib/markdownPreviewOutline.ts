@@ -91,14 +91,16 @@ export function headingDataAttrs(
   node: any,
   baseOffset = 0,
   headingIds?: ReadonlyMap<number, string>,
+  headingPositions?: ReadonlyMap<number, number>,
 ): Record<string, string> {
   const offset = getNodeStartOffset(node);
   if (offset == null) return {};
   const globalOffset = baseOffset + offset;
   const id = headingIds?.get(globalOffset);
+  const sourceOffset = headingPositions?.get(globalOffset) ?? globalOffset;
   return id
-    ? { id, "data-md-pos": String(globalOffset) }
-    : { "data-md-pos": String(globalOffset) };
+    ? { id, "data-md-pos": String(sourceOffset) }
+    : { "data-md-pos": String(sourceOffset) };
 }
 
 export function findMarkdownPreviewHeadingTarget(

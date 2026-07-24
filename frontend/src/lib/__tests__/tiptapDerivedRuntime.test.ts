@@ -18,14 +18,14 @@ describe("Tiptap derived runtime policy", () => {
   });
 
   it.each(["viewport-optimized", "lightweight-edit", "emergency-readonly"] as const)(
-    "suppresses realtime outline extraction in %s mode",
+    "keeps worker-backed outline publication in %s mode",
     (mode) => {
       const decision = createEditorRuntimeDecision(
         mode,
         ["node-count"],
         buildEditorComplexityProfile("", "tiptap-json"),
       );
-      expect(shouldPublishRealtimeTiptapOutline(decision)).toBe(false);
+      expect(shouldPublishRealtimeTiptapOutline(decision)).toBe(true);
     },
   );
 });

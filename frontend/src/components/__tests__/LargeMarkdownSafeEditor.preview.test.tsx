@@ -185,4 +185,30 @@ describe("LargeMarkdownSafeEditor 大文档预览", () => {
     expect(host.querySelector("[data-large-markdown-preview]")?.textContent).toContain("第二篇内容");
     expect(host.querySelector("[data-large-markdown-preview]")?.textContent).not.toContain("第一篇内容");
   });
+
+  it("预览模式点击大纲时滚动可见标题而不是隐藏的源码编辑器", async () => {
+    let scrolledElement: Element | null = null;
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function scrollIntoView() { scrolledElement = this; },
+    });
+    let scrollTo: ((pos: number) => void) | null = null;
+    const markdown = "# 第一章\n\n[[note:12345678-1234-1234-1234-123456789abc|一篇内部笔记]]\n\n## 第二章";
+
+    await act(async () => {
+      root.render(
+        <LargeMarkdownSafeEditor
+          note={note("note-outline", markdown)}
+          onUpdate={vi.fn()}
+          onEditorReady={(callback) => { scrollTo = callback; }}
+        />,
+      );
+    });
+    await act(async () => button(host, "预览").click());
+    await act(async () => scrollTo?.(markdown.indexOf("## 第二章")));
+
+    expect(scrolledElement).not.toBeNull();
+    expect((scrolledElement as Element | null)?.tagName).toBe("H2");
+    expect((scrolledElement as Element | null)?.textContent).toBe("第二章");
+  });
 });

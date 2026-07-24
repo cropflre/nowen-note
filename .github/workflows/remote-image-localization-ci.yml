@@ -1,0 +1,86 @@
+name: Remote Image Localization CI
+
+on:
+  push:
+    branches:
+      - main
+      - issue-346-remote-image-localization
+    paths:
+      - "backend/src/lib/remote-image-localization.ts"
+      - "backend/src/services/remote-image-import.ts"
+      - "backend/src/services/remote-image-localization*.ts"
+      - "backend/src/routes/remote-image-import.ts"
+      - "backend/tests/remote-image-localization*.test.ts"
+      - "frontend/src/lib/remoteImageLocalizationApi.ts"
+      - "frontend/src/components/RemoteImageLocalizationPanel.tsx"
+      - "frontend/src/components/TaskCenter.tsx"
+      - ".github/workflows/remote-image-localization-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/lib/remote-image-localization.ts"
+      - "backend/src/services/remote-image-import.ts"
+      - "backend/src/services/remote-image-localization*.ts"
+      - "backend/src/routes/remote-image-import.ts"
+      - "backend/tests/remote-image-localization*.test.ts"
+      - "frontend/src/lib/remoteImageLocalizationApi.ts"
+      - "frontend/src/components/RemoteImageLocalizationPanel.tsx"
+      - "frontend/src/components/TaskCenter.tsx"
+      - ".github/workflows/remote-image-localization-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Backend typecheck
+        run: npm run build:tsc -- --noEmit
+      - name: Remote image localization core tests
+        run: node --import tsx --test --test-concurrency=1 tests/remote-image-localization.test.ts
+      - name: Remote image localization service tests
+        run: node --import tsx --test --test-concurrency=1 tests/remote-image-localization-service.test.ts
+      - name: Authority, Yjs and rollback tests
+        run: node --import tsx --test --test-concurrency=1 tests/remote-image-localization-authority.test.ts
+      - name: Build backend bundle
+        run: npm run build
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Frontend typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc -b 2>&1 | tee /tmp/remote-image-localization-frontend-typecheck.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-image-localization-frontend-${{ github.run_id }}
+          path: /tmp/remote-image-localization-frontend-typecheck.log
+          if-no-files-found: warn
+          retention-days: 7

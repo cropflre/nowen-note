@@ -248,10 +248,11 @@ function createComponents(
   sourceOffset = 0,
   taskOffset = 0,
   headingIds?: ReadonlyMap<number, string>,
+  headingPositions?: ReadonlyMap<number, number>,
   onInternalAnchorClick?: (fragment: string) => void,
 ): Record<string, React.FC<any>> {
   const attrs = (node: any) => headingDataAttrs(node, sourceOffset);
-  const headingAttrs = (node: any) => headingDataAttrs(node, sourceOffset, headingIds);
+  const headingAttrs = (node: any) => headingDataAttrs(node, sourceOffset, headingIds, headingPositions);
   return {
     h1: ({ node, children }) => <h1 {...headingAttrs(node)} className="mb-4 mt-2 text-3xl font-bold leading-tight text-tx-primary">{children}</h1>,
     h2: ({ node, children }) => <h2 {...headingAttrs(node)} className="mb-3 mt-6 border-b border-app-border pb-2 text-2xl font-bold leading-snug text-tx-primary">{children}</h2>,
@@ -354,10 +355,11 @@ function createComponents(
   };
 }
 
-function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, onInternalAnchorClick }: {
+function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPositions, onInternalAnchorClick }: {
   segment: MarkdownPreviewSegment;
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void;
   headingIds: ReadonlyMap<number, string>;
+  headingPositions: ReadonlyMap<number, number>;
   onInternalAnchorClick: (fragment: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -378,8 +380,8 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, onInternal
     if (height > 0) setEstimatedHeight(height);
   }, [mounted, segment.markdown]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, onInternalAnchorClick),
-    [headingIds, onInternalAnchorClick, onTaskCheckboxChange, segment.start, segment.taskOffset],
+    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, headingPositions, onInternalAnchorClick),
+    [headingIds, headingPositions, onInternalAnchorClick, onTaskCheckboxChange, segment.start, segment.taskOffset],
   );
   const rehypePlugins: any[] = RAW_HTML_RE.test(segment.markdown)
     ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]]
@@ -410,13 +412,24 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
     .replace(/[​-‍﻿]/g, "")
     .replace(/[ 　]/g, " ")))), [markdown]);
   const headingIndex = useMemo(() => buildMarkdownPreviewHeadingIndex(renderedMarkdown), [renderedMarkdown]);
+  const sourceHeadingIndex = useMemo(() => buildMarkdownPreviewHeadingIndex(markdown || ""), [markdown]);
   const headingIds = useMemo(
     () => new Map(headingIndex.map((heading) => [heading.pos, heading.id])),
     [headingIndex],
   );
+  const headingPositions = useMemo(
+    () => new Map(headingIndex.map((heading, index) => [
+      heading.pos,
+      sourceHeadingIndex[index]?.pos ?? heading.pos,
+    ])),
+    [headingIndex, sourceHeadingIndex],
+  );
   const headingsById = useMemo(
-    () => new Map(headingIndex.map((heading) => [heading.id, heading])),
-    [headingIndex],
+    () => new Map(headingIndex.map((heading, index) => [heading.id, {
+      ...heading,
+      pos: sourceHeadingIndex[index]?.pos ?? heading.pos,
+    }])),
+    [headingIndex, sourceHeadingIndex],
   );
   const handleInternalAnchorClick = useCallback((fragment: string) => {
     let id = fragment;
@@ -435,8 +448,8 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
   }, [containerRef]);
   const containsRawHtml = RAW_HTML_RE.test(renderedMarkdown);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, handleInternalAnchorClick),
-    [handleInternalAnchorClick, headingIds, onTaskCheckboxChange],
+    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, headingPositions, handleInternalAnchorClick),
+    [handleInternalAnchorClick, headingIds, headingPositions, onTaskCheckboxChange],
   );
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];
   const segments = useMemo(
@@ -465,6 +478,7 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
           segment={segment}
           onTaskCheckboxChange={onTaskCheckboxChange}
           headingIds={headingIds}
+          headingPositions={headingPositions}
           onInternalAnchorClick={handleInternalAnchorClick}
         />
       )) : (

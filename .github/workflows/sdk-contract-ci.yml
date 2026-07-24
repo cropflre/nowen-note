@@ -1,0 +1,53 @@
+name: SDK Contract CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/nowen-sdk/**"
+      - "docs/tutorials/api.md"
+      - "docs/tutorials/sdk.md"
+      - ".github/workflows/sdk-contract-ci.yml"
+  pull_request:
+    paths:
+      - "packages/nowen-sdk/**"
+      - "docs/tutorials/api.md"
+      - "docs/tutorials/sdk.md"
+      - ".github/workflows/sdk-contract-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/nowen-sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build and test SDK
+        run: npm test
+      - name: Validate Markdown API documentation
+        working-directory: .
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const api = fs.readFileSync('docs/tutorials/api.md', 'utf8');
+          const sdk = fs.readFileSync('docs/tutorials/sdk.md', 'utf8');
+          for (const [name, text] of [['api.md', api], ['sdk.md', sdk]]) {
+            if (!text.includes('contentFormat')) throw new Error(`${name} must document contentFormat`);
+            if (!text.includes('"markdown"')) throw new Error(`${name} must document Markdown source writes`);
+          }
+          if (!api.includes('contentText') || !api.includes('服务端')) {
+            throw new Error('api.md must explain that contentText is server-derived');
+          }
+          NODE

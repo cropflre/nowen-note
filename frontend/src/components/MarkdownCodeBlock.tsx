@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { common, createLowlight } from "lowlight";
+import { createCodeBlockLowlight } from "@/lib/codeBlockLowlight";
 import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-const lowlight = instrumentPhaseALowlight(createLowlight(common));
+const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
 
 const LANGUAGE_LABELS: Record<string, string> = {
   bash: "Bash",
@@ -21,6 +21,9 @@ const LANGUAGE_LABELS: Record<string, string> = {
   json: "JSON",
   markdown: "Markdown",
   md: "Markdown",
+  maxscript: "MAXScript",
+  ms: "MAXScript",
+  mcr: "MAXScript",
   python: "Python",
   py: "Python",
   sql: "SQL",

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
+import RemoteImageLocalizationPanel from "./RemoteImageLocalizationPanel";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
@@ -36,5 +37,10 @@ export default function TaskCenter() {
     return () => document.removeEventListener("click", handleDeleteCapture, true);
   }, []);
 
-  return <TaskCenterImpl key={workspaceGeneration} />;
+  return (
+    <>
+      <TaskCenterImpl key={workspaceGeneration} />
+      <RemoteImageLocalizationPanel key={`remote-images-${workspaceGeneration}`} />
+    </>
+  );
 }

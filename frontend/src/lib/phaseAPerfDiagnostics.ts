@@ -1,3 +1,4 @@
+import { getCodeBlockAutoLanguageSubset } from "@/lib/codeBlockLowlight";
 import { isActiveEditorCapabilityEnabled } from "@/lib/editorRuntimeStore";
 
 export type PhaseAPerfEvent = {
@@ -172,8 +173,10 @@ export function installPhaseAEditorTransactionInstrumentation<TTransaction>(edit
   };
 }
 
+type LowlightAutoOptions = { subset?: string[] } | null | undefined;
+
 /**
- * Wrap lowlight once for both diagnostics and runtime capability control.
+ * Wrap lowlight once for diagnostics, runtime capability control, and stable automatic detection.
  *
  * Lightweight mode keeps code blocks editable but returns an empty highlight tree, avoiding a
  * synchronous full-code parse on every transaction. The wrapper reads the current capability at
@@ -181,7 +184,8 @@ export function installPhaseAEditorTransactionInstrumentation<TTransaction>(edit
  */
 export function instrumentPhaseALowlight<T extends {
   highlight: (language: string, code: string) => unknown;
-  highlightAuto: (code: string) => unknown;
+  highlightAuto: (code: string, options?: LowlightAutoOptions) => unknown;
+  listLanguages?: () => string[];
 }>(instance: T): T {
   if ((instance as T & { __nowenPhaseAInstrumented?: boolean }).__nowenPhaseAInstrumented) return instance;
   const marked = instance as T & { __nowenPhaseAInstrumented?: boolean };
@@ -203,11 +207,16 @@ export function instrumentPhaseALowlight<T extends {
       });
     }
   }) as T["highlight"];
-  instance.highlightAuto = ((code: string) => {
+  instance.highlightAuto = ((code: string, options?: LowlightAutoOptions) => {
     if (!isActiveEditorCapabilityEnabled("syntax-highlight")) return emptyResult();
     const startedAt = performance.now();
     try {
-      return highlightAuto(code);
+      const subset = options?.subset || (
+        typeof instance.listLanguages === "function"
+          ? getCodeBlockAutoLanguageSubset({ listLanguages: instance.listLanguages.bind(instance) })
+          : undefined
+      );
+      return highlightAuto(code, subset ? { ...(options || {}), subset } : options);
     } finally {
       recordPhaseAPerfEvent({
         type: "lowlight-highlight",

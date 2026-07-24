@@ -30,10 +30,14 @@ on:
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/phaseAPerfDiagnostics.ts"
       - "frontend/src/lib/codeBlockHighlightPlugin.ts"
+      - "frontend/src/lib/codeBlockLowlight.ts"
+      - "frontend/src/lib/codeBlockLanguages/**"
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/MarkdownEditor.tsx"
       - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/BlockEmbedExtension.tsx"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
@@ -46,6 +50,8 @@ on:
       - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
+      - "frontend/src/**/__tests__/*CodeBlock*.test.*"
+      - "frontend/src/**/__tests__/*codeBlock*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
       - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
@@ -96,10 +102,14 @@ on:
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/phaseAPerfDiagnostics.ts"
       - "frontend/src/lib/codeBlockHighlightPlugin.ts"
+      - "frontend/src/lib/codeBlockLowlight.ts"
+      - "frontend/src/lib/codeBlockLanguages/**"
       - "frontend/src/hooks/useLazyNodeView.ts"
       - "frontend/src/hooks/useNoteLoader.ts"
       - "frontend/src/components/MarkdownEditor.tsx"
       - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/BlockEmbedExtension.tsx"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
@@ -112,6 +122,8 @@ on:
       - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
       - "frontend/src/**/__tests__/*editorRuntime*.test.*"
+      - "frontend/src/**/__tests__/*CodeBlock*.test.*"
+      - "frontend/src/**/__tests__/*codeBlock*.test.*"
       - "frontend/src/**/__tests__/largeRichTextSafeMode.test.ts"
       - "frontend/src/lib/__tests__/largeMarkdownSafety.test.ts"
       - "frontend/src/lib/__tests__/markdownAnalysis*.test.ts"
@@ -155,7 +167,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: MAXScript grammar tests
+        run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts
+      - name: MAXScript Markdown tests
+        if: always()
+        run: npm run test:run -- src/components/__tests__/MarkdownCodeBlock.maxscript.test.tsx
+      - name: MAXScript picker tests
+        if: always()
+        run: npm run test:run -- src/components/__tests__/CodeBlockView.maxscript.test.tsx
       - name: Focused runtime tests
+        if: always()
         run: >-
           npm run test:run --
           src/lib/__tests__/editorRuntimePolicy.test.ts
@@ -186,4 +207,5 @@ jobs:
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx
       - name: Frontend typecheck
+        if: always()
         run: npx tsc -b

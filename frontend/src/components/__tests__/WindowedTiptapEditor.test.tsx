@@ -10,6 +10,8 @@ const apiMocks = vi.hoisted(() => ({
   getState: vi.fn(),
   applyUpdate: vi.fn(),
   editorProps: [] as any[],
+  outlineScrolls: [] as Array<{ sectionId: string; pos: number }>,
+  suppressUpdates: false,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -23,8 +25,13 @@ vi.mock("@/lib/api", () => ({
 vi.mock("../TiptapEditor", () => ({
   default: forwardRef<NoteEditorHandle, any>(function MockSectionEditor(props, ref) {
     const { note, onUpdate } = props;
+    const onEditorReady = props.onEditorReady as ((callback: (pos: number) => void) => void) | undefined;
     apiMocks.editorProps.push(props);
     const valueRef = React.useRef(note.content);
+    const sectionId = JSON.parse(note.content).content[0]?.attrs?.blockId || "empty";
+    React.useEffect(() => {
+      onEditorReady?.((pos: number) => apiMocks.outlineScrolls.push({ sectionId, pos }));
+    }, [onEditorReady, sectionId]);
     useImperativeHandle(ref, () => ({
       flushSave: () => undefined,
       getSnapshot: () => ({ content: valueRef.current, contentText: "" }),
@@ -32,11 +39,13 @@ vi.mock("../TiptapEditor", () => ({
     }), []);
     return (
       <textarea
-        data-section-editor={JSON.parse(note.content).content[0]?.attrs?.blockId || "empty"}
+        data-section-editor={sectionId}
         defaultValue={note.content}
         onChange={(event) => {
           valueRef.current = event.target.value;
-          onUpdate({ content: event.target.value, contentText: "", title: note.title });
+          if (!apiMocks.suppressUpdates) {
+            onUpdate({ content: event.target.value, contentText: "", title: note.title });
+          }
         }}
       />
     );
@@ -73,6 +82,22 @@ function largeNote(id = "window-note") {
     updatedAt: "2026-01-01 00:00:00",
     tags: [],
   } as any;
+}
+
+function headingNote() {
+  const blocks = [
+    { type: "heading", attrs: { level: 1, blockId: "blk_heading_a" }, content: [{ type: "text", text: "章节 A" }] },
+    { type: "paragraph", attrs: { blockId: "blk_paragraph_a" }, content: [{ type: "text", text: "A content" }] },
+    { type: "heading", attrs: { level: 2, blockId: "blk_heading_b" }, content: [{ type: "text", text: "章节 B" }] },
+    { type: "paragraph", attrs: { blockId: "blk_paragraph_b" }, content: [{ type: "text", text: "B content" }] },
+    { type: "heading", attrs: { level: 3, blockId: "blk_heading_b_detail" }, content: [{ type: "text", text: "章节 B 细节" }] },
+    { type: "heading", attrs: { level: 2, blockId: "blk_heading_c" }, content: [{ type: "text", text: "章节 C" }] },
+  ];
+  return {
+    ...largeNote("window-heading-note"),
+    content: JSON.stringify({ type: "doc", content: blocks }),
+    contentText: "章节 A\nA content\n章节 B\nB content\n章节 B 细节\n章节 C",
+  };
 }
 
 function encodeState(content: string, guid: string): string {
@@ -158,6 +183,8 @@ describe("WindowedTiptapEditor", () => {
     apiMocks.getState.mockReset();
     apiMocks.applyUpdate.mockReset();
     apiMocks.editorProps.length = 0;
+    apiMocks.outlineScrolls.length = 0;
+    apiMocks.suppressUpdates = false;
     installHealthyApi();
   });
 
@@ -187,6 +214,100 @@ describe("WindowedTiptapEditor", () => {
     await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 700 } } as any], {} as any));
     await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
     expect(apiMocks.editorProps.at(-1)?.useParentScrollContainer).toBe(true);
+  });
+
+  it("publishes every section heading and routes an outline click to its owning section", async () => {
+    const note = headingNote();
+    installHealthyApi(note);
+    let headings: Array<{ text: string; pos: number }> = [];
+    let scrollTo: ((pos: number) => void) | null = null;
+
+    await act(async () => root.render(
+      <WindowedTiptapEditor
+        note={note}
+        onUpdate={vi.fn()}
+        onHeadingsChange={(next) => { headings = next; }}
+        onEditorReady={(next) => { scrollTo = next; }}
+      />,
+    ));
+
+    expect(headings).not.toHaveLength(4);
+    await vi.waitFor(() => expect(headings.map((heading) => heading.text)).toEqual([
+      "章节 A",
+      "章节 B",
+      "章节 B 细节",
+      "章节 C",
+    ]));
+    expect(scrollTo).not.toBeNull();
+
+    await act(async () => scrollTo?.(headings[1].pos));
+    await vi.waitFor(() => expect(apiMocks.outlineScrolls).toContainEqual({
+      sectionId: "blk_heading_b",
+      pos: 0,
+    }));
+  });
+
+  it("章节在防抖更新前卸载时用最新快照刷新该章节大纲", async () => {
+    const note = headingNote();
+    installHealthyApi(note);
+    let headings: Array<{ text: string; pos: number }> = [];
+    await act(async () => root.render(
+      <WindowedTiptapEditor
+        note={note}
+        onUpdate={vi.fn()}
+        onHeadingsChange={(next) => { headings = next; }}
+      />,
+    ));
+    await vi.waitFor(() => expect(headings).toHaveLength(4));
+    await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 640 } } as any], {} as any));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
+
+    apiMocks.suppressUpdates = true;
+    const secondEditor = host.querySelectorAll<HTMLTextAreaElement>("[data-section-editor]")[1];
+    const sectionDoc = JSON.parse(secondEditor.value);
+    sectionDoc.content.push({
+      type: "heading",
+      attrs: { level: 4, blockId: "blk_snapshot_heading" },
+      content: [{ type: "text", text: "快照新增标题" }],
+    });
+    await act(async () => changeTextarea(secondEditor, JSON.stringify(sectionDoc)));
+    expect(headings.map((heading) => heading.text)).not.toContain("快照新增标题");
+
+    await act(async () => callbacks[1]?.([{ isIntersecting: false, boundingClientRect: { height: 640 } } as any], {} as any));
+
+    await vi.waitFor(() => expect(headings.map((heading) => heading.text)).toContain("快照新增标题"));
+  });
+
+  it("已挂载章节内的深层标题由子编辑器完成最终精确定位", async () => {
+    const note = headingNote();
+    installHealthyApi(note);
+    const frameScroll = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: frameScroll,
+    });
+    let headings: Array<{ text: string; pos: number }> = [];
+    let scrollTo: ((pos: number) => void) | null = null;
+
+    await act(async () => root.render(
+      <WindowedTiptapEditor
+        note={note}
+        onUpdate={vi.fn()}
+        onHeadingsChange={(next) => { headings = next; }}
+        onEditorReady={(next) => { scrollTo = next; }}
+      />,
+    ));
+    await vi.waitFor(() => expect(headings).toHaveLength(4));
+    await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 640 } } as any], {} as any));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
+    frameScroll.mockClear();
+
+    await act(async () => scrollTo?.(headings[2].pos));
+
+    const localScroll = apiMocks.outlineScrolls.find((item) => item.sectionId === "blk_heading_b");
+    expect(localScroll?.pos).toBeGreaterThan(0);
+    expect(frameScroll).not.toHaveBeenCalled();
   });
 
   it("keeps the shared toolbar sticky against the whole windowed scroll container", async () => {

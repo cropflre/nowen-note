@@ -13,6 +13,7 @@ import MermaidView from "@/components/MermaidView";
 import { isMermaidLang } from "@/lib/mermaidRenderer";
 import { replaceCodeBlockWithPlainText } from "@/lib/tiptapEditorCommands";
 import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
+import { formatCodeBlockLanguageLabel } from "@/lib/codeBlockLowlight";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 import {
   getEditorEditableSnapshot,
@@ -37,15 +38,8 @@ const POPULAR_LANGUAGES = [
   "go", "rust", "php", "ruby", "kotlin", "swift",
   "bash", "shell", "powershell",
   "sql", "yaml", "markdown", "diff", "dockerfile",
-  "mermaid",
+  "maxscript", "mermaid",
 ];
-
-function formatLanguageLabel(raw: string | null | undefined): string {
-  if (!raw) return "auto";
-  const v = raw.toLowerCase();
-  if (v === "plaintext" || v === "text") return "text";
-  return v;
-}
 
 export function normalizeCodeBlockIndent(value: unknown): number {
   const numeric = Number(value);
@@ -352,7 +346,7 @@ export function CodeBlockView(props: NodeViewProps) {
               )}
               title={canChangeLanguage ? "切换语言" : "笔记本已锁定，不能修改代码语言"}
             >
-              <span>{formatLanguageLabel(currentLang)}</span>
+              <span>{formatCodeBlockLanguageLabel(currentLang)}</span>
               <ChevronDown size={11} />
             </button>
 
@@ -392,7 +386,7 @@ export function CodeBlockView(props: NodeViewProps) {
                           lang === (currentLang || "auto") && "is-active",
                         )}
                       >
-                        {lang}
+                        {formatCodeBlockLanguageLabel(lang)}
                       </button>
                     ))
                   )}
