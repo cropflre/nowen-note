@@ -136,6 +136,14 @@ export function createNoteCollectionRuntime(
   const dbDialect = resolveDialect(dialect);
   const core = createNoteCoreRuntime(db, dbDialect);
 
+  async function readWorkspaceOwner(workspaceId: string): Promise<string | null> {
+    const workspace = await db.queryOne<{ ownerId: string }>(
+      `SELECT "ownerId" AS "ownerId" FROM workspaces WHERE id = ?`,
+      [workspaceId],
+    );
+    return workspace?.ownerId ?? null;
+  }
+
   async function resolveNotebookPermission(
     notebookId: string,
     userId: string,
@@ -155,6 +163,9 @@ export function createNoteCollectionRuntime(
     if (member) return { notebook, permission: rolePermission(member.role) };
 
     if (!notebook.workspaceId) return { notebook, permission: null };
+    if (await readWorkspaceOwner(notebook.workspaceId) === userId) {
+      return { notebook, permission: "manage" };
+    }
     const workspaceMember = await db.queryOne<RoleRow>(`
       SELECT role FROM workspace_members
       WHERE "workspaceId" = ? AND "userId" = ?
@@ -164,14 +175,11 @@ export function createNoteCollectionRuntime(
   }
 
   async function assertWorkspaceReadable(workspaceId: string, userId: string): Promise<void> {
-    const workspace = await db.queryOne<{ userId: string }>(
-      `SELECT "userId" FROM workspaces WHERE id = ?`,
-      [workspaceId],
-    );
-    if (!workspace) {
+    const ownerId = await readWorkspaceOwner(workspaceId);
+    if (!ownerId) {
       throw new NoteCoreRuntimeError("工作区不存在", "WORKSPACE_NOT_FOUND", 404);
     }
-    if (workspace.userId === userId) return;
+    if (ownerId === userId) return;
     const member = await db.queryOne<RoleRow>(`
       SELECT role FROM workspace_members WHERE "workspaceId" = ? AND "userId" = ?
     `, [workspaceId, userId]);
