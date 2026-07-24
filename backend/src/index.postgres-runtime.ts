@@ -109,8 +109,15 @@ async function authenticateNoteRequest(c: Context, next: Next) {
   await next();
 }
 
+// The notes collection (list/create) is not part of this migration slice.
+// Register it explicitly so clients get a note-specific pending code instead of the global fallback.
+app.all("/api/notes", (c) => c.json({
+  error: "该笔记集合操作尚未迁移到 PostgreSQL Runtime",
+  code: "POSTGRES_NOTE_ROUTE_MIGRATION_PENDING",
+}, 503));
+
 // Only the migrated single-note boundary is authenticated and enabled.
-// The collection route and remaining note subroutes continue to return the runtime-pending response.
+// Remaining note subroutes continue to return the note-specific runtime-pending response.
 app.use("/api/notes/:id", authenticateNoteRequest);
 app.use("/api/notes/:id/*", authenticateNoteRequest);
 app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres"));
