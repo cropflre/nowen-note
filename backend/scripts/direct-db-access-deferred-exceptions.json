@@ -47,10 +47,15 @@
       "reason": "The new block API arrived after the baseline and requires a block Repository before PostgreSQL business routes can be enabled.",
       "counts": { "getDb-call": 17, "prepare-call": 2 }
     },
+    "routes/import-batches.ts": {
+      "owner": "#249",
+      "reason": "Main added personal import/export feature-flag checks to the Round-trip route. Batch list/detail already use Runtime repositories; the remaining user feature lookup stays in the SQLite-only route until the user settings boundary migrates.",
+      "counts": { "getDb-call": 1 }
+    },
     "routes/notebooks.ts": {
       "owner": "#249",
-      "reason": "Main added share-limit and capability operations to the notebook route. The underlying share Repository is migrated, while remaining route-local notebook transactions await the core notebook batch.",
-      "counts": { "prepare-call": 12, "transaction-call": 3 }
+      "reason": "Main expanded notebook capability and permission operations. The underlying share Repository is migrated, while remaining route-local notebook reads and transactions await the core notebook batch.",
+      "counts": { "getDb-call": 12, "prepare-call": 12, "transaction-call": 3 }
     },
     "routes/notes.ts": {
       "owner": "#249",
@@ -132,10 +137,20 @@
       "reason": "Source-link undo refines and restores mappings around the import undo transaction. It remains coupled to the destructive rollback path and is deferred as one #251 cross-driver transaction unit.",
       "counts": { "getDb-call": 15 }
     },
+    "services/roundTripImportPermissionUndo.ts": {
+      "owner": "#251",
+      "reason": "Main added permission rollback to the destructive import undo path. It must migrate with the import-batch transaction and permission audit snapshot as one #251 unit.",
+      "counts": { "getDb-call": 1 }
+    },
     "services/roundTripMarkdownExportJobs.ts": {
       "owner": "#251",
       "reason": "Round-trip Markdown export jobs were added after the baseline and are part of the import/export data migration surface tracked by #251.",
       "counts": { "getDb-call": 1, "prepare-call": 2 }
+    },
+    "services/roundTripPermissionTransfer.ts": {
+      "owner": "#251",
+      "reason": "Main introduced V2 Round-trip permission export/import and restore auditing. Its package-level SQLite reads and atomic membership writes remain part of the #251 import/export transaction boundary; the legacy mapping API already uses a Runtime Repository.",
+      "counts": { "getDb-call": 26 }
     },
     "services/single-share-access.ts": {
       "owner": "#249",
