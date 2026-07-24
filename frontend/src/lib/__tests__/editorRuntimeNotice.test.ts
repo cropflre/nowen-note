@@ -21,6 +21,17 @@ describe("editor runtime notice", () => {
 
   afterEach(() => clearActiveEditorRuntimeDecision());
 
+  it("does not show a notice for viewport-optimized mode", () => {
+    const decision = resolveEditorRuntimeDecision({
+      content: richText(120_000),
+      contentFormat: "tiptap-json",
+    });
+    setActiveEditorRuntimeDecision("viewport-note", decision);
+
+    expect(getActiveEditorRuntimeState().decision.mode).toBe("viewport-optimized");
+    expect(document.getElementById("nowen-editor-runtime-notice")?.hidden).toBe(true);
+  });
+
   it("explains lightweight mode and lets the user retry full mode for this session", () => {
     const decision = resolveEditorRuntimeDecision({
       content: richText(400_000),
