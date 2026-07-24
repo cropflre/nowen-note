@@ -3,26 +3,46 @@ const BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 const SIMPLE_MARKS = new Set(["bold", "italic", "underline", "strike", "code"]);
 const NODE_KEYS = new Set(["type", "attrs", "content"]);
 const INLINE_KEYS = new Set(["type", "text", "marks"]);
+const IMAGE_KEYS = new Set(["type", "attrs"]);
+const IMAGE_ATTR_KEYS = new Set(["src", "alt", "title", "width", "height", "rotation", "flipX"]);
 const MARK_KEYS = new Set(["type", "attrs"]);
 const HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
 const FONT_SIZE_RE = /^(?:\d+(?:\.\d+)?)(?:px|em|rem|%)$/;
 const LANGUAGE_RE = /^[A-Za-z0-9_+.#-]{0,64}$/;
 const SAFE_REL_RE = /^[A-Za-z0-9_\s-]{0,256}$/;
 const SAFE_CLASS_RE = /^[A-Za-z0-9_\s-]{0,128}$/;
+const SAFE_DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\r\n]+$/i;
 
 export interface TiptapPatchMark {
   type: string;
   attrs?: Record<string, unknown> | null;
 }
 
+export interface TiptapPatchImageNode {
+  type: "image";
+  attrs: {
+    src: string;
+    alt?: string | null;
+    title?: string | null;
+    width?: number | string | null;
+    height?: number | string | null;
+    rotation?: 0 | 90 | 180 | 270;
+    flipX?: boolean;
+  };
+}
+
+export type TiptapPatchInlineNode =
+  | {
+      type: "text" | "hardBreak";
+      text?: string;
+      marks?: TiptapPatchMark[];
+    }
+  | TiptapPatchImageNode;
+
 export interface TiptapPatchJsonNode {
   type: "paragraph" | "heading" | "codeBlock";
   attrs: Record<string, unknown>;
-  content?: Array<{
-    type: "text" | "hardBreak";
-    text?: string;
-    marks?: TiptapPatchMark[];
-  }>;
+  content?: TiptapPatchInlineNode[];
 }
 
 export class TiptapBlockNodeValidationError extends Error {
@@ -72,6 +92,74 @@ function isSafeHref(value: unknown): value is string {
     || trimmed.startsWith("/")
     || trimmed.startsWith("./")
     || trimmed.startsWith("../");
+}
+
+function isSafeImageSrc(value: unknown): value is string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 240_000) return false;
+  if (/[\u0000-\u001f\u007f]/.test(value.replace(/[\r\n]/g, ""))) return false;
+  const trimmed = value.trim();
+  if (!trimmed || /^(?:javascript|vbscript|file|blob):/i.test(trimmed)) return false;
+  return /^https?:/i.test(trimmed)
+    || trimmed.startsWith("/")
+    || trimmed.startsWith("./")
+    || trimmed.startsWith("../")
+    || SAFE_DATA_IMAGE_RE.test(trimmed);
+}
+
+function normalizeOptionalLabel(value: unknown, label: string): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new TiptapBlockNodeValidationError(`${label} 无效`);
+  }
+  return value;
+}
+
+function normalizeImageDimension(value: unknown, label: string): number | string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^\d+$/.test(value)
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 10_000) {
+    throw new TiptapBlockNodeValidationError(`${label} 必须为 1-10000 的整数`);
+  }
+  return value as number | string;
+}
+
+function normalizeImage(raw: Record<string, unknown>, label: string): TiptapPatchImageNode {
+  assertOnlyKeys(raw, IMAGE_KEYS, label);
+  const attrs = raw.attrs;
+  if (!isRecord(attrs)) throw new TiptapBlockNodeValidationError(`${label}.attrs 必须是对象`);
+  assertOnlyKeys(attrs, IMAGE_ATTR_KEYS, `${label}.attrs`);
+  if (!isSafeImageSrc(attrs.src)) throw new TiptapBlockNodeValidationError(`${label}.attrs.src 协议或大小不安全`);
+
+  const normalized: TiptapPatchImageNode["attrs"] = { src: attrs.src.trim() };
+  const alt = normalizeOptionalLabel(attrs.alt, `${label}.attrs.alt`);
+  const title = normalizeOptionalLabel(attrs.title, `${label}.attrs.title`);
+  const width = normalizeImageDimension(attrs.width, `${label}.attrs.width`);
+  const height = normalizeImageDimension(attrs.height, `${label}.attrs.height`);
+  if (alt !== undefined) normalized.alt = alt;
+  if (title !== undefined) normalized.title = title;
+  if (width !== undefined) normalized.width = width;
+  if (height !== undefined) normalized.height = height;
+
+  if (attrs.rotation !== undefined) {
+    const rotation = Number(attrs.rotation);
+    if (![0, 90, 180, 270].includes(rotation)) {
+      throw new TiptapBlockNodeValidationError(`${label}.attrs.rotation 仅支持 0/90/180/270`);
+    }
+    normalized.rotation = rotation as 0 | 90 | 180 | 270;
+  }
+  if (attrs.flipX !== undefined) {
+    if (typeof attrs.flipX !== "boolean") {
+      throw new TiptapBlockNodeValidationError(`${label}.attrs.flipX 必须是布尔值`);
+    }
+    normalized.flipX = attrs.flipX;
+  }
+  return { type: "image", attrs: normalized };
 }
 
 function validateMark(raw: unknown, label: string): TiptapPatchMark {
@@ -177,10 +265,14 @@ export function normalizeTiptapReplacementNode(
     throw new TiptapBlockNodeValidationError("replace.node.content 必须是受限数组");
   }
 
-  const normalizedContent = content.map((child, index) => {
+  const normalizedContent = content.map((child, index): TiptapPatchInlineNode => {
     const label = `replace.node.content[${index}]`;
     if (!isRecord(child) || typeof child.type !== "string") {
       throw new TiptapBlockNodeValidationError(`${label} 无效`);
+    }
+    if (child.type === "image") {
+      if (type === "codeBlock") throw new TiptapBlockNodeValidationError(`${label} 在 codeBlock 中无效`);
+      return normalizeImage(child, label);
     }
     assertOnlyKeys(child, INLINE_KEYS, label);
     if (child.type === "hardBreak") {
@@ -190,7 +282,7 @@ export function normalizeTiptapReplacementNode(
       return { type: "hardBreak" as const };
     }
     if (child.type !== "text" || typeof child.text !== "string") {
-      throw new TiptapBlockNodeValidationError(`${label} 仅支持 text/hardBreak`);
+      throw new TiptapBlockNodeValidationError(`${label} 仅支持 text/hardBreak/image`);
     }
     if (child.text.length > 1_000_000) {
       throw new TiptapBlockNodeValidationError(`${label}.text 过长`);
