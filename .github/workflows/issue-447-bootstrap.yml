@@ -1,0 +1,52 @@
+name: Issue 447 Bootstrap
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/scripts/issue447_modify_existing.py"
+      - ".github/workflows/issue-447-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout PR source branch
+        run: git checkout -B "${{ github.head_ref }}" "origin/${{ github.head_ref }}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply guarded integration
+        run: python .github/scripts/issue447_modify_existing.py
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Run share management backend tests
+        working-directory: backend
+        run: node --import tsx --test tests/share-management.test.ts
+      - name: Type-check backend
+        working-directory: backend
+        run: npm run build:tsc
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run share management frontend tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/shareManagement.test.ts src/components/__tests__/ShareManagementPage.test.tsx
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend frontend
+          git commit -m "feat(shares): add centralized share management (#447)"
+          git push origin HEAD:"${{ github.head_ref }}"
