@@ -13,6 +13,11 @@ import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
+import {
+  applyEditorUpdateToNote,
+  PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
+  readEditorSplitCloseNoteId,
+} from "@/lib/editorSplitMirror";
 import { Tag, Notebook, MindMapData, MindMapNode, type Note } from "@/types";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
@@ -674,6 +679,34 @@ export default function EditorPane({
     await handleUpdateRef.current?.(data);
   }, []);
 
+  useEffect(() => {
+    const prepareSplitClose = (event: Event) => {
+      const noteId = readEditorSplitCloseNoteId(event);
+      const current = activeNoteRef.current;
+      if (!current || (noteId && current.id !== noteId)) return;
+
+      try {
+        const snapshot = editorHandleRef.current?.getSnapshot?.();
+        if (snapshot && typeof snapshot.content === "string") {
+          const next = {
+            ...current,
+            content: snapshot.content,
+            contentText: snapshot.contentText,
+          };
+          activeNoteRef.current = next;
+          actions.setActiveNote(next);
+        }
+      } catch {
+        /* flushSave below remains the fallback when a snapshot is unavailable. */
+      }
+
+      try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
+    };
+
+    window.addEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+    return () => window.removeEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+  }, [actions]);
+
   // �л��ʼ�ʱ��Ȿ�زݸ�
   useEffect(() => {
     setPendingDraft(null);
@@ -1230,6 +1263,15 @@ export default function EditorPane({
 
     if (shouldSkipUnchangedTitleOnlyUpdate(currentNote.title, data)) {
       return;
+    }
+
+    // Keep the app state on the editor's latest local snapshot. The duplicate split pane uses
+    // this state as its live read-only mirror, and a remounted primary editor must never
+    // initialize from the last server acknowledgement while a newer save is still in flight.
+    const localNote = applyEditorUpdateToNote(currentNote, data);
+    if (localNote !== currentNote) {
+      activeNoteRef.current = localNote;
+      actions.setActiveNote(localNote);
     }
 
     // P0: 空内容防护已移至后端（notes.ts suspicious_empty_update 拦截）。

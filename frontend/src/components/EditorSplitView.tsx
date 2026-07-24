@@ -205,6 +205,7 @@ export default function EditorSplitView() {
             duplicateDocument={duplicateDocument}
             onToggleReadOnly={() => setSecondaryReadOnly((value) => !value)}
             onPromote={promoteSecondary}
+            onClose={actions.closeEditorSplit}
             showHideNoteList={!state.noteListCollapsed}
             onHideNoteList={hideNoteList}
           />
@@ -232,6 +233,7 @@ interface SplitEditorPaneProps {
   duplicateDocument: boolean;
   onToggleReadOnly: () => void;
   onPromote: (note: Note) => void;
+  onClose: () => void;
   showHideNoteList: boolean;
   onHideNoteList: () => void;
 }
@@ -242,6 +244,7 @@ function SplitEditorPane({
   duplicateDocument,
   onToggleReadOnly,
   onPromote,
+  onClose,
   showHideNoteList,
   onHideNoteList,
 }: SplitEditorPaneProps) {
@@ -289,6 +292,10 @@ function SplitEditorPane({
 
   useEffect(() => {
     const coordinator = coordinatorRef.current!;
+    if (duplicateDocument && state.activeNote?.id === noteId) {
+      setNote(state.activeNote);
+      return () => coordinator.cancel();
+    }
     void coordinator.run({
       noteId,
       summary: {
@@ -342,13 +349,18 @@ function SplitEditorPane({
       },
     });
     return () => coordinator.cancel();
-  }, [actions, noteId, splitSink, t]);
+  }, [actions, duplicateDocument, noteId, splitSink, t]);
 
   useEffect(() => {
     return () => {
       try { editorHandleRef.current?.flushSave?.(); } catch { /* ignore */ }
     };
   }, [noteId]);
+
+  useEffect(() => {
+    if (!duplicateDocument || state.activeNote?.id !== noteId) return;
+    setNote(state.activeNote);
+  }, [duplicateDocument, noteId, state.activeNote]);
 
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     const current = noteRef.current;
@@ -479,7 +491,7 @@ function SplitEditorPane({
         <button
           type="button"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-          onClick={() => actions.closeEditorSplit()}
+          onClick={onClose}
           title={t("editorTabs.closeSplit")}
           aria-label={t("editorTabs.closeSplit")}
         >
