@@ -16,11 +16,6 @@ import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
-import {
-  clearPendingProfileReauthentication,
-  finalizePendingProfileLogin,
-  getPendingProfileReauthentication,
-} from "@/lib/profileCredentialVault";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -88,9 +83,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
 
   useEffect(() => {
     if (!isClientMode) return;
-    const pendingProfile = getPendingProfileReauthentication();
-    const saved = pendingProfile?.serverUrl || getServerUrl() || localStorage.getItem("nowen-server-url-last") || "";
-    if (pendingProfile?.username) setUsername(pendingProfile.username);
+    const saved = getServerUrl() || localStorage.getItem("nowen-server-url-last") || "";
     if (saved) {
       setServerParts(parseServerUrl(saved));
       setServerStatus("ok");
@@ -220,7 +213,6 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
         storeLoginToken(data.token);
-        await finalizePendingProfileLogin({ token: data.token, password, user: data.user });
         onLogin(data.token, data.user);
         return;
       }
@@ -255,7 +247,6 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
       }
 
       storeLoginToken(data.token);
-      await finalizePendingProfileLogin({ token: data.token, password, user: data.user });
       onLogin(data.token, data.user);
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
@@ -321,7 +312,6 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
       }
 
       storeLoginToken(data.token);
-      await finalizePendingProfileLogin({ token: data.token, password, user: data.user });
       onLogin(data.token, data.user);
     } catch (err: any) {
       setError(err?.message || t("auth.networkError"));
@@ -339,7 +329,6 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   };
 
   const handleDisconnect = () => {
-    clearPendingProfileReauthentication();
     clearServerUrl();
     localStorage.removeItem("nowen-token");
     setServerParts({ protocol: "http", host: "", port: "", path: "" });

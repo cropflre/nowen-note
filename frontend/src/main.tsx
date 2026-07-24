@@ -26,7 +26,6 @@ import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeC
 import TaskDataTransferBridgeV2 from "./components/TaskDataTransferBridgeV2";
 import SystemFullDataTransferBridge from "./components/SystemFullDataTransferBridge";
 import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
-import ServerConnectionCenter from "./components/ServerConnectionCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
 import NoteTransferCenter from "./components/NoteTransferCenter";
@@ -172,7 +171,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <TaskDataTransferBridgeV2 />
         <SystemFullDataTransferBridge />
         <AndroidShareImportCenter />
-        <ServerConnectionCenter />
         <NoteImageExportCenter />
         <DocxImportCenter />
         <PublicSpaceLauncher />
