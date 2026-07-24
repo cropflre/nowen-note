@@ -47,13 +47,18 @@ export interface UpdateNotebookParams {
 }
 
 // ===== 笔记 =====
+export type NoteContentFormat = "markdown" | "tiptap-json" | "html";
+
 export interface Note {
   id: string;
   userId: string;
   notebookId: string;
   title: string;
+  /** 正文真源；具体编码由 contentFormat 决定。 */
   content: string;
+  /** 服务端从 content 派生的纯文本搜索字段，不应作为正文写入来源。 */
   contentText: string;
+  contentFormat: NoteContentFormat;
   isPinned: number;
   isFavorite: number;
   isLocked: number;
@@ -69,6 +74,7 @@ export interface NoteSummary {
   notebookId: string;
   title: string;
   contentText: string;
+  contentFormat?: NoteContentFormat;
   isPinned: number;
   isFavorite: number;
   isLocked: number;
@@ -90,19 +96,27 @@ export interface ListNotesParams {
 export interface CreateNoteParams {
   notebookId: string;
   title?: string;
+  /** Markdown 源文、Tiptap JSON 字符串或 HTML，需与 contentFormat 对应。 */
   content?: string;
+  /** 推荐显式传入；第三方 Markdown 客户端应使用 markdown。 */
+  contentFormat?: NoteContentFormat;
+  /** @deprecated contentText 由服务端从 content 派生，仅保留旧客户端兼容。 */
   contentText?: string;
 }
 
 export interface UpdateNoteParams {
   title?: string;
+  /** Markdown 源文、Tiptap JSON 字符串或 HTML，需与 contentFormat 对应。 */
   content?: string;
+  contentFormat?: NoteContentFormat;
+  /** @deprecated contentText 由服务端从 content 派生，仅保留旧客户端兼容。 */
   contentText?: string;
   notebookId?: string;
   isPinned?: number;
   isFavorite?: number;
   isLocked?: number;
   isTrashed?: number;
+  /** 更新标题、正文或格式时必须携带当前版本号。 */
   version?: number;
 }
 

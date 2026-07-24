@@ -101,7 +101,11 @@ function toBlob(file: UploadAttachmentParams["file"], mimeType: string): Blob {
     return new Blob([file], { type: mimeType });
   }
   if (file instanceof Uint8Array) {
-    return new Blob([file], { type: mimeType });
+    // Uint8Array may be backed by SharedArrayBuffer, which is not a valid DOM BlobPart.
+    // Copy it into a fresh ArrayBuffer to keep the public Node/browser contract type-safe.
+    const bytes = new Uint8Array(file.byteLength);
+    bytes.set(file);
+    return new Blob([bytes.buffer], { type: mimeType });
   }
   return new Blob([file], { type: mimeType });
 }
@@ -121,6 +125,7 @@ export class NowenAttachmentClient {
   private readonly timeout: number;
   private readonly fetchImpl: typeof fetch;
   private token: string | null = null;
+  private loginPromise: Promise<void> | null = null;
 
   constructor(config: NowenConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
@@ -146,7 +151,13 @@ export class NowenAttachmentClient {
   }
 
   private async ensureAuth(): Promise<void> {
-    if (!this.token) await this.login();
+    if (this.token) return;
+    if (!this.loginPromise) {
+      this.loginPromise = this.login().finally(() => {
+        this.loginPromise = null;
+      });
+    }
+    await this.loginPromise;
   }
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -169,7 +180,7 @@ export class NowenAttachmentClient {
     let response = await this.fetchImpl(url, initFactory(this.token!));
     if (response.status === 401) {
       this.token = null;
-      await this.login();
+      await this.ensureAuth();
       response = await this.fetchImpl(url, initFactory(this.token!));
     }
     if (!response.ok) {
@@ -273,7 +284,6 @@ export class NowenAttachmentClient {
         },
         body: JSON.stringify({
           content: nextContent,
-          contentText: nextContent,
           contentFormat: "markdown",
           version: Number(note.version) || 1,
         }),
