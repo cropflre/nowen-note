@@ -8,6 +8,7 @@ import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-d
 const OWNER = "pg-note-formats-owner";
 const EDITOR = "pg-note-formats-editor";
 const NOTEBOOK = "pg-note-formats-notebook";
+const MEMBER = "pg-note-formats-member";
 const NOTE = "66666666-6666-4666-8666-666666666666";
 const TARGET = "77777777-7777-4777-8777-777777777777";
 const ATTACHMENT = "88888888-8888-4888-8888-888888888888";
@@ -35,17 +36,18 @@ async function seed(pool: import("pg").Pool): Promise<void> {
     [NOTEBOOK, OWNER],
   );
   await pool.query(
+    `INSERT INTO notebook_members (
+       id, "notebookId", "userId", role, status, "invitedBy"
+     ) VALUES ($1, $2, $3, 'editor', 'active', $4)`,
+    [MEMBER, NOTEBOOK, EDITOR, OWNER],
+  );
+  await pool.query(
     `INSERT INTO notes (
        id, "userId", "notebookId", title, content, "contentText", "contentFormat", version
      ) VALUES
        ($1, $2, $3, 'Formats', $4, 'Seed', 'tiptap-json', 1),
        ($5, $2, $3, 'Target', $4, 'Seed', 'tiptap-json', 1)`,
     [NOTE, OWNER, NOTEBOOK, tiptapBody("Seed"), TARGET],
-  );
-  await pool.query(
-    `INSERT INTO note_acl ("noteId", "userId", permission)
-     VALUES ($1, $2, 'write')`,
-    [NOTE, EDITOR],
   );
   await pool.query(
     `INSERT INTO attachments (
