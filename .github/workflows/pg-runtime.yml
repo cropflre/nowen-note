@@ -162,6 +162,7 @@ jobs:
           tests/favorites-repository-pg.test.ts
           tests/note-tags-repository-pg.test.ts
           tests/note-link-titles-runtime-pg.test.ts
+          tests/note-core-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -212,6 +213,9 @@ jobs:
             if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) {
               throw new Error(`unexpected runtime mode: ${JSON.stringify(health.runtime)}`);
             }
+            if (!health.runtime?.migratedRoutes?.includes("GET /api/notes/:id")) {
+              throw new Error(`missing migrated route status: ${JSON.stringify(health.runtime)}`);
+            }
           '
 
           status=$(curl --silent --output /tmp/pending.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
@@ -219,7 +223,7 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const body = JSON.parse(fs.readFileSync("/tmp/pending.json", "utf8"));
-            if (body.code !== "POSTGRES_RUNTIME_MIGRATION_PENDING") {
+            if (body.code !== "POSTGRES_NOTE_ROUTE_MIGRATION_PENDING") {
               throw new Error(`unexpected pending response: ${JSON.stringify(body)}`);
             }
           '
