@@ -1,6 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ShareManagementPage from "@/components/ShareManagementPage";
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
   getShareManagement: vi.fn(),
@@ -32,19 +35,47 @@ const response = {
   stats: { total: 1, active: 1, disabled: 0, expired: 0, exhausted: 0 },
 };
 
+async function flushEffects(rounds = 4) {
+  await act(async () => {
+    for (let index = 0; index < rounds; index += 1) await Promise.resolve();
+  });
+}
+
 describe("ShareManagementPage", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
   beforeEach(() => {
     mocks.getShareManagement.mockReset();
     mocks.getShareManagement.mockResolvedValue(response);
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    document.body.innerHTML = "";
   });
 
   it("renders management details and uses server-side status filtering", async () => {
-    render(<ShareManagementPage />);
-    expect(await screen.findAllByText("我的公开笔记")).not.toHaveLength(0);
-    expect(screen.getAllByText("正常").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("已设密码").length).toBeGreaterThan(0);
+    await act(async () => { root.render(<ShareManagementPage />); });
+    await flushEffects();
 
-    fireEvent.change(screen.getByLabelText("按状态筛选"), { target: { value: "disabled" } });
-    await waitFor(() => expect(mocks.getShareManagement).toHaveBeenLastCalledWith(expect.objectContaining({ status: "disabled" })));
+    expect(host.textContent).toContain("我的公开笔记");
+    expect(host.textContent).toContain("正常");
+    expect(host.textContent).toContain("已设密码");
+
+    const statusSelect = host.querySelector('select[aria-label="按状态筛选"]') as HTMLSelectElement | null;
+    expect(statusSelect).not.toBeNull();
+    await act(async () => {
+      statusSelect!.value = "disabled";
+      statusSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(mocks.getShareManagement).toHaveBeenLastCalledWith(expect.objectContaining({ status: "disabled" }));
   });
 });
