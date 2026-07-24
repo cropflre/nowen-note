@@ -51,29 +51,44 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Frontend Block Patch suite
+        id: frontend-suite
         working-directory: frontend
-        run: >-
-          npm run test:run --
-          src/lib/__tests__/blockPatchApi.test.ts
-          src/lib/__tests__/blockPatchListStructureApi.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
-          src/lib/__tests__/tiptapSchemaRepair.test.ts
-          src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts
-          src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts
-          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
-          src/lib/__tests__/tiptapListItemMovePlanner.test.ts
-          src/lib/__tests__/tiptapListItemStructurePlanner.test.ts
-          src/lib/__tests__/tiptapListItemBatchPlanner.test.ts
-          src/lib/__tests__/tiptapListItemLiftPlanner.test.ts
-          src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
-          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
-          src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx
-          src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx
-          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
+        shell: bash
+        run: |
+          set +e
+          npm run test:run -- \
+            src/lib/__tests__/blockPatchApi.test.ts \
+            src/lib/__tests__/blockPatchListStructureApi.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts \
+            src/lib/__tests__/tiptapSchemaRepair.test.ts \
+            src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts \
+            src/lib/__tests__/tiptapBlockPatchRuntime.test.ts \
+            src/lib/__tests__/tiptapListItemMovePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemStructurePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemBatchPlanner.test.ts \
+            src/lib/__tests__/tiptapListItemLiftPlanner.test.ts \
+            src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts \
+            src/components/__tests__/TiptapBlockPatchRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx \
+            src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx \
+            src/components/__tests__/TiptapRuntimePublicContext.test.tsx > /tmp/issue-355-gate-frontend.log 2>&1
+          status=$?
+          tail -n 200 /tmp/issue-355-gate-frontend.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload frontend gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-355-gate-frontend
+          path: /tmp/issue-355-gate-frontend.log
+      - name: Require frontend suite success
+        if: steps.frontend-suite.outputs.status != '0'
+        run: exit 1
       - name: Frontend typecheck
         working-directory: frontend
         run: npx tsc -b
