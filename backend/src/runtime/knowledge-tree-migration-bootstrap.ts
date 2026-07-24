@@ -1,6 +1,7 @@
 import { knowledgeTreeMigration } from "../db/knowledgeTreeMigration.js";
 import { knowledgeTreeResourceMigration } from "../db/knowledgeTreeResourceMigration.js";
 import { knowledgeTreeParentPreservationMigration } from "../db/knowledgeTreeParentPreservationMigration.js";
+import { knowledgeTreeLegacySyncMigration } from "../db/knowledgeTreeLegacySyncMigration.js";
 import { MIGRATIONS as BASE_MIGRATIONS } from "../db/migrations.impl.js";
 
 // index.hardened imports this module before any runtime that can open the database.
@@ -10,6 +11,7 @@ for (const featureMigration of [
   knowledgeTreeMigration,
   knowledgeTreeResourceMigration,
   knowledgeTreeParentPreservationMigration,
+  knowledgeTreeLegacySyncMigration,
 ]) {
   if (!BASE_MIGRATIONS.some((migration) => migration.version === featureMigration.version)) {
     BASE_MIGRATIONS.push(featureMigration);
