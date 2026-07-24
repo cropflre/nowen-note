@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ShareManagementPage from "@/components/ShareManagementPage";
 
-const getShareManagement = vi.fn();
+const mocks = vi.hoisted(() => ({
+  getShareManagement: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
-    getShareManagement,
+    getShareManagement: mocks.getShareManagement,
     updateShare: vi.fn(),
     deleteShare: vi.fn(),
     getNote: vi.fn(),
@@ -32,8 +34,8 @@ const response = {
 
 describe("ShareManagementPage", () => {
   beforeEach(() => {
-    getShareManagement.mockReset();
-    getShareManagement.mockResolvedValue(response);
+    mocks.getShareManagement.mockReset();
+    mocks.getShareManagement.mockResolvedValue(response);
   });
 
   it("renders management details and uses server-side status filtering", async () => {
@@ -43,6 +45,6 @@ describe("ShareManagementPage", () => {
     expect(screen.getAllByText("已设密码").length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("按状态筛选"), { target: { value: "disabled" } });
-    await waitFor(() => expect(getShareManagement).toHaveBeenLastCalledWith(expect.objectContaining({ status: "disabled" })));
+    await waitFor(() => expect(mocks.getShareManagement).toHaveBeenLastCalledWith(expect.objectContaining({ status: "disabled" })));
   });
 });
