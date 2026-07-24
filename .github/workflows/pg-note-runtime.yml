@@ -7,8 +7,10 @@ on:
       - "backend/src/lib/noteBlocksRuntime.ts"
       - "backend/src/lib/noteContentReferences.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
@@ -17,8 +19,10 @@ on:
       - "backend/src/lib/noteBlocksRuntime.ts"
       - "backend/src/lib/noteContentReferences.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
@@ -61,7 +65,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: TypeScript check
         run: npm run build:tsc -- --noEmit
-      - name: Real PostgreSQL single-note runtime tests
+      - name: Real PostgreSQL note runtime tests
         shell: bash
         run: |
           set -o pipefail
@@ -69,6 +73,7 @@ jobs:
             tests/note-link-titles-runtime-pg.test.ts \
             tests/note-core-runtime-pg.test.ts \
             tests/note-core-runtime-formats-pg.test.ts \
+            tests/note-collection-runtime-pg.test.ts \
             2>&1 | tee /tmp/pg-note-runtime.log
       - name: Upload note runtime diagnostics
         if: always()
