@@ -39,8 +39,24 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Run share management frontend tests
+        id: frontend-tests
         working-directory: frontend
-        run: npm run test:run -- src/lib/__tests__/shareManagement.test.ts src/components/__tests__/ShareManagementPage.test.tsx
+        shell: bash
+        run: |
+          set +e
+          npm run test:run -- src/lib/__tests__/shareManagement.test.ts src/components/__tests__/ShareManagementPage.test.tsx > /tmp/issue-447-frontend.log 2>&1
+          status=$?
+          cat /tmp/issue-447-frontend.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-447-frontend
+          path: /tmp/issue-447-frontend.log
+      - name: Require frontend tests
+        if: steps.frontend-tests.outputs.status != '0'
+        run: exit 1
       - name: Type-check frontend
         working-directory: frontend
         run: npx tsc -b
