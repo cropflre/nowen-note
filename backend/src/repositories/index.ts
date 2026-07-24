@@ -64,6 +64,10 @@ export { shareCommentsRepository } from "./shareCommentsRepository";
 export { diaryAttachmentsRepository } from "./diaryAttachmentsRepository";
 export { embeddingQueueRepository } from "./embeddingQueueRepository";
 export { roundTripPermissionMappingRepository } from "./roundTripPermissionMappingRepository";
+export {
+  blockAuthorityRepository,
+  createBlockAuthorityRepository,
+} from "./blockAuthorityRepository";
 
 // 类型导出
 export type {
