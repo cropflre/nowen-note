@@ -69,7 +69,7 @@ export const roundTripPermissionMappingRepository = {
     return getAdapter().queryMany<RoundTripPermissionTargetUserRow>(
       `SELECT id, username, email
          FROM users
-        WHERE COALESCE("isDisabled", 0) = 0
+        WHERE "isDisabled" IS NOT TRUE
         ORDER BY id`,
     );
   },
@@ -81,7 +81,7 @@ export const roundTripPermissionMappingRepository = {
       `SELECT id
          FROM users
         WHERE id IN (${placeholders})
-          AND COALESCE("isDisabled", 0) = 0`,
+          AND "isDisabled" IS NOT TRUE`,
       userIds,
     );
     return new Set(rows.map((row) => row.id));
