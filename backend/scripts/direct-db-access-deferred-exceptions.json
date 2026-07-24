@@ -12,6 +12,11 @@
       "reason": "Main introduced list-subtree incremental index planning after the reviewed baseline. It reads the SQLite Block index inside the existing Block Patch transaction and must migrate with the complete #249 block transaction boundary.",
       "counts": { "better-sqlite3": 1, "prepare-call": 1 }
     },
+    "lib/blockPatchListStructureIncrementalIndexes.ts": {
+      "owner": "#249",
+      "reason": "Main introduced list create/delete incremental index maintenance inside the synchronous Block Patch transaction. It must migrate with the complete #249 block transaction boundary rather than being split from the route transaction.",
+      "counts": { "better-sqlite3": 1, "prepare-call": 2 }
+    },
     "lib/noteBlocks.ts": {
       "owner": "#249",
       "reason": "Main added block-level note operations after the original Repository boundary snapshot. A PostgreSQL-safe title-propagation planner now exists, while the general synchronous Block API remains coupled to SQLite routes and transactions.",
@@ -19,7 +24,7 @@
     },
     "lib/noteLinkTitles.ts": {
       "owner": "#249",
-      "reason": "A PostgreSQL Runtime async implementation now atomically updates source content, Block indexes and backlinks. The legacy synchronous function remains only for routes/notes.ts until the core notes route is converted to the async Runtime boundary.",
+      "reason": "A PostgreSQL Runtime async implementation now atomically updates source content, Block indexes and backlinks. The legacy synchronous function remains for the default SQLite notes route while the remaining note operations migrate.",
       "counts": { "better-sqlite3": 1, "prepare-call": 2 }
     },
     "lib/searchIndex.ts": {
@@ -44,7 +49,7 @@
     },
     "routes/notes.ts": {
       "owner": "#249",
-      "reason": "Main expanded note operations after the original snapshot. Core note queries and transactions remain an explicit high-risk #249 batch.",
+      "reason": "The PostgreSQL Runtime now owns single-note GET and Tiptap content PUT. The default SQLite route still contains create, metadata, trash, delete, Yjs and remaining format transactions tracked by #249.",
       "counts": { "prepare-call": 31 }
     },
     "routes/remote-image-import.ts": {
