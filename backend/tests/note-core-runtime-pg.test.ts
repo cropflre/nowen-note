@@ -142,11 +142,11 @@ test("PostgreSQL core note runtime reads and saves Tiptap notes atomically", { s
     await assert.rejects(
       () => runtime.saveNote(OWNER, TARGET, {
         version: 1,
-        contentFormat: "markdown",
-        content: "# Not yet",
+        contentFormat: "plaintext",
+        content: "Unsupported format",
       }),
       (error: unknown) => error instanceof NoteCoreRuntimeError
-        && error.code === "POSTGRES_NOTE_FORMAT_MIGRATION_PENDING",
+        && error.code === "INVALID_CONTENT_FORMAT",
     );
 
     const nextContent = doc([
