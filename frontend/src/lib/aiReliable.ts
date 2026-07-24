@@ -65,6 +65,13 @@ export interface ReliableStatus {
   model: string | null;
   apiHost: string | null;
   embeddingModel: string | null;
+  embedding?: {
+    source: "chat" | "profile" | "custom";
+    profileId: string | null;
+    profileName: string | null;
+    errorCode: string | null;
+    error: string | null;
+  };
   scope: {
     workspaceId: string | null;
     notebookCount: number | null;

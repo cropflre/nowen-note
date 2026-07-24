@@ -3,9 +3,9 @@ export function getNodeStartOffset(node: any): number | undefined {
   return typeof offset === "number" && Number.isFinite(offset) ? offset : undefined;
 }
 
-export function headingDataAttrs(node: any): Record<string, string> {
+export function headingDataAttrs(node: any, baseOffset = 0): Record<string, string> {
   const offset = getNodeStartOffset(node);
-  return offset == null ? {} : { "data-md-pos": String(offset) };
+  return offset == null ? {} : { "data-md-pos": String(baseOffset + offset) };
 }
 
 export function findMarkdownPreviewHeadingTarget(

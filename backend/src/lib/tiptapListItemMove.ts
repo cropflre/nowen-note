@@ -12,6 +12,13 @@ export interface TiptapListItemMoveOperation {
   position: TiptapListItemMovePosition;
 }
 
+export interface TiptapListItemTopLevelLiftOperation {
+  type: "lift";
+  scope: "listItem";
+  blockId: string;
+  position: "before" | "after";
+}
+
 export class TiptapListItemMoveError extends Error {
   constructor(message: string) {
     super(message);
@@ -225,4 +232,46 @@ export function applyTiptapListItemMove(
     moveAtSameDepth(source, target, operation.position);
   }
   return [operation.blockId, operation.targetBlockId];
+}
+
+/** Lift one leaf item out of a top-level list while preserving its paragraph Block identity. */
+export function applyTiptapListItemTopLevelLift(
+  doc: any,
+  operation: TiptapListItemTopLevelLiftOperation,
+): { affectedBlockIds: string[]; deletedBlockIds: string[] } {
+  if (!validBlockId(operation.blockId) || !["before", "after"].includes(operation.position)) {
+    throw new TiptapListItemMoveError("顶层提升参数无效");
+  }
+  if (!doc || doc.type !== "doc" || !Array.isArray(doc.content)) {
+    throw new TiptapListItemMoveError("富文本列表文档无效");
+  }
+  const source = locateListItem(doc, operation.blockId);
+  if (source.depth !== 1 || source.listFrame.parent !== doc.content) {
+    throw new TiptapListItemMoveError("顶层提升只支持根列表中的叶子项");
+  }
+  if (!Array.isArray(source.item.content) || source.item.content.length !== 1) {
+    throw new TiptapListItemMoveError("顶层提升只支持单段落叶子列表项");
+  }
+  const paragraph = source.item.content[0];
+  const paragraphId = paragraph?.attrs?.blockId;
+  if (paragraph?.type !== "paragraph" || !validBlockId(paragraphId)) {
+    throw new TiptapListItemMoveError("顶层提升列表项的段落结构无效");
+  }
+
+  const listIndex = doc.content.indexOf(source.list);
+  const sourceIndex = source.list.content.indexOf(source.item);
+  if (listIndex < 0 || sourceIndex < 0) {
+    throw new TiptapListItemMoveError("列表结构已变化，无法完成顶层提升");
+  }
+  source.list.content.splice(sourceIndex, 1);
+  if (source.list.content.length === 0) {
+    doc.content.splice(listIndex, 1, paragraph);
+  } else {
+    const destination = operation.position === "before" ? listIndex : listIndex + 1;
+    doc.content.splice(destination, 0, paragraph);
+  }
+  return {
+    affectedBlockIds: [operation.blockId, paragraphId],
+    deletedBlockIds: [operation.blockId],
+  };
 }

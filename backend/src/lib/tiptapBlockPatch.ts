@@ -6,14 +6,22 @@ import {
 } from "./noteBlocks.js";
 import {
   applyTiptapListItemMove,
+  applyTiptapListItemTopLevelLift,
   TiptapListItemMoveError,
   type TiptapListItemMoveOperation,
+  type TiptapListItemTopLevelLiftOperation,
 } from "./tiptapListItemMove.js";
 import {
   normalizeTiptapReplacementNode,
   TiptapBlockNodeValidationError,
   type TiptapPatchJsonNode,
 } from "./tiptapBlockPatchNode.js";
+import {
+  applyTiptapListItemStructure,
+  normalizeTiptapListItemPatchNode,
+  TiptapListItemStructureError,
+  type TiptapListItemStructuralOperation,
+} from "./tiptapListItemStructure.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const SUPPORTED_TYPES = new Set<string>(SUPPORTED_NOTE_BLOCK_TYPES);
@@ -21,6 +29,7 @@ const SUPPORTED_TYPES = new Set<string>(SUPPORTED_NOTE_BLOCK_TYPES);
 export type TiptapBlockPatchOperation =
   | {
       type: "create";
+      scope?: undefined;
       clientId?: string;
       blockId?: string;
       blockType?: NoteBlockType;
@@ -39,6 +48,7 @@ export type TiptapBlockPatchOperation =
     }
   | {
       type: "delete";
+      scope?: undefined;
       blockId: string;
     }
   | {
@@ -48,12 +58,15 @@ export type TiptapBlockPatchOperation =
       targetBlockId: string;
       position?: "before" | "after";
     }
-  | TiptapListItemMoveOperation;
+  | TiptapListItemMoveOperation
+  | TiptapListItemTopLevelLiftOperation
+  | TiptapListItemStructuralOperation;
 
 export interface TiptapBlockPatchResult {
   content: string;
   affectedBlockIds: string[];
   createdBlocks: Array<{ operationIndex: number; clientId: string | null; blockId: string }>;
+  deletedBlockIds: string[];
 }
 
 export class TiptapBlockPatchError extends Error {
@@ -85,6 +98,10 @@ interface TiptapLocation {
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
 }
 
 function makeBlockId(): string {
@@ -205,11 +222,42 @@ function validateOperation(operation: any, index: number): asserts operation is 
   if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 必须是对象`);
   }
-  if (!["create", "update", "replace", "delete", "move"].includes(operation.type)) {
+  if (!["create", "update", "replace", "delete", "move", "lift"].includes(operation.type)) {
     throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].type 无效`);
   }
 
   if (operation.type === "create") {
+    if (operation.scope === "listItem") {
+      if (!exactKeys(operation, [
+        "type",
+        "scope",
+        "clientId",
+        "blockId",
+        "targetBlockId",
+        "position",
+        "node",
+      ])) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 列表项 create 包含未知字段`);
+      }
+      if (!validBlockId(operation.blockId) || !validBlockId(operation.targetBlockId)) {
+        throw new TiptapBlockPatchError("INVALID_BLOCK_ID", `operations[${index}] 列表项 Block ID 无效`);
+      }
+      if (!["before", "after"].includes(operation.position)) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].position 无效`);
+      }
+      if (operation.clientId != null && (
+        typeof operation.clientId !== "string"
+        || operation.clientId.length < 1
+        || operation.clientId.length > 64
+      )) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].clientId 长度必须为 1-64`);
+      }
+      operation.node = normalizeTiptapListItemPatchNode(operation.node, operation.blockId);
+      return;
+    }
+    if (operation.scope != null) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].scope 无效`);
+    }
     const blockType = operation.blockType || "paragraph";
     if (!SUPPORTED_TYPES.has(blockType)) {
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].blockType 无效`);
@@ -235,6 +283,27 @@ function validateOperation(operation: any, index: number): asserts operation is 
 
   if (!validBlockId(operation.blockId)) {
     throw new TiptapBlockPatchError("INVALID_BLOCK_ID", `operations[${index}].blockId 无效`);
+  }
+  if (operation.type === "lift") {
+    if (operation.scope !== "listItem" || !["before", "after"].includes(operation.position)) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 顶层 lift 无效`);
+    }
+    if (!exactKeys(operation, ["type", "scope", "blockId", "position"])) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 顶层 lift 包含未知字段`);
+    }
+    return;
+  }
+  if (operation.type === "delete") {
+    if (operation.scope === "listItem") {
+      if (!exactKeys(operation, ["type", "scope", "blockId"])) {
+        throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}] 列表项 delete 包含未知字段`);
+      }
+      return;
+    }
+    if (operation.scope != null) {
+      throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].scope 无效`);
+    }
+    return;
   }
   if (operation.type === "update") {
     if (typeof operation.text !== "string") {
@@ -307,9 +376,22 @@ export function applyTiptapBlockPatch(
 
   const affectedBlockIds: string[] = [];
   const createdBlocks: TiptapBlockPatchResult["createdBlocks"] = [];
+  const deletedBlockIds: string[] = [];
   const knownIds = collectBlockIds(doc.content);
 
   operations.forEach((operation, operationIndex) => {
+    if (operation.type === "create" && operation.scope === "listItem") {
+      const result = applyTiptapListItemStructure(doc, operation);
+      affectedBlockIds.push(...result.affectedBlockIds);
+      result.createdBlockIds.forEach((blockId) => knownIds.add(blockId));
+      createdBlocks.push({
+        operationIndex,
+        clientId: operation.clientId || null,
+        blockId: operation.blockId,
+      });
+      return;
+    }
+
     if (operation.type === "create") {
       const blockId = operation.blockId || createId();
       if (!validBlockId(blockId)) {
@@ -333,6 +415,29 @@ export function applyTiptapBlockPatch(
         clientId: operation.clientId || null,
         blockId,
       });
+      return;
+    }
+
+    if (operation.type === "delete" && operation.scope === "listItem") {
+      const result = applyTiptapListItemStructure(doc, operation);
+      affectedBlockIds.push(...result.affectedBlockIds);
+      deletedBlockIds.push(...result.deletedBlockIds);
+      result.deletedBlockIds.forEach((blockId) => knownIds.delete(blockId));
+      return;
+    }
+
+    if (operation.type === "lift" && operation.scope === "listItem") {
+      try {
+        const result = applyTiptapListItemTopLevelLift(doc, operation);
+        affectedBlockIds.push(...result.affectedBlockIds);
+        deletedBlockIds.push(...result.deletedBlockIds);
+        result.deletedBlockIds.forEach((blockId) => knownIds.delete(blockId));
+      } catch (error) {
+        const message = error instanceof TiptapListItemMoveError
+          ? error.message
+          : "列表项顶层提升无效";
+        throw new TiptapBlockPatchError("LIST_MOVE_INVALID", message);
+      }
       return;
     }
 
@@ -380,6 +485,7 @@ export function applyTiptapBlockPatch(
       repairEmptyContainers(doc.content);
       knownIds.delete(operation.blockId);
       affectedBlockIds.push(operation.blockId);
+      deletedBlockIds.push(operation.blockId);
       return;
     }
 
@@ -398,6 +504,16 @@ export function applyTiptapBlockPatch(
     target.parent.splice(Math.max(0, destination), 0, node);
     affectedBlockIds.push(operation.blockId);
   });
+
+  if (doc.content.length === 0 && operations.some((operation) => (
+    (operation.type === "create" || operation.type === "delete")
+    && operation.scope === "listItem"
+  ))) {
+    throw new TiptapListItemStructureError(
+      "LIST_STRUCTURE_INVALID",
+      "删除最后一个列表项继续使用整篇保存与空文档 Block ID 对账",
+    );
+  }
 
   if (doc.content.length === 0) {
     let blockId = createId();
@@ -418,5 +534,6 @@ export function applyTiptapBlockPatch(
     content: JSON.stringify(doc),
     affectedBlockIds: [...new Set(affectedBlockIds)],
     createdBlocks,
+    deletedBlockIds: [...new Set(deletedBlockIds)],
   };
 }

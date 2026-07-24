@@ -11,12 +11,12 @@ import {
 } from "../lib/api";
 import { buildContentBundle } from "../lib/transform";
 import { localizeRemoteImages } from "../lib/image-localizer";
+import { requestExtractFromTab } from "../lib/content-script-bridge";
 import type {
   AIEnhanceMode,
   AIEnhanceTasks,
   EnhancedClipRequest,
   EnhancedClipResponse,
-  ExtractRequest,
   ExtractResponse,
   ImageProgressStats,
 } from "../lib/protocol";
@@ -73,13 +73,17 @@ async function runEnhancedClip(req: EnhancedClipRequest): Promise<EnhancedClipRe
 
   let extracted: ExtractResponse;
   try {
-    extracted = await requestExtract(req.tabId, extractMode);
+    extracted = await requestExtractFromTab(req.tabId, extractMode);
   } finally {
     void cleanupLazyAssets(req.tabId);
   }
 
   if (!extracted.ok || !extracted.data) {
-    return { ok: false, error: extracted.error || "内容抽取失败" };
+    return {
+      ok: false,
+      error: extracted.error || "内容抽取失败",
+      errorCode: extracted.errorCode,
+    };
   }
 
   const data = extracted.data;
@@ -254,20 +258,6 @@ async function saveNote(
     sendProgress("error", message);
     notify("保存失败", message);
     return { ok: false, error: message };
-  }
-}
-
-async function requestExtract(
-  tabId: number,
-  mode: ExtractRequest["mode"],
-): Promise<ExtractResponse> {
-  const message: ExtractRequest = { type: "EXTRACT_REQUEST", mode };
-  try {
-    return await chrome.tabs.sendMessage(tabId, message) as ExtractResponse;
-  } catch {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-    await sleep(120);
-    return await chrome.tabs.sendMessage(tabId, message) as ExtractResponse;
   }
 }
 

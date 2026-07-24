@@ -10,6 +10,7 @@ import {
   type NowenClipperConfig,
 } from "../lib/storage";
 import { listNotebooks, listWorkspaces, type NotebookSummary, type WorkspaceSummary } from "../lib/api";
+import { describeRuntimeMessageError } from "../lib/runtime-message-error";
 import type {
   AIEnhanceMode,
   AIEnhanceTasks,
@@ -275,7 +276,11 @@ async function save() {
       textarea("quick-content").value = "";
     }
   } catch (error: any) {
-    showResult({ ok: false, error: String(error?.message || error) });
+    showResult({
+      ok: false,
+      error: describeRuntimeMessageError(error),
+      errorCode: "BACKGROUND_UNAVAILABLE",
+    });
   } finally {
     chrome.runtime.onMessage.removeListener(progressHandler);
     byId("progress").classList.add("hidden");

@@ -119,6 +119,8 @@ import CodeBlockView from "@/components/CodeBlockView";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
+import { createTiptapAnalysisController, type TiptapAnalysisController } from "@/lib/tiptapAnalysisClient";
+import type { TiptapAnalysisResult, TiptapJsonNode } from "@/lib/tiptapAnalysis";
 import {
   insertPlainTextPreservingParagraphs,
   insertCodeBlockNewline,
@@ -1546,6 +1548,14 @@ function getEditorPlainText(editor: any): string {
   }
 }
 
+function getEditorPlainTextForSave(
+  editor: any,
+  cache: { doc: object; result: TiptapAnalysisResult } | null,
+): string {
+  if (cache && cache.doc === editor.state.doc) return cache.result.plainText;
+  return getEditorPlainText(editor);
+}
+
 type WordStats = { chars: number; charsNoSpace: number; words: number };
 type WordStatsHandle = { update: (stats: WordStats) => void };
 
@@ -1571,6 +1581,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const derivedTimer = useRef<NodeJS.Timeout | null>(null);
+  const analysisControllerRef = useRef<TiptapAnalysisController | null>(null);
+  const analysisRequestRef = useRef<{ requestId: number; noteId: string; doc: object } | null>(null);
+  const analysisCacheRef = useRef<{ doc: object; result: TiptapAnalysisResult } | null>(null);
   const editorRevisionGuardRef = useRef(new EditorRevisionGuard());
   const saveGenerationRef = useRef(0);
   const pendingSaveAckRef = useRef<TiptapSaveAckToken | null>(null);
@@ -1776,6 +1789,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const nonCjk = text.replace(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, " ").trim();
     const enWords = nonCjk ? nonCjk.split(/\s+/).filter(Boolean).length : 0;
     return { chars, charsNoSpace, words: cjk + enWords };
+  }, []);
+
+  const queueTiptapAnalysis = useCallback((currentEditor: Editor): boolean => {
+    const controller = analysisControllerRef.current;
+    if (!controller || currentEditor.isDestroyed) return false;
+    const doc = currentEditor.state.doc;
+    const requestId = controller.analyze(currentEditor.getJSON() as TiptapJsonNode);
+    analysisRequestRef.current = { requestId, noteId: noteRef.current.id, doc };
+    return true;
   }, []);
 
   // `content` is only consumed when useEditor creates a new editor. Live content
@@ -2718,15 +2740,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           noteRef.current.id,
           editor,
         )) return;
-        const plainTextStartedAt = performance.now();
-        const derivedText = getEditorPlainText(editor);
-        recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
-        const wordStatsStartedAt = performance.now();
-        wordStatsDisplayRef.current?.update(computeStats(derivedText));
-        recordPhaseAPerfEvent({ type: "tiptap-word-stats", durationMs: performance.now() - wordStatsStartedAt });
-        const headingsStartedAt = performance.now();
-        onHeadingsChangeRef.current?.(extractHeadings(editor));
-        recordPhaseAPerfEvent({ type: "tiptap-headings", durationMs: performance.now() - headingsStartedAt });
+        if (!queueTiptapAnalysis(editor)) {
+          const plainTextStartedAt = performance.now();
+          const derivedText = getEditorPlainText(editor);
+          recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
+          const wordStatsStartedAt = performance.now();
+          wordStatsDisplayRef.current?.update(computeStats(derivedText));
+          recordPhaseAPerfEvent({ type: "tiptap-word-stats", durationMs: performance.now() - wordStatsStartedAt });
+          const headingsStartedAt = performance.now();
+          onHeadingsChangeRef.current?.(extractHeadings(editor));
+          recordPhaseAPerfEvent({ type: "tiptap-headings", durationMs: performance.now() - headingsStartedAt });
+        }
       }, 150);
 
       // 检测 [[ 触发笔记搜索菜单
@@ -2768,7 +2792,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         )) return;
         const json = JSON.stringify(editor.getJSON());
         const plainTextStartedAt = performance.now();
-        const text = getEditorPlainText(editor);
+        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
         const title = isTitleComposingRef.current
           ? noteRef.current.title
@@ -2785,6 +2809,38 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       recordPhaseAPerfEvent({ type: "tiptap-on-update", durationMs: performance.now() - onUpdateStartedAt });
     },
   });
+
+  useEffect(() => {
+    analysisControllerRef.current?.destroy();
+    analysisRequestRef.current = null;
+    analysisCacheRef.current = null;
+    if (!editor) return;
+
+    const controller = createTiptapAnalysisController({
+      onResult: ({ requestId, result }) => {
+        const request = analysisRequestRef.current;
+        if (
+          !request
+          || request.requestId !== requestId
+          || request.noteId !== noteRef.current.id
+          || editor.isDestroyed
+          || request.doc !== editor.state.doc
+        ) return;
+        analysisCacheRef.current = { doc: request.doc, result };
+        wordStatsDisplayRef.current?.update(result.stats);
+        onHeadingsChangeRef.current?.(result.headings);
+      },
+      onError: (error) => console.warn("[tiptap-analysis] worker fallback", error),
+    });
+    analysisControllerRef.current = controller;
+    queueTiptapAnalysis(editor);
+    return () => {
+      controller.destroy();
+      if (analysisControllerRef.current === controller) analysisControllerRef.current = null;
+      analysisRequestRef.current = null;
+      analysisCacheRef.current = null;
+    };
+  }, [editor, note.id, queueTiptapAnalysis]);
 
   useEffect(() => {
     const removeBrowserObservers = installPhaseABrowserObservers();
@@ -2846,7 +2902,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       debounceTimer.current = null;
     }
     const json = JSON.stringify(editor.getJSON());
-    const text = getEditorPlainText(editor);
+    const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
     const title = isTitleComposingRef.current
       ? noteRef.current.title
       : titleRef.current?.value || noteRef.current.title;
@@ -2884,7 +2940,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
         const json = JSON.stringify(editor.getJSON());
-        const text = getEditorPlainText(editor);
+        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         const title = isTitleComposingRef.current
           ? noteRef.current.title
           : titleRef.current?.value || noteRef.current.title;
@@ -2914,7 +2970,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         if (!editor) return null;
         return {
           content: JSON.stringify(editor.getJSON()),
-          contentText: getEditorPlainText(editor),
+          contentText: getEditorPlainTextForSave(editor, analysisCacheRef.current),
         };
       },
       acknowledgeSave: (ack) => {
@@ -3061,8 +3117,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           setTimeout(unlockSettingContent, 0);
         }
       }
-      wordStatsDisplayRef.current?.update(computeStats(getEditorPlainText(editor)));
-      onHeadingsChange?.(extractHeadings(editor));
+      if (!queueTiptapAnalysis(editor)) {
+        wordStatsDisplayRef.current?.update(computeStats(getEditorPlainText(editor)));
+        onHeadingsChange?.(extractHeadings(editor));
+      }
     }
     if (titleRef.current && !isTitleComposingRef.current) {
       titleRef.current.value = note.title;
@@ -3117,6 +3175,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       }
       revisionGuard.invalidate();
       pendingSaveAckRef.current = null;
+      analysisControllerRef.current?.destroy();
+      analysisControllerRef.current = null;
+      analysisRequestRef.current = null;
+      analysisCacheRef.current = null;
     };
   }, []);
 

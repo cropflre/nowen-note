@@ -7,11 +7,16 @@ import {
   applyIncrementalPatchIndexes,
   canUseIncrementalPatchIndexes,
   planIncrementalPatchIndexes,
+  type IncrementalPatchIndexPlan,
 } from "../lib/blockPatchIncrementalIndexes.js";
 import {
   canUseIncrementalListMoveIndexes,
   planIncrementalListMoveIndexes,
 } from "../lib/blockPatchListIncrementalIndexes.js";
+import {
+  canUseIncrementalListStructureIndexes,
+  planIncrementalListStructureIndexes,
+} from "../lib/blockPatchListStructureIncrementalIndexes.js";
 import {
   ensureNoteBlockTables,
   getNoteBlock,
@@ -25,6 +30,9 @@ import {
   validateTiptapBlockPatchOperations,
   type TiptapBlockPatchOperation,
 } from "../lib/tiptapBlockPatch.js";
+import {
+  TiptapListItemStructureError,
+} from "../lib/tiptapListItemStructure.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { noteVersionsRepository } from "../repositories/noteVersionsRepository.js";
 import { logAudit } from "../services/audit.js";
@@ -46,6 +54,13 @@ interface NoteRecord {
   isLocked: number;
   isTrashed: number;
   updatedAt: string;
+}
+
+interface AppliedPatchResult {
+  content: string;
+  affectedBlockIds: string[];
+  createdBlocks: Array<{ operationIndex: number; clientId: string | null; blockId: string }>;
+  deletedBlockIds?: string[];
 }
 
 class BlockPatchRouteError extends Error {
@@ -151,6 +166,10 @@ function mapPatchError(c: Context, error: unknown): Response | null {
           : "笔记不存在或无权限";
     return c.json({ error: message, code: error.code, ...error.details }, error.status);
   }
+  if (error instanceof TiptapListItemStructureError) {
+    const status = error.code === "BLOCK_ID_CONFLICT" ? 409 : error.code === "BLOCK_NOT_FOUND" ? 404 : 400;
+    return c.json({ error: error.message, code: error.code }, status);
+  }
   if (!(error instanceof TiptapBlockPatchError)) return null;
   if (error.code === "BLOCK_NOT_FOUND") {
     return c.json({ error: error.message, code: error.code }, 404);
@@ -204,22 +223,25 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
       }
 
-      // Safe leaf, top-level structural, proven mixed, and one controlled list-subtree move can skip
-      // the legacy pre-patch DELETE + full reinsert when the persisted index mirrors the document.
-      // Any mismatch fails closed and falls back inside this same transaction.
-      const listIncrementalBase = canUseIncrementalListMoveIndexes(
+      const listStructureBase = canUseIncrementalListStructureIndexes(
         db,
         noteId,
         note.content,
         operations,
       );
-      const genericIncrementalBase = !listIncrementalBase && canUseIncrementalPatchIndexes(
+      const listMoveBase = !listStructureBase && canUseIncrementalListMoveIndexes(
         db,
         noteId,
         note.content,
         operations,
       );
-      const incrementalBase = listIncrementalBase || genericIncrementalBase;
+      const genericIncrementalBase = !listStructureBase && !listMoveBase && canUseIncrementalPatchIndexes(
+        db,
+        noteId,
+        note.content,
+        operations,
+      );
+      const incrementalBase = listStructureBase || listMoveBase || genericIncrementalBase;
       const normalizedBefore = incrementalBase
         ? {
             content: note.content,
@@ -228,19 +250,22 @@ async function patchBlocks(c: Context) {
             changed: false,
           }
         : syncNoteBlocks(db, noteId, note.content, note.contentFormat);
-      const patch = applyTiptapBlockPatch(normalizedBefore.content, operations);
-      const listIncrementalPlan = listIncrementalBase
+
+      const patch: AppliedPatchResult = applyTiptapBlockPatch(normalizedBefore.content, operations);
+      const listStructurePlan = listStructureBase
+        ? planIncrementalListStructureIndexes(db, noteId, patch.content, operations)
+        : null;
+      const listMovePlan = listMoveBase
         ? planIncrementalListMoveIndexes(db, noteId, patch.content, operations)
         : null;
-      const incrementalPlan = listIncrementalPlan ?? (genericIncrementalBase
+      const genericPlan = genericIncrementalBase
         ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
-        : null);
+        : null;
+      const incrementalPlan = (listStructurePlan || listMovePlan || genericPlan) as IncrementalPatchIndexPlan | null;
       const contentText = incrementalPlan?.contentText
         ?? plainTextFromNoteContent(patch.content, note.contentFormat);
       const nextVersion = note.version + 1;
 
-      // Match PUT /notes/:id version-history semantics. This insert is inside the same transaction,
-      // so a later optimistic-lock or index failure removes the snapshot together with the patch.
       recordVersionSnapshot(note, userId);
 
       const update = db.prepare(`
@@ -259,12 +284,23 @@ async function patchBlocks(c: Context) {
       let persistedContentText = contentText;
       let postSyncChanged = false;
       let indexUpdateMode: "incremental" | "full" = "full";
-      let indexUpdateKind: "leaf" | "structural" | "mixed" | "list-subtree" | "full" = "full";
+      let indexUpdateKind:
+        | "leaf"
+        | "structural"
+        | "mixed"
+        | "list-subtree"
+        | "list-structural"
+        | "list-mixed"
+        | "full" = "full";
       let indexedBlockIds: string[] = [];
       if (incrementalPlan) {
         applyIncrementalPatchIndexes(db, userId, noteId, incrementalPlan);
         indexUpdateMode = "incremental";
-        indexUpdateKind = listIncrementalPlan ? "list-subtree" : incrementalPlan.kind;
+        indexUpdateKind = listStructurePlan
+          ? incrementalPlan.kind === "mixed" ? "list-mixed" : "list-structural"
+          : listMovePlan
+            ? "list-subtree"
+            : incrementalPlan.kind;
         indexedBlockIds = incrementalPlan.indexedBlockIds;
       } else {
         const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
@@ -278,7 +314,7 @@ async function patchBlocks(c: Context) {
       const persisted = readNote(noteId);
       if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
 
-      const deletedBlockIds = operations
+      const deletedBlockIds = patch.deletedBlockIds ?? operations
         .filter((operation) => operation.type === "delete")
         .map((operation) => operation.blockId);
       const blocks = patch.affectedBlockIds

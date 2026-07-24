@@ -37,6 +37,7 @@ describe("MarkdownPreview task checkboxes", () => {
     host.remove();
     document.body.innerHTML = "";
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("emits the clicked task index and next checked state", async () => {
@@ -112,5 +113,41 @@ describe("MarkdownPreview task checkboxes", () => {
     });
 
     expect(host.querySelector("img")?.getAttribute("src")).toBe("//cdn.example.com/image.png");
+  });
+
+  it("mounts long previews by viewport segment and preserves global task indices", async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    class MockIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+      takeRecords = vi.fn(() => []);
+      root = null;
+      rootMargin = "1000px 0px";
+      thresholds = [0];
+    }
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    const onTaskCheckboxChange = vi.fn();
+    const markdown = [
+      `# First\n\n- [ ] first\n\n${"a".repeat(60_000)}\n\n`,
+      `# Second\n\n- [ ] second\n\n${"b".repeat(60_000)}\n\n`,
+      "# Third\n",
+    ].join("");
+
+    await act(async () => {
+      root.render(<MarkdownPreview markdown={markdown} onTaskCheckboxChange={onTaskCheckboxChange} />);
+    });
+    expect(host.querySelectorAll("[data-markdown-segment]").length).toBeGreaterThan(1);
+    expect(host.textContent).toContain("First");
+    expect(host.textContent).not.toContain("Second");
+
+    await act(async () => {
+      callbacks[0]?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+    expect(host.textContent).toContain("Second");
+    const checkboxes = host.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    await act(async () => { checkboxes[1].click(); });
+    expect(onTaskCheckboxChange).toHaveBeenLastCalledWith(1, true);
   });
 });

@@ -15,6 +15,7 @@ import "../lib/sw-polyfill";
 import { getConfig, isConfigured, normalizeBaseUrl } from "../lib/storage";
 import { importNote, enhanceClip, NowenApiError, type AIEnhanceResult } from "../lib/api";
 import { buildContentBundle, inlineImages } from "../lib/transform";
+import { requestExtractFromTab } from "../lib/content-script-bridge";
 import type {
   AIEnhanceMode,
   AIEnhanceTasks,
@@ -158,7 +159,7 @@ async function runClip(req: ClipRequest): Promise<ClipResult> {
     req.mode === "simplified" ? "simplified" : req.mode === "selection" ? "selection" : req.mode === "fullpage" ? "fullpage" : "article";
   console.log("[nowen-clipper] extractMode =", extractMode);
 
-  const extracted = await requestExtract(req.tabId, extractMode);
+  const extracted = await requestExtractFromTab(req.tabId, extractMode);
   if (!extracted.ok || !extracted.data) {
     notify("剪藏失败", extracted.error || "内容抽取失败");
     return { ok: false, error: extracted.error };
@@ -785,48 +786,6 @@ async function uploadScreenshot(
     return { ok: false, error: msg };
   }
 }
-
-// ========== content script 通信 ==========
-
-/**
- * 发消息到 content script 抽取。
- *
- * 注：content.js 由 manifest 的 content_scripts 在 document_idle 阶段声明式注入，
- * 这里不再用 chrome.scripting.executeScript 主动注入第二次——重复注入会导致
- * 顶层 const 重名 SyntaxError（content.js 已用 IIFE + __nowenClipperLoaded 做了
- * 幂等防御，但避免触发就更稳）。
- *
- * 代价：扩展热更新后，旧标签页仍跑旧版 content script，需要刷新页面才能生效，
- * 这是开发期可接受的小成本。
- */
-async function requestExtract(
-  tabId: number,
-  mode: "article" | "selection" | "simplified" | "fullpage",
-): Promise<ExtractResponse> {
-  const msg: ExtractRequest = { type: "EXTRACT_REQUEST", mode };
-  console.log("[nowen-clipper] requestExtract: tabId =", tabId, "mode =", mode);
-
-  try {
-    const res = (await chrome.tabs.sendMessage(tabId, msg)) as ExtractResponse;
-    if (res && res.type === "EXTRACT_RESPONSE") {
-      console.log("[nowen-clipper] requestExtract 成功, ok =", res.ok, "mode =", res.data?.mode);
-      return res;
-    }
-    // 如果返回了非预期的响应格式
-    return {
-      type: "EXTRACT_RESPONSE",
-      ok: false,
-      error: "Content script 返回了非预期的响应格式",
-    };
-  } catch (e: any) {
-    return {
-      type: "EXTRACT_RESPONSE",
-      ok: false,
-      error: `无法在该页面运行剪藏（${String(e?.message || e)}）。某些浏览器特殊页面（如设置页、扩展商店）不支持剪藏。`,
-    };
-  }
-}
-
 
 /** 右键"剪藏这个链接"的极简模式：只存 URL/锚点，不下载对端内容 */
 async function clipLinkOnly(url: string, tab: chrome.tabs.Tab) {

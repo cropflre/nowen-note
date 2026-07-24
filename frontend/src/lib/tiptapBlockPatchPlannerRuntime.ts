@@ -4,6 +4,12 @@ import {
   type TiptapBlockPatchPlan as BaseTiptapBlockPatchPlan,
 } from "@/lib/tiptapBlockPatchPlanner";
 import { planTiptapListItemMove } from "@/lib/tiptapListItemMovePlanner";
+import { planTiptapListItemBatch } from "@/lib/tiptapListItemBatchPlanner";
+import { planTiptapListItemTopLevelLift } from "@/lib/tiptapListItemLiftPlanner";
+import {
+  listItemStructureOperationForPatch,
+  planTiptapListItemStructure,
+} from "@/lib/tiptapListItemStructurePlanner";
 
 interface JsonNode {
   type?: string;
@@ -15,7 +21,7 @@ interface JsonNode {
 
 export type TiptapBlockPatchPlan = BaseTiptapBlockPatchPlan | {
   operations: BlockPatchOperation[];
-  kind: "list-hierarchy";
+  kind: "list-hierarchy" | "list-structure" | "list-batch" | "list-lift";
   affectedBlockIds: string[];
 };
 
@@ -29,7 +35,7 @@ function parseDocument(content: string): JsonNode | null {
   }
 }
 
-/** Combine the established planner with the fail-closed single list hierarchy move planner. */
+/** Combine the established planner with fail-closed list structure and hierarchy planners. */
 export function planTiptapBlockPatch(
   baseContent: string,
   nextContent: string,
@@ -40,6 +46,41 @@ export function planTiptapBlockPatch(
   const baseDoc = parseDocument(baseContent);
   const nextDoc = parseDocument(nextContent);
   if (!baseDoc || !nextDoc) return null;
+
+  const structure = planTiptapListItemStructure(baseDoc, nextDoc);
+  if (structure) {
+    const paragraphId = structure.type === "create"
+      ? structure.node.content[0].attrs.blockId as string
+      : null;
+    return {
+      operations: [listItemStructureOperationForPatch(structure)],
+      kind: "list-structure",
+      affectedBlockIds: [...new Set([
+        structure.blockId,
+        ...(paragraphId ? [paragraphId] : []),
+        ...(structure.type === "create" ? [structure.targetBlockId] : []),
+      ])],
+    };
+  }
+
+  const batch = planTiptapListItemBatch(baseDoc, nextDoc);
+  if (batch) {
+    return {
+      operations: batch.operations,
+      kind: "list-batch",
+      affectedBlockIds: batch.affectedBlockIds,
+    };
+  }
+
+  const lift = planTiptapListItemTopLevelLift(baseDoc, nextDoc);
+  if (lift) {
+    return {
+      operations: [lift],
+      kind: "list-lift",
+      affectedBlockIds: [lift.blockId],
+    };
+  }
+
   const operation = planTiptapListItemMove(baseDoc, nextDoc);
   if (!operation) return null;
   return {

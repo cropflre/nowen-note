@@ -66,6 +66,60 @@ test("applies ordered create, update, move and delete operations to one document
   ]);
 });
 
+test("applies a list split and multi-item batch atomically", () => {
+  const source = doc([{
+    type: "bulletList",
+    content: [{
+      type: "listItem",
+      attrs: { blockId: "blk_item_a0" },
+      content: [paragraph("blk_para_a0", "Alpha Beta")],
+    }],
+  }]);
+  const newItem = {
+    type: "listItem" as const,
+    attrs: { blockId: "blk_item_b0" },
+    content: [paragraph("blk_para_b0", "Beta")],
+  };
+  const operations = validateTiptapBlockPatchOperations([
+    {
+      type: "replace",
+      blockId: "blk_para_a0",
+      node: paragraph("blk_para_a0", "Alpha"),
+    },
+    {
+      type: "create",
+      scope: "listItem",
+      clientId: "blk_item_b0",
+      blockId: "blk_item_b0",
+      targetBlockId: "blk_item_a0",
+      position: "after",
+      node: newItem,
+    },
+    {
+      type: "create",
+      scope: "listItem",
+      clientId: "blk_item_c0",
+      blockId: "blk_item_c0",
+      targetBlockId: "blk_item_b0",
+      position: "after",
+      node: {
+        type: "listItem",
+        attrs: { blockId: "blk_item_c0" },
+        content: [paragraph("blk_para_c0", "Gamma")],
+      },
+    },
+  ]);
+
+  const result = applyTiptapBlockPatch(source, operations);
+  const parsed = JSON.parse(result.content);
+  assert.deepEqual(
+    parsed.content[0].content.map((entry: any) => entry.attrs.blockId),
+    ["blk_item_a0", "blk_item_b0", "blk_item_c0"],
+  );
+  assert.equal(parsed.content[0].content[0].content[0].content[0].text, "Alpha");
+  assert.deepEqual(result.createdBlocks.map((entry) => entry.blockId), ["blk_item_b0", "blk_item_c0"]);
+});
+
 test("replaces one leaf block with validated marks and block attributes", () => {
   const operations = validateTiptapBlockPatchOperations([{
     type: "replace",
