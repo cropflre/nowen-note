@@ -31,6 +31,17 @@ export interface DbStatement {
   requireChanges?: number;
 }
 
+/** requireChanges 不满足时抛出的可识别错误。 */
+export class DbStatementChangeError extends Error {
+  constructor(
+    readonly expectedChanges: number,
+    readonly actualChanges: number,
+  ) {
+    super(`[db] transactional statement expected ${expectedChanges} changed row(s), received ${actualChanges}`);
+    this.name = "DbStatementChangeError";
+  }
+}
+
 /**
  * 统一数据库适配器接口。
  *
