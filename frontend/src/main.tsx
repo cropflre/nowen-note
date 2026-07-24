@@ -58,6 +58,7 @@ import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
 import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
 import { installRoundTripPermissionExportBridge } from "./lib/roundTripPermissionExport";
 import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
+import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 
 void cleanupRemovedServerProfiles();
@@ -99,6 +100,7 @@ installReliableExportDownloadBridge();
 installRoundTripImportReviewBridge();
 installRoundTripPermissionExportBridge();
 installEditorPerformanceGlobal();
+installIssue210SignoffRuntime();
 
 initCodeBlockTheme();
 
