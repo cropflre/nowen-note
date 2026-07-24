@@ -24,6 +24,7 @@ test("v62 migration builds a mixed tree and enforces inherited capabilities", as
     KnowledgeTreeError,
     listKnowledgeTree,
     moveKnowledgeNode,
+    restoreKnowledgeNode,
   } = await import("../src/services/knowledgeTree.js");
   const {
     clearKnowledgeNodeRole,
@@ -149,6 +150,40 @@ test("v62 migration builds a mixed tree and enforces inherited capabilities", as
     }),
     (error: unknown) => error instanceof KnowledgeTreeError && error.code === "KNOWLEDGE_TREE_CYCLE",
   );
+
+  const restoreFolder = createKnowledgeChild({
+    actorUserId: "owner",
+    workspaceId: "ws",
+    parentId: product.id,
+    nodeType: "folder",
+    title: "待恢复目录",
+    db,
+  });
+  const restoreChild = createKnowledgeChild({
+    actorUserId: "owner",
+    workspaceId: "ws",
+    parentId: restoreFolder.id,
+    nodeType: "note",
+    title: "待恢复文档",
+    db,
+  });
+  const deletedSubtree = deleteKnowledgeNode({
+    actorUserId: "member",
+    nodeId: restoreFolder.id,
+    mode: "subtree",
+    db,
+  });
+  assert.deepEqual(new Set(deletedSubtree.affectedNodeIds), new Set([restoreFolder.id, restoreChild.id]));
+  const restoredSubtree = restoreKnowledgeNode({
+    actorUserId: "owner",
+    nodeId: restoreFolder.id,
+    includeSubtree: true,
+    db,
+  });
+  assert.deepEqual(new Set(restoredSubtree.restoredNodeIds), new Set([restoreFolder.id, restoreChild.id]));
+  const restoredRows = db.prepare("SELECT id, isDeleted FROM knowledge_tree_nodes WHERE id IN (?, ?)")
+    .all(restoreFolder.id, restoreChild.id) as Array<{ id: string; isDeleted: number }>;
+  assert.equal(restoredRows.every((row) => row.isDeleted === 0), true);
 
   const deleted = deleteKnowledgeNode({
     actorUserId: "member",
