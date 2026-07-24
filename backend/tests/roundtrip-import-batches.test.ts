@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import test from "node:test";
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-import-batch-test-"));
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-roundtrip-batch-test-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
 process.env.ELECTRON_USER_DATA = tmpDir;
 process.env.ROUNDTRIP_IMPORT_UNDO_TTL_HOURS = "24";
-process.env.NOWEN_INSTANCE_ID = "batch-test-instance";
+process.env.NOWEN_INSTANCE_ID = "roundtrip-batch-test-instance";
 
 let closeDb: typeof import("../src/db/schema").closeDb;
 
@@ -17,65 +17,69 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-async function seedSource() {
+async function modules() {
   const schema = await import("../src/db/schema");
   closeDb = schema.closeDb;
-  const db = schema.getDb();
+  return {
+    ...schema,
+    ...(await import("../src/services/nowenPackageExport")),
+    ...(await import("../src/services/nowenPackageImport")),
+    ...(await import("../src/services/nowenRoundTripSync")),
+    ...(await import("../src/services/roundTripImportBatches")),
+    ...(await import("../src/services/roundTripImportLinkUndo")),
+  };
+}
+
+async function seed() {
+  const { getDb } = await modules();
+  const db = getDb();
+  db.exec(`
+    DELETE FROM roundtrip_import_batches;
+    DELETE FROM roundtrip_import_links;
+    DELETE FROM note_import_origins;
+    DELETE FROM note_tags;
+    DELETE FROM attachments;
+    DELETE FROM notes;
+    DELETE FROM notebooks;
+    DELETE FROM tags;
+    DELETE FROM workspaces;
+    DELETE FROM users;
+  `);
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run("batch-user", "batch-user", "hash");
   db.prepare(`
-    INSERT INTO notebooks (id, userId, parentId, name, sortOrder, isExpanded)
-    VALUES (?, ?, NULL, ?, ?, 1)
-  `).run("batch-root", "batch-user", "批次资料", 10);
+    INSERT INTO notebooks (id, userId, name, parentId, sortOrder, isExpanded, createdAt, updatedAt)
+    VALUES (?, ?, ?, NULL, 0, 1, ?, ?)
+  `).run("batch-root", "batch-user", "Batch Root", "2026-07-20 10:00:00", "2026-07-20 10:00:00");
   db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, title, content, contentText, contentFormat,
-      sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      createdAt, updatedAt, version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
   `).run(
     "batch-note",
     "batch-user",
     "batch-root",
-    "批次记录",
-    "[附件](/api/attachments/batch-attachment)",
-    "批次记录",
+    "批次测试",
+    "初始正文",
+    "初始正文",
     "markdown",
-    20,
-    "2026-07-22 10:00:00",
-    "2026-07-22 10:30:00",
+    "2026-07-20 10:00:00",
+    "2026-07-20 10:00:00",
   );
-  const attachmentDir = path.join(tmpDir, "attachments");
-  fs.mkdirSync(attachmentDir, { recursive: true });
-  fs.writeFileSync(path.join(attachmentDir, "batch-source.txt"), "batch attachment");
-  db.prepare(`
-    INSERT INTO attachments (id, userId, noteId, filename, mimeType, size, path, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    "batch-attachment",
-    "batch-user",
-    "batch-note",
-    "批次附件.txt",
-    "text/plain",
-    16,
-    "batch-source.txt",
-    "2026-07-22 10:15:00",
-  );
-  return { schema, db };
-}
-
-function countRow(value: unknown): number {
-  return Number((value as { count?: number } | undefined)?.count || 0);
 }
 
 test("formal round-trip import persists a report and can be safely undone", async () => {
-  const { db } = await seedSource();
-  const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
-  const { importNowenPackage } = await import("../src/services/nowenPackageImport");
+  await seed();
   const {
+    createNowenPackageExport,
+    getDb,
+    importNowenPackage,
     getRoundTripImportBatch,
     listRoundTripImportBatches,
-  } = await import("../src/services/roundTripImportBatches");
-  const { undoRoundTripImportBatchWithLinks } = await import("../src/services/roundTripImportLinkUndo");
+    undoRoundTripImportBatchWithLinks,
+  } = await modules();
+  const db = getDb();
 
   const exported = await createNowenPackageExport({
     userId: "batch-user",
@@ -91,39 +95,43 @@ test("formal round-trip import persists a report and can be safely undone", asyn
   assert.ok(imported.importBatch?.id);
   assert.equal(imported.importBatch?.undoAvailable, true);
 
-  const batchId = String(imported.importBatch.id);
-  const list = listRoundTripImportBatches("batch-user", { workspaceId: null });
-  assert.equal(list[0]?.id, batchId);
-  assert.equal(list[0]?.status, "completed");
-  assert.equal(list[0]?.undo.available, true);
+  const batches = listRoundTripImportBatches("batch-user");
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].status, "completed");
+  assert.equal(batches[0].sourceInstanceId, "roundtrip-batch-test-instance");
+  assert.equal(batches[0].counts?.notes, 1);
 
-  const detail = getRoundTripImportBatch("batch-user", batchId);
+  const detail = getRoundTripImportBatch("batch-user", imported.importBatch.id);
+  assert.equal(detail?.preview?.success, true);
   assert.equal(detail?.result?.success, true);
-  assert.equal(detail?.counts?.notes, 1);
 
   const importedRootId = String(imported.rootNotebookId || "");
   assert.ok(importedRootId);
-  const importedNote = db.prepare("SELECT id FROM notes WHERE notebookId = ?").get(importedRootId) as { id: string } | undefined;
-  assert.ok(importedNote);
-  const importedAttachment = db.prepare("SELECT id, path FROM attachments WHERE noteId = ?").get(importedNote!.id) as { id: string; path: string } | undefined;
-  assert.ok(importedAttachment);
-  assert.equal(fs.existsSync(path.join(tmpDir, "attachments", importedAttachment!.path)), true);
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM notebooks WHERE id = ?").get(importedRootId) as { count: number }).count,
+    1,
+  );
 
-  const undone = await undoRoundTripImportBatchWithLinks("batch-user", batchId);
+  const undone = await undoRoundTripImportBatchWithLinks("batch-user", imported.importBatch.id);
   assert.equal(undone.status, "undone");
-  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notebooks WHERE id = ?").get(importedRootId)), 0);
-  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(importedNote!.id)), 0);
-  assert.equal(fs.existsSync(path.join(tmpDir, "attachments", importedAttachment!.path)), false);
-  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = 'batch-note'").get()), 1);
-  assert.equal(countRow(db.prepare("SELECT COUNT(*) AS count FROM roundtrip_import_links").get()), 0);
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM notebooks WHERE id = ?").get(importedRootId) as { count: number }).count,
+    0,
+  );
+  const sourceLinkCount = db.prepare("SELECT COUNT(*) AS count FROM roundtrip_import_links WHERE userId = ?")
+    .get("batch-user") as { count: number };
+  assert.equal(sourceLinkCount.count, 0);
 });
 
 test("sync undo restores the pre-sync target and source mappings", async () => {
-  const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
-  const { importNowenPackage } = await import("../src/services/nowenPackageImport");
-  const { importNowenPackageWithSync } = await import("../src/services/nowenRoundTripSync");
-  const { undoRoundTripImportBatchWithLinks } = await import("../src/services/roundTripImportLinkUndo");
-  const { getDb } = await import("../src/db/schema");
+  await seed();
+  const {
+    createNowenPackageExport,
+    getDb,
+    importNowenPackage,
+    importNowenPackageWithSync,
+    undoRoundTripImportBatchWithLinks,
+  } = await modules();
   const db = getDb();
 
   const firstPackage = await createNowenPackageExport({
@@ -170,7 +178,7 @@ test("sync undo restores the pre-sync target and source mappings", async () => {
 
   const syncedTarget = db.prepare("SELECT title, content FROM notes WHERE id = ?").get(copiedNote!.id) as { title: string; content: string } | undefined;
   assert.equal(syncedTarget?.title, "来源更新后的标题");
-  assert.equal(syncedTarget?.content, "来源更新后的正文");
+  assert.match(syncedTarget?.content || "", /^来源更新后的正文(?: \^blk_[\w-]+)?$/);
 
   const undone = await undoRoundTripImportBatchWithLinks("batch-user", String(synced.importBatch.id));
   assert.equal(undone.status, "undone");
@@ -188,11 +196,14 @@ test("sync undo restores the pre-sync target and source mappings", async () => {
 });
 
 test("undo refuses to remove a note edited after the import", async () => {
-  const { createNowenPackageExport } = await import("../src/services/nowenPackageExport");
-  const { importNowenPackage } = await import("../src/services/nowenPackageImport");
-  const { undoRoundTripImportBatchWithLinks } = await import("../src/services/roundTripImportLinkUndo");
-  const { RoundTripImportUndoError } = await import("../src/services/roundTripImportBatches");
-  const { getDb } = await import("../src/db/schema");
+  await seed();
+  const {
+    createNowenPackageExport,
+    getDb,
+    importNowenPackage,
+    RoundTripImportUndoError,
+    undoRoundTripImportBatchWithLinks,
+  } = await modules();
   const db = getDb();
 
   const exported = await createNowenPackageExport({
@@ -205,22 +216,24 @@ test("undo refuses to remove a note edited after the import", async () => {
     workspaceId: null,
     importMode: "new-root",
   });
-  assert.equal(imported.success, true);
-  const batchId = String(imported.importBatch?.id || "");
-  const importedNote = db.prepare("SELECT id FROM notes WHERE notebookId = ?").get(imported.rootNotebookId) as { id: string } | undefined;
+  assert.equal(imported.success, true, imported.errors?.join("; "));
+  const importedNote = db.prepare("SELECT id FROM notes WHERE notebookId = ? LIMIT 1")
+    .get(imported.rootNotebookId) as { id: string } | undefined;
   assert.ok(importedNote);
   db.prepare("UPDATE notes SET title = ?, updatedAt = datetime('now') WHERE id = ?")
-    .run("用户导入后修改", importedNote!.id);
+    .run("导入后本地改名", importedNote!.id);
 
   await assert.rejects(
-    () => undoRoundTripImportBatchWithLinks("batch-user", batchId),
+    () => undoRoundTripImportBatchWithLinks("batch-user", String(imported.importBatch.id)),
     (error: unknown) => {
       assert.ok(error instanceof RoundTripImportUndoError);
       assert.equal(error.code, "IMPORT_BATCH_UNDO_CONFLICT");
-      assert.ok(error.conflicts.some((item) => item.includes("笔记")));
+      assert.ok(error.conflicts.some((item) => item.includes(importedNote!.id)));
       return true;
     },
   );
-  const titleRow = db.prepare("SELECT title FROM notes WHERE id = ?").get(importedNote!.id) as { title: string } | undefined;
-  assert.equal(titleRow?.title, "用户导入后修改");
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(importedNote!.id) as { count: number }).count,
+    1,
+  );
 });

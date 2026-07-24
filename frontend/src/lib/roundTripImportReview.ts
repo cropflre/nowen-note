@@ -1,5 +1,6 @@
 import { api, getBaseUrl, getCurrentWorkspace } from "./api";
 import { announceRoundTripImportCompleted } from "./roundTripImportBatches";
+import { requestRoundTripPermissionReview } from "./roundTripPermissionReview";
 
 export type RoundTripImportStrategy = "copy" | "merge" | "sync";
 
@@ -54,6 +55,36 @@ export interface RoundTripSyncAvailability {
   reason?: string | null;
 }
 
+export interface RoundTripPermissionTargetUser {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export interface RoundTripPermissionInspection {
+  included: boolean;
+  valid: boolean;
+  canApply: boolean;
+  version?: number | null;
+  reason?: string | null;
+  counts: {
+    principals: number;
+    workspaceMembers: number;
+    notebookMembers: number;
+  };
+  principals: Array<{
+    sourceUserId: string;
+    username: string;
+    displayName: string | null;
+    email: string | null;
+    workspaceRole: "owner" | "admin" | "editor" | "commenter" | "viewer" | null;
+    suggestedTarget: RoundTripPermissionTargetUser | null;
+    match: "email" | "username" | "ambiguous" | "none";
+  }>;
+  issues: string[];
+}
+
 export interface RoundTripPackagePreview {
   success: boolean;
   dryRun?: boolean;
@@ -67,6 +98,7 @@ export interface RoundTripPackagePreview {
     sourceInstanceId?: string | null;
     exportBatchId?: string | null;
     sync?: RoundTripSyncAvailability;
+    permissions?: RoundTripPermissionInspection;
     counts?: RoundTripPackageCounts;
     formatStats?: RoundTripPackageFormatStats;
   };
@@ -79,6 +111,13 @@ export interface RoundTripPackagePreview {
     path?: string;
   }>;
   errors?: string[];
+  permissionImport?: {
+    included?: boolean;
+    requested?: boolean;
+    applied?: boolean;
+    counts?: Record<string, number>;
+    issues?: string[];
+  };
   importBatch?: {
     id?: string;
     undoAvailable?: boolean;
@@ -101,16 +140,20 @@ export interface RoundTripImportReviewRequest {
   loadPreview?: (strategy: RoundTripImportStrategy) => Promise<RoundTripPackagePreview>;
 }
 
-interface SubmitRoundTripPackageOptions {
+export interface SubmitRoundTripPackageOptions {
   dryRun: boolean;
   strategy: RoundTripImportStrategy;
   workspaceId?: string;
   targetNotebookId?: string;
+  applyPermissions?: boolean;
+  permissionMappings?: Record<string, string>;
 }
 
 interface RememberedImportDecision {
   strategy: RoundTripImportStrategy;
   workspaceId?: string;
+  applyPermissions: boolean;
+  permissionMappings: Record<string, string>;
 }
 
 type Listener = (requests: RoundTripImportReviewRequest[]) => void;
@@ -163,8 +206,12 @@ export async function submitRoundTripPackage(
 
   const form = new FormData();
   form.append("file", file);
+  if (!options.dryRun && options.applyPermissions) {
+    form.append("applyPermissions", "true");
+    form.append("permissionMappings", JSON.stringify(options.permissionMappings || {}));
+  }
   const token = readToken();
-  const response = await fetch(`${getBaseUrl()}/export/import/nowen-package?${params.toString()}`, {
+  const response = await fetch(`${getBaseUrl()}/settings/import-batches/package?${params.toString()}`, {
     method: "POST",
     credentials: "include",
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -250,11 +297,8 @@ function currentWorkspaceId(): string | undefined {
 }
 
 /**
- * Enhance the legacy Nowen-package panel without coupling it to the review dialog.
- *
- * All three strategies use the same explicit workspace-aware endpoint. This avoids the historical
- * dry-run/import mismatch where the preview was calculated in personal scope while the UI showed a
- * workspace. Sync is only offered when the server confirms that stable source mappings exist.
+ * Enhance the legacy Nowen-package panel without coupling it to the review dialogs.
+ * All strategies and permission mapping use the same workspace-aware package endpoint.
  */
 export function installRoundTripImportReviewBridge(): void {
   if (bridgeInstalled) return;
@@ -282,7 +326,13 @@ export function installRoundTripImportReviewBridge(): void {
       }),
     });
     if (decision.accepted) {
-      selectedDecisionByFile.set(file, { strategy: decision.strategy, workspaceId });
+      const permissionDecision = await requestRoundTripPermissionReview(preview.package?.permissions);
+      selectedDecisionByFile.set(file, {
+        strategy: decision.strategy,
+        workspaceId,
+        applyPermissions: permissionDecision.applyPermissions,
+        permissionMappings: permissionDecision.permissionMappings,
+      });
     } else {
       selectedDecisionByFile.delete(file);
     }
@@ -303,6 +353,8 @@ export function installRoundTripImportReviewBridge(): void {
       strategy: remembered.strategy,
       workspaceId: opts?.workspaceId ?? remembered.workspaceId,
       targetNotebookId: opts?.targetNotebookId,
+      applyPermissions: remembered.applyPermissions,
+      permissionMappings: remembered.permissionMappings,
     });
   }) as typeof api.importNowenPackage;
 }
