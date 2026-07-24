@@ -30,7 +30,6 @@ let longTaskObserverInstalled = false;
 let recentLongTasks: number[] = [];
 
 const STYLE_ID = "nowen-editor-runtime-style";
-const NOTICE_ID = "nowen-editor-runtime-notice";
 
 function installRuntimeStyle(): void {
   if (styleInstalled || typeof document === "undefined") return;
@@ -64,136 +63,8 @@ html[data-nowen-editor-runtime-mode="lightweight-edit"] .ProseMirror,
 html[data-nowen-editor-runtime-mode="viewport-optimized"] .ProseMirror {
   overflow-anchor: none;
 }
-
-#${NOTICE_ID} {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: calc(100vw - 32px);
-  padding: 9px 10px 9px 12px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  border-radius: 12px;
-  background: var(--color-app-elevated, rgba(255, 255, 255, 0.96));
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.16);
-  color: var(--color-tx-primary, #111827);
-  backdrop-filter: blur(12px);
-  font-size: 12px;
-  line-height: 1.35;
-}
-#${NOTICE_ID}[hidden] { display: none !important; }
-#${NOTICE_ID}[data-mode="lightweight-edit"] {
-  border-color: rgba(245, 158, 11, 0.45);
-}
-#${NOTICE_ID} .nowen-runtime-copy { min-width: 0; }
-#${NOTICE_ID} .nowen-runtime-title { display: block; font-weight: 650; }
-#${NOTICE_ID} .nowen-runtime-detail {
-  display: block;
-  margin-top: 1px;
-  color: var(--color-tx-secondary, #6b7280);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#${NOTICE_ID} button {
-  flex: none;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: rgba(59, 130, 246, 0.10);
-  color: var(--color-accent-primary, #2563eb);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-}
-#${NOTICE_ID} button:hover { background: rgba(59, 130, 246, 0.18); }
-@media (max-width: 767px) {
-  #${NOTICE_ID} {
-    right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    max-width: calc(100vw - 20px);
-  }
-  #${NOTICE_ID} .nowen-runtime-detail { display: none; }
-}
 `;
   document.head.appendChild(style);
-}
-
-function runtimeNoticeCopy(): {
-  title: string;
-  detail: string;
-  action: string;
-} {
-  const language = typeof navigator !== "undefined"
-    ? (document.documentElement.lang || navigator.language || "").toLowerCase()
-    : "";
-  const zh = language.startsWith("zh");
-
-  return zh
-    ? {
-        title: "轻量编辑模式",
-        detail: "已暂停代码高亮、全文实时分析和复杂节点工具栏，正文仍可编辑保存。",
-        action: "尝试完整模式",
-      }
-    : {
-        title: "Lightweight editing",
-        detail: "Syntax highlighting and whole-document analysis are paused; editing and saving remain available.",
-        action: "Try full mode",
-      };
-}
-
-function ensureRuntimeNotice(): HTMLDivElement | null {
-  if (typeof document === "undefined" || !document.body) return null;
-  const existing = document.getElementById(NOTICE_ID);
-  if (existing instanceof HTMLDivElement) return existing;
-
-  const notice = document.createElement("div");
-  notice.id = NOTICE_ID;
-  notice.hidden = true;
-  notice.setAttribute("role", "status");
-  notice.setAttribute("aria-live", "polite");
-
-  const copy = document.createElement("span");
-  copy.className = "nowen-runtime-copy";
-  const title = document.createElement("span");
-  title.className = "nowen-runtime-title";
-  title.dataset.runtimeTitle = "";
-  const detail = document.createElement("span");
-  detail.className = "nowen-runtime-detail";
-  detail.dataset.runtimeDetail = "";
-  copy.append(title, detail);
-
-  const action = document.createElement("button");
-  action.type = "button";
-  action.dataset.runtimeAction = "";
-  action.addEventListener("click", () => {
-    requestActiveEditorRuntimeMode("normal");
-  });
-
-  notice.append(copy, action);
-  document.body.appendChild(notice);
-  return notice;
-}
-
-function updateRuntimeNotice(): void {
-  const notice = ensureRuntimeNotice();
-  if (!notice) return;
-  const mode = state.decision.mode;
-  const visible = mode === "lightweight-edit";
-  notice.hidden = !visible;
-  if (!visible) return;
-
-  notice.dataset.mode = mode;
-  const copy = runtimeNoticeCopy();
-  const title = notice.querySelector<HTMLElement>("[data-runtime-title]");
-  const detail = notice.querySelector<HTMLElement>("[data-runtime-detail]");
-  const action = notice.querySelector<HTMLButtonElement>("[data-runtime-action]");
-  if (title) title.textContent = copy.title;
-  if (detail) detail.textContent = copy.detail;
-  if (action) action.textContent = copy.action;
 }
 
 function applyDocumentState(): void {
@@ -202,7 +73,6 @@ function applyDocumentState(): void {
   document.documentElement.dataset.nowenEditorRuntimeMode = state.decision.mode;
   document.documentElement.dataset.nowenEditorRuntimeNote = state.noteId || "";
   document.documentElement.dataset.nowenEditorRuntimeReasons = state.decision.reasons.join(",");
-  updateRuntimeNotice();
 }
 
 function emit(): void {
