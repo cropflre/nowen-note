@@ -62,8 +62,19 @@ jobs:
       - name: TypeScript check
         run: npm run build:tsc -- --noEmit
       - name: Real PostgreSQL single-note runtime tests
-        run: >-
-          node --import tsx --test --test-concurrency=1
-          tests/note-link-titles-runtime-pg.test.ts
-          tests/note-core-runtime-pg.test.ts
-          tests/note-core-runtime-formats-pg.test.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test --test-concurrency=1 \
+            tests/note-link-titles-runtime-pg.test.ts \
+            tests/note-core-runtime-pg.test.ts \
+            tests/note-core-runtime-formats-pg.test.ts \
+            2>&1 | tee /tmp/pg-note-runtime.log
+      - name: Upload note runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-note-runtime-${{ github.run_id }}
+          path: /tmp/pg-note-runtime.log
+          if-no-files-found: warn
+          retention-days: 7
