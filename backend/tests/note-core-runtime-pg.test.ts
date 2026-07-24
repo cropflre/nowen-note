@@ -271,10 +271,12 @@ test("PostgreSQL core note runtime reads and saves Tiptap notes atomically", { s
     assert.equal(routeBody.id, TARGET);
     assert.equal("content" in routeBody, false);
 
-    const pendingResponse = await router.request("/", {
+    const collectionResponse = await router.request("/", {
       headers: { "X-User-Id": OWNER },
     });
-    assert.equal(pendingResponse.status, 503);
+    assert.equal(collectionResponse.status, 200);
+    const collectionBody = await collectionResponse.json() as Array<{ id: string }>;
+    assert.ok(collectionBody.some((note) => note.id === TARGET));
   } finally {
     await closePgPool(pool);
   }
