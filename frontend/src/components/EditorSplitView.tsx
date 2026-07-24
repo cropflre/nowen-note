@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { ArrowLeftRight, Eye, Loader2, PanelLeftClose, Pencil, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import FormatAwareEditorPane from "@/components/FormatAwareEditorPane";
 import NoteTabsBar from "@/components/NoteTabsBar";
@@ -18,21 +18,34 @@ import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { NoteLoadCoordinator, type NoteLoadSink } from "@/lib/noteLoadCoordinator";
 import { canApplyRevalidatedNote, loadNoteCacheFirst } from "@/lib/noteLoadSource";
 import { loadDraft } from "@/lib/draftStorage";
+import {
+  clampEditorSplitRatio,
+  loadEditorSplitRatio,
+  saveEditorSplitRatio,
+} from "@/lib/editorWorkspaceLayout";
 
 export default function EditorSplitView() {
   const { state } = useApp();
+  const actions = useAppActions();
   const { prefs } = useUserPreferences();
   const split = state.editorSplit;
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const dragRafRef = useRef<number | null>(null);
-  const pendingRatioRef = useRef(0.5);
-  const [splitRatio, setSplitRatio] = useState(0.5);
+  const pendingRatioRef = useRef(loadEditorSplitRatio(split?.direction || "right"));
+  const [splitRatio, setSplitRatio] = useState(pendingRatioRef.current);
+  const [secondaryReadOnly, setSecondaryReadOnly] = useState(false);
 
   useEffect(() => {
-    setSplitRatio(0.5);
-    pendingRatioRef.current = 0.5;
-  }, [split?.direction, split?.noteId]);
+    if (!split) return;
+    const savedRatio = loadEditorSplitRatio(split.direction);
+    pendingRatioRef.current = savedRatio;
+    setSplitRatio(savedRatio);
+  }, [split?.direction]);
+
+  useEffect(() => {
+    setSecondaryReadOnly(false);
+  }, [split?.noteId, split?.direction]);
 
   useEffect(() => {
     return () => {
@@ -44,7 +57,7 @@ export default function EditorSplitView() {
   }, []);
 
   const applySplitRatio = useCallback((ratio: number) => {
-    pendingRatioRef.current = ratio;
+    pendingRatioRef.current = clampEditorSplitRatio(ratio);
     if (dragRafRef.current !== null) return;
     dragRafRef.current = requestAnimationFrame(() => {
       dragRafRef.current = null;
@@ -65,7 +78,7 @@ export default function EditorSplitView() {
       const raw = split.direction === "down"
         ? (clientY - rect.top) / rect.height
         : (clientX - rect.left) / rect.width;
-      applySplitRatio(Math.max(0.2, Math.min(0.8, raw)));
+      applySplitRatio(raw);
     };
 
     applyRatio(event.clientX, event.clientY);
@@ -83,7 +96,7 @@ export default function EditorSplitView() {
         cancelAnimationFrame(dragRafRef.current);
         dragRafRef.current = null;
       }
-      const finalRatio = pendingRatioRef.current;
+      const finalRatio = saveEditorSplitRatio(split.direction, pendingRatioRef.current);
       splitContainerRef.current?.style.setProperty("--split-primary", `${finalRatio * 100}%`);
       splitContainerRef.current?.style.setProperty("--split-secondary", `${(1 - finalRatio) * 100}%`);
       setSplitRatio(finalRatio);
@@ -100,7 +113,48 @@ export default function EditorSplitView() {
     window.addEventListener("mouseup", cleanup);
   }, [applySplitRatio, split]);
 
+  const promoteSecondary = useCallback((secondaryNote: Note) => {
+    if (!split || !state.activeNote) return;
+    const previousPrimary = state.activeNote;
+
+    actions.setActiveNote(secondaryNote);
+    actions.openNoteTab({
+      id: secondaryNote.id,
+      title: secondaryNote.title,
+      notebookId: secondaryNote.notebookId,
+      workspaceId: secondaryNote.workspaceId,
+      contentFormat: secondaryNote.contentFormat,
+      isLocked: secondaryNote.isLocked,
+      isTrashed: secondaryNote.isTrashed,
+      updatedAt: secondaryNote.updatedAt,
+    });
+
+    if (previousPrimary.id === secondaryNote.id) {
+      actions.closeEditorSplit();
+      return;
+    }
+
+    actions.openNoteTab({
+      id: previousPrimary.id,
+      title: previousPrimary.title,
+      notebookId: previousPrimary.notebookId,
+      workspaceId: previousPrimary.workspaceId,
+      contentFormat: previousPrimary.contentFormat,
+      isLocked: previousPrimary.isLocked,
+      isTrashed: previousPrimary.isTrashed,
+      updatedAt: previousPrimary.updatedAt,
+    });
+    actions.splitEditor({ noteId: previousPrimary.id, direction: split.direction });
+  }, [actions, split, state.activeNote]);
+
+  const hideNoteList = useCallback(() => {
+    if (!state.noteListCollapsed) actions.toggleNoteListCollapsed();
+  }, [actions, state.noteListCollapsed]);
+
   if (!split || !state.activeNote) return <FormatAwareEditorPane />;
+
+  const duplicateDocument = split.noteId === state.activeNote.id;
+  const effectiveReadOnly = duplicateDocument || secondaryReadOnly;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-app-bg">
@@ -145,7 +199,15 @@ export default function EditorSplitView() {
           className="min-h-0 min-w-0 flex-none overflow-hidden"
           style={{ flexBasis: "var(--split-secondary)" }}
         >
-          <SplitEditorPane noteId={split.noteId} />
+          <SplitEditorPane
+            noteId={split.noteId}
+            readOnly={effectiveReadOnly}
+            duplicateDocument={duplicateDocument}
+            onToggleReadOnly={() => setSecondaryReadOnly((value) => !value)}
+            onPromote={promoteSecondary}
+            showHideNoteList={!state.noteListCollapsed}
+            onHideNoteList={hideNoteList}
+          />
         </div>
       </div>
     </div>
@@ -164,7 +226,25 @@ function createSplitLoadingState(): NoteLoadingState {
   };
 }
 
-function SplitEditorPane({ noteId }: { noteId: string }) {
+interface SplitEditorPaneProps {
+  noteId: string;
+  readOnly: boolean;
+  duplicateDocument: boolean;
+  onToggleReadOnly: () => void;
+  onPromote: (note: Note) => void;
+  showHideNoteList: boolean;
+  onHideNoteList: () => void;
+}
+
+function SplitEditorPane({
+  noteId,
+  readOnly,
+  duplicateDocument,
+  onToggleReadOnly,
+  onPromote,
+  showHideNoteList,
+  onHideNoteList,
+}: SplitEditorPaneProps) {
   const { state } = useApp();
   const actions = useAppActions();
   const { loadNote: loadPrimaryNote } = useNoteLoader();
@@ -272,7 +352,13 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
 
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     const current = noteRef.current;
-    if (!current || !canWriteNote(current) || (data._noteId && data._noteId !== current.id)) return;
+    if (
+      readOnly ||
+      !current ||
+      state.activeNote?.id === current.id ||
+      !canWriteNote(current) ||
+      (data._noteId && data._noteId !== current.id)
+    ) return;
     setSyncing(true);
     try {
       const updated = await api.updateNote(current.id, {
@@ -305,7 +391,7 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
     } finally {
       setSyncing(false);
     }
-  }, [actions, state.activeNote?.id, t]);
+  }, [actions, readOnly, state.activeNote?.id, t]);
 
   const handleOpenNote = useCallback(async (targetNoteId: string) => {
     await loadPrimaryNote({
@@ -329,13 +415,67 @@ function SplitEditorPane({ noteId }: { noteId: string }) {
   }, [actions, loadPrimaryNote, t]);
 
   const title = note?.id === noteId ? note.title : tabMeta?.title || t("editorTabs.noTitle");
-  const editable = !!note && note.id === noteId && canWriteNote(note) && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
+  const editable = !!note
+    && note.id === noteId
+    && !readOnly
+    && state.activeNote?.id !== noteId
+    && canWriteNote(note)
+    && !note.isLocked
+    && !note.isTrashed
+    && !loadingState.pendingNoteId;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg">
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface/60 px-3">
+      <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-app-border bg-app-surface/60 px-2.5">
         <div className="min-w-0 flex-1 truncate text-sm font-medium text-tx-primary">{title}</div>
+        {readOnly && (
+          <span
+            className="hidden shrink-0 rounded border border-app-border bg-app-hover px-1.5 py-0.5 text-[10px] text-tx-tertiary sm:inline-flex"
+            title={duplicateDocument
+              ? t("editorTabs.sameDocumentMirror", { defaultValue: "同文档只读镜像，避免两个编辑器重复保存" })
+              : t("editorTabs.readOnlyReference", { defaultValue: "只读参考" })}
+          >
+            {duplicateDocument
+              ? t("editorTabs.mirror", { defaultValue: "镜像" })
+              : t("editorTabs.readOnly", { defaultValue: "只读" })}
+          </span>
+        )}
         {syncing && <Loader2 size={14} className="shrink-0 animate-spin text-tx-tertiary" />}
+        {showHideNoteList && (
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+            onClick={onHideNoteList}
+            title={t("editorTabs.hideNoteListForSplit", { defaultValue: "隐藏中间笔记列表，扩大分屏空间" })}
+            aria-label={t("editorTabs.hideNoteListForSplit", { defaultValue: "隐藏中间笔记列表，扩大分屏空间" })}
+          >
+            <PanelLeftClose size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={onToggleReadOnly}
+          disabled={duplicateDocument}
+          aria-pressed={readOnly}
+          title={duplicateDocument
+            ? t("editorTabs.sameDocumentMirror", { defaultValue: "同文档分屏固定为只读镜像" })
+            : readOnly
+              ? t("editorTabs.enableSplitEditing", { defaultValue: "允许副屏编辑" })
+              : t("editorTabs.useAsReference", { defaultValue: "切换为只读参考" })}
+        >
+          {readOnly ? <Eye size={14} /> : <Pencil size={14} />}
+        </button>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => note && onPromote(note)}
+          disabled={!note || duplicateDocument}
+          title={t("editorTabs.promoteSplit", { defaultValue: "设为主编辑文档并交换主副屏" })}
+          aria-label={t("editorTabs.promoteSplit", { defaultValue: "设为主编辑文档并交换主副屏" })}
+        >
+          <ArrowLeftRight size={14} />
+        </button>
         <button
           type="button"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
