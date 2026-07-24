@@ -188,6 +188,8 @@ describe("Tiptap Block Patch runtime shell", () => {
       contentText: "Committed",
       sectionGuid: "section-guid",
       version: 2,
+      generation: 1,
+      structureVersion: 1,
     }));
 
     expect(wholeSave).not.toHaveBeenCalled();
@@ -205,6 +207,30 @@ describe("Tiptap Block Patch runtime shell", () => {
     expect(fixture.actions.updateNoteTab).toHaveBeenCalledWith(expect.objectContaining({ id: current.id }));
     expect(fixture.actions.setSyncStatus).toHaveBeenCalledWith("saved");
     expect(fixture.actions.setLastSynced).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the latest window snapshot when falling back to the monolithic editor", async () => {
+    const current = note("subdocument-fallback", "Before");
+    const fallbackContent = content("Latest local snapshot");
+    localStorage.setItem("nowen:tiptap-subdocuments", "1");
+    setActiveEditorRuntimeDecision(current.id, optimizedDecision("x"));
+
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={current} onUpdate={vi.fn()} />);
+    });
+    expect(fixture.windowedProps).not.toBeNull();
+
+    await act(async () => fixture.windowedProps.onFallback(
+      "subdocument-cross-section-selection",
+      { content: fallbackContent, contentText: "Latest local snapshot" },
+    ));
+
+    expect(fixture.baseProps.note).toMatchObject({
+      id: current.id,
+      content: fallbackContent,
+      contentText: "Latest local snapshot",
+    });
+    expect(host.querySelector("[data-base-tiptap]")).not.toBeNull();
   });
 
   it("uses a confirmed patch for a safe optimized-mode text update", async () => {

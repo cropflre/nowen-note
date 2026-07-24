@@ -27,7 +27,7 @@ export function isTiptapSubdocumentWindowingEnabled(): boolean {
 }
 
 interface WindowedTiptapEditorProps extends NoteEditorProps {
-  onFallback?: (reason: string) => void;
+  onFallback?: (reason: string, snapshot?: { content: string; contentText: string }) => void;
   onSubdocumentCommit?: (result: YjsSubdocumentUpdateResult) => void;
 }
 
@@ -157,6 +157,8 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     const composingRef = useRef(new Set<string>());
     const bundleRef = useRef<TiptapSubdocumentBundle | null>(null);
     const controllerRef = useRef<TiptapSubdocumentRestSyncController | null>(null);
+    const windowedHostRef = useRef<HTMLDivElement | null>(null);
+    const dragSourceSectionRef = useRef<string | null>(null);
     const fallbackRef = useRef(props.onFallback);
     fallbackRef.current = props.onFallback;
     const commitRef = useRef(props.onSubdocumentCommit);
@@ -165,7 +167,23 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
     const [heights, setHeights] = useState<Record<string, number>>({});
 
-    const requestFallback = useCallback((reason: string) => fallbackRef.current?.(reason), []);
+    const snapshotSection = useCallback((sectionId: string) => {
+      const snapshot = editorRefs.current.get(sectionId)?.getSnapshot?.();
+      if (snapshot?.content) valuesRef.current.set(sectionId, snapshot.content);
+    }, []);
+
+    const requestFallback = useCallback((reason: string) => {
+      if (!sections) {
+        fallbackRef.current?.(reason);
+        return;
+      }
+      editorRefs.current.forEach((_editor, sectionId) => snapshotSection(sectionId));
+      const content = mergeSectionContents(sections, valuesRef.current);
+      fallbackRef.current?.(reason, content ? {
+        content,
+        contentText: plainTextFromTiptap(content),
+      } : undefined);
+    }, [sections, snapshotSection]);
 
     const loadSection = useCallback(async (sectionId: string) => {
       const controller = controllerRef.current;
@@ -257,11 +275,6 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       return () => window.removeEventListener("online", flush);
     }, []);
 
-    const snapshotSection = useCallback((sectionId: string) => {
-      const snapshot = editorRefs.current.get(sectionId)?.getSnapshot?.();
-      if (snapshot?.content) valuesRef.current.set(sectionId, snapshot.content);
-    }, []);
-
     const handleVisibility = useCallback((sectionId: string, visible: boolean, height?: number) => {
       if (height && height > 0) setHeights((current) => current[sectionId] === height ? current : { ...current, [sectionId]: height });
       if (visible) {
@@ -283,6 +296,44 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       if (composing) composingRef.current.add(sectionId);
       else composingRef.current.delete(sectionId);
     }, []);
+
+    useEffect(() => {
+      if (!manifestReady) return;
+      const sectionIdForNode = (node: Node | null): string | null => {
+        const element = node instanceof Element ? node : node?.parentElement;
+        return element?.closest<HTMLElement>("[data-windowed-tiptap-section]")?.dataset.windowedTiptapSection || null;
+      };
+      const handleSelectionChange = () => {
+        const selection = document.getSelection();
+        const anchorSection = sectionIdForNode(selection?.anchorNode || null);
+        const focusSection = sectionIdForNode(selection?.focusNode || null);
+        if (anchorSection && focusSection && anchorSection !== focusSection) {
+          requestFallback("subdocument-cross-section-selection");
+        }
+      };
+      document.addEventListener("selectionchange", handleSelectionChange);
+      return () => document.removeEventListener("selectionchange", handleSelectionChange);
+    }, [manifestReady, requestFallback]);
+
+    const sectionIdForEvent = useCallback((target: EventTarget | null) => (
+      target instanceof Element
+        ? target.closest<HTMLElement>("[data-windowed-tiptap-section]")?.dataset.windowedTiptapSection || null
+        : null
+    ), []);
+
+    const handleDragStart = useCallback((event: React.DragEvent) => {
+      dragSourceSectionRef.current = sectionIdForEvent(event.target);
+    }, [sectionIdForEvent]);
+
+    const handleDrop = useCallback((event: React.DragEvent) => {
+      const sourceSection = dragSourceSectionRef.current;
+      const targetSection = sectionIdForEvent(event.target);
+      dragSourceSectionRef.current = null;
+      if (sourceSection && targetSection && sourceSection !== targetSection) {
+        event.preventDefault();
+        requestFallback("subdocument-cross-section-drop");
+      }
+    }, [requestFallback, sectionIdForEvent]);
 
     const emitMergedUpdate = useCallback((sectionId: string, payload: NoteEditorUpdatePayload) => {
       if (!sections || typeof payload.content !== "string") {
@@ -310,10 +361,16 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     useEffect(() => {
       if (!props.searchQuery || !sections) return;
       const query = props.searchQuery.toLocaleLowerCase();
-      const target = sections.find((section) => section.content.toLocaleLowerCase().includes(query));
+      const target = sections.find((section) => (
+        valuesRef.current.get(section.id) || section.content
+      ).toLocaleLowerCase().includes(query));
       if (!target) return;
       void loadSection(target.id).then(() => {
-        requestAnimationFrame(() => document.querySelector(`[data-windowed-tiptap-section="${CSS.escape(target.id)}"]`)?.scrollIntoView({ block: "center" }));
+        requestAnimationFrame(() => {
+          const element = Array.from(document.querySelectorAll<HTMLElement>("[data-windowed-tiptap-section]"))
+            .find((candidate) => candidate.dataset.windowedTiptapSection === target.id);
+          element?.scrollIntoView({ block: "center" });
+        });
       });
     }, [loadSection, props.searchQuery, sections]);
 
@@ -334,7 +391,13 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     if (!sections || sections.length <= 1) return <BaseTiptapEditor {...props} ref={ref} />;
     if (!manifestReady) return <div data-windowed-tiptap-loading="true" className="h-full" />;
     return (
-      <div data-windowed-tiptap-editor="true" className="h-full overflow-y-auto">
+      <div
+        ref={windowedHostRef}
+        data-windowed-tiptap-editor="true"
+        className="h-full overflow-y-auto"
+        onDragStartCapture={handleDragStart}
+        onDropCapture={handleDrop}
+      >
         {sections.map((section, index) => {
           const mounted = mountedIds.has(section.id);
           const sectionNote = { ...props.note, content: valuesRef.current.get(section.id) || section.content };

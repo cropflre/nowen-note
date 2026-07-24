@@ -125,8 +125,11 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     });
     const blockPatchEnabledRef = useRef(blockPatchEnabled);
     blockPatchEnabledRef.current = blockPatchEnabled;
-    const [windowingFallbackNoteId, setWindowingFallbackNoteId] = React.useState<string | null>(null);
-    const windowingEnabled = windowingFallbackNoteId !== props.note.id
+    const [windowingFallback, setWindowingFallback] = React.useState<{
+      noteId: string;
+      snapshot?: { content: string; contentText: string };
+    } | null>(null);
+    const windowingEnabled = windowingFallback?.noteId !== props.note.id
       && runtimeBelongsToNote
       && decision.mode !== "normal"
       && isTiptapSubdocumentWindowingEnabled();
@@ -397,9 +400,9 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
             {...props}
             ref={baseRef}
             onUpdate={handleUpdate}
-            onFallback={(reason) => {
+            onFallback={(reason, snapshot) => {
               console.warn("[tiptap-windowing] fallback to monolithic editor", reason);
-              setWindowingFallbackNoteId(props.note.id);
+              setWindowingFallback({ noteId: props.note.id, snapshot });
             }}
             onSubdocumentCommit={applySubdocumentCommit}
             onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
@@ -407,6 +410,13 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
         ) : (
           <BaseTiptapEditor
             {...props}
+            note={windowingFallback?.noteId === props.note.id && windowingFallback.snapshot
+              ? {
+                  ...props.note,
+                  content: windowingFallback.snapshot.content,
+                  contentText: windowingFallback.snapshot.contentText,
+                }
+              : props.note}
             ref={baseRef}
             onUpdate={handleUpdate}
             onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}

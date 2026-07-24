@@ -23,16 +23,20 @@ vi.mock("@/lib/api", () => ({
 vi.mock("../TiptapEditor", () => ({
   default: forwardRef<NoteEditorHandle, any>(function MockSectionEditor({ note, onUpdate }, ref) {
     apiMocks.editorProps.push({ note, onUpdate });
+    const valueRef = React.useRef(note.content);
     useImperativeHandle(ref, () => ({
       flushSave: () => undefined,
-      getSnapshot: () => ({ content: note.content, contentText: "" }),
+      getSnapshot: () => ({ content: valueRef.current, contentText: "" }),
       isReady: () => true,
-    }), [note.content]);
+    }), []);
     return (
       <textarea
         data-section-editor={JSON.parse(note.content).content[0]?.attrs?.blockId || "empty"}
         defaultValue={note.content}
-        onChange={(event) => onUpdate({ content: event.target.value, contentText: "", title: note.title })}
+        onChange={(event) => {
+          valueRef.current = event.target.value;
+          onUpdate({ content: event.target.value, contentText: "", title: note.title });
+        }}
       />
     );
   }),
@@ -90,6 +94,8 @@ function installHealthyApi(note = largeNote()) {
   const sections = splitTiptapSubdocumentSections(note.id, note.content, 250)!;
   apiMocks.getManifest.mockResolvedValue({
     rootGuid: `nowen-root-${note.id}`,
+    generation: 1,
+    structureVersion: 1,
     sections: sections.map(({ id, guid, startBlock, endBlock }) => ({ id, guid, startBlock, endBlock })),
   });
   apiMocks.getState.mockImplementation(async (_noteId: string, sectionId: string) => {
@@ -102,6 +108,8 @@ function installHealthyApi(note = largeNote()) {
     contentText: "",
     sectionGuid: sections[0].guid,
     version: 2,
+    generation: 1,
+    structureVersion: 1,
   });
   return sections;
 }
@@ -194,7 +202,10 @@ describe("WindowedTiptapEditor", () => {
       <WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} onFallback={onFallback} />,
     ));
 
-    await vi.waitFor(() => expect(onFallback).toHaveBeenCalledWith("subdocument-manifest-mismatch"));
+    await vi.waitFor(() => expect(onFallback).toHaveBeenCalledWith(
+      "subdocument-manifest-mismatch",
+      expect.objectContaining({ content: expect.any(String) }),
+    ));
     expect(apiMocks.getState).not.toHaveBeenCalled();
   });
 
@@ -241,6 +252,66 @@ describe("WindowedTiptapEditor", () => {
 
     expect(onUpdate).toHaveBeenCalledTimes(1);
     expect(onUpdate).toHaveBeenCalledWith({ title: "Renamed", _noteId: "window-note" });
+  });
+
+  it("falls back with the latest merged snapshot for a cross-section selection", async () => {
+    const onFallback = vi.fn();
+    await act(async () => root.render(
+      <WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} onFallback={onFallback} />,
+    ));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(1));
+    await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 600 } } as any], {} as any));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
+    const editors = host.querySelectorAll<HTMLTextAreaElement>("[data-section-editor]");
+    const changed = editors[0].value.replace("p0", "latest-local-value");
+    await act(async () => changeTextarea(editors[0], changed));
+    const selectionSpy = vi.spyOn(document, "getSelection").mockReturnValue({
+      anchorNode: editors[0],
+      focusNode: editors[1],
+    } as Selection);
+
+    await act(async () => document.dispatchEvent(new Event("selectionchange")));
+
+    expect(onFallback).toHaveBeenCalledWith(
+      "subdocument-cross-section-selection",
+      expect.objectContaining({ content: expect.stringContaining("latest-local-value") }),
+    );
+    selectionSpy.mockRestore();
+  });
+
+  it("blocks a cross-section drop and falls back to the monolithic editor", async () => {
+    const onFallback = vi.fn();
+    await act(async () => root.render(
+      <WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} onFallback={onFallback} />,
+    ));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-windowed-tiptap-section]")).toHaveLength(3));
+    const frames = host.querySelectorAll<HTMLElement>("[data-windowed-tiptap-section]");
+    await act(async () => frames[0].dispatchEvent(new Event("dragstart", { bubbles: true })));
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    await act(async () => frames[1].dispatchEvent(drop));
+
+    expect(drop.defaultPrevented).toBe(true);
+    expect(onFallback).toHaveBeenCalledWith(
+      "subdocument-cross-section-drop",
+      expect.objectContaining({ content: expect.any(String) }),
+    );
+  });
+
+  it("searches the latest edited section value after that section is unmounted", async () => {
+    await act(async () => root.render(<WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} />));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(1));
+    await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 600 } } as any], {} as any));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
+    const secondEditor = host.querySelectorAll<HTMLTextAreaElement>("[data-section-editor]")[1];
+    await act(async () => changeTextarea(secondEditor, secondEditor.value.replace("p250", "latest-search-token")));
+    await act(async () => callbacks[1]?.([{ isIntersecting: false, boundingClientRect: { height: 600 } } as any], {} as any));
+    expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(1);
+    Element.prototype.scrollIntoView = vi.fn();
+
+    await act(async () => root.render(
+      <WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} searchQuery="latest-search-token" />,
+    ));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
   });
 
   it("destroys the previous note controller so its pending update cannot flush after switching", async () => {
