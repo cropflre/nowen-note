@@ -28,6 +28,8 @@
     "test:object-storage": "node scripts/test-object-storage.mjs",
     "test:sync-conflict": "node scripts/test-sync-conflict.mjs",
     "perf:editor-fixtures": "node scripts/generate-large-markdown-fixture.mjs && node scripts/generate-editor-performance-fixtures.mjs",
+    "test:issue-210-signoff": "node --test scripts/tests/issue-210-signoff-validator.test.mjs",
+    "validate:issue-210-signoff": "node scripts/validate-issue-210-signoff.mjs",
     "cap:sync:ios": "cd frontend && npm run build && npx cap sync ios",
     "cap:open:ios": "cd frontend && npx cap open ios",
     "zip": "node scripts/export-zip.mjs",
