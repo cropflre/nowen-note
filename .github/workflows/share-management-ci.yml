@@ -7,6 +7,7 @@ on:
       - "backend/src/routes/shares.ts"
       - "backend/src/services/share-management.ts"
       - "backend/tests/share-management.test.ts"
+      - "backend/tests/share-management-route.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/components/ShareManagementPage.tsx"
@@ -24,6 +25,7 @@ on:
       - "backend/src/routes/shares.ts"
       - "backend/src/services/share-management.ts"
       - "backend/tests/share-management.test.ts"
+      - "backend/tests/share-management-route.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/components/ShareManagementPage.tsx"
@@ -52,9 +54,12 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - working-directory: backend
         run: npm ci
-      - name: Share management service tests
+      - name: Share management service and route tests
         working-directory: backend
-        run: node --import tsx --test tests/share-management.test.ts
+        run: node --import tsx --test tests/share-management.test.ts tests/share-management-route.test.ts
+      - name: Existing share security regression
+        working-directory: backend
+        run: node --import tsx --test tests/share-security-capabilities.test.ts
       - name: Backend typecheck
         working-directory: backend
         run: npm run build:tsc
