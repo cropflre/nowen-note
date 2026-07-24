@@ -21,8 +21,9 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("../TiptapEditor", () => ({
-  default: forwardRef<NoteEditorHandle, any>(function MockSectionEditor({ note, onUpdate }, ref) {
-    apiMocks.editorProps.push({ note, onUpdate });
+  default: forwardRef<NoteEditorHandle, any>(function MockSectionEditor(props, ref) {
+    const { note, onUpdate } = props;
+    apiMocks.editorProps.push(props);
     const valueRef = React.useRef(note.content);
     useImperativeHandle(ref, () => ({
       flushSave: () => undefined,
@@ -176,6 +177,47 @@ describe("WindowedTiptapEditor", () => {
     await act(async () => callbacks[1]?.([{ isIntersecting: false, boundingClientRect: { height: 700 } } as any], {} as any));
     expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(1);
     expect(host.querySelectorAll("[data-windowed-tiptap-section]")[1]?.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("delegates every mounted section to the parent scroll container", async () => {
+    await act(async () => root.render(<WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} />));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(1));
+    expect(apiMocks.editorProps.at(-1)?.useParentScrollContainer).toBe(true);
+
+    await act(async () => callbacks[1]?.([{ isIntersecting: true, boundingClientRect: { height: 700 } } as any], {} as any));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-section-editor]")).toHaveLength(2));
+    expect(apiMocks.editorProps.at(-1)?.useParentScrollContainer).toBe(true);
+  });
+
+  it("keeps the shared toolbar sticky against the whole windowed scroll container", async () => {
+    await act(async () => root.render(<WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} />));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-windowed-tiptap-section]")).toHaveLength(3));
+    const windowed = host.querySelector<HTMLElement>("[data-windowed-tiptap-editor]")!;
+    const frames = host.querySelectorAll<HTMLElement>("[data-windowed-tiptap-section]");
+
+    expect(windowed.parentElement?.classList.contains("relative")).toBe(true);
+    expect(frames[0].style.display).toBe("contents");
+    expect(frames[1].style.display).toBe("");
+  });
+
+  it("renders one viewport back-to-top control for the shared scroll container", async () => {
+    await act(async () => root.render(<WindowedTiptapEditor note={largeNote()} onUpdate={vi.fn()} />));
+    await vi.waitFor(() => expect(host.querySelector("[data-windowed-tiptap-editor]")).not.toBeNull());
+    const windowed = host.querySelector<HTMLElement>("[data-windowed-tiptap-editor]")!;
+    const scrollTo = vi.fn();
+    windowed.scrollTo = scrollTo;
+
+    windowed.scrollTop = 300;
+    await act(async () => windowed.dispatchEvent(new Event("scroll", { bubbles: true })));
+    const buttons = host.querySelectorAll<HTMLButtonElement>("[data-windowed-back-to-top]");
+    expect(buttons).toHaveLength(1);
+
+    await act(async () => buttons[0].click());
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+
+    windowed.scrollTop = 0;
+    await act(async () => windowed.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(host.querySelector("[data-windowed-back-to-top]")).toBeNull();
   });
 
   it("does not unload a section while IME composition is active", async () => {

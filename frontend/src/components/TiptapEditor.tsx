@@ -88,6 +88,10 @@ import {
 import { downloadAttachment } from "@/lib/downloadFile";
 import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
 import { cn } from "@/lib/utils";
+import {
+  resolveTiptapEditorScrollContainer,
+  resolveTiptapEditorScrollLayout,
+} from "@/lib/tiptapEditorScrollLayout";
 import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
@@ -1523,6 +1527,8 @@ type TiptapEditorProps = NoteEditorProps & {
   presentationMode?: boolean;
   /** M7 章节编辑器：隐藏只应出现一次的标签栏。 */
   windowedSection?: boolean;
+  /** M7 窗口化布局：正文不创建独立滚动区，统一由章节父容器滚动。 */
+  useParentScrollContainer?: boolean;
 };
 
 function extractHeadings(editor: any): NoteEditorHeading[] {
@@ -1577,9 +1583,13 @@ const WordStatsDisplay = React.memo(forwardRef<WordStatsHandle, {
 }));
 
 const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEditor(
-  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false, presentationMode = false, windowedSection = false, searchQuery },
+  { note, onUpdate, onTagsChange, onHeadingsChange, onEditorReady, onOpenNote, editable = true, isGuest = false, presentationMode = false, windowedSection = false, useParentScrollContainer = false, searchQuery },
   ref,
 ) {
+  const scrollLayout = resolveTiptapEditorScrollLayout(
+    useParentScrollContainer,
+    !presentationMode,
+  );
   const titleRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const derivedTimer = useRef<NodeJS.Timeout | null>(null);
@@ -4602,7 +4612,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [editor, insertWithMarkdownDetect]);
 
   // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const setScrollContainerRef = useCallback((content: HTMLDivElement | null) => {
+    scrollContainerRef.current = resolveTiptapEditorScrollContainer(
+      content,
+      useParentScrollContainer,
+    );
+  }, [useParentScrollContainer]);
   const [showBackToTop, setShowBackToTop] = useState(false);
   // 内容不在顶端（>4px）时给 sticky 工具栏加底部阴影，
   // 让其视觉上「浮」于内容之上——跟 Notion / Bear / Craft 等主流移动端编辑器一致。
@@ -4764,7 +4780,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       .run();
   };
   return (
-    <div className={cn("flex flex-col h-full relative", presentationMode && "tiptap-presentation-mode")}>
+    <div className={cn("flex flex-col relative", scrollLayout.root, presentationMode && "tiptap-presentation-mode")}>
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
@@ -5728,8 +5744,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           v2026-05-18 起移除底部移动浮动工具栏，由顶部 sticky 主工具栏统一承担
           所有格式化命令。 */}
       <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-auto px-4 md:px-8 pb-12"
+        ref={setScrollContainerRef}
+        className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
         <EditorContent editor={editor} />
@@ -5788,7 +5804,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* 回到顶部按钮：滚动超过阈值后显示在编辑区右下角 */}
       <AnimatePresence>
-        {showBackToTop && (
+        {showBackToTop && scrollLayout.ownsViewportOverlay && (
           <motion.button
             type="button"
             initial={{ opacity: 0, y: 8, scale: 0.9 }}

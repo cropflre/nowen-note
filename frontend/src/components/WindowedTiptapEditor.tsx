@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import type { NoteEditorHandle, NoteEditorProps, NoteEditorUpdatePayload } from "@/components/editors/types";
+import { ArrowUp } from "lucide-react";
 import { api } from "@/lib/api";
 import type { YjsSubdocumentUpdateResult } from "@/lib/api";
 import {
@@ -90,6 +91,7 @@ function SectionFrame({
   section,
   index,
   mounted,
+  flattenIntoParent,
   estimatedHeight,
   onVisibility,
   onComposition,
@@ -98,6 +100,7 @@ function SectionFrame({
   section: TiptapSubdocumentSection;
   index: number;
   mounted: boolean;
+  flattenIntoParent: boolean;
   estimatedHeight: number;
   onVisibility: (sectionId: string, visible: boolean, height?: number) => void;
   onComposition: (sectionId: string, composing: boolean) => void;
@@ -125,7 +128,10 @@ function SectionFrame({
       data-section-index={index}
       onCompositionStartCapture={() => onComposition(section.id, true)}
       onCompositionEndCapture={() => onComposition(section.id, false)}
-      style={{ containIntrinsicSize: `auto ${estimatedHeight}px` }}
+      style={{
+        containIntrinsicSize: `auto ${estimatedHeight}px`,
+        display: flattenIntoParent ? "contents" : undefined,
+      }}
     >
       {mounted ? children : <div aria-hidden="true" style={{ minHeight: estimatedHeight }} />}
     </section>
@@ -166,6 +172,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     const [manifestReady, setManifestReady] = useState(false);
     const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
     const [heights, setHeights] = useState<Record<string, number>>({});
+    const [showBackToTop, setShowBackToTop] = useState(false);
 
     const snapshotSection = useCallback((sectionId: string) => {
       const snapshot = editorRefs.current.get(sectionId)?.getSnapshot?.();
@@ -298,6 +305,20 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       return () => window.removeEventListener("online", flush);
     }, []);
 
+    useEffect(() => {
+      setShowBackToTop(false);
+      if (windowedHostRef.current) windowedHostRef.current.scrollTop = 0;
+    }, [props.note.id]);
+
+    const handleWindowedScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+      const visible = event.currentTarget.scrollTop > 240;
+      setShowBackToTop((current) => current === visible ? current : visible);
+    }, []);
+
+    const scrollWindowedEditorToTop = useCallback(() => {
+      windowedHostRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }, []);
+
     const handleVisibility = useCallback((sectionId: string, visible: boolean, height?: number) => {
       if (height && height > 0) setHeights((current) => current[sectionId] === height ? current : { ...current, [sectionId]: height });
       if (visible) {
@@ -414,43 +435,61 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     if (!sections || sections.length <= 1) return <BaseTiptapEditor {...props} ref={ref} />;
     if (!manifestReady) return <div data-windowed-tiptap-loading="true" className="h-full" />;
     return (
-      <div
-        ref={windowedHostRef}
-        data-windowed-tiptap-editor="true"
-        className="h-full overflow-y-auto"
-        onDragStartCapture={handleDragStart}
-        onDropCapture={handleDrop}
-      >
-        {sections.map((section, index) => {
-          const mounted = mountedIds.has(section.id);
-          const sectionNote = { ...props.note, content: valuesRef.current.get(section.id) || section.content };
-          return (
-            <SectionFrame
-              key={section.id}
-              section={section}
-              index={index}
-              mounted={mounted}
-              estimatedHeight={heights[section.id] || 640}
-              onVisibility={handleVisibility}
-              onComposition={handleComposition}
-            >
-              {mounted && (
-                <BaseTiptapEditor
-                  {...props}
-                  note={sectionNote}
-                  ref={(editor) => {
-                    if (editor) editorRefs.current.set(section.id, editor);
-                    else editorRefs.current.delete(section.id);
-                  }}
-                  presentationMode={index > 0}
-                  windowedSection={index > 0}
-                  onHeadingsChange={index === 0 ? props.onHeadingsChange : undefined}
-                  onUpdate={(payload) => emitMergedUpdate(section.id, payload)}
-                />
-              )}
-            </SectionFrame>
-          );
-        })}
+      <div data-windowed-tiptap-shell="true" className="relative h-full">
+        <div
+          ref={windowedHostRef}
+          data-windowed-tiptap-editor="true"
+          className="h-full overflow-y-auto"
+          onScroll={handleWindowedScroll}
+          onDragStartCapture={handleDragStart}
+          onDropCapture={handleDrop}
+        >
+          {sections.map((section, index) => {
+            const mounted = mountedIds.has(section.id);
+            const sectionNote = { ...props.note, content: valuesRef.current.get(section.id) || section.content };
+            return (
+              <SectionFrame
+                key={section.id}
+                section={section}
+                index={index}
+                mounted={mounted}
+                flattenIntoParent={index === 0}
+                estimatedHeight={heights[section.id] || 640}
+                onVisibility={handleVisibility}
+                onComposition={handleComposition}
+              >
+                {mounted && (
+                  <BaseTiptapEditor
+                    {...props}
+                    note={sectionNote}
+                    ref={(editor) => {
+                      if (editor) editorRefs.current.set(section.id, editor);
+                      else editorRefs.current.delete(section.id);
+                    }}
+                    presentationMode={index > 0}
+                    windowedSection={index > 0}
+                    useParentScrollContainer
+                    onHeadingsChange={index === 0 ? props.onHeadingsChange : undefined}
+                    onUpdate={(payload) => emitMergedUpdate(section.id, payload)}
+                  />
+                )}
+              </SectionFrame>
+            );
+          })}
+        </div>
+        {showBackToTop && (
+          <button
+            type="button"
+            data-windowed-back-to-top="true"
+            onClick={scrollWindowedEditorToTop}
+            title="回到顶部"
+            aria-label="回到顶部"
+            className="absolute right-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-app-elevated text-tx-secondary shadow-lg backdrop-blur-sm transition-colors hover:border-accent-primary/50 hover:text-accent-primary md:right-6"
+            style={{ bottom: "calc(1rem + var(--keyboard-height, 0px))" }}
+          >
+            <ArrowUp size={16} />
+          </button>
+        )}
       </div>
     );
   },
