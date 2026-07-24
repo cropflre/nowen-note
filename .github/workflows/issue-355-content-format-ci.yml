@@ -8,6 +8,7 @@ on:
       - "backend/src/routes/notes.ts"
       - "backend/src/routes/export.ts"
       - "backend/tests/markdown-user-content.test.ts"
+      - "backend/tests/notes-content-view.test.ts"
       - "frontend/src/lib/editorMode.ts"
       - "frontend/src/lib/noteEditorRouting.ts"
       - "frontend/src/lib/markdownUserContent.ts"
@@ -28,6 +29,7 @@ on:
       - "backend/src/routes/notes.ts"
       - "backend/src/routes/export.ts"
       - "backend/tests/markdown-user-content.test.ts"
+      - "backend/tests/notes-content-view.test.ts"
       - "frontend/src/lib/editorMode.ts"
       - "frontend/src/lib/noteEditorRouting.ts"
       - "frontend/src/lib/markdownUserContent.ts"
@@ -60,7 +62,10 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: node --import tsx --test tests/markdown-user-content.test.ts
+      - run: >-
+          node --import tsx --test
+          tests/markdown-user-content.test.ts
+          tests/notes-content-view.test.ts
       - run: npm run build:tsc
 
   frontend:
