@@ -73,4 +73,4 @@ export function createNotesRuntimeRouter(
   return app;
 }
 
-export default createNotesRuntimeRouter();
+export default createNotesRuntimeRouter;
