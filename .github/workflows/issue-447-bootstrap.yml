@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/scripts/issue447_modify_existing.py"
+      - ".github/scripts/issue447_fix_types.py"
       - ".github/workflows/issue-447-bootstrap.yml"
       - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
 
@@ -25,7 +26,9 @@ jobs:
         with:
           node-version: 20
       - name: Apply guarded integration
-        run: python .github/scripts/issue447_modify_existing.py
+        run: |
+          python .github/scripts/issue447_modify_existing.py
+          python .github/scripts/issue447_fix_types.py
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
