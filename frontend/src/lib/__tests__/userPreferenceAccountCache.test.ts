@@ -126,3 +126,22 @@ describe("user preference account cache", () => {
     expect(JSON.stringify(patch)).not.toContain("secret");
   });
 });
+
+
+describe("space actions account preference", () => {
+  it("defaults to visible and persists an explicit hidden value", () => {
+    const storage = new MemoryStorage();
+    expect(DEFAULT_USER_PREFERENCES.showSpaceActions).toBe(true);
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "space-user",
+      prefs: { ...DEFAULT_USER_PREFERENCES, showSpaceActions: false },
+      revision: 2,
+      pending: { showSpaceActions: false },
+    });
+    const cached = readAccountPreferenceCache(storage, "space-user");
+    expect(cached?.prefs.showSpaceActions).toBe(false);
+    expect(sanitizeUserPreferencePatch({ showSpaceActions: false, token: "secret" }))
+      .toEqual({ showSpaceActions: false });
+  });
+});

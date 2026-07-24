@@ -18,6 +18,7 @@ export interface SyncedUserPreferences {
   outlineDefaultOpen: boolean;
   lockOnOpen: boolean;
   showNotesInNotebookTree: boolean;
+  showSpaceActions: boolean;
   readingDensity: ReadingDensity;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
@@ -54,6 +55,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   outlineDefaultOpen: false,
   lockOnOpen: false,
   showNotesInNotebookTree: false,
+  showSpaceActions: true,
   readingDensity: "cozy",
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
@@ -89,6 +91,7 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "outlineDefaultOpen":
     case "lockOnOpen":
     case "showNotesInNotebookTree":
+    case "showSpaceActions":
     case "showNoteListUpdatedTime":
     case "enableNoteTabs":
     case "noteListTitleOnly":

@@ -161,3 +161,16 @@ test("rejects invalid values for known preference fields", async () => {
   assert.equal(result.status, 400);
   assert.equal(result.json.code, "INVALID_USER_PREFERENCE");
 });
+
+
+test("syncs the space entry visibility as an account preference", async () => {
+  const defaults = await requestJson("GET");
+  assert.equal(defaults.status, 200);
+  assert.equal(defaults.json.showSpaceActions, true);
+  const updated = await requestJson("PATCH", { showSpaceActions: false, _baseRevision: 0 });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.json.showSpaceActions, false);
+  assert.ok(updated.json.fieldUpdatedAt.showSpaceActions);
+  const other = await requestJson("GET", undefined, OTHER_ID);
+  assert.equal(other.json.showSpaceActions, true);
+});

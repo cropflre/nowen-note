@@ -9,7 +9,6 @@ import "./i18n";
 import "./lib/imageNodeTransformBootstrap";
 import App from "./App";
 import PublicNotebookView from "./components/PublicNotebookView";
-import PublicSpaceLauncher from "./components/PublicSpaceLauncher";
 import { ThemeProvider } from "./components/ThemeProvider";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
@@ -154,7 +153,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <AndroidShareImportCenter />
         <NoteImageExportCenter />
         <DocxImportCenter />
-        <PublicSpaceLauncher />
         <NoteTransferCenter />
         <RoundTripImportBatchCenter />
         <RoundTripPermissionMappingCenter />

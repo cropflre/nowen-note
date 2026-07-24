@@ -91,7 +91,11 @@ function railMountsEqual(previous: RailMount[], next: RailMount[]): boolean {
  * 侧栏、底部安全区及软键盘争抢位置。旧版 NoteTransferCenter 仍持有弹窗状态，
  * 这里隐藏其旧悬浮触发器并复用 click 行为，确保迁移过程不改变转移业务逻辑。
  */
-export default function PublicSpaceLauncher() {
+interface PublicSpaceLauncherProps {
+  visible?: boolean;
+}
+
+export default function PublicSpaceLauncher({ visible = true }: PublicSpaceLauncherProps) {
   const [railMounts, setRailMounts] = useState<RailMount[]>([]);
   const [panel, setPanel] = useState<OpenPanel | null>(null);
   const legacyTransferTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -108,6 +112,12 @@ export default function PublicSpaceLauncher() {
         legacyTransferTriggerRef.current = trigger;
         trigger.hidden = true;
         trigger.dataset.spaceActionsManaged = "true";
+      }
+
+      if (!visible) {
+        document.querySelectorAll<HTMLElement>("[" + RAIL_MOUNT_ATTRIBUTE + "]").forEach((mount) => mount.remove());
+        setRailMounts((previous) => previous.length === 0 ? previous : []);
+        return;
       }
 
       const mounts: RailMount[] = [];
@@ -153,13 +163,20 @@ export default function PublicSpaceLauncher() {
       if (frame) window.cancelAnimationFrame(frame);
       document.querySelectorAll<HTMLElement>(`[${RAIL_MOUNT_ATTRIBUTE}]`).forEach((mount) => mount.remove());
 
-      const trigger = legacyTransferTriggerRef.current;
-      if (trigger?.dataset.spaceActionsManaged === "true") {
-        trigger.hidden = false;
-        delete trigger.dataset.spaceActionsManaged;
-      }
     };
+  }, [visible]);
+
+  useEffect(() => () => {
+    const trigger = legacyTransferTriggerRef.current;
+    if (trigger?.dataset.spaceActionsManaged === "true") {
+      trigger.hidden = false;
+      delete trigger.dataset.spaceActionsManaged;
+    }
   }, []);
+
+  useEffect(() => {
+    if (!visible) setPanel(null);
+  }, [visible]);
 
   useEffect(() => {
     if (!panel) return;

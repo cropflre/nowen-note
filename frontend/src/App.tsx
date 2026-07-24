@@ -39,6 +39,7 @@ import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
+import SpaceActionsPreferenceGate from "@/components/SpaceActionsPreferenceGate";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -1252,6 +1253,7 @@ function App() {
     <ThemeProvider>
       <SiteSettingsProvider>
         <UserPreferencesProvider>
+          <SpaceActionsPreferenceGate />
           <ConfirmProvider>
             <AuthGate />
             <Toaster />

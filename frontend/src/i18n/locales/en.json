@@ -628,7 +628,9 @@
     "fontUploadSuccess": "Successfully imported {{count}} fonts",
     "fontUploadFailed": "Upload failed",
     "interDefault": "Inter (Default)",
-    "download": "Downloads"
+    "download": "Downloads",
+    "prefShowSpaceActions": "Show space entry",
+    "prefShowSpaceActionsHint": "Show the Spaces entry in the navigation rail. Public-space links remain accessible when hidden."
   },
   "editorTabs": {
     "close": "Close tab",

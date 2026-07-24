@@ -645,7 +645,9 @@
     "fontUploadSuccess": "成功导入 {{count}} 个字体",
     "fontUploadFailed": "上传失败",
     "interDefault": "Inter (默认)",
-    "download": "下载客户端"
+    "download": "下载客户端",
+    "prefShowSpaceActions": "显示空间入口",
+    "prefShowSpaceActionsHint": "在左侧导航栏显示“空间”入口；关闭后仍可直接访问公共空间链接。"
   },
   "editorTabs": {
     "close": "关闭标签",
