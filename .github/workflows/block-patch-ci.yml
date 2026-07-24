@@ -29,6 +29,7 @@ on:
       - "backend/tests/block-patch-route.test.ts"
       - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/__tests__/blockPatchWindowedEditor.setup.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx"
@@ -61,6 +62,7 @@ on:
       - "frontend/src/lib/__tests__/tiptapListItemBatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemLiftPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
+      - "frontend/vitest.block-patch.config.ts"
       - "docs/block-patch-api.md"
       - "docs/block-patch-empty-document.md"
       - "docs/block-patch-list-hierarchy.md"
@@ -92,6 +94,7 @@ on:
       - "backend/tests/block-patch-route.test.ts"
       - "backend/tests/block-patch-route-v2.test.ts"
       - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/__tests__/blockPatchWindowedEditor.setup.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx"
       - "frontend/src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx"
@@ -124,6 +127,7 @@ on:
       - "frontend/src/lib/__tests__/tiptapListItemBatchPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapListItemLiftPlanner.test.ts"
       - "frontend/src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts"
+      - "frontend/vitest.block-patch.config.ts"
       - "docs/block-patch-api.md"
       - "docs/block-patch-empty-document.md"
       - "docs/block-patch-list-hierarchy.md"
@@ -191,7 +195,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Block patch client, planner and rollout tests
+      - name: Block Patch planners and explicit windowed-runtime coverage
         shell: bash
         run: |
           set -o pipefail
@@ -210,13 +214,19 @@ jobs:
             src/lib/__tests__/tiptapListItemLiftPlanner.test.ts \
             src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts \
             src/components/__tests__/TiptapBlockPatchRuntime.test.tsx \
+            src/components/__tests__/TiptapRuntimePublicContext.test.tsx \
+            2>&1 | tee /tmp/block-patch-frontend.log
+      - name: Base-editor Block Patch runtime tests
+        shell: bash
+        run: |
+          set -o pipefail
+          npx vitest run --config vitest.block-patch.config.ts \
             src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx \
             src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx \
             src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx \
             src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx \
             src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx \
-            src/components/__tests__/TiptapRuntimePublicContext.test.tsx \
-            2>&1 | tee /tmp/block-patch-frontend.log
+            2>&1 | tee -a /tmp/block-patch-frontend.log
       - name: Upload frontend diagnostics
         if: always()
         uses: actions/upload-artifact@v4
