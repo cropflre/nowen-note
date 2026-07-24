@@ -23,6 +23,12 @@ import {
   loadEditorSplitRatio,
   saveEditorSplitRatio,
 } from "@/lib/editorWorkspaceLayout";
+import {
+  applyEditorUpdateToNote,
+  readEditorSplitMirrorUpdate,
+  requestEditorSplitMirror,
+  UPDATE_EDITOR_SPLIT_MIRROR_EVENT,
+} from "@/lib/editorSplitMirror";
 
 export default function EditorSplitView() {
   const { state } = useApp();
@@ -361,6 +367,18 @@ function SplitEditorPane({
     if (!duplicateDocument || state.activeNote?.id !== noteId) return;
     setNote(state.activeNote);
   }, [duplicateDocument, noteId, state.activeNote]);
+
+  useEffect(() => {
+    if (!duplicateDocument) return;
+    const updateMirror = (event: Event) => {
+      const detail = readEditorSplitMirrorUpdate(event);
+      if (!detail || detail.noteId !== noteId) return;
+      setNote((current) => current ? applyEditorUpdateToNote(current, detail.update) : current);
+    };
+    window.addEventListener(UPDATE_EDITOR_SPLIT_MIRROR_EVENT, updateMirror);
+    requestEditorSplitMirror(noteId);
+    return () => window.removeEventListener(UPDATE_EDITOR_SPLIT_MIRROR_EVENT, updateMirror);
+  }, [duplicateDocument, noteId]);
 
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     const current = noteRef.current;

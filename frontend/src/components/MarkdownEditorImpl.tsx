@@ -379,6 +379,7 @@ function buildMarkdownVideoSnippet(result: MediaUploadResult): string {
 export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   note,
   onUpdate,
+  onLocalUpdate,
   onTagsChange,
   onHeadingsChange,
   onEditorReady,
@@ -408,6 +409,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   noteRef.current = note;
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const onLocalUpdateRef = useRef(onLocalUpdate);
+  onLocalUpdateRef.current = onLocalUpdate;
   const onHeadingsChangeRef = useRef(onHeadingsChange);
   onHeadingsChangeRef.current = onHeadingsChange;
 
@@ -895,6 +898,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       if (isSettingContent.current) return;
 
       const text = update.state.doc.toString();
+      onLocalUpdateRef.current?.({
+        title: noteRef.current.title,
+        content: text,
+        _noteId: noteRef.current.id,
+      });
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
       if (!collabEnabledRef.current) {

@@ -16,7 +16,9 @@ import { cn } from "@/lib/utils";
 import {
   applyEditorUpdateToNote,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
+  publishEditorSplitMirrorUpdate,
   readEditorSplitCloseNoteId,
+  REQUEST_EDITOR_SPLIT_MIRROR_EVENT,
 } from "@/lib/editorSplitMirror";
 import { Tag, Notebook, MindMapData, MindMapNode, type Note } from "@/types";
 import { useTranslation } from "react-i18next";
@@ -679,6 +681,12 @@ export default function EditorPane({
     await handleUpdateRef.current?.(data);
   }, []);
 
+  const handleLocalMirrorUpdate = useCallback((data: NoteEditorUpdatePayload) => {
+    const current = activeNoteRef.current;
+    if (!current || (data._noteId && data._noteId !== current.id)) return;
+    publishEditorSplitMirrorUpdate(current.id, data);
+  }, []);
+
   useEffect(() => {
     const prepareSplitClose = (event: Event) => {
       const noteId = readEditorSplitCloseNoteId(event);
@@ -703,8 +711,26 @@ export default function EditorPane({
       try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
     };
 
+    const publishRequestedMirror = (event: Event) => {
+      const noteId = readEditorSplitCloseNoteId(event);
+      const current = activeNoteRef.current;
+      if (!noteId || !current || current.id !== noteId) return;
+      const snapshot = editorHandleRef.current?.getSnapshot?.();
+      if (!snapshot) return;
+      publishEditorSplitMirrorUpdate(noteId, {
+        title: current.title,
+        content: snapshot.content,
+        contentText: snapshot.contentText,
+        _noteId: noteId,
+      });
+    };
+
     window.addEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
-    return () => window.removeEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+    window.addEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, publishRequestedMirror);
+    return () => {
+      window.removeEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+      window.removeEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, publishRequestedMirror);
+    };
   }, [actions]);
 
   // �л��ʼ�ʱ��Ȿ�زݸ�
@@ -3122,6 +3148,7 @@ const moveToTrash = useCallback(async () => {
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
+              onLocalUpdate={handleLocalMirrorUpdate}
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={handleEditorReady}
@@ -3135,6 +3162,7 @@ const moveToTrash = useCallback(async () => {
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
+              onLocalUpdate={handleLocalMirrorUpdate}
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={handleEditorReady}

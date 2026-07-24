@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { Note } from "@/types";
 import {
   applyEditorUpdateToNote,
+  publishEditorSplitMirrorUpdate,
   prepareEditorSplitClose,
   readEditorSplitCloseNoteId,
+  readEditorSplitMirrorUpdate,
+  requestEditorSplitMirror,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
+  REQUEST_EDITOR_SPLIT_MIRROR_EVENT,
+  UPDATE_EDITOR_SPLIT_MIRROR_EVENT,
 } from "@/lib/editorSplitMirror";
 
 const note = {
@@ -47,5 +52,38 @@ describe("editorSplitMirror", () => {
 
     window.removeEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, listener);
     expect(received).toBe("note-1");
+  });
+
+  it("requests the current editor snapshot when a mirror opens", () => {
+    let received: string | null = null;
+    const listener = (event: Event) => { received = readEditorSplitCloseNoteId(event); };
+    window.addEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, listener);
+
+    requestEditorSplitMirror("note-1");
+
+    window.removeEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, listener);
+    expect(received).toBe("note-1");
+  });
+
+  it("publishes an in-memory Markdown update without changing its payload", () => {
+    let received: ReturnType<typeof readEditorSplitMirrorUpdate> = null;
+    const listener = (event: Event) => { received = readEditorSplitMirrorUpdate(event); };
+    window.addEventListener(UPDATE_EDITOR_SPLIT_MIRROR_EVENT, listener);
+
+    publishEditorSplitMirrorUpdate("note-1", {
+      title: "Before",
+      content: "live markdown",
+      _noteId: "note-1",
+    });
+
+    window.removeEventListener(UPDATE_EDITOR_SPLIT_MIRROR_EVENT, listener);
+    expect(received).toEqual({
+      noteId: "note-1",
+      update: {
+        title: "Before",
+        content: "live markdown",
+        _noteId: "note-1",
+      },
+    });
   });
 });

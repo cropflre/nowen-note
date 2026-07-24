@@ -141,6 +141,7 @@ const LargeMarkdownSafeEditor = forwardRef<
   {
     note,
     onUpdate,
+    onLocalUpdate,
     onTagsChange,
     onHeadingsChange,
     onEditorReady,
@@ -169,6 +170,7 @@ const LargeMarkdownSafeEditor = forwardRef<
   const lastSyncedContentRef = useRef("");
   const localYOriginRef = useRef<object>({});
   const onUpdateRef = useRef(onUpdate);
+  const onLocalUpdateRef = useRef(onLocalUpdate);
   const onHeadingsChangeRef = useRef(onHeadingsChange);
   const emitSaveRef = useRef<() => void>(() => {});
   const themeCompartmentRef = useRef(new Compartment());
@@ -184,6 +186,7 @@ const LargeMarkdownSafeEditor = forwardRef<
   previewActiveRef.current = previewMarkdown !== null;
 
   onUpdateRef.current = onUpdate;
+  onLocalUpdateRef.current = onLocalUpdate;
   onHeadingsChangeRef.current = onHeadingsChange;
 
   const normalizedNoteContent = useMemo(
@@ -333,6 +336,11 @@ const LargeMarkdownSafeEditor = forwardRef<
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged || isSettingContentRef.current) return;
+      onLocalUpdateRef.current?.({
+        title: note.title,
+        content: update.state.doc.toString(),
+        _noteId: note.id,
+      });
       contentVersionRef.current += 1;
       dirtyRef.current = true;
       latestAnalysisVersionRef.current = -1;
