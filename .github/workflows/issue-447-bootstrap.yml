@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/scripts/issue447_modify_existing.py"
       - ".github/workflows/issue-447-bootstrap.yml"
+      - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
 
 permissions:
   contents: write
