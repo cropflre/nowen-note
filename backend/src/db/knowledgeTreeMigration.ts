@@ -9,15 +9,22 @@ import { ensureKnowledgeTreeStructuralGuard } from "./knowledgeTreeStructuralGua
 
 export { KNOWLEDGE_TREE_SCHEMA_VERSION };
 
+const initializedConnections = new WeakSet<Database.Database>();
+
 /**
- * The base helper is intentionally idempotent and is called by services before queries. It also
- * recreates its original broad notebook sync and update-guard triggers, so always re-apply the
- * hardened v63/v64 variants before returning.
+ * Install the tree schema and hardened triggers once for each open database connection.
+ *
+ * The historical base helper performs backfill DML in addition to idempotent DDL. Re-running it
+ * before every read/restore is both expensive and unsafe while a subtree is temporarily soft
+ * deleted. getDb() already runs registered migrations before serving requests, so service-level
+ * calls only need a per-connection fallback for direct tests and old embedding entry points.
  */
 export function ensureKnowledgeTreeTables(db: Database.Database): void {
+  if (initializedConnections.has(db)) return;
   ensureBaseKnowledgeTreeTables(db);
   ensureKnowledgeTreeLegacySync(db);
   ensureKnowledgeTreeStructuralGuard(db);
+  initializedConnections.add(db);
 }
 
 export const knowledgeTreeMigration: Migration = {
