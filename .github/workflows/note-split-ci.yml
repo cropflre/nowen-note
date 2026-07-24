@@ -154,7 +154,6 @@ jobs:
       - run: npm ci
       - run: npm run build:tsc
 
-  # BEGIN ONE-SHOT-YJS-FIX
   patch-yjs-noop-persist:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -163,7 +162,7 @@ jobs:
         with:
           ref: pg-migration-unified
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Patch and self-clean
+      - name: Patch Yjs source
         shell: bash
         run: |
           set -euo pipefail
@@ -173,6 +172,9 @@ jobs:
 
           yjs = Path("backend/src/services/yjs.ts")
           text = yjs.read_text()
+          marker = "if (existing.content === markdown && existing.contentText === contentText) return;"
+          if marker in text:
+              raise SystemExit(0)
           old = '''  const existing = db.prepare("SELECT version FROM notes WHERE id = ?").get(room.noteId) as
             | { version: number }
             | undefined;
@@ -191,20 +193,13 @@ jobs:
           if old not in text:
               raise SystemExit("target Yjs persistence block not found")
           yjs.write_text(text.replace(old, new, 1))
-
-          workflow = Path(".github/workflows/note-split-ci.yml")
-          body = workflow.read_text()
-          body = body.replace('      - "backend/.yjs-noop-persist-fix-trigger"\n', '', 1)
-          body = body.replace('permissions:\n  contents: write', 'permissions:\n  contents: read')
-          start = body.index('  # BEGIN ONE-SHOT-YJS-FIX\n')
-          end = body.index('  # END ONE-SHOT-YJS-FIX\n') + len('  # END ONE-SHOT-YJS-FIX\n')
-          workflow.write_text(body[:start] + body[end:])
           PY
 
+          if git diff --quiet -- backend/src/services/yjs.ts; then
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/src/services/yjs.ts .github/workflows/note-split-ci.yml
-          git rm backend/.yjs-noop-persist-fix-trigger
+          git add backend/src/services/yjs.ts
           git commit -m "fix(yjs): skip no-op notes persistence"
           git push origin HEAD:pg-migration-unified
-  # END ONE-SHOT-YJS-FIX
