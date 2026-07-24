@@ -1,4 +1,4 @@
-# Block Patch API V2-I
+# Block Patch API V2-J
 
 Block Patch applies ordered Tiptap or Markdown Block mutations as one confirmed transaction. The same transaction updates the compatibility snapshot, Block-authoritative shadow, indexes and operation history.
 
@@ -139,11 +139,31 @@ This keeps the existing Block type and attributes while replacing its editable t
 }
 ```
 
-The API does not accept arbitrary ProseMirror JSON. Allowed leaf Block nodes are `paragraph`, `heading` and `codeBlock`; allowed inline nodes are `text` and paragraph/heading `hardBreak`.
+The API does not accept arbitrary ProseMirror JSON. Allowed leaf Block nodes are `paragraph`, `heading` and `codeBlock`; allowed inline nodes are `text`, paragraph/heading `hardBreak`, `image` and `mathInline`.
 
 Allowed marks include bold, italic, underline, strike, inline code, safe links, highlight and text style. Paragraphs accept the editor's bounded `indent` attribute (`0`–`8`). Unknown nodes, marks, attrs, fields, dangerous URL schemes, mismatched Block IDs and oversized replacement nodes return `INVALID_BLOCK_NODE` before persistence.
 
-The same `replace` protocol accepts an existing top-level `video`, `blockEmbed` or `mathBlock` only when the replacement has the same type and Block ID and passes its attribute/URL/size allowlist. Inline images remain owned by their parent paragraph and are patched by replacing that paragraph. Mermaid remains a `codeBlock` with the `mermaid` language.
+The same `replace` protocol accepts an existing top-level `video`, `blockEmbed` or `mathBlock` only when the replacement has the same type and Block ID and passes its attribute/URL/size allowlist. Inline images remain owned by their parent paragraph or heading and are patched by replacing that parent Block. Mermaid remains a `codeBlock` with the `mermaid` language.
+
+### Inline image contract
+
+An image is part of its identified parent paragraph or heading; it is not an independently versioned Block. Adding, removing, replacing or changing an inline image is committed as one parent-Block `replace` operation.
+
+Image attrs are limited to `src`, `alt`, `title`, `width`, `height`, `rotation` and `flipX`.
+
+Validation rules:
+
+- `src` accepts HTTP(S), `/`, `./`, `../`, or bounded raster data URLs;
+- raster data URLs are limited to PNG, JPEG, GIF and WebP;
+- SVG data URLs, `javascript:`, `vbscript:`, `file:` and `blob:` are rejected;
+- `alt` and `title` are limited to 512 characters and cannot contain control characters;
+- `width` and `height` are integers from 1 to 10000;
+- `rotation` is one of `0`, `90`, `180`, `270`;
+- `flipX` is boolean;
+- images cannot carry marks and cannot appear in a code block;
+- one normalized replacement node cannot exceed 256 KB.
+
+Attachment ownership is not changed by this operation. Existing attachment upload/ownership rules still apply, and the complete authoritative JSON returned by the server becomes the next Patch baseline.
 
 ## Markdown operations
 
