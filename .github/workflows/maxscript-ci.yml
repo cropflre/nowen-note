@@ -32,9 +32,12 @@ jobs:
       - name: Explicit highlighting
         if: always()
         run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts -t "highlights explicit"
-      - name: Case and autodetect
+      - name: Case-insensitive highlighting
         if: always()
-        run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts -t "is case-insensitive"
+        run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts -t "case-insensitively"
+      - name: Automatic detection exclusion
+        if: always()
+        run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts -t "stays out of automatic"
       - name: Product labels
         if: always()
         run: npm run test:run -- src/lib/__tests__/codeBlockLowlight.test.ts -t "uses the product label"
