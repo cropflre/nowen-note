@@ -44,7 +44,9 @@ import { buildFtsSearchTerm } from "../lib/searchQuery";
 const app = new Hono();
 
 function wantsInternalNoteContent(c: any): boolean {
-  return c.req.header("X-Nowen-Content-View") === "internal";
+  return (c.req.header("Accept") || "")
+    .toLowerCase()
+    .includes("application/vnd.nowen.internal-note+json");
 }
 
 function presentNoteForResponse(db: any, c: any, note: any): any {

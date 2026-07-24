@@ -7,8 +7,9 @@ export interface InternalMarkdownMarkerRange {
   blockId: string;
 }
 
-const INLINE_MARKER_RE = /[ \t]+\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/;
-const LINE_MARKER_RE = /^[ \t]*\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/;
+const GENERATED_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`;
+const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]+\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
+const LINE_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 
 /**

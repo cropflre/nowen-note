@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
-import { projectMarkdownForUser } from "../lib/markdownUserContent";
+import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { broadcastToUser } from "../services/realtime";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import fs from "fs";
@@ -264,9 +264,9 @@ app.get("/notes", (c) => {
     ORDER BY nb.name, n.title
   `);
   const notes = (wsParam === null ? stmt.all(userId) : stmt.all(userId, wsParam)) as any[];
-  const visibleNotes = notes.map((note) => note.contentFormat === "markdown"
-    ? { ...note, content: projectMarkdownForUser(note.content || "") }
-    : note);
+  const visibleNotes = notes.map((note) =>
+    projectMarkdownNoteForUser(db, note),
+  );
 
   return c.json(visibleNotes);
 });

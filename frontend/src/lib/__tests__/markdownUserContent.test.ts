@@ -4,17 +4,21 @@ import {
   projectMarkdownForUser,
 } from "../markdownUserContent";
 
+const HEADING_ID = "blk_11111111-1111-4111-8111-111111111111";
+const PARAGRAPH_ID = "blk_22222222-2222-4222-8222-222222222222";
+const CODE_ID = "blk_33333333-3333-4333-8333-333333333333";
+
 describe("projectMarkdownForUser", () => {
-  it("removes inline and post-fence system markers while preserving code contents", () => {
+  it("removes generated inline and post-fence markers while preserving code contents", () => {
     const source = [
-      "# 标题 ^blk_heading1",
+      `# 标题 ^${HEADING_ID}`,
       "",
-      "正文 ^blk_para001",
+      `正文 ^${PARAGRAPH_ID}`,
       "",
       "```ts",
       "const value = '^blk_inside';",
       "```",
-      "^blk_code001",
+      `^${CODE_ID}`,
       "",
       "尾声",
     ].join("\n");
@@ -32,11 +36,16 @@ describe("projectMarkdownForUser", () => {
     ].join("\n"));
   });
 
+  it("keeps ordinary user-authored ^blk_ text visible", () => {
+    const source = "文档中的普通示例 ^blk_example_text";
+    expect(projectMarkdownForUser(source)).toBe(source);
+  });
+
   it("returns source offsets for editor decorations", () => {
-    const source = "a ^blk_abcdef\n^blk_ghijkl\n";
+    const source = `a ^${HEADING_ID}\n^${CODE_ID}\n`;
     expect(findInternalMarkdownMarkerRanges(source).map(({ kind, blockId }) => ({ kind, blockId }))).toEqual([
-      { kind: "inline", blockId: "blk_abcdef" },
-      { kind: "line", blockId: "blk_ghijkl" },
+      { kind: "inline", blockId: HEADING_ID },
+      { kind: "line", blockId: CODE_ID },
     ]);
   });
 });
