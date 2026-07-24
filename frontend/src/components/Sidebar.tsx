@@ -457,7 +457,7 @@ function SidebarNoteItem({
       onDrop={(e) => onDrop?.(e, note.id)}
       className={cn(
         "relative flex items-center gap-1 pr-2 py-1 rounded-md text-left text-xs transition-colors cursor-grab active:cursor-grabbing",
-        constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+        "w-full min-w-0",
         dragOverZone && "bg-accent-primary/5",
         active
           ? "bg-app-active text-tx-primary"
@@ -493,12 +493,12 @@ function SidebarNoteItem({
       ) : (
         <FileText size={13} className={cn("shrink-0", active ? "text-accent-primary" : "text-tx-tertiary")} />
       )}
-      <span className="flex-1 min-w-0">
-        <span className="block truncate leading-tight">{note.title || "无标题笔记"}</span>
+      <span className="flex-1 min-w-0 overflow-hidden">
+        <span className="block truncate leading-tight" title={note.title || "无标题笔记"}>{note.title || "无标题笔记"}</span>
         {showNoteTime && <span className="block text-[10px] text-tx-tertiary truncate leading-tight mt-0.5">{noteTimeLabel(note.updatedAt)}</span>}
       </span>
       <span className={cn(
-        "text-[9px] px-1 py-0.5 rounded shrink-0 leading-none",
+        "self-start mt-px text-[9px] px-1 py-0.5 rounded shrink-0 leading-none",
         note.contentFormat === "markdown"
           ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
           : "border border-app-border bg-app-hover text-tx-tertiary"
@@ -678,7 +678,7 @@ function NotebookItem({
         animate={{ opacity: 1, x: 0 }}
         className={cn(
           "relative flex items-center gap-1 px-2 rounded-md cursor-pointer text-sm group transition-colors",
-          constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+          "w-full min-w-0",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
           showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15",
@@ -2922,7 +2922,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               <div
                 className={cn(
                   "space-y-0.5 pb-3 pr-2",
-                  constrainNotebookTreeWidth ? "w-full min-w-0" : "w-max min-w-full"
+                  "w-full min-w-0"
                 )}
                 style={{ minWidth: constrainNotebookTreeWidth ? undefined : `${notebookTreeMinWidth}px` }}
               >

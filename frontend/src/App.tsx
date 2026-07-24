@@ -21,7 +21,7 @@ import QuickLoginEnrollDialog from "@/components/QuickLoginEnrollDialog";
 import WhatsNewModal, { useWhatsNew } from "@/components/WhatsNewModal";
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPreferences";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -1250,14 +1250,12 @@ function App() {
 
   return (
     <ThemeProvider>
-      <SiteSettingsProvider>
-        <UserPreferencesProvider>
-          <ConfirmProvider>
-            <AuthGate />
-            <Toaster />
-          </ConfirmProvider>
-        </UserPreferencesProvider>
-      </SiteSettingsProvider>
+      <UserPreferencesProvider>
+        <ConfirmProvider>
+          <AuthGate />
+          <Toaster />
+        </ConfirmProvider>
+      </UserPreferencesProvider>
     </ThemeProvider>
   );
 }

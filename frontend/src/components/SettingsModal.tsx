@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, Wrench, ZoomIn, Key, Building2, BookOpen, ToggleLeft, Download, FolderSync } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Building2, BookOpen, ToggleLeft, Download, FolderSync } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
@@ -22,7 +22,7 @@ import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPorta
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 
-type TabId = "appearance" | "switches" | "ai" | "security" | "tokens" | "data" | "folderSync" | "users" | "workspaces" | "developer" | "download" | "about";
+type TabId = "appearance" | "switches" | "ai" | "security" | "tokens" | "data" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -324,112 +324,6 @@ function renderUpdaterStatus(p: UpdaterPayload): string {
     default:
       return "";
   }
-}
-
-/**
- * 开发者选项面板（仅管理员可见）。
- *
- * 承载运行时调试开关，开关值持久化在 system_settings 表里——这意味着：
- *   - 不需要重启进程；
- *   - 全节点 30s 内（后端缓存 TTL）一致生效；
- *   - 重启后保持上次状态。
- *
- * 双源开关：env DEBUG_FILES_QUERY=1 也能强制开启（运维侧旁路），UI 上检测到
- * 该值时给出提示并禁用开关——避免管理员困惑"我关了为什么日志还在打"。
- *
- * 设计理由：之前 v12 myUploads 字面量大小写错配排查耗时颇长，根因是看不到
- * "后端实际收到的 query 是什么"。把这个调试开关做成可视化，下次再有类似
- * 「前端传了 filter 但后端像没收到」的现象，管理员可一键开启 → 看日志 → 关闭。
- */
-function DeveloperPanel() {
-  const { t } = useTranslation();
-  const [debugFilesQuery, setDebugFilesQuery] = useState(false);
-  const [envForced, setEnvForced] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [errMsg, setErrMsg] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getSiteSettings()
-      .then((s) => {
-        if (cancelled) return;
-        setDebugFilesQuery(s.debug_files_query === "true");
-        // 后端没单独下发 env 状态——做不到精确感知。这里保留 false，
-        // 仅当 PUT 失败回写时才能间接发现 env 强开（暂不做）。如有需要后续
-        // 可在 /api/settings 响应里加 `_env` 字段下发。
-        setEnvForced(false);
-      })
-      .catch((e: any) => {
-        if (!cancelled) setErrMsg(String(e?.message || e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const handleToggleDebugFilesQuery = async (next: boolean) => {
-    setSaving(true);
-    setErrMsg("");
-    const prev = debugFilesQuery;
-    setDebugFilesQuery(next); // 乐观更新
-    try {
-      const data = await api.updateSiteSettings({ debug_files_query: next });
-      // 用后端归一化后的真值兜底（防止前端布尔/字符串不一致）
-      setDebugFilesQuery(data.debug_files_query === "true");
-    } catch (e: any) {
-      setDebugFilesQuery(prev); // 失败回滚
-      setErrMsg(String(e?.message || e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-          {t('settings.developerTitle')}
-        </h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {t('settings.developerDesc')}
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={debugFilesQuery}
-            disabled={loading || saving || envForced}
-            onChange={(e) => handleToggleDebugFilesQuery(e.target.checked)}
-            className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                {t('settings.debugFilesQueryLabel')}
-              </span>
-              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />}
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-              {t('settings.debugFilesQueryHint')}
-            </p>
-            {envForced && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">
-                {t('settings.debugFilesQueryEnvActive')}
-              </p>
-            )}
-          </div>
-        </label>
-      </div>
-
-      {errMsg && (
-        <p className="text-xs text-red-500 dark:text-red-400">{errMsg}</p>
-      )}
-    </div>
-  );
 }
 
 /**
@@ -1408,9 +1302,6 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
-    // 「开发者」面板：仅管理员可见，承载运行时调试开关（如 files-list 查询日志）。
-    // 普通用户根本看不到这一项，与后端的 admin-only 写入闸门双层防御。
-    ...(isAdmin ? [{ id: "developer" as const, label: t('settings.developer'), icon: Wrench }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：
     //   用户主要在中国大陆，GitHub Releases 下载体验差，这里按平台列出产物并提供
     //   「GitHub 直连 + 多个公共加速代理」的换源能力。与 about 的「前往下载页」区别：后者只能调起
@@ -1596,7 +1487,6 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                        —— 管理员看到完整三 scope；普通用户只看"个人空间"的导出/导入。 */}
                   {activeTab === "data" && <DataManager />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
-                  {activeTab === "developer" && isAdmin && <DeveloperPanel />}
                   {activeTab === "download" && <DownloadPanel />}
                   {activeTab === "about" && <AboutPanel />}
                 </PanelErrorBoundary>

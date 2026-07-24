@@ -11,6 +11,7 @@ import App from "./App";
 import PublicNotebookView from "./components/PublicNotebookView";
 import PublicSpaceLauncher from "./components/PublicSpaceLauncher";
 import { ThemeProvider } from "./components/ThemeProvider";
+import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
 import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge";
@@ -130,37 +131,39 @@ const publicRoute = resolvePublicNotebookRoute();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BootSplashRemover />
-    {publicRoute.matched ? (
-      <ThemeProvider>
-        <PublicNotebookView token={publicRoute.token} />
-        <Toaster />
-      </ThemeProvider>
-    ) : (
-      <>
-        <NoteIconBridge />
-        <AIProfileSwitcherBridge />
-        <MarkdownExperienceBridge />
-        <MindMapAppearanceBridge />
-        <EmbedPasswordBridge />
-        <ImageExperienceBridge />
-        <MediaExperienceBridge />
-        <EditorImageTransformBridge />
-        <DesktopUpdateCenter />
-        <DockerUpdateCenter />
-        <TwoFactorLoginChallengeCenter />
-        <TaskDataTransferBridgeV2 />
-        <SystemFullDataTransferBridge />
-        <AndroidShareImportCenter />
-        <NoteImageExportCenter />
-        <DocxImportCenter />
-        <PublicSpaceLauncher />
-        <NoteTransferCenter />
-        <RoundTripImportBatchCenter />
-        <RoundTripPermissionMappingCenter />
-        <RoundTripPermissionExportCenter />
-        <App />
-      </>
-    )}
+    <SiteSettingsProvider>
+      <BootSplashRemover />
+      {publicRoute.matched ? (
+        <ThemeProvider>
+          <PublicNotebookView token={publicRoute.token} />
+          <Toaster />
+        </ThemeProvider>
+      ) : (
+        <>
+          <NoteIconBridge />
+          <AIProfileSwitcherBridge />
+          <MarkdownExperienceBridge />
+          <MindMapAppearanceBridge />
+          <EmbedPasswordBridge />
+          <ImageExperienceBridge />
+          <MediaExperienceBridge />
+          <EditorImageTransformBridge />
+          <DesktopUpdateCenter />
+          <DockerUpdateCenter />
+          <TwoFactorLoginChallengeCenter />
+          <TaskDataTransferBridgeV2 />
+          <SystemFullDataTransferBridge />
+          <AndroidShareImportCenter />
+          <NoteImageExportCenter />
+          <DocxImportCenter />
+          <PublicSpaceLauncher />
+          <NoteTransferCenter />
+          <RoundTripImportBatchCenter />
+          <RoundTripPermissionMappingCenter />
+          <RoundTripPermissionExportCenter />
+          <App />
+        </>
+      )}
+    </SiteSettingsProvider>
   </React.StrictMode>,
 );
