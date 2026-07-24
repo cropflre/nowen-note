@@ -196,11 +196,11 @@ describe("Tiptap controlled list hierarchy planner", () => {
       operations: [{
         type: "move",
         scope: "listItem",
-        blockId: "blk_item_a0",
-        targetBlockId: "blk_item_c0",
+        blockId: "blk_item_b0",
+        targetBlockId: "blk_item_a0",
         position: "before",
       }],
-      affectedBlockIds: ["blk_item_a0", "blk_item_c0"],
+      affectedBlockIds: ["blk_item_b0", "blk_item_a0"],
     });
   });
 
@@ -224,7 +224,7 @@ describe("Tiptap controlled list hierarchy planner", () => {
     });
   });
 
-  it("rejects content changes, multiple moves and list-type conversion", () => {
+  it("rejects content changes and list-type conversion while batching multiple moves", () => {
     const base = doc([list("bulletList", [
       item("blk_item_a0", "A"),
       item("blk_item_b0", "B"),
@@ -245,7 +245,7 @@ describe("Tiptap controlled list hierarchy planner", () => {
       item("blk_item_d0", "D"),
       item("blk_item_c0", "C"),
     ])]);
-    expect(planTiptapBlockPatch(base, twoMoves)).toBeNull();
+    expect(planTiptapBlockPatch(base, twoMoves)).toMatchObject({ kind: "list-batch" });
 
     const ordered = doc([list("orderedList", [
       item("blk_item_a0", "A"),
