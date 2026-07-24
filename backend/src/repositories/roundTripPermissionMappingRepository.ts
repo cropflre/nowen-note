@@ -67,7 +67,10 @@ export const roundTripPermissionMappingRepository = {
 
   async listTargetUsers(): Promise<RoundTripPermissionTargetUserRow[]> {
     return getAdapter().queryMany<RoundTripPermissionTargetUserRow>(
-      "SELECT id, username, email FROM users ORDER BY id",
+      `SELECT id, username, email
+         FROM users
+        WHERE COALESCE("isDisabled", 0) = 0
+        ORDER BY id`,
     );
   },
 
@@ -75,10 +78,29 @@ export const roundTripPermissionMappingRepository = {
     if (!userIds.length) return new Set();
     const placeholders = userIds.map(() => "?").join(", ");
     const rows = await getAdapter().queryMany<{ id: string }>(
-      `SELECT id FROM users WHERE id IN (${placeholders})`,
+      `SELECT id
+         FROM users
+        WHERE id IN (${placeholders})
+          AND COALESCE("isDisabled", 0) = 0`,
       userIds,
     );
     return new Set(rows.map((row) => row.id));
+  },
+
+  async listWorkspaceMemberRoles(
+    workspaceId: string,
+    userIds: string[],
+  ): Promise<Map<string, string>> {
+    if (!userIds.length) return new Map();
+    const placeholders = userIds.map(() => "?").join(", ");
+    const rows = await getAdapter().queryMany<{ userId: string; role: string }>(
+      `SELECT "userId" AS "userId", role
+         FROM workspace_members
+        WHERE "workspaceId" = ?
+          AND "userId" IN (${placeholders})`,
+      [workspaceId, ...userIds],
+    );
+    return new Map(rows.map((row) => [row.userId, row.role]));
   },
 
   async upsertWorkspaceMembers(
