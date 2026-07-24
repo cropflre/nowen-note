@@ -27,8 +27,18 @@ mock_old = '''vi.mock("@/lib/api.impl", () => ({
   getBaseUrl: () => "/api",
 }));'''
 mock_new = '''vi.mock("@/lib/api.impl", () => ({
-  api: {},
+  api: {
+    attachments: { upload: async () => ({}) },
+    search: async () => [],
+    moveNotebook: async () => ({}),
+    reorderNotebooks: async () => ({}),
+    updateNotebook: async () => ({}),
+    createTask: async () => ({}),
+    getHabitCheckinLog: async () => [],
+  },
   getBaseUrl: () => "/api",
+  getCurrentWorkspace: () => null,
+  getServerUrl: () => "",
 }));'''
 
 for path in [
