@@ -42,13 +42,17 @@ describe("MAXScript lowlight language", () => {
     expect(serialized).toContain("hljs-number");
   });
 
-  it("is case-insensitive and stays out of automatic detection", () => {
-    const lowlight = createCodeBlockLowlight();
-    const explicit = JSON.stringify(lowlight.highlight("maxscript", "FN Build = MATRIX3 1"));
+  it("highlights MAXScript keywords and built-ins case-insensitively", () => {
+    const explicit = JSON.stringify(
+      createCodeBlockLowlight().highlight("maxscript", "FN Build = MATRIX3 1"),
+    );
 
     expect(explicit).toContain("hljs-keyword");
     expect(explicit).toContain("hljs-built_in");
-    expect(lowlight.highlightAuto(SAMPLE).data?.language).not.toBe("maxscript");
+  });
+
+  it("stays out of automatic detection", () => {
+    expect(createCodeBlockLowlight().highlightAuto(SAMPLE).data?.language).not.toBe("maxscript");
   });
 
   it("uses the product label for canonical and alias identifiers", () => {
