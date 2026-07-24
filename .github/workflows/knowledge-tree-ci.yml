@@ -2,7 +2,9 @@ name: Knowledge Tree CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/issue-370-p0c-p1-knowledge-tree
     paths:
       - "backend/src/db/knowledgeTree*.ts"
       - "backend/src/db/postgres/060_knowledge_tree.sql"
