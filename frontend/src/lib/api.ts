@@ -55,6 +55,7 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
     ...init,
     headers: {
       "Content-Type": "application/json",
+      "X-Nowen-Content-View": "internal",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },

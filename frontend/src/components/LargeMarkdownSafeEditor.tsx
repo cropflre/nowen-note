@@ -45,6 +45,7 @@ import type {
   NoteEditorProps,
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
+import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   buildLargeMarkdownSearchText,
@@ -357,6 +358,7 @@ const LargeMarkdownSafeEditor = forwardRef<
           EditorState.readOnly.of(!editable),
         ]),
         performanceCompartmentRef.current.of(performanceExtensions(runtimeDecision.mode)),
+        ...internalMarkdownMarkerExtensions,
         EditorView.contentAttributes.of({
           spellcheck: "false",
           autocapitalize: "off",

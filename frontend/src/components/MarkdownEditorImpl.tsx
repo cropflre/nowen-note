@@ -112,6 +112,7 @@ import { copyText } from "@/lib/clipboard";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
+import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
@@ -1003,6 +1004,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         highlightActiveLine(),
         highlightSelectionMatches(),
         EditorView.lineWrapping,
+        ...internalMarkdownMarkerExtensions,
         EditorView.contentAttributes.of({ spellcheck: "false" }),
         placeholder(tr("tiptap.placeholder") || "��ʼд��ʲô..."),
 
