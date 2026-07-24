@@ -6,31 +6,32 @@ import test from "node:test";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-knowledge-tree-"));
 process.env.DB_PATH = path.join(tempDir, "knowledge-tree.db");
-
-await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
-const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
-const {
-  createKnowledgeChild,
-  deleteKnowledgeNode,
-  KnowledgeTreeError,
-  listKnowledgeTree,
-  moveKnowledgeNode,
-} = await import("../src/services/knowledgeTree.js");
-const {
-  clearKnowledgeNodeRole,
-  resolveKnowledgeNodeAccess,
-  setKnowledgeNodeRole,
-} = await import("../src/services/knowledgeCapabilities.js");
-
-const db = getDb();
+let closeDatabase: (() => void) | null = null;
 
 test.after(() => {
-  closeDb();
+  closeDatabase?.();
   fs.rmSync(tempDir, { recursive: true, force: true });
   delete process.env.DB_PATH;
 });
 
-test("v62 migration builds a mixed tree and enforces inherited capabilities", () => {
+test("v62 migration builds a mixed tree and enforces inherited capabilities", async () => {
+  await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
+  const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
+  closeDatabase = closeDb;
+  const {
+    createKnowledgeChild,
+    deleteKnowledgeNode,
+    KnowledgeTreeError,
+    listKnowledgeTree,
+    moveKnowledgeNode,
+  } = await import("../src/services/knowledgeTree.js");
+  const {
+    clearKnowledgeNodeRole,
+    resolveKnowledgeNodeAccess,
+    setKnowledgeNodeRole,
+  } = await import("../src/services/knowledgeCapabilities.js");
+
+  const db = getDb();
   assert.equal(getDbSchemaVersion(), 62);
 
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
