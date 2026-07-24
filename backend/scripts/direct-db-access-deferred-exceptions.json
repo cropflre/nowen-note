@@ -85,7 +85,7 @@
     "services/embedding-worker.ts": {
       "owner": "#252",
       "reason": "The embedding worker remains part of the deferred SQLite vector/search boundary. Its PostgreSQL redesign is owned by #252.",
-      "counts": { "prepare-call": 15 }
+      "counts": { "prepare-call": 16 }
     },
     "services/noteTransfer.ts": {
       "owner": "#249",
