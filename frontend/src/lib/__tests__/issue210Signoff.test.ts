@@ -57,11 +57,13 @@ describe("issue 210 sign-off runtime", () => {
     const editor = document.createElement("div");
     editor.className = "ProseMirror";
     editor.contentEditable = "true";
+    editor.tabIndex = 0;
     editor.dataset.noteId = "note-1";
     const text = document.createTextNode("hello world");
     editor.appendChild(text);
     document.body.appendChild(editor);
     editor.focus();
+    expect(document.activeElement).toBe(editor);
     const range = document.createRange();
     range.setStart(text, 5);
     range.collapse(true);
