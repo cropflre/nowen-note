@@ -13,6 +13,7 @@ import {
   submitRoundTripPackage,
   type RoundTripImportStrategy,
 } from "./roundTripImportReview";
+import { requestRoundTripPermissionReview } from "./roundTripPermissionReview";
 
 export {
   tiptapExtensions,
@@ -134,8 +135,6 @@ export async function importNotes(
   const file = packageItems[0].__nowenRoundTripPackage!;
   const submitOptionsFor = (strategy: RoundTripImportStrategy) => ({
     workspaceId: options?.workspaceId,
-    // Sync always follows the source→target mappings recorded by the first import. A folder
-    // currently selected in the import UI must not relocate mapped resources accidentally.
     targetNotebookId: strategy === "sync" ? undefined : notebookId || undefined,
   });
   try {
@@ -164,10 +163,11 @@ export async function importNotes(
     const selectedPreview = decision.strategy === "copy"
       ? copyPreview
       : await submitRoundTripPackage(file, {
-        ...submitOptionsFor(decision.strategy),
-        dryRun: true,
-        strategy: decision.strategy,
-      });
+          ...submitOptionsFor(decision.strategy),
+          dryRun: true,
+          strategy: decision.strategy,
+        });
+    const permissionDecision = await requestRoundTripPermissionReview(selectedPreview.package?.permissions);
     const conflicts = Array.isArray(selectedPreview?.conflicts) ? selectedPreview.conflicts.length : 0;
     onProgress?.({
       phase: "uploading",
@@ -185,6 +185,8 @@ export async function importNotes(
       ...submitOptionsFor(decision.strategy),
       dryRun: false,
       strategy: decision.strategy,
+      applyPermissions: permissionDecision.applyPermissions,
+      permissionMappings: permissionDecision.permissionMappings,
     });
 
     const createdNotes = Number(result?.counts?.notes || 0);

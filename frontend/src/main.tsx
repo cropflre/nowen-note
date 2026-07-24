@@ -30,6 +30,8 @@ import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
 import NoteTransferCenter from "./components/NoteTransferCenter";
 import RoundTripImportBatchCenter from "./components/RoundTripImportBatchCenter";
+import RoundTripPermissionMappingCenter from "./components/RoundTripPermissionMappingCenter";
+import RoundTripPermissionExportCenter from "./components/RoundTripPermissionExportCenter";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -53,6 +55,7 @@ import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
 import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
 import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
+import { installRoundTripPermissionExportBridge } from "./lib/roundTripPermissionExport";
 import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 
@@ -77,48 +80,23 @@ function BootSplashRemover() {
   return null;
 }
 
-// Tiptap's editable=false blocks DOM input but not NodeView methods such as
-// updateAttributes/deleteNode. Install the process-wide guard before rendering
-// any editor so locked notebooks cannot be mutated by NodeView toolbars.
 installNodeViewMutationGuard();
-// MediaExperienceBridge listens on document capture. Install the scope guard on window capture
-// first so Diary/Task/avatar media controls keep their own upload flows on mobile.
 installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
-// Collapse the duplicate Android cold-start collection reads into one compact native response.
-// The bridge is Android-only and transparently falls back to the original APIs when unavailable.
 installMobileStartupBridge();
-// Phones that load the NAS-hosted web bundle (browser, PWA or a remote WebView) do not expose
-// the native Capacitor marker. Give them the same compact startup snapshot while leaving desktop
-// Web and Electron untouched.
 installMobileWebStartupBridge();
-// The attachment bridge wraps the active transport so Web, Electron and Capacitor all exchange
-// note/share read permission for the same revocable signed URLs before content is rendered.
 installNoteAttachmentAccessBridge();
-// Observe auth responses after the Android transport bridge is installed so Web, Electron and
-// Capacitor all persist the same short-lived 2FA challenge before LoginPage can be remounted.
 installTwoFactorLoginChallengeBridge();
-// Install the revision guard first, then reject any partial optimistic response left by
-// metadata-only writes before it can replace activeNote in React state.
 installNoteSyncSafety();
 installNoteUpdateResponseGuard();
-// Keep the safety/response wrappers underneath one per-note writer. Concurrent debounce calls
-// now coalesce to the latest snapshot and chain from the preceding server ACK version.
 installNoteUpdateSerialQueue();
 installShareLightboxRotationGuard();
 installMobileImageFocusGuard();
-// Keep one stale task-image reference from aborting an otherwise valid full task backup.
 installTaskAttachmentExportFallback();
-// Normalize task repeat mutations at the API boundary and surface failures before optimistic
-// task state is reloaded from the server.
 installTaskUpdateSafetyBridge();
-// Route Markdown/ZIP/PDF/DOCX Blob downloads through the reliable HTTP transport. New clients
-// connected to an older NAS automatically fall back to the original local Blob download.
 installReliableExportDownloadBridge();
-// Pause Nowen package imports after the authoritative dry-run and show the full package/conflict
-// report before the legacy import panel can continue to the formal write request.
 installRoundTripImportReviewBridge();
-// 只暴露浏览器自动化显式调用的性能入口，不会自动启动任何采集场景。
+installRoundTripPermissionExportBridge();
 installEditorPerformanceGlobal();
 
 initCodeBlockTheme();
@@ -179,6 +157,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <PublicSpaceLauncher />
         <NoteTransferCenter />
         <RoundTripImportBatchCenter />
+        <RoundTripPermissionMappingCenter />
+        <RoundTripPermissionExportCenter />
         <App />
       </>
     )}
