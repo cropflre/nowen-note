@@ -104,6 +104,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("app:diagnostics-info");
   },
 
+  /** 性能签收专用：读取当前 renderer 进程内存，不在正常业务流程自动调用。 */
+  getEditorPerformanceMetrics() {
+    return ipcRenderer.invoke("app:editor-performance-metrics");
+  },
+
   /**
    * renderer → 主进程：上报当前编辑器"格式状态"，供主进程同步系统菜单栏的
    * checked 标记（HIG：菜单项应反映当前上下文状态）。

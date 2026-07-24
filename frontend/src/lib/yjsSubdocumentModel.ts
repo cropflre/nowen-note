@@ -25,6 +25,34 @@ export interface TiptapSubdocumentSyncController {
   destroy(): void;
 }
 
+export interface TiptapSubdocumentRestTransport {
+  load(sectionId: string): Promise<{ guid: string; state: Uint8Array }>;
+  send(sectionId: string, update: Uint8Array): Promise<void>;
+}
+
+export interface TiptapSubdocumentRestSyncController {
+  loadSection(sectionId: string): Promise<string | null>;
+  updateSectionContent(sectionId: string, content: string): boolean;
+  applyRemote(sectionId: string, update: Uint8Array): boolean;
+  flushPending(): Promise<number>;
+  pendingCount(): number;
+  destroy(): void;
+}
+
+const SUBDOCUMENT_PENDING_STORAGE_PREFIX = "nowen:yjs-subdocument-pending:";
+
+function encodePendingUpdate(update: Uint8Array): string {
+  let binary = "";
+  for (const byte of update) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodePendingUpdate(value: string): Uint8Array {
+  const binary = atob(value);
+  if (!binary) throw new Error("空的 Subdocument pending update");
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
 function parseDocument(content: string): { type: "doc"; content: any[] } | null {
   try {
     const value = JSON.parse(content);
@@ -85,7 +113,12 @@ export function splitTiptapSubdocumentSections(
   });
 }
 
-export function createTiptapSubdocumentBundle(noteId: string, content: string, maxBlocks = 250): TiptapSubdocumentBundle | null {
+export function createTiptapSubdocumentBundle(
+  noteId: string,
+  content: string,
+  maxBlocks = 250,
+  options: { preload?: boolean } = {},
+): TiptapSubdocumentBundle | null {
   const sections = splitTiptapSubdocumentSections(noteId, content, maxBlocks);
   if (!sections) return null;
   const rootDoc = new Y.Doc({ guid: `nowen-root-${stablePart(noteId)}` });
@@ -97,11 +130,13 @@ export function createTiptapSubdocumentBundle(noteId: string, content: string, m
     metadata.set("version", 1);
     metadata.set("noteId", noteId);
     order.insert(0, sections.map((section) => section.id));
-    for (const section of sections) {
-      const subdoc = new Y.Doc({ guid: section.guid, autoLoad: false });
-      subdoc.getText("content").insert(0, section.content);
-      sectionMap.set(section.id, subdoc);
-      subdocuments.set(section.id, subdoc);
+    if (options.preload !== false) {
+      for (const section of sections) {
+        const subdoc = new Y.Doc({ guid: section.guid, autoLoad: false });
+        subdoc.getText("content").insert(0, section.content);
+        sectionMap.set(section.id, subdoc);
+        subdocuments.set(section.id, subdoc);
+      }
     }
   }, "subdocument-bootstrap");
   return { rootDoc, sections, subdocuments };
@@ -164,5 +199,180 @@ export function createTiptapSubdocumentSyncController(
     doc.on("update", listener);
     removers.push(() => doc.off("update", listener));
   }
+  return controller;
+}
+
+/** REST 章节同步：只为已加载章节建监听，失败增量按章节合并并等待显式重试。 */
+export function createTiptapSubdocumentRestSyncController(
+  bundle: TiptapSubdocumentBundle,
+  transport: TiptapSubdocumentRestTransport,
+): TiptapSubdocumentRestSyncController {
+  const pending = new Map<string, Uint8Array>();
+  const inflight = new Map<string, Uint8Array>();
+  const loading = new Map<string, Promise<string | null>>();
+  const loaded = new Set<string>();
+  const removers = new Map<string, () => void>();
+  const noteId = String(bundle.rootDoc.getMap<unknown>("metadata").get("noteId") || "");
+  const storageKey = `${SUBDOCUMENT_PENDING_STORAGE_PREFIX}${encodeURIComponent(noteId)}`;
+  const validSectionIds = new Set(bundle.sections.map((section) => section.id));
+  let destroyed = false;
+
+  const canSendNow = () => typeof navigator === "undefined" || navigator.onLine !== false;
+  const persistPending = () => {
+    if (!noteId || typeof localStorage === "undefined") return;
+    try {
+      const sectionIds = new Set([...pending.keys(), ...inflight.keys()]);
+      if (sectionIds.size === 0) {
+        localStorage.removeItem(storageKey);
+        return;
+      }
+      const sections: Record<string, string> = {};
+      for (const sectionId of sectionIds) {
+        const queued = pending.get(sectionId);
+        const sending = inflight.get(sectionId);
+        const update = queued && sending
+          ? Y.mergeUpdates([sending, queued])
+          : queued || sending;
+        if (update) sections[sectionId] = encodePendingUpdate(update);
+      }
+      localStorage.setItem(storageKey, JSON.stringify({ version: 1, sections }));
+    } catch {
+      // localStorage 配额或禁用时保留内存 pending；不把不完整记录写回。
+    }
+  };
+  const restorePending = () => {
+    if (!noteId || typeof localStorage === "undefined") return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { version?: unknown; sections?: unknown };
+      if (parsed.version !== 1 || !parsed.sections || typeof parsed.sections !== "object" || Array.isArray(parsed.sections)) {
+        throw new Error("Subdocument pending 格式无效");
+      }
+      for (const [sectionId, encoded] of Object.entries(parsed.sections as Record<string, unknown>)) {
+        if (!validSectionIds.has(sectionId) || typeof encoded !== "string") continue;
+        const update = decodePendingUpdate(encoded);
+        // mergeUpdates 会解析 update；损坏二进制必须 fail-closed，不能留到发送阶段。
+        pending.set(sectionId, Y.mergeUpdates([update]));
+      }
+      persistPending();
+    } catch {
+      pending.clear();
+      try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+    }
+  };
+  const mergePending = (sectionId: string, update: Uint8Array) => {
+    const previous = pending.get(sectionId);
+    pending.set(sectionId, previous ? Y.mergeUpdates([previous, update]) : update);
+    persistPending();
+  };
+  const attach = (sectionId: string, doc: Y.Doc) => {
+    removers.get(sectionId)?.();
+    const listener = (update: Uint8Array, origin: unknown) => {
+      if (destroyed || origin === controller) return;
+      mergePending(sectionId, update);
+      if (canSendNow()) void sendSection(sectionId);
+    };
+    doc.on("update", listener);
+    removers.set(sectionId, () => doc.off("update", listener));
+  };
+  const sendSection = async (sectionId: string): Promise<boolean> => {
+    if (destroyed || inflight.has(sectionId) || !canSendNow()) return false;
+    const update = pending.get(sectionId);
+    if (!update) return false;
+    pending.delete(sectionId);
+    inflight.set(sectionId, update);
+    persistPending();
+    let sent = false;
+    try {
+      await transport.send(sectionId, update);
+      sent = true;
+      inflight.delete(sectionId);
+      persistPending();
+      return true;
+    } catch {
+      inflight.delete(sectionId);
+      if (!destroyed) mergePending(sectionId, update);
+      return false;
+    } finally {
+      if (sent && !destroyed && canSendNow() && pending.has(sectionId)) void sendSection(sectionId);
+    }
+  };
+
+  restorePending();
+
+  const controller: TiptapSubdocumentRestSyncController = {
+    loadSection: (sectionId) => {
+      if (destroyed) return Promise.resolve(null);
+      const existing = bundle.subdocuments.get(sectionId);
+      if (loaded.has(sectionId) && existing) return Promise.resolve(existing.getText("content").toString());
+      const inflight = loading.get(sectionId);
+      if (inflight) return inflight;
+      const section = bundle.sections.find((candidate) => candidate.id === sectionId);
+      if (!section) return Promise.resolve(null);
+      const request = transport.load(sectionId).then(({ guid, state }) => {
+        if (destroyed) return null;
+        if (guid !== section.guid) throw new Error(`Subdocument GUID 不匹配: ${sectionId}`);
+        const doc = new Y.Doc({ guid, autoLoad: false });
+        try {
+          Y.applyUpdate(doc, state, controller);
+          const restoredPending = pending.get(sectionId);
+          if (restoredPending) Y.applyUpdate(doc, restoredPending, controller);
+          const content = doc.getText("content").toString();
+          if (!parseDocument(content)) throw new Error(`Subdocument 内容无效: ${sectionId}`);
+          const previous = bundle.subdocuments.get(sectionId);
+          bundle.rootDoc.getMap<Y.Doc>("sections").set(sectionId, doc);
+          bundle.subdocuments.set(sectionId, doc);
+          removers.get(sectionId)?.();
+          previous?.destroy();
+          attach(sectionId, doc);
+          loaded.add(sectionId);
+          return content;
+        } catch (error) {
+          doc.destroy();
+          throw error;
+        }
+      }).finally(() => loading.delete(sectionId));
+      loading.set(sectionId, request);
+      return request;
+    },
+    updateSectionContent: (sectionId, content) => {
+      if (destroyed || !loaded.has(sectionId) || !parseDocument(content)) return false;
+      const doc = bundle.subdocuments.get(sectionId);
+      if (!doc) return false;
+      const text = doc.getText("content");
+      if (text.toString() === content) return true;
+      doc.transact(() => {
+        if (text.length > 0) text.delete(0, text.length);
+        text.insert(0, content);
+      }, "subdocument-rest-edit");
+      return true;
+    },
+    applyRemote: (sectionId, update) => {
+      if (destroyed || !loaded.has(sectionId)) return false;
+      const doc = bundle.subdocuments.get(sectionId);
+      if (!doc) return false;
+      Y.applyUpdate(doc, update, controller);
+      return true;
+    },
+    flushPending: async () => {
+      if (destroyed || !canSendNow()) return 0;
+      let sent = 0;
+      for (const sectionId of [...pending.keys()]) {
+        if (await sendSection(sectionId)) sent += 1;
+      }
+      return sent;
+    },
+    pendingCount: () => new Set([...pending.keys(), ...inflight.keys()]).size,
+    destroy: () => {
+      destroyed = true;
+      for (const remove of removers.values()) remove();
+      removers.clear();
+      pending.clear();
+      inflight.clear();
+      loading.clear();
+      loaded.clear();
+    },
+  };
   return controller;
 }

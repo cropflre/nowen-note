@@ -34,11 +34,12 @@ import {
 } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { AlertTriangle, FileText, Gauge, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Code2, Eye, FileText, Gauge, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import * as Y from "yjs";
 
 import TagInput from "@/components/TagInput";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type {
   NoteEditorHandle,
   NoteEditorProps,
@@ -49,6 +50,10 @@ import {
   computeSingleTextChange,
   formatLargeMarkdownSize,
 } from "@/lib/largeMarkdownSafety";
+import {
+  applyMarkdownTaskCheckboxChange,
+  getMarkdownTaskCheckboxChange,
+} from "@/lib/markdownTasks";
 import {
   createMarkdownAnalysisController,
   type MarkdownAnalysisController,
@@ -166,10 +171,14 @@ const LargeMarkdownSafeEditor = forwardRef<
   const themeCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const performanceCompartmentRef = useRef(new Compartment());
+  const previewActiveRef = useRef(false);
 
   const [sourceCharacters, setSourceCharacters] = useState(0);
   const [stats, setStats] = useState<MarkdownAnalysisStats>(EMPTY_STATS);
   const [analysisPending, setAnalysisPending] = useState(true);
+  const [previewMarkdown, setPreviewMarkdown] = useState<string | null>(null);
+
+  previewActiveRef.current = previewMarkdown !== null;
 
   onUpdateRef.current = onUpdate;
   onHeadingsChangeRef.current = onHeadingsChange;
@@ -461,6 +470,9 @@ const LargeMarkdownSafeEditor = forwardRef<
       scheduleAnalysis(0);
     }
 
+    // 预览只在进入时取一次全文快照；切换笔记时必须替换旧快照，避免串文档。
+    if (noteChanged && previewActiveRef.current) setPreviewMarkdown(initialMarkdown);
+
     if (titleRef.current && (noteChanged || document.activeElement !== titleRef.current)) {
       titleRef.current.value = note.title;
     }
@@ -526,6 +538,27 @@ const LargeMarkdownSafeEditor = forwardRef<
     if (title === note.title) return;
     onUpdateRef.current({ title, _noteId: note.id });
   }, [note.id, note.title]);
+
+  const showPreview = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    setPreviewMarkdown(view.state.doc.toString());
+  }, []);
+
+  const showSource = useCallback(() => {
+    setPreviewMarkdown(null);
+    globalThis.requestAnimationFrame?.(() => viewRef.current?.focus());
+  }, []);
+
+  const handlePreviewTaskCheckboxChange = useCallback((taskIndex: number, checked: boolean) => {
+    const view = viewRef.current;
+    if (!view || !editable) return;
+    const currentMarkdown = view.state.doc.toString();
+    const change = getMarkdownTaskCheckboxChange(currentMarkdown, taskIndex, checked);
+    if (!change) return;
+    view.dispatch({ changes: { from: change.from, to: change.to, insert: change.insert } });
+    setPreviewMarkdown(applyMarkdownTaskCheckboxChange(currentMarkdown, change));
+  }, [editable]);
 
   const lightweight = runtimeDecision.mode === "lightweight-edit";
   const modeTitle = lightweight
@@ -601,20 +634,61 @@ const LargeMarkdownSafeEditor = forwardRef<
             {t("markdown.largeDocument.viewportRendering", { defaultValue: "CodeMirror 视口渲染" })}
           </span>
           {analysisPending && (
-            <span className="ml-auto animate-pulse">
+            <span className="animate-pulse">
               {t("markdown.largeDocument.analyzing", { defaultValue: "后台分析中…" })}
             </span>
           )}
+          <div className="ml-auto inline-flex rounded-md border border-app-border bg-app-surface p-0.5">
+            <button
+              type="button"
+              aria-pressed={previewMarkdown === null}
+              onClick={showSource}
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-2 py-1 transition-colors",
+                previewMarkdown === null ? "bg-app-hover text-tx-primary" : "hover:text-tx-primary",
+              )}
+            >
+              <Code2 size={12} />
+              {t("markdown.source", { defaultValue: "源代码" })}
+            </button>
+            <button
+              type="button"
+              aria-pressed={previewMarkdown !== null}
+              onClick={showPreview}
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-2 py-1 transition-colors",
+                previewMarkdown !== null ? "bg-app-hover text-tx-primary" : "hover:text-tx-primary",
+              )}
+            >
+              <Eye size={12} />
+              {t("markdown.preview.title", { defaultValue: "预览" })}
+            </button>
+          </div>
         </div>
 
         <div
           ref={hostRef}
+          data-large-markdown-source
+          hidden={previewMarkdown !== null}
           className={cn(
             "min-h-0 flex-1 overflow-hidden rounded-xl border border-app-border bg-app-surface text-tx-primary",
             "focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/15",
+            previewMarkdown !== null && "hidden",
             !editable && "opacity-90",
           )}
         />
+        {previewMarkdown !== null && (
+          <div
+            data-large-markdown-preview
+            className="min-h-0 flex-1 overflow-hidden rounded-xl border border-app-border bg-app-surface"
+          >
+            <MarkdownPreview
+              markdown={previewMarkdown}
+              className="h-full"
+              onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3 border-t border-app-border/60 px-4 py-1.5 text-[11px] text-tx-tertiary md:px-8">
@@ -626,7 +700,11 @@ const LargeMarkdownSafeEditor = forwardRef<
           {stats.words.toLocaleString()} {t("tiptap.words", { defaultValue: "字词" })}
         </span>
         <span className="opacity-60">·</span>
-        <span>{t("markdown.largeDocument.previewDisabled", { defaultValue: "完整预览已停用" })}</span>
+        <span>
+          {previewMarkdown === null
+            ? t("markdown.largeDocument.sourceMode", { defaultValue: "源代码" })
+            : t("markdown.largeDocument.snapshotPreview", { defaultValue: "快照预览" })}
+        </span>
         <span className="ml-auto opacity-60">
           {yDoc
             ? t("markdown.largeDocument.collaborationDebounced", { defaultValue: "协作同步（节流）" })

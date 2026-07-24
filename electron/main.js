@@ -1402,6 +1402,19 @@ function registerAppIpc() {
     };
   });
 
+  ipcMain.removeHandler("app:editor-performance-metrics");
+  ipcMain.handle("app:editor-performance-metrics", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const rendererPid = event.sender.getOSProcessId();
+    const metric = app.getAppMetrics().find((item) => item.pid === rendererPid);
+    const memoryKilobytes = metric?.memory.privateBytes ?? metric?.memory.workingSetSize;
+    if (!Number.isFinite(memoryKilobytes) || Number(memoryKilobytes) <= 0) {
+      throw new Error("EDITOR_PERFORMANCE_MEMORY_UNAVAILABLE");
+    }
+    return { heapBytes: Number(memoryKilobytes) * 1024 };
+  });
+
   ipcMain.removeHandler("app:open-log-dir");
   ipcMain.handle("app:open-log-dir", async (event) => {
     const reject = assertMainWindowSender(event);

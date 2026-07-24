@@ -3,13 +3,19 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import type { NoteEditorHandle, NoteEditorProps, NoteEditorUpdatePayload } from "@/components/editors/types";
+import { api } from "@/lib/api";
+import type { YjsSubdocumentUpdateResult } from "@/lib/api";
 import {
+  createTiptapSubdocumentBundle,
+  createTiptapSubdocumentRestSyncController,
+  destroyTiptapSubdocumentBundle,
   splitTiptapSubdocumentSections,
+  type TiptapSubdocumentBundle,
+  type TiptapSubdocumentRestSyncController,
   type TiptapSubdocumentSection,
 } from "@/lib/yjsSubdocumentModel";
 import BaseTiptapEditor from "./TiptapEditor";
@@ -22,6 +28,7 @@ export function isTiptapSubdocumentWindowingEnabled(): boolean {
 
 interface WindowedTiptapEditorProps extends NoteEditorProps {
   onFallback?: (reason: string) => void;
+  onSubdocumentCommit?: (result: YjsSubdocumentUpdateResult) => void;
 }
 
 function plainTextFromTiptap(content: string): string {
@@ -52,6 +59,31 @@ function mergeSectionContents(sections: TiptapSubdocumentSection[], values: Map<
   } catch {
     return null;
   }
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function encodeBase64(value: Uint8Array): string {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function manifestMatches(
+  bundle: TiptapSubdocumentBundle,
+  manifest: Awaited<ReturnType<typeof api.getYjsSubdocumentManifest>>,
+): boolean {
+  if (manifest.rootGuid !== bundle.rootDoc.guid || manifest.sections.length !== bundle.sections.length) return false;
+  return bundle.sections.every((local, index) => {
+    const remote = manifest.sections[index];
+    return remote?.id === local.id
+      && remote.guid === local.guid
+      && remote.startBlock === local.startBlock
+      && remote.endBlock === local.endBlock;
+  });
 }
 
 function SectionFrame({
@@ -106,21 +138,119 @@ function SectionFrame({
  */
 const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorProps>(
   function WindowedTiptapEditor(props, ref) {
-    const sections = useMemo(
-      () => splitTiptapSubdocumentSections(props.note.id, props.note.content, 250),
-      [props.note.content, props.note.id],
-    );
+    const sourceRef = useRef<{
+      noteId: string;
+      content: string;
+      sections: TiptapSubdocumentSection[] | null;
+    } | null>(null);
+    if (sourceRef.current?.noteId !== props.note.id) {
+      sourceRef.current = {
+        noteId: props.note.id,
+        content: props.note.content,
+        sections: splitTiptapSubdocumentSections(props.note.id, props.note.content, 250),
+      };
+    }
+    const source = sourceRef.current;
+    const sections = source.sections;
     const valuesRef = useRef(new Map<string, string>());
     const editorRefs = useRef(new Map<string, NoteEditorHandle>());
     const composingRef = useRef(new Set<string>());
-    const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set(sections?.[0] ? [sections[0].id] : []));
+    const bundleRef = useRef<TiptapSubdocumentBundle | null>(null);
+    const controllerRef = useRef<TiptapSubdocumentRestSyncController | null>(null);
+    const fallbackRef = useRef(props.onFallback);
+    fallbackRef.current = props.onFallback;
+    const commitRef = useRef(props.onSubdocumentCommit);
+    commitRef.current = props.onSubdocumentCommit;
+    const [manifestReady, setManifestReady] = useState(false);
+    const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
     const [heights, setHeights] = useState<Record<string, number>>({});
+
+    const requestFallback = useCallback((reason: string) => fallbackRef.current?.(reason), []);
+
+    const loadSection = useCallback(async (sectionId: string) => {
+      const controller = controllerRef.current;
+      if (!controller) return;
+      try {
+        const content = await controller.loadSection(sectionId);
+        if (!content || controllerRef.current !== controller) return;
+        valuesRef.current.set(sectionId, content);
+        setMountedIds((current) => current.has(sectionId) ? current : new Set(current).add(sectionId));
+      } catch {
+        if (controllerRef.current === controller) requestFallback("subdocument-snapshot-load-failed");
+      }
+    }, [requestFallback]);
 
     useEffect(() => {
       valuesRef.current = new Map((sections || []).map((section) => [section.id, section.content]));
-      setMountedIds(new Set(sections?.[0] ? [sections[0].id] : []));
+      editorRefs.current.clear();
+      composingRef.current.clear();
+      setMountedIds(new Set());
+      setManifestReady(false);
       setHeights({});
-    }, [props.note.id]);
+      if (!sections || sections.length <= 1) return;
+      if (
+        typeof api.getYjsSubdocumentManifest !== "function"
+        || typeof api.getYjsSubdocumentState !== "function"
+        || typeof api.applyYjsSubdocumentUpdate !== "function"
+      ) {
+        requestFallback("subdocument-api-unavailable");
+        return;
+      }
+
+      const bundle = createTiptapSubdocumentBundle(props.note.id, source.content, 250, { preload: false });
+      if (!bundle) {
+        requestFallback("subdocument-bundle-invalid");
+        return;
+      }
+      bundleRef.current = bundle;
+      let active = true;
+      void api.getYjsSubdocumentManifest(props.note.id).then((manifest) => {
+        if (!active) return;
+        if (!manifestMatches(bundle, manifest)) {
+          requestFallback("subdocument-manifest-mismatch");
+          return;
+        }
+        const controller = createTiptapSubdocumentRestSyncController(bundle, {
+          load: async (sectionId) => {
+            const state = await api.getYjsSubdocumentState(props.note.id, sectionId);
+            return { guid: state.guid, state: decodeBase64(state.stateBase64) };
+          },
+          send: async (sectionId, update) => {
+            const result = await api.applyYjsSubdocumentUpdate(
+              props.note.id,
+              sectionId,
+              encodeBase64(update),
+            );
+            if (active && bundleRef.current === bundle) commitRef.current?.(result);
+          },
+        });
+        controllerRef.current = controller;
+        // 先尝试提交跨卸载恢复的 pending，再加载首章，避免旧 snapshot 覆盖已提交的离线编辑。
+        void controller.flushPending().then(() => {
+          if (!active || controllerRef.current !== controller) return;
+          setManifestReady(true);
+          void loadSection(sections[0].id);
+        });
+      }).catch((error) => {
+        if (!active) return;
+        requestFallback((error as { status?: number })?.status === 409
+          ? "subdocument-server-unavailable"
+          : "subdocument-manifest-load-failed");
+      });
+      return () => {
+        active = false;
+        controllerRef.current?.destroy();
+        controllerRef.current = null;
+        destroyTiptapSubdocumentBundle(bundle);
+        if (bundleRef.current === bundle) bundleRef.current = null;
+      };
+    }, [loadSection, props.note.id, requestFallback, sections, source.content]);
+
+    useEffect(() => {
+      const flush = () => { void controllerRef.current?.flushPending(); };
+      window.addEventListener("online", flush);
+      return () => window.removeEventListener("online", flush);
+    }, []);
 
     const snapshotSection = useCallback((sectionId: string) => {
       const snapshot = editorRefs.current.get(sectionId)?.getSnapshot?.();
@@ -129,6 +259,10 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
 
     const handleVisibility = useCallback((sectionId: string, visible: boolean, height?: number) => {
       if (height && height > 0) setHeights((current) => current[sectionId] === height ? current : { ...current, [sectionId]: height });
+      if (visible) {
+        void loadSection(sectionId);
+        return;
+      }
       setMountedIds((current) => {
         const firstId = sections?.[0]?.id;
         if (visible) return current.has(sectionId) ? current : new Set(current).add(sectionId);
@@ -138,7 +272,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
         next.delete(sectionId);
         return next;
       });
-    }, [sections, snapshotSection]);
+    }, [loadSection, sections, snapshotSection]);
 
     const handleComposition = useCallback((sectionId: string, composing: boolean) => {
       if (composing) composingRef.current.add(sectionId);
@@ -147,32 +281,36 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
 
     const emitMergedUpdate = useCallback((sectionId: string, payload: NoteEditorUpdatePayload) => {
       if (!sections || typeof payload.content !== "string") {
-        props.onUpdate(payload);
+        if (payload.title !== props.note.title) {
+          props.onUpdate({ title: payload.title, _noteId: props.note.id });
+        }
         return;
       }
       valuesRef.current.set(sectionId, payload.content);
-      const content = mergeSectionContents(sections, valuesRef.current);
-      if (!content) {
-        props.onFallback?.("subdocument-materialization-failed");
+      if (!controllerRef.current?.updateSectionContent(sectionId, payload.content)) {
+        requestFallback("subdocument-section-update-failed");
         return;
       }
-      props.onUpdate({
-        ...payload,
-        title: sectionId === sections[0]?.id ? payload.title : props.note.title,
-        content,
-        contentText: plainTextFromTiptap(content),
-        _noteId: props.note.id,
-      });
-    }, [props, sections]);
+      const content = mergeSectionContents(sections, valuesRef.current);
+      if (!content) {
+        requestFallback("subdocument-materialization-failed");
+        return;
+      }
+      // 整篇快照仅保留在本地 getSnapshot；远端正文权威写入必须走章节 update API。
+      if (sectionId === sections[0]?.id && payload.title !== props.note.title) {
+        props.onUpdate({ title: payload.title, _noteId: props.note.id });
+      }
+    }, [props.note.id, props.note.title, props.onUpdate, requestFallback, sections]);
 
     useEffect(() => {
       if (!props.searchQuery || !sections) return;
       const query = props.searchQuery.toLocaleLowerCase();
       const target = sections.find((section) => section.content.toLocaleLowerCase().includes(query));
       if (!target) return;
-      setMountedIds((current) => new Set(current).add(target.id));
-      requestAnimationFrame(() => document.querySelector(`[data-windowed-tiptap-section="${CSS.escape(target.id)}"]`)?.scrollIntoView({ block: "center" }));
-    }, [props.searchQuery, sections]);
+      void loadSection(target.id).then(() => {
+        requestAnimationFrame(() => document.querySelector(`[data-windowed-tiptap-section="${CSS.escape(target.id)}"]`)?.scrollIntoView({ block: "center" }));
+      });
+    }, [loadSection, props.searchQuery, sections]);
 
     useImperativeHandle(ref, () => ({
       flushSave: () => editorRefs.current.forEach((editor) => editor.flushSave()),
@@ -189,6 +327,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
     }), [sections, snapshotSection]);
 
     if (!sections || sections.length <= 1) return <BaseTiptapEditor {...props} ref={ref} />;
+    if (!manifestReady) return <div data-windowed-tiptap-loading="true" className="h-full" />;
     return (
       <div data-windowed-tiptap-editor="true" className="h-full overflow-y-auto">
         {sections.map((section, index) => {

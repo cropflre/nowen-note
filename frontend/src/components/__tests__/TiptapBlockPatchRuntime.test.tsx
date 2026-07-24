@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
   baseProps: null as any,
+  windowedProps: null as any,
   snapshot: null as { content: string; contentText: string } | null,
   acknowledgeSave: vi.fn(),
   actions: {
@@ -48,6 +49,24 @@ vi.mock("../TiptapEditor", async () => {
   });
   Base.displayName = "MockBaseTiptapEditor";
   return { default: Base };
+});
+
+vi.mock("../WindowedTiptapEditor", async () => {
+  const ReactModule = await import("react");
+  const Windowed = ReactModule.forwardRef((props: any, ref) => {
+    fixture.windowedProps = props;
+    ReactModule.useImperativeHandle(ref, () => ({
+      flushSave: vi.fn(),
+      getSnapshot: () => null,
+      isReady: () => true,
+    }));
+    return ReactModule.createElement("div", { "data-windowed-tiptap": "" });
+  });
+  Windowed.displayName = "MockWindowedTiptapEditor";
+  return {
+    default: Windowed,
+    isTiptapSubdocumentWindowingEnabled: () => localStorage.getItem("nowen:tiptap-subdocuments") === "1",
+  };
 });
 
 import TiptapEditorRuntime from "../TiptapEditorRuntime";
@@ -137,6 +156,7 @@ beforeEach(async () => {
   fixture.saveDraft.mockClear();
   fixture.clearDraft.mockClear();
   fixture.baseProps = null;
+  fixture.windowedProps = null;
   fixture.snapshot = null;
   clearActiveEditorRuntimeDecision();
   host = document.createElement("div");
@@ -152,6 +172,41 @@ afterEach(async () => {
 });
 
 describe("Tiptap Block Patch runtime shell", () => {
+  it("applies a subdocument commit to app state without forwarding a whole-note save", async () => {
+    const current = note("subdocument-note", "Before");
+    const committedContent = content("Committed");
+    localStorage.setItem("nowen:tiptap-subdocuments", "1");
+    setActiveEditorRuntimeDecision(current.id, optimizedDecision("x"));
+    const wholeSave = vi.fn();
+
+    await act(async () => {
+      root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />);
+    });
+    await act(async () => fixture.windowedProps.onSubdocumentCommit({
+      success: true,
+      content: committedContent,
+      contentText: "Committed",
+      sectionGuid: "section-guid",
+      version: 2,
+    }));
+
+    expect(wholeSave).not.toHaveBeenCalled();
+    expect(fixture.actions.setActiveNote).toHaveBeenCalledWith(expect.objectContaining({
+      id: current.id,
+      content: committedContent,
+      contentText: "Committed",
+      version: 2,
+    }));
+    expect(fixture.actions.updateNoteInList).toHaveBeenCalledWith(expect.objectContaining({
+      id: current.id,
+      contentText: "Committed",
+      version: 2,
+    }));
+    expect(fixture.actions.updateNoteTab).toHaveBeenCalledWith(expect.objectContaining({ id: current.id }));
+    expect(fixture.actions.setSyncStatus).toHaveBeenCalledWith("saved");
+    expect(fixture.actions.setLastSynced).toHaveBeenCalledTimes(1);
+  });
+
   it("uses a confirmed patch for a safe optimized-mode text update", async () => {
     const current = note("note-1", "Before");
     const nextContent = content("After");

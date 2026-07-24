@@ -21,6 +21,25 @@ interface PreviousRecord {
   payloadHash: string;
 }
 
+interface StoredBlockRecord {
+  blockId: string;
+  parentBlockId: string | null;
+  blockType: string;
+  blockOrder: number;
+  path: string;
+  payload: string;
+  payloadHash: string;
+}
+
+interface StoredBlockDocument {
+  contentFormat: string;
+  snapshotContent: string;
+  snapshotHash: string;
+  materializedHash: string;
+  rootOrderJson: string;
+  status: string;
+}
+
 export interface RebuildBlockAuthorityOptions {
   noteVersion: number;
   operationId?: string;
@@ -38,6 +57,23 @@ export interface BlockAuthorityDocumentState {
 export interface ExpectedBlockAuthorityVersions {
   expectedStructureVersion?: number;
   expectedBlockVersions?: Record<string, number>;
+}
+
+export interface BlockAuthorityHistoryItem {
+  noteVersion: number;
+  blockVersion: number;
+  structureVersion: number;
+  type: string;
+  time: string;
+  operationId: string | null;
+  operation: unknown;
+}
+
+export interface BlockAuthorityHistoryPage {
+  items: BlockAuthorityHistoryItem[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
 }
 
 export class BlockAuthorityConflictError extends Error {
@@ -115,6 +151,16 @@ export function ensureBlockAuthorityTables(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_note_block_attachment_refs_attachment
       ON note_block_attachment_refs(attachmentId, noteId);
+    CREATE TRIGGER IF NOT EXISTS trg_note_block_authority_stale_after_content_update
+    AFTER UPDATE OF content ON notes
+    WHEN OLD.content IS NOT NEW.content
+    BEGIN
+      UPDATE note_block_documents
+      SET status = 'mismatch',
+          mismatchReason = 'notes_content_changed_without_shadow_rebuild',
+          updatedAt = datetime('now')
+      WHERE noteId = NEW.id;
+    END;
   `);
 }
 
@@ -139,16 +185,106 @@ function tiptapNodeAtPath(content: string, path: string): unknown {
   return node;
 }
 
-function blockPayload(content: string, contentFormat: string, row: IndexedBlockRow): string {
-  if (contentFormat === "tiptap-json") {
-    const node = tiptapNodeAtPath(content, row.path);
-    if (!node) throw new Error(`无法从 path ${row.path} 读取 Block ${row.blockId}`);
-    return JSON.stringify(node);
+function tiptapBlockPayload(content: string, row: IndexedBlockRow): string {
+  const node = tiptapNodeAtPath(content, row.path);
+  if (!node) throw new Error(`无法从 path ${row.path} 读取 Block ${row.blockId}`);
+  return JSON.stringify(node);
+}
+
+const AUTHORITY_ROOT_PREFIX = "__authority_root__";
+
+function compareBlockPaths(left: string, right: string): number {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftParts[index] === undefined) return -1;
+    if (rightParts[index] === undefined) return 1;
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
   }
+  return 0;
+}
+
+/**
+ * note_blocks_index 只索引可寻址业务 Block，bulletList 等结构包装节点没有 Block ID。
+ * 权威存储必须保留这些包装节点，因此只在 shadow 内补合成根记录；客户端版本协议仍只使用真实 Block ID。
+ */
+function buildAuthorityRows(content: string, contentFormat: string, indexedRows: IndexedBlockRow[]): IndexedBlockRow[] {
+  if (contentFormat !== "tiptap-json") return indexedRows;
+  const doc = JSON.parse(content || "{}");
+  if (doc?.type !== "doc" || !Array.isArray(doc.content)) throw new Error("Tiptap 权威源不是合法 doc");
+  const rows = indexedRows.map((row) => ({ ...row }));
+  for (let index = 0; index < doc.content.length; index += 1) {
+    const rootPath = String(index);
+    if (rows.some((row) => row.path === rootPath)) continue;
+    const descendant = rows
+      .filter((row) => row.path.startsWith(`${rootPath}.`))
+      .sort((left, right) => compareBlockPaths(left.path, right.path))[0];
+    const identity = descendant?.blockId
+      || `${index}_${hashBlockAuthorityContent(JSON.stringify({
+        type: doc.content[index]?.type,
+        attrs: doc.content[index]?.attrs ?? null,
+      })).slice(0, 12)}`;
+    rows.push({
+      blockId: `${AUTHORITY_ROOT_PREFIX}${identity}`,
+      blockType: String(doc.content[index]?.type || "unknown"),
+      parentBlockId: null,
+      blockOrder: 0,
+      plainText: "",
+      contentHash: hashBlockAuthorityContent(JSON.stringify(doc.content[index])),
+      path: rootPath,
+      startOffset: null,
+      endOffset: null,
+    });
+  }
+
+  rows.sort((left, right) => compareBlockPaths(left.path, right.path));
+  const byPath = new Map(rows.map((row) => [row.path, row]));
+  return rows.map((row, blockOrder) => {
+    const parts = row.path.split(".");
+    let parentBlockId: string | null = null;
+    for (let length = parts.length - 1; length > 0; length -= 1) {
+      const parent = byPath.get(parts.slice(0, length).join("."));
+      if (parent) {
+        parentBlockId = parent.blockId;
+        break;
+      }
+    }
+    return { ...row, parentBlockId, blockOrder };
+  });
+}
+
+function markdownBlockPayload(
+  content: string,
+  row: IndexedBlockRow,
+  index: number,
+  rows: IndexedBlockRow[],
+): string {
   if (row.startOffset == null || row.endOffset == null || row.startOffset < 0 || row.endOffset < row.startOffset) {
     throw new Error(`Markdown Block ${row.blockId} 缺少合法范围`);
   }
-  return content.slice(row.startOffset, row.endOffset);
+  const nextStart = rows[index + 1]?.startOffset ?? content.length;
+  if (nextStart == null || row.endOffset > nextStart || nextStart > content.length) {
+    throw new Error(`Markdown Block ${row.blockId} 的范围顺序不合法`);
+  }
+  const start = index === 0 ? 0 : row.startOffset;
+  return content.slice(start, nextStart);
+}
+
+function buildIndexedPayloads(
+  content: string,
+  contentFormat: string,
+  rows: IndexedBlockRow[],
+): Array<{ row: IndexedBlockRow; payload: string; payloadHash: string }> {
+  if (contentFormat === "markdown" && rows.length === 0 && content.length > 0) {
+    throw new Error("非空 Markdown 缺少可物化的 Block 记录");
+  }
+  return rows.map((row, index) => {
+    const payload = contentFormat === "tiptap-json"
+      ? tiptapBlockPayload(content, row)
+      : markdownBlockPayload(content, row, index, rows);
+    return { row, payload, payloadHash: hashBlockAuthorityContent(payload) };
+  });
 }
 
 function structureSignature(rows: IndexedBlockRow[]): string {
@@ -176,6 +312,141 @@ function attachmentIdsFromPayload(payload: string): string[] {
   return [...ids];
 }
 
+function readStoredBlockRecords(db: Database.Database, noteId: string): StoredBlockRecord[] {
+  return db.prepare(`
+    SELECT blockId, parentBlockId, blockType, blockOrder, path, payload, payloadHash
+    FROM note_block_records WHERE noteId = ? ORDER BY blockOrder
+  `).all(noteId) as StoredBlockRecord[];
+}
+
+function parseRootOrder(rootOrderJson: string): string[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(rootOrderJson);
+  } catch {
+    throw new Error("rootOrderJson 不是合法 JSON");
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error("rootOrderJson 必须是 Block ID 数组");
+  }
+  const rootOrder = value as string[];
+  if (new Set(rootOrder).size !== rootOrder.length) throw new Error("rootOrderJson 包含重复 Block");
+  return rootOrder;
+}
+
+function validateRecordGraph(records: StoredBlockRecord[], rootOrder: string[]): Map<string, StoredBlockRecord> {
+  const byId = new Map<string, StoredBlockRecord>();
+  const blockOrders = new Set<number>();
+  const paths = new Set<string>();
+  for (const record of records) {
+    if (byId.has(record.blockId)) throw new Error(`Block ${record.blockId} 重复`);
+    if (blockOrders.has(record.blockOrder)) throw new Error(`Block 顺序 ${record.blockOrder} 重复`);
+    if (paths.has(record.path)) throw new Error(`Block path ${record.path} 重复`);
+    if (hashBlockAuthorityContent(record.payload) !== record.payloadHash) {
+      throw new Error(`Block ${record.blockId} 的 payloadHash 不匹配`);
+    }
+    byId.set(record.blockId, record);
+    blockOrders.add(record.blockOrder);
+    paths.add(record.path);
+  }
+
+  const roots = records.filter((record) => record.parentBlockId == null).sort((a, b) => a.blockOrder - b.blockOrder);
+  if (roots.length !== rootOrder.length || roots.some((record, index) => record.blockId !== rootOrder[index])) {
+    throw new Error("rootOrderJson 与顶层 Block 记录不一致");
+  }
+
+  for (const record of records) {
+    if (record.parentBlockId != null && !byId.has(record.parentBlockId)) {
+      throw new Error(`Block ${record.blockId} 引用了缺失父级 ${record.parentBlockId}`);
+    }
+    const visited = new Set<string>();
+    let current: StoredBlockRecord | undefined = record;
+    while (current?.parentBlockId != null) {
+      if (visited.has(current.blockId)) throw new Error(`Block ${record.blockId} 的父级引用形成循环`);
+      visited.add(current.blockId);
+      current = byId.get(current.parentBlockId);
+    }
+  }
+  return byId;
+}
+
+function expectedParentFromPath(
+  record: StoredBlockRecord,
+  recordsByPath: Map<string, StoredBlockRecord>,
+): string | null {
+  const parts = record.path.split(".");
+  for (let length = parts.length - 1; length > 0; length--) {
+    const parentPath = parts.slice(0, length).join(".");
+    const parent = recordsByPath.get(parentPath);
+    if (parent) return parent.blockId;
+  }
+  return null;
+}
+
+function materializeTiptapRecords(
+  records: StoredBlockRecord[],
+  rootOrder: string[],
+  byId: Map<string, StoredBlockRecord>,
+): string {
+  const roots = rootOrder.map((blockId) => {
+    const record = byId.get(blockId);
+    if (!record) throw new Error(`缺少根 Block ${blockId}`);
+    try {
+      return JSON.parse(record.payload);
+    } catch {
+      throw new Error(`根 Block ${blockId} 的 payload 不是合法 JSON`);
+    }
+  });
+  const content = JSON.stringify({ type: "doc", content: roots });
+  const recordsByPath = new Map(records.map((record) => [record.path, record]));
+
+  // 顶层 payload 负责组装文档；嵌套记录用于逐 Block 校验，不能成为未验证的旁路副本。
+  for (const record of records) {
+    const node = tiptapNodeAtPath(content, record.path);
+    if (!node || JSON.stringify(node) !== record.payload) {
+      throw new Error(`Block ${record.blockId} 与物化文档的 path 不一致`);
+    }
+    if (
+      !record.blockId.startsWith(AUTHORITY_ROOT_PREFIX)
+      && (node as any)?.attrs?.blockId !== record.blockId
+    ) {
+      throw new Error(`Block ${record.blockId} 与 payload 中的 Block ID 不一致`);
+    }
+    if (expectedParentFromPath(record, recordsByPath) !== record.parentBlockId) {
+      throw new Error(`Block ${record.blockId} 的父级引用与 path 不一致`);
+    }
+  }
+  return content;
+}
+
+function materializeStoredRecords(
+  contentFormat: string,
+  rootOrderJson: string,
+  records: StoredBlockRecord[],
+): string {
+  if (contentFormat !== "tiptap-json" && contentFormat !== "markdown") {
+    throw new Error(`不支持物化 contentFormat=${contentFormat}`);
+  }
+  const rootOrder = parseRootOrder(rootOrderJson);
+  const byId = validateRecordGraph(records, rootOrder);
+  if (contentFormat === "markdown") {
+    if (records.some((record) => record.parentBlockId != null)) {
+      throw new Error("Markdown Block 记录不允许父级引用");
+    }
+    return rootOrder.map((blockId) => byId.get(blockId)?.payload ?? "").join("");
+  }
+  return materializeTiptapRecords(records, rootOrder, byId);
+}
+
+export function materializeBlockAuthorityContent(db: Database.Database, noteId: string): string {
+  ensureBlockAuthorityTables(db);
+  const document = db.prepare(`
+    SELECT contentFormat, rootOrderJson FROM note_block_documents WHERE noteId = ?
+  `).get(noteId) as Pick<StoredBlockDocument, "contentFormat" | "rootOrderJson"> | undefined;
+  if (!document) throw new Error(`笔记 ${noteId} 缺少 Block 权威文档`);
+  return materializeStoredRecords(document.contentFormat, document.rootOrderJson, readStoredBlockRecords(db, noteId));
+}
+
 export function rebuildBlockAuthorityStore(
   db: Database.Database,
   noteId: string,
@@ -184,7 +455,7 @@ export function rebuildBlockAuthorityStore(
   options: RebuildBlockAuthorityOptions,
 ): BlockAuthorityDocumentState {
   ensureBlockAuthorityTables(db);
-  const rows = readIndexedBlocks(db, noteId);
+  const rows = buildAuthorityRows(content, contentFormat, readIndexedBlocks(db, noteId));
   const previousDocument = db.prepare(`
     SELECT blockVersion, structureVersion FROM note_block_documents WHERE noteId = ?
   `).get(noteId) as { blockVersion: number; structureVersion: number } | undefined;
@@ -193,16 +464,16 @@ export function rebuildBlockAuthorityStore(
   `).all(noteId) as PreviousRecord[]).map((row) => [row.blockId, row]));
   const previousStructure = readPreviousStructureSignature(db, noteId);
   const nextStructure = structureSignature(rows);
-  const materialized = rows.map((row) => {
-    const payload = blockPayload(content, contentFormat, row);
-    return { row, payload, payloadHash: hashBlockAuthorityContent(payload) };
-  });
+  const materialized = buildIndexedPayloads(content, contentFormat, rows);
   const removed = [...previousRecords.keys()].some((blockId) => !rows.some((row) => row.blockId === blockId));
   const blockChanged = removed || materialized.some(({ row, payloadHash }) => previousRecords.get(row.blockId)?.payloadHash !== payloadHash);
   const structureChanged = previousStructure == null || previousStructure !== nextStructure;
   const blockVersion = previousDocument ? previousDocument.blockVersion + (blockChanged ? 1 : 0) : 1;
   const structureVersion = previousDocument ? previousDocument.structureVersion + (structureChanged ? 1 : 0) : 1;
   const snapshotHash = hashBlockAuthorityContent(content);
+  const rootOrderJson = JSON.stringify(rows
+    .filter((row) => row.path.split(".").length === 1)
+    .map((row) => row.blockId));
 
   const write = db.transaction(() => {
     db.prepare("DELETE FROM note_block_attachment_refs WHERE noteId = ?").run(noteId);
@@ -226,6 +497,15 @@ export function rebuildBlockAuthorityStore(
       );
       for (const attachmentId of attachmentIdsFromPayload(payload)) insertRef.run(noteId, row.blockId, attachmentId);
     }
+    const materializedContent = materializeStoredRecords(
+      contentFormat,
+      rootOrderJson,
+      readStoredBlockRecords(db, noteId),
+    );
+    const materializedHash = hashBlockAuthorityContent(materializedContent);
+    if (materializedHash !== snapshotHash) {
+      throw new Error("Block 记录物化内容与 notes.content 不一致");
+    }
     db.prepare(`
       INSERT INTO note_block_documents (
         noteId, contentFormat, noteVersion, blockVersion, structureVersion,
@@ -244,9 +524,9 @@ export function rebuildBlockAuthorityStore(
         status = 'healthy', mismatchReason = NULL, updatedAt = datetime('now')
     `).run(
       noteId, contentFormat, options.noteVersion, blockVersion, structureVersion,
-      snapshotHash, snapshotHash, content, JSON.stringify(rows.map((row) => row.blockId)),
+      snapshotHash, materializedHash, content, rootOrderJson,
     );
-    if (options.operationId || options.operationJson !== undefined) {
+    if (options.operationType !== undefined || options.operationId || options.operationJson !== undefined) {
       db.prepare(`
         INSERT OR IGNORE INTO note_block_operations (
           id, noteId, operationId, operationType, noteVersion,
@@ -262,6 +542,53 @@ export function rebuildBlockAuthorityStore(
   return { status: "healthy", blockVersion, structureVersion, snapshotHash };
 }
 
+/** 按新到旧读取 Block 写入历史；任一损坏 JSON 都拒绝返回部分历史。 */
+export function readBlockAuthorityHistory(
+  db: Database.Database,
+  noteId: string,
+  options: { limit?: number; offset?: number } = {},
+): BlockAuthorityHistoryPage {
+  ensureBlockAuthorityTables(db);
+  const requestedLimit = Number.isFinite(options.limit) ? Math.trunc(options.limit as number) : 20;
+  const requestedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset as number) : 0;
+  const limit = Math.max(1, Math.min(100, requestedLimit));
+  const offset = Math.max(0, requestedOffset);
+  const rows = db.prepare(`
+    SELECT operationId, operationType, noteVersion, blockVersion, structureVersion,
+           operationJson, createdAt
+    FROM note_block_operations
+    WHERE noteId = ?
+    ORDER BY createdAt DESC, rowid DESC
+    LIMIT ? OFFSET ?
+  `).all(noteId, limit + 1, offset) as Array<{
+    operationId: string | null;
+    operationType: string;
+    noteVersion: number;
+    blockVersion: number;
+    structureVersion: number;
+    operationJson: string;
+    createdAt: string;
+  }>;
+  const items = rows.slice(0, limit).map((row) => {
+    let operation: unknown;
+    try {
+      operation = JSON.parse(row.operationJson);
+    } catch {
+      throw new Error(`operationJson 不是合法 JSON: ${row.operationId || "anonymous"}`);
+    }
+    return {
+      noteVersion: row.noteVersion,
+      blockVersion: row.blockVersion,
+      structureVersion: row.structureVersion,
+      type: row.operationType,
+      time: row.createdAt,
+      operationId: row.operationId,
+      operation,
+    };
+  });
+  return { items, limit, offset, hasMore: rows.length > limit };
+}
+
 export function readAuthoritativeNoteContent(
   db: Database.Database,
   noteId: string,
@@ -269,21 +596,41 @@ export function readAuthoritativeNoteContent(
 ): { content: string; source: "blocks" | "notes"; status: "healthy" | "missing" | "mismatch" } {
   ensureBlockAuthorityTables(db);
   const row = db.prepare(`
-    SELECT snapshotContent, snapshotHash, materializedHash, status
+    SELECT contentFormat, snapshotContent, snapshotHash, materializedHash, rootOrderJson, status
     FROM note_block_documents WHERE noteId = ?
-  `).get(noteId) as { snapshotContent: string; snapshotHash: string; materializedHash: string; status: string } | undefined;
+  `).get(noteId) as StoredBlockDocument | undefined;
   if (!row) return { content: notesContent, source: "notes", status: "missing" };
-  const storedHash = hashBlockAuthorityContent(row.snapshotContent);
+  let materializedContent: string;
+  let mismatchReason: string | null = null;
+  try {
+    materializedContent = materializeStoredRecords(
+      row.contentFormat,
+      row.rootOrderJson,
+      readStoredBlockRecords(db, noteId),
+    );
+  } catch (error) {
+    materializedContent = "";
+    mismatchReason = `record_materialization_failed:${error instanceof Error ? error.message : String(error)}`;
+  }
+  const snapshotContentHash = hashBlockAuthorityContent(row.snapshotContent);
   const notesHash = hashBlockAuthorityContent(notesContent);
-  if (row.status !== "healthy" || storedHash !== row.snapshotHash || row.materializedHash !== row.snapshotHash || notesHash !== row.snapshotHash) {
+  const liveMaterializedHash = hashBlockAuthorityContent(materializedContent);
+  if (
+    row.status !== "healthy"
+    || mismatchReason != null
+    || snapshotContentHash !== row.snapshotHash
+    || liveMaterializedHash !== row.materializedHash
+    || row.materializedHash !== row.snapshotHash
+    || notesHash !== row.snapshotHash
+  ) {
     db.prepare(`
       UPDATE note_block_documents
       SET status = 'mismatch', mismatchReason = ?, updatedAt = datetime('now')
       WHERE noteId = ?
-    `).run("snapshot_hash_mismatch", noteId);
+    `).run((mismatchReason || "authority_hash_mismatch").slice(0, 512), noteId);
     return { content: notesContent, source: "notes", status: "mismatch" };
   }
-  return { content: row.snapshotContent, source: "blocks", status: "healthy" };
+  return { content: materializedContent, source: "blocks", status: "healthy" };
 }
 
 export function assertBlockAuthorityVersions(

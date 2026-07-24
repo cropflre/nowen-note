@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -7,7 +7,11 @@ import { AlertTriangle, BadgeAlert, ExternalLink, Info, Lightbulb, ShieldAlert }
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { remarkSiyuanCallouts, type SiyuanCalloutType } from "@/lib/markdownCallouts";
-import { headingDataAttrs } from "@/lib/markdownPreviewOutline";
+import {
+  buildMarkdownPreviewHeadingIndex,
+  headingDataAttrs,
+  scrollMarkdownPreviewToPosition,
+} from "@/lib/markdownPreviewOutline";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
 import { MarkdownCodeBlock, isMarkdownBlockCode } from "@/components/MarkdownCodeBlock";
@@ -187,10 +191,30 @@ function PreviewMediaImage({ src, alt }: { src?: string; alt?: string }) {
   return <PreviewImage src={src} alt={alt} />;
 }
 
-function PreviewLink({ href, children, ...props }: { href?: string; children?: React.ReactNode; [key: string]: any }) {
+function PreviewLink({ href, children, onInternalAnchorClick, ...props }: {
+  href?: string;
+  children?: React.ReactNode;
+  onInternalAnchorClick?: (fragment: string) => void;
+  [key: string]: any;
+}) {
   if (href?.startsWith("note:")) {
     const mode = props["data-nowen-title-mode"] || props.dataNowenTitleMode;
     return <NoteLinkPreviewAnchor href={href} titleMode={mode === "alias" ? "alias" : "auto"}>{children}</NoteLinkPreviewAnchor>;
+  }
+  if (href?.startsWith("#")) {
+    return (
+      <a
+        href={href}
+        className="text-accent-primary underline-offset-2 hover:underline"
+        onClick={(event) => {
+          if (!onInternalAnchorClick) return;
+          event.preventDefault();
+          onInternalAnchorClick(href.slice(1));
+        }}
+      >
+        {children}
+      </a>
+    );
   }
   return <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-primary underline-offset-2 hover:underline">{children}</a>;
 }
@@ -223,15 +247,18 @@ function createComponents(
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void,
   sourceOffset = 0,
   taskOffset = 0,
+  headingIds?: ReadonlyMap<number, string>,
+  onInternalAnchorClick?: (fragment: string) => void,
 ): Record<string, React.FC<any>> {
   const attrs = (node: any) => headingDataAttrs(node, sourceOffset);
+  const headingAttrs = (node: any) => headingDataAttrs(node, sourceOffset, headingIds);
   return {
-    h1: ({ node, children }) => <h1 {...attrs(node)} className="mb-4 mt-2 text-3xl font-bold leading-tight text-tx-primary">{children}</h1>,
-    h2: ({ node, children }) => <h2 {...attrs(node)} className="mb-3 mt-6 border-b border-app-border pb-2 text-2xl font-bold leading-snug text-tx-primary">{children}</h2>,
-    h3: ({ node, children }) => <h3 {...attrs(node)} className="mb-2 mt-5 text-xl font-semibold text-tx-primary">{children}</h3>,
-    h4: ({ node, children }) => <h4 {...attrs(node)} className="mb-2 mt-4 text-lg font-semibold text-tx-primary">{children}</h4>,
-    h5: ({ node, children }) => <h5 {...attrs(node)} className="mb-1.5 mt-3 text-base font-semibold text-tx-primary">{children}</h5>,
-    h6: ({ node, children }) => <h6 {...attrs(node)} className="mb-1.5 mt-3 text-sm font-semibold text-tx-secondary">{children}</h6>,
+    h1: ({ node, children }) => <h1 {...headingAttrs(node)} className="mb-4 mt-2 text-3xl font-bold leading-tight text-tx-primary">{children}</h1>,
+    h2: ({ node, children }) => <h2 {...headingAttrs(node)} className="mb-3 mt-6 border-b border-app-border pb-2 text-2xl font-bold leading-snug text-tx-primary">{children}</h2>,
+    h3: ({ node, children }) => <h3 {...headingAttrs(node)} className="mb-2 mt-5 text-xl font-semibold text-tx-primary">{children}</h3>,
+    h4: ({ node, children }) => <h4 {...headingAttrs(node)} className="mb-2 mt-4 text-lg font-semibold text-tx-primary">{children}</h4>,
+    h5: ({ node, children }) => <h5 {...headingAttrs(node)} className="mb-1.5 mt-3 text-base font-semibold text-tx-primary">{children}</h5>,
+    h6: ({ node, children }) => <h6 {...headingAttrs(node)} className="mb-1.5 mt-3 text-sm font-semibold text-tx-secondary">{children}</h6>,
     p: ({ node, children }) => <p {...attrs(node)} className="my-3 leading-7 text-tx-primary">{children}</p>,
     ul: ({ node, children, className }) => {
       const isTaskList = /(?:^|\s)contains-task-list(?:\s|$)/.test(className || "");
@@ -268,7 +295,7 @@ function createComponents(
     },
     strong: ({ children }) => <strong className="font-semibold text-tx-primary">{children}</strong>,
     em: ({ children }) => <em className="italic">{children}</em>,
-    a: PreviewLink,
+    a: (props) => <PreviewLink {...props} onInternalAnchorClick={onInternalAnchorClick} />,
     img: PreviewMediaImage,
     iframe: PreviewIframe,
     video: ({ src, children, ...props }) => <video src={src} controls preload="metadata" className="my-4 max-h-[520px] w-full rounded-xl border border-app-border bg-black" {...props}>{children}</video>,
@@ -327,9 +354,11 @@ function createComponents(
   };
 }
 
-function MarkdownSegment({ segment, onTaskCheckboxChange }: {
+function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, onInternalAnchorClick }: {
   segment: MarkdownPreviewSegment;
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void;
+  headingIds: ReadonlyMap<number, string>;
+  onInternalAnchorClick: (fragment: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(() => segment.start === 0 || typeof IntersectionObserver === "undefined");
@@ -349,8 +378,8 @@ function MarkdownSegment({ segment, onTaskCheckboxChange }: {
     if (height > 0) setEstimatedHeight(height);
   }, [mounted, segment.markdown]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset),
-    [onTaskCheckboxChange, segment.start, segment.taskOffset],
+    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, onInternalAnchorClick),
+    [headingIds, onInternalAnchorClick, onTaskCheckboxChange, segment.start, segment.taskOffset],
   );
   const rehypePlugins: any[] = RAW_HTML_RE.test(segment.markdown)
     ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]]
@@ -360,6 +389,8 @@ function MarkdownSegment({ segment, onTaskCheckboxChange }: {
       ref={hostRef}
       data-markdown-segment={segment.id}
       data-md-pos={segment.start}
+      data-md-segment-start={segment.start}
+      data-md-segment-end={segment.end}
       className="[content-visibility:auto]"
       style={{ containIntrinsicSize: `auto ${estimatedHeight}px` }}
     >
@@ -374,11 +405,39 @@ function MarkdownSegment({ segment, onTaskCheckboxChange }: {
 
 export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange }: MarkdownPreviewProps) {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos((markdown || "")
     .replace(/[​-‍﻿]/g, "")
     .replace(/[ 　]/g, " ")))), [markdown]);
+  const headingIndex = useMemo(() => buildMarkdownPreviewHeadingIndex(renderedMarkdown), [renderedMarkdown]);
+  const headingIds = useMemo(
+    () => new Map(headingIndex.map((heading) => [heading.pos, heading.id])),
+    [headingIndex],
+  );
+  const headingsById = useMemo(
+    () => new Map(headingIndex.map((heading) => [heading.id, heading])),
+    [headingIndex],
+  );
+  const handleInternalAnchorClick = useCallback((fragment: string) => {
+    let id = fragment;
+    try {
+      id = decodeURIComponent(fragment);
+    } catch {
+      // 无效转义保持原值，仍允许匹配原始标题 ID。
+    }
+    const heading = headingsById.get(id);
+    if (rootRef.current && heading) scrollMarkdownPreviewToPosition(rootRef.current, heading.pos);
+  }, [headingsById]);
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    rootRef.current = node;
+    if (typeof containerRef === "function") containerRef(node);
+    else if (containerRef) (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  }, [containerRef]);
   const containsRawHtml = RAW_HTML_RE.test(renderedMarkdown);
-  const components = useMemo(() => createComponents(onTaskCheckboxChange), [onTaskCheckboxChange]);
+  const components = useMemo(
+    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, handleInternalAnchorClick),
+    [handleInternalAnchorClick, headingIds, onTaskCheckboxChange],
+  );
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];
   const segments = useMemo(
     () => renderedMarkdown.length >= MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD
@@ -388,12 +447,12 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
   );
 
   if (!markdown || !markdown.trim()) {
-    return <div ref={containerRef} className={cn("flex h-full items-center justify-center text-sm text-tx-tertiary", className)}>{t("markdown.preview.empty")}</div>;
+    return <div ref={setContainerRef} className={cn("flex h-full items-center justify-center text-sm text-tx-tertiary", className)}>{t("markdown.preview.empty")}</div>;
   }
 
   return (
     <div
-      ref={containerRef}
+      ref={setContainerRef}
       className={cn(
         "nowen-md-preview overflow-y-auto leading-7 text-tx-primary",
         compact ? "p-4 md:p-6" : "mx-auto max-w-[860px] p-4 md:p-6",
@@ -401,7 +460,13 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
       )}
     >
       {segments ? segments.map((segment) => (
-        <MarkdownSegment key={segment.id} segment={segment} onTaskCheckboxChange={onTaskCheckboxChange} />
+        <MarkdownSegment
+          key={segment.id}
+          segment={segment}
+          onTaskCheckboxChange={onTaskCheckboxChange}
+          headingIds={headingIds}
+          onInternalAnchorClick={handleInternalAnchorClick}
+        />
       )) : (
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkSiyuanCallouts]}

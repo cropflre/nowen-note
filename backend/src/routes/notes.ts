@@ -11,12 +11,24 @@ import {
   hasRole,
 } from "../middleware/acl";
 import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastYjsUpdate, broadcastToUser } from "../services/realtime";
-import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
+import {
+  yApplySubdocumentUpdate,
+  yDestroyDoc,
+  yFlush,
+  yGetSubdocumentState,
+  yPrepareSubdocuments,
+  yReplaceContentAsUpdate,
+} from "../services/yjs";
+import { isYjsSubdocumentsEnabled } from "../services/yjs-subdocuments";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { syncNoteLinks, getBacklinks } from "../lib/noteLinks";
 import { syncNoteBlocks } from "../lib/noteBlocks";
-import { readAuthoritativeNoteContent, rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore";
+import {
+  readAuthoritativeNoteContent,
+  readBlockAuthorityHistory,
+  rebuildBlockAuthorityStore,
+} from "../lib/blockAuthorityStore";
 import { extractSearchableText } from "../lib/searchIndex";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
@@ -325,6 +337,28 @@ app.put("/reorder/batch", async (c) => {
   });
   updateMany(items);
   return c.json({ success: true });
+});
+
+// 查询 Block 写入历史，只允许具备 read 权限的用户访问。
+app.get("/:id/block-history", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  const noteId = c.req.param("id");
+  const { permission } = resolveNotePermission(noteId, userId);
+  if (!hasPermission(permission, "read")) {
+    return c.json({ error: "Note not found or forbidden" }, 404);
+  }
+  const limit = Number(c.req.query("limit"));
+  const offset = Number(c.req.query("offset"));
+  try {
+    return c.json(readBlockAuthorityHistory(db, noteId, {
+      limit: Number.isFinite(limit) ? limit : undefined,
+      offset: Number.isFinite(offset) ? offset : undefined,
+    }));
+  } catch (error) {
+    console.warn("[notes.block-history] corrupted history:", error instanceof Error ? error.message : error);
+    return c.json({ error: "Block history is corrupted", code: "BLOCK_HISTORY_CORRUPTED" }, 500);
+  }
 });
 
 // 获取单个笔记（完整内容）
@@ -1169,6 +1203,98 @@ app.post("/:id/yjs/release-room", (c) => {
   }
 
   return c.json({ success: true });
+});
+
+/** 超大富文本章节清单；章节快照按需读取，避免首次打开传输整篇 CRDT。 */
+app.get("/:id/yjs/subdocuments", (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const noteId = c.req.param("id");
+  const { permission } = resolveNotePermission(noteId, userId);
+  if (!hasPermission(permission, "read")) {
+    return c.json({ error: "需要 read 权限", code: "FORBIDDEN" }, 403);
+  }
+  if (!isYjsSubdocumentsEnabled()) {
+    return c.json({ error: "Subdocument 功能未启用", code: "SUBDOCUMENTS_DISABLED" }, 409);
+  }
+  const manifest = yPrepareSubdocuments(noteId);
+  if (!manifest) {
+    return c.json({ error: "笔记不支持 Subdocument", code: "SUBDOCUMENTS_UNAVAILABLE" }, 409);
+  }
+  return c.json(manifest);
+});
+
+/** 按需返回单个章节快照。 */
+app.get("/:id/yjs/subdocuments/:sectionId", (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const noteId = c.req.param("id");
+  const { permission } = resolveNotePermission(noteId, userId);
+  if (!hasPermission(permission, "read")) {
+    return c.json({ error: "需要 read 权限", code: "FORBIDDEN" }, 403);
+  }
+  if (!isYjsSubdocumentsEnabled()) {
+    return c.json({ error: "Subdocument 功能未启用", code: "SUBDOCUMENTS_DISABLED" }, 409);
+  }
+  const state = yGetSubdocumentState(noteId, c.req.param("sectionId"));
+  return state
+    ? c.json(state)
+    : c.json({ error: "章节不存在", code: "SUBDOCUMENT_NOT_FOUND" }, 404);
+});
+
+/** 原子应用单章节 Y.js update，并同步整篇兼容快照和 Block 权威存储。 */
+app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const noteId = c.req.param("id");
+  const { permission } = resolveNotePermission(noteId, userId);
+  if (!hasPermission(permission, "write")) {
+    return c.json({ error: "需要 write 权限", code: "FORBIDDEN" }, 403);
+  }
+  if (!isYjsSubdocumentsEnabled()) {
+    return c.json({ error: "Subdocument 功能未启用", code: "SUBDOCUMENTS_DISABLED" }, 409);
+  }
+  const declaredLength = Number(c.req.header("Content-Length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > 1_600_000) {
+    return c.json({ error: "章节更新过大", code: "SUBDOCUMENT_UPDATE_TOO_LARGE" }, 413);
+  }
+  let updateBase64 = "";
+  try {
+    const rawBody = await c.req.text();
+    if (rawBody.length > 1_600_000) {
+      return c.json({ error: "章节更新过大", code: "SUBDOCUMENT_UPDATE_TOO_LARGE" }, 413);
+    }
+    const body = JSON.parse(rawBody);
+    updateBase64 = typeof body?.updateBase64 === "string" ? body.updateBase64 : "";
+  } catch {
+    return c.json({ error: "无效章节更新", code: "INVALID_SUBDOCUMENT_UPDATE" }, 400);
+  }
+  if (
+    !updateBase64
+    || updateBase64.length > 1_500_000
+    || updateBase64.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(updateBase64)
+  ) {
+    return c.json({ error: "无效章节更新", code: "INVALID_SUBDOCUMENT_UPDATE" }, 400);
+  }
+  try {
+    const result = yApplySubdocumentUpdate(
+      noteId,
+      c.req.param("sectionId"),
+      updateBase64,
+      userId,
+    );
+    if (!result) {
+      return c.json({ error: "Subdocument 功能未启用", code: "SUBDOCUMENTS_DISABLED" }, 409);
+    }
+    const note = getDb().prepare(`
+      SELECT version, updatedAt, title, contentText FROM notes WHERE id = ?
+    `).get(noteId) as { version: number; updatedAt: string; title: string; contentText: string } | undefined;
+    if (note) {
+      broadcastNoteUpdated(noteId, { ...note, actorUserId: userId });
+    }
+    return c.json({ success: true, ...result });
+  } catch (error) {
+    console.warn("[notes.applySubdocumentUpdate] rejected:", error instanceof Error ? error.message : error);
+    return c.json({ error: "无效章节更新", code: "INVALID_SUBDOCUMENT_UPDATE" }, 400);
+  }
 });
 
 // 删除笔记（永久）

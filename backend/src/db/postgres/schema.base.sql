@@ -846,7 +846,7 @@ CREATE TABLE IF NOT EXISTS note_block_documents (
     "snapshotHash" TEXT NOT NULL,
     "materializedHash" TEXT NOT NULL,
     "snapshotContent" TEXT NOT NULL,
-    "rootOrderJson" JSONB NOT NULL DEFAULT '[]'::jsonb,
+    "rootOrderJson" TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'healthy',
     "mismatchReason" TEXT,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -861,7 +861,7 @@ CREATE TABLE IF NOT EXISTS note_block_records (
     "blockOrder" INTEGER NOT NULL,
     path TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
-    payload JSONB NOT NULL,
+    payload TEXT NOT NULL,
     "payloadHash" TEXT NOT NULL,
     "plainText" TEXT NOT NULL DEFAULT '',
     "contentHash" TEXT NOT NULL DEFAULT '',
@@ -880,7 +880,7 @@ CREATE TABLE IF NOT EXISTS note_block_operations (
     "noteVersion" INTEGER NOT NULL,
     "blockVersion" INTEGER NOT NULL,
     "structureVersion" INTEGER NOT NULL,
-    "operationJson" JSONB NOT NULL,
+    "operationJson" TEXT NOT NULL,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_note_block_operations_note ON note_block_operations("noteId", "createdAt" DESC);
@@ -897,6 +897,24 @@ CREATE TABLE IF NOT EXISTS note_block_attachment_refs (
 );
 CREATE INDEX IF NOT EXISTS idx_note_block_attachment_refs_attachment
     ON note_block_attachment_refs("attachmentId", "noteId");
+
+CREATE OR REPLACE FUNCTION mark_note_block_authority_stale()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.content IS DISTINCT FROM NEW.content THEN
+        UPDATE note_block_documents
+        SET status = 'mismatch',
+            "mismatchReason" = 'notes_content_changed_without_shadow_rebuild',
+            "updatedAt" = NOW()
+        WHERE "noteId" = NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_note_block_authority_stale_after_content_update ON notes;
+CREATE TRIGGER trg_note_block_authority_stale_after_content_update
+AFTER UPDATE OF content ON notes
+FOR EACH ROW EXECUTE FUNCTION mark_note_block_authority_stale();
 
 -- ============================================================
 -- Experimental Y.js section subdocuments

@@ -6,6 +6,10 @@ import {
   resetAttachmentAccessStateForTests,
 } from "@/lib/noteAttachmentAccessBridge";
 import { MarkdownPreview } from "../MarkdownPreview";
+import {
+  buildMarkdownPreviewHeadingIndex,
+  scrollMarkdownPreviewToPosition,
+} from "@/lib/markdownPreviewOutline";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -24,12 +28,18 @@ const ATTACHMENT_ID = "123e4567-e89b-42d3-a456-426614174216";
 describe("MarkdownPreview task checkboxes", () => {
   let host: HTMLDivElement;
   let root: Root;
+  let scrollCalls: HTMLElement[];
 
   beforeEach(() => {
     resetAttachmentAccessStateForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
+    scrollCalls = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value(this: HTMLElement) { scrollCalls.push(this); },
+    });
   });
 
   afterEach(() => {
@@ -38,6 +48,7 @@ describe("MarkdownPreview task checkboxes", () => {
     document.body.innerHTML = "";
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
   it("emits the clicked task index and next checked state", async () => {
@@ -155,5 +166,73 @@ describe("MarkdownPreview task checkboxes", () => {
     });
     expect(host.textContent).not.toContain("Second");
     expect(host.querySelectorAll("[data-markdown-segment]")[1]?.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  function longAnchorMarkdown() {
+    return [
+      `[跳到目标](#目标)\n\n# 开始\n\n${"a".repeat(60_000)}\n\n`,
+      `# 目标\n\n目标正文\n\n${"b".repeat(60_000)}\n\n`,
+      "# 结尾\n",
+    ].join("");
+  }
+
+  function installIntersectionObserver() {
+    const callbacks: IntersectionObserverCallback[] = [];
+    class MockIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+      takeRecords = vi.fn(() => []);
+      root = null;
+      rootMargin = "1000px 0px";
+      thresholds = [0];
+    }
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    return callbacks;
+  }
+
+  it("mounts an offscreen segment before scrolling an internal anchor to its exact heading", async () => {
+    const callbacks = installIntersectionObserver();
+    const markdown = longAnchorMarkdown();
+    await act(async () => root.render(<MarkdownPreview markdown={markdown} />));
+
+    const link = host.querySelector<HTMLAnchorElement>("a");
+    expect(decodeURIComponent(link?.getAttribute("href") || "")).toBe("#目标");
+    expect(link?.target).toBe("");
+    expect(host.querySelector("#目标")).toBeNull();
+    await act(async () => link?.click());
+
+    const segments = host.querySelectorAll<HTMLElement>("[data-markdown-segment]");
+    expect(segments[1].dataset.mdSegmentStart).toBeTruthy();
+    expect(segments[1].dataset.mdSegmentEnd).toBeTruthy();
+    expect(scrollCalls[0]).toBe(segments[1]);
+
+    await act(async () => {
+      callbacks[1]?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+      await Promise.resolve();
+    });
+    const target = host.querySelector<HTMLElement>("#目标");
+    expect(target?.dataset.mdPos).toBe(String(markdown.indexOf("# 目标")));
+    expect(scrollCalls).toContain(target);
+  });
+
+  it("performs the same segment-first exact-heading scroll used by outline navigation", async () => {
+    const callbacks = installIntersectionObserver();
+    const markdown = longAnchorMarkdown();
+    await act(async () => root.render(<MarkdownPreview markdown={markdown} />));
+    const preview = host.querySelector<HTMLElement>(".nowen-md-preview")!;
+    const targetPos = buildMarkdownPreviewHeadingIndex(markdown)
+      .find((heading) => heading.id === "目标")!.pos;
+
+    expect(scrollMarkdownPreviewToPosition(preview, targetPos)).toBe(true);
+    const targetSegment = host.querySelectorAll<HTMLElement>("[data-markdown-segment]")[1];
+    expect(scrollCalls[0]).toBe(targetSegment);
+
+    await act(async () => {
+      callbacks[1]?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+      await Promise.resolve();
+    });
+    expect(scrollCalls.at(-1)).toBe(host.querySelector(`h1[data-md-pos="${targetPos}"]`));
   });
 });

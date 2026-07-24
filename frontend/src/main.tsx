@@ -54,6 +54,7 @@ import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
 import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
 import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
+import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 
 function removeBootSplash() {
   try {
@@ -115,6 +116,8 @@ installReliableExportDownloadBridge();
 // Pause Nowen package imports after the authoritative dry-run and show the full package/conflict
 // report before the legacy import panel can continue to the formal write request.
 installRoundTripImportReviewBridge();
+// 只暴露浏览器自动化显式调用的性能入口，不会自动启动任何采集场景。
+installEditorPerformanceGlobal();
 
 initCodeBlockTheme();
 

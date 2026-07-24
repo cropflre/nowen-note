@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import * as Y from "yjs";
+import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore.js";
+import { syncNoteBlocks } from "../lib/noteBlocks.js";
 
 export interface YjsSubdocumentSection {
   id: string;
@@ -8,6 +10,11 @@ export interface YjsSubdocumentSection {
   startBlock: number;
   endBlock: number;
   content: string;
+}
+
+export interface YjsSubdocumentManifest {
+  rootGuid: string;
+  sections: Array<Pick<YjsSubdocumentSection, "id" | "guid" | "startBlock" | "endBlock">>;
 }
 
 export function isYjsSubdocumentsEnabled(): boolean {
@@ -187,6 +194,74 @@ export function rebuildYjsSubdocuments(
   return { rootGuid, sections };
 }
 
+/** 读取健康清单；只有缺失或与 notes.content 漂移时才重建，普通 GET 不得改写 Y.js 历史。 */
+export function prepareYjsSubdocuments(
+  db: Database.Database,
+  noteId: string,
+  content: string,
+  maxBlocks = 250,
+): YjsSubdocumentManifest {
+  ensureYjsSubdocumentTables(db);
+  const manifest = db.prepare(`
+    SELECT rootGuid, rootSnapshot, contentHash, sectionCount, status
+    FROM note_y_subdocument_manifests WHERE noteId = ?
+  `).get(noteId) as {
+    rootGuid: string;
+    rootSnapshot: Buffer;
+    contentHash: string;
+    sectionCount: number;
+    status: string;
+  } | undefined;
+  const rows = db.prepare(`
+    SELECT sectionId, guid, blockStart, blockEnd
+    FROM note_y_subdocuments WHERE noteId = ? ORDER BY blockStart
+  `).all(noteId) as Array<{
+    sectionId: string;
+    guid: string;
+    blockStart: number;
+    blockEnd: number;
+  }>;
+  let rootMatches = false;
+  if (manifest && manifest.status === "healthy" && manifest.contentHash === hash(content)) {
+    const root = new Y.Doc({ guid: manifest.rootGuid });
+    try {
+      Y.applyUpdate(root, new Uint8Array(manifest.rootSnapshot));
+      const order = root.getArray<string>("sectionOrder").toArray();
+      const guids = root.getMap<string>("sectionGuids");
+      rootMatches = order.length === rows.length
+        && order.every((sectionId, index) => (
+          sectionId === rows[index]?.sectionId
+          && guids.get(sectionId) === rows[index]?.guid
+        ));
+    } catch {
+      rootMatches = false;
+    } finally {
+      root.destroy();
+    }
+  }
+  if (manifest && rootMatches && rows.length === manifest.sectionCount) {
+    return {
+      rootGuid: manifest.rootGuid,
+      sections: rows.map((row) => ({
+        id: row.sectionId,
+        guid: row.guid,
+        startBlock: row.blockStart,
+        endBlock: row.blockEnd,
+      })),
+    };
+  }
+  const rebuilt = rebuildYjsSubdocuments(db, noteId, content, maxBlocks);
+  return {
+    rootGuid: rebuilt.rootGuid,
+    sections: rebuilt.sections.map((section) => ({
+      id: section.id,
+      guid: section.guid,
+      startBlock: section.startBlock,
+      endBlock: section.endBlock,
+    })),
+  };
+}
+
 export function readYjsSubdocumentBundle(
   db: Database.Database,
   noteId: string,
@@ -265,7 +340,7 @@ export function applyYjsSubdocumentUpdate(
   sectionId: string,
   update: Uint8Array,
   userId: string | null,
-): { content: string; sectionGuid: string } {
+): { content: string; contentText: string; sectionGuid: string; version: number } {
   if (update.byteLength === 0 || update.byteLength > 1024 * 1024) throw new Error("INVALID_SUBDOCUMENT_UPDATE_SIZE");
   ensureYjsSubdocumentTables(db);
   const current = db.prepare(`
@@ -286,6 +361,8 @@ export function applyYjsSubdocumentUpdate(
   }
 
   let materialized = "";
+  let contentText = "";
+  let version = 0;
   db.transaction(() => {
     db.prepare(`UPDATE note_y_subdocuments
       SET snapshotBlob = ?, payloadHash = ?, updatedAt = datetime('now')
@@ -304,11 +381,29 @@ export function applyYjsSubdocumentUpdate(
       nodes.push(...doc.content);
     }
     materialized = JSON.stringify({ type: "doc", content: nodes });
-    db.prepare(`UPDATE notes SET content = ?, version = version + 1, updatedAt = datetime('now') WHERE id = ?`)
-      .run(materialized, noteId);
+    const current = db.prepare("SELECT version FROM notes WHERE id = ?").get(noteId) as
+      | { version: number }
+      | undefined;
+    if (!current) throw new Error("SUBDOCUMENT_NOTE_NOT_FOUND");
+    const synced = syncNoteBlocks(db, noteId, materialized, "tiptap-json");
+    // Subdocument 章节必须已经携带稳定 Block ID；若仍需规范化，章节快照会与整篇内容分叉。
+    if (synced.changed) throw new Error("SUBDOCUMENT_NORMALIZATION_REQUIRED");
+    materialized = synced.content;
+    contentText = synced.contentText;
+    version = current.version + 1;
+    const updated = db.prepare(`UPDATE notes
+      SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')
+      WHERE id = ? AND version = ?`)
+      .run(materialized, contentText, version, noteId, current.version);
+    if (updated.changes !== 1) throw new Error("SUBDOCUMENT_VERSION_CONFLICT");
     db.prepare(`UPDATE note_y_subdocument_manifests
       SET contentHash = ?, status = 'healthy', mismatchReason = NULL, updatedAt = datetime('now') WHERE noteId = ?`)
       .run(hash(materialized), noteId);
+    rebuildBlockAuthorityStore(db, noteId, materialized, "tiptap-json", {
+      noteVersion: version,
+      operationType: "yjs-subdocument-update",
+      operationJson: { sectionId },
+    });
   })();
-  return { content: materialized, sectionGuid: current.guid };
+  return { content: materialized, contentText, sectionGuid: current.guid, version };
 }
