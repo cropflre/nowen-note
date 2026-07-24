@@ -1,6 +1,7 @@
 name: Knowledge Tree CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -8,6 +9,8 @@ on:
     paths:
       - "backend/src/db/knowledgeTree*.ts"
       - "backend/src/db/postgres/060_knowledge_tree.sql"
+      - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
+      - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/services/knowledge*.ts"
@@ -24,6 +27,8 @@ on:
     paths:
       - "backend/src/db/knowledgeTree*.ts"
       - "backend/src/db/postgres/060_knowledge_tree.sql"
+      - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
+      - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/services/knowledge*.ts"
