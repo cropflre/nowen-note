@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+          node --import tsx --import ./tests/setup-db-isolation.ts --test --test-concurrency=1 \
             tests/note-split.test.ts \
             tests/note-split-title.test.ts \
             tests/tiptap-note-split.test.ts \
