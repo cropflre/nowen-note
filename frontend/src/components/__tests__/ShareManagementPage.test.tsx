@@ -78,4 +78,18 @@ describe("ShareManagementPage", () => {
 
     expect(mocks.getShareManagement).toHaveBeenLastCalledWith(expect.objectContaining({ status: "disabled" }));
   });
+
+  it("renders the empty state when the response omits items", async () => {
+    mocks.getShareManagement.mockResolvedValue({
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      stats: { total: 0, active: 0, disabled: 0, expired: 0, exhausted: 0 },
+    });
+
+    await act(async () => { root.render(<ShareManagementPage />); });
+    await flushEffects();
+
+    expect(host.textContent).toContain("还没有符合条件的分享链接");
+  });
 });

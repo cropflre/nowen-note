@@ -581,7 +581,7 @@ function reconcileAcknowledgedDeletion(
     return;
   }
 
-  if (url === "/notes/trash/empty" && Array.isArray(data?.noteIds)) {
+  if (/^\/notes\/trash\/empty(?:\?|$)/.test(url) && Array.isArray(data?.noteIds)) {
     discardNoteQueueItems(data.noteIds.filter((id): id is string => typeof id === "string"));
     return;
   }
@@ -1487,8 +1487,19 @@ export const api = {
     }>(
       `/notes/${noteId}/backlinks?limit=${limit}`
     ),
-  emptyTrash: () =>
-    request<{
+  getTrashSummary: () => {
+    const currentWorkspace = getCurrentWorkspace();
+    const qs = currentWorkspace !== "personal"
+      ? `?workspaceId=${encodeURIComponent(currentWorkspace)}`
+      : "";
+    return request<{ count: number; skipped: number }>(`/notes/trash/summary${qs}`);
+  },
+  emptyTrash: () => {
+    const currentWorkspace = getCurrentWorkspace();
+    const qs = currentWorkspace !== "personal"
+      ? `?workspaceId=${encodeURIComponent(currentWorkspace)}`
+      : "";
+    return request<{
       success: boolean;
       count: number;
       skipped: number;
@@ -1500,7 +1511,8 @@ export const api = {
       vacuumed?: boolean;
       /** 估算释放的字节数（笔记文本 + 附件 size 登记值） */
       freedBytesEstimate?: number;
-    }>(`/notes/trash/empty`, { method: "DELETE" }),
+    }>(`/notes/trash/empty${qs}`, { method: "DELETE" });
+  },
   reorderNotes: (items: { id: string; sortOrder: number }[]) =>
     request<{ success: boolean }>("/notes/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
   /**

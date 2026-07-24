@@ -268,6 +268,19 @@ export async function deleteNote(id: string): Promise<void> {
   }, undefined, "deleteNote");
 }
 
+/** 在一个 IndexedDB 事务中批量移除笔记，供清空回收站的实时事件使用。 */
+export async function deleteNotes(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const connection = getDb();
+  if (!connection) return;
+  await safe(async () => {
+    const db = await connection;
+    const transaction = db.transaction("notes", "readwrite");
+    await Promise.all(ids.map((id) => transaction.store.delete(id)));
+    await transaction.done;
+  }, undefined, "deleteNotes");
+}
+
 export async function putTags(tags: Tag[]): Promise<void> {
   const connection = getDb();
   if (!connection) return;

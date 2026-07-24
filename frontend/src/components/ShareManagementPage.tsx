@@ -29,6 +29,7 @@ import {
 import {
   compactShareToken,
   formatShareDate,
+  normalizeShareManagementResponse,
   sharePermissionLabel,
   shareStatusMeta,
 } from "@/lib/shareManagement";
@@ -125,7 +126,9 @@ export default function ShareManagementPage() {
         page,
         pageSize: PAGE_SIZE,
       });
-      if (sequence === requestSequence.current) setData(response);
+      if (sequence === requestSequence.current) {
+        setData(normalizeShareManagementResponse(response, page, PAGE_SIZE));
+      }
     } catch (loadError: any) {
       if (sequence === requestSequence.current) {
         setError(loadError?.message || "加载分享列表失败");
@@ -320,7 +323,7 @@ export default function ShareManagementPage() {
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 px-6 text-center">
             <p className="text-sm text-rose-700 dark:text-rose-300">{error}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>重试</Button>
           </div>
-        ) : !data?.items.length ? (
+        ) : !data?.items?.length ? (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-app-border bg-app-surface px-6 text-center">
             <Link2 size={30} className="text-tx-tertiary" /><h2 className="mt-3 font-medium text-tx-primary">还没有符合条件的分享链接</h2><p className="mt-1 text-sm text-tx-secondary">打开任意笔记并点击“分享”，创建后的链接会统一显示在这里。</p>
           </div>

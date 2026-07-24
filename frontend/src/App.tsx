@@ -33,6 +33,7 @@ import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
 import { resolveEditorFocusLayout } from "@/lib/editorFocusLayout";
 import { bootstrap as syncBootstrap, teardown as syncTeardown, syncNow } from "@/lib/syncEngine";
 import { realtime } from "@/lib/realtime";
+import { deleteNotes as deleteLocalNotes } from "@/lib/localStore";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
 import CommandPalette from "@/components/common/CommandPalette";
@@ -442,6 +443,30 @@ function AppLayout() {
     });
     return off;
   }, [actions, state.activeNote, t]);
+
+  // 清空回收站使用单条批量事件，避免其它标签页收到数万条 note:deleted 后
+  // 逐条 dispatch / IndexedDB delete。列表、标签页和本地缓存都一次性收敛。
+  useEffect(() => {
+    const off = realtime.on("notes:deleted", (msg: any) => {
+      const noteIds = Array.isArray(msg?.noteIds)
+        ? msg.noteIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+        : [];
+      if (noteIds.length === 0) return;
+      const deletedIds = new Set(noteIds);
+      actions.setNotes(state.notes.filter((note) => !deletedIds.has(note.id)));
+      actions.setNoteTabs(state.openNoteTabs.filter((tab) => !deletedIds.has(tab.id)));
+      void deleteLocalNotes(noteIds).catch(() => {});
+      void syncNow().catch(() => {});
+
+      if (state.activeNote && deletedIds.has(state.activeNote.id)) {
+        actions.setActiveNote(null);
+        import("@/lib/toast").then(({ toast }) => {
+          toast.info(t('noteList.noteDeleted') || "笔记已被删除");
+        }).catch(() => {});
+      }
+    });
+    return off;
+  }, [actions, state.activeNote, state.notes, state.openNoteTabs, t]);
 
   useEffect(() => {
     if (state.editorFullscreen && !state.activeNote) {

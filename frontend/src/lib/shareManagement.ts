@@ -1,4 +1,52 @@
-import type { ShareEffectiveStatus, SharePermission } from "@/types";
+import type {
+  ShareEffectiveStatus,
+  ShareManagementItem,
+  ShareManagementResponse,
+  SharePermission,
+} from "@/types";
+
+const EMPTY_SHARE_STATS = {
+  total: 0,
+  active: 0,
+  disabled: 0,
+  expired: 0,
+  exhausted: 0,
+};
+
+function deriveShareStatus(item: Partial<ShareManagementItem>): ShareEffectiveStatus {
+  if (item.effectiveStatus) return item.effectiveStatus;
+  if (!item.isActive) return "disabled";
+  if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) return "expired";
+  if (item.maxViews != null && (item.viewCount || 0) >= item.maxViews) return "exhausted";
+  return "active";
+}
+
+export function normalizeShareManagementResponse(
+  value: unknown,
+  fallbackPage = 1,
+  fallbackPageSize = 20,
+): ShareManagementResponse {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<ShareManagementResponse>
+    : null;
+  const rawItems = Array.isArray(value)
+    ? value
+    : Array.isArray(record?.items) ? record.items : [];
+  const items = rawItems.filter((item): item is ShareManagementItem => !!item && typeof item === "object");
+  const derivedStats = items.reduce((stats, item) => {
+    stats.total += 1;
+    stats[deriveShareStatus(item)] += 1;
+    return stats;
+  }, { ...EMPTY_SHARE_STATS });
+
+  return {
+    items,
+    total: typeof record?.total === "number" ? record.total : items.length,
+    page: typeof record?.page === "number" ? record.page : fallbackPage,
+    pageSize: typeof record?.pageSize === "number" ? record.pageSize : fallbackPageSize,
+    stats: record?.stats || derivedStats,
+  };
+}
 
 export function sharePermissionLabel(permission: SharePermission): string {
   if (permission === "comment") return "可评论";

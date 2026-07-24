@@ -2620,11 +2620,11 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDeleteTarget(null);
   };
 
-  // 打开清空回收站确认（先去查当前可清空的数量）
+  // 打开清空回收站确认（只取聚合数量，不加载全部回收站笔记）
   const openEmptyTrashConfirm = async () => {
     try {
-      const notes = await api.getNotes({ isTrashed: "1" });
-      const removable = (notes as any[]).filter((n) => !n.isLocked).length;
+      const summary = await api.getTrashSummary();
+      const removable = summary.count;
       if (removable === 0) {
         toast.info(t('sidebar.emptyTrashEmpty'));
         return;

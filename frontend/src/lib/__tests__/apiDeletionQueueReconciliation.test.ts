@@ -93,18 +93,24 @@ describe("API deletion queue reconciliation", () => {
     expect(getQueue()).toEqual([]);
   });
 
-  it("removes only conflicts returned by empty trash", async () => {
+  it("uses one workspace-scoped request and removes only conflicts returned by empty trash", async () => {
     seedConflict("deleted-a");
     seedConflict("kept-b");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+    localStorage.setItem("nowen-current-workspace", "team-workspace");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       success: true,
       count: 1,
       skipped: 0,
       noteIds: ["deleted-a"],
-    })));
+    }));
+    vi.stubGlobal("fetch", fetchMock);
 
     await api.emptyTrash();
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://sync-test.local/api/notes/trash/empty?workspaceId=team-workspace",
+    );
     expect(getQueue().map((item) => item.noteId)).toEqual(["kept-b"]);
   });
 

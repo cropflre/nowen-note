@@ -72,6 +72,7 @@ interface ServerMessage {
     | "presence"
     | "note:updated"
     | "note:deleted"
+    | "notes:deleted"
     | "workspace:updated"
     | "pong"
     | "error"
@@ -604,6 +605,38 @@ export function broadcastNoteDeleted(
   if (payload.actorUserId) {
     broadcastToUser(payload.actorUserId, deleteMsg);
   }
+}
+
+/**
+ * 批量永久删除笔记。
+ *
+ * 清空回收站可能一次涉及数万条记录；逐条 broadcastNoteDeleted 会产生同等数量
+ * 的 WebSocket 帧和日志。批量消息让同一用户的其它标签页只处理一次刷新。
+ */
+export function broadcastNotesDeleted(
+  noteIds: string[],
+  payload: { actorUserId: string; workspaceId?: string; trashed?: boolean },
+) {
+  if (noteIds.length === 0) return;
+  const message = {
+    type: "notes:deleted",
+    noteIds,
+    actorUserId: payload.actorUserId,
+    workspaceId: payload.workspaceId || null,
+    trashed: payload.trashed ?? false,
+  } as const;
+
+  if (!payload.workspaceId) {
+    broadcastToUser(payload.actorUserId, message);
+    return;
+  }
+
+  const members = getDb().prepare(
+    "SELECT userId FROM workspace_members WHERE workspaceId = ?"
+  ).all(payload.workspaceId) as Array<{ userId: string }>;
+  const userIds = new Set(members.map((member) => member.userId));
+  userIds.add(payload.actorUserId);
+  for (const userId of userIds) broadcastToUser(userId, message);
 }
 
 /**
