@@ -41,6 +41,10 @@ export { notebookMembersRepository } from "./notebookMembersRepository";
 export { shareCommentsRepository } from "./shareCommentsRepository";
 export { diaryAttachmentsRepository } from "./diaryAttachmentsRepository";
 export { embeddingQueueRepository } from "./embeddingQueueRepository";
+export {
+  blockAuthorityRepository,
+  createBlockAuthorityRepository,
+} from "./blockAuthorityRepository";
 
 // 类型导出
 export type {

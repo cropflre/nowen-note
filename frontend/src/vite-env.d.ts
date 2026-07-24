@@ -16,3 +16,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface Window {
+  __NOWEN_EDITOR_PERF__?: import("./lib/editorPerformanceHarness").EditorPerformanceGlobalEntry;
+}

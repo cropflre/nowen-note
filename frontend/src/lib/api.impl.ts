@@ -1,6 +1,28 @@
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
+
+export interface YjsSubdocumentManifest {
+  rootGuid: string;
+  generation: number;
+  structureVersion: number;
+  sections: Array<{
+    id: string;
+    guid: string;
+    startBlock: number;
+    endBlock: number;
+  }>;
+}
+
+export interface YjsSubdocumentUpdateResult {
+  success: boolean;
+  content: string;
+  contentText: string;
+  sectionGuid: string;
+  version: number;
+  generation: number;
+  structureVersion: number;
+}
 import {
   shouldEnqueue as _shouldEnqueue,
   enqueue as _enqueue,
@@ -864,11 +886,13 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       status?: number;
       code?: string;
       currentVersion?: number;
+      manifest?: YjsSubdocumentManifest;
     };
     error.status = res.status;
     if (err && typeof err === "object") {
       if (typeof err.code === "string") error.code = err.code;
       if (typeof err.currentVersion === "number") error.currentVersion = err.currentVersion;
+      if (err.manifest && typeof err.manifest === "object") error.manifest = err.manifest;
     }
 
     // ─── 弱网/服务端不稳定状态码入队离线重试 ──────────────
@@ -1502,6 +1526,17 @@ export const api = {
    */
   releaseYjsRoom: (id: string) =>
     request<{ success: boolean }>(`/notes/${id}/yjs/release-room`, { method: "POST" }),
+  getYjsSubdocumentManifest: (id: string) =>
+    request<YjsSubdocumentManifest>(`/notes/${encodeURIComponent(id)}/yjs/subdocuments`),
+  getYjsSubdocumentState: (id: string, sectionId: string) =>
+    request<{ guid: string; stateBase64: string }>(
+      `/notes/${encodeURIComponent(id)}/yjs/subdocuments/${encodeURIComponent(sectionId)}`,
+    ),
+  applyYjsSubdocumentUpdate: (id: string, sectionId: string, updateBase64: string, generation: number) =>
+    request<YjsSubdocumentUpdateResult>(
+      `/notes/${encodeURIComponent(id)}/yjs/subdocuments/${encodeURIComponent(sectionId)}`,
+      { method: "POST", body: JSON.stringify({ updateBase64, generation }) },
+    ),
 
   // Tags
   // -----------------------------------------------------------------

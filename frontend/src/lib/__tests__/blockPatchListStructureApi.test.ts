@@ -9,10 +9,10 @@ import {
   patchTiptapBlocks,
   type BlockPatchListItemNode,
 } from "@/lib/blockPatchApi";
-import type { TiptapPatchJsonNode } from "@/lib/tiptapBlockPatchNode";
+import type { TiptapPatchTextBlockNode } from "@/lib/tiptapBlockPatchNode";
 import { shouldFallbackTiptapBlockPatchToWholeSave } from "@/lib/tiptapBlockPatchRuntime";
 
-function paragraph(blockId: string, text: string): TiptapPatchJsonNode {
+function paragraph(blockId: string, text: string): TiptapPatchTextBlockNode {
   return {
     type: "paragraph",
     attrs: { blockId, textAlign: null, lineHeight: null },

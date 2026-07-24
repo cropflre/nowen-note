@@ -10,6 +10,7 @@ import {
   getUploadMonthPath,
   writeAttachmentObject,
 } from "./attachment-storage";
+import { synchronizeRecoveredBlockAuthority } from "./blockAuthorityRecovery";
 
 export type RoundTripImportMode = "new-root" | "into-target" | "merge";
 export type RoundTripConflictStrategy = "copy" | "merge";
@@ -845,6 +846,15 @@ export async function importNowenPackageV2(zipBuffer: Buffer, params: ImportPara
           message: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+
+    const recovery = synchronizeRecoveredBlockAuthority(db, rewrittenByNewNoteId.keys());
+    for (const failure of recovery.failures) {
+      warnings.push({
+        type: "block_authority_recovery_failed",
+        id: failure.noteId,
+        message: `Block 权威状态同步失败，已保留兼容快照：${failure.error}`,
+      });
     }
 
     db.exec("COMMIT");

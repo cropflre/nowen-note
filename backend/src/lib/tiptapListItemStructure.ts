@@ -1,7 +1,7 @@
 import {
   normalizeTiptapReplacementNode,
   TiptapBlockNodeValidationError,
-  type TiptapPatchJsonNode,
+  type TiptapPatchTextBlockNode,
 } from "./tiptapBlockPatchNode.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
@@ -35,7 +35,7 @@ export interface TiptapListItemPatchNode {
     blockId: string;
     checked?: boolean;
   };
-  content: [TiptapPatchJsonNode];
+  content: [TiptapPatchTextBlockNode];
 }
 
 export interface TiptapListItemStructureResult {
@@ -156,7 +156,7 @@ function removeListWrapperIfEmpty(location: ListItemLocation): void {
   if (currentIndex >= 0) location.listFrame.parent.splice(currentIndex, 1);
 }
 
-function normalizeParagraph(raw: unknown): TiptapPatchJsonNode {
+function normalizeParagraph(raw: unknown): TiptapPatchTextBlockNode {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new TiptapListItemStructureError("INVALID_BLOCK_NODE", "列表项必须包含一个段落");
   }

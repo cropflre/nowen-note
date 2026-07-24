@@ -24,7 +24,10 @@ import {
 } from "./tiptapListItemStructure.js";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
-const SUPPORTED_TYPES = new Set<string>(SUPPORTED_NOTE_BLOCK_TYPES);
+const CREATABLE_TYPES = new Set<string>(
+  SUPPORTED_NOTE_BLOCK_TYPES.filter((type) => !["table", "video", "blockEmbed", "mathBlock"].includes(type)),
+);
+type CreatableNoteBlockType = Exclude<NoteBlockType, "table" | "video" | "blockEmbed" | "mathBlock">;
 
 export type TiptapBlockPatchOperation =
   | {
@@ -32,7 +35,7 @@ export type TiptapBlockPatchOperation =
       scope?: undefined;
       clientId?: string;
       blockId?: string;
-      blockType?: NoteBlockType;
+      blockType?: CreatableNoteBlockType;
       text?: string;
       afterBlockId?: string;
     }
@@ -181,7 +184,7 @@ function setBlockText(node: any, text: string): void {
   else node.content = [{ type: "paragraph", content }];
 }
 
-function createNode(blockType: NoteBlockType, text: string, blockId: string): any {
+function createNode(blockType: CreatableNoteBlockType, text: string, blockId: string): any {
   const textContent = text ? [{ type: "text", text }] : [];
   if (blockType === "heading") {
     return { type: "heading", attrs: { level: 2, blockId }, content: textContent };
@@ -259,7 +262,7 @@ function validateOperation(operation: any, index: number): asserts operation is 
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].scope 无效`);
     }
     const blockType = operation.blockType || "paragraph";
-    if (!SUPPORTED_TYPES.has(blockType)) {
+    if (!CREATABLE_TYPES.has(blockType)) {
       throw new TiptapBlockPatchError("INVALID_PATCH", `operations[${index}].blockType 无效`);
     }
     if (operation.blockId != null && !validBlockId(operation.blockId)) {
@@ -355,6 +358,12 @@ export function validateTiptapBlockPatchOperations(raw: unknown): TiptapBlockPat
       clientIds.add(operation.clientId);
     }
   });
+  const tableReplacementCount = raw.filter((operation) => (
+    operation.type === "replace" && operation.node.type === "table"
+  )).length;
+  if (tableReplacementCount > 0 && (tableReplacementCount !== 1 || raw.length !== 1)) {
+    throw new TiptapBlockPatchError("INVALID_PATCH", "table replace 必须是请求中的唯一操作");
+  }
   return cloneJson(raw) as TiptapBlockPatchOperation[];
 }
 
@@ -364,6 +373,10 @@ export function applyTiptapBlockPatch(
   operations: TiptapBlockPatchOperation[],
   createId: () => string = makeBlockId,
 ): TiptapBlockPatchResult {
+  if (operations.some((operation) => operation.type === "replace" && operation.node.type === "table")
+    && operations.length !== 1) {
+    throw new TiptapBlockPatchError("INVALID_PATCH", "table replace 必须是请求中的唯一操作");
+  }
   let doc: any;
   try {
     doc = JSON.parse(source || "{}");
@@ -455,6 +468,17 @@ export function applyTiptapBlockPatch(
 
     const target = findBlock(doc.content, operation.blockId, -1, doc);
     if (!target) throw new TiptapBlockPatchError("BLOCK_NOT_FOUND", `块不存在: ${operation.blockId}`);
+    const tableRoot = doc.content[target.topIndex];
+    if (tableRoot?.type === "table" && !(
+      operation.type === "replace"
+      && target.node === tableRoot
+      && target.parentNode?.type === "doc"
+    )) {
+      throw new TiptapBlockPatchError(
+        "INVALID_BLOCK_NODE",
+        "table 子树只支持顶层 table 整块 replace",
+      );
+    }
 
     if (operation.type === "update") {
       setBlockText(target.node, operation.text);
@@ -475,7 +499,38 @@ export function applyTiptapBlockPatch(
           "嵌套块只能保留原节点类型；顶层段落、标题和代码块才允许互相转换",
         );
       }
+      if (["video", "blockEmbed", "mathBlock"].includes(replacement.type)
+        && (replacement.type !== target.node.type || target.parentNode?.type !== "doc")) {
+        throw new TiptapBlockPatchError(
+          "INVALID_BLOCK_NODE",
+          "复杂原子节点只能替换同类型顶层节点",
+        );
+      }
+      if (replacement.type === "table" && (target.node.type !== "table" || target.parentNode?.type !== "doc")) {
+        throw new TiptapBlockPatchError(
+          "INVALID_BLOCK_NODE",
+          "table 只能整块替换同一顶层 table",
+        );
+      }
+      if (target.node.type === "table" && replacement.type !== "table") {
+        throw new TiptapBlockPatchError(
+          "INVALID_BLOCK_NODE",
+          "顶层 table 不能转换为其他节点类型",
+        );
+      }
+      const previousIds = collectBlockIds([target.node]);
+      const replacementIds = collectBlockIds([replacement]);
+      for (const blockId of replacementIds) {
+        if (knownIds.has(blockId) && !previousIds.has(blockId)) {
+          throw new TiptapBlockPatchError("BLOCK_ID_CONFLICT", `blockId 已存在: ${blockId}`);
+        }
+      }
       target.parent[target.index] = replacement;
+      previousIds.forEach((blockId) => {
+        if (!replacementIds.has(blockId)) deletedBlockIds.push(blockId);
+      });
+      previousIds.forEach((blockId) => knownIds.delete(blockId));
+      replacementIds.forEach((blockId) => knownIds.add(blockId));
       affectedBlockIds.push(operation.blockId);
       return;
     }

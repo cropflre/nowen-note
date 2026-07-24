@@ -3,11 +3,9 @@ import { createPortal } from "react-dom";
 import {
   BookOpen,
   BrainCircuit,
-  Cloud,
   CloudOff,
   Columns2,
   Columns3,
-  DatabaseBackup,
   FolderOpen,
   ListTodo,
   LogOut,
@@ -15,7 +13,6 @@ import {
   PanelLeft,
   PanelLeftClose,
   RotateCcw,
-  Server,
   Settings,
   Sparkles,
   Star,
@@ -30,7 +27,6 @@ import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import SettingsModal from "@/components/SettingsModal";
-import { SERVER_CONNECTION_CENTER_OPEN_EVENT } from "@/components/ServerConnectionCenter";
 import { RailMode, useRailMode } from "@/hooks/useRailMode";
 import {
   clearDesktopLocalAuth,
@@ -43,7 +39,6 @@ import {
 } from "@/lib/desktopBridge";
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { clearRememberedCredentials } from "@/lib/rememberLogin";
-import { getActiveServerProfile, subscribeServerProfiles, type ServerProfile } from "@/lib/serverProfiles";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -73,13 +68,6 @@ function isActive(itemMode: ViewMode, viewMode: ViewMode): boolean {
   return viewMode === itemMode;
 }
 
-function serverStatusDotClass(status?: ServerProfile["status"]): string {
-  if (status === "online") return "bg-emerald-500";
-  if (status === "offline" || status === "auth-expired") return "bg-rose-500";
-  if (status === "checking") return "bg-amber-500 animate-pulse";
-  return "bg-zinc-400";
-}
-
 export default function NavRail({ variant = "desktop" }: { variant?: "desktop" | "mobile" } = {}) {
   const { t } = useTranslation();
   const { state } = useApp();
@@ -93,7 +81,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const [showSettings, setShowSettings] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
-  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => getActiveServerProfile());
 
   useEffect(() => {
     const load = () => {
@@ -111,12 +98,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       window.removeEventListener("nowen:workspace-changed", load);
       window.removeEventListener("nowen:workspace-features-changed", load);
     };
-  }, []);
-
-  useEffect(() => {
-    const refreshActiveServer = () => setActiveServer(getActiveServerProfile());
-    refreshActiveServer();
-    return subscribeServerProfiles(refreshActiveServer);
   }, []);
 
   useEffect(() => {
@@ -180,26 +161,9 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     [actions, isMobile],
   );
 
-  const openConnectionAndAccounts = useCallback(() => {
-    setAccountMenuOpen(false);
-    window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT));
-  }, []);
-
-  const openMigration = useCallback(() => {
-    setAccountMenuOpen(false);
-    window.dispatchEvent(
-      new CustomEvent(SERVER_CONNECTION_CENTER_OPEN_EVENT, {
-        detail: { tab: "migration" },
-      }),
-    );
-  }, []);
-
   const handleDesktopCloudButton = useCallback(async () => {
     setAccountMenuOpen(false);
-    if (!canSwitchBackToLocal) {
-      window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT));
-      return;
-    }
+    if (!canSwitchBackToLocal) return;
 
     const queuedCount = getQueueLength();
     if (queuedCount > 0) {
@@ -315,32 +279,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
           >
             <div className="px-3 py-2 border-b border-app-border/70">
               <div className="flex items-center gap-2 text-xs font-medium text-tx-primary">
-                <span className={cn("w-2 h-2 rounded-full shrink-0", serverStatusDotClass(activeServer?.status))} aria-hidden />
-                <span className="truncate">{activeServer?.name || (canSwitchBackToLocal ? "远程服务器" : "当前服务器")}</span>
+                <span className="w-2 h-2 rounded-full shrink-0 bg-zinc-400" aria-hidden />
+                <span className="truncate">{canSwitchBackToLocal ? "远程服务器" : "当前服务器"}</span>
               </div>
-              <div className="mt-1 truncate text-[11px] text-tx-tertiary" title={activeServer?.serverUrl || serverUrl}>
-                {activeServer?.serverUrl || serverUrl || "当前客户端未记录服务端地址"}
+              <div className="mt-1 truncate text-[11px] text-tx-tertiary" title={serverUrl}>
+                {serverUrl || "当前客户端未记录服务端地址"}
               </div>
             </div>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={openConnectionAndAccounts}
-              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-            >
-              <Server size={15} />
-              <span>连接与账号</span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={openMigration}
-              className="w-full px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary flex items-center gap-2"
-            >
-              <DatabaseBackup size={15} />
-              <span>迁移数据</span>
-            </button>
 
             {isDesktopApp() && (
               <>
@@ -473,24 +418,25 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         )}
       >
         <User size={16} />
-        <span className={cn("absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar", serverStatusDotClass(activeServer?.status))} aria-hidden />
         {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.accountMenu")}</span>}
       </button>
 
       {isDesktopApp() ? (
-        <button
-          onClick={handleDesktopCloudButton}
-          title={showLabel ? undefined : canSwitchBackToLocal ? t("sidebar.switchToLocal", "切回本地离线模式") : "连接 NAS / 云端"}
-          aria-label={canSwitchBackToLocal ? t("sidebar.switchToLocal", "切回本地离线模式") : "连接 NAS / 云端"}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
-        >
-          {canSwitchBackToLocal ? <CloudOff size={16} /> : <Cloud size={16} />}
-          {showLabel && (
-            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-              {canSwitchBackToLocal ? t("sidebar.switchToLocalShort", "本地") : "连接"}
-            </span>
-          )}
-        </button>
+        canSwitchBackToLocal ? (
+          <button
+            onClick={handleDesktopCloudButton}
+            title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
+            aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
+            className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+          >
+            <CloudOff size={16} />
+            {showLabel && (
+              <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
+                {t("sidebar.switchToLocalShort", "本地")}
+              </span>
+            )}
+          </button>
+        ) : null
       ) : (
         <button
           onClick={async () => {

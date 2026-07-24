@@ -9,6 +9,7 @@ import {
   getUploadMonthPath,
   writeAttachmentObject,
 } from "./attachment-storage";
+import { synchronizeRecoveredBlockAuthority } from "./blockAuthorityRecovery";
 import { ensureRoundTripImportLinksSchema } from "../db/roundtripImportLinksMigration";
 import {
   importNowenPackageV2,
@@ -1230,6 +1231,15 @@ export async function importRoundTripPackageSync(
 
     for (const [noteId, content] of rewrittenByNote) {
       if (content.includes("/api/attachments/")) syncAttachmentReferences(db, noteId, content);
+    }
+
+    const recovery = synchronizeRecoveredBlockAuthority(db, rewrittenByNote.keys());
+    for (const failure of recovery.failures) {
+      warnings.push({
+        type: "block_authority_recovery_failed",
+        id: failure.noteId,
+        message: `Block 权威状态同步失败，已保留兼容快照：${failure.error}`,
+      });
     }
 
     for (const plan of notebookPlans) {

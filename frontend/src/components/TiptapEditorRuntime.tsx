@@ -30,9 +30,11 @@ import {
   TIPTAP_BLOCK_PATCH_OVERRIDE_KEY,
 } from "@/lib/tiptapBlockPatchRuntime";
 import { clearDraft, saveDraft } from "@/lib/draftStorage";
+import type { YjsSubdocumentUpdateResult } from "@/lib/api";
 import { useAppActions } from "@/store/AppContext";
 import type { Note } from "@/types";
 import BaseTiptapEditor from "./TiptapEditor";
+import WindowedTiptapEditor, { isTiptapSubdocumentWindowingEnabled } from "./WindowedTiptapEditor";
 
 type RuntimeTiptapEditorProps = NoteEditorProps & {
   presentationMode?: boolean;
@@ -95,6 +97,12 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     const queuedPayloadRef = useRef<NoteEditorUpdatePayload | null>(null);
     const drainAfterVersionRef = useRef<number | null>(null);
     const processPayloadRef = useRef<(payload: NoteEditorUpdatePayload) => void>(() => undefined);
+    const subdocumentVersionRef = useRef({ noteId: props.note.id, version: props.note.version });
+    if (subdocumentVersionRef.current.noteId !== props.note.id) {
+      subdocumentVersionRef.current = { noteId: props.note.id, version: props.note.version };
+    } else if (props.note.version > subdocumentVersionRef.current.version) {
+      subdocumentVersionRef.current.version = props.note.version;
+    }
 
     const runtimeState = useSyncExternalStore(
       subscribeEditorRuntime,
@@ -117,6 +125,14 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     });
     const blockPatchEnabledRef = useRef(blockPatchEnabled);
     blockPatchEnabledRef.current = blockPatchEnabled;
+    const [windowingFallback, setWindowingFallback] = React.useState<{
+      noteId: string;
+      snapshot?: { content: string; contentText: string };
+    } | null>(null);
+    const windowingEnabled = windowingFallback?.noteId !== props.note.id
+      && runtimeBelongsToNote
+      && decision.mode !== "normal"
+      && isTiptapSubdocumentWindowingEnabled();
 
     useImperativeHandle(ref, () => ({
       flushSave: () => baseRef.current?.flushSave(),
@@ -227,6 +243,44 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       if (!preserveLocalEditor && !queuedPayloadRef.current) {
         try { clearDraft(note.id); } catch { /* ignore */ }
       }
+    }, []);
+
+    const applySubdocumentCommit = useCallback((result: YjsSubdocumentUpdateResult) => {
+      const current = propsRef.current.note;
+      const tracked = subdocumentVersionRef.current;
+      const actions = appActionsRef.current;
+      if (!actions || tracked.noteId !== current.id || result.version <= tracked.version) return;
+      tracked.version = result.version;
+      const updatedAt = new Date().toISOString();
+      const updated: Note = {
+        ...current,
+        content: result.content,
+        contentText: result.contentText,
+        version: result.version,
+        updatedAt,
+      };
+      actions.setActiveNote(updated);
+      actions.updateNoteInList({
+        id: updated.id,
+        title: updated.title,
+        contentText: updated.contentText,
+        updatedAt: updated.updatedAt,
+        version: updated.version,
+        notebookId: updated.notebookId,
+        workspaceId: updated.workspaceId,
+      } as any);
+      actions.updateNoteTab({
+        id: updated.id,
+        title: updated.title,
+        updatedAt: updated.updatedAt,
+        contentFormat: updated.contentFormat,
+        isLocked: updated.isLocked,
+        isTrashed: updated.isTrashed,
+        notebookId: updated.notebookId,
+      });
+      actions.setSyncStatus("saved");
+      actions.setLastSynced(updatedAt);
+      try { clearDraft(updated.id); } catch { /* ignore */ }
     }, []);
 
     const processPayload = useCallback((payload: NoteEditorUpdatePayload) => {
@@ -340,13 +394,34 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
 
     return (
       <>
-        {blockPatchEnabled && <BlockPatchAppActionsBridge target={appActionsRef} />}
-        <BaseTiptapEditor
-          {...props}
-          ref={baseRef}
-          onUpdate={handleUpdate}
-          onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
-        />
+        {(blockPatchEnabled || windowingEnabled) && <BlockPatchAppActionsBridge target={appActionsRef} />}
+        {windowingEnabled ? (
+          <WindowedTiptapEditor
+            {...props}
+            ref={baseRef}
+            onUpdate={handleUpdate}
+            onFallback={(reason, snapshot) => {
+              console.warn("[tiptap-windowing] fallback to monolithic editor", reason);
+              setWindowingFallback({ noteId: props.note.id, snapshot });
+            }}
+            onSubdocumentCommit={applySubdocumentCommit}
+            onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
+          />
+        ) : (
+          <BaseTiptapEditor
+            {...props}
+            note={windowingFallback?.noteId === props.note.id && windowingFallback.snapshot
+              ? {
+                  ...props.note,
+                  content: windowingFallback.snapshot.content,
+                  contentText: windowingFallback.snapshot.contentText,
+                }
+              : props.note}
+            ref={baseRef}
+            onUpdate={handleUpdate}
+            onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
+          />
+        )}
       </>
     );
   },

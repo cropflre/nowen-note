@@ -18,6 +18,7 @@ import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
 import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
+import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 
 // BLOCK-ID-01-RV1: heading blockId 扩展（与 TiptapEditor / contentFormat 对齐）
 // 只声明 attrs，不带 appendTransaction plugin
@@ -25,7 +26,7 @@ const BlockIdAttrs = Extension.create({
   name: "blockId",
   addGlobalAttributes() {
     return [{
-      types: ["heading"],
+      types: ["heading", "paragraph", "listItem", "taskItem", "blockquote", "codeBlock", "table", "video", "blockEmbed", "mathBlock"],
       attributes: {
         blockId: {
           default: null,
@@ -82,6 +83,7 @@ export const tiptapExtensions = [
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导入/修复阶段 video 节点会被吃
   VideoExtension,
+  BlockEmbedExtension,
   // 数学公式（行内 / 块级）：必须与 TiptapEditor 对齐。
   // 缺这两个时，含 LaTeX 公式的笔记走 repairTiptapJson → generateHTML 会因
   // schema 不认识 mathInline / mathBlock 抛 RangeError，catch 兜底返回空 doc，

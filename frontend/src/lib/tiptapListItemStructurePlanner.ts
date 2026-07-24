@@ -1,7 +1,7 @@
 import type { BlockPatchOperation } from "@/lib/blockPatchApi";
 import {
   normalizeSafeTiptapReplacementNode,
-  type TiptapPatchJsonNode,
+  type TiptapPatchTextBlockNode,
 } from "@/lib/tiptapBlockPatchNode";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
@@ -33,7 +33,7 @@ interface ItemLocation {
 export interface TiptapListItemPatchNode {
   type: "listItem" | "taskItem";
   attrs: { blockId: string; checked?: boolean };
-  content: [TiptapPatchJsonNode];
+  content: [TiptapPatchTextBlockNode];
 }
 
 export type TiptapListItemStructureOperation =

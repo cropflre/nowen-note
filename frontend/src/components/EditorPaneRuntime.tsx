@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { Scissors } from "lucide-react";
 
 import EditorPane from "./EditorPane";
 import NoteSplitDialog from "@/components/NoteSplitDialog";
@@ -24,11 +23,8 @@ function resolvePreferredLevel(note: Note | null | undefined): NoteSplitHeadingL
 }
 
 /**
- * Runtime shell for document splitting.
- *
- * The original EditorPane remains untouched. This shell scans a Markdown or Tiptap note once when
- * it opens, exposes a compact split action when two peer headings exist, and owns the transactional
- * preview dialog. The server re-reads and version-checks the note before applying any mutation.
+ * 文档拆分运行时外壳：打开笔记时扫描一次可用标题层级，
+ * 将拆分能力交给编辑器菜单，并持有事务化预览弹窗。
  */
 export default function EditorPaneRuntime() {
   const { state } = useApp();
@@ -82,21 +78,11 @@ export default function EditorPaneRuntime() {
   );
 
   return (
-    <div className="relative h-full min-h-0">
-      <EditorPane />
-
-      {canSplit && (
-        <button
-          type="button"
-          onClick={() => setDialogOpen(true)}
-          className="absolute bottom-10 right-4 z-40 inline-flex items-center gap-1.5 rounded-full border border-accent-primary/25 bg-app-elevated/95 px-3 py-2 text-xs font-medium text-accent-primary shadow-lg backdrop-blur transition hover:bg-accent-primary/10"
-          title={`按 H${preferredLevel} 拆分为章节笔记`}
-          aria-label="拆分文档"
-        >
-          <Scissors size={14} />
-          拆分文档
-        </button>
-      )}
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <EditorPane
+        canSplitDocument={canSplit}
+        onSplitDocument={() => setDialogOpen(true)}
+      />
 
       {dialogOpen && activeNote && preferredLevel && (
         <NoteSplitDialog

@@ -41,5 +41,8 @@ export function shouldFallbackTiptapBlockPatchToWholeSave(error: unknown): boole
     "LIST_MOVE_INVALID",
     "LIST_STRUCTURE_INVALID",
     "INVALID_TIPTAP_DOCUMENT",
+    "INVALID_MARKDOWN_PATCH",
+    "INVALID_MARKDOWN_DOCUMENT",
+    "UNSAFE_MARKDOWN_BOUNDARY",
   ].includes(error.code || "");
 }

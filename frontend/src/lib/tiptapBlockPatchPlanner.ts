@@ -1,11 +1,15 @@
-import type { BlockPatchOperation, BlockPatchBlockType } from "@/lib/blockPatchApi";
+import type {
+  BlockPatchOperation,
+  BlockPatchBlockType,
+  BlockPatchCreatableBlockType,
+} from "@/lib/blockPatchApi";
 import {
   normalizeSafeTiptapReplacementNode,
   type TiptapPatchJsonNode,
 } from "@/lib/tiptapBlockPatchNode";
 
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
-const STRUCTURAL_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
+const STRUCTURAL_TYPES = new Set(["paragraph", "heading", "codeBlock", "video", "blockEmbed", "mathBlock"]);
 const TEXT_BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
 
 type ReplaceOperation = Extract<BlockPatchOperation, { type: "replace" }>;
@@ -21,7 +25,7 @@ interface JsonNode {
 
 interface SimpleBlock {
   id: string;
-  type: BlockPatchBlockType;
+  type: BlockPatchCreatableBlockType;
   text: string;
   node: JsonNode;
 }
@@ -54,6 +58,76 @@ function validBlockId(value: unknown): value is string {
   return typeof value === "string" && BLOCK_ID_RE.test(value);
 }
 
+function hasUniqueDocumentBlockIds(doc: JsonNode): boolean {
+  const seen = new Set<string>();
+  let valid = true;
+  const visit = (nodes: JsonNode[]) => {
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      if (node.attrs && Object.prototype.hasOwnProperty.call(node.attrs, "blockId") && node.attrs.blockId != null) {
+        if (!validBlockId(node.attrs.blockId) || seen.has(node.attrs.blockId)) {
+          valid = false;
+          return;
+        }
+        seen.add(node.attrs.blockId);
+      }
+      if (Array.isArray(node.content)) visit(node.content);
+      if (!valid) return;
+    }
+  };
+  visit(doc.content || []);
+  return valid;
+}
+
+function containsTable(doc: JsonNode): boolean {
+  let found = false;
+  const visit = (nodes: JsonNode[]) => {
+    for (const node of nodes) {
+      if (node?.type === "table") {
+        found = true;
+        return;
+      }
+      if (Array.isArray(node?.content)) visit(node.content);
+      if (found) return;
+    }
+  };
+  visit(doc.content || []);
+  return found;
+}
+
+function planTopLevelTableReplacement(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlockPatchPlan | null {
+  const baseNodes = baseDoc.content || [];
+  const nextNodes = nextDoc.content || [];
+  if (baseNodes.length !== nextNodes.length || baseNodes.length === 0) return null;
+
+  let changedIndex = -1;
+  for (let index = 0; index < baseNodes.length; index += 1) {
+    if (JSON.stringify(baseNodes[index]) === JSON.stringify(nextNodes[index])) continue;
+    if (changedIndex >= 0) return null;
+    changedIndex = index;
+  }
+  if (changedIndex < 0) return null;
+
+  const before = baseNodes[changedIndex];
+  const after = nextNodes[changedIndex];
+  const blockId = before?.attrs?.blockId;
+  if (before?.type !== "table" || after?.type !== "table" || !validBlockId(blockId)
+    || after.attrs?.blockId !== blockId) return null;
+  if (!normalizeSafeTiptapReplacementNode(before, blockId)) return null;
+  const normalized = normalizeSafeTiptapReplacementNode(after, blockId);
+  if (!normalized) return null;
+
+  const replay = JSON.parse(JSON.stringify(baseDoc)) as JsonNode;
+  if (!Array.isArray(replay.content)) return null;
+  replay.content[changedIndex] = normalized as JsonNode;
+  if (JSON.stringify(replay) !== JSON.stringify(nextDoc)) return null;
+  return {
+    kind: "top-level-structural",
+    operations: [{ type: "replace", blockId, node: normalized }],
+    affectedBlockIds: [blockId],
+  };
+}
+
 function simpleText(node: JsonNode): string | null {
   const content = Array.isArray(node.content) ? node.content : [];
   let text = "";
@@ -66,6 +140,13 @@ function simpleText(node: JsonNode): string | null {
 }
 
 function blockType(type: string): BlockPatchBlockType | null {
+  if (["paragraph", "heading", "codeBlock", "table", "video", "blockEmbed", "mathBlock"].includes(type)) {
+    return type as BlockPatchBlockType;
+  }
+  return null;
+}
+
+function simpleBlockType(type: string): BlockPatchCreatableBlockType | null {
   if (type === "paragraph" || type === "heading" || type === "codeBlock") return type;
   return null;
 }
@@ -74,7 +155,7 @@ function asSimpleBlock(node: JsonNode): SimpleBlock | null {
   if (!node?.type || !TEXT_BLOCK_TYPES.has(node.type)) return null;
   const id = node.attrs?.blockId;
   if (!validBlockId(id)) return null;
-  const type = blockType(node.type);
+  const type = simpleBlockType(node.type);
   const text = simpleText(node);
   if (!type || text == null) return null;
   return { id, type, text, node };
@@ -148,6 +229,7 @@ function planEmptyDocumentReset(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
   if (!isUnidentifiedEmptyDocument(nextDoc)) return null;
   const base = uniqueTopLevelBlocks(baseDoc.content || []);
   if (!base || base.length === 0 || base.length > 100) return null;
+  if (base.some((block) => block.type === "table")) return null;
   const operations: BlockPatchOperation[] = base.map((block) => ({
     type: "delete",
     blockId: block.id,
@@ -195,7 +277,7 @@ function planTopLevelStructural(baseDoc: JsonNode, nextDoc: JsonNode): TiptapBlo
       type: "create",
       clientId: item.id,
       blockId: item.id,
-      blockType: item.type,
+      blockType: item.simple.type,
       text: item.simple.text,
     });
   }
@@ -245,6 +327,10 @@ function textSnapshot(doc: JsonNode): TextSnapshot | null {
   const visit = (nodes: JsonNode[]) => {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
+      if (node.type === "table") {
+        invalid = true;
+        return;
+      }
       if (node.type && TEXT_BLOCK_TYPES.has(node.type)) {
         const block = asSimpleBlock(node);
         if (!block || seen.has(block.id)) {
@@ -308,6 +394,10 @@ function replacementSnapshot(doc: JsonNode): ReplacementSnapshot | null {
     for (let index = 0; index < nodes.length; index += 1) {
       const node = nodes[index];
       if (!node || typeof node !== "object") continue;
+      if (node.type === "table") {
+        invalid = true;
+        return;
+      }
       if (node.type && TEXT_BLOCK_TYPES.has(node.type)) {
         const blockId = node.attrs?.blockId;
         if (!validBlockId(blockId) || nodesById.has(blockId)) {
@@ -369,7 +459,10 @@ export function planTiptapBlockPatch(
   const baseDoc = parseDocument(baseContent);
   const nextDoc = parseDocument(nextContent);
   if (!baseDoc || !nextDoc) return null;
-  return planEmptyDocumentReset(baseDoc, nextDoc)
+  if ((containsTable(baseDoc) || containsTable(nextDoc))
+    && (!hasUniqueDocumentBlockIds(baseDoc) || !hasUniqueDocumentBlockIds(nextDoc))) return null;
+  return planTopLevelTableReplacement(baseDoc, nextDoc)
+    || planEmptyDocumentReset(baseDoc, nextDoc)
     || planTopLevelStructural(baseDoc, nextDoc)
     || planTextOnly(baseDoc, nextDoc)
     || planNodeReplacements(baseDoc, nextDoc);

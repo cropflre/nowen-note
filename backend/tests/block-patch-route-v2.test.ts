@@ -21,13 +21,29 @@ let syncNoteBlocks: typeof import("../src/lib/noteBlocks").syncNoteBlocks;
 function paragraph(blockId: string, text: string) {
   return {
     type: "paragraph",
-    attrs: { blockId, textAlign: null, lineHeight: null },
+    attrs: { blockId, textAlign: null, lineHeight: null, indent: 0 },
     content: text ? [{ type: "text", text }] : [],
   };
 }
 
 function tiptap(...nodes: unknown[]): string {
   return JSON.stringify({ type: "doc", content: nodes });
+}
+
+function table(blockId: string, text: string, paragraphId = "blk_routecell") {
+  return {
+    type: "table",
+    attrs: { blockId, tableAligns: ["center"], colgroup: null },
+    content: [{
+      type: "tableRow",
+      attrs: { height: 40 },
+      content: [{
+        type: "tableCell",
+        attrs: { colspan: 1, rowspan: 1, colwidth: null, align: "center" },
+        content: [paragraph(paragraphId, text)],
+      }],
+    }],
+  };
 }
 
 function insertNote(id: string, content: string) {
@@ -153,6 +169,67 @@ test("persists a rich block replacement and refreshes block/link indexes transac
   assert.equal(version.content, original);
   assert.equal(version.version, 1);
   assert.equal(version.changeType, "edit");
+});
+
+test("persists a table replacement with one version increment and a full index refresh", async () => {
+  const noteId = "66666666-6666-4666-8666-666666666666";
+  const tableId = "blk_routetable";
+  const original = tiptap(table(tableId, "Before"));
+  insertNote(noteId, original);
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-v2-table-route",
+    operations: [{
+      type: "replace",
+      blockId: tableId,
+      node: table(tableId, "After"),
+    }],
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.version, 2);
+  assert.equal(payload.indexUpdateMode, "full");
+  assert.equal(payload.indexUpdateKind, "full");
+
+  const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
+  assert.equal(stored.version, 2);
+  assert.equal(JSON.parse(stored.content).content[0].content[0].content[0].content[0].content[0].text, "After");
+
+  const rows = db.prepare(`
+    SELECT blockId, blockType, parentBlockId, plainText
+    FROM note_blocks_index WHERE noteId = ? ORDER BY blockOrder
+  `).all(noteId) as any[];
+  assert.deepEqual(rows.map((row) => row.blockType), ["table", "paragraph"]);
+  assert.equal(rows[1].parentBlockId, tableId);
+  assert.equal(rows[0].plainText, "After");
+  assert.equal(countRows("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?", noteId), 1);
+});
+
+test("rolls back a forbidden table-subtree operation before history or idempotency changes", async () => {
+  const noteId = "55555555-5555-4555-8555-555555555555";
+  const tableId = "blk_guardtable";
+  const original = tiptap(table(tableId, "Before", "blk_guardcell"));
+  insertNote(noteId, original);
+
+  const response = await patch(noteId, {
+    expectedNoteVersion: 1,
+    operationId: "block-patch-v2-table-forbidden",
+    operations: [{ type: "delete", blockId: tableId }],
+  });
+
+  assert.equal(response.status, 400);
+  const payload = await response.json() as any;
+  assert.equal(payload.code, "INVALID_BLOCK_NODE");
+  const stored = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(noteId) as any;
+  assert.equal(stored.content, original);
+  assert.equal(stored.version, 1);
+  assert.equal(countRows("SELECT COUNT(*) AS c FROM note_versions WHERE noteId = ?", noteId), 0);
+  assert.equal(countRows(
+    "SELECT COUNT(*) AS c FROM block_operations WHERE operationId = ?",
+    "block-patch-v2-table-forbidden",
+  ), 0);
 });
 
 test("rejects an unsafe rich replacement before content, history or idempotency changes", async () => {

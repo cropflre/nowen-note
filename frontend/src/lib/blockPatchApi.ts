@@ -1,5 +1,9 @@
 import { getBaseUrl } from "@/lib/api.impl";
-import type { TiptapPatchJsonNode } from "@/lib/tiptapBlockPatchNode";
+import type {
+  TiptapPatchJsonNode,
+  TiptapPatchTextBlockNode,
+} from "@/lib/tiptapBlockPatchNode";
+import type { MarkdownBlockPatchOperation } from "@/lib/markdownBlockPatch";
 
 export type BlockPatchBlockType =
   | "heading"
@@ -7,7 +11,13 @@ export type BlockPatchBlockType =
   | "listItem"
   | "taskItem"
   | "blockquote"
-  | "codeBlock";
+  | "codeBlock"
+  | "table"
+  | "video"
+  | "blockEmbed"
+  | "mathBlock";
+
+export type BlockPatchCreatableBlockType = Exclude<BlockPatchBlockType, "table" | "video" | "blockEmbed" | "mathBlock">;
 
 export interface BlockPatchListItemNode {
   type: "listItem" | "taskItem";
@@ -15,7 +25,7 @@ export interface BlockPatchListItemNode {
     blockId: string;
     checked?: boolean;
   };
-  content: [TiptapPatchJsonNode];
+  content: [TiptapPatchTextBlockNode];
 }
 
 export type BlockPatchOperation =
@@ -24,7 +34,7 @@ export type BlockPatchOperation =
       scope?: undefined;
       clientId?: string;
       blockId?: string;
-      blockType?: BlockPatchBlockType;
+      blockType?: BlockPatchCreatableBlockType;
       text?: string;
       afterBlockId?: string;
     }
@@ -80,9 +90,19 @@ export type BlockPatchOperation =
 
 export interface BlockPatchRequest {
   expectedNoteVersion: number;
+  expectedStructureVersion?: number;
+  expectedBlockVersions?: Record<string, number>;
   /** Keep the same ID when retrying an uncertain request. */
   operationId: string;
   operations: BlockPatchOperation[];
+}
+
+export interface MarkdownBlockPatchRequest {
+  expectedNoteVersion: number;
+  expectedStructureVersion?: number;
+  expectedBlockVersions?: Record<string, number>;
+  operationId: string;
+  operations: MarkdownBlockPatchOperation[];
 }
 
 export interface BlockPatchIndexRow {
@@ -131,6 +151,8 @@ export interface BlockPatchResult {
   /** Block IDs inserted, updated or deleted by index synchronization. */
   indexedBlockIds: string[];
   contentChangedByNormalization: boolean;
+  blockVersion?: number;
+  structureVersion?: number;
   idempotentReplay?: boolean;
 }
 
@@ -153,9 +175,9 @@ export function createBlockPatchOperationId(): string {
  * authoritative version before applying a later patch, otherwise operation order would become
  * ambiguous after reconnect.
  */
-export async function patchTiptapBlocks(
+async function patchBlocks(
   noteId: string,
-  input: BlockPatchRequest,
+  input: BlockPatchRequest | MarkdownBlockPatchRequest,
 ): Promise<BlockPatchResult> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), 30_000);
@@ -197,4 +219,13 @@ export async function patchTiptapBlocks(
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+export function patchTiptapBlocks(noteId: string, input: BlockPatchRequest): Promise<BlockPatchResult> {
+  return patchBlocks(noteId, input);
+}
+
+/** 发送一个已确认且幂等的 Markdown Block Patch 事务。 */
+export function patchMarkdownBlocks(noteId: string, input: MarkdownBlockPatchRequest): Promise<BlockPatchResult> {
+  return patchBlocks(noteId, input);
 }

@@ -234,6 +234,8 @@ interface NowenDesktopAPI {
   quitAndInstall: () => Promise<{ ok: boolean }>;
   getAppInfo: () => Promise<AppInfo>;
   getDiagnosticsInfo?: () => Promise<DiagnosticsInfo>;
+  /** 编辑器性能签收专用的 renderer 进程内存采样。 */
+  getEditorPerformanceMetrics?: () => Promise<{ heapBytes: number }>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
   openDataDir?: () => Promise<{ ok: boolean; path: string }>;
   setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;

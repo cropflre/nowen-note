@@ -4,6 +4,8 @@ import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { logAudit } from "../services/audit";
 import { syncNoteLinks } from "../lib/noteLinks";
+import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore";
+import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import {
   ensureNoteIndexed,
   getNoteBlock,
@@ -279,6 +281,13 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
     `).run(mutation.content, contentText, nextVersion, noteId);
     const synced = syncNoteBlocks(db, noteId, mutation.content, note.contentFormat);
     syncNoteLinks(db, userId, noteId, synced.content);
+    rebuildBlockAuthorityStore(db, noteId, synced.content, note.contentFormat, {
+      noteVersion: nextVersion,
+      operationId: body.operationId,
+      operationType: `legacy-block-${action}`,
+      operationJson: body,
+    });
+    rebuildYjsSubdocumentsIfEnabled(db, noteId, synced.content, note.contentFormat);
     const result = {
       success: true,
       noteId,

@@ -45,6 +45,7 @@ describe("repairTiptapJson", () => {
       content: [{
         type: "table",
         attrs: {
+          blockId: "blk_table0000",
           tableAligns: ["left", "center"],
           colgroup: [{ width: "120px" }, { width: "180px" }],
         },
@@ -77,6 +78,7 @@ describe("repairTiptapJson", () => {
     const repaired = repairTiptapJson(input) as any;
     const table = repaired.content?.[0];
     expect(table?.type).toBe("table");
+    expect(table?.attrs?.blockId).toBe("blk_table0000");
     expect(table?.attrs?.tableAligns).toEqual(["left", "center"]);
     expect(table?.attrs?.colgroup).toEqual([{ width: "120px" }, { width: "180px" }]);
     expect(table?.content?.[0]?.attrs?.height).toBe(48);
@@ -85,6 +87,7 @@ describe("repairTiptapJson", () => {
 
     const editor = new Editor({ extensions: tiptapExtensions, content: repaired });
     const roundTrip = editor.getJSON() as any;
+    expect(roundTrip.content?.[0]?.attrs?.blockId).toBe("blk_table0000");
     expect(roundTrip.content?.[0]?.attrs?.tableAligns).toEqual(["left", "center"]);
     expect(roundTrip.content?.[0]?.attrs?.colgroup).toEqual([{ width: "120px" }, { width: "180px" }]);
     expect(roundTrip.content?.[0]?.content?.[0]?.content?.[0]?.attrs?.align).toBe("center");

@@ -50,7 +50,6 @@ import workspacesRouter from "./routes/workspaces";
 import authRouter from "./routes/auth";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
-import userMigrationRouter from "./routes/user-migration";
 import userPreferencesRouter from "./routes/user-preferences";
 import versionRouter, { resolveAppVersion } from "./routes/version";
 import releasesRouter from "./routes/releases";
@@ -495,7 +494,6 @@ app.route("/api/shares", sharesRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/users", usersRouter);
 app.route("/api/tokens", tokensRouter);
-app.route("/api/user-migration", userMigrationRouter);
 app.route("/api/user-preferences", userPreferencesRouter);
 
 app.route("/api/settings", settingsRouter);

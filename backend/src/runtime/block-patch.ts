@@ -23,7 +23,18 @@ import {
   plainTextFromNoteContent,
   syncNoteBlocks,
 } from "../lib/noteBlocks.js";
+import {
+  applyMarkdownBlockPatch,
+  MarkdownBlockPatchError,
+  validateMarkdownBlockPatchOperations,
+  type MarkdownBlockPatchOperation,
+} from "../lib/markdownBlockPatch.js";
 import { syncNoteLinks } from "../lib/noteLinks.js";
+import {
+  assertBlockAuthorityVersions,
+  BlockAuthorityConflictError,
+  rebuildBlockAuthorityStore,
+} from "../lib/blockAuthorityStore.js";
 import {
   applyTiptapBlockPatch,
   TiptapBlockPatchError,
@@ -37,6 +48,7 @@ import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { noteVersionsRepository } from "../repositories/noteVersionsRepository.js";
 import { logAudit } from "../services/audit.js";
 import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime.js";
+import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments.js";
 
 const BLOCK_PATCH_ROUTE = Symbol.for("nowen.blocks.batchPatchRoute");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
@@ -104,6 +116,18 @@ function validateEnvelope(body: any): string | null {
   if (typeof body?.operationId !== "string" || body.operationId.length < 8 || body.operationId.length > 128) {
     return "operationId 长度必须为 8-128";
   }
+  if (body.expectedStructureVersion !== undefined && (!Number.isInteger(body.expectedStructureVersion) || body.expectedStructureVersion < 1)) {
+    return "expectedStructureVersion 必须是正整数";
+  }
+  if (body.expectedBlockVersions !== undefined) {
+    if (!body.expectedBlockVersions || Array.isArray(body.expectedBlockVersions) || typeof body.expectedBlockVersions !== "object") {
+      return "expectedBlockVersions 必须是对象";
+    }
+    const entries = Object.entries(body.expectedBlockVersions);
+    if (entries.length > 100 || entries.some(([blockId, version]) => !blockId || !Number.isInteger(version) || Number(version) < 1)) {
+      return "expectedBlockVersions 最多包含 100 个正整数版本";
+    }
+  }
   return null;
 }
 
@@ -156,18 +180,27 @@ function recordVersionSnapshot(note: NoteRecord, userId: string): void {
 }
 
 function mapPatchError(c: Context, error: unknown): Response | null {
+  if (error instanceof BlockAuthorityConflictError) {
+    return c.json({ error: error.message, code: error.code, ...error.details }, 409);
+  }
   if (error instanceof BlockPatchRouteError) {
     const message = error.code === "VERSION_CONFLICT"
       ? "Version conflict"
       : error.code === "NOTE_LOCKED"
         ? "Note is locked"
         : error.code === "BLOCK_FORMAT_UNSUPPORTED"
-          ? "当前仅支持富文本 Block Patch"
+          ? "当前内容格式不支持 Block Patch"
           : "笔记不存在或无权限";
     return c.json({ error: message, code: error.code, ...error.details }, error.status);
   }
   if (error instanceof TiptapListItemStructureError) {
     const status = error.code === "BLOCK_ID_CONFLICT" ? 409 : error.code === "BLOCK_NOT_FOUND" ? 404 : 400;
+    return c.json({ error: error.message, code: error.code }, status);
+  }
+  if (error instanceof MarkdownBlockPatchError) {
+    const status = error.code === "BLOCK_NOT_FOUND"
+      ? 404
+      : ["BLOCK_ID_CONFLICT", "BLOCK_HASH_CONFLICT"].includes(error.code) ? 409 : 400;
     return c.json({ error: error.message, code: error.code }, status);
   }
   if (!(error instanceof TiptapBlockPatchError)) return null;
@@ -188,7 +221,7 @@ async function patchBlocks(c: Context) {
 
   const required = requireWritableNote(c, noteId);
   if (required instanceof Response) return required;
-  const { userId } = required;
+  const { userId, note: initialNote } = required;
 
   const idempotency = readIdempotentResult(userId, noteId, body.operationId);
   if (idempotency.kind === "replay") {
@@ -201,9 +234,12 @@ async function patchBlocks(c: Context) {
     }, 409);
   }
 
-  let operations: TiptapBlockPatchOperation[];
+  const isMarkdownPatch = initialNote.contentFormat === "markdown";
+  let operations: TiptapBlockPatchOperation[] | MarkdownBlockPatchOperation[];
   try {
-    operations = validateTiptapBlockPatchOperations(body.operations);
+    operations = isMarkdownPatch
+      ? validateMarkdownBlockPatchOperations(body.operations)
+      : validateTiptapBlockPatchOperations(body.operations);
   } catch (error) {
     return mapPatchError(c, error) || c.json({ error: "无效块补丁", code: "INVALID_BLOCK_PATCH" }, 400);
   }
@@ -216,30 +252,102 @@ async function patchBlocks(c: Context) {
         throw new BlockPatchRouteError("NOT_FOUND", 404);
       }
       if (note.isLocked) throw new BlockPatchRouteError("NOTE_LOCKED", 403);
-      if (note.contentFormat !== "tiptap-json") {
+      if (!["tiptap-json", "markdown"].includes(note.contentFormat)) {
         throw new BlockPatchRouteError("BLOCK_FORMAT_UNSUPPORTED", 400);
       }
+      const authority = assertBlockAuthorityVersions(db, noteId, {
+        expectedBlockVersions: body.expectedBlockVersions,
+        expectedStructureVersion: body.expectedStructureVersion,
+      });
       if (note.version !== body.expectedNoteVersion) {
-        throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
+        const contentOnly = operations.every((operation) => operation.type === "update" || operation.type === "replace");
+        const affected = operations.map((operation: any) => String(operation.blockId || "")).filter(Boolean);
+        const coveredByBlockVersions = authority
+          && contentOnly
+          && affected.length > 0
+          && affected.every((blockId) => Number.isInteger(body.expectedBlockVersions?.[blockId]));
+        if (!coveredByBlockVersions) {
+          throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: note.version });
+        }
       }
+
+      if (note.contentFormat === "markdown") {
+        const normalizedBefore = syncNoteBlocks(db, noteId, note.content, note.contentFormat);
+        const patch = applyMarkdownBlockPatch(
+          normalizedBefore.content,
+          operations as MarkdownBlockPatchOperation[],
+        );
+        const nextVersion = note.version + 1;
+        const contentText = plainTextFromNoteContent(patch.content, note.contentFormat);
+        recordVersionSnapshot(note, userId);
+        const update = db.prepare(`
+          UPDATE notes
+          SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')
+          WHERE id = ? AND version = ?
+        `).run(patch.content, contentText, nextVersion, noteId, note.version);
+        if (update.changes !== 1) {
+          const current = readNote(noteId);
+          throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: current?.version ?? note.version });
+        }
+        const synced = syncNoteBlocks(db, noteId, patch.content, note.contentFormat);
+        syncNoteLinks(db, userId, noteId, synced.content);
+        const authorityState = rebuildBlockAuthorityStore(db, noteId, synced.content, note.contentFormat, {
+          noteVersion: nextVersion,
+          operationId: body.operationId,
+          operationType: "markdown-patch",
+          operationJson: operations,
+        });
+        rebuildYjsSubdocumentsIfEnabled(db, noteId, synced.content, note.contentFormat);
+        const persisted = readNote(noteId);
+        if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
+        const blocks = patch.affectedBlockIds
+          .map((blockId) => getNoteBlock(db, noteId, blockId))
+          .filter(Boolean);
+        const result = {
+          success: true,
+          noteId,
+          title: persisted.title,
+          version: nextVersion,
+          updatedAt: persisted.updatedAt,
+          content: synced.content,
+          contentText: synced.contentText,
+          contentFormat: persisted.contentFormat,
+          notebookId: persisted.notebookId,
+          operationCount: operations.length,
+          affectedBlockIds: patch.affectedBlockIds,
+          deletedBlockIds: patch.deletedBlockIds,
+          createdBlocks: patch.createdBlocks,
+          blocks,
+          indexUpdateMode: "full" as const,
+          indexUpdateKind: "full" as const,
+          indexedBlockIds: synced.blocks.map((row) => row.blockId),
+          contentChangedByNormalization: normalizedBefore.changed || synced.changed,
+          blockVersion: authorityState.blockVersion,
+          structureVersion: authorityState.structureVersion,
+        };
+        storeIdempotentResult(userId, noteId, body.operationId, result);
+        return result;
+      }
+
+      const tiptapOperations = operations as TiptapBlockPatchOperation[];
 
       const listStructureBase = canUseIncrementalListStructureIndexes(
         db,
         noteId,
         note.content,
-        operations,
+        tiptapOperations,
       );
       const listMoveBase = !listStructureBase && canUseIncrementalListMoveIndexes(
         db,
         noteId,
         note.content,
-        operations,
+        tiptapOperations,
       );
       const genericIncrementalBase = !listStructureBase && !listMoveBase && canUseIncrementalPatchIndexes(
         db,
         noteId,
         note.content,
-        operations,
+        tiptapOperations,
       );
       const incrementalBase = listStructureBase || listMoveBase || genericIncrementalBase;
       const normalizedBefore = incrementalBase
@@ -251,15 +359,15 @@ async function patchBlocks(c: Context) {
           }
         : syncNoteBlocks(db, noteId, note.content, note.contentFormat);
 
-      const patch: AppliedPatchResult = applyTiptapBlockPatch(normalizedBefore.content, operations);
+      const patch: AppliedPatchResult = applyTiptapBlockPatch(normalizedBefore.content, tiptapOperations);
       const listStructurePlan = listStructureBase
-        ? planIncrementalListStructureIndexes(db, noteId, patch.content, operations)
+        ? planIncrementalListStructureIndexes(db, noteId, patch.content, tiptapOperations)
         : null;
       const listMovePlan = listMoveBase
-        ? planIncrementalListMoveIndexes(db, noteId, patch.content, operations)
+        ? planIncrementalListMoveIndexes(db, noteId, patch.content, tiptapOperations)
         : null;
       const genericPlan = genericIncrementalBase
-        ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, operations)
+        ? planIncrementalPatchIndexes(db, userId, noteId, patch.content, tiptapOperations)
         : null;
       const incrementalPlan = (listStructurePlan || listMovePlan || genericPlan) as IncrementalPatchIndexPlan | null;
       const contentText = incrementalPlan?.contentText
@@ -311,10 +419,18 @@ async function patchBlocks(c: Context) {
         indexedBlockIds = synced.blocks.map((row) => row.blockId);
       }
 
+      const authorityState = rebuildBlockAuthorityStore(db, noteId, persistedContent, note.contentFormat, {
+        noteVersion: nextVersion,
+        operationId: body.operationId,
+        operationType: "tiptap-patch",
+        operationJson: tiptapOperations,
+      });
+      rebuildYjsSubdocumentsIfEnabled(db, noteId, persistedContent, note.contentFormat);
+
       const persisted = readNote(noteId);
       if (!persisted) throw new BlockPatchRouteError("NOT_FOUND", 404);
 
-      const deletedBlockIds = patch.deletedBlockIds ?? operations
+      const deletedBlockIds = patch.deletedBlockIds ?? tiptapOperations
         .filter((operation) => operation.type === "delete")
         .map((operation) => operation.blockId);
       const blocks = patch.affectedBlockIds
@@ -330,7 +446,7 @@ async function patchBlocks(c: Context) {
         contentText: persistedContentText,
         contentFormat: persisted.contentFormat,
         notebookId: persisted.notebookId,
-        operationCount: operations.length,
+        operationCount: tiptapOperations.length,
         affectedBlockIds: patch.affectedBlockIds,
         deletedBlockIds,
         createdBlocks: patch.createdBlocks,
@@ -339,6 +455,8 @@ async function patchBlocks(c: Context) {
         indexUpdateKind,
         indexedBlockIds,
         contentChangedByNormalization: normalizedBefore.changed || postSyncChanged,
+        blockVersion: authorityState.blockVersion,
+        structureVersion: authorityState.structureVersion,
       };
       storeIdempotentResult(userId, noteId, body.operationId, result);
       return result;

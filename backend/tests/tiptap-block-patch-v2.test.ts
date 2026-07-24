@@ -10,7 +10,7 @@ import {
 function paragraph(blockId: string, text: string) {
   return {
     type: "paragraph",
-    attrs: { blockId, textAlign: null, lineHeight: null },
+    attrs: { blockId, textAlign: null, lineHeight: null, indent: 0 },
     content: text ? [{ type: "text", text }] : [],
   };
 }
@@ -18,6 +18,188 @@ function paragraph(blockId: string, text: string) {
 function doc(content: unknown[]): string {
   return JSON.stringify({ type: "doc", content });
 }
+
+function table(blockId: string, text: string, paragraphId = "blk_cellpara0") {
+  return {
+    type: "table",
+    attrs: { blockId, tableAligns: ["left"], colgroup: null },
+    content: [{
+      type: "tableRow",
+      attrs: { height: 36 },
+      content: [{
+        type: "tableCell",
+        attrs: { colspan: 1, rowspan: 1, colwidth: null, align: "left" },
+        content: [paragraph(paragraphId, text)],
+      }],
+    }],
+  };
+}
+
+test("replaces one top-level table atomically while preserving its Block ID", () => {
+  const tableId = "blk_table0000";
+  const replacement = table(tableId, "After");
+  const result = applyTiptapBlockPatch(
+    doc([table(tableId, "Before")]),
+    validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: tableId,
+      node: replacement,
+    }]),
+  );
+
+  assert.deepEqual(JSON.parse(result.content).content[0], replacement);
+  assert.deepEqual(result.affectedBlockIds, [tableId]);
+});
+
+test("reports nested paragraph IDs removed by a table replacement", () => {
+  const tableId = "blk_table0000";
+  const result = applyTiptapBlockPatch(
+    doc([table(tableId, "Before", "blk_oldpara00")]),
+    validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: tableId,
+      node: table(tableId, "After", "blk_newpara00"),
+    }]),
+  );
+
+  assert.deepEqual(result.deletedBlockIds, ["blk_oldpara00"]);
+});
+
+test("rejects table creation, nested table replacement and nested Block ID conflicts", () => {
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "create",
+      blockId: "blk_table0000",
+      blockType: "table",
+      text: "",
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_PATCH",
+  );
+
+  const nestedTableId = "blk_table0000";
+  assert.throws(
+    () => applyTiptapBlockPatch(doc([{
+      type: "blockquote",
+      attrs: { blockId: "blk_quote0000" },
+      content: [table(nestedTableId, "Before")],
+    }]), validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: nestedTableId,
+      node: table(nestedTableId, "After"),
+    }])),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  assert.throws(
+    () => applyTiptapBlockPatch(
+      doc([
+        table("blk_table0000", "Before"),
+        paragraph("blk_conflict0", "Outside"),
+      ]),
+      validateTiptapBlockPatchOperations([{
+        type: "replace",
+        blockId: "blk_table0000",
+        node: table("blk_table0000", "After", "blk_conflict0"),
+      }]),
+    ),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "BLOCK_ID_CONFLICT",
+  );
+});
+
+test("rejects duplicate paragraph IDs and oversized table shapes before applying", () => {
+  const duplicate = table("blk_table0000", "First", "blk_duplicate0");
+  duplicate.content[0].content.push({
+    type: "tableCell",
+    attrs: { colspan: 1, rowspan: 1, colwidth: null, align: null },
+    content: [paragraph("blk_duplicate0", "Second")],
+  });
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table0000",
+      node: duplicate,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  const oversized = table("blk_table0000", "Cell");
+  oversized.content = Array.from({ length: 501 }, () => oversized.content[0]);
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table0000",
+      node: oversized,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  const utf8Oversized = table("blk_table0000", "中".repeat(90_000));
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table0000",
+      node: utf8Oversized,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  const looseAttrs = table("blk_table0000", "Cell") as any;
+  looseAttrs.content[0].content[0].attrs.colspan = "1";
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table0000",
+      node: looseAttrs,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  const looseParagraph = table("blk_table0000", "Cell") as any;
+  looseParagraph.content[0].content[0].content[0].attrs.textAlign = ["left"];
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table0000",
+      node: looseParagraph,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+});
+
+test("rejects every operation below a table except replacing the top-level table", () => {
+  const source = doc([table("blk_table0000", "Before", "blk_cellpara0")]);
+  const cases = [
+    { type: "update", blockId: "blk_table0000", text: "No" },
+    { type: "delete", blockId: "blk_table0000" },
+    { type: "move", blockId: "blk_table0000", targetBlockId: "blk_other000", position: "after" },
+    {
+      type: "replace",
+      blockId: "blk_cellpara0",
+      node: paragraph("blk_cellpara0", "No"),
+    },
+  ];
+  for (const operation of cases) {
+    assert.throws(
+      () => applyTiptapBlockPatch(source, validateTiptapBlockPatchOperations([operation])),
+      (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+    );
+  }
+});
+
+test("requires a table replacement to be the only operation in the request", () => {
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([
+      {
+        type: "replace",
+        blockId: "blk_table0000",
+        node: table("blk_table0000", "After"),
+      },
+      { type: "update", blockId: "blk_other000", text: "Other" },
+    ]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_PATCH",
+  );
+});
+
 
 test("replaces a paragraph with validated marks, hard breaks and block attributes", () => {
   const blockId = "blk_rich0000";
@@ -179,4 +361,106 @@ test("does not allow a nested paragraph replacement to change the parent schema"
       && error.code === "INVALID_BLOCK_NODE"
     ),
   );
+});
+
+test("replaces safe top-level video, block embed and math atoms", () => {
+  const source = doc([
+    {
+      type: "video",
+      attrs: {
+        blockId: "blk_video0000",
+        src: "/api/attachments/11111111-1111-4111-8111-111111111111",
+        platform: "file",
+        kind: "file",
+        originalUrl: "/api/attachments/11111111-1111-4111-8111-111111111111",
+        attachmentId: "11111111-1111-4111-8111-111111111111",
+        filename: "before.mp4",
+        mimeType: "video/mp4",
+        size: 1024,
+      },
+    },
+    { type: "blockEmbed", attrs: { blockId: "blk_embed0000", href: "note:11111111-1111-4111-8111-111111111111" } },
+    { type: "mathBlock", attrs: { blockId: "blk_math00000", latex: "x" } },
+  ]);
+  const replacements = [
+    {
+      type: "replace",
+      blockId: "blk_video0000",
+      node: {
+        type: "video",
+        attrs: {
+          blockId: "blk_video0000",
+          src: "/api/attachments/11111111-1111-4111-8111-111111111111",
+          platform: "file",
+          kind: "file",
+          originalUrl: "/api/attachments/11111111-1111-4111-8111-111111111111",
+          attachmentId: "11111111-1111-4111-8111-111111111111",
+          filename: "after.mp4",
+          mimeType: "video/mp4",
+          size: 2048,
+        },
+      },
+    },
+    {
+      type: "replace",
+      blockId: "blk_embed0000",
+      node: { type: "blockEmbed", attrs: { blockId: "blk_embed0000", href: "note:22222222-2222-4222-8222-222222222222" } },
+    },
+    {
+      type: "replace",
+      blockId: "blk_math00000",
+      node: { type: "mathBlock", attrs: { blockId: "blk_math00000", latex: "x + y" } },
+    },
+  ];
+
+  const result = applyTiptapBlockPatch(source, validateTiptapBlockPatchOperations(replacements));
+  const parsed = JSON.parse(result.content);
+  assert.equal(parsed.content[0].attrs.filename, "after.mp4");
+  assert.match(parsed.content[1].attrs.href, /^note:/);
+  assert.equal(parsed.content[2].attrs.latex, "x + y");
+});
+
+test("replaces image attributes in the owning paragraph and rejects unsafe atoms", () => {
+  const blockId = "blk_imagepara";
+  const source = doc([{
+    type: "paragraph",
+    attrs: { blockId, textAlign: null, lineHeight: null, indent: 0 },
+    content: [{ type: "image", attrs: { src: "/api/attachments/image-id", alt: "before", title: null, width: 320, height: null } }],
+  }]);
+  const replacement = {
+    type: "paragraph",
+    attrs: { blockId, textAlign: null, lineHeight: null, indent: 0 },
+    content: [{ type: "image", attrs: { src: "/api/attachments/image-id", alt: "after", title: "预览", width: 640, height: 480 } }],
+  };
+  const result = applyTiptapBlockPatch(source, validateTiptapBlockPatchOperations([{
+    type: "replace",
+    blockId,
+    node: replacement,
+  }]));
+  assert.deepEqual(JSON.parse(result.content).content[0], replacement);
+
+  const unsafeNodes = [
+    {
+      type: "video",
+      attrs: {
+        blockId: "blk_video0000",
+        src: "javascript:alert(1)",
+        platform: "file",
+        kind: "file",
+        originalUrl: "javascript:alert(1)",
+        attachmentId: "",
+        filename: "demo.mp4",
+        mimeType: "video/mp4",
+        size: 1,
+      },
+    },
+    { type: "blockEmbed", attrs: { blockId: "blk_embed0000", href: "https://evil.example" } },
+    { type: "mathBlock", attrs: { blockId: "blk_math00000", latex: "x".repeat(65_537) } },
+  ];
+  for (const node of unsafeNodes) {
+    assert.throws(
+      () => validateTiptapBlockPatchOperations([{ type: "replace", blockId: node.attrs.blockId, node }]),
+      (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+    );
+  }
 });

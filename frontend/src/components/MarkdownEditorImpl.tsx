@@ -113,7 +113,7 @@ import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
-import { findMarkdownPreviewHeadingTarget } from "@/lib/markdownPreviewOutline";
+import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   applyMarkdownTaskCheckboxChange,
   getMarkdownTaskCheckboxChange,
@@ -1330,15 +1330,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const scrollPreviewTo = useCallback((pos: number) => {
     const root = previewRootRef.current;
     if (!root) return false;
-
-    const target = findMarkdownPreviewHeadingTarget(
-      root.querySelectorAll<HTMLElement>("[data-md-pos]"),
-      pos,
-    );
-    if (!target) return false;
-
-    target.scrollIntoView({ block: "start", behavior: "smooth" });
-    return true;
+    return scrollMarkdownPreviewToPosition(root, pos);
   }, []);
 
   useEffect(() => {

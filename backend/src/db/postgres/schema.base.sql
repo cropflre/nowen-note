@@ -834,3 +834,126 @@ CREATE TABLE IF NOT EXISTS block_operations (
 CREATE INDEX IF NOT EXISTS idx_block_operations_note ON block_operations("noteId", "createdAt" DESC);
 CREATE INDEX IF NOT EXISTS idx_note_links_source_block ON note_links("sourceNoteId", "sourceBlockId");
 
+-- ============================================================
+-- Block authoritative shadow, history and attachment ownership
+-- ============================================================
+CREATE TABLE IF NOT EXISTS note_block_documents (
+    "noteId" TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    "contentFormat" TEXT NOT NULL,
+    "noteVersion" INTEGER NOT NULL DEFAULT 1,
+    "blockVersion" INTEGER NOT NULL DEFAULT 1,
+    "structureVersion" INTEGER NOT NULL DEFAULT 1,
+    "snapshotHash" TEXT NOT NULL,
+    "materializedHash" TEXT NOT NULL,
+    "snapshotContent" TEXT NOT NULL,
+    "rootOrderJson" TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'healthy',
+    "mismatchReason" TEXT,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS note_block_records (
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "blockId" TEXT NOT NULL,
+    "parentBlockId" TEXT,
+    "blockType" TEXT NOT NULL,
+    "blockOrder" INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    payload TEXT NOT NULL,
+    "payloadHash" TEXT NOT NULL,
+    "plainText" TEXT NOT NULL DEFAULT '',
+    "contentHash" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("noteId", "blockId")
+);
+CREATE INDEX IF NOT EXISTS idx_note_block_records_order ON note_block_records("noteId", "blockOrder");
+CREATE INDEX IF NOT EXISTS idx_note_block_records_parent ON note_block_records("noteId", "parentBlockId");
+
+CREATE TABLE IF NOT EXISTS note_block_operations (
+    id TEXT PRIMARY KEY,
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "operationId" TEXT,
+    "operationType" TEXT NOT NULL,
+    "noteVersion" INTEGER NOT NULL,
+    "blockVersion" INTEGER NOT NULL,
+    "structureVersion" INTEGER NOT NULL,
+    "operationJson" TEXT NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_note_block_operations_note ON note_block_operations("noteId", "createdAt" DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_note_block_operations_idempotency
+    ON note_block_operations("noteId", "operationId") WHERE "operationId" IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS note_block_attachment_refs (
+    "noteId" TEXT NOT NULL,
+    "blockId" TEXT NOT NULL,
+    "attachmentId" TEXT NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("noteId", "blockId", "attachmentId"),
+    FOREIGN KEY ("noteId", "blockId") REFERENCES note_block_records("noteId", "blockId") ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_note_block_attachment_refs_attachment
+    ON note_block_attachment_refs("attachmentId", "noteId");
+
+CREATE OR REPLACE FUNCTION mark_note_block_authority_stale()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.content IS DISTINCT FROM NEW.content THEN
+        UPDATE note_block_documents
+        SET status = 'mismatch',
+            "mismatchReason" = 'notes_content_changed_without_shadow_rebuild',
+            "updatedAt" = NOW()
+        WHERE "noteId" = NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_note_block_authority_stale_after_content_update ON notes;
+CREATE TRIGGER trg_note_block_authority_stale_after_content_update
+AFTER UPDATE OF content ON notes
+FOR EACH ROW EXECUTE FUNCTION mark_note_block_authority_stale();
+
+-- ============================================================
+-- Experimental Y.js section subdocuments
+-- ============================================================
+CREATE TABLE IF NOT EXISTS note_y_subdocument_manifests (
+    "noteId" TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    "rootGuid" TEXT NOT NULL,
+    "rootSnapshot" BYTEA NOT NULL,
+    "contentHash" TEXT NOT NULL,
+    "sectionCount" INTEGER NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
+    "structureVersion" INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'healthy',
+    "mismatchReason" TEXT,
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS note_y_subdocuments (
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "sectionId" TEXT NOT NULL,
+    guid TEXT NOT NULL,
+    "blockStart" INTEGER NOT NULL,
+    "blockEnd" INTEGER NOT NULL,
+    "snapshotBlob" BYTEA NOT NULL,
+    "payloadHash" TEXT NOT NULL,
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY ("noteId", "sectionId"),
+    UNIQUE ("noteId", guid)
+);
+CREATE INDEX IF NOT EXISTS idx_note_y_subdocuments_order
+    ON note_y_subdocuments("noteId", "blockStart");
+CREATE TABLE IF NOT EXISTS note_y_subdocument_updates (
+    id BIGSERIAL PRIMARY KEY,
+    "noteId" TEXT NOT NULL,
+    "sectionId" TEXT NOT NULL,
+    "userId" TEXT,
+    "updateBlob" BYTEA NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    FOREIGN KEY ("noteId", "sectionId") REFERENCES note_y_subdocuments("noteId", "sectionId") ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_note_y_subdocument_updates_section
+    ON note_y_subdocument_updates("noteId", "sectionId", id);
+

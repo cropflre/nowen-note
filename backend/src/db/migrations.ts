@@ -14,6 +14,10 @@ import {
 } from "./migrations.impl.js";
 import { roundTripImportLinksMigration } from "./roundtripImportLinksMigration.js";
 import { roundTripImportBatchesMigration } from "./roundtripImportBatchesMigration.js";
+import { blockAuthorityMigration } from "./blockAuthorityMigration.js";
+import { yjsSubdocumentsMigration } from "./yjsSubdocumentsMigration.js";
+import { blockAuthorityStaleGuardMigration } from "./blockAuthorityStaleGuardMigration.js";
+import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -260,6 +264,10 @@ export const MIGRATIONS: Migration[] = [
   repairSearchContentTextMigration,
   roundTripImportLinksMigration,
   roundTripImportBatchesMigration,
+  blockAuthorityMigration,
+  yjsSubdocumentsMigration,
+  blockAuthorityStaleGuardMigration,
+  yjsSubdocumentGenerationMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

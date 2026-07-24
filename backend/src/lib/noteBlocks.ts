@@ -9,6 +9,10 @@ export const SUPPORTED_NOTE_BLOCK_TYPES = [
   "taskItem",
   "blockquote",
   "codeBlock",
+  "table",
+  "video",
+  "blockEmbed",
+  "mathBlock",
 ] as const;
 
 export type NoteBlockType = typeof SUPPORTED_NOTE_BLOCK_TYPES[number];
