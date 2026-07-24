@@ -1,5 +1,7 @@
 name: Share Management CI
 
+# V1 gate: lifecycle projection, management authorization, legacy API compatibility,
+# centralized page behavior, and frontend/backend type safety must move together.
 on:
   pull_request:
     branches: [main]
