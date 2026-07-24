@@ -11,13 +11,16 @@
  */
 
 import type Database from "better-sqlite3";
-import type { DatabaseAdapter, DbRunResult, DbStatement } from "./types";
+import {
+  DbStatementChangeError,
+  type DatabaseAdapter,
+  type DbRunResult,
+  type DbStatement,
+} from "./types";
 
 function assertRequiredChanges(statement: DbStatement, changes: number): void {
   if (statement.requireChanges === undefined || changes === statement.requireChanges) return;
-  throw new Error(
-    `[db] transactional statement expected ${statement.requireChanges} changed row(s), received ${changes}`,
-  );
+  throw new DbStatementChangeError(statement.requireChanges, changes);
 }
 
 export class SqliteAdapter implements DatabaseAdapter {
