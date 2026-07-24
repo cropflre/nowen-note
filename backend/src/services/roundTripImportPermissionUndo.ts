@@ -5,6 +5,7 @@ import {
 } from "./roundTripImportBatches";
 import { undoRoundTripImportBatchWithLinks } from "./roundTripImportLinkUndo";
 import {
+  canManageRoundTripPermissions,
   readPermissionUndoState,
   restorePermissionAppliedState,
   restorePermissionUndoState,
@@ -25,6 +26,13 @@ export async function undoRoundTripImportBatchWithLinksAndPermissions(
 ): Promise<RoundTripImportBatchDetail> {
   const permissionState = readPermissionUndoState(userId, batchId);
   if (permissionState) {
+    if (!canManageRoundTripPermissions(userId, permissionState.workspaceId)) {
+      throw new RoundTripImportUndoError(
+        "当前已不是目标工作区 owner/admin，不能撤销成员与权限变更",
+        "IMPORT_BATCH_UNDO_PERMISSION_FORBIDDEN",
+        403,
+      );
+    }
     const conflicts = validatePermissionUndoState(permissionState);
     if (conflicts.length) {
       throw new RoundTripImportUndoError(
