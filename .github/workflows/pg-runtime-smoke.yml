@@ -1,0 +1,147 @@
+name: PostgreSQL Runtime Smoke
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - "backend/src/db/**"
+      - "backend/src/lib/**"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
+      - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/build.bundle.mjs"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - ".github/workflows/pg-runtime-smoke.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/**"
+      - "backend/src/lib/**"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
+      - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/build.bundle.mjs"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - ".github/workflows/pg-runtime-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Build production backend bundle
+        run: npm run build
+      - name: Run runtime-only smoke
+        shell: bash
+        run: |
+          set -u
+          mkdir -p /tmp/pg-runtime-smoke
+          export DB_DRIVER=postgres
+          export PORT=3101
+          export DB_PATH=/tmp/nowen-pg-runtime-must-not-create-sqlite.db
+          rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
+
+          node dist/index.js > /tmp/pg-runtime-smoke/runtime.log 2>&1 &
+          runtime_pid=$!
+          echo "$runtime_pid" > /tmp/pg-runtime-smoke/pid.txt
+
+          health_status=000
+          for attempt in $(seq 1 30); do
+            health_status=$(curl --silent --output /tmp/pg-runtime-smoke/health.json --write-out "%{http_code}" http://127.0.0.1:3101/api/health || true)
+            if [ "$health_status" = "200" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          collection_status=$(curl --silent --output /tmp/pg-runtime-smoke/collection.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes || true)
+          single_status=$(curl --silent --output /tmp/pg-runtime-smoke/single.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes/11111111-1111-4111-8111-111111111111 || true)
+          {
+            echo "health_status=$health_status"
+            echo "collection_status=$collection_status"
+            echo "single_status=$single_status"
+            for file in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
+              if [ -e "$file" ]; then echo "sqlite_exists=$file"; else echo "sqlite_absent=$file"; fi
+            done
+          } > /tmp/pg-runtime-smoke/status.txt
+
+          kill -TERM "$runtime_pid" 2>/dev/null || true
+          wait "$runtime_pid"
+          runtime_exit=$?
+          echo "runtime_exit=$runtime_exit" >> /tmp/pg-runtime-smoke/status.txt
+
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
+          const status = fs.readFileSync("/tmp/pg-runtime-smoke/status.txt", "utf8");
+          const health = readJson("/tmp/pg-runtime-smoke/health.json");
+          const collection = readJson("/tmp/pg-runtime-smoke/collection.json");
+          const single = readJson("/tmp/pg-runtime-smoke/single.json");
+          if (!status.includes("health_status=200")) throw new Error(status);
+          if (health.status !== "ok" || health.database?.driver !== "postgres" || health.database?.ok !== true) {
+            throw new Error(`unexpected health: ${JSON.stringify(health)}`);
+          }
+          for (const route of ["GET /api/notes", "POST /api/notes", "GET /api/notes/:id"]) {
+            if (!health.runtime?.migratedRoutes?.includes(route)) {
+              throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
+            }
+          }
+          if (!status.includes("collection_status=401") || collection.code !== "UNAUTHENTICATED") {
+            throw new Error(`unexpected collection authentication boundary: ${status}\n${JSON.stringify(collection)}`);
+          }
+          if (!status.includes("single_status=401") || single.code !== "UNAUTHENTICATED") {
+            throw new Error(`unexpected single-note authentication boundary: ${status}\n${JSON.stringify(single)}`);
+          }
+          if (status.includes("sqlite_exists=")) throw new Error(`SQLite side effect detected:\n${status}`);
+          if (!status.includes("runtime_exit=0")) throw new Error(`runtime did not shut down cleanly:\n${status}`);
+          NODE
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-runtime-smoke-${{ github.run_id }}
+          path: /tmp/pg-runtime-smoke
+          if-no-files-found: warn
+          retention-days: 7

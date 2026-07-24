@@ -1,148 +1,152 @@
 /**
  * Attachment References Repository
  *
- * 职责：
- * - 封装 attachment_references 表的数据库操作
- * - 提供类型安全的接口
- * - 保持现有 SQLite 行为不变
+ * 同步方法继续服务现有 SQLite 事务；异步方法通过统一数据库 Runtime Adapter，
+ * 可在 SQLite 与 PostgreSQL 下复用同一业务接口。
  */
 
+import type { DatabaseAdapter } from "../db/adapters/types";
+import type { DatabaseDialect } from "../db/dialect";
+import { getDatabaseAdapter, getDatabaseDialect } from "../db/runtime";
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
 
-function getAdapter() {
-  return new SqliteAdapter(getDb());
+function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
+  return adapter ?? getDatabaseAdapter();
 }
 
-export const attachmentReferencesRepository = {
-  /**
-   * 获取笔记关联的附件 ID 列表。
-   *
-   * @param noteId 笔记 ID
-   * @returns 附件 ID 列表
-   */
-  listByNoteId(noteId: string): string[] {
-    const db = getDb();
-    const rows = db
-      .prepare('SELECT "attachmentId" FROM attachment_references WHERE "noteId" = ?')
-      .all(noteId) as { attachmentId: string }[];
-    return rows.map((r) => r.attachmentId);
-  },
+function resolveDialect(dialect?: DatabaseDialect): DatabaseDialect {
+  if (dialect) return dialect;
+  try {
+    return getDatabaseDialect();
+  } catch {
+    return "sqlite";
+  }
+}
 
-  /**
-   * 批量添加附件关联。
-   *
-   * @param noteId 笔记 ID
-   * @param attachmentIds 附件 ID 列表
-   */
-  addReferences(noteId: string, attachmentIds: string[]): void {
-    if (attachmentIds.length === 0) return;
-    const db = getDb();
-    const insertOne = db.prepare(
-      'INSERT OR IGNORE INTO attachment_references ("attachmentId", "noteId") VALUES (?, ?)'
-    );
-    for (const id of attachmentIds) {
-      try {
-        insertOne.run(id, noteId);
-      } catch {
-        // 跳过非法 ID
+export function createAttachmentReferencesRepository(
+  adapter?: DatabaseAdapter,
+  dialect?: DatabaseDialect,
+) {
+  const getAdapter = () => resolveAdapter(adapter);
+  const getDialect = () => resolveDialect(dialect);
+
+  return {
+    // ---- 同步方法（仅 SQLite，供现有原子事务调用） ----
+
+    listByNoteId(noteId: string): string[] {
+      const rows = getDb()
+        .prepare('SELECT "attachmentId" FROM attachment_references WHERE "noteId" = ? ORDER BY "attachmentId"')
+        .all(noteId) as Array<{ attachmentId: string }>;
+      return rows.map((row) => row.attachmentId);
+    },
+
+    addReferences(noteId: string, attachmentIds: string[]): void {
+      if (!attachmentIds.length) return;
+      const insertOne = getDb().prepare(
+        'INSERT OR IGNORE INTO attachment_references ("attachmentId", "noteId") VALUES (?, ?)',
+      );
+      for (const attachmentId of attachmentIds) {
+        try {
+          insertOne.run(attachmentId, noteId);
+        } catch {
+          // 跳过不存在或违反外键约束的脏引用。
+        }
       }
-    }
-  },
+    },
 
-  /**
-   * 批量删除附件关联。
-   *
-   * @param noteId 笔记 ID
-   * @param attachmentIds 附件 ID 列表
-   * @returns 删除的行数
-   */
-  removeReferences(noteId: string, attachmentIds: string[]): number {
-    if (attachmentIds.length === 0) return 0;
-    const db = getDb();
-    const placeholders = attachmentIds.map(() => "?").join(",");
-    const info = db
-      .prepare(
-        `DELETE FROM attachment_references WHERE "noteId" = ? AND "attachmentId" IN (${placeholders})`
-      )
-      .run(noteId, ...attachmentIds);
-    return Number(info.changes || 0);
-  },
+    removeReferences(noteId: string, attachmentIds: string[]): number {
+      if (!attachmentIds.length) return 0;
+      const placeholders = attachmentIds.map(() => "?").join(",");
+      const result = getDb()
+        .prepare(
+          `DELETE FROM attachment_references
+            WHERE "noteId" = ? AND "attachmentId" IN (${placeholders})`,
+        )
+        .run(noteId, ...attachmentIds);
+      return Number(result.changes || 0);
+    },
 
-  /**
-   * 检查附件是否被指定笔记引用。
-   *
-   * @param attachmentId 附件 ID
-   * @param noteId 笔记 ID
-   * @returns 是否被引用
-   */
-  isReferencedByNote(attachmentId: string, noteId: string): boolean {
-    const db = getDb();
-    const row = db
-      .prepare('SELECT 1 FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?')
-      .get(attachmentId, noteId);
-    return !!row;
-  },
+    isReferencedByNote(attachmentId: string, noteId: string): boolean {
+      return Boolean(getDb()
+        .prepare('SELECT 1 FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?')
+        .get(attachmentId, noteId));
+    },
 
-  /**
-   * 检查附件是否被任何笔记引用。
-   *
-   * @param attachmentId 附件 ID
-   * @returns 是否被引用
-   */
-  isReferenced(attachmentId: string): boolean {
-    const db = getDb();
-    const row = db
-      .prepare('SELECT 1 FROM attachment_references WHERE "attachmentId" = ?')
-      .get(attachmentId);
-    return !!row;
-  },
+    isReferenced(attachmentId: string): boolean {
+      return Boolean(getDb()
+        .prepare('SELECT 1 FROM attachment_references WHERE "attachmentId" = ?')
+        .get(attachmentId));
+    },
 
-  async listByNoteIdAsync(noteId: string): Promise<string[]> {
-    const rows = await getAdapter().queryMany<{ attachmentId: string }>(
-      'SELECT "attachmentId" FROM attachment_references WHERE "noteId" = ?',
-      [noteId],
-    );
-    return rows.map((r) => r.attachmentId);
-  },
+    // ---- 异步方法（Runtime Adapter / SQLite + PostgreSQL） ----
+    // 调用方负责更高层事务；Repository 不在这里开启嵌套事务。
 
-  async addReferencesAsync(noteId: string, attachmentIds: string[]): Promise<void> {
-    if (attachmentIds.length === 0) return;
-    for (const id of attachmentIds) {
-      try {
-        await getAdapter().execute(
-          'INSERT OR IGNORE INTO attachment_references ("attachmentId", "noteId") VALUES (?, ?)',
-          [id, noteId],
-        );
-      } catch {
-        // 跳过非法 ID
+    async listByNoteIdAsync(noteId: string): Promise<string[]> {
+      const rows = await getAdapter().queryMany<{ attachmentId: string }>(
+        'SELECT "attachmentId" FROM attachment_references WHERE "noteId" = ? ORDER BY "attachmentId"',
+        [noteId],
+      );
+      return rows.map((row) => String(row.attachmentId));
+    },
+
+    async addReferencesAsync(noteId: string, attachmentIds: string[]): Promise<void> {
+      if (!attachmentIds.length) return;
+      const sql = getDialect() === "postgres"
+        ? `INSERT INTO attachment_references ("attachmentId", "noteId")
+             VALUES (?, ?)
+             ON CONFLICT ("attachmentId", "noteId") DO NOTHING`
+        : 'INSERT OR IGNORE INTO attachment_references ("attachmentId", "noteId") VALUES (?, ?)';
+      for (const attachmentId of attachmentIds) {
+        try {
+          await getAdapter().execute(sql, [attachmentId, noteId]);
+        } catch {
+          // 与 SQLite 同步路径一致：单条脏引用不阻塞其他有效引用。
+        }
       }
-    }
-  },
+    },
 
-  async removeReferencesAsync(noteId: string, attachmentIds: string[]): Promise<number> {
-    if (attachmentIds.length === 0) return 0;
-    const placeholders = attachmentIds.map(() => "?").join(",");
-    const result = await getAdapter().execute(
-      `DELETE FROM attachment_references WHERE "noteId" = ? AND "attachmentId" IN (${placeholders})`,
-      [noteId, ...attachmentIds],
-    );
-    return Number(result.changes || 0);
-  },
+    async removeReferencesAsync(noteId: string, attachmentIds: string[]): Promise<number> {
+      if (!attachmentIds.length) return 0;
+      const placeholders = attachmentIds.map(() => "?").join(",");
+      const result = await getAdapter().execute(
+        `DELETE FROM attachment_references
+          WHERE "noteId" = ? AND "attachmentId" IN (${placeholders})`,
+        [noteId, ...attachmentIds],
+      );
+      return Number(result.changes || 0);
+    },
 
-  async isReferencedByNoteAsync(attachmentId: string, noteId: string): Promise<boolean> {
-    const row = await getAdapter().queryOne<{ _1: number }>(
-      'SELECT 1 FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?',
-      [attachmentId, noteId],
-    );
-    return !!row;
-  },
+    async isReferencedByNoteAsync(attachmentId: string, noteId: string): Promise<boolean> {
+      const row = await getAdapter().queryOne<{ present: number }>(
+        'SELECT 1 AS present FROM attachment_references WHERE "attachmentId" = ? AND "noteId" = ?',
+        [attachmentId, noteId],
+      );
+      return Boolean(row);
+    },
 
-  async isReferencedAsync(attachmentId: string): Promise<boolean> {
-    const row = await getAdapter().queryOne<{ _1: number }>(
-      'SELECT 1 FROM attachment_references WHERE "attachmentId" = ?',
-      [attachmentId],
-    );
-    return !!row;
-  },
-};
+    async isReferencedAsync(attachmentId: string): Promise<boolean> {
+      const row = await getAdapter().queryOne<{ present: number }>(
+        'SELECT 1 AS present FROM attachment_references WHERE "attachmentId" = ?',
+        [attachmentId],
+      );
+      return Boolean(row);
+    },
+
+    async getNoteContentTextAsync(noteId: string): Promise<string | null> {
+      const row = await getAdapter().queryOne<{ contentText: string | null }>(
+        'SELECT "contentText" FROM notes WHERE id = ?',
+        [noteId],
+      );
+      return row?.contentText ?? null;
+    },
+
+    async updateNoteContentTextAsync(noteId: string, contentText: string): Promise<void> {
+      await getAdapter().execute(
+        'UPDATE notes SET "contentText" = ? WHERE id = ?',
+        [contentText, noteId],
+      );
+    },
+  };
+}
+
+export const attachmentReferencesRepository = createAttachmentReferencesRepository();

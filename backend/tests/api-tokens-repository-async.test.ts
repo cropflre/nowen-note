@@ -15,10 +15,13 @@ process.env.DB_PATH = path.join(tmpDir, "test.db");
 
 import { apiTokensRepository } from "../src/repositories/apiTokensRepository";
 import { getDb } from "../src/db/schema";
+import { initApiTokensTable } from "../src/lib/api-tokens";
 
 const USER_ID = "user-tokens";
 const TOKEN_ID = "tok-1";
 const TOKEN_HASH = "hash-abc123";
+
+initApiTokensTable(getDb());
 
 function seedUser() {
   getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(USER_ID, USER_ID, "hash");

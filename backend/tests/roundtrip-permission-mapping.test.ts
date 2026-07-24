@@ -38,14 +38,14 @@ function workspace(id: string, ownerId: string): void {
 
 test.beforeEach(reset);
 
-test("exports only minimal member identity and roles", () => {
+test("exports only minimal member identity and roles", async () => {
   user("owner", "owner-user", "owner@example.com");
   user("editor", "editor-user", "editor@example.com");
   workspace("source", "owner");
   getDb().prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, 'editor')")
     .run("source", "editor");
 
-  const manifest = buildRoundTripPermissionsManifest("owner", "source");
+  const manifest = await buildRoundTripPermissionsManifest("owner", "source");
   assert.equal(manifest.format, "nowen-workspace-permissions");
   assert.equal(manifest.members.length, 2);
   assert.deepEqual(Object.keys(manifest.members[0] || {}).sort(), [
@@ -54,14 +54,17 @@ test("exports only minimal member identity and roles", () => {
   assert.equal(JSON.stringify(manifest).includes("passwordHash"), false);
 });
 
-test("rejects permission export by non-owner workspace members", () => {
+test("rejects permission export by non-owner workspace members", async () => {
   user("owner", "owner-user");
   user("editor", "editor-user");
   workspace("source", "owner");
   getDb().prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, 'editor')")
     .run("source", "editor");
 
-  assert.throws(() => buildRoundTripPermissionsManifest("editor", "source"), /所有者/);
+  await assert.rejects(
+    buildRoundTripPermissionsManifest("editor", "source"),
+    /所有者/,
+  );
 });
 
 test("embeds permissions.json only in the explicit privileged package endpoint", async () => {
@@ -80,12 +83,12 @@ test("embeds permissions.json only in the explicit privileged package endpoint",
   assert.equal(manifest.permissions?.memberCount, 1);
 });
 
-test("previews exact email matches and downgrades imported owner role", () => {
+test("previews exact email matches and downgrades imported owner role", async () => {
   user("target-owner", "target-owner");
   user("target-editor", "renamed-user", "same@example.com");
   workspace("target", "target-owner");
 
-  const suggestions = previewRoundTripPermissionMappings("target-owner", "target", {
+  const suggestions = await previewRoundTripPermissionMappings("target-owner", "target", {
     format: "nowen-workspace-permissions",
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -105,7 +108,7 @@ test("previews exact email matches and downgrades imported owner role", () => {
   assert.match(suggestions[0]?.warning || "", /降级/);
 });
 
-test("applies only explicit mappings and never replaces the target owner", () => {
+test("applies only explicit mappings and never replaces the target owner", async () => {
   user("target-owner", "target-owner");
   user("mapped", "mapped-user");
   workspace("target", "target-owner");
@@ -120,7 +123,7 @@ test("applies only explicit mappings and never replaces the target owner", () =>
     ],
   } as const;
 
-  const result = applyRoundTripPermissionMappings({
+  const result = await applyRoundTripPermissionMappings({
     actorUserId: "target-owner",
     workspaceId: "target",
     manifest,

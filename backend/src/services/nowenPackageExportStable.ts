@@ -2,7 +2,7 @@ import {
   createNowenPackageExport,
   type PreparedMarkdownPackageNote,
 } from "./nowenPackageExport";
-import { ensureNowenInstanceEnvironment } from "./nowenInstanceIdentity";
+import { ensureNowenInstanceEnvironmentAsync } from "./nowenInstanceIdentity";
 import { addPermissionsToNowenPackageExport } from "./roundTripPermissionTransfer";
 
 export type { PreparedMarkdownPackageNote };
@@ -18,7 +18,7 @@ type StableExportParams = Parameters<typeof createNowenPackageExport>[0] & {
 export async function createStableNowenPackageExport(
   params: StableExportParams,
 ): Promise<Awaited<ReturnType<typeof createNowenPackageExport>>> {
-  ensureNowenInstanceEnvironment();
+  await ensureNowenInstanceEnvironmentAsync();
   const { includePermissions = false, ...baseParams } = params;
   const result = await createNowenPackageExport(baseParams);
   if (!includePermissions) return result;

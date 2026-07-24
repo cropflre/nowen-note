@@ -1,49 +1,44 @@
 /**
  * Tags Repository
  *
- * 职责：
- * - 封装 tags 表的只读查询操作
- * - 提供类型安全的接口
- * - 保持现有 SQLite 行为不变
- *
- * 注意：
- * - D1-A 阶段只迁移 GET /tags 列表查询
- * - 创建/更新/删除标签暂不迁移
- * - note_tags 绑定/解绑暂不迁移
- * - 导入导出/用户迁移暂不迁移
+ * 同步方法继续仅服务 SQLite 旧路由；异步方法通过统一 Runtime Adapter
+ * 在 SQLite / PostgreSQL 下复用同一业务接口。
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import type { DatabaseAdapter } from "../db/adapters/types";
+import { getDatabaseAdapter } from "../db/runtime";
 import type { Tag, TagWithCount } from "./types";
 
-function getAdapter() {
-  return new SqliteAdapter(getDb());
+export interface ScopedTagRecord {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  name: string;
+  color: string;
+  createdAt: string | Date;
 }
 
-export const tagsRepository = {
-  /**
-   * 列出当前空间的标签 + 笔记数。
-   *
-   * 笔记数采用空间内口径：只统计与该 tag 关联、且笔记同样落在该空间的笔记。
-   *
-   * @param userId 用户 ID
-   * @param workspaceId 工作区 ID（null = 个人空间）
-   * @param includeEmpty 是否包含未使用的标签
-   */
-  listByUser(
-    userId: string,
-    workspaceId: string | null = null,
-    includeEmpty: boolean = false,
-  ): TagWithCount[] {
-    const db = getDb();
-    const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
+function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
+  return adapter ?? getDatabaseAdapter();
+}
 
-    if (workspaceId) {
-      // 工作区视角
-      return db
-        .prepare(
-          `
+export function createTagsRepository(adapter?: DatabaseAdapter) {
+  const getAdapter = () => resolveAdapter(adapter);
+
+  return {
+    // ---- 同步方法（仅 SQLite） ----
+
+    listByUser(
+      userId: string,
+      workspaceId: string | null = null,
+      includeEmpty: boolean = false,
+    ): TagWithCount[] {
+      const db = getDb();
+      const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
+
+      if (workspaceId) {
+        return db.prepare(`
           SELECT t.*, COUNT(nt."noteId") AS noteCount
           FROM tags t
           LEFT JOIN note_tags nt ON nt."tagId" = t.id
@@ -52,236 +47,198 @@ export const tagsRepository = {
           GROUP BY t.id
           ${havingClause}
           ORDER BY t.name ASC
-          `,
-        )
-        .all(workspaceId, workspaceId) as TagWithCount[];
-    } else {
-      // 个人空间：仅看自己的、且 workspaceId IS NULL 的标签
-      return db
-        .prepare(
-          `
-          SELECT t.*, COUNT(nt."noteId") AS noteCount
-          FROM tags t
-          LEFT JOIN note_tags nt ON nt."tagId" = t.id
-          LEFT JOIN notes n ON n.id = nt."noteId"
-                            AND (n."workspaceId" IS NULL)
-                            AND n."userId" = ?
-                            AND n."isTrashed" = 0
-          WHERE t."userId" = ? AND t."workspaceId" IS NULL
-          GROUP BY t.id
-          ${havingClause}
-          ORDER BY t.name ASC
-          `,
-        )
-        .all(userId, userId) as TagWithCount[];
-    }
-  },
+        `).all(workspaceId, workspaceId) as TagWithCount[];
+      }
 
-  /**
-   * 获取单个标签的所有者信息（用于 ACL 校验）。
-   *
-   * @param tagId 标签 ID
-   * @returns 标签所有者信息，或 undefined（标签不存在）
-   */
-  getOwner(tagId: string): { userId: string; workspaceId: string | null } | undefined {
-    const db = getDb();
-    return db
-      .prepare('SELECT "userId", "workspaceId" FROM tags WHERE id = ?')
-      .get(tagId) as { userId: string; workspaceId: string | null } | undefined;
-  },
+      return db.prepare(`
+        SELECT t.*, COUNT(nt."noteId") AS noteCount
+        FROM tags t
+        LEFT JOIN note_tags nt ON nt."tagId" = t.id
+        LEFT JOIN notes n ON n.id = nt."noteId"
+                          AND n."workspaceId" IS NULL
+                          AND n."userId" = ?
+                          AND n."isTrashed" = 0
+        WHERE t."userId" = ? AND t."workspaceId" IS NULL
+        GROUP BY t.id
+        ${havingClause}
+        ORDER BY t.name ASC
+      `).all(userId, userId) as TagWithCount[];
+    },
 
-  /**
-   * 获取单个标签（按 ID）。
-   *
-   * @param tagId 标签 ID
-   * @returns 标签信息，或 undefined（标签不存在）
-   */
-  getById(tagId: string): Tag | undefined {
-    const db = getDb();
-    return db
-      .prepare("SELECT * FROM tags WHERE id = ?")
-      .get(tagId) as Tag | undefined;
-  },
+    getOwner(tagId: string): { userId: string; workspaceId: string | null } | undefined {
+      return getDb().prepare(
+        'SELECT "userId", "workspaceId" FROM tags WHERE id = ?',
+      ).get(tagId) as { userId: string; workspaceId: string | null } | undefined;
+    },
 
-  /**
-   * 获取单个标签（按 ID，含笔记数）。
-   *
-   * @param tagId 标签 ID
-   * @returns 标签信息（含笔记数），或 undefined（标签不存在）
-   */
-  getByIdWithCount(tagId: string): TagWithCount | undefined {
-    const db = getDb();
-    return db
-      .prepare(
-        `
+    getById(tagId: string): Tag | undefined {
+      return getDb().prepare("SELECT * FROM tags WHERE id = ?").get(tagId) as Tag | undefined;
+    },
+
+    getByIdWithCount(tagId: string): TagWithCount | undefined {
+      return getDb().prepare(`
         SELECT t.*, COUNT(nt."noteId") AS noteCount
         FROM tags t LEFT JOIN note_tags nt ON t.id = nt."tagId"
         WHERE t.id = ? GROUP BY t.id
-        `,
-      )
-      .get(tagId) as TagWithCount | undefined;
-  },
+      `).get(tagId) as TagWithCount | undefined;
+    },
 
-  /**
-   * 创建标签。
-   *
-   * @param input 创建标签的输入
-   */
-  create(input: {
-    id: string;
-    userId: string;
-    workspaceId: string | null;
-    name: string;
-    color: string;
-  }): void {
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)`,
-    ).run(input.id, input.userId, input.workspaceId, input.name, input.color);
-  },
+    create(input: {
+      id: string;
+      userId: string;
+      workspaceId: string | null;
+      name: string;
+      color: string;
+    }): void {
+      getDb().prepare(
+        'INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)',
+      ).run(input.id, input.userId, input.workspaceId, input.name, input.color);
+    },
 
-  /**
-   * 更新标签（按 ID）。
-   *
-   * 只更新传入的字段，保持与原 routes/tags.ts 中 PUT /tags/:id 行为一致。
-   * 注意：不显式更新 updatedAt，保持原代码行为。
-   *
-   * @param tagId 标签 ID
-   * @param patch 更新字段
-   */
-  updateById(tagId: string, patch: { name?: string; color?: string }): void {
-    const db = getDb();
-    const fields: string[] = [];
-    const values: any[] = [];
+    updateById(tagId: string, patch: { name?: string; color?: string }): void {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      if (patch.name !== undefined) {
+        fields.push("name = ?");
+        values.push(patch.name);
+      }
+      if (patch.color !== undefined) {
+        fields.push("color = ?");
+        values.push(patch.color);
+      }
+      if (fields.length === 0) return;
+      values.push(tagId);
+      getDb().prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    },
 
-    if (patch.name !== undefined) {
-      fields.push("name = ?");
-      values.push(patch.name);
-    }
-    if (patch.color !== undefined) {
-      fields.push("color = ?");
-      values.push(patch.color);
-    }
+    deleteTagLinks(tagId: string): void {
+      getDb().prepare('DELETE FROM note_tags WHERE "tagId" = ?').run(tagId);
+    },
 
-    if (fields.length === 0) return;
+    deleteById(tagId: string): void {
+      getDb().prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+    },
 
-    values.push(tagId);
-    db.prepare(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`).run(...values);
-  },
+    // ---- Async 方法（Runtime Adapter） ----
 
-  /**
-   * 删除标签与笔记的关联（note_tags）。
-   *
-   * @param tagId 标签 ID
-   */
-  deleteTagLinks(tagId: string): void {
-    const db = getDb();
-    db.prepare('DELETE FROM note_tags WHERE "tagId" = ?').run(tagId);
-  },
+    async listByUserAsync(
+      userId: string,
+      workspaceId: string | null = null,
+      includeEmpty: boolean = false,
+    ): Promise<TagWithCount[]> {
+      const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
+      if (workspaceId) {
+        return getAdapter().queryMany<TagWithCount>(`
+          SELECT t.*, COUNT(nt."noteId") AS "noteCount"
+          FROM tags t
+          LEFT JOIN note_tags nt ON nt."tagId" = t.id
+          LEFT JOIN notes n ON n.id = nt."noteId" AND n."workspaceId" = ? AND n."isTrashed" = false
+          WHERE t."workspaceId" = ?
+          GROUP BY t.id
+          ${havingClause}
+          ORDER BY t.name ASC
+        `, [workspaceId, workspaceId]);
+      }
 
-  /**
-   * 删除标签本身。
-   *
-   * @param tagId 标签 ID
-   */
-  deleteById(tagId: string): void {
-    const db = getDb();
-    db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
-  },
+      return getAdapter().queryMany<TagWithCount>(`
+        SELECT t.*, COUNT(nt."noteId") AS "noteCount"
+        FROM tags t
+        LEFT JOIN note_tags nt ON nt."tagId" = t.id
+        LEFT JOIN notes n ON n.id = nt."noteId"
+                          AND n."workspaceId" IS NULL
+                          AND n."userId" = ?
+                          AND n."isTrashed" = false
+        WHERE t."userId" = ? AND t."workspaceId" IS NULL
+        GROUP BY t.id
+        ${havingClause}
+        ORDER BY t.name ASC
+      `, [userId, userId]);
+    },
 
-  async listByUserAsync(
-    userId: string,
-    workspaceId: string | null = null,
-    includeEmpty: boolean = false,
-  ): Promise<TagWithCount[]> {
-    const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
-    if (workspaceId) {
-      return getAdapter().queryMany<TagWithCount>(
-        `SELECT t.*, COUNT(nt."noteId") AS noteCount
-         FROM tags t
-         LEFT JOIN note_tags nt ON nt."tagId" = t.id
-         LEFT JOIN notes n ON n.id = nt."noteId" AND n."workspaceId" = ? AND n."isTrashed" = 0
-         WHERE t."workspaceId" = ?
-         GROUP BY t.id
-         ${havingClause}
-         ORDER BY t.name ASC`,
-        [workspaceId, workspaceId],
+    async getOwnerAsync(tagId: string): Promise<{ userId: string; workspaceId: string | null } | undefined> {
+      return getAdapter().queryOne(
+        'SELECT "userId", "workspaceId" FROM tags WHERE id = ?',
+        [tagId],
       );
-    } else {
-      return getAdapter().queryMany<TagWithCount>(
-        `SELECT t.*, COUNT(nt."noteId") AS noteCount
-         FROM tags t
-         LEFT JOIN note_tags nt ON nt."tagId" = t.id
-         LEFT JOIN notes n ON n.id = nt."noteId"
-                           AND (n."workspaceId" IS NULL)
-                           AND n."userId" = ?
-                           AND n."isTrashed" = 0
-         WHERE t."userId" = ? AND t."workspaceId" IS NULL
-         GROUP BY t.id
-         ${havingClause}
-         ORDER BY t.name ASC`,
-        [userId, userId],
+    },
+
+    async getByIdAsync(tagId: string): Promise<Tag | undefined> {
+      return getAdapter().queryOne<Tag>("SELECT * FROM tags WHERE id = ?", [tagId]);
+    },
+
+    async getByIdWithCountAsync(tagId: string): Promise<TagWithCount | undefined> {
+      return getAdapter().queryOne<TagWithCount>(`
+        SELECT t.*, COUNT(nt."noteId") AS "noteCount"
+        FROM tags t LEFT JOIN note_tags nt ON t.id = nt."tagId"
+        WHERE t.id = ? GROUP BY t.id
+      `, [tagId]);
+    },
+
+    async findByScopedNameAsync(
+      userId: string,
+      workspaceId: string | null,
+      name: string,
+    ): Promise<ScopedTagRecord | undefined> {
+      const normalized = String(name ?? "").trim();
+      if (!normalized) return undefined;
+
+      if (workspaceId) {
+        return getAdapter().queryOne<ScopedTagRecord>(`
+          SELECT id, "userId", "workspaceId", name, color, "createdAt"
+          FROM tags
+          WHERE "workspaceId" = ? AND lower(trim(name)) = lower(?)
+          ORDER BY "createdAt" ASC, id ASC
+          LIMIT 1
+        `, [workspaceId, normalized]);
+      }
+
+      return getAdapter().queryOne<ScopedTagRecord>(`
+        SELECT id, "userId", "workspaceId", name, color, "createdAt"
+        FROM tags
+        WHERE "userId" = ? AND "workspaceId" IS NULL
+          AND lower(trim(name)) = lower(?)
+        ORDER BY "createdAt" ASC, id ASC
+        LIMIT 1
+      `, [userId, normalized]);
+    },
+
+    async createAsync(input: {
+      id: string;
+      userId: string;
+      workspaceId: string | null;
+      name: string;
+      color: string;
+    }): Promise<void> {
+      await getAdapter().execute(
+        'INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)',
+        [input.id, input.userId, input.workspaceId, input.name, input.color],
       );
-    }
-  },
+    },
 
-  async getOwnerAsync(tagId: string): Promise<{ userId: string; workspaceId: string | null } | undefined> {
-    return getAdapter().queryOne<{ userId: string; workspaceId: string | null }>(
-      'SELECT "userId", "workspaceId" FROM tags WHERE id = ?',
-      [tagId],
-    );
-  },
+    async updateByIdAsync(tagId: string, patch: { name?: string; color?: string }): Promise<void> {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      if (patch.name !== undefined) {
+        fields.push("name = ?");
+        values.push(patch.name);
+      }
+      if (patch.color !== undefined) {
+        fields.push("color = ?");
+        values.push(patch.color);
+      }
+      if (fields.length === 0) return;
+      values.push(tagId);
+      await getAdapter().execute(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`, values);
+    },
 
-  async getByIdAsync(tagId: string): Promise<Tag | undefined> {
-    return getAdapter().queryOne<Tag>("SELECT * FROM tags WHERE id = ?", [tagId]);
-  },
+    async deleteTagLinksAsync(tagId: string): Promise<void> {
+      await getAdapter().execute('DELETE FROM note_tags WHERE "tagId" = ?', [tagId]);
+    },
 
-  async getByIdWithCountAsync(tagId: string): Promise<TagWithCount | undefined> {
-    return getAdapter().queryOne<TagWithCount>(
-      `SELECT t.*, COUNT(nt."noteId") AS noteCount
-       FROM tags t LEFT JOIN note_tags nt ON t.id = nt."tagId"
-       WHERE t.id = ? GROUP BY t.id`,
-      [tagId],
-    );
-  },
+    async deleteByIdAsync(tagId: string): Promise<void> {
+      await getAdapter().execute("DELETE FROM tags WHERE id = ?", [tagId]);
+    },
+  };
+}
 
-  async createAsync(input: {
-    id: string;
-    userId: string;
-    workspaceId: string | null;
-    name: string;
-    color: string;
-  }): Promise<void> {
-    await getAdapter().execute(
-      `INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)`,
-      [input.id, input.userId, input.workspaceId, input.name, input.color],
-    );
-  },
-
-  async updateByIdAsync(tagId: string, patch: { name?: string; color?: string }): Promise<void> {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    if (patch.name !== undefined) {
-      fields.push("name = ?");
-      values.push(patch.name);
-    }
-    if (patch.color !== undefined) {
-      fields.push("color = ?");
-      values.push(patch.color);
-    }
-
-    if (fields.length === 0) return;
-
-    values.push(tagId);
-    await getAdapter().execute(`UPDATE tags SET ${fields.join(", ")} WHERE id = ?`, values);
-  },
-
-  async deleteTagLinksAsync(tagId: string): Promise<void> {
-    await getAdapter().execute('DELETE FROM note_tags WHERE "tagId" = ?', [tagId]);
-  },
-
-  async deleteByIdAsync(tagId: string): Promise<void> {
-    await getAdapter().execute("DELETE FROM tags WHERE id = ?", [tagId]);
-  },
-};
+export const tagsRepository = createTagsRepository();

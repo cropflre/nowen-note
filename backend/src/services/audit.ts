@@ -14,8 +14,8 @@
  *  - system  — 设置修改/备份恢复
  */
 
-import { getDb } from "../db/schema.js";
 import crypto from "crypto";
+import { auditRepository } from "../repositories/auditRepository";
 
 // ===== 类型 =====
 
@@ -39,28 +39,7 @@ export interface AuditEntry {
 // ===== 数据库迁移 =====
 
 export function initAuditTables(): void {
-  const db = getDb();
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL DEFAULT '',
-      category TEXT NOT NULL,
-      action TEXT NOT NULL,
-      level TEXT NOT NULL DEFAULT 'info',
-      targetType TEXT DEFAULT '',
-      targetId TEXT DEFAULT '',
-      details TEXT DEFAULT '',
-      ip TEXT DEFAULT '',
-      userAgent TEXT DEFAULT '',
-      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(userId);
-    CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_logs(category);
-    CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(createdAt DESC);
-    CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(targetType, targetId);
-  `);
+  auditRepository.init();
 }
 
 // ===== 审计日志记录器 =====
@@ -88,27 +67,22 @@ class AuditLogger {
     userAgent?: string;
   }): void {
     try {
-      const db = getDb();
-      const id = crypto.randomUUID();
       const details = typeof params.details === "object"
         ? JSON.stringify(params.details)
         : (params.details || "");
 
-      db.prepare(`
-        INSERT INTO audit_logs (id, userId, category, action, level, targetType, targetId, details, ip, userAgent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        params.userId || "",
-        params.category,
-        params.action,
-        params.level || "info",
-        params.targetType || "",
-        params.targetId || "",
-        details.slice(0, 5000),
-        params.ip || "",
-        params.userAgent || "",
-      );
+      auditRepository.insert({
+        id: crypto.randomUUID(),
+        userId: params.userId || "",
+        category: params.category,
+        action: params.action,
+        level: params.level || "info",
+        targetType: params.targetType || "",
+        targetId: params.targetId || "",
+        details: details.slice(0, 5000),
+        ip: params.ip || "",
+        userAgent: params.userAgent || "",
+      });
     } catch (err: any) {
       console.error("[Audit] 日志记录失败:", err.message);
     }
@@ -126,36 +100,13 @@ class AuditLogger {
     limit?: number;
     offset?: number;
   }): { logs: AuditEntry[]; total: number } {
-    const db = getDb();
-    const conditions: string[] = [];
-    const values: any[] = [];
-
-    if (params.userId) { conditions.push("userId = ?"); values.push(params.userId); }
-    if (params.category) { conditions.push("category = ?"); values.push(params.category); }
-    if (params.level) { conditions.push("level = ?"); values.push(params.level); }
-    if (params.targetType) { conditions.push("targetType = ?"); values.push(params.targetType); }
-    if (params.targetId) { conditions.push("targetId = ?"); values.push(params.targetId); }
-    if (params.dateFrom) { conditions.push("createdAt >= ?"); values.push(params.dateFrom); }
-    if (params.dateTo) { conditions.push("createdAt <= ?"); values.push(params.dateTo); }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const limit = Math.min(params.limit || 50, 200);
-    const offset = params.offset || 0;
-
-    const total = (db.prepare(`SELECT COUNT(*) as count FROM audit_logs ${where}`).get(...values) as any).count;
-    const logs = db.prepare(
-      `SELECT * FROM audit_logs ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`
-    ).all(...values, limit, offset) as AuditEntry[];
-
-    return { logs, total };
+    return auditRepository.query(params) as { logs: AuditEntry[]; total: number };
   }
 
   /** 清理过期日志（保留指定天数） */
   cleanup(retentionDays: number = 90): number {
-    const db = getDb();
     const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
-    const result = db.prepare("DELETE FROM audit_logs WHERE createdAt < ?").run(cutoff);
-    return result.changes;
+    return auditRepository.cleanupBefore(cutoff);
   }
 }
 

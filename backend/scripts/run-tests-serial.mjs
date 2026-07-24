@@ -71,9 +71,10 @@ function runTest(filePath, label) {
       const icon = ok ? "✓" : "✗";
       console.log(`${icon} ${label}`);
       if (!ok) {
-        // Print stderr for debugging (skip TAP noise)
+        // TAP headers and migration notices are normally at the beginning. The tail contains the
+        // failed assertion, stack and test summary, so print that instead of the first five lines.
         const lines = (stderr || stdout).split("\n").filter(Boolean);
-        for (const line of lines.slice(0, 5)) {
+        for (const line of lines.slice(-40)) {
           console.log(`    ${line}`);
         }
       }

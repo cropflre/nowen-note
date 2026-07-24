@@ -241,10 +241,15 @@ function persistToNotesTable(room: RoomState) {
     .replace(/\s+/g, " ")
     .trim();
 
-  const existing = db.prepare("SELECT version FROM notes WHERE id = ?").get(room.noteId) as
-    | { version: number }
-    | undefined;
-  if (!existing) return;
+  const existing = db.prepare(
+  "SELECT version, content, contentText FROM notes WHERE id = ?",
+).get(room.noteId) as
+  | { version: number; content: string; contentText: string }
+  | undefined;
+if (!existing) return;
+// REST or transactional writers may already have persisted this exact Yjs state.
+// Flushing the same body must not create a phantom edit or bump note.version.
+if (existing.content === markdown && existing.contentText === contentText) return;
 
   // P2-#8：version 粒度控制——5 分钟内连续编辑合并为同一个 version，
   // 避免 CRDT 下每 1.5s 就 ++ 把版本历史稀释成噪音

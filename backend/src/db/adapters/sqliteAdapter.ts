@@ -2,18 +2,26 @@
  * SQLite Async Adapter
  *
  * 包装 better-sqlite3 同步 API 为 async facade。
- * Phase 1 只实现 queryOne / queryMany / execute，不实现 withTransaction。
  *
  * 设计原则：
  * - better-sqlite3 是同步的，直接包装为 Promise 保持接口统一
  * - 不转换占位符，SQLite 继续使用 ? 占位符
- * - 不包含 PostgreSQL 逻辑
- * - 不调用 db.transaction（Phase 2 才实现事务）
  * - 禁止 db.transaction(async () => {})——会导致事务边界失真
+ * - executeStatements 支持 requireChanges 乐观锁原子回滚
  */
 
 import type Database from "better-sqlite3";
-import type { DatabaseAdapter, DbRunResult } from "./types";
+import {
+  DbStatementChangeError,
+  type DatabaseAdapter,
+  type DbRunResult,
+  type DbStatement,
+} from "./types";
+
+function assertRequiredChanges(statement: DbStatement, changes: number): void {
+  if (statement.requireChanges === undefined || changes === statement.requireChanges) return;
+  throw new DbStatementChangeError(statement.requireChanges, changes);
+}
 
 export class SqliteAdapter implements DatabaseAdapter {
   constructor(private readonly db: Database.Database) {}
@@ -55,15 +63,16 @@ export class SqliteAdapter implements DatabaseAdapter {
     return { changes: totalChanges, lastInsertRowid: lastRowid };
   }
 
-  async executeStatements(statements: Array<{ sql: string; params?: unknown[] }>): Promise<{ changes: number }> {
+  async executeStatements(statements: DbStatement[]): Promise<{ changes: number }> {
     if (statements.length === 0) {
       return { changes: 0 };
     }
 
-    const run = this.db.transaction((items: Array<{ sql: string; params?: unknown[] }>) => {
+    const run = this.db.transaction((items: DbStatement[]) => {
       let changes = 0;
       for (const item of items) {
         const result = this.db.prepare(item.sql).run(...(item.params ?? []));
+        assertRequiredChanges(item, result.changes);
         changes += result.changes;
       }
       return changes;

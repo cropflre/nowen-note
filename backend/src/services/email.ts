@@ -20,7 +20,7 @@
 import net from "net";
 import tls from "tls";
 import crypto from "crypto";
-import { getDb } from "../db/schema.js";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 // ============================================================================
 // 类型
@@ -119,10 +119,7 @@ function decryptPassword(encoded: string): string {
  * 公开 API 必须用 toPublic() 剥掉密码字段。
  */
 export function readSmtpConfig(): SmtpConfig & { updatedAt: string | null } {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT value, updatedAt FROM system_settings WHERE key = ?")
-    .get(SETTING_KEY) as { value: string; updatedAt: string } | undefined;
+  const row = systemSettingsRepository.get(SETTING_KEY);
 
   const fallback: SmtpConfig & { updatedAt: string | null } = {
     enabled: false,
@@ -182,7 +179,6 @@ export interface WriteSmtpInput {
 }
 
 export function writeSmtpConfig(input: WriteSmtpInput): SmtpConfigPublic {
-  const db = getDb();
   const current = readSmtpConfig();
 
   // 密码处理：undefined → 复用旧的；其它值 → 按新值加密（即便是空字符串，代表清空）
@@ -200,11 +196,7 @@ export function writeSmtpConfig(input: WriteSmtpInput): SmtpConfigPublic {
     fromEmail: (input.fromEmail || "").trim(),
   });
 
-  db.prepare(
-    `INSERT INTO system_settings (key, value, updatedAt)
-     VALUES (?, ?, datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')`,
-  ).run(SETTING_KEY, value);
+  systemSettingsRepository.set(SETTING_KEY, value);
 
   return toPublicConfig(readSmtpConfig());
 }

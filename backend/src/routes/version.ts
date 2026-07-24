@@ -21,7 +21,7 @@
  *   - **Schema 版本**：透传 getDbSchemaVersion / getCodeSchemaVersion，
  *     分别是"库实际应用到的最高迁移版本"与"当前代码已知的最高迁移版本"。
  *     两者相等说明迁移已落地；codeSchemaVersion > schemaVersion 理论上不会
- *     出现（getDb 启动时会自动 apply 迁移），若出现说明启动顺序异常。
+ *     出现（SQLite 启动时会自动 apply 迁移），若出现说明启动顺序异常。
  *   - **buildTime 可选**：发布流水线写入 `NOWEN_BUILD_TIME`（ISO 字符串）
  *     时透传；未注入时省略字段，避免前端误以为存在但为空。
  *
@@ -35,7 +35,8 @@ import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { getDb, getDbSchemaVersion, getCodeSchemaVersion } from "../db/schema";
+import { getDbSchemaVersion, getCodeSchemaVersion } from "../db/schema";
+import { serverInstanceRepository } from "../repositories";
 
 const router = new Hono();
 
@@ -83,27 +84,21 @@ function resolveFrontendBuildId(): string | null {
     try {
       if (!fs.existsSync(p)) continue;
       const raw = fs.readFileSync(p, "utf-8");
-      const m = JSON.parse(raw) as Record<string, { isEntry?: boolean; file?: string }>;
-      // 找 isEntry=true 的第一个条目（通常是 index.html 入口）
-      for (const key of Object.keys(m)) {
-        const entry = m[key];
+      const manifest = JSON.parse(raw) as Record<string, { isEntry?: boolean; file?: string }>;
+      for (const key of Object.keys(manifest)) {
+        const entry = manifest[key];
         if (entry?.isEntry && entry.file) {
-          // 与前端 `detectClientBuildId()` 口径对齐：只保留文件名（含 hash）
-          const f = entry.file;
-          cachedFrontendBuildId = f.substring(f.lastIndexOf("/") + 1);
+          const file = entry.file;
+          cachedFrontendBuildId = file.substring(file.lastIndexOf("/") + 1);
           return cachedFrontendBuildId;
         }
       }
     } catch {
-      // 继续尝试下一个候选
+      // 继续尝试下一个候选。
     }
   }
 
   // 备选方案：直接扫 `frontend/dist/index.html` 中主入口脚本的 hash。
-  // 生产构建 index.html 里必然有 <script type="module" crossorigin src="/assets/index-<hash>.js"></script>，
-  // 抓这串路径并**只保留文件名**，与前端 `detectClientBuildId()` 取值口径一致
-  // （前端运行时也只取最后一段文件名），避免 CDN / baseUrl 变化或代理路径
-  // 差异导致两边对不上引发误提示。
   const indexCandidates = [
     path.resolve(process.cwd(), "frontend/dist/index.html"),
     path.resolve(process.cwd(), "../frontend/dist/index.html"),
@@ -120,7 +115,7 @@ function resolveFrontendBuildId(): string | null {
         return cachedFrontendBuildId;
       }
     } catch {
-      // 继续尝试下一个候选
+      // 继续尝试下一个候选。
     }
   }
 
@@ -128,39 +123,25 @@ function resolveFrontendBuildId(): string | null {
   return cachedFrontendBuildId;
 }
 
-/**
- * 解析"最低兼容客户端版本号"。
- *
- * 用于 Android 原生壳的硬性升级引导：当 `__APP_VERSION__` < `minClientVersion`
- * 时，前端 UpdateNotifier 会退出可关闭的"软提示"形态，改成不可关闭的"请到
- * 官网下载新 APK"卡片——因为 Android WebView 里只刷 JS bundle 解决不了原生
- * plugin 不兼容（权限/签名/API 变更）。
- *
- * 来源：
- *   - ENV `NOWEN_MIN_CLIENT_VERSION`（最低兼容版本，例："1.0.30"）
- *   - 未配置则返回 null，前端据此走软提示路径，完全向后兼容
- *
- * 为什么不存 DB：这类运维旋钮生命周期与部署绑定；放在 ENV 里改完重启生效，
- * 与当前"改迁移要重启"的运维心智一致。若将来要前端 UI 配置再平移到 DB。
- */
+/** 解析最低兼容客户端版本号。 */
 function resolveMinClientVersion(): string | null {
-  const v = process.env.NOWEN_MIN_CLIENT_VERSION?.trim();
-  return v || null;
+  const version = process.env.NOWEN_MIN_CLIENT_VERSION?.trim();
+  return version || null;
 }
 
-/**
- * 解析当前应用版本号。缓存进程级结果，避免每次请求都 fs.readFileSync。
- * 读文件抛错时静默降级，用 fallback 字符串；这个接口要"永远能答"。
- */
+/** 解析当前应用版本号。缓存进程级结果，避免每次请求都读取文件。 */
 let cachedAppVersion: string | null = null;
 
 function readPackageVersion(filePath: string, expectedNames: string[]): string | null {
   try {
     if (!fs.existsSync(filePath)) return null;
-    const pkg = JSON.parse(fs.readFileSync(filePath, "utf-8")) as { name?: string; version?: string };
+    const pkg = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
+      name?: string;
+      version?: string;
+    };
     if (pkg.version && expectedNames.includes(pkg.name || "")) return pkg.version;
   } catch {
-    // ignore and try next candidate
+    // Ignore and try the next candidate.
   }
   return null;
 }
@@ -168,36 +149,37 @@ function readPackageVersion(filePath: string, expectedNames: string[]): string |
 function resolveAppVersion(): string {
   if (cachedAppVersion) return cachedAppVersion;
 
-  // 1) 显式强制覆盖：仅给高级运维使用。普通 NOWEN_APP_VERSION 不再优先，
-  // 避免 NAS / 应用市场复用旧容器 ENV 时把服务端版本钉死在旧值。
-  const forcedEnvVer = process.env.NOWEN_APP_VERSION_OVERRIDE?.trim();
-  if (forcedEnvVer) {
-    cachedAppVersion = forcedEnvVer;
+  const forcedEnvVersion = process.env.NOWEN_APP_VERSION_OVERRIDE?.trim();
+  if (forcedEnvVersion) {
+    cachedAppVersion = forcedEnvVersion;
     return cachedAppVersion;
   }
 
-  // 2) 优先读镜像 / 源码内 package.json。Dockerfile 会把根 package.json 复制到
-  // /app/package.json；源码态 / Electron / backend/dist 也通过候选路径覆盖。
   const packageCandidates: Array<{ path: string; names: string[] }> = [
     { path: path.resolve(process.cwd(), "package.json"), names: ["nowen-note"] },
     { path: path.resolve(process.cwd(), "../package.json"), names: ["nowen-note"] },
-    { path: path.resolve(__dirname, "../../package.json"), names: ["nowen-note", "nowen-note-backend"] },
+    {
+      path: path.resolve(__dirname, "../../package.json"),
+      names: ["nowen-note", "nowen-note-backend"],
+    },
     { path: path.resolve(__dirname, "../../../package.json"), names: ["nowen-note"] },
-    { path: path.resolve(process.cwd(), "backend/package.json"), names: ["nowen-note-backend"] },
+    {
+      path: path.resolve(process.cwd(), "backend/package.json"),
+      names: ["nowen-note-backend"],
+    },
     { path: path.resolve(__dirname, "../package.json"), names: ["nowen-note-backend"] },
   ];
   for (const candidate of packageCandidates) {
-    const v = readPackageVersion(candidate.path, candidate.names);
-    if (v) {
-      cachedAppVersion = v;
+    const version = readPackageVersion(candidate.path, candidate.names);
+    if (version) {
+      cachedAppVersion = version;
       return cachedAppVersion;
     }
   }
 
-  // 3) 旧构建链路兜底：只有包内版本完全读不到时，才信任 NOWEN_APP_VERSION。
-  const legacyEnvVer = process.env.NOWEN_APP_VERSION?.trim();
-  if (legacyEnvVer) {
-    cachedAppVersion = legacyEnvVer;
+  const legacyEnvVersion = process.env.NOWEN_APP_VERSION?.trim();
+  if (legacyEnvVersion) {
+    cachedAppVersion = legacyEnvVersion;
     return cachedAppVersion;
   }
 
@@ -206,79 +188,63 @@ function resolveAppVersion(): string {
 }
 
 /**
- * 解析"当前后端实例"的稳定唯一标识 `serverInstanceId`。
- * ---------------------------------------------------------------------------
- * 背景（v1.1.7 修复）：
- *   1.1.6 的"登录云端账号迁移向导"在用户**对同一台后端**点击迁移时，会把本地
- *   笔记本/笔记/附件再上传到同一台机器上，产生一份完全相同的副本。用户随后
- *   清理副本时，因为 hash 去重让多笔记共享同一物理文件，删除回收站会把还
- *   活着的笔记引用的图片一起 unlink 掉。
+ * 解析当前后端实例的稳定唯一标识。
  *
- * 修复策略需要前端在迁移前能识别"本地端 == 云端"。最廉价可靠的标识就是给
- * 每个进程实例分配一个一次性 UUID，落库后跨重启稳定，前端拉两端 /api/version
- * 比对即可。
- *
- * 实现：
- *   - 落在 system_settings 表（已有的 KV 表），key = `server_instance_id`。
- *   - 首次访问 lazy 生成 + 落库；之后任何重启都从库里读出来。
- *   - 进程级缓存避免每次请求都查 DB。
- *   - 任何异常都返回 null（接口不会因为这一项崩掉）。
+ * 首次访问时生成候选值，并通过 INSERT ... ON CONFLICT DO NOTHING 保证
+ * 多进程并发下不会覆盖已存在的实例标识；随后重新读取数据库中的胜出值。
  */
 let cachedServerInstanceId: string | null | undefined = undefined;
-function resolveServerInstanceId(): string | null {
+let resolvingServerInstanceId: Promise<string | null> | undefined;
+
+async function resolveServerInstanceId(): Promise<string | null> {
   if (cachedServerInstanceId !== undefined) return cachedServerInstanceId;
-  try {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT value FROM system_settings WHERE key = ?")
-      .get("server_instance_id") as { value: string } | undefined;
-    if (row?.value) {
-      cachedServerInstanceId = row.value;
+  if (resolvingServerInstanceId) return resolvingServerInstanceId;
+
+  resolvingServerInstanceId = (async () => {
+    try {
+      const existing = await serverInstanceRepository.getAsync();
+      if (existing) {
+        cachedServerInstanceId = existing;
+        return existing;
+      }
+
+      const candidate = crypto.randomUUID();
+      await serverInstanceRepository.createIfAbsentAsync(candidate);
+      cachedServerInstanceId = await serverInstanceRepository.getAsync() || candidate;
       return cachedServerInstanceId;
+    } catch {
+      cachedServerInstanceId = null;
+      return null;
+    } finally {
+      resolvingServerInstanceId = undefined;
     }
-    const id = crypto.randomUUID();
-    db.prepare(
-      "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
-    ).run("server_instance_id", id);
-    // 极端并发下另一个进程已经写入，再读一次以使用胜出者的值
-    const row2 = db
-      .prepare("SELECT value FROM system_settings WHERE key = ?")
-      .get("server_instance_id") as { value: string } | undefined;
-    cachedServerInstanceId = row2?.value || id;
-    return cachedServerInstanceId;
-  } catch {
-    cachedServerInstanceId = null;
-    return cachedServerInstanceId;
-  }
+  })();
+
+  return resolvingServerInstanceId;
 }
 
-router.get("/", (c) => {
+router.get("/", async (c) => {
   let schemaVersion: number | null = null;
   let codeSchemaVersion: number | null = null;
   try {
     schemaVersion = getDbSchemaVersion();
     codeSchemaVersion = getCodeSchemaVersion();
   } catch {
-    // DB 未初始化或迁移失败时这里读不到；接口仍然返回 appVersion，
-    // 前端据此也能工作（只是不能展示 schema 信息）。
+    // DB 未初始化或迁移失败时仍返回应用版本。
   }
 
   const buildTime = process.env.NOWEN_BUILD_TIME?.trim();
   const frontendBuildId = resolveFrontendBuildId();
   const minClientVersion = resolveMinClientVersion();
-  const serverInstanceId = resolveServerInstanceId();
+  const serverInstanceId = await resolveServerInstanceId();
 
   return c.json({
     appVersion: resolveAppVersion(),
     schemaVersion,
     codeSchemaVersion,
     ...(buildTime ? { buildTime } : {}),
-    // 仅当真的解析到时才返回字段，避免前端误判"有字段 == 已部署新方案"。
-    // 前端逻辑：frontendBuildId 有值优先用它比对，否则降级到 appVersion。
     ...(frontendBuildId ? { frontendBuildId } : {}),
     ...(minClientVersion ? { minClientVersion } : {}),
-    // serverInstanceId：1.1.7 起用于"登录云端账号"迁移向导识别同源后端，
-    // 阻止用户把数据迁移到同一台机器（会造成双份数据）。
     ...(serverInstanceId ? { serverInstanceId } : {}),
   });
 });

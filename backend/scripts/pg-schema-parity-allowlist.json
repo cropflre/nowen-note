@@ -1,0 +1,7 @@
+{
+  "sqliteOnlyTables": [
+    "notes_fts",
+    "vec_note_chunks"
+  ],
+  "deferredTables": []
+}

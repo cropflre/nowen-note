@@ -8,10 +8,9 @@ import { handleAttachmentMediaRange } from "./attachment-media-range";
 import { getDb } from "../db/schema";
 import { inferVideoMime } from "../lib/media-mime";
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite";
-import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
 import { authorizeSingleShareRequest, findSingleShareByToken } from "../services/single-share-access";
-import { verifyLoginToken, verifyShareAccessToken } from "../lib/auth-security";
+import { verifyLoginToken } from "../lib/auth-security";
 import { hasScope, looksLikeApiToken, resolveApiToken } from "../lib/api-tokens";
 import { userSessionsRepository } from "../repositories";
 import {
@@ -24,16 +23,6 @@ import {
 export * from "./attachments-core";
 export { inferVideoMime } from "../lib/media-mime";
 
-interface ShareAccessRow {
-  id: string;
-  noteId: string;
-  password: string | null;
-  isActive: number;
-  expiresAt: string | null;
-  maxViews: number | null;
-  viewCount: number;
-}
-
 const ACCESS_REVOKED_REASONS = new Set([
   "attachment_not_found",
   "note_mismatch",
@@ -42,19 +31,17 @@ const ACCESS_REVOKED_REASONS = new Set([
   "share_expired",
 ]);
 
-function isExpiredDate(value: unknown): boolean {
-  if (!value) return false;
-  const time = new Date(String(value)).getTime();
-  return Number.isFinite(time) && time <= Date.now();
-}
-
 function requestPublicOrigin(c: Context): string {
   return resolvePublicOrigin((name) => c.req.header(name)) || "";
 }
 
-function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string): Record<string, string> {
+function buildSignedAttachmentUrls(
+  noteId: string,
+  scope: string,
+  origin: string,
+): Record<string, string> {
   const rows = getDb()
-    .prepare("SELECT id FROM attachments WHERE noteId = ? ORDER BY id ASC")
+    .prepare('SELECT id FROM attachments WHERE "noteId" = ? ORDER BY id ASC')
     .all(noteId) as Array<{ id: string }>;
   const normalizedOrigin = origin.replace(/\/+$/, "");
   const urls: Record<string, string> = {};
@@ -66,7 +53,11 @@ function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string
   return urls;
 }
 
-function noStoreJson(c: Context, payload: unknown, status: 200 | 400 | 401 | 403 | 404 | 410 = 200): Response {
+function noStoreJson(
+  c: Context,
+  payload: unknown,
+  status: 200 | 400 | 401 | 403 | 404 | 410 = 200,
+): Response {
   c.header("Cache-Control", "private, no-store");
   c.header("Pragma", "no-cache");
   return c.json(payload, status);
@@ -81,8 +72,6 @@ function readClientIp(c: Context): string {
 /**
  * The download route is registered before the global JWT middleware so native <img>/<video>
  * requests can use signed URLs. Never trust a caller-provided X-User-Id at this boundary.
- * For API clients that do send Authorization, independently verify the Bearer credential and
- * only then inject X-User-Id for the mature ACL handler below.
  */
 function resolveVerifiedAttachmentUser(c: Context): string {
   const authHeader = c.req.header("Authorization") || "";
@@ -95,7 +84,7 @@ function resolveVerifiedAttachmentUser(c: Context): string {
     const resolved = resolveApiToken(db, token, readClientIp(c));
     if (!resolved || !hasScope(resolved, "notes:read")) return "";
     const user = db
-      .prepare("SELECT isDisabled FROM users WHERE id = ?")
+      .prepare('SELECT "isDisabled" FROM users WHERE id = ?')
       .get(resolved.userId) as { isDisabled: number } | undefined;
     return user && !user.isDisabled ? resolved.userId : "";
   }
@@ -103,7 +92,7 @@ function resolveVerifiedAttachmentUser(c: Context): string {
   const payload = verifyLoginToken(token);
   if (!payload?.userId) return "";
   const user = db
-    .prepare("SELECT tokenVersion, isDisabled FROM users WHERE id = ?")
+    .prepare('SELECT "tokenVersion", "isDisabled" FROM users WHERE id = ?')
     .get(payload.userId) as { tokenVersion: number; isDisabled: number } | undefined;
   if (!user || user.isDisabled || (payload.tver ?? 0) !== (user.tokenVersion ?? 0)) return "";
   if (payload.jti) {
@@ -113,13 +102,7 @@ function resolveVerifiedAttachmentUser(c: Context): string {
   return payload.userId;
 }
 
-/**
- * Public bridge endpoint used by /share/:token.
- *
- * It intentionally lives at the single-segment path `/api/attachments/share-access`,
- * which is handled by the pre-JWT attachment route. Password protected shares must
- * forward the temporary share access token in Authorization.
- */
+/** Public bridge endpoint used by /share/:token. */
 function handleSharedAttachmentAccess(c: Context): Response {
   const token = (c.req.query("token") || "").trim();
   if (!token || token.length > 256) {
@@ -136,12 +119,7 @@ function handleSharedAttachmentAccess(c: Context): Response {
   });
 }
 
-/**
- * Some Android document providers return an empty MIME even for an MP4. The core upload route is
- * intentionally format-agnostic and stores application/octet-stream in that case. Normalize only
- * known video extensions after a successful upload so playback and Range handling receive the
- * correct Content-Type without weakening executable-file checks.
- */
+/** Normalize known video extensions after successful upload. */
 const attachmentsRouter = new Hono();
 attachmentsRouter.use("*", async (c, next) => {
   await next();
@@ -179,19 +157,22 @@ attachmentsRouter.use("*", async (c, next) => {
   });
 });
 
-/**
- * Authenticated users exchange their current note read permission for short-lived,
- * re-checkable attachment URLs. This route is mounted after the global JWT middleware.
- */
+/** Exchange current note read permission for short-lived attachment URLs. */
 attachmentsRouter.get("/access/urls", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const noteId = (c.req.query("noteId") || "").trim();
-  if (!noteId) return noStoreJson(c, { error: "缺少 noteId", code: "NOTE_ID_REQUIRED" }, 400);
+  if (!noteId) {
+    return noStoreJson(c, { error: "缺少 noteId", code: "NOTE_ID_REQUIRED" }, 400);
+  }
 
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   if (!capabilities.read) {
     console.warn("[attachment.access.denied]", { noteId, userId, reason: "note_read_forbidden" });
-    return noStoreJson(c, { error: "无权访问该笔记的附件", code: "ATTACHMENT_ACCESS_DENIED" }, 403);
+    return noStoreJson(
+      c,
+      { error: "无权访问该笔记的附件", code: "ATTACHMENT_ACCESS_DENIED" },
+      403,
+    );
   }
 
   const scope = createUserAttachmentScope(userId, noteId, capabilities.download);
@@ -208,7 +189,6 @@ export default attachmentsRouter;
 
 function hardenScopedResponse(response: Response): Response {
   const headers = new Headers(response.headers);
-  // 授权可随时撤销，禁止浏览器/CDN 把成功响应长期缓存后绕过服务端复核。
   headers.set("Cache-Control", "private, no-store, no-transform");
   headers.set("Pragma", "no-cache");
   headers.set("Vary", "Authorization");
@@ -219,16 +199,11 @@ function hardenScopedResponse(response: Response): Response {
   });
 }
 
-/**
- * Preserve the canonical attachment handler while allowing seekable media to answer byte-range
- * requests first. Keeping this wrapper at the original module path means index.ts, tests and every
- * existing importer automatically receive Range support without duplicating route registration.
- */
+/** Preserve canonical attachment handler while allowing byte-range responses first. */
 export async function handleDownloadAttachment(c: Context): Promise<Response> {
   const id = c.req.param("id");
   if (id === "share-access") return handleSharedAttachmentAccess(c);
 
-  // Strip the untrusted pre-JWT identity header, then restore it only after Bearer verification.
   c.req.raw.headers.delete("X-User-Id");
   const verifiedUserId = resolveVerifiedAttachmentUser(c);
   if (verifiedUserId) c.req.raw.headers.set("X-User-Id", verifiedUserId);
@@ -299,5 +274,7 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     console.warn("[attachment.access.denied]", { id, status: response.status });
   }
 
-  return hasCompleteSignature || verifiedUserId ? hardenScopedResponse(response) : response;
+  return hasCompleteSignature || verifiedUserId
+    ? hardenScopedResponse(response)
+    : response;
 }

@@ -14,9 +14,9 @@ const WORKSPACE_ID = "issue-284-workspace";
 const MARKDOWN_NOTEBOOK_ID = "issue-284-markdown";
 const RICH_NOTEBOOK_ID = "issue-284-rich";
 
-const { closeDb, getDb } = await import("../src/db/schema.js");
-const { importSiyuanPackageFromZipFile } = await import("../src/services/siyuanPackageImport.js");
-const db = getDb();
+let closeDb: () => void;
+let db: any;
+let importSiyuanPackageFromZipFile: (zipPath: string, options: any) => Promise<any>;
 
 function fixturePath(): string {
   const relative = path.join("tests", "fixtures", "siyuan", "issue-284", "20260719010101-demo284.sy");
@@ -50,7 +50,13 @@ function flatten(node: TiptapNode): TiptapNode[] {
   return [node, ...(node.content || []).flatMap(flatten)];
 }
 
-before(() => {
+before(async () => {
+  const schema = await import("../src/db/schema.js");
+  const siyuan = await import("../src/services/siyuanPackageImport.js");
+  closeDb = schema.closeDb;
+  db = schema.getDb();
+  importSiyuanPackageFromZipFile = siyuan.importSiyuanPackageFromZipFile;
+
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'x')").run(USER_ID, USER_ID);
   db.prepare("INSERT INTO workspaces (id, name, ownerId) VALUES (?, ?, ?)").run(WORKSPACE_ID, "Issue 284", USER_ID);
   db.prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, 'owner')").run(WORKSPACE_ID, USER_ID);
@@ -61,7 +67,7 @@ before(() => {
 });
 
 after(() => {
-  closeDb();
+  closeDb?.();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -89,8 +95,8 @@ test("issue 284 real-shape package keeps Markdown callout, iframe and media sema
   assert.match(note.content, /<iframe[^>]+password=issue284-secret/);
   assert.match(note.content, /\[音频\]\(\/api\/attachments\/[0-9a-f-]+\?download=1\)/i);
   assert.match(note.contentText, /Callout 正文必须/);
-  assert.ok(result.warnings.some((warning) => /callout.*styled blockquote/i.test(warning)));
-  assert.ok(result.warnings.some((warning) => /iframe.*downgraded safe link/i.test(warning)));
+  assert.ok(result.warnings.some((warning: string) => /callout.*styled blockquote/i.test(warning)));
+  assert.ok(result.warnings.some((warning: string) => /iframe.*downgraded safe link/i.test(warning)));
 });
 
 test("issue 284 rich-text path stays valid and reports every intentional downgrade", async () => {
@@ -137,9 +143,9 @@ test("issue 284 rich-text path stays valid and reports every intentional downgra
   assert.match(note.contentText, /温馨提示/);
   assert.match(note.contentText, /Callout 正文必须/);
 
-  assert.ok(result.warnings.some((warning) => warning.includes("Callout 已映射")));
-  assert.ok(result.warnings.some((warning) => warning.includes("iframe 已保留")));
-  assert.ok(result.warnings.some((warning) => warning.includes("音频已保留")));
-  assert.ok(result.warnings.some((warning) => warning.includes("挂件已保留")));
-  assert.ok(result.warnings.some((warning) => warning.includes("IAL 属性行")));
+  assert.ok(result.warnings.some((warning: string) => warning.includes("Callout 已映射")));
+  assert.ok(result.warnings.some((warning: string) => warning.includes("iframe 已保留")));
+  assert.ok(result.warnings.some((warning: string) => warning.includes("音频已保留")));
+  assert.ok(result.warnings.some((warning: string) => warning.includes("挂件已保留")));
+  assert.ok(result.warnings.some((warning: string) => warning.includes("IAL 属性行")));
 });

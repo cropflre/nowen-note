@@ -1,6 +1,8 @@
 import JSZip from "jszip";
-import { getDb } from "../db/schema";
-import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
+import {
+  roundTripPermissionMappingRepository,
+  type RoundTripWorkspaceAccessRow,
+} from "../repositories/roundTripPermissionMappingRepository";
 import { createStableNowenPackageExport } from "./nowenPackageExportStable";
 
 export const ROUND_TRIP_PERMISSIONS_VERSION = 1;
@@ -44,14 +46,33 @@ export interface PermissionMappingInput {
   role?: Exclude<ExportedWorkspaceRole, "owner">;
 }
 
-function assertWorkspaceManager(userId: string, workspaceId: string): void {
-  if (isSystemAdmin(userId)) return;
-  if (!hasRole(getUserWorkspaceRole(workspaceId, userId), "admin")) {
-    const error = new Error("仅目标工作区所有者、管理员或系统管理员可迁移成员权限");
-    (error as Error & { code?: string; status?: number }).code = "WORKSPACE_ADMIN_REQUIRED";
-    (error as Error & { code?: string; status?: number }).status = 403;
-    throw error;
+function permissionError(message: string, code: string, status: number): Error {
+  const error = new Error(message);
+  (error as Error & { code?: string; status?: number }).code = code;
+  (error as Error & { code?: string; status?: number }).status = status;
+  return error;
+}
+
+async function assertWorkspaceManager(
+  userId: string,
+  workspaceId: string,
+): Promise<RoundTripWorkspaceAccessRow> {
+  const access = await roundTripPermissionMappingRepository.getWorkspaceAccess(userId, workspaceId);
+  if (!access) {
+    throw permissionError("工作区不存在", "WORKSPACE_NOT_FOUND", 404);
   }
+  if (
+    access.actorSystemRole !== "admin"
+    && access.actorWorkspaceRole !== "owner"
+    && access.actorWorkspaceRole !== "admin"
+  ) {
+    throw permissionError(
+      "仅目标工作区所有者、管理员或系统管理员可迁移成员权限",
+      "WORKSPACE_ADMIN_REQUIRED",
+      403,
+    );
+  }
+  return access;
 }
 
 function normalizeRole(role: unknown): ExportedWorkspaceRole {
@@ -74,39 +95,18 @@ function roleRank(role: string | null | undefined): number {
   }
 }
 
-export function buildRoundTripPermissionsManifest(userId: string, workspaceId: string): RoundTripPermissionsManifest {
-  assertWorkspaceManager(userId, workspaceId);
-  const db = getDb();
-  const workspace = db.prepare("SELECT id, name FROM workspaces WHERE id = ?").get(workspaceId) as
-    | { id: string; name: string }
-    | undefined;
-  if (!workspace) {
-    const error = new Error("工作区不存在");
-    (error as Error & { code?: string; status?: number }).code = "WORKSPACE_NOT_FOUND";
-    (error as Error & { code?: string; status?: number }).status = 404;
-    throw error;
-  }
-
-  const rows = db.prepare(`
-    SELECT m.userId AS sourceUserId, m.role, u.username, u.email, u.displayName
-      FROM workspace_members m
-      JOIN users u ON u.id = m.userId
-     WHERE m.workspaceId = ?
-     ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'editor' THEN 2 ELSE 3 END,
-              lower(u.username), u.id
-  `).all(workspaceId) as Array<{
-    sourceUserId: string;
-    role: string;
-    username: string;
-    email: string | null;
-    displayName: string | null;
-  }>;
+export async function buildRoundTripPermissionsManifest(
+  userId: string,
+  workspaceId: string,
+): Promise<RoundTripPermissionsManifest> {
+  const workspace = await assertWorkspaceManager(userId, workspaceId);
+  const rows = await roundTripPermissionMappingRepository.listWorkspaceMembers(workspaceId);
 
   return {
     format: "nowen-workspace-permissions",
     version: ROUND_TRIP_PERMISSIONS_VERSION,
     exportedAt: new Date().toISOString(),
-    sourceWorkspace: workspace,
+    sourceWorkspace: { id: workspace.id, name: workspace.name },
     members: rows.map((row) => ({
       sourceUserId: row.sourceUserId,
       username: row.username,
@@ -120,28 +120,20 @@ export function buildRoundTripPermissionsManifest(userId: string, workspaceId: s
 export function validateRoundTripPermissionsManifest(value: unknown): RoundTripPermissionsManifest {
   const manifest = value as Partial<RoundTripPermissionsManifest> | null;
   if (!manifest || manifest.format !== "nowen-workspace-permissions" || manifest.version !== 1) {
-    const error = new Error("权限清单格式或版本不受支持");
-    (error as Error & { code?: string; status?: number }).code = "INVALID_PERMISSION_MANIFEST";
-    (error as Error & { code?: string; status?: number }).status = 400;
-    throw error;
+    throw permissionError("权限清单格式或版本不受支持", "INVALID_PERMISSION_MANIFEST", 400);
   }
   if (!manifest.sourceWorkspace?.id || !Array.isArray(manifest.members)) {
-    const error = new Error("权限清单缺少工作区或成员信息");
-    (error as Error & { code?: string; status?: number }).code = "INVALID_PERMISSION_MANIFEST";
-    (error as Error & { code?: string; status?: number }).status = 400;
-    throw error;
+    throw permissionError("权限清单缺少工作区或成员信息", "INVALID_PERMISSION_MANIFEST", 400);
   }
   const seen = new Set<string>();
   const members = manifest.members.map((member) => {
-    if (!member?.sourceUserId || !member.username || seen.has(String(member.sourceUserId))) {
-      const error = new Error("权限清单包含无效或重复成员");
-      (error as Error & { code?: string; status?: number }).code = "INVALID_PERMISSION_MEMBER";
-      (error as Error & { code?: string; status?: number }).status = 400;
-      throw error;
+    const sourceUserId = String(member?.sourceUserId || "");
+    if (!sourceUserId || !member?.username || seen.has(sourceUserId)) {
+      throw permissionError("权限清单包含无效或重复成员", "INVALID_PERMISSION_MEMBER", 400);
     }
-    seen.add(String(member.sourceUserId));
+    seen.add(sourceUserId);
     return {
-      sourceUserId: String(member.sourceUserId),
+      sourceUserId,
       username: String(member.username),
       email: member.email ? String(member.email) : null,
       displayName: member.displayName ? String(member.displayName) : null,
@@ -167,7 +159,7 @@ export async function createNowenPackageWithPermissions(params: {
   includeSubNotebooks?: boolean;
   includeTrashed?: boolean;
 }): Promise<Awaited<ReturnType<typeof createStableNowenPackageExport>>> {
-  const manifest = buildRoundTripPermissionsManifest(params.userId, params.workspaceId);
+  const manifest = await buildRoundTripPermissionsManifest(params.userId, params.workspaceId);
   const result = await createStableNowenPackageExport(params);
   const zip = await JSZip.loadAsync(result.buffer);
   zip.file("permissions.json", JSON.stringify(manifest, null, 2));
@@ -185,19 +177,14 @@ export async function createNowenPackageWithPermissions(params: {
   return { ...result, buffer: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }) };
 }
 
-export function previewRoundTripPermissionMappings(
+export async function previewRoundTripPermissionMappings(
   userId: string,
   workspaceId: string,
   manifestValue: unknown,
-): PermissionMappingSuggestion[] {
-  assertWorkspaceManager(userId, workspaceId);
+): Promise<PermissionMappingSuggestion[]> {
+  await assertWorkspaceManager(userId, workspaceId);
   const manifest = validateRoundTripPermissionsManifest(manifestValue);
-  const db = getDb();
-  const users = db.prepare("SELECT id, username, email FROM users WHERE COALESCE(isDisabled, 0) = 0 ORDER BY id").all() as Array<{
-    id: string;
-    username: string;
-    email: string | null;
-  }>;
+  const users = await roundTripPermissionMappingRepository.listTargetUsers();
 
   return manifest.members.map((source) => {
     const emailMatches = source.email
@@ -225,58 +212,59 @@ export function previewRoundTripPermissionMappings(
   });
 }
 
-export function applyRoundTripPermissionMappings(params: {
+export async function applyRoundTripPermissionMappings(params: {
   actorUserId: string;
   workspaceId: string;
   manifest: unknown;
   mappings: PermissionMappingInput[];
-}): { applied: number; skipped: number; items: Array<{ sourceUserId: string; targetUserId: string; role: string }> } {
-  assertWorkspaceManager(params.actorUserId, params.workspaceId);
+}): Promise<{
+  applied: number;
+  skipped: number;
+  items: Array<{ sourceUserId: string; targetUserId: string; role: string }>;
+}> {
+  const targetWorkspace = await assertWorkspaceManager(params.actorUserId, params.workspaceId);
   const manifest = validateRoundTripPermissionsManifest(params.manifest);
   const sourceById = new Map(manifest.members.map((member) => [member.sourceUserId, member]));
-  const db = getDb();
-  const targetWorkspace = db.prepare("SELECT id, ownerId FROM workspaces WHERE id = ?").get(params.workspaceId) as
-    | { id: string; ownerId: string }
-    | undefined;
-  if (!targetWorkspace) throw new Error("工作区不存在");
+  const targetIds = [...new Set((params.mappings || [])
+    .map((mapping) => String(mapping.targetUserId || ""))
+    .filter(Boolean))];
+  const existingTargetIds = await roundTripPermissionMappingRepository.listExistingUserIds(targetIds);
+  const existingRoles = await roundTripPermissionMappingRepository.listWorkspaceMemberRoles(
+    params.workspaceId,
+    targetIds,
+  );
 
   const items: Array<{ sourceUserId: string; targetUserId: string; role: string }> = [];
   let skipped = 0;
   const usedTargets = new Set<string>();
-  const transaction = db.transaction(() => {
-    for (const mapping of params.mappings || []) {
-      const source = sourceById.get(String(mapping.sourceUserId || ""));
-      const targetUserId = String(mapping.targetUserId || "");
-      if (!source || !targetUserId || usedTargets.has(targetUserId)) {
-        skipped += 1;
-        continue;
-      }
-      usedTargets.add(targetUserId);
-      const target = db.prepare("SELECT id FROM users WHERE id = ? AND COALESCE(isDisabled, 0) = 0").get(targetUserId) as { id: string } | undefined;
-      if (!target || targetUserId === targetWorkspace.ownerId) {
-        skipped += 1;
-        continue;
-      }
-      const desired = mapping.role === "admin" || mapping.role === "editor" || mapping.role === "viewer"
-        ? mapping.role
-        : roleForApply(source.role);
-      const existing = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-        .get(params.workspaceId, targetUserId) as { role: string } | undefined;
-      if (existing && roleRank(existing.role) >= roleRank(desired)) {
-        skipped += 1;
-        continue;
-      }
-      if (existing) {
-        db.prepare("UPDATE workspace_members SET role = ? WHERE workspaceId = ? AND userId = ?")
-          .run(desired, params.workspaceId, targetUserId);
-      } else {
-        db.prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)")
-          .run(params.workspaceId, targetUserId, desired);
-      }
-      items.push({ sourceUserId: source.sourceUserId, targetUserId, role: desired });
+  for (const mapping of params.mappings || []) {
+    const source = sourceById.get(String(mapping.sourceUserId || ""));
+    const targetUserId = String(mapping.targetUserId || "");
+    if (
+      !source
+      || !targetUserId
+      || usedTargets.has(targetUserId)
+      || !existingTargetIds.has(targetUserId)
+      || targetUserId === targetWorkspace.ownerId
+    ) {
+      skipped += 1;
+      continue;
     }
-  });
-  transaction();
+    usedTargets.add(targetUserId);
+    const desired = mapping.role === "admin" || mapping.role === "editor" || mapping.role === "viewer"
+      ? mapping.role
+      : roleForApply(source.role);
+    if (roleRank(existingRoles.get(targetUserId)) >= roleRank(desired)) {
+      skipped += 1;
+      continue;
+    }
+    items.push({ sourceUserId: source.sourceUserId, targetUserId, role: desired });
+  }
+
+  await roundTripPermissionMappingRepository.upsertWorkspaceMembers(
+    params.workspaceId,
+    items.map(({ targetUserId, role }) => ({ targetUserId, role })),
+  );
   return { applied: items.length, skipped, items };
 }
 

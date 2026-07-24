@@ -1,0 +1,85 @@
+name: PostgreSQL Note Runtime
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - "backend/src/lib/noteBlocksRuntime.ts"
+      - "backend/src/lib/noteContentReferences.ts"
+      - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
+      - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/tests/note-collection-runtime-pg.test.ts"
+      - "backend/tests/note-core-runtime-pg.test.ts"
+      - "backend/tests/note-core-runtime-formats-pg.test.ts"
+      - ".github/workflows/pg-note-runtime.yml"
+  pull_request:
+    paths:
+      - "backend/src/lib/noteBlocksRuntime.ts"
+      - "backend/src/lib/noteContentReferences.ts"
+      - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/note-collection-runtime.ts"
+      - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/tests/note-collection-runtime-pg.test.ts"
+      - "backend/tests/note-core-runtime-pg.test.ts"
+      - "backend/tests/note-core-runtime-formats-pg.test.ts"
+      - ".github/workflows/pg-note-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  note-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+      - name: Real PostgreSQL note runtime tests
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test --test-concurrency=1 \
+            tests/note-link-titles-runtime-pg.test.ts \
+            tests/note-core-runtime-pg.test.ts \
+            tests/note-core-runtime-formats-pg.test.ts \
+            tests/note-collection-runtime-pg.test.ts \
+            2>&1 | tee /tmp/pg-note-runtime.log
+      - name: Upload note runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-note-runtime-${{ github.run_id }}
+          path: /tmp/pg-note-runtime.log
+          if-no-files-found: warn
+          retention-days: 7

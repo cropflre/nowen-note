@@ -2,26 +2,37 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test, { after, beforeEach } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-note-transfer-hardening-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
 process.env.ELECTRON_USER_DATA = tempDir;
 process.env.JWT_SECRET = "note-transfer-hardening-test-secret";
 
-const { closeDb, getDb } = await import("../src/db/schema.js");
-const { initAuditTables } = await import("../src/services/audit.js");
-const { getAttachmentsDir } = await import("../src/services/attachment-storage.js");
-const { executeNoteTransferSafe } = await import("../src/services/noteTransferSafety.js");
-const { NoteTransferError } = await import("../src/services/noteTransfer.js");
-const noteTransfersRouter = (await import("../src/routes/note-transfers.js")).default;
-
-const db = getDb();
-initAuditTables();
+let closeDb: () => void;
+let db: any;
+let getAttachmentsDir: () => string;
+let executeNoteTransferSafe: (input: any) => Promise<any>;
+let noteTransfersRouter: any;
 
 const NOTE_ONE = "11111111-1111-4111-8111-111111111111";
 const NOTE_TWO = "22222222-2222-4222-8222-222222222222";
 const ATTACHMENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+before(async () => {
+  const schema = await import("../src/db/schema.js");
+  const audit = await import("../src/services/audit.js");
+  const storage = await import("../src/services/attachment-storage.js");
+  const safety = await import("../src/services/noteTransferSafety.js");
+  const routes = await import("../src/routes/note-transfers.js");
+
+  closeDb = schema.closeDb;
+  db = schema.getDb();
+  getAttachmentsDir = storage.getAttachmentsDir;
+  executeNoteTransferSafe = safety.executeNoteTransferSafe;
+  noteTransfersRouter = routes.default;
+  audit.initAuditTables();
+});
 
 function resetDb() {
   db.pragma("foreign_keys = OFF");
@@ -67,7 +78,7 @@ beforeEach(() => {
 });
 
 after(() => {
-  closeDb();
+  closeDb?.();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -83,9 +94,13 @@ test("move execution rejects an empty or partial preview version map", async () 
       mode: "move",
       expectedVersions: {},
     }),
-    (error: unknown) => error instanceof NoteTransferError
-      && error.code === "TRANSFER_PREVIEW_REQUIRED"
-      && error.status === 409,
+    (error: unknown) => {
+      const typed = error as { name?: unknown; code?: unknown; status?: unknown };
+      return error instanceof Error
+        && typed.name === "NoteTransferError"
+        && typed.code === "TRANSFER_PREVIEW_REQUIRED"
+        && typed.status === 409;
+    },
   );
   const source = db.prepare("SELECT isTrashed, version FROM notes WHERE id = ?").get(NOTE_ONE) as any;
   assert.equal(source.isTrashed, 0);
@@ -114,8 +129,8 @@ test("copied contentText follows rewritten note and attachment ids", async () =>
     targetNotebookId: "team",
     mode: "copy",
   });
-  const copiedOne = result.items.find((item) => item.sourceNoteId === NOTE_ONE)!;
-  const copiedTwo = result.items.find((item) => item.sourceNoteId === NOTE_TWO)!;
+  const copiedOne = result.items.find((item: any) => item.sourceNoteId === NOTE_ONE)!;
+  const copiedTwo = result.items.find((item: any) => item.sourceNoteId === NOTE_TWO)!;
   const target = db.prepare("SELECT content, contentText FROM notes WHERE id = ?").get(copiedOne.targetNoteId) as any;
   const copiedAttachment = db.prepare("SELECT id FROM attachments WHERE noteId = ?").get(copiedOne.targetNoteId) as any;
 

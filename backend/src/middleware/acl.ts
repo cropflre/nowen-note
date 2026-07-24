@@ -10,12 +10,15 @@
  * 操作权限映射：read < comment < write < manage
  */
 import type { Context, Next } from "hono";
-import { getDb } from "../db/schema";
 import {
   resolveNoteNotebookMemberPermission,
   resolveNotebookMemberPermission,
 } from "../services/notebook-permissions";
-import { noteAclRepository, workspaceMembersRepository } from "../repositories";
+import {
+  aclQueryRepository,
+  noteAclRepository,
+  workspaceMembersRepository,
+} from "../repositories";
 
 export type WorkspaceRole = "owner" | "admin" | "editor" | "commenter" | "viewer";
 export type Permission = "read" | "comment" | "write" | "manage";
@@ -87,10 +90,7 @@ export function resolveNotePermission(
   noteId: string,
   userId: string,
 ): { permission: Permission | null; workspaceId: string | null; noteOwnerId: string | null } {
-  const db = getDb();
-  const note = db
-    .prepare("SELECT userId, workspaceId FROM notes WHERE id = ?")
-    .get(noteId) as { userId: string; workspaceId: string | null } | undefined;
+  const note = aclQueryRepository.getNoteOwnerScope(noteId);
 
   if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
 
@@ -131,10 +131,7 @@ export function resolveNotebookPermission(
   notebookId: string,
   userId: string,
 ): { permission: Permission | null; workspaceId: string | null; notebookOwnerId: string | null } {
-  const db = getDb();
-  const nb = db
-    .prepare("SELECT userId, workspaceId FROM notebooks WHERE id = ?")
-    .get(notebookId) as { userId: string; workspaceId: string | null } | undefined;
+  const nb = aclQueryRepository.getNotebookOwnerScope(notebookId);
 
   if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };
 
@@ -168,10 +165,8 @@ export function getUserAccessibleWorkspaceIds(userId: string): string[] {
 }
 
 /**
- * SQL WHERE 片段：筛选出用户可见的笔记/笔记本
- * 用法：
- *   const { where, params } = buildVisibilityWhere(userId, 'notes');
- *   db.prepare(`SELECT * FROM notes ${where}`).all(...params);
+ * SQL WHERE 片段：筛选出用户可见的笔记/笔记本。
+ * 调用方把返回的 where / params 交给对应 Repository 执行。
  */
 export function buildVisibilityWhere(
   userId: string,
@@ -278,9 +273,7 @@ export function requireWorkspaceRole(min: WorkspaceRole) {
  */
 export function isSystemAdmin(userId: string): boolean {
   if (!userId) return false;
-  const db = getDb();
-  const row = db.prepare("SELECT role FROM users WHERE id = ?").get(userId) as { role?: string } | undefined;
-  return row?.role === "admin";
+  return aclQueryRepository.getSystemRole(userId)?.role === "admin";
 }
 
 /**
@@ -350,10 +343,7 @@ export function resolveWorkspaceFeatures(
   workspaceId: string | null,
 ): EnabledFeaturesConfig {
   if (!workspaceId) return {};
-  const db = getDb();
-  const row = db
-    .prepare("SELECT enabledFeatures FROM workspaces WHERE id = ?")
-    .get(workspaceId) as { enabledFeatures?: string } | undefined;
+  const row = aclQueryRepository.getWorkspaceFeatures(workspaceId);
   const raw = row?.enabledFeatures;
   if (!raw) return {};
   try {
