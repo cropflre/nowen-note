@@ -160,6 +160,6 @@ test("PostgreSQL notes collection lists scoped notes and creates normalized cont
     const listBody = await listResponse.json() as Array<{ id: string }>;
     assert.ok(listBody.some((note) => note.id === CREATED_NOTE));
   } finally {
-    await closePgPool();
+    await closePgPool(pool);
   }
 });
