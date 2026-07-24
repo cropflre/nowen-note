@@ -1,0 +1,95 @@
+name: Issue 355 Block Patch Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-355-block-patch-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --silent
+      - name: Backend block patch diagnostics
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test \
+            tests/tiptap-block-patch.test.ts \
+            tests/tiptap-block-patch-v2.test.ts \
+            tests/tiptap-block-patch-image.test.ts \
+            tests/tiptap-list-item-move.test.ts \
+            tests/tiptap-list-item-structure.test.ts \
+            tests/block-patch-route.test.ts \
+            tests/block-patch-route-v2.test.ts \
+            tests/block-patch-route-image.test.ts \
+            tests/block-patch-list-route.test.ts \
+            tests/block-patch-list-structure-route.test.ts \
+            tests/block-patch-incremental-index.test.ts \
+            tests/block-patch-mixed-index.test.ts > /tmp/block-patch-backend.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "===== BACKEND FAILURE TAIL ====="
+            tail -n 180 /tmp/block-patch-backend.log
+            exit "$status"
+          fi
+          tail -n 30 /tmp/block-patch-backend.log
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - name: Frontend block patch diagnostics
+        shell: bash
+        run: |
+          set +e
+          npm run test:run -- \
+            src/lib/__tests__/blockPatchApi.test.ts \
+            src/lib/__tests__/blockPatchListStructureApi.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts \
+            src/lib/__tests__/tiptapSchemaRepair.test.ts \
+            src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts \
+            src/lib/__tests__/tiptapBlockPatchRuntime.test.ts \
+            src/lib/__tests__/tiptapListItemMovePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemStructurePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemBatchPlanner.test.ts \
+            src/lib/__tests__/tiptapListItemLiftPlanner.test.ts \
+            src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts \
+            src/components/__tests__/TiptapBlockPatchRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx \
+            src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx \
+            src/components/__tests__/TiptapRuntimePublicContext.test.tsx > /tmp/block-patch-frontend.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "===== FRONTEND FAILURE TAIL ====="
+            tail -n 180 /tmp/block-patch-frontend.log
+            exit "$status"
+          fi
+          tail -n 30 /tmp/block-patch-frontend.log
