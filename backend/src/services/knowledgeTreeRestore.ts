@@ -72,6 +72,17 @@ export function restoreKnowledgeNode(input: {
   const nodes = readSubtree(db, input.nodeId, input.includeSubtree !== false);
   const restored: string[] = [];
   const transaction = db.transaction(() => {
+    // Activate every navigation row first. Legacy resource triggers then see an active parent even
+    // when their own restore UPDATE writes scopeKey/parentId as part of an idempotent sync.
+    for (const node of nodes) {
+      db.prepare(`
+        UPDATE knowledge_tree_nodes
+        SET isDeleted = 0, deletedAt = NULL, updatedAt = datetime('now')
+        WHERE id = ?
+      `).run(node.id);
+      restored.push(node.id);
+    }
+
     for (const node of nodes) {
       if (node.resourceType === "note") {
         db.prepare("UPDATE notes SET isTrashed = 0, trashedAt = NULL, updatedAt = datetime('now') WHERE id = ?")
@@ -80,13 +91,8 @@ export function restoreKnowledgeNode(input: {
         db.prepare("UPDATE notebooks SET isDeleted = 0, deletedAt = NULL, updatedAt = datetime('now') WHERE id = ?")
           .run(node.resourceId);
       }
-      db.prepare(`
-        UPDATE knowledge_tree_nodes
-        SET isDeleted = 0, deletedAt = NULL, updatedAt = datetime('now')
-        WHERE id = ?
-      `).run(node.id);
-      restored.push(node.id);
     }
+
     db.prepare(`
       INSERT INTO knowledge_tree_history (
         id, nodeId, action, actorUserId, toParentId, metadata
