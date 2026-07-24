@@ -82,7 +82,7 @@ export default function EditorPaneRuntime() {
   );
 
   return (
-    <div className="relative h-full min-h-0">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       <EditorPane />
 
       {canSplit && (
