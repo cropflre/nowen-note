@@ -7,7 +7,12 @@
  */
 
 import type { Pool, PoolClient, QueryResult } from "pg";
-import type { DatabaseAdapter, DbRunResult, DbStatement } from "./adapters/types";
+import {
+  DbStatementChangeError,
+  type DatabaseAdapter,
+  type DbRunResult,
+  type DbStatement,
+} from "./adapters/types";
 import { convertSql } from "./dialect";
 
 async function poolQuery(pool: Pool, sql: string, params: unknown[]): Promise<QueryResult> {
@@ -20,9 +25,7 @@ async function clientQuery(client: PoolClient, sql: string, params: unknown[]): 
 
 function assertRequiredChanges(statement: DbStatement, changes: number): void {
   if (statement.requireChanges === undefined || changes === statement.requireChanges) return;
-  throw new Error(
-    `[db] transactional statement expected ${statement.requireChanges} changed row(s), received ${changes}`,
-  );
+  throw new DbStatementChangeError(statement.requireChanges, changes);
 }
 
 export class PostgresAdapter implements DatabaseAdapter {
