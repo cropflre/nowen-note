@@ -12,7 +12,7 @@ import {
   getDatabaseRuntimeStatus,
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
-import notesRuntimeRouter from "./routes/notes-runtime";
+import createNotesRuntimeRouter from "./routes/notes-runtime";
 
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
@@ -113,7 +113,7 @@ async function authenticateNoteRequest(c: Context, next: Next) {
 // The collection route and remaining note subroutes continue to return the runtime-pending response.
 app.use("/api/notes/:id", authenticateNoteRequest);
 app.use("/api/notes/:id/*", authenticateNoteRequest);
-app.route("/api/notes", notesRuntimeRouter);
+app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres"));
 
 app.all("*", (c) => c.json({
   error: "PostgreSQL runtime is connected, but this route has not been migrated yet",
