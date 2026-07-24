@@ -216,28 +216,6 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     isEncryptionAvailable() {
       return ipcRenderer.invoke("credentials:is-encryption-available");
     },
-    loadProfile(profileId) {
-      if (typeof profileId !== "string") return Promise.resolve(null);
-      return ipcRenderer.invoke("credentials:profile-load", profileId.slice(0, 160));
-    },
-    saveProfile(payload) {
-      if (!payload || typeof payload !== "object") return Promise.resolve({ ok: false, error: "INVALID_PAYLOAD" });
-      const safe = {};
-      if (typeof payload.profileId === "string") safe.profileId = payload.profileId.slice(0, 160);
-      if (typeof payload.serverUrl === "string") safe.serverUrl = payload.serverUrl.slice(0, 2048);
-      if (typeof payload.username === "string") safe.username = payload.username.slice(0, 256);
-      if (typeof payload.token === "string") safe.token = payload.token.slice(0, 8192);
-      if (typeof payload.password === "string") safe.password = payload.password.slice(0, 1024);
-      if (typeof payload.autoLogin === "boolean") safe.autoLogin = payload.autoLogin;
-      return ipcRenderer.invoke("credentials:profile-save", safe);
-    },
-    removeProfile(profileId) {
-      if (typeof profileId !== "string") return Promise.resolve({ ok: false, error: "INVALID_PROFILE_ID" });
-      return ipcRenderer.invoke("credentials:profile-remove", profileId.slice(0, 160));
-    },
-    listProfiles() {
-      return ipcRenderer.invoke("credentials:profile-list");
-    },
   },
 
   /**
