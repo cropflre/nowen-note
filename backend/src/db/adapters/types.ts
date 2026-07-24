@@ -9,7 +9,7 @@
  * - SQLite adapter 包装 better-sqlite3 同步 API 为 async facade
  * - PostgreSQL adapter 接 pg 异步 API
  * - 禁止 db.transaction(async () => {})——会导致事务边界失真
- * - withTransaction 未来通过 executeStatements 或专用方法实现
+ * - executeStatements 通过 requireChanges 支持乐观锁原子回滚
  */
 
 /** 写操作返回值 */
@@ -20,10 +20,21 @@ export interface DbRunResult {
   lastInsertRowid?: number | bigint;
 }
 
+/** 同一事务中执行的一条语句。 */
+export interface DbStatement {
+  sql: string;
+  params?: unknown[];
+  /**
+   * 要求该语句恰好影响指定行数；不满足时抛错并回滚整个事务。
+   * 主要用于 UPDATE ... WHERE version = ? 的乐观锁边界。
+   */
+  requireChanges?: number;
+}
+
 /**
  * 统一数据库适配器接口。
  *
- * SqliteAdapter 和未来的 PostgresAdapter 都必须实现此接口。
+ * SqliteAdapter 和 PostgresAdapter 都必须实现此接口。
  * Repository 层通过此接口访问数据库，不直接依赖具体驱动。
  */
 export interface DatabaseAdapter {
@@ -40,7 +51,7 @@ export interface DatabaseAdapter {
   executeBatch(sql: string, paramsList: unknown[][]): Promise<DbRunResult>;
 
   /** 执行多条不同 SQL（在同一事务中执行，中途失败整体回滚） */
-  executeStatements(statements: Array<{ sql: string; params?: unknown[] }>): Promise<{ changes: number }>;
+  executeStatements(statements: DbStatement[]): Promise<{ changes: number }>;
 }
 
 /** @deprecated Use DatabaseAdapter instead */
