@@ -163,6 +163,7 @@ jobs:
           tests/note-tags-repository-pg.test.ts
           tests/note-link-titles-runtime-pg.test.ts
           tests/note-core-runtime-pg.test.ts
+          tests/note-core-runtime-formats-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
