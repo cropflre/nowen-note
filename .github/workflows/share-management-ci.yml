@@ -55,8 +55,24 @@ jobs:
       - working-directory: backend
         run: npm ci
       - name: Share management service and route tests
+        id: management-tests
         working-directory: backend
-        run: node --import tsx --test tests/share-management.test.ts tests/share-management-route.test.ts
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test tests/share-management.test.ts tests/share-management-route.test.ts > /tmp/share-management-backend.log 2>&1
+          status=$?
+          cat /tmp/share-management-backend.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: share-management-backend
+          path: /tmp/share-management-backend.log
+      - name: Require share management tests
+        if: steps.management-tests.outputs.status != '0'
+        run: exit 1
       - name: Existing share security regression
         working-directory: backend
         run: node --import tsx --test tests/share-security-capabilities.test.ts
