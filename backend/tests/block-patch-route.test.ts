@@ -264,7 +264,7 @@ test("rejects reuse of one user-level operation ID on another note", async () =>
   assert.equal(versionRows(secondNoteId).length, 0);
 });
 
-test("rejects Markdown notes until their block patch protocol is format-aware", async () => {
+test("rejects the legacy Tiptap operation shape for Markdown notes", async () => {
   const noteId = "44444444-4444-4444-8444-444444444444";
   insertNote({
     id: noteId,
@@ -279,6 +279,6 @@ test("rejects Markdown notes until their block patch protocol is format-aware", 
   });
   assert.equal(response.status, 400);
   const payload = await response.json() as any;
-  assert.equal(payload.code, "BLOCK_FORMAT_UNSUPPORTED");
+  assert.equal(payload.code, "INVALID_MARKDOWN_PATCH");
   assert.equal(versionRows(noteId).length, 0);
 });
