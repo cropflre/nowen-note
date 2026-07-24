@@ -29,6 +29,7 @@ import {
   readBlockAuthorityHistory,
   rebuildBlockAuthorityStore,
 } from "../lib/blockAuthorityStore";
+import { resolveBlockAuthorityMode, selectBlockAuthorityRead } from "../lib/blockAuthorityMode";
 import { extractSearchableText } from "../lib/searchIndex";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
@@ -400,9 +401,10 @@ app.get("/:id", (c) => {
 
   if (!slim && typeof note.content === "string") {
     const authoritative = readAuthoritativeNoteContent(db, id, note.content);
-    note.content = authoritative.content;
-    note.blockAuthority = { source: authoritative.source, status: authoritative.status };
-    if (authoritative.source === "notes" && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
+    const selected = selectBlockAuthorityRead(resolveBlockAuthorityMode(), authoritative, note.content);
+    note.content = selected.content;
+    note.blockAuthority = { source: selected.source, status: selected.status };
+    if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
       try {
         const synced = syncNoteBlocks(db, id, note.content, note.contentFormat);
         if (synced.changed) {
