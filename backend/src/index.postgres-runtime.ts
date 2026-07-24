@@ -42,7 +42,7 @@ app.get("/api/health", async (c) => {
       businessRoutesReady: false,
       migratedRoutes: [
         "GET /api/notes/:id",
-        "PUT /api/notes/:id (tiptap-json)",
+        "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata)",
       ],
     },
   }, status);
@@ -129,7 +129,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Core single-note read/save is enabled; remaining business routes stay disabled until #249 completes");
+console.warn("[db] Single-note read plus multi-format/core-metadata save is enabled; remaining business routes stay disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 let shuttingDown = false;
