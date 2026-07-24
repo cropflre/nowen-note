@@ -149,20 +149,31 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - name: Block patch engine, list structure/hierarchy, incremental index and route tests
-        run: >-
-          node --import tsx --test
-          tests/tiptap-block-patch.test.ts
-          tests/tiptap-block-patch-v2.test.ts
-          tests/tiptap-block-patch-image.test.ts
-          tests/tiptap-list-item-move.test.ts
-          tests/tiptap-list-item-structure.test.ts
-          tests/block-patch-route.test.ts
-          tests/block-patch-route-v2.test.ts
-          tests/block-patch-route-image.test.ts
-          tests/block-patch-list-route.test.ts
-          tests/block-patch-list-structure-route.test.ts
-          tests/block-patch-incremental-index.test.ts
-          tests/block-patch-mixed-index.test.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test \
+            tests/tiptap-block-patch.test.ts \
+            tests/tiptap-block-patch-v2.test.ts \
+            tests/tiptap-block-patch-image.test.ts \
+            tests/tiptap-list-item-move.test.ts \
+            tests/tiptap-list-item-structure.test.ts \
+            tests/block-patch-route.test.ts \
+            tests/block-patch-route-v2.test.ts \
+            tests/block-patch-route-image.test.ts \
+            tests/block-patch-list-route.test.ts \
+            tests/block-patch-list-structure-route.test.ts \
+            tests/block-patch-incremental-index.test.ts \
+            tests/block-patch-mixed-index.test.ts \
+            2>&1 | tee /tmp/block-patch-backend.log
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-patch-backend-${{ github.run_id }}
+          path: /tmp/block-patch-backend.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Backend typecheck
         run: npm run build:tsc
 
@@ -181,27 +192,38 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Block patch client, planner and rollout tests
-        run: >-
-          npm run test:run --
-          src/lib/__tests__/blockPatchApi.test.ts
-          src/lib/__tests__/blockPatchListStructureApi.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlanner.test.ts
-          src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts
-          src/lib/__tests__/tiptapSchemaRepair.test.ts
-          src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts
-          src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts
-          src/lib/__tests__/tiptapBlockPatchRuntime.test.ts
-          src/lib/__tests__/tiptapListItemMovePlanner.test.ts
-          src/lib/__tests__/tiptapListItemStructurePlanner.test.ts
-          src/lib/__tests__/tiptapListItemBatchPlanner.test.ts
-          src/lib/__tests__/tiptapListItemLiftPlanner.test.ts
-          src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts
-          src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx
-          src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx
-          src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx
-          src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx
-          src/components/__tests__/TiptapRuntimePublicContext.test.tsx
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:run -- \
+            src/lib/__tests__/blockPatchApi.test.ts \
+            src/lib/__tests__/blockPatchListStructureApi.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchPlannerV2.test.ts \
+            src/lib/__tests__/tiptapSchemaRepair.test.ts \
+            src/lib/__tests__/tiptapBlockPatchImagePlanner.test.ts \
+            src/lib/__tests__/tiptapBlockPatchEmptyDocument.test.ts \
+            src/lib/__tests__/tiptapBlockPatchRuntime.test.ts \
+            src/lib/__tests__/tiptapListItemMovePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemStructurePlanner.test.ts \
+            src/lib/__tests__/tiptapListItemBatchPlanner.test.ts \
+            src/lib/__tests__/tiptapListItemLiftPlanner.test.ts \
+            src/lib/__tests__/tiptapEmptyBlockIdentityDispatch.test.ts \
+            src/components/__tests__/TiptapBlockPatchRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchRuntimeV2.test.tsx \
+            src/components/__tests__/TiptapBlockPatchImageRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchEmptyDocument.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListRuntime.test.tsx \
+            src/components/__tests__/TiptapBlockPatchListStructureRuntime.test.tsx \
+            src/components/__tests__/TiptapRuntimePublicContext.test.tsx \
+            2>&1 | tee /tmp/block-patch-frontend.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-patch-frontend-${{ github.run_id }}
+          path: /tmp/block-patch-frontend.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Frontend typecheck
         run: npx tsc -b
