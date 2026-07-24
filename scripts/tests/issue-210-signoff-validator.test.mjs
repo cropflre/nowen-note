@@ -129,6 +129,15 @@ test("rejects editor remount, selection movement and scroll jumps", () => {
   assert.match(failures, /moved scroll by more than 2px/);
 });
 
+test("rejects missing selection and scroll evidence", () => {
+  const value = snapshot("web");
+  value.saveSamples[0].before.selection = null;
+  value.saveSamples[1].scrollDeltaPx = null;
+  const failures = validateIssue210Snapshot(value).join("\n");
+  assert.match(failures, /selection evidence is missing/);
+  assert.match(failures, /scrollDeltaPx is missing/);
+});
+
 test("rejects missing cache and Range evidence", () => {
   const value = snapshot("electron");
   const second = value.mediaResources.find((item) => item.phase === "second-open");

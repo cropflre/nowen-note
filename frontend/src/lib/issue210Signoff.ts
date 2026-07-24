@@ -105,7 +105,7 @@ function findActiveEditor(): HTMLElement | null {
     if (closest) return closest;
   }
   return document.querySelector<HTMLElement>(
-    '.ProseMirror[contenteditable="true"], .cm-editor:has(.cm-content[contenteditable="true"])',
+    '.ProseMirror[contenteditable="true"], .cm-editor',
   );
 }
 

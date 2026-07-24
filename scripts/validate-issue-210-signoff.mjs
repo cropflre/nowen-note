@@ -140,9 +140,13 @@ function validateSaveSamples(snapshot, failures) {
       failures.push(`${prefix}.status is not successful`);
     }
     if (sample.instanceStable !== true) failures.push(`${prefix} remounted the editor`);
-    if (sample.selectionStable !== true) failures.push(`${prefix} changed the selection`);
-    if (!finiteNonNegative(Math.abs(sample.scrollDeltaPx))) failures.push(`${prefix}.scrollDeltaPx is missing`);
-    else if (Math.abs(sample.scrollDeltaPx) > 2) failures.push(`${prefix} moved scroll by more than 2px`);
+    if (!sample.before?.selection || !sample.after?.selection) failures.push(`${prefix}.selection evidence is missing`);
+    else if (sample.selectionStable !== true) failures.push(`${prefix} changed the selection`);
+    if (typeof sample.scrollDeltaPx !== "number" || !Number.isFinite(sample.scrollDeltaPx)) {
+      failures.push(`${prefix}.scrollDeltaPx is missing`);
+    } else if (Math.abs(sample.scrollDeltaPx) > 2) {
+      failures.push(`${prefix} moved scroll by more than 2px`);
+    }
     if (!finiteNonNegative(sample.layoutShiftDelta)) failures.push(`${prefix}.layoutShiftDelta is invalid`);
     else if (sample.layoutShiftDelta > 0.01) failures.push(`${prefix} layout shift exceeds 0.01`);
   });
