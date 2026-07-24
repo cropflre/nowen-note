@@ -1,0 +1,89 @@
+name: Knowledge Tree CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/db/knowledgeTree*.ts"
+      - "backend/src/db/postgres/060_knowledge_tree.sql"
+      - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/knowledge*.ts"
+      - "backend/src/services/notebook-permissions.ts"
+      - "backend/src/middleware/knowledgeCapabilityGuard.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/tests/knowledge-tree*.test.ts"
+      - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/MobileDrawerUxBridge.tsx"
+      - "frontend/src/lib/knowledgeTree*.ts"
+      - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
+      - ".github/workflows/knowledge-tree-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/knowledgeTree*.ts"
+      - "backend/src/db/postgres/060_knowledge_tree.sql"
+      - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/knowledge*.ts"
+      - "backend/src/services/notebook-permissions.ts"
+      - "backend/src/middleware/knowledgeCapabilityGuard.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/tests/knowledge-tree*.test.ts"
+      - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/MobileDrawerUxBridge.tsx"
+      - "frontend/src/lib/knowledgeTree*.ts"
+      - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
+      - ".github/workflows/knowledge-tree-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Knowledge tree SQLite tests
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/knowledge-tree.test.ts
+      - name: PostgreSQL schema parity test
+        run: >-
+          node --import tsx --test
+          tests/knowledge-tree-postgres-schema.test.ts
+      - name: Backend typecheck
+        if: always()
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Knowledge tree and workspace layout tests
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/knowledgeTreeModel.test.ts
+          src/lib/__tests__/editorWorkspaceLayout.test.ts
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b

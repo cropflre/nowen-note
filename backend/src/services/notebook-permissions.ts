@@ -1,6 +1,10 @@
 import type { Permission } from "../middleware/acl";
 import { memberQueryService } from "../queries";
 import { ensureNotebookTreeIntegrityGuards } from "../runtime/notebook-tree-hardening.js";
+import {
+  capabilitiesToLegacyPermission,
+  resolveResourceKnowledgeAccess,
+} from "./knowledgeCapabilities.js";
 
 ensureNotebookTreeIntegrityGuards();
 
@@ -42,10 +46,22 @@ export function notebookRoleToPermission(role: string | null | undefined): Permi
   return null;
 }
 
+function explicitKnowledgePermission(
+  resourceType: "notebook" | "note",
+  resourceId: string,
+  userId: string,
+): Permission | null | undefined {
+  const access = resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
+  if (access.source !== "direct" && access.source !== "inherited") return undefined;
+  return capabilitiesToLegacyPermission(access.capabilities) || DENY_PERMISSION;
+}
+
 export function resolveNotebookMemberPermission(
   notebookId: string,
   userId: string,
 ): Permission | null {
+  const knowledgePermission = explicitKnowledgePermission("notebook", notebookId, userId);
+  if (knowledgePermission !== undefined) return knowledgePermission;
   const row = memberQueryService.getNotebookMemberRole(notebookId, userId);
   return notebookRoleToPermission(row?.role);
 }
@@ -54,6 +70,8 @@ export function resolveNoteNotebookMemberPermission(
   noteId: string,
   userId: string,
 ): Permission | null {
+  const knowledgePermission = explicitKnowledgePermission("note", noteId, userId);
+  if (knowledgePermission !== undefined) return knowledgePermission;
   const row = memberQueryService.getNoteNotebookMemberRole(noteId, userId);
   return notebookRoleToPermission(row?.role);
 }
