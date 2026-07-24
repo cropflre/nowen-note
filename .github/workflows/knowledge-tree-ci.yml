@@ -56,17 +56,73 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Knowledge tree SQLite tests
-        run: >-
-          node --import tsx --import ./tests/setup-db-isolation.ts --test
-          tests/knowledge-tree.test.ts
-      - name: PostgreSQL schema parity test
-        run: >-
-          node --import tsx --test
-          tests/knowledge-tree-postgres-schema.test.ts
-      - name: Backend typecheck
+      - name: Prepare diagnostic logs
+        run: mkdir -p .ci
+      - id: sqlite
+        name: Knowledge tree SQLite tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts 2>&1 | tee .ci/sqlite.log
+      - id: postgres
+        name: PostgreSQL schema parity test
         if: always()
-        run: npm run build:tsc
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node --import tsx --test tests/knowledge-tree-postgres-schema.test.ts 2>&1 | tee .ci/postgres.log
+      - id: backend_typecheck
+        name: Backend typecheck
+        if: always()
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run build:tsc 2>&1 | tee .ci/typecheck.log
+      - name: Publish backend diagnostics
+        if: always() && github.event_name == 'push' && github.ref_name == 'feat/issue-370-p0c-p1-knowledge-tree' && (steps.sqlite.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
+        uses: actions/github-script@v7
+        env:
+          SQLITE_OUTCOME: ${{ steps.sqlite.outcome }}
+          POSTGRES_OUTCOME: ${{ steps.postgres.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.backend_typecheck.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const readTail = (path) => {
+              try {
+                const text = fs.readFileSync(path, 'utf8');
+                return text.slice(-12000);
+              } catch {
+                return '(no log)';
+              }
+            };
+            const marker = '<!-- knowledge-tree-backend-diagnostics -->';
+            const body = `${marker}\n## P0-C / P1 Backend 诊断\n\n- SQLite：\`${process.env.SQLITE_OUTCOME}\`\n- PostgreSQL schema：\`${process.env.POSTGRES_OUTCOME}\`\n- TypeScript：\`${process.env.TYPECHECK_OUTCOME}\`\n- Commit：\`${context.sha}\`\n\n<details><summary>SQLite / service test</summary>\n\n\`\`\`text\n${readTail('backend/.ci/sqlite.log')}\n\`\`\`\n</details>\n\n<details><summary>PostgreSQL schema test</summary>\n\n\`\`\`text\n${readTail('backend/.ci/postgres.log')}\n\`\`\`\n</details>\n\n<details><summary>Backend typecheck</summary>\n\n\`\`\`text\n${readTail('backend/.ci/typecheck.log')}\n\`\`\`\n</details>`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 370,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 370,
+                body,
+              });
+            }
+      - name: Enforce backend result
+        if: always() && (steps.sqlite.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
+        run: exit 1
 
   frontend:
     runs-on: ubuntu-latest
