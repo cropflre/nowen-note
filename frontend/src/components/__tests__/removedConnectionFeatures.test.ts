@@ -31,4 +31,18 @@ describe("已移除的连接与迁移功能", () => {
       expect(fs.existsSync(path.resolve(process.cwd(), relativePath))).toBe(false);
     }
   });
+
+  it("删除侧栏账号弹层并保留退出和本地恢复能力", () => {
+    const navRailSource = readSource("src/components/NavRail.tsx");
+    const dataManagerSource = readSource("src/components/DataManager.tsx");
+
+    expect(navRailSource).not.toContain("accountMenuOpen");
+    expect(navRailSource).not.toContain("sidebar.accountMenu");
+    expect(navRailSource).not.toContain("当前服务器");
+    expect(navRailSource).not.toContain("handleDesktopResetLocalAuth");
+    expect(navRailSource).toContain("const handleLogout = useCallback");
+    expect(navRailSource).toContain("onClick={handleLogout}");
+    expect(navRailSource).toContain("handleDesktopCloudButton");
+    expect(dataManagerSource).toContain("resetDesktopLocalAuth");
+  });
 });

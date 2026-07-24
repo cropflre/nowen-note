@@ -122,7 +122,7 @@ html[data-nowen-editor-runtime-mode="viewport-optimized"] .ProseMirror {
   document.head.appendChild(style);
 }
 
-function runtimeNoticeCopy(mode: EditorRuntimeMode): {
+function runtimeNoticeCopy(): {
   title: string;
   detail: string;
   action: string;
@@ -132,30 +132,16 @@ function runtimeNoticeCopy(mode: EditorRuntimeMode): {
     : "";
   const zh = language.startsWith("zh");
 
-  if (mode === "lightweight-edit") {
-    return zh
-      ? {
-          title: "轻量编辑模式",
-          detail: "已暂停代码高亮、全文实时分析和复杂节点工具栏，正文仍可编辑保存。",
-          action: "尝试完整模式",
-        }
-      : {
-          title: "Lightweight editing",
-          detail: "Syntax highlighting and whole-document analysis are paused; editing and saving remain available.",
-          action: "Try full mode",
-        };
-  }
-
   return zh
     ? {
-        title: "视口优化模式",
-        detail: "图片和代码块仅在接近可见区域时加载，正文功能保持不变。",
-        action: "恢复完整模式",
+        title: "轻量编辑模式",
+        detail: "已暂停代码高亮、全文实时分析和复杂节点工具栏，正文仍可编辑保存。",
+        action: "尝试完整模式",
       }
     : {
-        title: "Viewport optimized",
-        detail: "Images and code highlighting load near the visible area while editing remains unchanged.",
-        action: "Restore full mode",
+        title: "Lightweight editing",
+        detail: "Syntax highlighting and whole-document analysis are paused; editing and saving remain available.",
+        action: "Try full mode",
       };
 }
 
@@ -196,12 +182,12 @@ function updateRuntimeNotice(): void {
   const notice = ensureRuntimeNotice();
   if (!notice) return;
   const mode = state.decision.mode;
-  const visible = mode === "viewport-optimized" || mode === "lightweight-edit";
+  const visible = mode === "lightweight-edit";
   notice.hidden = !visible;
   if (!visible) return;
 
   notice.dataset.mode = mode;
-  const copy = runtimeNoticeCopy(mode);
+  const copy = runtimeNoticeCopy();
   const title = notice.querySelector<HTMLElement>("[data-runtime-title]");
   const detail = notice.querySelector<HTMLElement>("[data-runtime-detail]");
   const action = notice.querySelector<HTMLButtonElement>("[data-runtime-action]");
