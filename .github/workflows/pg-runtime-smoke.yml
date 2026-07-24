@@ -6,6 +6,7 @@ on:
       - pg-migration-unified
     paths:
       - "backend/src/db/**"
+      - "backend/src/lib/**"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - "backend/src/db/**"
+      - "backend/src/lib/**"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
