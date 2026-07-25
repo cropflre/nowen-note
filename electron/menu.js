@@ -195,7 +195,7 @@ function buildMenu({
           label: "删除线",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Shift+X",
+          accelerator: "CmdOrCtrl+Shift+S",
           click: () => send("menu:format", { mark: "strike" }),
         },
         { type: "separator" },
@@ -274,7 +274,7 @@ function buildMenu({
       submenu: [
         {
           label: "切换侧边栏",
-          accelerator: "CmdOrCtrl+B",
+          accelerator: "CmdOrCtrl+Shift+B",
           click: () => send("menu:toggle-sidebar"),
         },
         {
@@ -331,18 +331,24 @@ function buildMenu({
     },
 
     // ========== 帮助 ==========
-    // macOS 下 role:"help" 会让系统注入 "搜索" 框；我们只追加项目链接
+    // macOS 下 role:"help" 会让系统注入 "搜索" 框；我们追加快捷键与项目入口。
     {
       role: "help",
       label: isMac ? "帮助" : "帮助(&H)",
       submenu: [
         {
+          label: "键盘快捷键",
+          accelerator: "CmdOrCtrl+Shift+/",
+          click: () => send("menu:open-shortcuts"),
+        },
+        { type: "separator" },
+        {
           label: "项目主页",
-          click: () => shell.openExternal("https://github.com/"),
+          click: () => shell.openExternal("https://github.com/cropflre/nowen-note"),
         },
         {
           label: "报告问题",
-          click: () => shell.openExternal("https://github.com/"),
+          click: () => shell.openExternal("https://github.com/cropflre/nowen-note/issues"),
         },
         { type: "separator" },
         {
