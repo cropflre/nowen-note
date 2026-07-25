@@ -9,6 +9,7 @@ import {
   type EffectiveKnowledgeAccess,
   type KnowledgeCapabilityName,
 } from "./knowledgeCapabilities.js";
+import { resolveSharedKnowledgeRoot } from "./sharedKnowledgeTreeBoundary.js";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
 export type KnowledgeResourceType = "notebook" | "note" | "mindmap" | "file";
@@ -357,14 +358,28 @@ export function moveKnowledgeNode(input: {
   ensureKnowledgeTreeTables(db);
   const node = requireNode(db, input.nodeId);
   requireCapability(db, node.id, input.actorUserId, "canMove");
+  const sharedRootId = resolveSharedKnowledgeRoot(node.id, input.actorUserId, db);
 
   const parent = input.parentId ? requireNode(db, input.parentId) : null;
-  if (!parent && !node.workspaceId && node.userId !== input.actorUserId) {
-    throw new KnowledgeTreeError(
-      "KNOWLEDGE_SHARED_ROOT_MOVE_FORBIDDEN",
-      403,
-      "共享根节点不能移出所有者目录",
-    );
+  if (sharedRootId) {
+    if (node.id == sharedRootId) {
+      throw new KnowledgeTreeError(
+        "KNOWLEDGE_SHARED_ROOT_MOVE_FORBIDDEN",
+        403,
+        "共享根节点不能由接收者移动",
+      );
+    }
+    const targetSharedRootId = parent
+      ? resolveSharedKnowledgeRoot(parent.id, input.actorUserId, db)
+      : null;
+    if (!parent || targetSharedRootId !== sharedRootId) {
+      throw new KnowledgeTreeError(
+        "KNOWLEDGE_SHARED_ROOT_SCOPE_MISMATCH",
+        403,
+        "共享内容只能在同一个共享根内移动",
+        { sharedRootId, targetSharedRootId },
+      );
+    }
   }
   if (parent && parent.scopeKey !== node.scopeKey) {
     throw new KnowledgeTreeError("KNOWLEDGE_TREE_SCOPE_MISMATCH", 400, "不能跨空间移动内容");
