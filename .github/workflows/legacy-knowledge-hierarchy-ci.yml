@@ -8,51 +8,17 @@ on:
       - 'backend/src/routes/notebooks.ts'
       - 'backend/src/services/legacyKnowledgeHierarchy.ts'
       - 'backend/tests/legacy-knowledge-hierarchy.test.ts'
-      - 'scripts/patch_issue464_storage_guard.py'
       - '.github/workflows/legacy-knowledge-hierarchy-ci.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out pull request branch
+      - name: Check out pull request merge commit
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Apply conditional storage bootstrap patch
-        id: storage_patch
-        continue-on-error: true
-        run: |
-          if [ -f scripts/patch_issue464_storage_guard.py ]; then
-            if ! python3 scripts/patch_issue464_storage_guard.py > scripts/issue464_storage_patch.log 2>&1; then
-              cat scripts/issue464_storage_patch.log
-              exit 1
-            fi
-            rm scripts/patch_issue464_storage_guard.py
-            rm -f scripts/issue464_storage_patch.log
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add backend/src/services/legacyKnowledgeHierarchy.ts scripts/patch_issue464_storage_guard.py
-            git commit -m "fix(knowledge-tree): bootstrap legacy hierarchy storage conditionally"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
-
-      - name: Upload storage patch diagnostics
-        if: steps.storage_patch.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: issue464-storage-patch-diagnostics
-          path: scripts/issue464_storage_patch.log
-          if-no-files-found: error
-
-      - name: Enforce storage patch result
-        if: steps.storage_patch.outcome == 'failure'
-        run: exit 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
