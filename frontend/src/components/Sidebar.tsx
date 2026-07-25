@@ -1053,6 +1053,7 @@ const MemoizedNotebookItem = React.memo(NotebookItem, (previous, next) => {
 export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | "mobile" } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const sidebarRootRef = useRef<HTMLDivElement>(null);
   const { siteConfig } = useSiteSettings();
   const isDesktop = variant === "desktop";
   const constrainNotebookTreeWidth = variant === "mobile";
@@ -1172,6 +1173,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   useEffect(() => {
     const focusKnowledgeTree = () => {
+      const root = sidebarRootRef.current;
+      if (!root || root.getClientRects().length === 0) return;
       changeSidebarTreeMode("knowledge");
       requestAnimationFrame(() => {
         window.dispatchEvent(new Event(FOCUS_KNOWLEDGE_TREE_EVENT));
@@ -2803,6 +2806,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   return (
     <div
+      ref={sidebarRootRef}
       className="w-full h-full vibrancy-sidebar bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors"
       style={{ width: undefined }}
     >

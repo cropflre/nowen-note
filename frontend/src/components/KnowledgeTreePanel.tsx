@@ -77,6 +77,23 @@ function emitTreeChanged(reason: string) {
   window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CHANGED_EVENT, { detail: { reason } }));
 }
 
+function useActiveSidebarSurface(variant: "desktop" | "mobile") {
+  const mediaQuery = variant === "desktop" ? "(min-width: 768px)" : "(max-width: 767px)";
+  const [active, setActive] = useState(() =>
+    typeof window === "undefined" ? variant === "desktop" : window.matchMedia(mediaQuery).matches,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia(mediaQuery);
+    const update = () => setActive(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [mediaQuery]);
+
+  return active;
+}
+
 function PermissionsPanel({ node, onClose }: { node: KnowledgeTreeNode; onClose: () => void }) {
   const [rows, setRows] = useState<KnowledgePermissionRow[]>([]);
   const [inheritsFromParent, setInheritsFromParent] = useState<string | null>(null);
@@ -282,6 +299,7 @@ export function KnowledgeTreePanel({
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const surfaceActive = useActiveSidebarSurface(variant);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuRootRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<KnowledgeTreeNode[]>([]);
@@ -314,9 +332,12 @@ export function KnowledgeTreePanel({
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    if (surfaceActive) void reload();
+  }, [reload, surfaceActive]);
 
   useEffect(() => {
+    if (!surfaceActive) return;
     const refresh = () => void reload();
     window.addEventListener("nowen:workspace-changed", refresh);
     window.addEventListener(KNOWLEDGE_TREE_CHANGED_EVENT, refresh);
@@ -324,15 +345,16 @@ export function KnowledgeTreePanel({
       window.removeEventListener("nowen:workspace-changed", refresh);
       window.removeEventListener(KNOWLEDGE_TREE_CHANGED_EVENT, refresh);
     };
-  }, [reload]);
+  }, [reload, surfaceActive]);
 
   useEffect(() => {
+    if (!surfaceActive) return;
     const focus = () => {
       requestAnimationFrame(() => searchRef.current?.focus());
     };
     window.addEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
     return () => window.removeEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
-  }, []);
+  }, [surfaceActive]);
 
   useEffect(() => {
     if (!menuNodeId) return;
@@ -584,7 +606,7 @@ export function KnowledgeTreePanel({
   };
 
   return (
-    <section ref={menuRootRef} className={cn("relative flex min-h-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded">
+    <section ref={menuRootRef} className={cn("relative flex min-h-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
       <div className="flex items-center gap-1.5 px-2 pb-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-app-border bg-app-bg px-2 py-1.5">
           <Search size={13} className="shrink-0 text-tx-tertiary" />
