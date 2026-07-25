@@ -1,0 +1,30 @@
+name: Shortcut Merge Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnose merge conflicts
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 --branch agent/shortcut-help-center \
+            https://github.com/cropflre/nowen-note.git source
+          cd source
+          git fetch --quiet --depth 200 origin main
+          set +e
+          git merge --no-commit --no-ff origin/main >/tmp/merge.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "CONFLICT_FILES"
+            git diff --name-only --diff-filter=U
+            echo "MERGE_TAIL"
+            tail -30 /tmp/merge.log
+          else
+            echo "MERGE_CLEAN"
+          fi
+          exit "$status"
