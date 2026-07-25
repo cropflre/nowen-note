@@ -1,0 +1,62 @@
+name: Shortcut Channel Fix
+
+on:
+  push:
+    branches:
+      - agent/shortcut-help-center
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/shortcut-help-center
+          fetch-depth: 0
+      - name: Patch desktop shortcut channel and remove diagnostics
+        shell: python
+        run: |
+          from pathlib import Path
+
+          bridge = Path("frontend/src/lib/desktopBridge.ts")
+          text = bridge.read_text(encoding="utf-8")
+          replacements = {
+              ' *   menu:new-note         新建笔记（等价 Alt+N）\n':
+                  ' *   menu:new-note         新建笔记（Electron：Ctrl/Cmd+N）\n',
+              ' *   menu:open-settings    打开设置（Ctrl/Cmd+,）\n':
+                  ' *   menu:open-settings    打开设置（Ctrl/Cmd+,）\n *   menu:open-shortcuts   打开键盘快捷键帮助（Ctrl/Cmd+Shift+/）\n',
+              ' *   menu:toggle-sidebar   切换侧边栏（Ctrl/Cmd+B）\n':
+                  ' *   menu:toggle-sidebar   切换笔记列表（Ctrl/Cmd+Shift+B）\n',
+              '  | "menu:open-settings"\n':
+                  '  | "menu:open-settings"\n  | "menu:open-shortcuts"\n',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"desktopBridge pattern not found: {old!r}")
+              text = text.replace(old, new, 1)
+          bridge.write_text(text, encoding="utf-8")
+
+          preload = Path("electron/preload.js")
+          text = preload.read_text(encoding="utf-8")
+          old = '  "menu:open-settings",\n'
+          new = '  "menu:open-settings",\n  "menu:open-shortcuts",\n'
+          if old not in text:
+              raise SystemExit("preload channel insertion point not found")
+          preload.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          for path in (
+              Path(".github/workflows/shortcut-typecheck-diagnostic.yml"),
+              Path(".github/workflows/shortcut-channel-fix.yml"),
+          ):
+              path.unlink(missing_ok=True)
+      - name: Commit channel fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/desktopBridge.ts electron/preload.js .github/workflows
+          git commit -m "fix(shortcuts): allow desktop help channel"
+          git push origin HEAD:agent/shortcut-help-center
