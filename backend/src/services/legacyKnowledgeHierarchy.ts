@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
+import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
+
 export type LegacyHierarchyResourceType = "notebook" | "note";
 export type LegacyHierarchyReason = "create" | "move" | "reorder" | "delete" | "restore" | "metadata";
 export type LegacyParentMode = "resource" | "preserve";
@@ -76,6 +78,16 @@ export class LegacyKnowledgeHierarchyError extends Error {
 
 function scopeKey(userId: string, workspaceId: string | null): string {
   return workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`;
+}
+
+function ensureKnowledgeTreeStorage(db: Database.Database): void {
+  const exists = db.prepare(
+    "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_tree_nodes'",
+  ).get() as { found: number } | undefined;
+  // Old databases and isolated route tests may not have loaded the knowledge-tree runtime bootstrap.
+  // Only initialize when the table is absent. If tests intentionally drop legacy sync triggers while
+  // keeping the table, this guard does not recreate those triggers.
+  if (!exists) ensureKnowledgeTreeTables(db);
 }
 
 function expectedNodeId(resourceType: LegacyHierarchyResourceType, resourceId: string): string {
@@ -359,6 +371,7 @@ export function synchronizeLegacyNotebookHierarchy(input: {
   reason: LegacyHierarchyReason;
   parentMode?: LegacyParentMode;
 }): KnowledgeNodeRow {
+  ensureKnowledgeTreeStorage(input.db);
   const notebook = readNotebook(input.db, input.notebookId);
   const parentNode = notebook.parentId ? ensureNotebookNode(input.db, notebook.parentId) : null;
   const node = ensureNotebookNode(input.db, notebook.id);
@@ -401,6 +414,7 @@ export function synchronizeLegacyNoteHierarchy(input: {
   reason: LegacyHierarchyReason;
   parentMode?: LegacyParentMode;
 }): KnowledgeNodeRow {
+  ensureKnowledgeTreeStorage(input.db);
   const note = readNote(input.db, input.noteId);
   const notebookNode = ensureNotebookNode(input.db, note.notebookId);
   const node = ensureNoteNode(input.db, note.id);
