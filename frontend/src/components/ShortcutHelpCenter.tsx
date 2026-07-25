@@ -31,7 +31,7 @@ export default function ShortcutHelpCenter() {
   useEffect(() => {
     const openHelp = () => setOpen(true);
     const onKeyDown = (event: KeyboardEvent) => {
-      if (shortcutMatchesEvent("shortcut-help", event, platform)) {
+      if (shortcutMatchesEvent("shortcut-help", event, platform, surface)) {
         event.preventDefault();
         setOpen(true);
       } else if (open && event.key === "Escape") {
@@ -45,7 +45,7 @@ export default function ShortcutHelpCenter() {
       window.removeEventListener(OPEN_SHORTCUT_HELP_EVENT, openHelp);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, platform]);
+  }, [open, platform, surface]);
 
   useEffect(() => {
     if (!open) return;
@@ -57,16 +57,22 @@ export default function ShortcutHelpCenter() {
     const needle = query.trim().toLowerCase();
     return SHORTCUT_COMMANDS
       .filter((command) => command.availableIn.includes(surface))
-      .filter((command) => formatShortcutForCommand(command.id, platform))
+      .filter((command) => formatShortcutForCommand(command.id, platform, surface))
       .filter((command) => !needle || [
         command.label,
         command.description,
         SHORTCUT_CATEGORY_LABELS[command.category],
+        ...(command.secondaryCategories ?? []).map((category) => SHORTCUT_CATEGORY_LABELS[category]),
       ].join(" ").toLowerCase().includes(needle));
   }, [platform, query, surface]);
 
   const groups = useMemo(() => CATEGORY_ORDER
-    .map((category) => ({ category, commands: commands.filter((command) => command.category === category) }))
+    .map((category) => ({
+      category,
+      commands: commands.filter((command) => (
+        command.category === category || command.secondaryCategories?.includes(category)
+      )),
+    }))
     .filter((group) => group.commands.length > 0), [commands]);
   const conflicts = useMemo(() => findShortcutConflicts(), []);
 
@@ -92,7 +98,8 @@ export default function ShortcutHelpCenter() {
           <div className="min-w-0 flex-1">
             <h2 id="shortcut-help-title" className="text-base font-semibold text-tx-primary">键盘快捷键</h2>
             <p className="mt-0.5 text-xs text-tx-tertiary">
-              当前显示 {platform === "macos" ? "macOS" : platform === "windows" ? "Windows" : "Linux"} 键位
+              当前显示 {platform === "macos" ? "macOS" : platform === "windows" ? "Windows" : "Linux"}
+              {surface === "desktop" ? "桌面端" : "Web 端"}键位
             </p>
           </div>
           <button
@@ -139,7 +146,7 @@ export default function ShortcutHelpCenter() {
                   <div className="overflow-hidden rounded-xl border border-app-border">
                     {group.commands.map((command, index) => (
                       <div
-                        key={command.id}
+                        key={`${group.category}:${command.id}`}
                         className={`flex items-center gap-4 px-4 py-3 ${index > 0 ? "border-t border-app-border" : ""}`}
                       >
                         <div className="min-w-0 flex-1">
@@ -147,7 +154,7 @@ export default function ShortcutHelpCenter() {
                           <div className="mt-0.5 truncate text-xs text-tx-tertiary">{command.description}</div>
                         </div>
                         <kbd className="shrink-0 rounded-md border border-app-border bg-app-surface px-2 py-1 font-mono text-xs text-tx-secondary shadow-sm">
-                          {formatShortcutForCommand(command.id, platform)}
+                          {formatShortcutForCommand(command.id, platform, surface)}
                         </kbd>
                       </div>
                     ))}
@@ -159,7 +166,7 @@ export default function ShortcutHelpCenter() {
         </div>
 
         <footer className="flex items-center justify-between border-t border-app-border px-5 py-3 text-[11px] text-tx-tertiary">
-          <span>工具栏悬停提示会自动显示同一套键位</span>
+          <span>工具栏悬停提示与当前运行端使用同一套键位</span>
           <span>Esc 关闭</span>
         </footer>
       </section>
