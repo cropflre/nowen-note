@@ -40,6 +40,7 @@ describe("shortcutRegistry", () => {
     ]) {
       expect(getShortcutCommand(commandId), commandId).toBeDefined();
     }
+    expect(formatShortcutForCommand("command-palette", "windows", "web")).toBe("Ctrl+K");
     expect(formatShortcutForCommand("toggle-note-list", "windows", "web")).toBe("Ctrl+Shift+B");
     expect(formatShortcutForCommand("split-right", "windows", "web")).toBe("");
   });
