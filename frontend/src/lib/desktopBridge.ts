@@ -5,10 +5,11 @@
  * Web 端不会有 window.nowenDesktop，这里做了兜底，安全用在 SSR/浏览器环境。
  *
  * 约定的菜单事件：
- *   menu:new-note         新建笔记（等价 Alt+N）
+ *   menu:new-note         新建笔记（Electron：Ctrl/Cmd+N）
  *   menu:search           搜索笔记（Ctrl/Cmd+F）
  *   menu:open-settings    打开设置（Ctrl/Cmd+,）
- *   menu:toggle-sidebar   切换侧边栏（Ctrl/Cmd+B）
+ *   menu:open-shortcuts   打开键盘快捷键帮助（Ctrl/Cmd+Shift+/）
+ *   menu:toggle-sidebar   切换笔记列表（Ctrl/Cmd+Shift+B）
  *   menu:focus-note-list  聚焦笔记列表（Ctrl/Cmd+L）
  *   menu:zoom-in/out/reset 视图缩放
  *
@@ -21,6 +22,7 @@ export type DesktopMenuChannel =
   | "menu:new-note"
   | "menu:search"
   | "menu:open-settings"
+  | "menu:open-shortcuts"
   | "menu:toggle-sidebar"
   | "menu:focus-note-list"
   | "menu:zoom-in"
