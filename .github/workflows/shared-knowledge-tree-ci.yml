@@ -42,6 +42,16 @@ jobs:
         shell: bash
         run: |
           if [ -f scripts/patch_issue462_shared_tree.py ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/patch_issue462_shared_tree.py')
+          text = path.read_text(encoding='utf-8')
+          old = "'''           draggable={node.access.capabilities.canMove}\n"
+          new = "'''          draggable={node.access.capabilities.canMove}\n"
+          if old not in text:
+              raise SystemExit('shared root draggable script anchor changed')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
             python3 scripts/patch_issue462_shared_tree.py
             rm scripts/patch_issue462_shared_tree.py
             git config user.name "github-actions[bot]"
