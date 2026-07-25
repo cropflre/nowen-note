@@ -1,4 +1,5 @@
 export type PublicWebOriginSource = "settings" | "environment" | "build" | "current" | "relative";
+export type PublicWebOriginRisk = "none" | "verify" | "private-network" | "localhost" | "protected-gateway";
 
 export interface PublicWebOriginOptions {
   runtimeOrigin?: string | null;
@@ -13,6 +14,7 @@ export interface PublicWebOriginResolution {
   usesCurrentOrigin: boolean;
   isLikelyProtectedGateway: boolean;
   requiresAnonymousCheck: boolean;
+  risk: PublicWebOriginRisk;
 }
 
 let runtimePublicWebOrigin = "";
@@ -44,21 +46,82 @@ export function setRuntimePublicWebOrigin(
   runtimePublicWebOriginSource = source || null;
 }
 
-export function isLikelyProtectedGatewayOrigin(value: string): boolean {
+function getOriginHostname(value: string): string {
   const normalized = normalizePublicWebOrigin(value);
-  if (!normalized) return false;
+  if (!normalized) return "";
   try {
-    const hostname = new URL(normalized).hostname.toLowerCase();
-    return hostname === "fnos.net" || hostname.endsWith(".fnos.net") || hostname.includes("fnconnect");
+    return new URL(normalized).hostname.toLowerCase().replace(/^\[|\]$/g, "");
   } catch {
+    return "";
+  }
+}
+
+export function isLikelyProtectedGatewayOrigin(value: string): boolean {
+  const hostname = getOriginHostname(value);
+  return hostname === "fnos.net" || hostname.endsWith(".fnos.net") || hostname.includes("fnconnect");
+}
+
+export function isLoopbackOrigin(value: string): boolean {
+  const hostname = getOriginHostname(value);
+  if (!hostname) return false;
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "::1") return true;
+  const parts = hostname.split(".").map(Number);
+  return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) && parts[0] === 127;
+}
+
+export function isPrivateNetworkOrigin(value: string): boolean {
+  const hostname = getOriginHostname(value);
+  if (!hostname || isLoopbackOrigin(value)) return false;
+
+  const isIpv6 = hostname.includes(":");
+  if (
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".lan") ||
+    hostname.endsWith(".internal") ||
+    (isIpv6 && (hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:")))
+  ) {
+    return true;
+  }
+
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || !parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
     return false;
   }
+
+  return parts[0] === 10 ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168) ||
+    (parts[0] === 169 && parts[1] === 254);
+}
+
+function classifyPublicWebOriginRisk(origin: string, verifyFallback: boolean): PublicWebOriginRisk {
+  if (isLikelyProtectedGatewayOrigin(origin)) return "protected-gateway";
+  if (isLoopbackOrigin(origin)) return "localhost";
+  if (isPrivateNetworkOrigin(origin)) return "private-network";
+  return verifyFallback ? "verify" : "none";
 }
 
 function normalizeRuntimeSource(value: string | null | undefined): PublicWebOriginSource {
   if (value === "environment") return "environment";
   if (value === "settings") return "settings";
   return "settings";
+}
+
+function buildResolution(
+  origin: string,
+  source: PublicWebOriginSource,
+  usesCurrentOrigin: boolean,
+  verifyFallback: boolean,
+): PublicWebOriginResolution {
+  const risk = classifyPublicWebOriginRisk(origin, verifyFallback);
+  return {
+    origin,
+    source,
+    usesCurrentOrigin,
+    isLikelyProtectedGateway: risk === "protected-gateway",
+    requiresAnonymousCheck: risk !== "none",
+    risk,
+  };
 }
 
 /**
@@ -76,15 +139,7 @@ export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): Pu
     : runtimePublicWebOriginSource;
   const runtime = normalizePublicWebOrigin(runtimeInput);
   if (runtime) {
-    const source = normalizeRuntimeSource(runtimeSourceInput);
-    const protectedGateway = isLikelyProtectedGatewayOrigin(runtime);
-    return {
-      origin: runtime,
-      source,
-      usesCurrentOrigin: false,
-      isLikelyProtectedGateway: protectedGateway,
-      requiresAnonymousCheck: protectedGateway,
-    };
+    return buildResolution(runtime, normalizeRuntimeSource(runtimeSourceInput), false, false);
   }
 
   const build = normalizePublicWebOrigin(
@@ -93,14 +148,7 @@ export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): Pu
       import.meta.env.VITE_APP_PUBLIC_URL,
   );
   if (build) {
-    const protectedGateway = isLikelyProtectedGatewayOrigin(build);
-    return {
-      origin: build,
-      source: "build",
-      usesCurrentOrigin: false,
-      isLikelyProtectedGateway: protectedGateway,
-      requiresAnonymousCheck: protectedGateway,
-    };
+    return buildResolution(build, "build", false, false);
   }
 
   const current = normalizePublicWebOrigin(
@@ -108,24 +156,12 @@ export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): Pu
       (typeof window !== "undefined" ? window.location.origin : ""),
   );
   if (current) {
-    return {
-      origin: current,
-      source: "current",
-      usesCurrentOrigin: true,
-      isLikelyProtectedGateway: isLikelyProtectedGatewayOrigin(current),
-      // A current-origin fallback may be an intranet, VPN or authenticated gateway even when the
-      // hostname is not recognizable. The creator's logged-in browser cannot prove anonymity.
-      requiresAnonymousCheck: true,
-    };
+    // A current-origin fallback may be an intranet, VPN or authenticated gateway even when the
+    // hostname is not recognizable. The creator's logged-in browser cannot prove anonymity.
+    return buildResolution(current, "current", true, true);
   }
 
-  return {
-    origin: "",
-    source: "relative",
-    usesCurrentOrigin: false,
-    isLikelyProtectedGateway: false,
-    requiresAnonymousCheck: true,
-  };
+  return buildResolution("", "relative", false, true);
 }
 
 export function getPublicWebOrigin(options: PublicWebOriginOptions = {}): string {
