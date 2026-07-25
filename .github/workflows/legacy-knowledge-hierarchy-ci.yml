@@ -9,6 +9,7 @@ on:
       - 'backend/src/services/legacyKnowledgeHierarchy.ts'
       - 'backend/tests/legacy-knowledge-hierarchy.test.ts'
       - 'scripts/patch_issue464_legacy_hierarchy.py'
+      - 'scripts/issue464_patch_failure.log'
       - '.github/workflows/legacy-knowledge-hierarchy-ci.yml'
 
 permissions:
@@ -28,15 +29,26 @@ jobs:
         shell: bash
         run: |
           if [ -f scripts/patch_issue464_legacy_hierarchy.py ]; then
-            python3 scripts/patch_issue464_legacy_hierarchy.py
+            if ! python3 scripts/patch_issue464_legacy_hierarchy.py > /tmp/issue464-patch.log 2>&1; then
+              cat /tmp/issue464-patch.log
+              cp /tmp/issue464-patch.log scripts/issue464_patch_failure.log
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add scripts/issue464_patch_failure.log
+              git commit -m "diagnostic(knowledge-tree): capture issue 464 patch failure"
+              git push origin HEAD:${{ github.event.pull_request.head.ref }}
+              exit 1
+            fi
             rm scripts/patch_issue464_legacy_hierarchy.py
+            rm -f scripts/issue464_patch_failure.log
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add \
               backend/src/routes/notes.ts \
               backend/src/routes/notebooks.ts \
               backend/src/services/legacyKnowledgeHierarchy.ts \
-              scripts/patch_issue464_legacy_hierarchy.py
+              scripts/patch_issue464_legacy_hierarchy.py \
+              scripts/issue464_patch_failure.log
             if ! git diff --cached --quiet; then
               git commit -m "feat(knowledge-tree): coordinate legacy hierarchy writes"
               git push origin HEAD:${{ github.event.pull_request.head.ref }}
