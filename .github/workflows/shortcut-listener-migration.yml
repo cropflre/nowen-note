@@ -1,0 +1,172 @@
+name: Shortcut Listener Migration
+
+on:
+  push:
+    branches:
+      - agent/shortcut-help-center
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/shortcut-help-center
+          fetch-depth: 0
+      - name: Migrate listeners to shortcut registry
+        shell: python
+        run: |
+          from pathlib import Path
+
+          palette = Path("frontend/src/components/common/CommandPalette.tsx")
+          text = palette.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  '''import {
+            EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL,
+            isEditorLayoutToggleShortcut,
+          } from "@/lib/editorWorkspaceLayout";''',
+                  '''import {
+            detectShortcutPlatform,
+            detectShortcutSurface,
+            formatShortcutForCommand,
+            isShortcutAllowedInTarget,
+            shortcutMatchesEvent,
+          } from "@/lib/shortcutRegistry";''',
+              ),
+              (
+                  '''function isEditableTarget(target: EventTarget | null): boolean {
+            if (!(target instanceof HTMLElement)) return false;
+            const tagName = target.tagName.toLowerCase();
+            return tagName === "input" || tagName === "textarea" || target.isContentEditable;
+          }
+
+          ''',
+                  '',
+              ),
+              (
+                  '''  const actions = useAppActions();
+            const [query, setQuery] = useState("");''',
+                  '''  const actions = useAppActions();
+            const shortcutPlatform = detectShortcutPlatform();
+            const shortcutSurface = detectShortcutSurface();
+            const [query, setQuery] = useState("");''',
+              ),
+              (
+                  '''        keywords: ["布局", "笔记列表", "创作模式", "管理模式", "sidebar", "list"],
+                  shortcut: EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL,
+                  icon:''',
+                  '''        keywords: ["布局", "笔记列表", "创作模式", "管理模式", "sidebar", "list"],
+                  icon:''',
+              ),
+              (
+                  '''    return commands;
+            }, [''',
+                  '''    return commands.map((command) => {
+                  const shortcut = formatShortcutForCommand(command.id, shortcutPlatform, shortcutSurface);
+                  return shortcut ? { ...command, shortcut } : command;
+                });
+            }, [''',
+              ),
+              (
+                  '''    state.noteListCollapsed,
+            ]);''',
+                  '''    state.noteListCollapsed,
+                shortcutPlatform,
+                shortcutSurface,
+            ]);''',
+              ),
+              (
+                  '''      if (isEditorLayoutToggleShortcut(event) && !isEditableTarget(event.target)) {
+                    event.preventDefault();
+                    actions.toggleNoteListCollapsed();
+                    return;
+                  }
+                  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+                    event.preventDefault();
+                    if (!open) window.dispatchEvent(new CustomEvent("nowen:open-command-palette"));
+                  } else if (open && event.key === "Escape") {''',
+                  '''      if (
+                    shortcutMatchesEvent("toggle-note-list", event, shortcutPlatform, shortcutSurface)
+                    && isShortcutAllowedInTarget("toggle-note-list", event.target)
+                  ) {
+                    event.preventDefault();
+                    actions.toggleNoteListCollapsed();
+                    return;
+                  }
+                  if (
+                    shortcutMatchesEvent("command-palette", event, shortcutPlatform, shortcutSurface)
+                    && isShortcutAllowedInTarget("command-palette", event.target)
+                  ) {
+                    event.preventDefault();
+                    if (!open) window.dispatchEvent(new CustomEvent("nowen:open-command-palette"));
+                  } else if (open && event.key === "Escape") {''',
+              ),
+              (
+                  '''  }, [actions, onClose, open]);''',
+                  '''  }, [actions, onClose, open, shortcutPlatform, shortcutSurface]);''',
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"CommandPalette pattern not found:\n{old}")
+              text = text.replace(old, new, 1)
+          palette.write_text(text, encoding="utf-8")
+
+          app = Path("frontend/src/App.tsx")
+          text = app.read_text(encoding="utf-8")
+          old = 'import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";\n'
+          new = old + '''import {
+            detectShortcutPlatform,
+            detectShortcutSurface,
+            isShortcutAllowedInTarget,
+            shortcutMatchesEvent,
+          } from "@/lib/shortcutRegistry";
+          '''
+          if old not in text:
+              raise SystemExit("App shortcut import point not found")
+          text = text.replace(old, new, 1)
+
+          old = '''  // Alt+N 全局快捷键：快速新建笔记
+            useEffect(() => {
+              const handleKeyDown = (e: KeyboardEvent) => {
+                if (e.altKey && e.key.toLowerCase() === "n") {
+                  e.preventDefault();
+                  void quickCreateNote();
+                }
+              };
+              window.addEventListener("keydown", handleKeyDown);
+              return () => window.removeEventListener("keydown", handleKeyDown);
+            }, [quickCreateNote]);'''
+          new = '''  // 快速新建笔记：键位由统一注册表按 Web / Electron 运行端解析。
+            useEffect(() => {
+              const platform = detectShortcutPlatform();
+              const surface = detectShortcutSurface();
+              const handleKeyDown = (event: KeyboardEvent) => {
+                if (
+                  shortcutMatchesEvent("new-note", event, platform, surface)
+                  && isShortcutAllowedInTarget("new-note", event.target)
+                ) {
+                  event.preventDefault();
+                  void quickCreateNote();
+                }
+              };
+              window.addEventListener("keydown", handleKeyDown);
+              return () => window.removeEventListener("keydown", handleKeyDown);
+            }, [quickCreateNote]);'''
+          if old not in text:
+              raise SystemExit("App quick-create listener pattern not found")
+          app.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          Path(".github/workflows/shortcut-listener-migration.yml").unlink()
+      - name: Commit listener migration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/App.tsx frontend/src/components/common/CommandPalette.tsx .github/workflows
+          git commit -m "refactor(shortcuts): consume registry in global listeners"
+          git push origin HEAD:agent/shortcut-help-center
