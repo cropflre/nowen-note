@@ -1,0 +1,69 @@
+name: Auto Fix Issue 370 Yjs Flush
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/auto-fix-issue-370-yjs.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/issue-370-p0c-p1-knowledge-tree
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      - name: Patch Yjs no-op flush version bump
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/src/services/yjs.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '''export function yFlush(noteId: string) {
+            const room = rooms.get(noteId);
+            if (!room) return;
+            if (room.persistTimer) {
+              clearTimeout(room.persistTimer);
+              room.persistTimer = null;
+            }
+            try { persistToNotesTable(room); } catch {}
+            try {
+'''
+          new = '''export function yFlush(noteId: string) {
+            const room = rooms.get(noteId);
+            if (!room) return;
+            const hadPendingPersist = Boolean(room.persistTimer);
+            if (room.persistTimer) {
+              clearTimeout(room.persistTimer);
+              room.persistTimer = null;
+            }
+            // Rooms created only by a server-side replacement have no pending user edit.
+            // Flushing them must not increment notes.version, otherwise immediate split undo
+            // observes a false optimistic-lock conflict.
+            if (hadPendingPersist) {
+              try { persistToNotesTable(room); } catch {}
+            }
+            try {
+'''
+          if old not in text:
+              if 'const hadPendingPersist = Boolean(room.persistTimer);' in text:
+                  raise SystemExit(0)
+              raise SystemExit('target yFlush snippet not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit and push feature branch
+        run: |
+          if git diff --quiet -- backend/src/services/yjs.ts; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/yjs.ts
+          git commit -m "fix(yjs): avoid no-op version bump during flush"
+          git push origin HEAD:feat/issue-370-p0c-p1-knowledge-tree
