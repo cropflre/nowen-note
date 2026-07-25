@@ -1,6 +1,7 @@
 import {
   appendShortcutToTooltip,
   detectShortcutPlatform,
+  detectShortcutSurface,
   resolveShortcutCommandIdByTooltipLabel,
 } from "./shortcutRegistry";
 
@@ -15,11 +16,12 @@ function readTooltipBase(element: HTMLElement): string {
 /** Adds registry-backed shortcut hints to existing toolbar titles without editing large editors. */
 export function enhanceShortcutTooltips(root: ParentNode = document): number {
   const platform = detectShortcutPlatform();
+  const surface = detectShortcutSurface();
   let enhancedCount = 0;
   root.querySelectorAll<HTMLElement>("[title], [aria-label]").forEach((element) => {
     const baseTitle = readTooltipBase(element);
     if (!baseTitle || !resolveShortcutCommandIdByTooltipLabel(baseTitle)) return;
-    const enhancedTitle = appendShortcutToTooltip(baseTitle, platform);
+    const enhancedTitle = appendShortcutToTooltip(baseTitle, platform, surface);
     if (enhancedTitle === baseTitle) return;
     element.dataset.shortcutBaseTitle = baseTitle;
     element.dataset.shortcutEnhancedTitle = enhancedTitle;
