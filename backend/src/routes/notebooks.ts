@@ -16,6 +16,10 @@ import {
   copyPersonalNotebookToWorkspace,
   WorkspaceNotebookTransferError,
 } from "../services/workspaceNotebookTransfer";
+import {
+  synchronizeLegacyNoteHierarchy,
+  synchronizeLegacyNotebookHierarchy,
+} from "../services/legacyKnowledgeHierarchy";
 
 const app = new Hono();
 const notebookPerfDiagnosticsEnabled = process.env.NOTEBOOK_PERF_DIAGNOSTICS === "1";
@@ -505,19 +509,29 @@ app.post("/", async (c) => {
   const parentCheckedAt = perfEnabled ? performance.now() : 0;
 
   const id = uuid();
-  db.prepare(
-    `INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, color, sortOrder)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    userId,
-    workspaceId,
-    body.parentId || null,
-    body.name,
-    body.icon || "📒",
-    body.color || null,
-    body.sortOrder || 0,
-  );
+  const legacyNotebookCreateTx = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, color, sortOrder)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      userId,
+      workspaceId,
+      body.parentId || null,
+      body.name,
+      body.icon || "📒",
+      body.color || null,
+      body.sortOrder || 0,
+    );
+    synchronizeLegacyNotebookHierarchy({
+      db,
+      notebookId: id,
+      actorUserId: userId,
+      reason: "create",
+      parentMode: "resource",
+    });
+  });
+  legacyNotebookCreateTx();
   const insertedAt = perfEnabled ? performance.now() : 0;
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
   if (perfEnabled) {
@@ -639,7 +653,17 @@ app.put("/:id/move", async (c) => {
   sets.push("updatedAt = datetime('now')");
   args.push(id);
 
-  db.prepare(`UPDATE notebooks SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+  const legacyNotebookMoveTx = db.transaction(() => {
+    db.prepare(`UPDATE notebooks SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+    synchronizeLegacyNotebookHierarchy({
+      db,
+      notebookId: id,
+      actorUserId: userId,
+      reason: newParentId !== undefined ? "move" : "reorder",
+      parentMode: newParentId !== undefined ? "resource" : "preserve",
+    });
+  });
+  legacyNotebookMoveTx();
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
   return c.json(notebook);
 });
@@ -659,6 +683,13 @@ app.put("/reorder/batch", async (c) => {
       const { permission } = resolveNotebookPermission(item.id, userId);
       if (hasPermission(permission, "write")) {
         stmt.run(item.sortOrder, item.id);
+        synchronizeLegacyNotebookHierarchy({
+          db,
+          notebookId: item.id,
+          actorUserId: userId,
+          reason: "reorder",
+          parentMode: "preserve",
+        });
       }
     }
   });
@@ -686,23 +717,35 @@ app.put("/:id", async (c) => {
     return c.json({ error: "notebook not found" }, 404);
   }
 
-  db.prepare(
-    `
-    UPDATE notebooks SET name = COALESCE(?, name), icon = COALESCE(?, icon),
-    color = COALESCE(?, color), parentId = COALESCE(?, parentId),
-    sortOrder = COALESCE(?, sortOrder), isExpanded = COALESCE(?, isExpanded),
-    updatedAt = datetime('now')
-    WHERE id = ?
-  `,
-  ).run(
-    body.name,
-    body.icon,
-    body.color,
-    body.parentId,
-    body.sortOrder,
-    body.isExpanded,
-    id,
-  );
+  const legacyNotebookUpdateTx = db.transaction(() => {
+    db.prepare(
+      `
+      UPDATE notebooks SET name = COALESCE(?, name), icon = COALESCE(?, icon),
+      color = COALESCE(?, color), parentId = COALESCE(?, parentId),
+      sortOrder = COALESCE(?, sortOrder), isExpanded = COALESCE(?, isExpanded),
+      updatedAt = datetime('now')
+      WHERE id = ?
+    `,
+    ).run(
+      body.name,
+      body.icon,
+      body.color,
+      body.parentId,
+      body.sortOrder,
+      body.isExpanded,
+      id,
+    );
+    if (body.parentId !== undefined || body.sortOrder !== undefined || body.isExpanded !== undefined) {
+      synchronizeLegacyNotebookHierarchy({
+        db,
+        notebookId: id,
+        actorUserId: userId,
+        reason: body.parentId !== undefined ? "move" : body.sortOrder !== undefined ? "reorder" : "metadata",
+        parentMode: body.parentId !== undefined ? "resource" : "preserve",
+      });
+    }
+  });
+  legacyNotebookUpdateTx();
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
   return c.json(notebook);
 });
@@ -783,7 +826,7 @@ app.delete("/:id", (c) => {
 
   // 一个事务内：标记笔记本 isDeleted=1 + 把直属未回收的笔记移入回收站
   const placeholders = nbIds.map(() => "?").join(",");
-  const tx = db.transaction(() => {
+  const legacyNotebookDeleteTx = db.transaction(() => {
     db.prepare(
       `UPDATE notebooks
           SET isDeleted = 1,
@@ -802,10 +845,29 @@ app.delete("/:id", (c) => {
           WHERE id IN (${noteIn})`,
       ).run(...trashedNoteIds);
     }
+
+    for (const notebookId of nbIds) {
+      synchronizeLegacyNotebookHierarchy({
+        db,
+        notebookId,
+        actorUserId: userId,
+        reason: "delete",
+        parentMode: "preserve",
+      });
+    }
+    for (const noteId of trashedNoteIds) {
+      synchronizeLegacyNoteHierarchy({
+        db,
+        noteId,
+        actorUserId: userId,
+        reason: "delete",
+        parentMode: "preserve",
+      });
+    }
   });
 
   try {
-    tx();
+    legacyNotebookDeleteTx();
   } catch (e) {
     console.error("[notebooks.delete] soft-delete tx failed:", (e as Error).message);
     return c.json({ error: "删除失败" }, 500);

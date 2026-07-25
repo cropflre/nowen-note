@@ -35,6 +35,10 @@ import {
 } from "../lib/blockAuthorityStore";
 import { resolveBlockAuthorityMode, selectBlockAuthorityRead } from "../lib/blockAuthorityMode";
 import { extractSearchableText } from "../lib/searchIndex";
+import {
+  synchronizeLegacyNoteHierarchy,
+  synchronizeLegacyNotebookHierarchy,
+} from "../services/legacyKnowledgeHierarchy";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
@@ -416,6 +420,13 @@ app.put("/reorder/batch", async (c) => {
       const { permission } = resolveNotePermission(item.id, userId);
       if (hasPermission(permission, "write")) {
         stmt.run(item.sortOrder, item.id);
+        synchronizeLegacyNoteHierarchy({
+          db,
+          noteId: item.id,
+          actorUserId: userId,
+          reason: "reorder",
+          parentMode: "preserve",
+        });
       }
     }
   });
@@ -560,7 +571,7 @@ app.post("/", async (c) => {
   const defaultContent = contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
   const initialContent = typeof body.content === "string" ? body.content : defaultContent;
 
-  try {
+  const legacyNoteCreateTx = db.transaction(() => {
     db.prepare(`
       INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -569,6 +580,16 @@ app.post("/", async (c) => {
       body.title || "无标题笔记", initialContent,
       extractSearchableText(initialContent, contentFormat), contentFormat,
     );
+    synchronizeLegacyNoteHierarchy({
+      db,
+      noteId: id,
+      actorUserId: userId,
+      reason: "create",
+      parentMode: "resource",
+    });
+  });
+  try {
+    legacyNoteCreateTx();
   } catch (e: any) {
     if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
       return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
@@ -905,6 +926,7 @@ app.put("/:id", async (c) => {
   }
   if (body.isLocked !== undefined) { fields.push("isLocked = ?"); params.push(body.isLocked); }
   if (body.isArchived !== undefined) { fields.push("isArchived = ?"); params.push(body.isArchived); }
+  const restoredAncestorNotebookIds: string[] = [];
   if (body.isTrashed !== undefined) {
     // v14：从回收站恢复笔记时（isTrashed=1 → 0），若其父笔记本被软删，
     // 还原后笔记会「看不见」（被侧边栏 isDeleted=0 过滤）。
@@ -943,13 +965,7 @@ app.put("/:id", async (c) => {
             .all(cur.nbId) as { id: string }[]).map((r) => r.id);
           if (restoreIds.length > 0) {
             const placeholders = restoreIds.map(() => "?").join(",");
-            db.prepare(
-              `UPDATE notebooks
-                  SET isDeleted = 0,
-                      deletedAt = NULL,
-                      updatedAt = datetime('now')
-                WHERE id IN (${placeholders})`,
-            ).run(...restoreIds);
+            restoredAncestorNotebookIds.push(...restoreIds);
           }
         }
       } catch (e) {
@@ -972,13 +988,59 @@ app.put("/:id", async (c) => {
   // 的乐观锁刷新），也不应广播 note.updated。因此仅当确有 notes 列要改时才 UPDATE。
   const hasNoteColumnChange = fields.length > 0;
 
+  const needsLegacyHierarchySync = body.notebookId !== undefined
+    || body.sortOrder !== undefined
+    || body.isTrashed !== undefined
+    || body.contentFormat !== undefined;
+
   if (hasNoteColumnChange) {
     fields.push("version = version + 1");
     if (hasContentFieldChange) {
       fields.push("updatedAt = datetime('now')");
     }
     params.push(id);
-    db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+    const legacyNoteUpdateTx = db.transaction(() => {
+      if (restoredAncestorNotebookIds.length > 0) {
+        const placeholders = restoredAncestorNotebookIds.map(() => "?").join(",");
+        db.prepare(
+          `UPDATE notebooks
+              SET isDeleted = 0,
+                  deletedAt = NULL,
+                  updatedAt = datetime('now')
+            WHERE id IN (${placeholders})`,
+        ).run(...restoredAncestorNotebookIds);
+        for (const notebookId of restoredAncestorNotebookIds) {
+          synchronizeLegacyNotebookHierarchy({
+            db,
+            notebookId,
+            actorUserId: userId,
+            reason: "restore",
+            parentMode: "preserve",
+          });
+        }
+      }
+
+      db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+      if (needsLegacyHierarchySync) {
+        const reason = body.notebookId !== undefined
+          ? "move"
+          : body.isTrashed === 1
+            ? "delete"
+            : body.isTrashed === 0
+              ? "restore"
+              : body.sortOrder !== undefined
+                ? "reorder"
+                : "metadata";
+        synchronizeLegacyNoteHierarchy({
+          db,
+          noteId: id,
+          actorUserId: userId,
+          reason,
+          parentMode: body.notebookId !== undefined ? "resource" : "preserve",
+        });
+      }
+    });
+    legacyNoteUpdateTx();
   }
 
   // v11: 同步 attachment_references 倒排（仅在 content 字段被改动时；非内容字段

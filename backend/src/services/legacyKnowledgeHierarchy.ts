@@ -1,8 +1,6 @@
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
-import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
-
 export type LegacyHierarchyResourceType = "notebook" | "note";
 export type LegacyHierarchyReason = "create" | "move" | "reorder" | "delete" | "restore" | "metadata";
 export type LegacyParentMode = "resource" | "preserve";
@@ -361,7 +359,6 @@ export function synchronizeLegacyNotebookHierarchy(input: {
   reason: LegacyHierarchyReason;
   parentMode?: LegacyParentMode;
 }): KnowledgeNodeRow {
-  ensureKnowledgeTreeTables(input.db);
   const notebook = readNotebook(input.db, input.notebookId);
   const parentNode = notebook.parentId ? ensureNotebookNode(input.db, notebook.parentId) : null;
   const node = ensureNotebookNode(input.db, notebook.id);
@@ -404,7 +401,6 @@ export function synchronizeLegacyNoteHierarchy(input: {
   reason: LegacyHierarchyReason;
   parentMode?: LegacyParentMode;
 }): KnowledgeNodeRow {
-  ensureKnowledgeTreeTables(input.db);
   const note = readNote(input.db, input.noteId);
   const notebookNode = ensureNotebookNode(input.db, note.notebookId);
   const node = ensureNoteNode(input.db, note.id);
@@ -462,7 +458,6 @@ export function auditLegacyKnowledgeHierarchy(input: {
   userId?: string;
   workspaceId?: string | null;
 }): LegacyHierarchyConsistencyIssue[] {
-  ensureKnowledgeTreeTables(input.db);
   const issues: LegacyHierarchyConsistencyIssue[] = [];
   const filters: string[] = [];
   const params: unknown[] = [];
