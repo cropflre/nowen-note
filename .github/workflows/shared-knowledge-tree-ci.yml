@@ -9,8 +9,8 @@ on:
       - 'backend/src/services/knowledgeCapabilitiesResolver.ts'
       - 'backend/src/services/knowledgeTree.ts'
       - 'backend/src/services/knowledgeTreeCore.ts'
-      - 'backend/src/services/sharedKnowledgeTreeListing.ts'
-      - 'backend/tests/shared-knowledge-tree.test.ts'
+      - 'backend/src/services/sharedKnowledgeTree*.ts'
+      - 'backend/tests/shared-knowledge-tree*.test.ts'
       - 'backend/tests/knowledge-tree.test.ts'
       - 'frontend/src/components/KnowledgeTreePanel.tsx'
       - 'frontend/src/lib/knowledgeTreeApi.ts'
@@ -42,40 +42,15 @@ jobs:
         shell: bash
         run: |
           if [ -f scripts/patch_issue462_shared_tree.py ]; then
-            python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/patch_issue462_shared_tree.py')
-          text = path.read_text(encoding='utf-8')
-          replacements = [
-              (
-                  "'''           draggable={node.access.capabilities.canMove}\n",
-                  "'''          draggable={node.access.capabilities.canMove}\n",
-              ),
-              (
-                  "'''             {node.access.source === \"inherited\"",
-                  "'''            {node.access.source === \"inherited\"",
-              ),
-          ]
-          for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f'controlled script anchor changed: {old!r}')
-              text = text.replace(old, new, 1)
-          path.write_text(text, encoding='utf-8')
-          PY
             python3 scripts/patch_issue462_shared_tree.py
             rm scripts/patch_issue462_shared_tree.py
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add \
-              backend/src/routes/knowledge-tree.ts \
-              backend/src/services/knowledgeCapabilitiesCore.ts \
-              backend/src/services/knowledgeCapabilitiesResolver.ts \
               backend/src/services/knowledgeTreeCore.ts \
-              frontend/src/components/KnowledgeTreePanel.tsx \
-              frontend/src/lib/knowledgeTreeApi.ts \
               scripts/patch_issue462_shared_tree.py
             if ! git diff --cached --quiet; then
-              git commit -m "feat(knowledge-tree): integrate shared roots in the unified tree"
+              git commit -m "fix(knowledge-tree): enforce shared-root move boundaries"
               git push origin HEAD:${{ github.event.pull_request.head.ref }}
             fi
           fi
@@ -93,6 +68,9 @@ jobs:
         working-directory: backend
         run: |
           node --import tsx --test tests/shared-knowledge-tree.test.ts
+          if [ -f tests/shared-knowledge-tree-boundary.test.ts ]; then
+            node --import tsx --test tests/shared-knowledge-tree-boundary.test.ts
+          fi
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts
 
       - name: Backend typecheck
