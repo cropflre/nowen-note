@@ -13,11 +13,13 @@ on:
       - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
+      - "backend/src/services/yjs.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
       - "backend/tests/tiptap-note-split-empty.test.ts"
       - "backend/tests/block-link-redirect.test.ts"
+      - "backend/tests/setup-db-cleanup.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
       - "frontend/src/lib/tiptapNoteSplit.ts"
@@ -41,11 +43,13 @@ on:
       - "backend/src/runtime/note-split-tiptap.ts"
       - "backend/src/runtime/block-link-redirect.ts"
       - "backend/src/runtime/task-stats-hardening.ts"
+      - "backend/src/services/yjs.ts"
       - "backend/tests/note-split.test.ts"
       - "backend/tests/note-split-title.test.ts"
       - "backend/tests/tiptap-note-split.test.ts"
       - "backend/tests/tiptap-note-split-empty.test.ts"
       - "backend/tests/block-link-redirect.test.ts"
+      - "backend/tests/setup-db-cleanup.ts"
       - "frontend/vite.config.ts"
       - "frontend/src/lib/noteSplit.ts"
       - "frontend/src/lib/tiptapNoteSplit.ts"
@@ -103,7 +107,11 @@ jobs:
       - run: npm ci
       - name: Split planner, transaction, and redirect tests
         run: >-
-          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          node --import tsx
+          --import ./tests/setup-db-isolation.ts
+          --import ./tests/setup-db-cleanup.ts
+          --test
+          --test-force-exit
           tests/note-split.test.ts
           tests/note-split-title.test.ts
           tests/tiptap-note-split.test.ts

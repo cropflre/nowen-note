@@ -1,3 +1,5 @@
+// Register feature migrations before any runtime imports can initialize the database.
+import "./runtime/knowledge-tree-migration-bootstrap.js";
 // Install schema/route hardening before the main backend module evaluates.
 import "./runtime/task-stats-hardening.js";
 // Recover interrupted embedding jobs before the legacy worker starts polling.
@@ -15,4 +17,6 @@ import "./runtime/block-link-redirect.js";
 import "./runtime/block-patch.js";
 import "./runtime/auto-full-backup.js";
 import "./runtime/notebook-publication.js";
+// Mount the unified content tree and capability guard around the legacy note/notebook routers.
+import "./runtime/knowledge-tree.js";
 import "./index.js";

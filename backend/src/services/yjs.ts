@@ -451,11 +451,16 @@ export function yEncodeDiffSinceStateVector(
 export function yFlush(noteId: string) {
   const room = rooms.get(noteId);
   if (!room) return;
+  const hadPendingPersist = Boolean(room.persistTimer);
   if (room.persistTimer) {
     clearTimeout(room.persistTimer);
     room.persistTimer = null;
   }
-  try { persistToNotesTable(room); } catch {}
+  // 服务端内容替换创建的 room 没有待落盘的用户编辑；重复回写会无故递增 version，
+  // 导致紧接着执行的文档拆分撤销被误判为乐观锁冲突。
+  if (hadPendingPersist) {
+    try { persistToNotesTable(room); } catch {}
+  }
   try {
     writeSnapshot(noteId, room.doc);
     room.updatesSinceSnapshot = 0;
