@@ -27,6 +27,7 @@ describe("shortcutRegistry", () => {
     expect(formatShortcutForCommand("new-note", "macos", "desktop")).toBe("⌘N");
     expect(formatShortcutForCommand("global-search", "windows", "web")).toBe("");
     expect(formatShortcutForCommand("global-search", "windows", "desktop")).toBe("Ctrl+F");
+    expect(getShortcutCommand("shortcut-help")?.availableIn).toEqual(["web", "desktop"]);
   });
 
   it("detects the current desktop platform", () => {
