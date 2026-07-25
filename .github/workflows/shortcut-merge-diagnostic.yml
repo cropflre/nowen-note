@@ -1,30 +1,41 @@
 name: Shortcut Merge Diagnostic
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - agent/shortcut-help-center
+
+permissions:
+  contents: write
 
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Diagnose merge conflicts
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/shortcut-help-center
+          fetch-depth: 0
+      - name: Record merge conflicts without changing source
         shell: bash
         run: |
-          git clone --quiet --depth 1 --branch agent/shortcut-help-center \
-            https://github.com/cropflre/nowen-note.git source
-          cd source
-          git fetch --quiet --depth 200 origin main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
           set +e
           git merge --no-commit --no-ff origin/main >/tmp/merge.log 2>&1
           status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "CONFLICT_FILES"
-            git diff --name-only --diff-filter=U
-            echo "MERGE_TAIL"
-            tail -30 /tmp/merge.log
+          if [ "$status" -eq 0 ]; then
+            git commit -m "chore(shortcuts): merge latest main"
+            result="MERGE_CLEAN"
           else
-            echo "MERGE_CLEAN"
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            git merge --abort
+            printf '%s\n' "$conflicts" > .github/shortcut-merge-conflicts.txt
+            result="MERGE_CONFLICTS_RECORDED"
           fi
-          exit "$status"
+          rm -f .github/workflows/shortcut-merge-diagnostic.yml
+          git add -A
+          git commit -m "chore(shortcuts): record main merge status"
+          git push origin HEAD:agent/shortcut-help-center
+          echo "$result"
