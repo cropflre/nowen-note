@@ -17,46 +17,18 @@ on:
       - 'frontend/src/lib/sharedKnowledgeTree.ts'
       - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTree*.test.ts'
-      - 'scripts/patch_issue462_shared_tree.py'
       - '.github/workflows/shared-knowledge-tree-ci.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Check out pull request branch
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git init -q .
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git fetch -q --depth 1 origin "${HEAD_REF}"
-          git checkout -q -B "${HEAD_REF}" FETCH_HEAD
-
-      - name: Apply controlled shared-tree patch
-        shell: bash
-        run: |
-          if [ -f scripts/patch_issue462_shared_tree.py ]; then
-            python3 scripts/patch_issue462_shared_tree.py
-            rm scripts/patch_issue462_shared_tree.py
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add \
-              backend/src/services/knowledgeTreeCore.ts \
-              scripts/patch_issue462_shared_tree.py
-            if ! git diff --cached --quiet; then
-              git commit -m "fix(knowledge-tree): enforce shared-root move boundaries"
-              git push origin HEAD:${{ github.event.pull_request.head.ref }}
-            fi
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -68,9 +40,7 @@ jobs:
         working-directory: backend
         run: |
           node --import tsx --test tests/shared-knowledge-tree.test.ts
-          if [ -f tests/shared-knowledge-tree-boundary.test.ts ]; then
-            node --import tsx --test tests/shared-knowledge-tree-boundary.test.ts
-          fi
+          node --import tsx --test tests/shared-knowledge-tree-boundary.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts
 
       - name: Backend typecheck
