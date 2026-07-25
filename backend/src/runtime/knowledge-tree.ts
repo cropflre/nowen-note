@@ -7,10 +7,8 @@ import {
   enforceKnowledgeNoteCapabilities,
   enforceKnowledgeNotebookCapabilities,
 } from "../middleware/knowledgeCapabilityGuard.js";
-import knowledgeTreeRouter from "../routes/knowledge-tree.js";
 
 const INSTALL_KEY = Symbol.for("nowen.knowledgeTree.runtimeInstalled");
-const ROUTE_KEY = Symbol.for("nowen.knowledgeTree.routeMounted");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
 
 // Ensure optional resource tables/views exist before the first tree query. The file manager is
@@ -40,12 +38,7 @@ if (!globals[INSTALL_KEY]) {
       const wrapper = new Hono<any>();
       wrapper.use("*", enforceKnowledgeNotebookCapabilities);
       wrapper.route("/", subApp);
-      const mounted = nativeRoute.call(this, path, wrapper);
-      if (!globals[ROUTE_KEY]) {
-        globals[ROUTE_KEY] = true;
-        nativeRoute.call(this, "/api/knowledge-tree", knowledgeTreeRouter);
-      }
-      return mounted;
+      return nativeRoute.call(this, path, wrapper);
     }
 
     return nativeRoute.call(this, path, subApp);

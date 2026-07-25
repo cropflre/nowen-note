@@ -87,21 +87,10 @@ export function ensureKnowledgeTreeTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_knowledge_tree_history_actor
       ON knowledge_tree_history(actorUserId, createdAt DESC);
 
+    -- 回填阶段暂不创建 INSERT 守卫触发器：历史数据里父节点可能尚未插入
+    -- （行序不确定），或父节点已删除/跨 scope，直接建守卫会让整批 INSERT 被
+    -- ABORT 而中断迁移。INSERT 守卫在回填全部完成后单独创建（见下方）。
     DROP TRIGGER IF EXISTS knowledge_tree_parent_scope_guard_insert;
-    CREATE TRIGGER knowledge_tree_parent_scope_guard_insert
-    BEFORE INSERT ON knowledge_tree_nodes
-    WHEN NEW.parentId IS NOT NULL
-    BEGIN
-      SELECT RAISE(ABORT, 'KNOWLEDGE_TREE_PARENT_SCOPE_MISMATCH')
-      WHERE NOT EXISTS (
-        SELECT 1 FROM knowledge_tree_nodes parent
-        WHERE parent.id = NEW.parentId
-          AND parent.scopeKey = NEW.scopeKey
-          AND parent.isDeleted = 0
-      );
-      SELECT RAISE(ABORT, 'KNOWLEDGE_TREE_SELF_PARENT')
-      WHERE NEW.parentId = NEW.id;
-    END;
 
     DROP TRIGGER IF EXISTS knowledge_tree_parent_scope_guard_update;
     CREATE TRIGGER knowledge_tree_parent_scope_guard_update
@@ -237,7 +226,16 @@ export function ensureKnowledgeTreeTables(db: Database.Database): void {
       nb.userId,
       nb.workspaceId,
       CASE WHEN nb.workspaceId IS NULL THEN 'personal:' || nb.userId ELSE 'workspace:' || nb.workspaceId END,
-      CASE WHEN nb.parentId IS NULL THEN NULL ELSE 'notebook:' || nb.parentId END,
+      CASE
+        WHEN nb.parentId IS NULL OR nb.parentId = '' THEN NULL
+        WHEN EXISTS (
+          SELECT 1 FROM notebooks p
+          WHERE p.id = nb.parentId
+            AND COALESCE(p.workspaceId, '') = COALESCE(nb.workspaceId, '')
+            AND (nb.workspaceId IS NOT NULL OR p.userId = nb.userId)
+        ) THEN 'notebook:' || nb.parentId
+        ELSE NULL
+      END,
       'folder', 'notebook', nb.id, COALESCE(nb.sortOrder, 0), COALESCE(nb.isExpanded, 1),
       COALESCE(nb.isDeleted, 0), nb.deletedAt, nb.createdAt, nb.updatedAt
     FROM notebooks nb;
@@ -251,7 +249,16 @@ export function ensureKnowledgeTreeTables(db: Database.Database): void {
       n.userId,
       n.workspaceId,
       CASE WHEN n.workspaceId IS NULL THEN 'personal:' || n.userId ELSE 'workspace:' || n.workspaceId END,
-      'notebook:' || n.notebookId,
+      CASE
+        WHEN n.notebookId IS NULL OR n.notebookId = '' THEN NULL
+        WHEN EXISTS (
+          SELECT 1 FROM notebooks p
+          WHERE p.id = n.notebookId
+            AND COALESCE(p.workspaceId, '') = COALESCE(n.workspaceId, '')
+            AND (n.workspaceId IS NOT NULL OR p.userId = n.userId)
+        ) THEN 'notebook:' || n.notebookId
+        ELSE NULL
+      END,
       CASE
         WHEN n.note_type = 'word' THEN 'word'
         WHEN n.contentFormat = 'markdown' THEN 'markdown'
@@ -260,6 +267,25 @@ export function ensureKnowledgeTreeTables(db: Database.Database): void {
       'note', n.id, COALESCE(n.sortOrder, 0), 1,
       COALESCE(n.isTrashed, 0), n.trashedAt, n.createdAt, n.updatedAt
     FROM notes n;
+  `);
+
+  // 回填全部完成后，再创建 INSERT 守卫触发器，保证运行期写入仍受结构约束保护。
+  db.exec(`
+    DROP TRIGGER IF EXISTS knowledge_tree_parent_scope_guard_insert;
+    CREATE TRIGGER knowledge_tree_parent_scope_guard_insert
+    BEFORE INSERT ON knowledge_tree_nodes
+    WHEN NEW.parentId IS NOT NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'KNOWLEDGE_TREE_PARENT_SCOPE_MISMATCH')
+      WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_tree_nodes parent
+        WHERE parent.id = NEW.parentId
+          AND parent.scopeKey = NEW.scopeKey
+          AND parent.isDeleted = 0
+      );
+      SELECT RAISE(ABORT, 'KNOWLEDGE_TREE_SELF_PARENT')
+      WHERE NEW.parentId = NEW.id;
+    END;
   `);
 }
 
