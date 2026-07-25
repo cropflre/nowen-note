@@ -118,8 +118,6 @@ function workspaceOwnerId(db: Database.Database, workspaceId: string): string | 
 }
 
 function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) {
-  if (!node.workspaceId) return legacyPermission(null);
-
   if (node.resourceType === "notebook") {
     const member = memberQueryService.getNotebookMemberAccess(node.resourceId, userId);
     if (member) return legacyPermission(member.role);
@@ -131,6 +129,7 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) 
     if (noteAcl) return legacyPermission(noteAcl.permission);
   }
 
+  if (!node.workspaceId) return legacyPermission(null);
   const workspaceRole = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
     .get(node.workspaceId, userId) as { role: string } | undefined;
   return legacyPermission(workspaceRole?.role);

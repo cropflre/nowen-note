@@ -248,18 +248,17 @@ export function createKnowledgeChild(input: {
   const db = input.db || getDb();
   ensureKnowledgeTreeTables(db);
   const parent = input.parentId ? requireNode(db, input.parentId) : null;
-  const normalizedWorkspaceId = input.workspaceId || null;
-  const expectedScope = scopeKey(input.actorUserId, normalizedWorkspaceId);
-  if (parent && parent.scopeKey !== expectedScope) {
-    throw new KnowledgeTreeError("KNOWLEDGE_TREE_SCOPE_MISMATCH", 400, "父节点不在当前空间");
-  }
+  const requestedWorkspaceId = input.workspaceId || null;
+  const normalizedWorkspaceId = parent ? parent.workspaceId : requestedWorkspaceId;
+  const resourceOwnerUserId = parent && !parent.workspaceId ? parent.userId : input.actorUserId;
+  const expectedScope = parent?.scopeKey || scopeKey(resourceOwnerUserId, normalizedWorkspaceId);
   const targetAccess = resolveTargetAccess(db, input.parentId, input.actorUserId, normalizedWorkspaceId);
   if (!targetAccess.capabilities.canCreate) {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有在此处新建内容的权限", { required: "canCreate" });
   }
 
   const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : "无标题笔记");
-  const key = parent?.scopeKey || expectedScope;
+  const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
   let createdNode: NodeRow | null = null;
 
@@ -270,7 +269,7 @@ export function createKnowledgeChild(input: {
       db.prepare(`
         INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, sortOrder)
         VALUES (?, ?, ?, ?, ?, '📁', ?)
-      `).run(notebookId, input.actorUserId, normalizedWorkspaceId, physicalParentId, title, sortOrder);
+      `).run(notebookId, resourceOwnerUserId, normalizedWorkspaceId, physicalParentId, title, sortOrder);
       createdNode = nodeForResource(db, "notebook", notebookId);
     } else {
       const notebookId = nearestNotebookContainer(db, input.parentId);
@@ -287,7 +286,7 @@ export function createKnowledgeChild(input: {
           contentFormat, note_type, sortOrder
         ) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?)
       `).run(
-        noteId, input.actorUserId, normalizedWorkspaceId, notebookId, title,
+        noteId, resourceOwnerUserId, normalizedWorkspaceId, notebookId, title,
         content, contentFormat, noteType, sortOrder,
       );
       createdNode = nodeForResource(db, "note", noteId);
@@ -360,6 +359,13 @@ export function moveKnowledgeNode(input: {
   requireCapability(db, node.id, input.actorUserId, "canMove");
 
   const parent = input.parentId ? requireNode(db, input.parentId) : null;
+  if (!parent && !node.workspaceId && node.userId !== input.actorUserId) {
+    throw new KnowledgeTreeError(
+      "KNOWLEDGE_SHARED_ROOT_MOVE_FORBIDDEN",
+      403,
+      "共享根节点不能移出所有者目录",
+    );
+  }
   if (parent && parent.scopeKey !== node.scopeKey) {
     throw new KnowledgeTreeError("KNOWLEDGE_TREE_SCOPE_MISMATCH", 400, "不能跨空间移动内容");
   }

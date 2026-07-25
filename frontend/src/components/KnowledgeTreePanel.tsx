@@ -29,6 +29,11 @@ import {
 } from "@/lib/knowledgeTreeApi";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import {
+  canMoveWithinSharedRoot,
+  filterKnowledgeTreeNodes,
+  isSharedRoot,
+} from "@/lib/sharedKnowledgeTree";
 import { useApp, useAppActions } from "@/store/AppContext";
 
 export const FOCUS_KNOWLEDGE_TREE_EVENT = "nowen:focus-knowledge-tree";
@@ -241,7 +246,14 @@ function MovePanel({
     result.add(node.id);
     return result;
   }, [children, node.id]);
-  const candidates = nodes.filter((candidate) => !blocked.has(candidate.id) && candidate.access.capabilities.canCreate);
+  const candidates = nodes.filter((candidate) =>
+    !blocked.has(candidate.id)
+    && candidate.access.capabilities.canCreate
+    && (node.sharedRootId
+      ? candidate.sharedRootId === node.sharedRootId
+      : !candidate.sharedRootId),
+  );
+  const allowRoot = !node.sharedRootId;
 
   const move = async (parentId: string | null) => {
     if ((node.parentId ?? null) === parentId) {
@@ -267,14 +279,16 @@ function MovePanel({
         <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label="关闭移动面板"><X size={16} /></button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        <button
-          type="button"
-          disabled={node.parentId === null}
-          onClick={() => void move(null)}
-          className="mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <TreePine size={14} className="text-accent-primary" /><span className="truncate">根目录</span>
-        </button>
+        {allowRoot && (
+          <button
+            type="button"
+            disabled={node.parentId === null}
+            onClick={() => void move(null)}
+            className="mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <TreePine size={14} className="text-accent-primary" /><span className="truncate">根目录</span>
+          </button>
+        )}
         {candidates.map((candidate) => (
           <button key={candidate.id} type="button" onClick={() => void move(candidate.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary">
             {nodeIcon(candidate)}<span className="truncate">{candidate.title}</span>
@@ -305,6 +319,7 @@ export function KnowledgeTreePanel({
   const [nodes, setNodes] = useState<KnowledgeTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sharedLoadError, setSharedLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [menuNodeId, setMenuNodeId] = useState<string | null>(null);
@@ -315,12 +330,25 @@ export function KnowledgeTreePanel({
     setLoading(true);
     setError(null);
     try {
-      const response = await knowledgeTreeApi.list();
-      const ids = new Set(response.nodes.map((node) => node.id));
-      setNodes(response.nodes);
+      const [ownedResult, sharedResult] = await Promise.allSettled([
+        knowledgeTreeApi.list(),
+        knowledgeTreeApi.listShared(),
+      ]);
+      if (ownedResult.status === "rejected") throw ownedResult.reason;
+      const shared = sharedResult.status === "fulfilled" ? sharedResult.value.nodes : [];
+      setSharedLoadError(
+        sharedResult.status === "rejected"
+          ? sharedResult.reason?.message || "加载共享内容失败"
+          : null,
+      );
+      const merged = Array.from(
+        new Map([...ownedResult.value.nodes, ...shared].map((node) => [node.id, node])).values(),
+      );
+      const ids = new Set(merged.map((node) => node.id));
+      setNodes(merged);
       setExpanded((current) => {
         if (current.size === 0) {
-          return new Set(response.nodes.filter((node) => node.parentId === null || node.isExpanded).map((node) => node.id));
+          return new Set(merged.filter((node) => node.parentId === null || node.isExpanded).map((node) => node.id));
         }
         return new Set(Array.from(current).filter((id) => ids.has(id)));
       });
@@ -366,20 +394,7 @@ export function KnowledgeTreePanel({
   }, [menuNodeId]);
 
   const allChildren = useMemo(() => buildChildren(nodes), [nodes]);
-  const filteredNodes = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return nodes;
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    const visible = new Set(nodes.filter((node) => node.title.toLocaleLowerCase().includes(normalized)).map((node) => node.id));
-    for (const id of Array.from(visible)) {
-      let parentId = byId.get(id)?.parentId;
-      while (parentId) {
-        visible.add(parentId);
-        parentId = byId.get(parentId)?.parentId;
-      }
-    }
-    return nodes.filter((node) => visible.has(node.id));
-  }, [nodes, query]);
+  const filteredNodes = useMemo(() => filterKnowledgeTreeNodes(nodes, query), [nodes, query]);
   const children = useMemo(() => buildChildren(filteredNodes), [filteredNodes]);
   const effectiveExpanded = query.trim() ? new Set(filteredNodes.map((node) => node.id)) : expanded;
 
@@ -388,7 +403,9 @@ export function KnowledgeTreePanel({
     const opening = !next.has(node.id);
     if (opening) next.add(node.id); else next.delete(node.id);
     setExpanded(next);
-    try { await knowledgeTreeApi.update(node.id, { isExpanded: opening }); } catch { /* local navigation remains usable */ }
+    if (!node.sharedRootId) {
+      try { await knowledgeTreeApi.update(node.id, { isExpanded: opening }); } catch { /* local navigation remains usable */ }
+    }
   };
 
   const openDocument = async (node: KnowledgeTreeNode) => {
@@ -510,6 +527,17 @@ export function KnowledgeTreePanel({
 
   const dropMove = async (sourceId: string, targetId: string) => {
     if (!sourceId || sourceId === targetId) return;
+    const source = nodes.find((node) => node.id === sourceId);
+    const target = nodes.find((node) => node.id === targetId);
+    if (!source || !target) return;
+    if (Boolean(source.sharedRootId) !== Boolean(target.sharedRootId)) {
+      toast.error("自有内容与共享内容不能互相移动");
+      return;
+    }
+    if (source.sharedRootId && !canMoveWithinSharedRoot(source, target)) {
+      toast.error("共享内容只能在同一个共享根内移动");
+      return;
+    }
     const blockedTargets = descendantsOf(sourceId, allChildren);
     if (blockedTargets.has(targetId)) {
       toast.error("不能移动到自己的子节点中");
@@ -542,7 +570,7 @@ export function KnowledgeTreePanel({
             active && "bg-app-active text-tx-primary",
           )}
           style={{ paddingLeft: `${depth * 16 + 2}px` }}
-          draggable={node.access.capabilities.canMove}
+           draggable={node.access.capabilities.canMove && !isSharedRoot(node)}
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("application/x-nowen-tree-node", node.id);
@@ -572,7 +600,8 @@ export function KnowledgeTreePanel({
           >
             {nodeIcon(node)}
             <span className="min-w-0 flex-1 truncate">{node.title}</span>
-            {node.access.source === "inherited" && <span className="rounded bg-app-active px-1 text-[9px] text-tx-tertiary">继承</span>}
+             {isSharedRoot(node) && <span className="rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary">共享</span>}
+             {node.access.source === "inherited" && <span className="rounded bg-app-active px-1 text-[9px] text-tx-tertiary">继承</span>}
           </button>
           {node.access.capabilities.canCreate && (
             <button type="button" onClick={() => void createChild(node)} className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)} title="新建子内容"><Plus size={13} /></button>
@@ -589,7 +618,7 @@ export function KnowledgeTreePanel({
                 </>
               )}
               {node.access.capabilities.canEdit && <button type="button" onClick={() => void rename(node)} className="flex w-full px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">重命名</button>}
-              {node.access.capabilities.canMove && <button type="button" onClick={() => { setMenuNodeId(null); setMovingNode(node); }} className="flex w-full px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">移动</button>}
+              {node.access.capabilities.canMove && !isSharedRoot(node) && <button type="button" onClick={() => { setMenuNodeId(null); setMovingNode(node); }} className="flex w-full px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">移动</button>}
               {node.access.capabilities.canManageMembers && <button type="button" onClick={() => { setMenuNodeId(null); setPermissionsNode(node); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover"><ShieldCheck size={13} />成员与权限</button>}
               {node.access.capabilities.canDelete && (
                 <>
@@ -604,6 +633,10 @@ export function KnowledgeTreePanel({
       </div>
     );
   };
+
+  const rootNodes = children.get(null) || [];
+  const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
+  const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
 
   return (
     <section ref={menuRootRef} className={cn("relative flex min-h-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
@@ -636,13 +669,34 @@ export function KnowledgeTreePanel({
               {onRequestLegacy && <button type="button" onClick={onRequestLegacy} className="rounded-md border border-app-border px-2.5 py-1 text-[10px] text-tx-secondary hover:bg-app-hover">使用旧树</button>}
             </div>
           </div>
-        ) : filteredNodes.length === 0 ? (
+        ) : filteredNodes.length === 0 && !sharedLoadError ? (
           <div className="flex flex-col items-center py-14 text-center">
             <TreePine size={28} className="mb-2 text-tx-tertiary/40" />
             <p className="text-xs text-tx-secondary">{query ? "没有匹配内容" : "暂无内容"}</p>
             {!query && <p className="mt-1 max-w-[230px] text-[10px] leading-relaxed text-tx-tertiary">先创建根文件夹，再在文件夹或文档下继续创建子内容。</p>}
           </div>
-        ) : (children.get(null) || []).map((node) => renderNode(node, 0))}
+        ) : (
+          <>
+            {ownedRoots.length > 0 && (
+              <div data-knowledge-tree-section="owned">
+                <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">当前空间</div>
+                {ownedRoots.map((node) => renderNode(node, 0))}
+              </div>
+            )}
+            {sharedRoots.length > 0 && (
+              <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
+                <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">共享给我</div>
+                {sharedRoots.map((node) => renderNode(node, 0))}
+              </div>
+            )}
+            {sharedLoadError && (
+              <div className="mx-2 mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[10px] text-amber-600 dark:text-amber-400">
+                <span className="min-w-0 flex-1 truncate" title={sharedLoadError}>共享内容加载失败</span>
+                <button type="button" onClick={() => void reload()} className="shrink-0 underline underline-offset-2">重试</button>
+              </div>
+            )}
+          </>
+        )}
         {permissionsNode && <PermissionsPanel node={permissionsNode} onClose={() => setPermissionsNode(null)} />}
         {movingNode && <MovePanel node={movingNode} nodes={nodes} children={allChildren} onMoved={() => void reload()} onClose={() => setMovingNode(null)} />}
       </div>

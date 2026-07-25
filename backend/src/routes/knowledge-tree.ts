@@ -15,6 +15,7 @@ import {
   deleteKnowledgeNode,
   KnowledgeTreeError,
   listKnowledgeTree,
+  listSharedKnowledgeTree,
   listKnowledgeTreeHistory,
   moveKnowledgeNode,
   reorderKnowledgeNodes,
@@ -59,6 +60,19 @@ app.get("/", (c) => {
         userId: userIdOf(c),
         workspaceId: workspaceIdOf(c),
         includeDeleted: c.req.query("includeDeleted") === "1",
+      }),
+    });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
+app.get("/shared-with-me", (c) => {
+  try {
+    return c.json({
+      nodes: listSharedKnowledgeTree({
+        userId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
       }),
     });
   } catch (error) {

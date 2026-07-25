@@ -41,6 +41,8 @@ export interface KnowledgeTreeNode {
   createdAt: string;
   updatedAt: string;
   access: EffectiveKnowledgeAccess;
+  sharedRootId?: string;
+  sharedDepth?: number;
 }
 
 export interface KnowledgePermissionRow {
@@ -104,6 +106,10 @@ function workspaceQuery(includeDeleted = false): string {
 export const knowledgeTreeApi = {
   list(includeDeleted = false) {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/?${workspaceQuery(includeDeleted)}`);
+  },
+
+  listShared() {
+    return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`);
   },
 
   create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string }) {

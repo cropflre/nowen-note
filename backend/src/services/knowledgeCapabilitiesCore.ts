@@ -206,8 +206,6 @@ function nearestExplicitAcl(db: Database.Database, nodeId: string, userId: strin
 }
 
 function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string): Pick<EffectiveKnowledgeAccess, "rolePreset" | "capabilities"> {
-  if (!node.workspaceId) return permissionToAccess(null);
-
   if (node.resourceType === "notebook") {
     const member = memberQueryService.getNotebookMemberAccess(node.resourceId, userId);
     if (member) return permissionToAccess(member.role);
@@ -219,6 +217,7 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string):
     if (noteAcl) return permissionToAccess(noteAcl.permission);
   }
 
+  if (!node.workspaceId) return permissionToAccess(null);
   const workspaceRole = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
     .get(node.workspaceId, userId) as { role: string } | undefined;
   return permissionToAccess(workspaceRole?.role);
