@@ -1,0 +1,24 @@
+name: Shortcut Typecheck Diagnostic
+
+on:
+  push:
+    branches:
+      - agent/shortcut-help-center
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compact frontend typecheck
+        shell: bash
+        run: |
+          npm ci --silent >/dev/null 2>&1
+          set +e
+          output="$(npx tsc -b --pretty false 2>&1)"
+          status=$?
+          printf '%s\n' "$output" | grep -E 'error TS|error:' | head -40 || true
+          exit "$status"
