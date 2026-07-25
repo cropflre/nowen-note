@@ -1,0 +1,67 @@
+name: Legacy Knowledge Hierarchy CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/notes.ts'
+      - 'backend/src/routes/notebooks.ts'
+      - 'backend/src/services/legacyKnowledgeHierarchy.ts'
+      - 'backend/tests/legacy-knowledge-hierarchy.test.ts'
+      - 'scripts/patch_issue464_legacy_hierarchy.py'
+      - '.github/workflows/legacy-knowledge-hierarchy-ci.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply controlled legacy route patch
+        shell: bash
+        run: |
+          if [ -f scripts/patch_issue464_legacy_hierarchy.py ]; then
+            python3 scripts/patch_issue464_legacy_hierarchy.py
+            rm scripts/patch_issue464_legacy_hierarchy.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              backend/src/routes/notes.ts \
+              backend/src/routes/notebooks.ts \
+              backend/src/services/legacyKnowledgeHierarchy.ts \
+              scripts/patch_issue464_legacy_hierarchy.py
+            if ! git diff --cached --quiet; then
+              git commit -m "feat(knowledge-tree): coordinate legacy hierarchy writes"
+              git push origin HEAD:${{ github.event.pull_request.head.ref }}
+            fi
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+
+      - name: Legacy hierarchy coordinator tests
+        working-directory: backend
+        run: node --import tsx --test tests/legacy-knowledge-hierarchy.test.ts
+
+      - name: Knowledge tree regression tests
+        working-directory: backend
+        run: node --import tsx --test tests/knowledge-tree.test.ts tests/shared-knowledge-tree.test.ts tests/knowledge-tree-postgres-schema.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit
