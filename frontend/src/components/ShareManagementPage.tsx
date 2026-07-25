@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import ShareModal from "@/components/ShareModal";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
   buildPublicWebUrl,
   getPublicWebOriginSourceLabel,
   resolvePublicWebOrigin,
+  type PublicWebOriginResolution,
 } from "@/lib/publicWebOrigin";
 import {
   compactShareToken,
@@ -75,9 +77,241 @@ function IconAction({ label, onClick, danger = false, children }: {
   );
 }
 
+function getOriginRiskCopy(publicOrigin: PublicWebOriginResolution) {
+  switch (publicOrigin.risk) {
+    case "localhost":
+      return {
+        label: "分享地址仅本机可访问",
+        message: "当前分享地址为 localhost，仅本机可访问。",
+      };
+    case "private-network":
+      return {
+        label: "分享地址可能仅限内网",
+        message: "当前分享地址可能仅限局域网或 VPN 内访问，外部访客可能无法打开。",
+      };
+    case "protected-gateway":
+      return {
+        label: "分享地址可能需要登录",
+        message: "当前分享地址可能经过登录网关，未登录访客可能无法打开。",
+      };
+    default:
+      return {
+        label: "公开地址待验证",
+        message: "公开分享地址尚未验证，建议使用无痕窗口或未登录设备测试。",
+      };
+  }
+}
+
+function PublicOriginRiskControl({
+  publicOrigin,
+  configuredOrigin,
+  updatePublicWebOrigin,
+  variant,
+}: {
+  publicOrigin: PublicWebOriginResolution;
+  configuredOrigin: string;
+  updatePublicWebOrigin: (origin: string) => Promise<void>;
+  variant: "banner" | "badge";
+}) {
+  const [open, setOpen] = useState(false);
+  const [canManage, setCanManage] = useState<boolean | null>(null);
+  const [originDraft, setOriginDraft] = useState(configuredOrigin);
+  const [saving, setSaving] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const copy = getOriginRiskCopy(publicOrigin);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMe()
+      .then((user) => {
+        if (!cancelled) setCanManage(user.role === "admin");
+      })
+      .catch(() => {
+        if (!cancelled) setCanManage(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setOriginDraft(configuredOrigin);
+  }, [configuredOrigin]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown, { passive: true });
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const saveOrigin = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await updatePublicWebOrigin(originDraft.trim());
+      toast.success(originDraft.trim() ? "公开分享地址已保存" : "已恢复容器环境变量或当前访问域名");
+      setOpen(false);
+    } catch (error: any) {
+      toast.error(error?.message || "公开分享地址保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyOrigin = async () => {
+    if (!publicOrigin.origin) return;
+    try {
+      await navigator.clipboard.writeText(publicOrigin.origin);
+      toast.success("公开分享地址已复制");
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const panel = open && (
+    <div
+      role="dialog"
+      aria-label="公开分享地址详情"
+      className={cn(
+        "absolute z-40 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-app-border bg-app-elevated p-4 text-left shadow-xl",
+        variant === "banner" ? "left-0 sm:left-auto sm:right-0" : "right-0",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-tx-primary">{copy.label}</p>
+          <p className="mt-1 text-xs leading-5 text-tx-secondary">{copy.message}</p>
+        </div>
+        <button
+          type="button"
+          aria-label="关闭公开地址详情"
+          onClick={() => setOpen(false)}
+          className="rounded-md p-1 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+        >
+          <X size={15} />
+        </button>
+      </div>
+
+      <div className="mt-3 rounded-lg bg-app-hover/60 p-3">
+        <div className="flex items-center justify-between gap-3 text-[11px] text-tx-tertiary">
+          <span>地址来源</span>
+          <span>{getPublicWebOriginSourceLabel(publicOrigin.source)}</span>
+        </div>
+        <div className="mt-2 flex items-start gap-2">
+          <code className="min-w-0 flex-1 break-all text-xs text-tx-secondary">
+            {publicOrigin.origin || "相对地址"}
+          </code>
+          {publicOrigin.origin && (
+            <button
+              type="button"
+              aria-label="复制公开分享地址"
+              title="复制公开分享地址"
+              onClick={() => void copyOrigin()}
+              className="shrink-0 rounded-md p-1 text-tx-tertiary transition-colors hover:bg-app-surface hover:text-tx-primary"
+            >
+              <Copy size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {canManage ? (
+        <div className="mt-3">
+          <label className="text-xs font-medium text-tx-secondary" htmlFor="share-public-origin">
+            独立公开地址
+          </label>
+          <div className="mt-1.5 flex gap-2">
+            <Input
+              id="share-public-origin"
+              value={originDraft}
+              onChange={(event) => setOriginDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveOrigin();
+              }}
+              placeholder="https://note.example.com"
+              className="h-9 min-w-0 flex-1 text-xs"
+            />
+            <Button size="sm" disabled={saving} onClick={() => void saveOrigin()} className="h-9 shrink-0">
+              {saving && <Loader2 size={13} className="mr-1 animate-spin" />}
+              保存
+            </Button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-4 text-tx-tertiary">
+            留空后优先恢复容器 PUBLIC_WEB_ORIGIN；仍未配置时使用当前访问域名。
+          </p>
+        </div>
+      ) : canManage === false ? (
+        <p className="mt-3 text-xs leading-5 text-tx-tertiary">
+          当前账号无权修改，请让管理员配置独立公开地址或 PUBLIC_WEB_ORIGIN。
+        </p>
+      ) : (
+        <div className="mt-3 flex items-center text-xs text-tx-tertiary">
+          <Loader2 size={13} className="mr-1.5 animate-spin" />
+          正在检查配置权限…
+        </div>
+      )}
+
+      <p className="mt-3 border-t border-app-border pt-3 text-[11px] leading-4 text-tx-tertiary">
+        配置完成后，仍建议使用无痕窗口或未登录设备验证一次。
+      </p>
+    </div>
+  );
+
+  if (variant === "banner") {
+    return (
+      <div ref={rootRef} className="relative">
+        <div className="flex min-h-10 flex-col gap-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
+          <div className="flex min-w-0 items-center gap-2">
+            <AlertTriangle size={16} className="shrink-0" />
+            <span className="leading-5">{copy.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className="shrink-0 self-start rounded-md px-1.5 py-0.5 text-xs font-medium underline-offset-4 transition-colors hover:bg-amber-500/10 hover:underline sm:self-auto"
+          >
+            配置公开地址
+          </button>
+        </div>
+        {panel}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/10 dark:text-amber-200"
+      >
+        <AlertTriangle size={14} />
+        {copy.label}
+      </button>
+      {panel}
+    </div>
+  );
+}
+
 export default function ShareManagementPage() {
   const actions = useAppActions();
-  const { siteConfig } = useSiteSettings();
+  const { siteConfig, updatePublicWebOrigin } = useSiteSettings();
   const [data, setData] = useState<ShareManagementResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -260,6 +494,9 @@ export default function ShareManagementPage() {
     </div>
   );
 
+  const showLocalhostBanner = publicOrigin.risk === "localhost";
+  const showHeaderRisk = publicOrigin.risk !== "none" && !showLocalhostBanner;
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-app-bg">
       <div className="mx-auto w-full max-w-[1500px] space-y-5 px-4 py-5 sm:px-6 lg:px-8">
@@ -268,20 +505,29 @@ export default function ShareManagementPage() {
             <div className="flex items-center gap-2"><Link2 size={22} className="text-accent-primary" /><h1 className="text-xl font-semibold text-tx-primary">分享管理</h1></div>
             <p className="mt-1 text-sm text-tx-secondary">集中查看、修改、停用和清理当前账号可管理的分享链接。</p>
           </div>
-          <Button variant="outline" onClick={() => void load(true)} disabled={refreshing}>
-            {refreshing ? <Loader2 size={15} className="mr-2 animate-spin" /> : <RefreshCw size={15} className="mr-2" />}
-            刷新
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {showHeaderRisk && (
+              <PublicOriginRiskControl
+                publicOrigin={publicOrigin}
+                configuredOrigin={siteConfig.publicWebOrigin}
+                updatePublicWebOrigin={updatePublicWebOrigin}
+                variant="badge"
+              />
+            )}
+            <Button variant="outline" onClick={() => void load(true)} disabled={refreshing}>
+              {refreshing ? <Loader2 size={15} className="mr-2 animate-spin" /> : <RefreshCw size={15} className="mr-2" />}
+              刷新
+            </Button>
+          </div>
         </header>
 
-        {publicOrigin.requiresAnonymousCheck && (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-            <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-            <div>
-              <p>当前公开分享地址可能依赖内网、VPN 或登录网关，请用无痕窗口或未登录设备验证。</p>
-              <p className="mt-1 break-all text-xs opacity-80">地址来源：{getPublicWebOriginSourceLabel(publicOrigin.source)} · {publicOrigin.origin || "相对地址"}</p>
-            </div>
-          </div>
+        {showLocalhostBanner && (
+          <PublicOriginRiskControl
+            publicOrigin={publicOrigin}
+            configuredOrigin={siteConfig.publicWebOrigin}
+            updatePublicWebOrigin={updatePublicWebOrigin}
+            variant="banner"
+          />
         )}
 
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">

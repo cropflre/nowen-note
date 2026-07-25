@@ -7,18 +7,30 @@ import ShareManagementPage from "@/components/ShareManagementPage";
 
 const mocks = vi.hoisted(() => ({
   getShareManagement: vi.fn(),
+  getMe: vi.fn(),
+  updatePublicWebOrigin: vi.fn(),
+  siteConfig: {
+    publicWebOrigin: "https://note.example.com",
+    publicWebOriginSource: "settings",
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     getShareManagement: mocks.getShareManagement,
+    getMe: mocks.getMe,
     updateShare: vi.fn(),
     deleteShare: vi.fn(),
     getNote: vi.fn(),
   },
 }));
 vi.mock("@/store/AppContext", () => ({ useAppActions: () => ({ setActiveNote: vi.fn(), setViewMode: vi.fn(), setMobileView: vi.fn() }) }));
-vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: { publicWebOrigin: "https://note.example.com", publicWebOriginSource: "runtime" } }) }));
+vi.mock("@/hooks/useSiteSettings", () => ({
+  useSiteSettings: () => ({
+    siteConfig: mocks.siteConfig,
+    updatePublicWebOrigin: mocks.updatePublicWebOrigin,
+  }),
+}));
 vi.mock("@/components/ShareModal", () => ({ default: () => null }));
 vi.mock("@/components/ui/confirm", () => ({ confirm: vi.fn().mockResolvedValue(true) }));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
@@ -48,6 +60,12 @@ describe("ShareManagementPage", () => {
   beforeEach(() => {
     mocks.getShareManagement.mockReset();
     mocks.getShareManagement.mockResolvedValue(response);
+    mocks.getMe.mockReset();
+    mocks.getMe.mockResolvedValue({ role: "admin" });
+    mocks.updatePublicWebOrigin.mockReset();
+    mocks.updatePublicWebOrigin.mockResolvedValue(undefined);
+    mocks.siteConfig.publicWebOrigin = "https://note.example.com";
+    mocks.siteConfig.publicWebOriginSource = "settings";
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -91,5 +109,28 @@ describe("ShareManagementPage", () => {
     await flushEffects();
 
     expect(host.textContent).toContain("还没有符合条件的分享链接");
+  });
+
+  it("uses a compact localhost banner and reveals details on demand", async () => {
+    mocks.siteConfig.publicWebOrigin = "http://localhost:5173";
+
+    await act(async () => { root.render(<ShareManagementPage />); });
+    await flushEffects();
+
+    expect(host.textContent).toContain("当前分享地址为 localhost，仅本机可访问。");
+    expect(host.textContent).toContain("配置公开地址");
+    expect(host.textContent).not.toContain("地址来源");
+
+    const configureButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("配置公开地址"));
+    expect(configureButton).toBeTruthy();
+    await act(async () => {
+      configureButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(host.textContent).toContain("地址来源");
+    expect(host.textContent).toContain("管理员设置");
+    expect(host.textContent).toContain("独立公开地址");
   });
 });

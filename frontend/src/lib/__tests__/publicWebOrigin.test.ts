@@ -32,6 +32,7 @@ describe("publicWebOrigin", () => {
       source: "settings",
       usesCurrentOrigin: false,
       requiresAnonymousCheck: false,
+      risk: "none",
     });
     expect(buildPublicWebUrl("share/token", {
       runtimeOrigin: resolved.origin,
@@ -51,6 +52,7 @@ describe("publicWebOrigin", () => {
       origin: "https://runtime.example.com",
       source: "environment",
       requiresAnonymousCheck: false,
+      risk: "none",
     });
   });
 
@@ -75,6 +77,7 @@ describe("publicWebOrigin", () => {
       origin: "https://build.example.com",
       source: "build",
       usesCurrentOrigin: false,
+      risk: "none",
     });
   });
 
@@ -87,6 +90,39 @@ describe("publicWebOrigin", () => {
       source: "current",
       usesCurrentOrigin: true,
       requiresAnonymousCheck: true,
+      risk: "verify",
+    });
+  });
+
+  it("classifies localhost as a definite device-local share address", () => {
+    expect(resolvePublicWebOrigin({
+      runtimeOrigin: "http://localhost:5173",
+      runtimeSource: "settings",
+      buildOrigin: "",
+      currentOrigin: "https://current.example.com",
+    })).toMatchObject({
+      origin: "http://localhost:5173",
+      requiresAnonymousCheck: true,
+      risk: "localhost",
+    });
+
+    expect(resolvePublicWebOrigin({
+      runtimeOrigin: "",
+      buildOrigin: "",
+      currentOrigin: "http://127.0.0.1:3000",
+    })).toMatchObject({
+      risk: "localhost",
+    });
+  });
+
+  it("classifies private IP addresses as private-network risk", () => {
+    expect(resolvePublicWebOrigin({
+      runtimeOrigin: "http://192.168.1.8:3000",
+      runtimeSource: "environment",
+      currentOrigin: "https://current.example.com",
+    })).toMatchObject({
+      requiresAnonymousCheck: true,
+      risk: "private-network",
     });
   });
 
@@ -99,6 +135,7 @@ describe("publicWebOrigin", () => {
     })).toMatchObject({
       isLikelyProtectedGateway: true,
       requiresAnonymousCheck: true,
+      risk: "protected-gateway",
     });
   });
 });
