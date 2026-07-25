@@ -8,7 +8,7 @@ import {
   FolderInput, Check, Home, Download, FolderOpen,
   Columns2, Columns3, FileType2, Link2, FileText, FileCode,
   Pin, PinOff, StarOff, Lock, Unlock, Image,
-  ArrowUpDown, ArrowUp, ArrowDown,
+  ArrowUpDown, ArrowUp, ArrowDown, TreePine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
 import SharedNotebookTree from "@/components/SharedNotebookTree";
+import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
+import KnowledgeTreePanel, { FOCUS_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreePanel";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
@@ -86,6 +88,12 @@ import {
   type NotebookCreateState,
 } from "@/lib/notebookCreateState";
 import { SIDEBAR_TREE_INDENT, sidebarNotebookDisclosureChrome, sidebarNotebookPaddingLeft, sidebarNotebookRowPaddingY, sidebarNotebookShowsDragHandle, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
+import {
+  loadSidebarTreeMode,
+  nextSidebarTreeMode,
+  saveSidebarTreeMode,
+  type SidebarTreeMode,
+} from "@/lib/sidebarTreeMode";
 import {
   forgetPhaseBCreateTrace,
   installPhaseBBrowserInteractionObserver,
@@ -1113,6 +1121,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       return true;
     }
   });
+  const [sidebarTreeMode, setSidebarTreeMode] = useState<SidebarTreeMode>(() =>
+    loadSidebarTreeMode(typeof window === "undefined" ? null : window.localStorage),
+  );
   const [sharedNotebooks, setSharedNotebooks] = useState<Notebook[]>([]);
   const createTraceSequenceRef = useRef(0);
 
@@ -1149,6 +1160,37 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       return next;
     });
   }, []);
+
+  const changeSidebarTreeMode = useCallback((mode: SidebarTreeMode) => {
+    setSidebarTreeMode(mode);
+    saveSidebarTreeMode(mode, typeof window === "undefined" ? null : window.localStorage);
+    if (mode === "knowledge") {
+      setNotebooksExpanded(true);
+      try { localStorage.setItem("nowen-notebooks-expanded", "true"); } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    const focusKnowledgeTree = () => {
+      changeSidebarTreeMode("knowledge");
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event(FOCUS_KNOWLEDGE_TREE_EVENT));
+      });
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        focusKnowledgeTree();
+      }
+    };
+    window.addEventListener(OPEN_KNOWLEDGE_TREE_EVENT, focusKnowledgeTree);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener(OPEN_KNOWLEDGE_TREE_EVENT, focusKnowledgeTree);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [changeSidebarTreeMode]);
 
   // 笔记本右键菜单项。
   //
@@ -2838,68 +2880,86 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       {/* Separator——已移除：移动端导航迁出后无需在主区上方加分隔；
           WorkspaceSwitcher + 搜索 与笔记本的视觉间距已经足够。 */}
 
-      {/* Notebooks */}
+      {/* Primary content hierarchy: unified tree by default; old notebook tree is a local compatibility fallback. */}
       <div className="px-3 flex items-center justify-between mb-1">
         <button
           onClick={() => toggleNotebooksExpanded()}
-          className="flex items-center gap-1 hover:text-tx-secondary transition-colors"
+          className="flex min-w-0 items-center gap-1 hover:text-tx-secondary transition-colors"
         >
           <ChevronDown
             size={12}
             className={cn(
-              "text-tx-tertiary transition-transform duration-200",
+              "shrink-0 text-tx-tertiary transition-transform duration-200",
               !notebooksExpanded && "-rotate-90"
             )}
           />
-          <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">{t('sidebar.notebooks')}</span>
+          <span className="truncate text-xs font-medium text-tx-tertiary uppercase tracking-wider">
+            {sidebarTreeMode === "knowledge" ? "内容" : `${t('sidebar.notebooks')} · 兼容`}
+          </span>
         </button>
         <div className="relative flex items-center gap-0.5" ref={notebookSortMenuRef}>
           <Button
             variant="ghost"
             size="icon"
-            className={cn(
-              "h-6 w-6",
-              rootNotebookSortPref.by !== "manual" && "text-accent-primary bg-accent-primary/10"
-            )}
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpenNotebookSortParentId((current) => current === ROOT_NOTEBOOK_SORT_KEY ? null : ROOT_NOTEBOOK_SORT_KEY);
+            className={cn("h-6 w-6", sidebarTreeMode === "legacy" && "text-amber-500 bg-amber-500/10")}
+            onClick={(event) => {
+              event.stopPropagation();
+              changeSidebarTreeMode(nextSidebarTreeMode(sidebarTreeMode));
             }}
-            data-nowen-notebook-sort={isDesktop ? "true" : undefined}
-            title={notebookSortTitle}
-            aria-label={notebookSortTitle}
+            title={sidebarTreeMode === "knowledge" ? "切换到旧笔记本树（兼容模式）" : "返回统一内容树"}
+            aria-label={sidebarTreeMode === "knowledge" ? "切换到旧笔记本树（兼容模式）" : "返回统一内容树"}
+            data-sidebar-tree-mode={sidebarTreeMode}
           >
-            <ArrowUpDown size={14} />
+            {sidebarTreeMode === "knowledge" ? <BookOpen size={14} /> : <TreePine size={14} />}
           </Button>
-          {openNotebookSortParentId === ROOT_NOTEBOOK_SORT_KEY && (
-            <NotebookSortMenu
-              value={rootNotebookSortPref}
-              onChange={(next) => {
-                setRootNotebookSortPref(next);
-              }}
-              onClose={() => setOpenNotebookSortParentId(null)}
-            />
+          {sidebarTreeMode === "legacy" && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6",
+                  rootNotebookSortPref.by !== "manual" && "text-accent-primary bg-accent-primary/10"
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpenNotebookSortParentId((current) => current === ROOT_NOTEBOOK_SORT_KEY ? null : ROOT_NOTEBOOK_SORT_KEY);
+                }}
+                data-nowen-notebook-sort={isDesktop ? "true" : undefined}
+                title={notebookSortTitle}
+                aria-label={notebookSortTitle}
+              >
+                <ArrowUpDown size={14} />
+              </Button>
+              {openNotebookSortParentId === ROOT_NOTEBOOK_SORT_KEY && (
+                <NotebookSortMenu
+                  value={rootNotebookSortPref}
+                  onChange={(next) => setRootNotebookSortPref(next)}
+                  onClose={() => setOpenNotebookSortParentId(null)}
+                />
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleToggleAllNotebooks}
+                title={toggleAllNotebooksLabel}
+                aria-label={toggleAllNotebooksLabel}
+              >
+                {hasExpandedNotebooks ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleCreateNotebook}
+                title={t("common.newNotebook")}
+                aria-label={t("common.newNotebook")}
+              >
+                <Plus size={14} />
+              </Button>
+            </>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleToggleAllNotebooks}
-            title={toggleAllNotebooksLabel}
-            aria-label={toggleAllNotebooksLabel}
-          >
-            {hasExpandedNotebooks ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleCreateNotebook}
-            title={t("common.newNotebook")}
-            aria-label={t("common.newNotebook")}
-          >
-            <Plus size={14} />
-          </Button>
         </div>
       </div>
 
@@ -2912,6 +2972,13 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             transition={{ duration: 0.2 }}
             className="flex-1 min-h-0 flex flex-col"
           >
+            {sidebarTreeMode === "knowledge" ? (
+              <KnowledgeTreePanel
+                variant={variant}
+                className="min-h-0 flex-1"
+                onRequestLegacy={() => changeSidebarTreeMode("legacy")}
+              />
+            ) : (
             <div
               className={cn(
                 "flex-1 min-h-0 px-1 overscroll-contain",
@@ -2979,12 +3046,14 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 ))}
               </div>
             </div>
+
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Tags —— 使用 shrink-0 + 内部 max-height + scroll，避免在小屏（如 1366x768）挤压上方 Notebooks 或与 Footer 交叠 */}
-      {sharedNotebooks.length > 0 && (
+      {sidebarTreeMode === "legacy" && sharedNotebooks.length > 0 && (
         <SharedNotebookTree
           notebooks={sharedNotebooks}
           selectedNotebookId={state.selectedNotebookId}
