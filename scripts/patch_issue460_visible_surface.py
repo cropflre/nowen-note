@@ -88,15 +88,18 @@ panel = panel.replace(
 ''',
 )
 
+component_start = panel.index("export function KnowledgeTreePanel")
 initial_load = '  useEffect(() => { void reload(); }, [reload]);\n'
-if panel.count(initial_load) != 1:
-    raise SystemExit("KnowledgeTreePanel initial load anchor changed")
-panel = panel.replace(
-    initial_load,
-    '''  useEffect(() => {
+initial_load_pos = panel.find(initial_load, component_start)
+if initial_load_pos < 0:
+    raise SystemExit("KnowledgeTreePanel main initial load anchor changed")
+panel = (
+    panel[:initial_load_pos]
+    + '''  useEffect(() => {
     if (surfaceActive) void reload();
   }, [reload, surfaceActive]);
-''',
+'''
+    + panel[initial_load_pos + len(initial_load):]
 )
 
 workspace_effect = '''  useEffect(() => {
