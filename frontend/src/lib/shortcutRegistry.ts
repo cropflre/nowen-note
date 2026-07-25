@@ -62,6 +62,12 @@ function platformToken(token: string, platform: ShortcutPlatform): string {
   return token.length === 1 ? token.toUpperCase() : token;
 }
 
+function portableToken(token: string): string {
+  if (token === MOD) return "Ctrl/Cmd";
+  if (token === "Escape") return "Esc";
+  return token.length === 1 ? token.toUpperCase() : token;
+}
+
 export function formatShortcutChord(
   chord: ShortcutChord,
   platform: ShortcutPlatform = detectShortcutPlatform(),
@@ -69,19 +75,45 @@ export function formatShortcutChord(
   return chord.map((token) => platformToken(token, platform)).join(platform === "macos" ? "" : "+");
 }
 
+export function formatPortableShortcutChord(chord: ShortcutChord): string {
+  return chord.map(portableToken).join(" + ");
+}
+
+function getCommandChords(
+  command: ShortcutCommand,
+  platform: ShortcutPlatform,
+  surface: ShortcutSurface,
+): readonly ShortcutChord[] {
+  if (!command.availableIn.includes(surface)) return [];
+  const surfaceOverride = command.surfaceKeys?.[surface]?.[platform];
+  if (surfaceOverride !== undefined) return surfaceOverride;
+  return command.defaultKeys[platform] ?? [];
+}
+
 export function getShortcutChords(
   commandId: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
+  surface: ShortcutSurface = detectShortcutSurface(),
 ): readonly ShortcutChord[] {
-  return getShortcutCommand(commandId)?.defaultKeys[platform] ?? [];
+  const command = getShortcutCommand(commandId);
+  return command ? getCommandChords(command, platform, surface) : [];
 }
 
 export function formatShortcutForCommand(
   commandId: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
+  surface: ShortcutSurface = detectShortcutSurface(),
 ): string {
-  const first = getShortcutChords(commandId, platform)[0];
+  const first = getShortcutChords(commandId, platform, surface)[0];
   return first ? formatShortcutChord(first, platform) : "";
+}
+
+export function formatPortableShortcutForCommand(
+  commandId: string,
+  surface: ShortcutSurface = "web",
+): string {
+  const first = getShortcutChords(commandId, "windows", surface)[0];
+  return first ? formatPortableShortcutChord(first) : "";
 }
 
 function eventKeyToken(event: Pick<KeyboardEvent, "key">): string {
@@ -108,8 +140,29 @@ export function shortcutMatchesEvent(
   commandId: string,
   event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
   platform: ShortcutPlatform = detectShortcutPlatform(),
+  surface: ShortcutSurface = detectShortcutSurface(),
 ): boolean {
-  return getShortcutChords(commandId, platform).some((chord) => shortcutChordMatchesEvent(chord, event, platform));
+  return getShortcutChords(commandId, platform, surface)
+    .some((chord) => shortcutChordMatchesEvent(chord, event, platform));
+}
+
+export function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || target.isContentEditable;
+}
+
+function isEditorShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || !!target.closest(".ProseMirror, .cm-editor, [data-editor-root]");
+}
+
+export function isShortcutAllowedInTarget(commandId: string, target: EventTarget | null): boolean {
+  const scope = getShortcutCommand(commandId)?.scope;
+  if (!scope) return false;
+  if (scope === "global" || scope === "input-safe") return true;
+  if (scope === "editor") return isEditorShortcutTarget(target);
+  return !isEditableShortcutTarget(target);
 }
 
 function normalizedChordKey(chord: ShortcutChord, platform: ShortcutPlatform): string {
@@ -130,24 +183,35 @@ export function findShortcutConflicts(
   commands: readonly ShortcutCommand[] = SHORTCUT_COMMANDS,
 ): ShortcutConflict[] {
   const conflicts: ShortcutConflict[] = [];
-  for (const platform of ["macos", "windows", "linux"] as const) {
-    const rows = commands.flatMap((command) => (command.defaultKeys[platform] ?? []).map((chord) => ({
-      command, chord, key: normalizedChordKey(chord, platform),
-    })));
-    const grouped = new Map<string, typeof rows>();
-    for (const row of rows) grouped.set(row.key, [...(grouped.get(row.key) ?? []), row]);
+  for (const surface of ["web", "desktop", "android"] as const) {
+    for (const platform of ["macos", "windows", "linux"] as const) {
+      const rows = commands
+        .filter((command) => command.availableIn.includes(surface))
+        .flatMap((command) => getCommandChords(command, platform, surface).map((chord) => ({
+          command,
+          chord,
+          key: normalizedChordKey(chord, platform),
+        })));
+      const grouped = new Map<string, typeof rows>();
+      for (const row of rows) grouped.set(row.key, [...(grouped.get(row.key) ?? []), row]);
 
-    for (const bucket of grouped.values()) {
-      const commandIds = new Set<string>();
-      for (let left = 0; left < bucket.length; left += 1) {
-        for (let right = left + 1; right < bucket.length; right += 1) {
-          if (!scopesOverlap(bucket[left].command.scope, bucket[right].command.scope)) continue;
-          commandIds.add(bucket[left].command.id);
-          commandIds.add(bucket[right].command.id);
+      for (const bucket of grouped.values()) {
+        const commandIds = new Set<string>();
+        for (let left = 0; left < bucket.length; left += 1) {
+          for (let right = left + 1; right < bucket.length; right += 1) {
+            if (!scopesOverlap(bucket[left].command.scope, bucket[right].command.scope)) continue;
+            commandIds.add(bucket[left].command.id);
+            commandIds.add(bucket[right].command.id);
+          }
         }
-      }
-      if (commandIds.size > 1) {
-        conflicts.push({ platform, chord: formatShortcutChord(bucket[0].chord, platform), commandIds: [...commandIds].sort() });
+        if (commandIds.size > 1) {
+          conflicts.push({
+            surface,
+            platform,
+            chord: formatShortcutChord(bucket[0].chord, platform),
+            commandIds: [...commandIds].sort(),
+          });
+        }
       }
     }
   }
@@ -161,8 +225,9 @@ export function resolveShortcutCommandIdByTooltipLabel(label: string): string | 
 export function appendShortcutToTooltip(
   label: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
+  surface: ShortcutSurface = detectShortcutSurface(),
 ): string {
   const commandId = resolveShortcutCommandIdByTooltipLabel(label);
-  const shortcut = commandId ? formatShortcutForCommand(commandId, platform) : "";
+  const shortcut = commandId ? formatShortcutForCommand(commandId, platform, surface) : "";
   return shortcut ? `${label.replace(SHORTCUT_SUFFIX, "").trim()} (${shortcut})` : label;
 }
