@@ -27,9 +27,12 @@ import {
   SIDEBAR_SEARCH_CHANGE_EVENT,
 } from "@/lib/sidebarSearchBridge";
 import {
-  EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL,
-  isEditorLayoutToggleShortcut,
-} from "@/lib/editorWorkspaceLayout";
+  detectShortcutPlatform,
+  detectShortcutSurface,
+  formatShortcutForCommand,
+  isShortcutAllowedInTarget,
+  shortcutMatchesEvent,
+} from "@/lib/shortcutRegistry";
 import type { SearchResult } from "@/types";
 import SearchCenter from "@/components/SearchCenter";
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
@@ -48,12 +51,6 @@ interface WorkspaceCommand {
   shortcut?: string;
   icon: React.ReactNode;
   run: () => void;
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || target.isContentEditable;
 }
 
 /**
@@ -146,6 +143,8 @@ function SearchNavigationGuard() {
 export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const shortcutPlatform = detectShortcutPlatform();
+  const shortcutSurface = detectShortcutSurface();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -165,7 +164,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           ? "恢复管理模式的中间笔记列表"
           : "进入创作模式，让编辑器占满剩余空间",
         keywords: ["布局", "笔记列表", "创作模式", "管理模式", "sidebar", "list"],
-        shortcut: EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL,
         icon: state.noteListCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />,
         run: actions.toggleNoteListCollapsed,
       },
@@ -214,13 +212,18 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       });
     }
 
-    return commands;
+    return commands.map((command) => {
+      const shortcut = formatShortcutForCommand(command.id, shortcutPlatform, shortcutSurface);
+      return shortcut ? { ...command, shortcut } : command;
+    });
   }, [
     actions,
     state.activeNote,
     state.editorFullscreen,
     state.editorSplit,
     state.noteListCollapsed,
+    shortcutPlatform,
+    shortcutSurface,
   ]);
 
   const normalizedQuery = query.trim();
@@ -288,12 +291,18 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditorLayoutToggleShortcut(event) && !isEditableTarget(event.target)) {
+      if (
+        shortcutMatchesEvent("toggle-note-list", event, shortcutPlatform, shortcutSurface)
+        && isShortcutAllowedInTarget("toggle-note-list", event.target)
+      ) {
         event.preventDefault();
         actions.toggleNoteListCollapsed();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (
+        shortcutMatchesEvent("command-palette", event, shortcutPlatform, shortcutSurface)
+        && isShortcutAllowedInTarget("command-palette", event.target)
+      ) {
         event.preventDefault();
         if (!open) window.dispatchEvent(new CustomEvent("nowen:open-command-palette"));
       } else if (open && event.key === "Escape") {
@@ -303,7 +312,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actions, onClose, open]);
+  }, [actions, onClose, open, shortcutPlatform, shortcutSurface]);
 
   const jumpTo = useCallback(async (id: string) => {
     try {

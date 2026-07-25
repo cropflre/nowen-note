@@ -36,6 +36,12 @@ import { realtime } from "@/lib/realtime";
 import { deleteNotes as deleteLocalNotes } from "@/lib/localStore";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
+import {
+  detectShortcutPlatform,
+  detectShortcutSurface,
+  isShortcutAllowedInTarget,
+  shortcutMatchesEvent,
+} from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
@@ -552,11 +558,16 @@ function AppLayout() {
     }
   }, [state.selectedNotebookId, state.notebooks, actions, t]);
 
-  // Alt+N 全局快捷键：快速新建笔记
+  // 快速新建笔记：键位由统一注册表按 Web / Electron 运行端解析。
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && e.key.toLowerCase() === "n") {
-        e.preventDefault();
+    const platform = detectShortcutPlatform();
+    const surface = detectShortcutSurface();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        shortcutMatchesEvent("new-note", event, platform, surface)
+        && isShortcutAllowedInTarget("new-note", event.target)
+      ) {
+        event.preventDefault();
         void quickCreateNote();
       }
     };
