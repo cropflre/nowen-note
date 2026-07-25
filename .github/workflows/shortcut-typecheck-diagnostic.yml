@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/shortcut-help-center
+  pull_request:
+    branches:
+      - main
 
 jobs:
   typecheck:
