@@ -29,4 +29,14 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain("onRequestLegacy");
     expect(panel).toContain("不能移动到自己的子节点中");
   });
+
+  it("loads and focuses only the currently visible desktop or mobile tree", () => {
+    const sidebar = source("../../components/Sidebar.tsx");
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    expect(sidebar).toContain("sidebarRootRef.current");
+    expect(sidebar).toContain("root.getClientRects().length === 0");
+    expect(panel).toContain("useActiveSidebarSurface");
+    expect(panel).toContain('data-sidebar-surface-active={surfaceActive ? "true" : "false"}');
+    expect(panel).toContain("if (!surfaceActive) return");
+  });
 });
