@@ -10,7 +10,7 @@ on:
       - 'frontend/src/lib/sidebarTreeMode.ts'
       - 'frontend/src/lib/__tests__/sidebarTreeMode.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTreeSidebarContract.test.ts'
-      - 'scripts/patch_issue460_sidebar.py'
+      - 'scripts/patch_issue460_*.py'
       - '.github/workflows/knowledge-tree-sidebar-ci.yml'
 
 permissions:
@@ -26,17 +26,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply controlled Sidebar integration patch
+      - name: Apply controlled integration patches
         shell: bash
         run: |
-          if [ -f scripts/patch_issue460_sidebar.py ]; then
-            python3 scripts/patch_issue460_sidebar.py
-            rm scripts/patch_issue460_sidebar.py
+          shopt -s nullglob
+          patches=(scripts/patch_issue460_*.py)
+          if [ ${#patches[@]} -gt 0 ]; then
+            for patch in "${patches[@]}"; do
+              python3 "$patch"
+              rm "$patch"
+            done
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add frontend/src/components/Sidebar.tsx scripts/patch_issue460_sidebar.py
+            git add frontend/src/components/Sidebar.tsx frontend/src/components/KnowledgeTreePanel.tsx scripts
             if ! git diff --cached --quiet; then
-              git commit -m "feat(navigation): embed the unified tree in Sidebar"
+              git commit -m "fix(navigation): keep one active knowledge tree surface"
               git push origin HEAD:${{ github.event.pull_request.head.ref }}
             fi
           fi
