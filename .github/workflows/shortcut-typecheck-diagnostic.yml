@@ -11,14 +11,13 @@ on:
 jobs:
   typecheck:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - name: Compact frontend typecheck
+      - name: Clone and compact frontend typecheck
         shell: bash
         run: |
+          git clone --quiet --depth 1 --branch agent/shortcut-help-center \
+            https://github.com/cropflre/nowen-note.git source
+          cd source/frontend
           npm ci --silent >/dev/null 2>&1
           set +e
           output="$(npx tsc -b --pretty false 2>&1)"
