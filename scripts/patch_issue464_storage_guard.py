@@ -39,9 +39,6 @@ anchors = [
     '''}): KnowledgeNodeRow {
   const note = readNote(input.db, input.noteId);
 ''',
-    ''')}): LegacyHierarchyConsistencyIssue[] {
-  const issues: LegacyHierarchyConsistencyIssue[] = [];
-''',
 ]
 replacements = [
     '''}): KnowledgeNodeRow {
@@ -51,10 +48,6 @@ replacements = [
     '''}): KnowledgeNodeRow {
   ensureKnowledgeTreeStorage(input.db);
   const note = readNote(input.db, input.noteId);
-''',
-    ''')}): LegacyHierarchyConsistencyIssue[] {
-  ensureKnowledgeTreeStorage(input.db);
-  const issues: LegacyHierarchyConsistencyIssue[] = [];
 ''',
 ]
 for index, (anchor, replacement) in enumerate(zip(anchors, replacements), start=1):
