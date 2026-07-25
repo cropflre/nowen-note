@@ -46,11 +46,21 @@ jobs:
           from pathlib import Path
           path = Path('scripts/patch_issue462_shared_tree.py')
           text = path.read_text(encoding='utf-8')
-          old = "'''           draggable={node.access.capabilities.canMove}\n"
-          new = "'''          draggable={node.access.capabilities.canMove}\n"
-          if old not in text:
-              raise SystemExit('shared root draggable script anchor changed')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          replacements = [
+              (
+                  "'''           draggable={node.access.capabilities.canMove}\n",
+                  "'''          draggable={node.access.capabilities.canMove}\n",
+              ),
+              (
+                  "'''             {node.access.source === \"inherited\"",
+                  "'''            {node.access.source === \"inherited\"",
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'controlled script anchor changed: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/patch_issue462_shared_tree.py
             rm scripts/patch_issue462_shared_tree.py
