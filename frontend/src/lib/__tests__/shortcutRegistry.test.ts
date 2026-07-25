@@ -30,6 +30,20 @@ describe("shortcutRegistry", () => {
     expect(getShortcutCommand("shortcut-help")?.availableIn).toEqual(["web", "desktop"]);
   });
 
+  it("keeps command-palette command IDs backed by the registry", () => {
+    for (const commandId of [
+      "toggle-note-list",
+      "toggle-editor-fullscreen",
+      "split-right",
+      "split-down",
+      "close-split",
+    ]) {
+      expect(getShortcutCommand(commandId), commandId).toBeDefined();
+    }
+    expect(formatShortcutForCommand("toggle-note-list", "windows", "web")).toBe("Ctrl+Shift+B");
+    expect(formatShortcutForCommand("split-right", "windows", "web")).toBe("");
+  });
+
   it("detects the current desktop platform", () => {
     expect(detectShortcutPlatform({ platform: "MacIntel" })).toBe("macos");
     expect(detectShortcutPlatform({ platform: "Win32" })).toBe("windows");
