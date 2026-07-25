@@ -39,6 +39,24 @@ jobs:
         working-directory: backend
         run: node --import tsx --test tests/knowledge-tree.test.ts tests/shared-knowledge-tree.test.ts tests/knowledge-tree-postgres-schema.test.ts
 
+      - name: Legacy note content compatibility
+        id: note_content
+        continue-on-error: true
+        working-directory: backend
+        run: node --import tsx --test tests/markdown-user-content.test.ts tests/notes-content-view.test.ts > ../issue464-note-content.log 2>&1
+
+      - name: Upload note content diagnostics
+        if: steps.note_content.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue464-note-content-diagnostics
+          path: issue464-note-content.log
+          if-no-files-found: error
+
+      - name: Enforce note content compatibility
+        if: steps.note_content.outcome == 'failure'
+        run: exit 1
+
       - name: Backend typecheck
         working-directory: backend
         run: npx tsc --noEmit
