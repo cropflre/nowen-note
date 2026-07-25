@@ -29,10 +29,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out pull request branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init -q .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin "${HEAD_REF}"
+          git checkout -q -B "${HEAD_REF}" FETCH_HEAD
 
       - name: Apply controlled shared-tree patch
         shell: bash
