@@ -1,7 +1,14 @@
+import {
+  detectShortcutPlatform,
+  detectShortcutSurface,
+  formatPortableShortcutForCommand,
+  shortcutMatchesEvent,
+} from "@/lib/shortcutRegistry";
+
 export type EditorWorkspaceMode = "manage" | "focus" | "split" | "fullscreen";
 export type EditorSplitDirection = "right" | "down";
 
-export const EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL = "Ctrl/Cmd + Shift + B";
+export const EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL = formatPortableShortcutForCommand("toggle-note-list");
 const SPLIT_RATIO_STORAGE_PREFIX = "nowen.editorSplit.ratio";
 
 export interface ShortcutLikeEvent {
@@ -18,11 +25,17 @@ export interface StorageLike {
 }
 
 export function isEditorLayoutToggleShortcut(event: ShortcutLikeEvent): boolean {
-  return (
-    (event.metaKey || event.ctrlKey) === true &&
-    event.shiftKey === true &&
-    event.altKey !== true &&
-    event.key.toLowerCase() === "b"
+  return shortcutMatchesEvent(
+    "toggle-note-list",
+    {
+      key: event.key,
+      metaKey: event.metaKey === true,
+      ctrlKey: event.ctrlKey === true,
+      shiftKey: event.shiftKey === true,
+      altKey: event.altKey === true,
+    },
+    detectShortcutPlatform(),
+    detectShortcutSurface(),
   );
 }
 
