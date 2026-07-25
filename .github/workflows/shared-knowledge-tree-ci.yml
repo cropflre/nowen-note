@@ -1,0 +1,92 @@
+name: Shared Knowledge Tree CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/knowledge-tree.ts'
+      - 'backend/src/services/knowledgeCapabilitiesCore.ts'
+      - 'backend/src/services/knowledgeCapabilitiesResolver.ts'
+      - 'backend/src/services/knowledgeTree.ts'
+      - 'backend/src/services/knowledgeTreeCore.ts'
+      - 'backend/src/services/sharedKnowledgeTreeListing.ts'
+      - 'backend/tests/shared-knowledge-tree.test.ts'
+      - 'backend/tests/knowledge-tree.test.ts'
+      - 'frontend/src/components/KnowledgeTreePanel.tsx'
+      - 'frontend/src/lib/knowledgeTreeApi.ts'
+      - 'frontend/src/lib/sharedKnowledgeTree.ts'
+      - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
+      - 'frontend/src/lib/__tests__/knowledgeTree*.test.ts'
+      - 'scripts/patch_issue462_shared_tree.py'
+      - '.github/workflows/shared-knowledge-tree-ci.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply controlled shared-tree patch
+        shell: bash
+        run: |
+          if [ -f scripts/patch_issue462_shared_tree.py ]; then
+            python3 scripts/patch_issue462_shared_tree.py
+            rm scripts/patch_issue462_shared_tree.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              backend/src/routes/knowledge-tree.ts \
+              backend/src/services/knowledgeCapabilitiesCore.ts \
+              backend/src/services/knowledgeCapabilitiesResolver.ts \
+              backend/src/services/knowledgeTreeCore.ts \
+              frontend/src/components/KnowledgeTreePanel.tsx \
+              frontend/src/lib/knowledgeTreeApi.ts \
+              scripts/patch_issue462_shared_tree.py
+            if ! git diff --cached --quiet; then
+              git commit -m "feat(knowledge-tree): integrate shared roots in the unified tree"
+              git push origin HEAD:${{ github.event.pull_request.head.ref }}
+            fi
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+
+      - name: Shared knowledge-tree backend tests
+        working-directory: backend
+        run: |
+          node --import tsx --test tests/shared-knowledge-tree.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run build:tsc
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+
+      - name: Shared knowledge-tree frontend tests
+        working-directory: frontend
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/sharedKnowledgeTree.test.ts
+          src/lib/__tests__/knowledgeTreeModel.test.ts
+          src/lib/__tests__/knowledgeTreeSidebarContract.test.ts
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b
