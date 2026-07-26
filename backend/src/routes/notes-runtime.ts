@@ -95,6 +95,15 @@ export function createNotesRuntimeRouter(
     }
   });
 
+  app.get("/trash/summary", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    try {
+      return c.json(await lifecycle.getTrashSummary(userId, c.req.query("workspaceId")));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.get("/:id", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     try {
