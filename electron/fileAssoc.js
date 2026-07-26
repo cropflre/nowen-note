@@ -9,6 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
+const { decodeTextBuffer } = require("./textEncoding");
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB 安全上限
 const VALID_EXT = new Set([".md", ".markdown", ".txt"]);
@@ -42,11 +43,24 @@ function readFileSafe(filePath) {
       console.warn("[fileAssoc] file too large, skipped:", abs, stat.size);
       return null;
     }
-    const content = fs.readFileSync(abs, "utf8");
+
+    // 不再固定按 UTF-8 读取：Windows 上的 Markdown 常见 GBK/GB18030、
+    // UTF-16LE/BE。错误地先解码成字符串会产生不可逆的 U+FFFD（�），
+    // 后续保存只是把乱码持久化。这里保留原始字节并在 IPC 前统一解码。
+    const decoded = decodeTextBuffer(fs.readFileSync(abs));
+    if (decoded.encoding !== "utf-8" || decoded.hadBom) {
+      console.log(
+        `[fileAssoc] decoded ${path.basename(abs)} as ${decoded.encoding}` +
+          (decoded.hadBom ? " (BOM)" : ""),
+      );
+    }
+
     return {
       name: path.basename(abs),
       size: stat.size,
-      content,
+      content: decoded.content,
+      encoding: decoded.encoding,
+      hadBom: decoded.hadBom,
     };
   } catch (e) {
     console.warn("[fileAssoc] read failed:", filePath, e?.message || e);
