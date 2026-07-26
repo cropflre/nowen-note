@@ -10,7 +10,6 @@ import {
   type AttachmentDeletionCleanupResult,
 } from "./attachment-deletion-runtime";
 import { createNoteCoreRuntime, NoteCoreRuntimeError } from "./note-core-runtime";
-import { yDestroyDoc } from "./yjs";
 
 interface NoteDeletionRow {
   userId: string;
@@ -46,7 +45,11 @@ export function createNoteDeletionRuntime(
   const db = adapter ?? getDatabaseAdapter();
   const core = createNoteCoreRuntime(db);
   const cleanupAttachments = options.cleanupAttachments ?? cleanupDeletedNoteAttachments;
-  const destroyYDoc = options.destroyYDoc ?? yDestroyDoc;
+  // PostgreSQL runtime-only 尚未开放 Yjs room 路由，因此默认不存在需要销毁的
+  // 内存房间；note_yupdates / note_ysnapshots 由外键级联清理。这里保留注入点，
+  // 待 Yjs Runtime 迁移时由上层注入纯内存 room cleanup，避免静态导入
+  // services/yjs.ts 触发 SQLite Repository 与 migrations 启动副作用。
+  const destroyYDoc = options.destroyYDoc ?? (() => {});
 
   async function permanentDeleteNote(
     userId: string,
