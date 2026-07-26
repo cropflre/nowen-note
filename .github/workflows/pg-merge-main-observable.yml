@@ -121,19 +121,18 @@ jobs:
 
           realtime_path = Path("backend/src/services/realtime.ts")
           realtime = realtime_path.read_text()
-          old_recipients = '''  const members = getDb().prepare(
-            "SELECT userId FROM workspace_members WHERE workspaceId = ?"
-          ).all(payload.workspaceId) as Array<{ userId: string }>;
-            const userIds = new Set(members.map((member) => member.userId));
-          '''
-          new_recipients = '''  const userIds = new Set(
+          start_marker = '  const members = getDb().prepare('
+          end_marker = '  const userIds = new Set(members.map((member) => member.userId));'
+          replacement = '''  const userIds = new Set(
             realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
-          );
-          '''
-          if old_recipients in realtime:
-              realtime = realtime.replace(old_recipients, new_recipients, 1)
-          elif new_recipients not in realtime:
-              raise SystemExit("realtime workspace recipient query pattern not found")
+          );'''
+          start = realtime.find(start_marker)
+          end = realtime.find(end_marker, start)
+          if start >= 0 and end >= 0:
+              end += len(end_marker)
+              realtime = realtime[:start] + replacement + realtime[end:]
+          elif replacement not in realtime:
+              raise SystemExit("realtime workspace recipient query markers not found")
           if 'getDb().prepare(' in realtime:
               raise SystemExit("direct realtime database access remains after merge")
           realtime_path.write_text(realtime)
