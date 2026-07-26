@@ -1,0 +1,386 @@
+name: Repair PostgreSQL Yjs boundary
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/workflows/pg-fix-yjs-boundary.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Move Yjs database access behind repositories
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          persistence = Path("backend/src/repositories/yjsPersistenceRepository.ts")
+          persistence.write_text('''import { getDb } from "../db/schema";
+          import { noteYsnapshotsRepository } from "./noteYsnapshotsRepository";
+          import { noteYupdatesRepository } from "./noteYupdatesRepository";
+
+          export interface YjsNoteSeedRecord {
+            content: string;
+            contentText: string;
+            contentFormat: string;
+          }
+
+          export interface YjsNoteVersionRecord {
+            version: number;
+            content: string;
+            contentText: string;
+          }
+
+          export const yjsPersistenceRepository = {
+            getNoteSeed(noteId: string): YjsNoteSeedRecord | undefined {
+              return getDb()
+                .prepare("SELECT content, contentText, contentFormat FROM notes WHERE id = ?")
+                .get(noteId) as YjsNoteSeedRecord | undefined;
+            },
+
+            writeSnapshot(noteId: string, snapshot: Buffer): number {
+              const db = getDb();
+              let mergedTo = 0;
+              const tx = db.transaction(() => {
+                const maxRow = noteYupdatesRepository.getMaxId(noteId);
+                mergedTo = maxRow?.maxId || 0;
+                noteYsnapshotsRepository.upsert(noteId, snapshot, mergedTo);
+              });
+              tx();
+              return mergedTo;
+            },
+
+            getNoteVersion(noteId: string): YjsNoteVersionRecord | undefined {
+              return getDb()
+                .prepare("SELECT version, content, contentText FROM notes WHERE id = ?")
+                .get(noteId) as YjsNoteVersionRecord | undefined;
+            },
+
+            updateNoteContent(
+              noteId: string,
+              markdown: string,
+              contentText: string,
+              bumpVersion: boolean,
+            ): void {
+              const db = getDb();
+              if (bumpVersion) {
+                db.prepare(
+                  `UPDATE notes
+                     SET content = ?,
+                         contentText = ?,
+                         version = version + 1,
+                         updatedAt = datetime('now')
+                   WHERE id = ?`,
+                ).run(markdown, contentText, noteId);
+                return;
+              }
+
+              db.prepare(
+                `UPDATE notes
+                   SET content = ?,
+                       contentText = ?,
+                       updatedAt = datetime('now')
+                 WHERE id = ?`,
+              ).run(markdown, contentText, noteId);
+            },
+          };
+          ''')
+
+          subdocuments = Path("backend/src/repositories/yjsSubdocumentsRepository.ts")
+          subdocuments.write_text('''import { getDb } from "../db/schema";
+          import {
+            applyYjsSubdocumentUpdate,
+            assertYjsSubdocumentGeneration,
+            getYjsSubdocumentSnapshot,
+            prepareYjsSubdocuments,
+            type YjsSubdocumentManifest,
+          } from "../services/yjs-subdocuments";
+          import { noteYsnapshotsRepository } from "./noteYsnapshotsRepository";
+          import { noteYupdatesRepository } from "./noteYupdatesRepository";
+
+          export interface YjsSubdocumentApplyResult {
+            content: string;
+            contentText: string;
+            sectionGuid: string;
+            version: number;
+            generation: number;
+            structureVersion: number;
+          }
+
+          export const yjsSubdocumentsRepository = {
+            prepare(noteId: string): YjsSubdocumentManifest | null {
+              const db = getDb();
+              const note = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(noteId) as
+                | { content: string; contentFormat: string }
+                | undefined;
+              if (!note || note.contentFormat !== "tiptap-json") return null;
+              return prepareYjsSubdocuments(db, noteId, note.content);
+            },
+
+            getState(noteId: string, sectionId: string): { guid: string; snapshot: Uint8Array } | null {
+              return getYjsSubdocumentSnapshot(getDb(), noteId, sectionId);
+            },
+
+            assertGeneration(noteId: string, expectedGeneration: number): YjsSubdocumentManifest {
+              return assertYjsSubdocumentGeneration(getDb(), noteId, expectedGeneration);
+            },
+
+            applyUpdate(
+              noteId: string,
+              sectionId: string,
+              update: Uint8Array,
+              userId: string | null,
+              expectedGeneration: number,
+            ): YjsSubdocumentApplyResult {
+              const db = getDb();
+              const result = applyYjsSubdocumentUpdate(
+                db,
+                noteId,
+                sectionId,
+                update,
+                userId,
+                expectedGeneration,
+              );
+              try {
+                db.transaction(() => {
+                  noteYupdatesRepository.deleteByNoteId(noteId);
+                  noteYsnapshotsRepository.deleteByNoteId(noteId);
+                })();
+              } catch (error) {
+                console.warn(`[yjs] retire legacy history failed for ${noteId}:`, error);
+              }
+              return result;
+            },
+          };
+          ''')
+
+          service_path = Path("backend/src/services/yjs.ts")
+          source = service_path.read_text()
+
+          old_imports = '''import * as Y from "yjs";
+          import { getDb } from "../db/schema";
+          import { noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
+          import {
+            assertYjsSubdocumentGeneration,
+            getYjsSubdocumentSnapshot,
+            applyYjsSubdocumentUpdate,
+            isYjsSubdocumentsEnabled,
+            prepareYjsSubdocuments,
+          } from "./yjs-subdocuments.js";'''
+          new_imports = '''import * as Y from "yjs";
+          import { noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
+          import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository.js";
+          import { yjsSubdocumentsRepository } from "../repositories/yjsSubdocumentsRepository.js";
+          import { isYjsSubdocumentsEnabled } from "./yjs-subdocuments.js";'''
+          if old_imports not in source:
+            raise SystemExit("Yjs import block not found")
+          source = source.replace(old_imports, new_imports, 1)
+
+          source = source.replace(
+            'function loadDocFromDb(noteId: string): Y.Doc {\n  const db = getDb();\n  const doc = new Y.Doc();',
+            'function loadDocFromDb(noteId: string): Y.Doc {\n  const doc = new Y.Doc();',
+            1,
+          )
+          seed_pattern = re.compile(
+            r'const note = db\.prepare\("SELECT content, contentText FROM notes WHERE id = \?"\)\.get\(noteId\) as\s*\| \{ content: string; contentText: string \}\s*\| undefined;'
+          )
+          source, seed_count = seed_pattern.subn(
+            'const note = yjsPersistenceRepository.getNoteSeed(noteId);',
+            source,
+          )
+          if seed_count != 2:
+            raise SystemExit(f"expected two Yjs seed queries, found {seed_count}")
+
+          snapshot_pattern = re.compile(
+            r'function writeSnapshot\(noteId: string, doc: Y\.Doc\) \{.*?\n\}\n\n/\*\*\n \* 独立的 GC',
+            re.S,
+          )
+          snapshot_replacement = '''function writeSnapshot(noteId: string, doc: Y.Doc) {
+            const state = Y.encodeStateAsUpdate(doc);
+            yjsPersistenceRepository.writeSnapshot(noteId, Buffer.from(state));
+          }
+
+          /**
+           * 独立的 GC'''
+          source, snapshot_count = snapshot_pattern.subn(snapshot_replacement, source, count=1)
+          if snapshot_count != 1:
+            raise SystemExit("Yjs snapshot block not found")
+
+          persist_pattern = re.compile(
+            r'function persistToNotesTable\(room: RoomState\) \{.*?\n\}\n\n// ---------------------------------------------------------------------------\n// 房间生命周期',
+            re.S,
+          )
+          persist_replacement = '''function persistToNotesTable(room: RoomState) {
+            const ytext = room.doc.getText("content");
+            const markdown = ytext.toString();
+            // 生成纯文本（给 FTS 用）—— 用最朴素的剥离，复杂的由前端 contentFormat 负责
+            const contentText = markdown
+              .replace(/```[\\s\\S]*?```/g, "")
+              .replace(/[#>*_`~\\-]/g, "")
+              .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, "$1")
+              .replace(/!\\[[^\\]]*\\]\\([^)]+\\)/g, "")
+              .replace(/\\s+/g, " ")
+              .trim();
+
+            const existing = yjsPersistenceRepository.getNoteVersion(room.noteId);
+            if (!existing) return;
+            // REST or transactional writers may already have persisted this exact Yjs state.
+            // Flushing the same body must not create a phantom edit or bump note.version.
+            if (existing.content === markdown && existing.contentText === contentText) return;
+
+            // P2-#8：version 粒度控制——5 分钟内连续编辑合并为同一个 version，
+            // 避免 CRDT 下每 1.5s 就 ++ 把版本历史稀释成噪音
+            const VERSION_BUMP_INTERVAL_MS = 5 * 60 * 1000;
+            const now = Date.now();
+            const shouldBump = now - room.lastVersionBumpAt >= VERSION_BUMP_INTERVAL_MS;
+            yjsPersistenceRepository.updateNoteContent(
+              room.noteId,
+              markdown,
+              contentText,
+              shouldBump,
+            );
+            if (shouldBump) room.lastVersionBumpAt = now;
+          }
+
+          // ---------------------------------------------------------------------------
+          // 房间生命周期'''
+          source, persist_count = persist_pattern.subn(persist_replacement, source, count=1)
+          if persist_count != 1:
+            raise SystemExit("Yjs note dual-write block not found")
+
+          join_pattern = re.compile(
+            r'const note = getDb\(\)\.prepare\("SELECT contentFormat FROM notes WHERE id = \?"\)\.get\(noteId\) as\s*\| \{ contentFormat: string \}\s*\| undefined;'
+          )
+          source, join_count = join_pattern.subn(
+            'const note = yjsPersistenceRepository.getNoteSeed(noteId);',
+            source,
+            count=1,
+          )
+          if join_count != 1:
+            raise SystemExit("Yjs join content format query not found")
+
+          subdoc_pattern = re.compile(
+            r'/\*\* 实验协议：为超大富文本建立章节清单，并按需返回单个 Subdocument 快照。 \*/.*?\n\}\n\n/\*\*\n \* 强制把 yText',
+            re.S,
+          )
+          subdoc_replacement = '''/** 实验协议：为超大富文本建立章节清单，并按需返回单个 Subdocument 快照。 */
+          export function yPrepareSubdocuments(noteId: string): {
+            rootGuid: string;
+            generation: number;
+            structureVersion: number;
+            sections: Array<{ id: string; guid: string; startBlock: number; endBlock: number }>;
+          } | null {
+            if (!isYjsSubdocumentsEnabled()) return null;
+            return yjsSubdocumentsRepository.prepare(noteId);
+          }
+
+          export function yGetSubdocumentState(noteId: string, sectionId: string): { guid: string; stateBase64: string } | null {
+            if (!isYjsSubdocumentsEnabled()) return null;
+            const snapshot = yjsSubdocumentsRepository.getState(noteId, sectionId);
+            return snapshot ? { guid: snapshot.guid, stateBase64: bufferToBase64(snapshot.snapshot) } : null;
+          }
+
+          export function yApplySubdocumentUpdate(
+            noteId: string,
+            sectionId: string,
+            updateBase64: string,
+            userId: string | null,
+            expectedGeneration: number,
+          ): {
+            content: string;
+            contentText: string;
+            sectionGuid: string;
+            version: number;
+            generation: number;
+            structureVersion: number;
+          } | null {
+            if (!isYjsSubdocumentsEnabled()) return null;
+            yjsSubdocumentsRepository.assertGeneration(noteId, expectedGeneration);
+            // 活跃或待回收的旧 room 可能仍含未落盘内容，协议切换必须 fail-closed。
+            // 不能在章节 update 完成校验和原子提交前销毁 room 或删除旧历史。
+            if (rooms.has(noteId)) throw new Error("SUBDOCUMENT_LEGACY_ROOM_ACTIVE");
+            const update = base64ToUint8(updateBase64);
+            return yjsSubdocumentsRepository.applyUpdate(
+              noteId,
+              sectionId,
+              update,
+              userId,
+              expectedGeneration,
+            );
+          }
+
+          /**
+           * 强制把 yText'''
+          source, subdoc_count = subdoc_pattern.subn(subdoc_replacement, source, count=1)
+          if subdoc_count != 1:
+            raise SystemExit("Yjs subdocument block not found")
+
+          for forbidden in (
+            'from "../db/schema"',
+            "getDb(",
+            ".prepare(",
+            ".transaction(",
+            ".exec(",
+          ):
+            if forbidden in source:
+              raise SystemExit(f"direct database access remains in yjs service: {forbidden}")
+
+          required = (
+            "yjsPersistenceRepository.getNoteSeed(noteId)",
+            "yjsPersistenceRepository.writeSnapshot(noteId, Buffer.from(state))",
+            "yjsPersistenceRepository.getNoteVersion(room.noteId)",
+            "yjsPersistenceRepository.updateNoteContent(",
+            "VERSION_BUMP_INTERVAL_MS = 5 * 60 * 1000",
+            "SNAPSHOT_EVERY_N_UPDATES = 100",
+          )
+          for marker in required:
+            if marker not in source:
+              raise SystemExit(f"required Yjs boundary marker missing: {marker}")
+
+          service_path.write_text(source)
+          PY
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate Yjs repository boundary
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build:tsc -- --noEmit 2>&1 | tee /tmp/pg-yjs-boundary.log
+          node --import tsx --test --test-concurrency=1 \
+            tests/webhook-yjs-service-boundary.test.ts \
+            2>&1 | tee -a /tmp/pg-yjs-boundary.log
+
+      - name: Commit repaired boundary
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            backend/src/services/yjs.ts \
+            backend/src/repositories/yjsPersistenceRepository.ts \
+            backend/src/repositories/yjsSubdocumentsRepository.ts
+          git rm .github/workflows/pg-fix-yjs-boundary.yml
+          git commit -m "refactor(postgres): move Yjs persistence behind repositories"
+          git push origin HEAD:pg-migration-unified
