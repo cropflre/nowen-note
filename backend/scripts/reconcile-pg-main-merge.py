@@ -155,6 +155,16 @@ def reconcile_rich_text_restore_contract() -> None:
     elif markdown_new not in source:
         raise SystemExit("markdown restore assertion not found")
 
+    text_old = '  assert.equal(restoreB.json.contentText, "B current");'
+    text_new = r'''  assert.equal(
+    restoreB.json.contentText.replace(/\s+/g, " ").trim(),
+    "B current",
+  );'''
+    if text_old in source:
+        source = source.replace(text_old, text_new, 1)
+    elif text_new not in source:
+        raise SystemExit("markdown restore contentText assertion not found")
+
     path.write_text(source)
 
 
