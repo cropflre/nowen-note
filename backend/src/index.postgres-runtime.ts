@@ -44,11 +44,12 @@ app.get("/api/health", async (c) => {
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/:id",
-        "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata)",
+        "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
+        "PUT /api/notes/reorder/batch",
       ],
       pendingCapabilities: [
         "notes full-text search (#252)",
-        "trash/delete/reorder/transfer/yjs write routes",
+        "trash summary/permanent delete/yjs write routes",
       ],
     },
   }, status);
@@ -126,7 +127,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes collection plus single-note core runtime is enabled; remaining business routes stay disabled until #249 completes");
+console.warn("[db] Notes collection, single-note core and lifecycle runtime are enabled; remaining business routes stay disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 let shuttingDown = false;
