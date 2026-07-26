@@ -38,7 +38,6 @@ def reconcile_package_import_architecture() -> None:
     elif new in source:
         pass
     elif "executeNowenPackageImportWithBatch" in source and "importNowenPackageWithSync" in source:
-        # Latest main delegates ZIP traversal to the round-trip import pipeline.
         pass
     else:
         raise SystemExit("nowenPackageImport architecture not recognized")
@@ -134,16 +133,28 @@ def reconcile_note_link_contract_tests() -> None:
 def reconcile_rich_text_restore_contract() -> None:
     path = Path("backend/tests/note-version-content-format.test.ts")
     source = path.read_text()
-    old = "  assert.equal(row.content, richTextContent);"
-    new = '''  const restoredDoc = JSON.parse(row.content);
+
+    rich_old = "  assert.equal(row.content, richTextContent);"
+    rich_new = '''  const restoredDoc = JSON.parse(row.content);
   assert.equal(restoredDoc.type, "doc");
   assert.equal(restoredDoc.content?.[0]?.type, "paragraph");
   assert.equal(restoredDoc.content?.[0]?.content?.[0]?.text, "Rich text");
   assert.match(String(restoredDoc.content?.[0]?.attrs?.blockId || ""), /^blk_/);'''
-    if old in source:
-        source = source.replace(old, new, 1)
-    elif new not in source:
+    if rich_old in source:
+        source = source.replace(rich_old, rich_new, 1)
+    elif rich_new not in source:
         raise SystemExit("rich text restore assertion not found")
+
+    markdown_old = '  assert.equal(restoreB.json.content, "## B\\n\\ncurrent");'
+    markdown_new = r'''  assert.equal(
+    restoreB.json.content.replace(/\s+\^blk_[A-Za-z0-9_-]+(?=\n|$)/g, ""),
+    "## B\n\ncurrent",
+  );'''
+    if markdown_old in source:
+        source = source.replace(markdown_old, markdown_new, 1)
+    elif markdown_new not in source:
+        raise SystemExit("markdown restore assertion not found")
+
     path.write_text(source)
 
 
