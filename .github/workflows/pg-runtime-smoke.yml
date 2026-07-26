@@ -10,8 +10,10 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -24,8 +26,10 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -98,10 +102,12 @@ jobs:
 
           collection_status=$(curl --silent --output /tmp/pg-runtime-smoke/collection.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes || true)
           single_status=$(curl --silent --output /tmp/pg-runtime-smoke/single.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes/11111111-1111-4111-8111-111111111111 || true)
+          trash_empty_status=$(curl --request DELETE --silent --output /tmp/pg-runtime-smoke/trash-empty.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes/trash/empty || true)
           {
             echo "health_status=$health_status"
             echo "collection_status=$collection_status"
             echo "single_status=$single_status"
+            echo "trash_empty_status=$trash_empty_status"
             for file in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
               if [ -e "$file" ]; then echo "sqlite_exists=$file"; else echo "sqlite_absent=$file"; fi
             done
@@ -119,11 +125,18 @@ jobs:
           const health = readJson("/tmp/pg-runtime-smoke/health.json");
           const collection = readJson("/tmp/pg-runtime-smoke/collection.json");
           const single = readJson("/tmp/pg-runtime-smoke/single.json");
+          const trashEmpty = readJson("/tmp/pg-runtime-smoke/trash-empty.json");
           if (!status.includes("health_status=200")) throw new Error(status);
           if (health.status !== "ok" || health.database?.driver !== "postgres" || health.database?.ok !== true) {
             throw new Error(`unexpected health: ${JSON.stringify(health)}`);
           }
-          for (const route of ["GET /api/notes", "POST /api/notes", "GET /api/notes/:id"]) {
+          for (const route of [
+            "GET /api/notes",
+            "POST /api/notes",
+            "GET /api/notes/:id",
+            "DELETE /api/notes/:id",
+            "DELETE /api/notes/trash/empty",
+          ]) {
             if (!health.runtime?.migratedRoutes?.includes(route)) {
               throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
             }
@@ -133,6 +146,9 @@ jobs:
           }
           if (!status.includes("single_status=401") || single.code !== "UNAUTHENTICATED") {
             throw new Error(`unexpected single-note authentication boundary: ${status}\n${JSON.stringify(single)}`);
+          }
+          if (!status.includes("trash_empty_status=401") || trashEmpty.code !== "UNAUTHENTICATED") {
+            throw new Error(`unexpected trash-empty authentication boundary: ${status}\n${JSON.stringify(trashEmpty)}`);
           }
           if (status.includes("sqlite_exists=")) throw new Error(`SQLite side effect detected:\n${status}`);
           if (!status.includes("runtime_exit=0")) throw new Error(`runtime did not shut down cleanly:\n${status}`);
