@@ -51,6 +51,7 @@ jobs:
         id: merge
         shell: bash
         run: |
+          exec > >(tee /tmp/pg-observable-main-merge.log) 2>&1
           set -euo pipefail
           git fetch origin main pg-migration-unified
           echo "before=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -158,6 +159,7 @@ jobs:
             .github/workflows/pg-fix-yjs-version.yml \
             .github/workflows/pg-diagnose-note-split.yml \
             .github/workflows/pg-merge-main-observable.yml \
+            .github/workflows/pg-patch-observable-logging.yml \
             backend/.yjs-noop-persist-fix-trigger
 
           git commit --amend --no-edit
@@ -190,7 +192,7 @@ jobs:
             npm run audit:pg-schema-parity
             echo '=== SQL dialect ==='
             node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts
-          } 2>&1 | tee /tmp/pg-observable-main-merge.log
+          } 2>&1 | tee -a /tmp/pg-observable-main-merge.log
 
       - name: Stop after static failure
         if: steps.static.outcome == 'failure'
