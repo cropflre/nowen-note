@@ -6,13 +6,14 @@ function source(relativeUrl: string) {
 }
 
 describe("knowledge tree sidebar contract", () => {
-  it("uses the unified tree as the primary Sidebar hierarchy", () => {
+  it("uses the unified tree as the only Sidebar hierarchy", () => {
     const sidebar = source("../../components/Sidebar.tsx");
     expect(sidebar).toContain('import KnowledgeTreePanel');
-    expect(sidebar).toContain('sidebarTreeMode === "knowledge"');
     expect(sidebar).toContain('<KnowledgeTreePanel');
-    expect(sidebar).toContain('data-sidebar-tree-mode={sidebarTreeMode}');
-    expect(sidebar).toContain('sidebarTreeMode === "legacy" && sharedNotebooks.length > 0');
+    expect(sidebar).not.toContain("sidebarTreeMode");
+    expect(sidebar).not.toContain("SharedNotebookTree");
+    expect(sidebar).not.toContain("getSharedNotebooks");
+    expect(sidebar).not.toContain("兼容模式");
   });
 
   it("does not render the former floating drawer launcher", () => {
@@ -22,12 +23,13 @@ describe("knowledge tree sidebar contract", () => {
     expect(drawer).toContain("must not render a second drawer");
   });
 
-  it("keeps loading recovery and legacy fallback inside one embedded panel", () => {
+  it("keeps loading recovery inside one embedded panel without a legacy fallback", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
     expect(panel).toContain('data-nowen-knowledge-tree="embedded"');
     expect(panel).toContain("内容树加载失败");
-    expect(panel).toContain("onRequestLegacy");
     expect(panel).toContain("不能移动到自己的子节点中");
+    expect(panel).not.toContain("onRequestLegacy");
+    expect(panel).not.toContain("使用旧树");
   });
 
   it("loads and focuses only the currently visible desktop or mobile tree", () => {

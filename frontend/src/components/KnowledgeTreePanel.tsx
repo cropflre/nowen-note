@@ -303,13 +303,11 @@ function MovePanel({
 export interface KnowledgeTreePanelProps {
   variant?: "desktop" | "mobile";
   className?: string;
-  onRequestLegacy?: () => void;
 }
 
 export function KnowledgeTreePanel({
   variant = "desktop",
   className,
-  onRequestLegacy,
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
@@ -666,7 +664,6 @@ export function KnowledgeTreePanel({
             <p className="mt-1 break-words text-[10px] text-tx-tertiary">{error}</p>
             <div className="mt-3 flex justify-center gap-2">
               <button type="button" onClick={() => void reload()} className="rounded-md bg-accent-primary px-2.5 py-1 text-[10px] font-medium text-white">重试</button>
-              {onRequestLegacy && <button type="button" onClick={onRequestLegacy} className="rounded-md border border-app-border px-2.5 py-1 text-[10px] text-tx-secondary hover:bg-app-hover">使用旧树</button>}
             </div>
           </div>
         ) : filteredNodes.length === 0 && !sharedLoadError ? (
