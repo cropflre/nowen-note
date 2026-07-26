@@ -43,13 +43,14 @@ app.get("/api/health", async (c) => {
       migratedRoutes: [
         "GET /api/notes",
         "POST /api/notes",
+        "GET /api/notes/trash/summary",
         "GET /api/notes/:id",
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
       ],
       pendingCapabilities: [
         "notes full-text search (#252)",
-        "trash summary/permanent delete/yjs write routes",
+        "permanent delete/yjs write routes",
       ],
     },
   }, status);
