@@ -167,6 +167,7 @@ jobs:
           tests/note-collection-runtime-pg.test.ts
           tests/note-lifecycle-runtime-pg.test.ts
           tests/note-deletion-runtime-pg.test.ts
+          tests/note-trash-empty-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -224,6 +225,7 @@ jobs:
               "GET /api/notes/:id",
               "PUT /api/notes/reorder/batch",
               "DELETE /api/notes/:id",
+              "DELETE /api/notes/trash/empty",
             ]) {
               if (!health.runtime?.migratedRoutes?.includes(route)) {
                 throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
