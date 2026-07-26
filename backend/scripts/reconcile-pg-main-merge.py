@@ -134,6 +134,16 @@ def reconcile_rich_text_restore_contract() -> None:
     path = Path("backend/tests/note-version-content-format.test.ts")
     source = path.read_text()
 
+    row_markdown_old = '  assert.equal(row.content, "# Markdown title");'
+    row_markdown_new = r'''  assert.equal(
+    row.content.replace(/\s+\^blk_[A-Za-z0-9_-]+(?=\n|$)/g, ""),
+    "# Markdown title",
+  );'''
+    if row_markdown_old in source:
+        source = source.replace(row_markdown_old, row_markdown_new, 1)
+    elif row_markdown_new not in source:
+        raise SystemExit("markdown row restore assertion not found")
+
     rich_old = "  assert.equal(row.content, richTextContent);"
     rich_new = '''  const restoredDoc = JSON.parse(row.content);
   assert.equal(restoredDoc.type, "doc");
