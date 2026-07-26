@@ -7,58 +7,42 @@ on:
       - 'frontend/src/components/Sidebar.tsx'
       - 'frontend/src/components/KnowledgeTreeDrawer.tsx'
       - 'frontend/src/components/KnowledgeTreePanel.tsx'
+      - 'frontend/src/components/SharedNotebookTree.tsx'
       - 'frontend/src/lib/sidebarTreeMode.ts'
-      - 'frontend/src/lib/__tests__/sidebarTreeMode.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTreeSidebarContract.test.ts'
-      - 'scripts/patch_issue460_*.py'
+      - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
       - '.github/workflows/knowledge-tree-sidebar-ci.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out pull request branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Apply controlled integration patches
-        shell: bash
-        run: |
-          shopt -s nullglob
-          patches=(scripts/patch_issue460_*.py)
-          if [ ${#patches[@]} -gt 0 ]; then
-            for patch in "${patches[@]}"; do
-              python3 "$patch"
-              rm "$patch"
-            done
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add frontend/src/components/Sidebar.tsx frontend/src/components/KnowledgeTreePanel.tsx scripts
-            if ! git diff --cached --quiet; then
-              git commit -m "fix(navigation): keep one active knowledge tree surface"
-              git push origin HEAD:${{ github.event.pull_request.head.ref }}
-            fi
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Enforce unified tree as the only Sidebar hierarchy
+        run: |
+          test ! -e frontend/src/components/SharedNotebookTree.tsx
+          test ! -e frontend/src/lib/sidebarTreeMode.ts
+          ! grep -R "sidebarTreeMode\|SharedNotebookTree\|onRequestLegacy\|使用旧树\|切换到旧笔记本树" \
+            frontend/src/components/Sidebar.tsx \
+            frontend/src/components/KnowledgeTreePanel.tsx
+          grep -q "<KnowledgeTreePanel" frontend/src/components/Sidebar.tsx
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --silent
 
-      - name: Sidebar mode and integration tests
+      - name: Unified Sidebar and shared-tree tests
         working-directory: frontend
-        run: npx vitest run --reporter=basic src/lib/__tests__/sidebarTreeMode.test.ts src/lib/__tests__/knowledgeTreeSidebarContract.test.ts src/lib/__tests__/knowledgeTreeModel.test.ts
+        run: npx vitest run --reporter=basic src/lib/__tests__/knowledgeTreeSidebarContract.test.ts src/lib/__tests__/knowledgeTreeModel.test.ts src/lib/__tests__/sharedKnowledgeTree.test.ts
 
       - name: Frontend typecheck
         working-directory: frontend
