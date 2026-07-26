@@ -33,3 +33,5 @@ jobs:
           git add -A
           git commit -m "feat(knowledge-tree): remove legacy Sidebar hierarchy"
           git push origin HEAD:feat/issue-464-knowledge-tree-only
+
+# This file is intentionally self-deleting after the cutover commit.
