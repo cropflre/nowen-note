@@ -14,7 +14,6 @@ jobs:
   merge-main:
     runs-on: ubuntu-latest
     timeout-minutes: 55
-
     services:
       postgres:
         image: postgres:16-alpine
@@ -22,14 +21,12 @@ jobs:
           POSTGRES_USER: nowen
           POSTGRES_PASSWORD: nowen_ci_password
           POSTGRES_DB: nowen_note_test
-        ports:
-          - 5432:5432
+        ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U nowen -d nowen_note_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-
     env:
       TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
       DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
@@ -81,95 +78,12 @@ jobs:
             backend/tests/postgres-migrations.test.ts \
             backend/tests/siyuan-issue-284-regression.test.ts
 
-          python - <<'PY'
-          from pathlib import Path
-
-          indexer_path = Path("backend/src/services/attachment-indexer.ts")
-          indexer = indexer_path.read_text()
-          old_indexer_import = 'import { getAttachmentsDir } from "../routes/attachments";'
-          new_indexer_import = 'import { getAttachmentsDir } from "./attachment-storage";'
-          if old_indexer_import in indexer:
-              indexer = indexer.replace(old_indexer_import, new_indexer_import, 1)
-          elif new_indexer_import not in indexer:
-              raise SystemExit("attachment-indexer import pattern not found")
-          indexer_path.write_text(indexer)
-
-          import_path = Path("backend/src/services/nowenPackageImport.ts")
-          import_source = import_path.read_text()
-          old_notes_loop = '''  const notesFolder = zip.folder("notes");
-            if (notesFolder) {
-              for (const name of Object.keys(notesFolder.files)) {
-                if (!name.endsWith("/meta.json")) continue;
-          '''
-          new_notes_loop = '''  const notesFolder = zip.folder("notes");
-            if (notesFolder) {
-              for (const name of Object.keys(notesFolder.files)) {
-                if (!/^notes\/[^/]+\/meta\.json$/.test(name)) continue;
-          '''
-          if old_notes_loop in import_source:
-              import_source = import_source.replace(old_notes_loop, new_notes_loop, 1)
-          elif new_notes_loop in import_source:
-              pass
-          elif (
-              'executeNowenPackageImportWithBatch' in import_source
-              and 'importNowenPackageWithSync' in import_source
-          ):
-              pass
-          else:
-              raise SystemExit("nowenPackageImport architecture not recognized")
-          import_path.write_text(import_source)
-
-          realtime_path = Path("backend/src/services/realtime.ts")
-          realtime = realtime_path.read_text()
-          start_marker = '  const members = getDb().prepare('
-          end_marker = '  const userIds = new Set(members.map((member) => member.userId));'
-          replacement = '''  const userIds = new Set(
-            realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
-          );'''
-          start = realtime.find(start_marker)
-          end = realtime.find(end_marker, start)
-          if start >= 0 and end >= 0:
-              end += len(end_marker)
-              realtime = realtime[:start] + replacement + realtime[end:]
-          elif replacement not in realtime:
-              raise SystemExit("realtime workspace recipient query markers not found")
-          if 'getDb().prepare(' in realtime:
-              raise SystemExit("direct realtime database access remains after merge")
-          realtime_path.write_text(realtime)
-
-          links_test_path = Path("backend/tests/note-links-repository-async.test.ts")
-          links_test = links_test_path.read_text()
-          replace_name = 'test("replaceLinksForSourceAsync does not affect other userId"'
-          start = links_test.find(replace_name)
-          end = links_test.find('\n});', start)
-          if start < 0 or end < 0:
-              raise SystemExit("note links replace contract test not found")
-          block = links_test[start:end]
-          block = block.replace(
-              "// Other user's link should still exist",
-              "// Links are owned by the source note, so replacement removes legacy rows regardless of saver.",
-          )
-          block = block.replace('assert.equal(otherLinks.length, 1);', 'assert.equal(otherLinks.length, 0);')
-          links_test = links_test[:start] + block + links_test[end:]
-
-          backlink_name = 'test("getBacklinksAsync does not return links for other userId"'
-          start = links_test.find(backlink_name)
-          end = links_test.find('\n});', start)
-          if start < 0 or end < 0:
-              raise SystemExit("note links backlink contract test not found")
-          block = links_test[start:end]
-          if 'assert.equal(backlinks.length, 0);' in block:
-              block = block.replace(
-                  'assert.equal(backlinks.length, 0);',
-                  'assert.equal(backlinks.length, 1);\n  assert.equal(backlinks[0].sourceNoteId, NOTE_2);',
-                  1,
-              )
-          links_test = links_test[:start] + block + links_test[end:]
-          links_test_path.write_text(links_test)
-          PY
+          python backend/scripts/reconcile-pg-main-merge.py
 
           git add \
             .github/workflows/pg-runtime.yml \
+            backend/scripts/direct-db-access-deferred-exceptions.json \
+            backend/src/index.hardened.ts \
             backend/src/services/attachment-indexer.ts \
             backend/src/services/nowenPackageImport.ts \
             backend/src/services/realtime.ts \
@@ -184,14 +98,12 @@ jobs:
             .github/workflows/pg-fix-yjs-version.yml \
             .github/workflows/pg-diagnose-note-split.yml \
             .github/workflows/pg-merge-main-observable.yml \
-            .github/workflows/pg-patch-observable-logging.yml \
             backend/.yjs-noop-persist-fix-trigger
 
           git commit --amend --no-edit
           echo "after=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -270,7 +182,7 @@ jobs:
         if: steps.postgres.outcome == 'failure'
         run: exit 1
 
-      - name: Production backend bundle and migration packaging
+      - name: Production bundle and migration packaging
         id: bundle
         continue-on-error: true
         working-directory: backend
@@ -281,18 +193,12 @@ jobs:
           test -f dist/postgres/schema.sql
           test -f dist/postgres/schema.base.sql
           for migration in \
-            0001_migration_state.sql \
-            0002_api_tokens_parity.sql \
-            0003_runtime_tables_parity.sql \
-            0004_notebook_members_unique.sql \
-            0005_api_token_resources.sql \
-            0006_share_capabilities.sql \
-            0007_note_import_origins.sql \
-            0008_note_split_tables.sql \
-            0009_roundtrip_import_resource_links.sql \
-            0010_roundtrip_import_batches.sql \
-            0011_note_block_runtime.sql \
-            0012_tag_scope_unique_names.sql; do
+            0001_migration_state.sql 0002_api_tokens_parity.sql \
+            0003_runtime_tables_parity.sql 0004_notebook_members_unique.sql \
+            0005_api_token_resources.sql 0006_share_capabilities.sql \
+            0007_note_import_origins.sql 0008_note_split_tables.sql \
+            0009_roundtrip_import_resource_links.sql 0010_roundtrip_import_batches.sql \
+            0011_note_block_runtime.sql 0012_tag_scope_unique_names.sql; do
             test -f "dist/postgres/migrations/$migration"
           done
 
@@ -305,8 +211,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export DB_DRIVER=postgres
-          export PORT=3101
+          export DB_DRIVER=postgres PORT=3101
           export DB_PATH=/tmp/nowen-pg-observable-main-no-sqlite.db
           rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
           node dist/index.js > /tmp/pg-runtime-smoke.log 2>&1 &
@@ -319,8 +224,7 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const health = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
-            if (health.status !== "ok") throw new Error(JSON.stringify(health));
-            if (health.database?.driver !== "postgres" || health.database?.ok !== true) throw new Error(JSON.stringify(health.database));
+            if (health.status !== "ok" || health.database?.driver !== "postgres" || health.database?.ok !== true) throw new Error(JSON.stringify(health));
             if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) throw new Error(JSON.stringify(health.runtime));
           '
           status=$(curl --silent --output /tmp/unauthenticated.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
@@ -330,9 +234,7 @@ jobs:
             const body = JSON.parse(fs.readFileSync("/tmp/unauthenticated.json", "utf8"));
             if (body.code !== "UNAUTHENTICATED") throw new Error(JSON.stringify(body));
           '
-          test ! -e "$DB_PATH"
-          test ! -e "$DB_PATH-wal"
-          test ! -e "$DB_PATH-shm"
+          test ! -e "$DB_PATH" && test ! -e "$DB_PATH-wal" && test ! -e "$DB_PATH-shm"
           kill -TERM "$pid"
           wait "$pid"
           trap - EXIT
@@ -348,12 +250,11 @@ jobs:
           remote=$(git rev-parse origin/pg-migration-unified)
           if [ "$remote" != "$before" ]; then
             if git merge-base --is-ancestor origin/main origin/pg-migration-unified; then
-              echo "Another synchronization already merged current main: $remote"
               echo "head=$remote" >> "$GITHUB_OUTPUT"
               echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "Remote migration branch moved without containing current main: before=$before remote=$remote" >&2
+            echo "Remote moved without containing current main: before=$before remote=$remote" >&2
             exit 1
           fi
           git push origin HEAD:pg-migration-unified
