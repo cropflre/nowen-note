@@ -114,15 +114,32 @@ jobs:
               'executeNowenPackageImportWithBatch' in import_source
               and 'importNowenPackageWithSync' in import_source
           ):
-              # Latest main delegates ZIP traversal to the round-trip import pipeline.
               pass
           else:
               raise SystemExit("nowenPackageImport architecture not recognized")
           import_path.write_text(import_source)
 
+          realtime_path = Path("backend/src/services/realtime.ts")
+          realtime = realtime_path.read_text()
+          old_recipients = '''  const members = getDb().prepare(
+            "SELECT userId FROM workspace_members WHERE workspaceId = ?"
+          ).all(payload.workspaceId) as Array<{ userId: string }>;
+            const userIds = new Set(members.map((member) => member.userId));
+          '''
+          new_recipients = '''  const userIds = new Set(
+            realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
+          );
+          '''
+          if old_recipients in realtime:
+              realtime = realtime.replace(old_recipients, new_recipients, 1)
+          elif new_recipients not in realtime:
+              raise SystemExit("realtime workspace recipient query pattern not found")
+          if 'getDb().prepare(' in realtime:
+              raise SystemExit("direct realtime database access remains after merge")
+          realtime_path.write_text(realtime)
+
           links_test_path = Path("backend/tests/note-links-repository-async.test.ts")
           links_test = links_test_path.read_text()
-
           replace_name = 'test("replaceLinksForSourceAsync does not affect other userId"'
           start = links_test.find(replace_name)
           end = links_test.find('\n});', start)
@@ -156,6 +173,7 @@ jobs:
             .github/workflows/pg-runtime.yml \
             backend/src/services/attachment-indexer.ts \
             backend/src/services/nowenPackageImport.ts \
+            backend/src/services/realtime.ts \
             backend/src/services/yjs.ts \
             backend/tests/note-links-repository-async.test.ts
 
@@ -292,16 +310,13 @@ jobs:
           export PORT=3101
           export DB_PATH=/tmp/nowen-pg-observable-main-no-sqlite.db
           rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
-
           node dist/index.js > /tmp/pg-runtime-smoke.log 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; cat /tmp/pg-runtime-smoke.log' EXIT
-
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:3101/api/health > /tmp/health.json; then break; fi
             sleep 1
           done
-
           node -e '
             const fs = require("node:fs");
             const health = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
@@ -309,7 +324,6 @@ jobs:
             if (health.database?.driver !== "postgres" || health.database?.ok !== true) throw new Error(JSON.stringify(health.database));
             if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) throw new Error(JSON.stringify(health.runtime));
           '
-
           status=$(curl --silent --output /tmp/unauthenticated.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
           test "$status" = "401"
           node -e '
@@ -317,11 +331,9 @@ jobs:
             const body = JSON.parse(fs.readFileSync("/tmp/unauthenticated.json", "utf8"));
             if (body.code !== "UNAUTHENTICATED") throw new Error(JSON.stringify(body));
           '
-
           test ! -e "$DB_PATH"
           test ! -e "$DB_PATH-wal"
           test ! -e "$DB_PATH-shm"
-
           kill -TERM "$pid"
           wait "$pid"
           trap - EXIT
