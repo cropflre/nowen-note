@@ -108,8 +108,16 @@ jobs:
           '''
           if old_notes_loop in import_source:
               import_source = import_source.replace(old_notes_loop, new_notes_loop, 1)
-          elif new_notes_loop not in import_source:
-              raise SystemExit("nowenPackageImport notes loop pattern not found")
+          elif new_notes_loop in import_source:
+              pass
+          elif (
+              'executeNowenPackageImportWithBatch' in import_source
+              and 'importNowenPackageWithSync' in import_source
+          ):
+              # Latest main delegates ZIP traversal to the round-trip import pipeline.
+              pass
+          else:
+              raise SystemExit("nowenPackageImport architecture not recognized")
           import_path.write_text(import_source)
 
           links_test_path = Path("backend/tests/note-links-repository-async.test.ts")
