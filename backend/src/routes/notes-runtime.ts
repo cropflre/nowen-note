@@ -110,6 +110,20 @@ export function createNotesRuntimeRouter(
     }
   });
 
+  // 必须在 /:id 之前注册，否则 trash 会被当成笔记 ID。
+  app.delete("/trash/empty", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    try {
+      const result = await deletion.emptyTrash(userId, c.req.query("workspaceId"));
+      if (result.cleanupWarnings.length > 0) {
+        c.header("X-Nowen-Runtime-Warnings", String(result.cleanupWarnings.length));
+      }
+      return c.json(result);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.get("/:id", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     try {
