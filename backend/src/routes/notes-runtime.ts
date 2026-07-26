@@ -11,6 +11,11 @@ import {
   NoteCoreRuntimeError,
   type NoteCoreSaveInput,
 } from "../services/note-core-runtime";
+import {
+  createNoteLifecycleRuntime,
+  type NoteLifecycleInput,
+  type NoteReorderItem,
+} from "../services/note-lifecycle-runtime";
 
 function errorResponse(c: Context, error: unknown) {
   if (error instanceof NoteCoreRuntimeError) {
@@ -34,6 +39,7 @@ export function createNotesRuntimeRouter(
   const app = new Hono();
   const core = createNoteCoreRuntime(adapter, dialect);
   const collection = createNoteCollectionRuntime(adapter, dialect);
+  const lifecycle = createNoteLifecycleRuntime(adapter);
 
   app.get("/", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
@@ -74,6 +80,21 @@ export function createNotesRuntimeRouter(
     }
   });
 
+  app.put("/reorder/batch", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    let body: { items?: NoteReorderItem[] };
+    try {
+      body = await c.req.json<{ items?: NoteReorderItem[] }>();
+    } catch {
+      return c.json({ error: "请求格式错误", code: "INVALID_BODY" }, 400);
+    }
+    try {
+      return c.json(await lifecycle.reorderNotes(userId, body.items as NoteReorderItem[]));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.get("/:id", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     try {
@@ -88,15 +109,32 @@ export function createNotesRuntimeRouter(
 
   app.put("/:id", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
-    let body: NoteCoreSaveInput;
+    let body: Record<string, unknown>;
     try {
-      body = await c.req.json<NoteCoreSaveInput>();
+      body = await c.req.json<Record<string, unknown>>();
     } catch {
       return c.json({ error: "请求格式错误", code: "INVALID_BODY" }, 400);
     }
 
     try {
-      const result = await core.saveNote(userId, c.req.param("id"), body);
+      const lifecycleFields = ["isTrashed", "sortOrder", "notebookId"];
+      const hasLifecycleWrite = lifecycleFields.some((field) => body[field] !== undefined);
+      if (hasLifecycleWrite) {
+        const hasCoreWrite = Object.keys(body).some(
+          (field) => field !== "version" && !lifecycleFields.includes(field),
+        );
+        if (hasCoreWrite) {
+          throw new NoteCoreRuntimeError(
+            "PostgreSQL Runtime 暂不支持内容与生命周期字段混合保存",
+            "POSTGRES_NOTE_MIXED_WRITE_PENDING",
+            503,
+          );
+        }
+        await lifecycle.updateNote(userId, c.req.param("id"), body as NoteLifecycleInput);
+        return c.json(await core.getNote(userId, c.req.param("id")));
+      }
+
+      const result = await core.saveNote(userId, c.req.param("id"), body as NoteCoreSaveInput);
       if (result.warnings.length > 0) {
         c.header("X-Nowen-Runtime-Warnings", String(result.warnings.length));
       }
