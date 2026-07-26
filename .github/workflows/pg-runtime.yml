@@ -164,6 +164,8 @@ jobs:
           tests/note-link-titles-runtime-pg.test.ts
           tests/note-core-runtime-pg.test.ts
           tests/note-core-runtime-formats-pg.test.ts
+          tests/note-collection-runtime-pg.test.ts
+          tests/note-lifecycle-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -182,7 +184,8 @@ jobs:
           test -f dist/postgres/migrations/0008_note_split_tables.sql &&
           test -f dist/postgres/migrations/0009_roundtrip_import_resource_links.sql &&
           test -f dist/postgres/migrations/0010_roundtrip_import_batches.sql &&
-          test -f dist/postgres/migrations/0011_note_block_runtime.sql
+          test -f dist/postgres/migrations/0011_note_block_runtime.sql &&
+          test -f dist/postgres/migrations/0012_tag_scope_unique_names.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
@@ -214,18 +217,25 @@ jobs:
             if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) {
               throw new Error(`unexpected runtime mode: ${JSON.stringify(health.runtime)}`);
             }
-            if (!health.runtime?.migratedRoutes?.includes("GET /api/notes/:id")) {
-              throw new Error(`missing migrated route status: ${JSON.stringify(health.runtime)}`);
+            for (const route of [
+              "GET /api/notes",
+              "POST /api/notes",
+              "GET /api/notes/:id",
+              "PUT /api/notes/reorder/batch",
+            ]) {
+              if (!health.runtime?.migratedRoutes?.includes(route)) {
+                throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
+              }
             }
           '
 
-          status=$(curl --silent --output /tmp/pending.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
-          test "$status" = "503"
+          status=$(curl --silent --output /tmp/unauthenticated.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
+          test "$status" = "401"
           node -e '
             const fs = require("node:fs");
-            const body = JSON.parse(fs.readFileSync("/tmp/pending.json", "utf8"));
-            if (body.code !== "POSTGRES_NOTE_ROUTE_MIGRATION_PENDING") {
-              throw new Error(`unexpected pending response: ${JSON.stringify(body)}`);
+            const body = JSON.parse(fs.readFileSync("/tmp/unauthenticated.json", "utf8"));
+            if (body.code !== "UNAUTHENTICATED") {
+              throw new Error(`unexpected unauthenticated response: ${JSON.stringify(body)}`);
             }
           '
 
