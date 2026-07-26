@@ -45,6 +45,14 @@ jobs:
               "persist_pattern.subn(persist_replacement, source, count=1)",
               "persist_pattern.subn(lambda _match: persist_replacement, source, count=1)",
           )
+          script = script.replace(
+              "prepare(noteId: string): YjsSubdocumentManifest | null",
+              "prepareManifest(noteId: string): YjsSubdocumentManifest | null",
+          )
+          script = script.replace(
+              "yjsSubdocumentsRepository.prepare(noteId)",
+              "yjsSubdocumentsRepository.prepareManifest(noteId)",
+          )
           exec(compile(script, 'repair-yjs-boundary.py', 'exec'), {})
           PY
 
