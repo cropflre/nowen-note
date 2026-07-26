@@ -64,6 +64,39 @@ def reconcile_realtime_workspace_recipients() -> None:
     path.write_text(source)
 
 
+def reconcile_yjs_persistence_semantics() -> None:
+    path = Path("backend/src/services/yjs.ts")
+    source = path.read_text()
+
+    old_noop = "  if (existing.content === markdown && existing.contentText === contentText) return;"
+    new_noop = '''  // The stored Markdown body is authoritative for edit/version identity. A REST or
+  // transactional writer may derive contentText with a richer parser than this legacy
+  // Yjs fallback. Re-flushing the same Markdown must not overwrite that projection or
+  // manufacture a phantom version bump.
+  if (existing.content === markdown) return;'''
+    if old_noop in source:
+        source = source.replace(old_noop, new_noop, 1)
+    elif new_noop not in source:
+        raise SystemExit("Yjs no-op persistence guard not found")
+
+    persist_timer = "  }, 1500);\n"
+    persist_timer_unref = "  }, 1500);\n  room.persistTimer?.unref();\n"
+    if persist_timer_unref not in source:
+        if source.count(persist_timer) != 1:
+            raise SystemExit("Yjs persist timer pattern count changed")
+        source = source.replace(persist_timer, persist_timer_unref, 1)
+
+    idle_timer = "    }, ROOM_IDLE_TIMEOUT_MS);\n"
+    idle_timer_unref = "    }, ROOM_IDLE_TIMEOUT_MS);\n    room.idleTimer?.unref();\n"
+    if idle_timer_unref not in source:
+        count = source.count(idle_timer)
+        if count != 2:
+            raise SystemExit(f"expected two Yjs idle timers, found {count}")
+        source = source.replace(idle_timer, idle_timer_unref)
+
+    path.write_text(source)
+
+
 def reconcile_note_link_contract_tests() -> None:
     path = Path("backend/tests/note-links-repository-async.test.ts")
     source = path.read_text()
@@ -94,6 +127,61 @@ def reconcile_note_link_contract_tests() -> None:
             1,
         )
     source = source[:start] + block + source[end:]
+    path.write_text(source)
+
+
+def reconcile_rich_text_restore_contract() -> None:
+    path = Path("backend/tests/note-version-content-format.test.ts")
+    source = path.read_text()
+    old = "  assert.equal(row.content, richTextContent);"
+    new = '''  const restoredDoc = JSON.parse(row.content);
+  assert.equal(restoredDoc.type, "doc");
+  assert.equal(restoredDoc.content?.[0]?.type, "paragraph");
+  assert.equal(restoredDoc.content?.[0]?.content?.[0]?.text, "Rich text");
+  assert.match(String(restoredDoc.content?.[0]?.attrs?.blockId || ""), /^blk_/);'''
+    if old in source:
+        source = source.replace(old, new, 1)
+    elif new not in source:
+        raise SystemExit("rich text restore assertion not found")
+    path.write_text(source)
+
+
+def reconcile_notebook_transfer_tag_scope_contract() -> None:
+    path = Path("backend/tests/notebook-transfer-copy.test.ts")
+    source = path.read_text()
+    source = source.replace(
+        'test("tags are mapped with existing global tag uniqueness", () => {',
+        'test("tags are copied into the target workspace scope", () => {',
+        1,
+    )
+    old = '''  const result = copy();
+  assert.equal(result.tagCount, 0);
+  assert.deepEqual(result.warnings, ["tag_reused_due_unique_constraint:Important"]);
+  const tag = getDb().prepare("SELECT * FROM tags WHERE workspaceId IS NULL AND name = ?").get("Important") as any;
+  assert.ok(tag);'''
+    new = '''  const result = copy();
+  assert.equal(result.tagCount, 1);
+  assert.deepEqual(result.warnings, []);
+  const tag = getDb().prepare("SELECT * FROM tags WHERE workspaceId = ? AND name = ?").get(WS, "Important") as any;
+  assert.ok(tag);
+  assert.equal(tag.workspaceId, WS);'''
+    if old in source:
+        source = source.replace(old, new, 1)
+    elif new not in source:
+        raise SystemExit("notebook transfer tag scope assertions not found")
+    path.write_text(source)
+
+
+def reconcile_tag_route_idempotency_contract() -> None:
+    path = Path("backend/tests/tags-route-async.test.ts")
+    source = path.read_text()
+    old = "  assert.equal(duplicate.status, 409);"
+    new = '''  assert.equal(duplicate.status, 200);
+  assert.equal(duplicate.json.id, tagId);'''
+    if old in source:
+        source = source.replace(old, new, 1)
+    elif new not in source:
+        raise SystemExit("tag route idempotency assertion not found")
     path.write_text(source)
 
 
@@ -190,7 +278,11 @@ def main() -> None:
     replace_attachment_indexer_import()
     reconcile_package_import_architecture()
     reconcile_realtime_workspace_recipients()
+    reconcile_yjs_persistence_semantics()
     reconcile_note_link_contract_tests()
+    reconcile_rich_text_restore_contract()
+    reconcile_notebook_transfer_tag_scope_contract()
+    reconcile_tag_route_idempotency_contract()
     remove_pre_sync_type_ignores()
     register_direct_db_exceptions()
 
