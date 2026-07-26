@@ -7,7 +7,11 @@ export interface RealtimeAuthUserRecord {
   tokenVersion: number;
 }
 
-/** SQLite compatibility boundary for WebSocket upgrade authentication. */
+interface WorkspaceMemberUserRow {
+  userId: string;
+}
+
+/** SQLite compatibility boundary for WebSocket authentication and broadcast recipients. */
 export const realtimeAuthRepository = {
   findById(userId: string): RealtimeAuthUserRecord | undefined {
     return getDb()
@@ -15,5 +19,12 @@ export const realtimeAuthRepository = {
         'SELECT id, username, "isDisabled", "tokenVersion" FROM users WHERE id = ?',
       )
       .get(userId) as RealtimeAuthUserRecord | undefined;
+  },
+
+  listWorkspaceMemberUserIds(workspaceId: string): string[] {
+    const rows = getDb()
+      .prepare('SELECT "userId" AS "userId" FROM workspace_members WHERE "workspaceId" = ?')
+      .all(workspaceId) as WorkspaceMemberUserRow[];
+    return rows.map((row) => row.userId);
   },
 };
