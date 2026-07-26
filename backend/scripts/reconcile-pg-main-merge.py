@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -274,6 +275,17 @@ def register_direct_db_exceptions() -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
+def stage_reconciled_files() -> None:
+    subprocess.run([
+        "git",
+        "add",
+        "backend/src/services/yjs.ts",
+        "backend/tests/note-version-content-format.test.ts",
+        "backend/tests/notebook-transfer-copy.test.ts",
+        "backend/tests/tags-route-async.test.ts",
+    ], check=True)
+
+
 def main() -> None:
     replace_attachment_indexer_import()
     reconcile_package_import_architecture()
@@ -285,6 +297,7 @@ def main() -> None:
     reconcile_tag_route_idempotency_contract()
     remove_pre_sync_type_ignores()
     register_direct_db_exceptions()
+    stage_reconciled_files()
 
 
 if __name__ == "__main__":
