@@ -27,6 +27,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0009_roundtrip_import_resource_links",
     "0010_roundtrip_import_batches",
     "0011_note_block_runtime",
+    "0012_tag_scope_unique_names",
   ]);
 
   const stateTable = await pool.query(
