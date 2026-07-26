@@ -27,6 +27,18 @@ const META_WORKSPACE = "pg-metadata-workspace";
 const META_NOTEBOOK = "pg-metadata-notebook";
 const META_NOTE = "84444444-4444-4444-8444-444444444444";
 
+const TRASH_OWNER = "pg-trash-owner";
+const TRASH_ADMIN = "pg-trash-admin";
+const TRASH_EDITOR = "pg-trash-editor";
+const TRASH_OUTSIDER = "pg-trash-outsider";
+const TRASH_WORKSPACE = "pg-trash-workspace";
+const TRASH_WORKSPACE_NOTEBOOK = "pg-trash-workspace-notebook";
+const TRASH_PERSONAL_NOTEBOOK = "pg-trash-personal-notebook";
+const TRASH_PERSONAL_UNLOCKED = "85555555-5555-4555-8555-555555555555";
+const TRASH_PERSONAL_LOCKED = "86666666-6666-4666-8666-666666666666";
+const TRASH_WORKSPACE_UNLOCKED = "87777777-7777-4777-8777-777777777777";
+const TRASH_WORKSPACE_LOCKED = "88888888-8888-4888-8888-888888888888";
+
 async function seed(pool: import("pg").Pool) {
   await pool.query(`DELETE FROM users WHERE id IN ($1, $2, $3)`, [OWNER, MEMBER, OUTSIDER]);
   await pool.query(
@@ -92,6 +104,58 @@ async function seedMetadata(pool: import("pg").Pool) {
        "contentText", "contentFormat", version, "isPinned", "isArchived", "isLocked"
      ) VALUES ($1, $2, $3, $4, 'Metadata note', '# Metadata', 'Metadata', 'markdown', 1, false, false, false)`,
     [META_NOTE, META_OWNER, META_WORKSPACE, META_NOTEBOOK],
+  );
+}
+
+async function seedTrashSummary(pool: import("pg").Pool) {
+  await pool.query(
+    `DELETE FROM users WHERE id IN ($1, $2, $3, $4)`,
+    [TRASH_OWNER, TRASH_ADMIN, TRASH_EDITOR, TRASH_OUTSIDER],
+  );
+  await pool.query(
+    `INSERT INTO users (id, username, "passwordHash", "tokenVersion")
+     VALUES
+       ($1, $1, 'hash', 0),
+       ($2, $2, 'hash', 0),
+       ($3, $3, 'hash', 0),
+       ($4, $4, 'hash', 0)`,
+    [TRASH_OWNER, TRASH_ADMIN, TRASH_EDITOR, TRASH_OUTSIDER],
+  );
+  await pool.query(
+    `INSERT INTO workspaces (id, "ownerId", name) VALUES ($1, $2, 'Trash workspace')`,
+    [TRASH_WORKSPACE, TRASH_OWNER],
+  );
+  await pool.query(
+    `INSERT INTO workspace_members ("workspaceId", "userId", role)
+     VALUES ($1, $2, 'admin'), ($1, $3, 'editor')`,
+    [TRASH_WORKSPACE, TRASH_ADMIN, TRASH_EDITOR],
+  );
+  await pool.query(
+    `INSERT INTO notebooks (id, "userId", "workspaceId", name)
+     VALUES
+       ($1, $2, $3, 'Workspace trash'),
+       ($4, $2, NULL, 'Personal trash')`,
+    [TRASH_WORKSPACE_NOTEBOOK, TRASH_OWNER, TRASH_WORKSPACE, TRASH_PERSONAL_NOTEBOOK],
+  );
+  await pool.query(
+    `INSERT INTO notes (
+       id, "userId", "workspaceId", "notebookId", title, content,
+       "contentText", "contentFormat", "isTrashed", "isLocked"
+     ) VALUES
+       ($1, $2, NULL, $3, 'Personal unlocked', '', '', 'markdown', true, false),
+       ($4, $2, NULL, $3, 'Personal locked', '', '', 'markdown', true, true),
+       ($5, $2, $6, $7, 'Workspace unlocked', '', '', 'markdown', true, false),
+       ($8, $2, $6, $7, 'Workspace locked', '', '', 'markdown', true, true)`,
+    [
+      TRASH_PERSONAL_UNLOCKED,
+      TRASH_OWNER,
+      TRASH_PERSONAL_NOTEBOOK,
+      TRASH_PERSONAL_LOCKED,
+      TRASH_WORKSPACE_UNLOCKED,
+      TRASH_WORKSPACE,
+      TRASH_WORKSPACE_NOTEBOOK,
+      TRASH_WORKSPACE_LOCKED,
+    ],
   );
 }
 
@@ -261,6 +325,55 @@ test("PostgreSQL note metadata preserves permissions, versions and per-user favo
     assert.equal(stored.rows[0].isArchived, false);
     assert.equal(stored.rows[0].isLocked, true);
     assert.equal(stored.rows[0].version, 4);
+  } finally {
+    await closePgPool(pool);
+  }
+});
+
+test("PostgreSQL trash summary enforces personal and workspace admin scopes", { skip: !hasPg }, async () => {
+  const pool = await getPgPool();
+  assert.ok(pool);
+  try {
+    await initPgSchema(pool);
+    await seedTrashSummary(pool);
+    const adapter = new PostgresAdapter(pool);
+    const runtime = createNoteLifecycleRuntime(adapter);
+
+    assert.deepEqual(await runtime.getTrashSummary(TRASH_OWNER), { count: 1, skipped: 1 });
+    assert.deepEqual(await runtime.getTrashSummary(TRASH_OWNER, "personal"), { count: 1, skipped: 1 });
+    assert.deepEqual(await runtime.getTrashSummary(TRASH_OWNER, TRASH_WORKSPACE), { count: 1, skipped: 1 });
+    assert.deepEqual(await runtime.getTrashSummary(TRASH_ADMIN, TRASH_WORKSPACE), { count: 1, skipped: 1 });
+
+    await assert.rejects(
+      () => runtime.getTrashSummary(TRASH_EDITOR, TRASH_WORKSPACE),
+      (error: unknown) => error instanceof NoteCoreRuntimeError && error.code === "FORBIDDEN",
+    );
+    await assert.rejects(
+      () => runtime.getTrashSummary(TRASH_OUTSIDER, TRASH_WORKSPACE),
+      (error: unknown) => error instanceof NoteCoreRuntimeError && error.code === "FORBIDDEN",
+    );
+
+    const router = createNotesRuntimeRouter(adapter, "postgres");
+    const workspaceResponse = await router.request(
+      `/trash/summary?workspaceId=${encodeURIComponent(TRASH_WORKSPACE)}`,
+      { headers: { "X-User-Id": TRASH_ADMIN } },
+    );
+    assert.equal(workspaceResponse.status, 200);
+    assert.deepEqual(await workspaceResponse.json(), { count: 1, skipped: 1 });
+
+    const editorResponse = await router.request(
+      `/trash/summary?workspaceId=${encodeURIComponent(TRASH_WORKSPACE)}`,
+      { headers: { "X-User-Id": TRASH_EDITOR } },
+    );
+    assert.equal(editorResponse.status, 403);
+    const editorBody = await editorResponse.json() as { code: string };
+    assert.equal(editorBody.code, "FORBIDDEN");
+
+    const personalResponse = await router.request("/trash/summary?workspaceId=personal", {
+      headers: { "X-User-Id": TRASH_OWNER },
+    });
+    assert.equal(personalResponse.status, 200);
+    assert.deepEqual(await personalResponse.json(), { count: 1, skipped: 1 });
   } finally {
     await closePgPool(pool);
   }
