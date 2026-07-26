@@ -4,7 +4,6 @@ import {
   appendShortcutToTooltip,
   detectShortcutPlatform,
   findShortcutConflicts,
-  formatPortableShortcutForCommand,
   formatShortcutForCommand,
   getShortcutCommand,
   isShortcutAllowedInTarget,
@@ -18,7 +17,6 @@ describe("shortcutRegistry", () => {
     expect(formatShortcutForCommand("bold", "linux", "web")).toBe("Ctrl+B");
     expect(formatShortcutForCommand("bold", "macos", "web")).toBe("⌘B");
     expect(formatShortcutForCommand("shortcut-help", "macos", "desktop")).toBe("⌘⇧/");
-    expect(formatPortableShortcutForCommand("toggle-note-list")).toBe("Ctrl/Cmd + Shift + B");
   });
 
   it("uses surface-specific bindings instead of advertising browser-reserved shortcuts", () => {
@@ -30,9 +28,9 @@ describe("shortcutRegistry", () => {
     expect(getShortcutCommand("shortcut-help")?.availableIn).toEqual(["web", "desktop"]);
   });
 
-  it("keeps command-palette command IDs backed by the registry", () => {
+  it("keeps active command-palette command IDs backed by the registry", () => {
+    expect(getShortcutCommand("toggle-note-list")).toBeUndefined();
     for (const commandId of [
-      "toggle-note-list",
       "toggle-editor-fullscreen",
       "split-right",
       "split-down",
@@ -41,7 +39,7 @@ describe("shortcutRegistry", () => {
       expect(getShortcutCommand(commandId), commandId).toBeDefined();
     }
     expect(formatShortcutForCommand("command-palette", "windows", "web")).toBe("Ctrl+K");
-    expect(formatShortcutForCommand("toggle-note-list", "windows", "web")).toBe("Ctrl+Shift+B");
+    expect(formatShortcutForCommand("toggle-note-list", "windows", "web")).toBe("");
     expect(formatShortcutForCommand("split-right", "windows", "web")).toBe("");
   });
 

@@ -83,16 +83,6 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommand[] = [
     availableIn: ["web", "desktop"],
   },
   {
-    id: "toggle-note-list",
-    label: "显示/隐藏笔记列表",
-    description: "在管理模式与创作模式之间切换",
-    category: "navigation",
-    scope: "noneditable",
-    customizable: true,
-    defaultKeys: allPlatforms([MOD, "Shift", "B"]),
-    availableIn: ["web", "desktop"],
-  },
-  {
     id: "toggle-editor-fullscreen",
     label: "进入/退出编辑器全屏",
     description: "临时隐藏或恢复外侧导航",

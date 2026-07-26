@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  BookOpen,
   BrainCircuit,
   CloudOff,
   Columns2,
@@ -51,8 +50,12 @@ interface NavConfigItem {
 
 const RAIL_ICON_SIZE = 18;
 
+/**
+ * The unified content tree is the primary note-navigation surface. The rail
+ * therefore contains only cross-tree filters and independent modules; the old
+ * "All Notes" directory/list entry is intentionally retired.
+ */
 const NAV_CONFIG: NavConfigItem[] = [
-  { icon: <BookOpen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.allNotes", mode: "all", feature: "notes", group: "workspace" },
   { icon: <Star size={RAIL_ICON_SIZE} />, labelKey: "sidebar.favorites", mode: "favorites", feature: "favorites", group: "workspace" },
   { icon: <FolderOpen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.fileManager", mode: "files", feature: "files", group: "workspace" },
   { icon: <Trash2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.trash", mode: "trash", group: "workspace" },
@@ -62,11 +65,6 @@ const NAV_CONFIG: NavConfigItem[] = [
   { icon: <Sparkles size={RAIL_ICON_SIZE} />, labelKey: "sidebar.aiChat", mode: "ai-chat", group: "tools" },
   { icon: <Link2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.shareManagement", mode: "shares", group: "tools" },
 ];
-
-function isActive(itemMode: ViewMode, viewMode: ViewMode): boolean {
-  if (itemMode === "all") return viewMode === "all" || viewMode === "search" || viewMode === "tag";
-  return viewMode === itemMode;
-}
 
 export default function NavRail({ variant = "desktop" }: { variant?: "desktop" | "mobile" } = {}) {
   const { t } = useTranslation();
@@ -111,7 +109,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       });
     getDiagnosticsInfo()
       .then((diag) => {
-        if (!cancelled && diag) setDesktopInfo((prev) => (prev ? { ...prev, ...diag } : prev));
+        if (!cancelled && diag) setDesktopInfo((previous) => (previous ? { ...previous, ...diag } : previous));
       })
       .catch(() => {});
     return () => {
@@ -135,21 +133,18 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const desktopLocalUrl = desktopInfo?.backendPort ? `http://127.0.0.1:${desktopInfo.backendPort}` : "";
   const usingCurrentLocalBackend = !!serverUrl && !!desktopLocalUrl && normalizeUrl(serverUrl) === normalizeUrl(desktopLocalUrl);
   const usingRemoteServer =
-    !!serverUrl &&
-    !usingCurrentLocalBackend &&
-    (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
+    !!serverUrl
+    && !usingCurrentLocalBackend
+    && (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
   const items = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
 
-  const handleClick = useCallback(
-    (mode: ViewMode) => {
-      actions.setViewMode(mode);
-      actions.setSelectedNotebook(null);
-      if (isMobile) actions.setMobileSidebar(false);
-    },
-    [actions, isMobile],
-  );
+  const handleClick = useCallback((mode: ViewMode) => {
+    actions.setViewMode(mode);
+    actions.setSelectedNotebook(null);
+    if (isMobile) actions.setMobileSidebar(false);
+  }, [actions, isMobile]);
 
   const handleMobileSearch = useCallback(() => {
     openMobileNoteSearch(() => actions.setMobileSidebar(false));
@@ -209,7 +204,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     : "relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors";
 
   const renderItem = (item: NavConfigItem) => {
-    const active = isActive(item.mode, state.viewMode);
+    const active = state.viewMode === item.mode;
     const label = t(item.labelKey);
     return (
       <button
@@ -288,11 +283,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
               data-mobile-note-search=""
             >
               <Search size={RAIL_ICON_SIZE} />
-              {showLabel && (
-                <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-                  {mobileSearchLabel}
-                </span>
-              )}
+              {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{mobileSearchLabel}</span>}
             </button>
             <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
           </>
@@ -330,11 +321,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
           className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
         >
           <CloudOff size={16} />
-          {showLabel && (
-            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">
-              {t("sidebar.switchToLocalShort", "本地")}
-            </span>
-          )}
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "本地")}</span>}
         </button>
       )}
 

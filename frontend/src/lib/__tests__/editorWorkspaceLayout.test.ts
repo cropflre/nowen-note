@@ -18,15 +18,13 @@ function createMemoryStorage(initial: Record<string, string> = {}): StorageLike 
 }
 
 describe("editorWorkspaceLayout", () => {
-  it("recognizes the cross-platform note-list shortcut", () => {
-    expect(isEditorLayoutToggleShortcut({ key: "B", ctrlKey: true, shiftKey: true })).toBe(true);
-    expect(isEditorLayoutToggleShortcut({ key: "b", metaKey: true, shiftKey: true })).toBe(true);
-    expect(isEditorLayoutToggleShortcut({ key: "b", ctrlKey: true })).toBe(false);
-    expect(isEditorLayoutToggleShortcut({ key: "b", ctrlKey: true, shiftKey: true, altKey: true })).toBe(false);
+  it("retires the legacy note-list layout shortcut", () => {
+    expect(isEditorLayoutToggleShortcut({ key: "B", ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(isEditorLayoutToggleShortcut({ key: "b", metaKey: true, shiftKey: true })).toBe(false);
   });
 
-  it("resolves the four product layout modes in priority order", () => {
-    expect(resolveEditorWorkspaceMode({ editorFullscreen: false, noteListCollapsed: false, hasSplit: false })).toBe("manage");
+  it("uses unified-tree focus mode unless split or fullscreen takes priority", () => {
+    expect(resolveEditorWorkspaceMode({ editorFullscreen: false, noteListCollapsed: false, hasSplit: false })).toBe("focus");
     expect(resolveEditorWorkspaceMode({ editorFullscreen: false, noteListCollapsed: true, hasSplit: false })).toBe("focus");
     expect(resolveEditorWorkspaceMode({ editorFullscreen: false, noteListCollapsed: false, hasSplit: true })).toBe("split");
     expect(resolveEditorWorkspaceMode({ editorFullscreen: true, noteListCollapsed: false, hasSplit: true })).toBe("fullscreen");

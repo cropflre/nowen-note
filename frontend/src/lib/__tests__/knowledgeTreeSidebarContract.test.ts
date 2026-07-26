@@ -8,12 +8,14 @@ function source(relativeUrl: string) {
 describe("knowledge tree sidebar contract", () => {
   it("uses the unified tree as the only Sidebar hierarchy", () => {
     const sidebar = source("../../components/Sidebar.tsx");
-    expect(sidebar).toContain('import KnowledgeTreePanel');
-    expect(sidebar).toContain('<KnowledgeTreePanel');
+    expect(sidebar).toContain("import KnowledgeTreePanel");
+    expect(sidebar).toContain("<KnowledgeTreePanel");
     expect(sidebar).not.toContain("sidebarTreeMode");
     expect(sidebar).not.toContain("SharedNotebookTree");
     expect(sidebar).not.toContain("getSharedNotebooks");
     expect(sidebar).not.toContain("兼容模式");
+    expect(sidebar).not.toContain("buildNotebookTree");
+    expect(sidebar).not.toContain("NotebookTreeItem");
   });
 
   it("does not render the former floating drawer launcher", () => {
@@ -38,7 +40,7 @@ describe("knowledge tree sidebar contract", () => {
   it("loads and focuses only the currently visible desktop or mobile tree", () => {
     const sidebar = source("../../components/Sidebar.tsx");
     const panel = source("../../components/KnowledgeTreePanel.tsx");
-    expect(sidebar).toContain("sidebarRootRef.current");
+    expect(sidebar).toMatch(/(?:sidebarRootRef|rootRef)\.current/);
     expect(sidebar).toContain("root.getClientRects().length === 0");
     expect(panel).toContain("useActiveSidebarSurface");
     expect(panel).toContain('data-sidebar-surface-active={surfaceActive ? "true" : "false"}');

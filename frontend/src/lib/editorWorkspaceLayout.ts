@@ -1,16 +1,9 @@
-import {
-  detectShortcutSurface,
-  formatPortableShortcutForCommand,
-  shortcutMatchesEvent,
-  type ShortcutPlatform,
-} from "@/lib/shortcutRegistry";
-
-export type EditorWorkspaceMode = "manage" | "focus" | "split" | "fullscreen";
+export type EditorWorkspaceMode = "focus" | "split" | "fullscreen";
 export type EditorSplitDirection = "right" | "down";
 
-export const EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL = formatPortableShortcutForCommand("toggle-note-list");
+/** The legacy middle note-list column no longer has a keyboard toggle. */
+export const EDITOR_LAYOUT_TOGGLE_SHORTCUT_LABEL = "";
 const SPLIT_RATIO_STORAGE_PREFIX = "nowen.editorSplit.ratio";
-const SHORTCUT_PLATFORMS: readonly ShortcutPlatform[] = ["macos", "windows", "linux"];
 
 export interface ShortcutLikeEvent {
   key: string;
@@ -25,24 +18,9 @@ export interface StorageLike {
   setItem(key: string, value: string): void;
 }
 
-/**
- * This compatibility helper is intentionally host-platform agnostic.
- * Unit tests, Electron IPC shims, and synthetic events may represent either
- * Ctrl or Meta regardless of the machine running the code. The actual chord
- * still comes exclusively from the shared shortcut registry.
- */
-export function isEditorLayoutToggleShortcut(event: ShortcutLikeEvent): boolean {
-  const normalizedEvent = {
-    key: event.key,
-    metaKey: event.metaKey === true,
-    ctrlKey: event.ctrlKey === true,
-    shiftKey: event.shiftKey === true,
-    altKey: event.altKey === true,
-  };
-  const surface = detectShortcutSurface();
-  return SHORTCUT_PLATFORMS.some((platform) => (
-    shortcutMatchesEvent("toggle-note-list", normalizedEvent, platform, surface)
-  ));
+/** Kept as a compatibility export for large editor components; always retired. */
+export function isEditorLayoutToggleShortcut(_event: ShortcutLikeEvent): boolean {
+  return false;
 }
 
 export function resolveEditorWorkspaceMode(input: {
@@ -52,8 +30,7 @@ export function resolveEditorWorkspaceMode(input: {
 }): EditorWorkspaceMode {
   if (input.editorFullscreen) return "fullscreen";
   if (input.hasSplit) return "split";
-  if (input.noteListCollapsed) return "focus";
-  return "manage";
+  return "focus";
 }
 
 export function clampEditorSplitRatio(value: number): number {

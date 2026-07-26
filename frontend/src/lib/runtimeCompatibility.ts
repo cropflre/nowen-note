@@ -1,3 +1,5 @@
+import { migrateUnifiedTreeOnlyLayout } from "./unifiedTreeOnlyLayout";
+
 type FindLastPredicate<T> = (
   value: T,
   index: number,
@@ -46,6 +48,8 @@ const findLastPolyfill: FindLastMethod = function findLast<T>(
 };
 
 export function installRuntimeCompatibility(): void {
+  migrateUnifiedTreeOnlyLayout();
+
   if (typeof Array === "undefined") return;
   if (typeof Reflect.get(Array.prototype, "findLast") === "function") return;
 

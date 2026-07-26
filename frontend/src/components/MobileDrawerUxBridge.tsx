@@ -1,8 +1,12 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef } from "react";
 import KnowledgeTreeDrawer from "@/components/KnowledgeTreeDrawer";
 import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
 import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
 import { useApp, useAppActions } from "@/store/AppContext";
+import {
+  shouldCollapseLegacyNoteList,
+  usesFunctionalNoteList,
+} from "@/lib/unifiedTreeOnlyLayout";
 
 export const MOBILE_DRAWER_SEARCH_BLUR_DELAY_MS = 160;
 
@@ -87,15 +91,61 @@ const ANDROID_DRAWER_SAFE_AREA_CSS = `
 }
 `;
 
+const UNIFIED_TREE_ONLY_CSS = `
+/* Legacy notebook-list layout controls are retired. Runtime state is enforced below,
+   and these selectors prevent stale large components from exposing a dead control. */
+button[title="展开笔记列表"],
+button[title="收起笔记列表"],
+button[aria-label="展开笔记列表"],
+button[aria-label="收起笔记列表"],
+button[title="Expand note list"],
+button[title="Collapse note list"],
+button[aria-label="Expand note list"],
+button[aria-label="Collapse note list"] {
+  display: none !important;
+}
+`;
+
 export default function MobileDrawerUxBridge() {
   const { state } = useApp();
   const actions = useAppActions();
   const mobileSidebarOpenRef = useRef(state.mobileSidebarOpen);
   const blurTimerRef = useRef<number | null>(null);
+  const layoutInitializedRef = useRef(false);
+  const previousViewModeRef = useRef(state.viewMode);
 
   useEffect(() => {
     mobileSidebarOpenRef.current = state.mobileSidebarOpen;
   }, [state.mobileSidebarOpen]);
+
+  /**
+   * Unified content tree is the only everyday hierarchy on desktop and mobile.
+   * Favorites, tags, Trash and legacy persistent-search results remain dedicated
+   * list surfaces because they are cross-tree result sets, not notebook navigation.
+   */
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute("data-unified-tree-only", "");
+
+    const collapse = shouldCollapseLegacyNoteList(state.viewMode);
+    if (state.noteListCollapsed !== collapse) {
+      actions.toggleNoteListCollapsed();
+    }
+
+    const functionalList = usesFunctionalNoteList(state.viewMode);
+    const viewChanged = previousViewModeRef.current !== state.viewMode;
+
+    if (functionalList) {
+      if (viewChanged && state.mobileView !== "list") actions.setMobileView("list");
+    } else if (state.mobileView !== "editor") {
+      // First boot goes directly to the editor empty state. A later Android back
+      // action previously targeting the retired list now opens the unified tree.
+      actions.setMobileView("editor");
+      if (layoutInitializedRef.current) actions.setMobileSidebar(true);
+    }
+
+    previousViewModeRef.current = state.viewMode;
+    layoutInitializedRef.current = true;
+  }, [actions, state.mobileView, state.noteListCollapsed, state.viewMode]);
 
   useEffect(() => {
     const clearBlurTimer = () => {
@@ -124,9 +174,6 @@ export default function MobileDrawerUxBridge() {
         blurTimerRef.current = null;
         if (!mobileSidebarOpenRef.current) return;
 
-        // SearchCenter briefly steals focus when search mode first mounts. The existing search
-        // bridge restores focus to the drawer input after 40ms; waiting here prevents that
-        // programmatic transition from closing the drawer after the first typed character.
         if (!shouldCloseDrawerAfterSearchBlur(input.value, input, document.activeElement)) return;
         actions.setMobileSidebar(false);
       }, MOBILE_DRAWER_SEARCH_BLUR_DELAY_MS);
@@ -153,6 +200,7 @@ export default function MobileDrawerUxBridge() {
   return (
     <>
       <style data-mobile-drawer-ux="">{ANDROID_DRAWER_SAFE_AREA_CSS}</style>
+      <style data-unified-tree-only-layout="">{UNIFIED_TREE_ONLY_CSS}</style>
       <KnowledgeTreeDrawer />
       <ShortcutHelpCenter />
       <ShortcutRuntimeBridge />

@@ -1,10 +1,3 @@
-/**
- * CommandPalette —— Cmd-K 全局搜索与工作台命令
- * ----------------------------------------------------------------------------
- * Sidebar 搜索负责持久化浏览，并由 SearchCenter 展示完整结果页；Cmd-K 仍然保持
- * “即用即走”的快速跳转语义。布局命令与搜索结果共用入口，但不会污染搜索状态。
- */
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -13,19 +6,12 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
-  PanelLeftClose,
-  PanelLeftOpen,
   Search as SearchIcon,
   X,
 } from "lucide-react";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
-import {
-  emitSidebarSearchSync,
-  normalizeSidebarSearchValue,
-  SIDEBAR_SEARCH_CHANGE_EVENT,
-} from "@/lib/sidebarSearchBridge";
 import {
   detectShortcutPlatform,
   detectShortcutSurface,
@@ -38,7 +24,6 @@ import SearchCenter from "@/components/SearchCenter";
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
 
 export interface CommandPaletteProps {
-  /** 由外部控制开合；App 层一个 useState 即可 */
   open: boolean;
   onClose: () => void;
 }
@@ -54,92 +39,12 @@ interface WorkspaceCommand {
 }
 
 /**
- * Sidebar 仍保留历史上的本地 searchInput，但不再允许它直接决定 viewMode。
- * 输入组件把真实用户输入发送到这里，由全局 searchQuery 作为唯一业务状态；反向同步
- * 只更新 Sidebar 的显示值，不触发其旧的“空值 → all”分支。
+ * Cmd-K global note search and workspace commands.
+ *
+ * The unified content tree is now the only everyday navigation hierarchy, so
+ * the former manage/focus command for restoring a middle note-list column is
+ * intentionally absent.
  */
-function SidebarSearchStateBridge() {
-  const { state } = useApp();
-  const actions = useAppActions();
-  const focusTimerRef = useRef<number | null>(null);
-  const mobileSidebarOpenRef = useRef(state.mobileSidebarOpen);
-  const viewModeRef = useRef(state.viewMode);
-
-  useEffect(() => {
-    mobileSidebarOpenRef.current = state.mobileSidebarOpen;
-    viewModeRef.current = state.viewMode;
-  }, [state.mobileSidebarOpen, state.viewMode]);
-
-  useEffect(() => {
-    emitSidebarSearchSync(state.searchQuery || "");
-  }, [state.mobileSidebarOpen, state.searchQuery, state.sidebarCollapsed]);
-
-  useEffect(() => {
-    const handleSidebarSearchChange = (event: Event) => {
-      const value = normalizeSidebarSearchValue((event as CustomEvent<unknown>).detail);
-      if (value == null) return;
-
-      actions.setSearchQuery(value);
-      if (viewModeRef.current !== "search") actions.setViewMode("search");
-
-      // SearchCenter 会在首次进入 search 时自动 focus。移动抽屉仍打开时，稍后把焦点
-      // 交还给用户正在使用的 Sidebar 输入框，避免 Android 键盘突然收起或跳到遮罩后。
-      if (mobileSidebarOpenRef.current) {
-        if (focusTimerRef.current != null) window.clearTimeout(focusTimerRef.current);
-        focusTimerRef.current = window.setTimeout(() => {
-          const input = document.querySelector<HTMLInputElement>("[data-sidebar-search]");
-          input?.focus({ preventScroll: true });
-          focusTimerRef.current = null;
-        }, 40);
-      }
-    };
-
-    window.addEventListener(SIDEBAR_SEARCH_CHANGE_EVENT, handleSidebarSearchChange);
-    return () => {
-      window.removeEventListener(SIDEBAR_SEARCH_CHANGE_EVENT, handleSidebarSearchChange);
-      if (focusTimerRef.current != null) window.clearTimeout(focusTimerRef.current);
-    };
-  }, [actions]);
-
-  return null;
-}
-
-/**
- * 历史兼容守卫：只在“刚离开 search 会话 + 已打开目标笔记 + 查询已清空”这一窄窗口
- * 修正旧版本可能留下的 all 状态。新的 Sidebar bridge 已不会再制造该竞态。
- */
-function SearchNavigationGuard() {
-  const { state } = useApp();
-  const actions = useAppActions();
-  const wasSearch = useRef(false);
-
-  useEffect(() => {
-    if (state.viewMode === "search") {
-      wasSearch.current = true;
-      return;
-    }
-    if (!wasSearch.current || state.searchQuery.trim()) return;
-
-    const openedIntoSelectedNotebook = !!state.activeNote
-      && !!state.selectedNotebookId
-      && state.activeNote.notebookId === state.selectedNotebookId;
-
-    if (openedIntoSelectedNotebook && state.viewMode === "all") {
-      actions.setViewMode("notebook");
-    }
-    wasSearch.current = false;
-  }, [
-    actions,
-    state.activeNote?.id,
-    state.activeNote?.notebookId,
-    state.searchQuery,
-    state.selectedNotebookId,
-    state.viewMode,
-  ]);
-
-  return null;
-}
-
 export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { state } = useApp();
   const actions = useAppActions();
@@ -156,26 +61,15 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const workspaceCommands = useMemo<WorkspaceCommand[]>(() => {
-    const commands: WorkspaceCommand[] = [
-      {
-        id: "toggle-note-list",
-        label: state.noteListCollapsed ? "显示笔记列表" : "隐藏笔记列表",
-        description: state.noteListCollapsed
-          ? "恢复管理模式的中间笔记列表"
-          : "进入创作模式，让编辑器占满剩余空间",
-        keywords: ["布局", "笔记列表", "创作模式", "管理模式", "sidebar", "list"],
-        icon: state.noteListCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />,
-        run: actions.toggleNoteListCollapsed,
-      },
-    ];
+    const commands: WorkspaceCommand[] = [];
 
     if (state.activeNote) {
       commands.push({
         id: "toggle-editor-fullscreen",
         label: state.editorFullscreen ? "退出编辑器全屏" : "进入编辑器全屏",
         description: state.editorFullscreen
-          ? "恢复目录树和笔记列表"
-          : "临时隐藏全部外侧导航，不修改面板折叠偏好",
+          ? "恢复统一内容树和工作台导航"
+          : "临时隐藏全部外侧导航，专注当前文档",
         keywords: ["全屏", "专注", "编辑器", "fullscreen"],
         icon: state.editorFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />,
         run: actions.toggleEditorFullscreen,
@@ -221,7 +115,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     state.activeNote,
     state.editorFullscreen,
     state.editorSplit,
-    state.noteListCollapsed,
     shortcutPlatform,
     shortcutSurface,
   ]);
@@ -292,14 +185,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        shortcutMatchesEvent("toggle-note-list", event, shortcutPlatform, shortcutSurface)
-        && isShortcutAllowedInTarget("toggle-note-list", event.target)
-      ) {
-        event.preventDefault();
-        actions.toggleNoteListCollapsed();
-        return;
-      }
-      if (
         shortcutMatchesEvent("command-palette", event, shortcutPlatform, shortcutSurface)
         && isShortcutAllowedInTarget("command-palette", event.target)
       ) {
@@ -312,14 +197,17 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actions, onClose, open, shortcutPlatform, shortcutSurface]);
+  }, [onClose, open, shortcutPlatform, shortcutSurface]);
 
   const jumpTo = useCallback(async (id: string) => {
     try {
       const note = await api.getNote(id);
       if (note) {
         actions.setActiveNote(note);
+        actions.setSelectedNotebook(note.notebookId || null);
+        actions.setViewMode("all");
         actions.setMobileView("editor");
+        actions.setMobileSidebar(false);
       }
     } catch (error) {
       console.error("[CommandPalette] open note failed:", error);
@@ -384,7 +272,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onInputKeyDown}
-              placeholder="搜索笔记，或输入 > 执行布局命令…"
+              placeholder="搜索笔记，或输入 > 执行命令…"
               className="flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
               autoComplete="off"
               spellCheck={false}
@@ -498,8 +386,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   return (
     <>
-      <SidebarSearchStateBridge />
-      <SearchNavigationGuard />
       <MobileDrawerUxBridge />
       <SearchCenter />
       {typeof document !== "undefined" && paletteBody ? createPortal(paletteBody, document.body) : null}
