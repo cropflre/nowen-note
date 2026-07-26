@@ -7,13 +7,16 @@ on:
       - "backend/src/lib/noteBlocksRuntime.ts"
       - "backend/src/lib/noteContentReferences.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
+      - "backend/tests/note-deletion-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
   pull_request:
@@ -21,13 +24,16 @@ on:
       - "backend/src/lib/noteBlocksRuntime.ts"
       - "backend/src/lib/noteContentReferences.ts"
       - "backend/src/routes/notes-runtime.ts"
+      - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
+      - "backend/tests/note-deletion-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
   workflow_dispatch:
@@ -82,6 +88,7 @@ jobs:
             tests/note-core-runtime-formats-pg.test.ts \
             tests/note-collection-runtime-pg.test.ts \
             tests/note-lifecycle-runtime-pg.test.ts \
+            tests/note-deletion-runtime-pg.test.ts \
             2>&1 | tee -a /tmp/pg-note-runtime.log
       - name: Upload note runtime diagnostics
         if: always()
