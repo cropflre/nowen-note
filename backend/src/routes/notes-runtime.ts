@@ -12,6 +12,10 @@ import {
   type NoteCoreSaveInput,
 } from "../services/note-core-runtime";
 import {
+  createNoteDeletionRuntime,
+  type NoteDeletionRuntimeOptions,
+} from "../services/note-deletion-runtime";
+import {
   createNoteLifecycleRuntime,
   type NoteLifecycleInput,
   type NoteReorderItem,
@@ -35,11 +39,13 @@ function errorResponse(c: Context, error: unknown) {
 export function createNotesRuntimeRouter(
   adapter?: DatabaseAdapter,
   dialect?: DatabaseDialect,
+  deletionOptions: NoteDeletionRuntimeOptions = {},
 ) {
   const app = new Hono();
   const core = createNoteCoreRuntime(adapter, dialect);
   const collection = createNoteCollectionRuntime(adapter, dialect);
   const lifecycle = createNoteLifecycleRuntime(adapter);
+  const deletion = createNoteDeletionRuntime(adapter, deletionOptions);
 
   app.get("/", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
@@ -151,6 +157,19 @@ export function createNotesRuntimeRouter(
         ...result.note,
         ...(result.warnings.length > 0 ? { runtimeWarnings: result.warnings } : {}),
       });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.delete("/:id", async (c) => {
+    const userId = c.req.header("X-User-Id") || "";
+    try {
+      const result = await deletion.permanentDeleteNote(userId, c.req.param("id"));
+      if (result.cleanupWarnings.length > 0) {
+        c.header("X-Nowen-Runtime-Warnings", String(result.cleanupWarnings.length));
+      }
+      return c.json(result);
     } catch (error) {
       return errorResponse(c, error);
     }
