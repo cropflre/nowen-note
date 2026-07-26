@@ -1,5 +1,5 @@
 // electron/menu.js
-// 构建跨平台原生菜单；菜单项的 accelerator 即作为窗口快捷键生效。
+// 构建跨平台原生菜单；可自定义命令由 renderer 注册表处理，菜单项保留点击入口。
 // 通过 IPC 把动作透传给 renderer（frontend 侦听 window.nowenDesktop.on("menu:xxx", ...)）。
 //
 // 本文件按 Apple Human Interface Guidelines 排列 macOS 菜单顺序：
@@ -106,7 +106,6 @@ function buildMenu({
         {
           label: "新建笔记",
           // HIG：New 使用 Cmd+N；保留原 Alt+N 兼容老用户
-          accelerator: isMac ? "Cmd+N" : "Ctrl+N",
           click: () => send("menu:new-note"),
         },
         { type: "separator" },
@@ -171,7 +170,6 @@ function buildMenu({
           label: "加粗",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+B",
           click: () => send("menu:format", { mark: "bold" }),
         },
         {
@@ -179,7 +177,6 @@ function buildMenu({
           label: "斜体",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+I",
           click: () => send("menu:format", { mark: "italic" }),
         },
         {
@@ -187,7 +184,6 @@ function buildMenu({
           label: "下划线",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+U",
           click: () => send("menu:format", { mark: "underline" }),
         },
         {
@@ -195,7 +191,6 @@ function buildMenu({
           label: "删除线",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Shift+X",
           click: () => send("menu:format", { mark: "strike" }),
         },
         { type: "separator" },
@@ -204,7 +199,6 @@ function buildMenu({
           label: "行内代码",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+E",
           click: () => send("menu:format", { mark: "code" }),
         },
         { type: "separator" },
@@ -213,7 +207,6 @@ function buildMenu({
           label: "标题 1",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+1",
           click: () => send("menu:format", { node: "heading", level: 1 }),
         },
         {
@@ -221,7 +214,6 @@ function buildMenu({
           label: "标题 2",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+2",
           click: () => send("menu:format", { node: "heading", level: 2 }),
         },
         {
@@ -229,7 +221,6 @@ function buildMenu({
           label: "标题 3",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+3",
           click: () => send("menu:format", { node: "heading", level: 3 }),
         },
         {
@@ -237,7 +228,6 @@ function buildMenu({
           label: "标题 4",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+4",
           click: () => send("menu:format", { node: "heading", level: 4 }),
         },
         {
@@ -245,7 +235,6 @@ function buildMenu({
           label: "标题 5",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+5",
           click: () => send("menu:format", { node: "heading", level: 5 }),
         },
         {
@@ -253,7 +242,6 @@ function buildMenu({
           label: "标题 6",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+6",
           click: () => send("menu:format", { node: "heading", level: 6 }),
         },
         {
@@ -261,7 +249,6 @@ function buildMenu({
           label: "正文",
           type: "checkbox",
           checked: false,
-          accelerator: "CmdOrCtrl+Alt+0",
           click: () => send("menu:format", { node: "paragraph" }),
         },
       ],
@@ -274,7 +261,6 @@ function buildMenu({
       submenu: [
         {
           label: "切换侧边栏",
-          accelerator: "CmdOrCtrl+B",
           click: () => send("menu:toggle-sidebar"),
         },
         {
@@ -331,18 +317,23 @@ function buildMenu({
     },
 
     // ========== 帮助 ==========
-    // macOS 下 role:"help" 会让系统注入 "搜索" 框；我们只追加项目链接
+    // macOS 下 role:"help" 会让系统注入 "搜索" 框；我们追加快捷键与项目入口。
     {
       role: "help",
       label: isMac ? "帮助" : "帮助(&H)",
       submenu: [
         {
+          label: "键盘快捷键",
+          click: () => send("menu:open-shortcuts"),
+        },
+        { type: "separator" },
+        {
           label: "项目主页",
-          click: () => shell.openExternal("https://github.com/"),
+          click: () => shell.openExternal("https://github.com/cropflre/nowen-note"),
         },
         {
           label: "报告问题",
-          click: () => shell.openExternal("https://github.com/"),
+          click: () => shell.openExternal("https://github.com/cropflre/nowen-note/issues"),
         },
         { type: "separator" },
         {

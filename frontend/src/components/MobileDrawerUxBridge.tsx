@@ -1,4 +1,7 @@
 import React, { useEffect, useRef } from "react";
+import KnowledgeTreeDrawer from "@/components/KnowledgeTreeDrawer";
+import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
+import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
 import { useApp, useAppActions } from "@/store/AppContext";
 
 export const MOBILE_DRAWER_SEARCH_BLUR_DELAY_MS = 160;
@@ -147,5 +150,12 @@ export default function MobileDrawerUxBridge() {
     return () => observer.disconnect();
   }, []);
 
-  return <style data-mobile-drawer-ux="">{ANDROID_DRAWER_SAFE_AREA_CSS}</style>;
+  return (
+    <>
+      <style data-mobile-drawer-ux="">{ANDROID_DRAWER_SAFE_AREA_CSS}</style>
+      <KnowledgeTreeDrawer />
+      <ShortcutHelpCenter />
+      <ShortcutRuntimeBridge />
+    </>
+  );
 }

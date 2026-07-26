@@ -7,6 +7,7 @@ const allowedChannels = new Set([
   "menu:new-note",
   "menu:search",
   "menu:open-settings",
+  "menu:open-shortcuts",
   "menu:toggle-sidebar",
   "menu:focus-note-list",
   "menu:zoom-in",

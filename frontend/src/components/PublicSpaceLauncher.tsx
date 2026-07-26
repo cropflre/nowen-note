@@ -8,6 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 const LEGACY_TRANSFER_TRIGGER = 'button[aria-label="跨空间转移笔记"]';
 const RAIL_MOUNT_ATTRIBUTE = "data-nowen-space-actions-mount";
@@ -96,6 +97,7 @@ export default function PublicSpaceLauncher() {
   const [panel, setPanel] = useState<OpenPanel | null>(null);
   const legacyTransferTriggerRef = useRef<HTMLButtonElement | null>(null);
   const copy = useMemo(resolveCopy, []);
+  const { visible: keyboardVisible } = useKeyboardVisible();
 
   useEffect(() => {
     let frame = 0;
@@ -162,6 +164,10 @@ export default function PublicSpaceLauncher() {
   }, []);
 
   useEffect(() => {
+    if (keyboardVisible) setPanel(null);
+  }, [keyboardVisible]);
+
+  useEffect(() => {
     if (!panel) return;
 
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -212,6 +218,7 @@ export default function PublicSpaceLauncher() {
   };
 
   const renderRailButton = (mount: RailMount) => {
+    if (keyboardVisible && mount.rail.classList.contains("md:hidden")) return null;
     const active = panel?.sourceId === mount.id;
     const itemClass = mount.showLabel
       ? "relative w-14 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-colors"

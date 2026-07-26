@@ -19,6 +19,7 @@ import { MathView } from "@/components/MathView";
 import { NoteLinkPreviewAnchor } from "@/components/NoteLinkPreview";
 import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
+import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { resolveAttachmentUrl } from "@/lib/api";
 import {
   MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD,
@@ -408,7 +409,7 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
 export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange }: MarkdownPreviewProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos((markdown || "")
+  const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos(projectMarkdownForUser(markdown || "")
     .replace(/[​-‍﻿]/g, "")
     .replace(/[ 　]/g, " ")))), [markdown]);
   const headingIndex = useMemo(() => buildMarkdownPreviewHeadingIndex(renderedMarkdown), [renderedMarkdown]);

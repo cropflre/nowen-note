@@ -13,6 +13,13 @@ import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
+import {
+  applyEditorUpdateToNote,
+  PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
+  publishEditorSplitMirrorUpdate,
+  readEditorSplitCloseNoteId,
+  REQUEST_EDITOR_SPLIT_MIRROR_EVENT,
+} from "@/lib/editorSplitMirror";
 import { Tag, Notebook, MindMapData, MindMapNode, type Note } from "@/types";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
@@ -62,6 +69,7 @@ import {
   type NoteDraft,
 } from "@/lib/draftStorage";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import {
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
@@ -124,6 +132,7 @@ export default function EditorPane({
     scrollToRef.current = scrollTo;
   }, []);
   const { t } = useTranslation();
+  const { visible: keyboardVisible } = useKeyboardVisible();
 
   /**
    * 当前视图级有效锁定状态：DB 的 isLocked **加** 用户偏好带来的"会话锁"。
@@ -138,6 +147,7 @@ export default function EditorPane({
   const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed || noteSwitchPending;
   const canEditActiveNote = canWriteNote(activeNote);
   const showDesktopOutline = showOutline && !state.editorFullscreen;
+  const compactMobileEditing = keyboardVisible && canEditActiveNote && !effectiveLocked;
 
   useEffect(() => {
     const handleOfflineConflict = (event: Event) => {
@@ -673,6 +683,58 @@ export default function EditorPane({
   const handleEditorUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     await handleUpdateRef.current?.(data);
   }, []);
+
+  const handleLocalMirrorUpdate = useCallback((data: NoteEditorUpdatePayload) => {
+    const current = activeNoteRef.current;
+    if (!current || (data._noteId && data._noteId !== current.id)) return;
+    publishEditorSplitMirrorUpdate(current.id, data);
+  }, []);
+
+  useEffect(() => {
+    const prepareSplitClose = (event: Event) => {
+      const noteId = readEditorSplitCloseNoteId(event);
+      const current = activeNoteRef.current;
+      if (!current || (noteId && current.id !== noteId)) return;
+
+      try {
+        const snapshot = editorHandleRef.current?.getSnapshot?.();
+        if (snapshot && typeof snapshot.content === "string") {
+          const next = {
+            ...current,
+            content: snapshot.content,
+            contentText: snapshot.contentText,
+          };
+          activeNoteRef.current = next;
+          actions.setActiveNote(next);
+        }
+      } catch {
+        /* flushSave below remains the fallback when a snapshot is unavailable. */
+      }
+
+      try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
+    };
+
+    const publishRequestedMirror = (event: Event) => {
+      const noteId = readEditorSplitCloseNoteId(event);
+      const current = activeNoteRef.current;
+      if (!noteId || !current || current.id !== noteId) return;
+      const snapshot = editorHandleRef.current?.getSnapshot?.();
+      if (!snapshot) return;
+      publishEditorSplitMirrorUpdate(noteId, {
+        title: current.title,
+        content: snapshot.content,
+        contentText: snapshot.contentText,
+        _noteId: noteId,
+      });
+    };
+
+    window.addEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+    window.addEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, publishRequestedMirror);
+    return () => {
+      window.removeEventListener(PREPARE_EDITOR_SPLIT_CLOSE_EVENT, prepareSplitClose);
+      window.removeEventListener(REQUEST_EDITOR_SPLIT_MIRROR_EVENT, publishRequestedMirror);
+    };
+  }, [actions]);
 
   // �л��ʼ�ʱ��Ȿ�زݸ�
   useEffect(() => {
@@ -1230,6 +1292,15 @@ export default function EditorPane({
 
     if (shouldSkipUnchangedTitleOnlyUpdate(currentNote.title, data)) {
       return;
+    }
+
+    // Keep the app state on the editor's latest local snapshot. The duplicate split pane uses
+    // this state as its live read-only mirror, and a remounted primary editor must never
+    // initialize from the last server acknowledgement while a newer save is still in flight.
+    const localNote = applyEditorUpdateToNote(currentNote, data);
+    if (localNote !== currentNote) {
+      activeNoteRef.current = localNote;
+      actions.setActiveNote(localNote);
     }
 
     // P0: 空内容防护已移至后端（notes.ts suspicious_empty_update 拦截）。
@@ -2192,9 +2263,13 @@ const moveToTrash = useCallback(async () => {
             - С���������ޣ�ԭ��һ���� 5 ��ͼ�갴ť�Ѽ�ѹ���ҿ������ʼǱ�·������⣻
             - ��/�ö�����Ƶ���أ�Ų�� ? �˵����˵����ﷴӳ��ǰ״̬��
             - Presence ͷ����С�����岻���ƶ��˲���Ⱦ������˱����� */}
-      <header className="flex flex-col border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'var(--safe-area-top)' }}>
+      <header
+        data-mobile-editor-compact={compactMobileEditing ? "true" : "false"}
+        className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "shadow-sm")}
+        style={{ paddingTop: 'var(--safe-area-top)' }}
+      >
         {/* �� 1 �У����� + ���м + ͬ�� */}
-        <div className="flex min-w-0 items-center gap-2 px-3 pt-2 pb-1">
+        <div className={cn("flex min-w-0 items-center gap-2 px-3 pt-2 pb-1", compactMobileEditing && "hidden")}>
           <button
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-lg active:bg-app-hover shrink-0"
@@ -2233,7 +2308,16 @@ const moveToTrash = useCallback(async () => {
           </div>
         </div>
         {/* �� 2 �У����� + �ղ� + ���� */}
-        <div className="flex items-center gap-1 px-3 pb-2 pt-0.5">
+        <div className={cn("flex items-center gap-1", compactMobileEditing ? "px-2 py-1" : "px-3 pb-2 pt-0.5")}>
+          {compactMobileEditing && (
+            <button
+              onClick={() => actions.setMobileView("list")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
+              aria-label={t('editor.back')}
+            >
+              <ChevronLeft size={22} />
+            </button>
+          )}
           <div className="flex-1 min-w-0 flex items-center gap-1.5">
             {/* ��/�ö� ״̬���£�ֻ��ʾ�Ѽ���״̬��δ���ռλ��
                 ע�⣺isLocked / isPinned �� SQLite ���� 0/1��ֱ�� `value && <Icon/>`
@@ -2253,7 +2337,7 @@ const moveToTrash = useCallback(async () => {
           </div>
           {/* ���� / �������ƶ��˹̶���������ť��࣬���ֳ�������ȶ��ɼ��� */}
           <Button
-            variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
             onClick={toggleLock}
             disabled={isTrashed}
             aria-label={effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
@@ -2267,13 +2351,13 @@ const moveToTrash = useCallback(async () => {
               ͨ���Զ����¼� 'nowen:open-search' ���� TiptapEditor �ڲ��� SearchReplacePanel��
               ����� TiptapEditor ���ڲ� state �������ⲿ����������ӿڸɾ��� */}
           <Button
-            variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
             onClick={() => window.dispatchEvent(new CustomEvent('nowen:open-search'))}
             aria-label={t('editor.searchInNote')}
           >
             <Search size={17} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={toggleFavorite}
+          <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")} onClick={toggleFavorite}
             disabled={isTrashed}
             aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
             <Star size={17} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
@@ -2294,6 +2378,33 @@ const moveToTrash = useCallback(async () => {
                   className="absolute top-full right-0 mt-1 w-56 bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-hidden"
                 >
                   {/* �ö� / ȡ���ö� */}
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('nowen:open-search'));
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Search size={15} className="text-tx-tertiary" />
+                    <span>{t('editor.searchInNote')}</span>
+                  </button>
+                  <button
+                    onClick={() => { toggleFavorite(); setShowMobileMenu(false); }}
+                    disabled={isTrashed}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    <Star size={15} className={cn(activeNote.isFavorite ? "text-amber-400 fill-amber-400" : "text-tx-tertiary")} />
+                    <span>{activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}</span>
+                  </button>
+                  <button
+                    onClick={() => { toggleLock(); setShowMobileMenu(false); }}
+                    disabled={isTrashed}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {effectiveLocked ? <Lock size={15} className="text-orange-500" /> : <Unlock size={15} className="text-tx-tertiary" />}
+                    <span>{effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
+                  </button>
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
                     onClick={() => { togglePin(); setShowMobileMenu(false); }}
                     disabled={!!activeNote.isLocked || isTrashed}
@@ -3080,6 +3191,7 @@ const moveToTrash = useCallback(async () => {
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
+              onLocalUpdate={handleLocalMirrorUpdate}
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={handleEditorReady}
@@ -3093,6 +3205,7 @@ const moveToTrash = useCallback(async () => {
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
+              onLocalUpdate={handleLocalMirrorUpdate}
               onTagsChange={handleTagsChange}
               onHeadingsChange={setHeadings}
               onEditorReady={handleEditorReady}

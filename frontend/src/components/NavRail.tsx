@@ -7,6 +7,7 @@ import {
   Columns3,
   FolderOpen,
   ListTodo,
+  Link2,
   LogOut,
   NotebookPen,
   PanelLeft,
@@ -57,6 +58,7 @@ const NAV_CONFIG: NavConfigItem[] = [
   { icon: <ListTodo size={RAIL_ICON_SIZE} />, labelKey: "sidebar.tasks", mode: "tasks", feature: "tasks", group: "modules" },
   { icon: <BrainCircuit size={RAIL_ICON_SIZE} />, labelKey: "sidebar.mindMaps", mode: "mindmaps", feature: "mindmaps", group: "modules" },
   { icon: <Sparkles size={RAIL_ICON_SIZE} />, labelKey: "sidebar.aiChat", mode: "ai-chat", group: "tools" },
+  { icon: <Link2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.shareManagement", mode: "shares", group: "tools" },
 ];
 
 function isActive(itemMode: ViewMode, viewMode: ViewMode): boolean {

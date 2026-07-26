@@ -129,33 +129,40 @@ export function getAttachmentsDir(): string {
 export function deleteAttachmentFilesByNoteIds(noteIds: string[]): number {
   if (!noteIds || noteIds.length === 0) return 0;
   const db = getDb();
-  const placeholders = noteIds.map(() => "?").join(",");
+  // SQLite 的绑定参数存在上限。清空包含数万篇笔记的回收站时，不能把所有
+  // noteId 塞进同一个 IN (...)；固定分块后仍只在服务端执行，不增加 HTTP 请求。
+  const QUERY_CHUNK_SIZE = 400;
+  const targetNoteIds = new Set(noteIds);
   let rows: { id: string; path: string }[] = [];
   try {
-    rows = db
-      .prepare(`SELECT id, path FROM attachments WHERE noteId IN (${placeholders})`)
-      .all(...noteIds) as { id: string; path: string }[];
+    for (let offset = 0; offset < noteIds.length; offset += QUERY_CHUNK_SIZE) {
+      const chunk = noteIds.slice(offset, offset + QUERY_CHUNK_SIZE);
+      const placeholders = chunk.map(() => "?").join(",");
+      rows.push(...db
+        .prepare(`SELECT id, path FROM attachments WHERE noteId IN (${placeholders})`)
+        .all(...chunk) as { id: string; path: string }[]);
+    }
   } catch {
     return 0;
   }
   if (rows.length === 0) return 0;
 
   // 引用计数：哪些 path 在"待死名单"以外还有活引用？这些 path 的物理文件不能删。
-  const dyingIds = rows.map((r) => r.id).filter(Boolean);
   const dyingPaths = Array.from(new Set(rows.map((r) => r.path).filter(Boolean)));
   const livePaths = new Set<string>();
-  if (dyingIds.length > 0 && dyingPaths.length > 0) {
+  if (dyingPaths.length > 0) {
     try {
-      const idPh = dyingIds.map(() => "?").join(",");
-      const pathPh = dyingPaths.map(() => "?").join(",");
-      const liveRows = db
-        .prepare(
-          `SELECT DISTINCT path FROM attachments
-           WHERE path IN (${pathPh}) AND id NOT IN (${idPh})`,
-        )
-        .all(...dyingPaths, ...dyingIds) as { path: string }[];
-      for (const lr of liveRows) {
-        if (lr?.path) livePaths.add(lr.path);
+      for (let offset = 0; offset < dyingPaths.length; offset += QUERY_CHUNK_SIZE) {
+        const chunk = dyingPaths.slice(offset, offset + QUERY_CHUNK_SIZE);
+        const placeholders = chunk.map(() => "?").join(",");
+        const references = db
+          .prepare(`SELECT path, noteId FROM attachments WHERE path IN (${placeholders})`)
+          .all(...chunk) as { path: string; noteId: string }[];
+        for (const reference of references) {
+          if (reference?.path && !targetNoteIds.has(reference.noteId)) {
+            livePaths.add(reference.path);
+          }
+        }
       }
     } catch {
       // 查询失败时保守处理：把所有 dying 的 path 都视作"还有活引用"，

@@ -23,6 +23,12 @@ export const EDITOR_MODE_CHANGE_EVENT = "nowen:editor-mode-change";
 /** URL 查询参数 key；`?md=1` 强制启用 MD，`?md=0` 强制启用 Tiptap */
 const URL_FORCE_KEY = "md";
 
+let activeNoteEditorModeOverride: EditorMode | null = null;
+
+export function setActiveNoteEditorModeOverride(mode: EditorMode | null): void {
+  activeNoteEditorModeOverride = mode;
+}
+
 /**
  * 根据 URL / localStorage 解析当前编辑器模式。
  *
@@ -33,6 +39,7 @@ const URL_FORCE_KEY = "md";
  * 所有异常（SSR、localStorage 禁用）都吞掉并返回默认值。
  */
 export function resolveEditorMode(defaultMode: EditorMode = "tiptap"): EditorMode {
+  if (activeNoteEditorModeOverride) return activeNoteEditorModeOverride;
   try {
     if (typeof window === "undefined") return defaultMode;
 

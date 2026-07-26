@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
@@ -10,7 +11,7 @@ import {
   getUserWorkspaceRole,
   hasRole,
 } from "../middleware/acl";
-import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastYjsUpdate, broadcastToUser } from "../services/realtime";
+import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastNotesDeleted, broadcastYjsUpdate, broadcastToUser } from "../services/realtime";
 import {
   yApplySubdocumentUpdate,
   yDestroyDoc,
@@ -34,6 +35,10 @@ import {
 } from "../lib/blockAuthorityStore";
 import { resolveBlockAuthorityMode, selectBlockAuthorityRead } from "../lib/blockAuthorityMode";
 import { extractSearchableText } from "../lib/searchIndex";
+import {
+  synchronizeLegacyNoteHierarchy,
+  synchronizeLegacyNotebookHierarchy,
+} from "../services/legacyKnowledgeHierarchy";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
@@ -41,6 +46,35 @@ import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 
 const app = new Hono();
+
+type TrashScope = { workspaceId: string | null; value: string };
+
+function resolveTrashScope(userId: string, requestedWorkspaceId?: string): TrashScope | null {
+  if (!requestedWorkspaceId || requestedWorkspaceId === "personal") {
+    return { workspaceId: null, value: userId };
+  }
+  const role = getUserWorkspaceRole(requestedWorkspaceId, userId);
+  if (!hasRole(role, "admin")) return null;
+  return { workspaceId: requestedWorkspaceId, value: requestedWorkspaceId };
+}
+
+function trashScopeWhere(scope: TrashScope, alias = ""): string {
+  const prefix = alias ? `${alias}.` : "";
+  return scope.workspaceId
+    ? `${prefix}workspaceId = ?`
+    : `${prefix}userId = ? AND ${prefix}workspaceId IS NULL`;
+}
+
+function wantsInternalNoteContent(c: any): boolean {
+  return (c.req.header("Accept") || "")
+    .toLowerCase()
+    .includes("application/vnd.nowen.internal-note+json");
+}
+
+function presentNoteForResponse(db: any, c: any, note: any): any {
+  if (!note || wantsInternalNoteContent(c)) return note;
+  return projectMarkdownNoteForUser(db, note);
+}
 
 /**
  * 获取笔记列表
@@ -202,27 +236,44 @@ app.get("/", (c) => {
   return c.json(notes);
 });
 
-// 清空回收站（必须在 /:id 路由之前注册，否则 'trash' 会被当作 :id 参数匹配）
-// 批量永久删除当前用户回收站中所有未锁定的笔记（仅个人空间）
+// 回收站摘要（必须在 /:id 路由之前注册，否则 'trash' 会被当作 :id 参数匹配）。
+// 确认清空前只返回数量，避免为了显示确认文案把几万条笔记元数据传到浏览器。
+app.get("/trash/summary", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  const scope = resolveTrashScope(userId, c.req.query("workspaceId"));
+  if (!scope) return c.json({ error: "仅工作区管理员可清空回收站", code: "FORBIDDEN" }, 403);
+  const row = db.prepare(`
+    SELECT
+      SUM(CASE WHEN isLocked = 0 THEN 1 ELSE 0 END) AS count,
+      SUM(CASE WHEN isLocked = 1 THEN 1 ELSE 0 END) AS skipped
+    FROM notes
+    WHERE ${trashScopeWhere(scope)} AND isTrashed = 1
+  `).get(scope.value) as { count: number | null; skipped: number | null } | undefined;
+  return c.json({ count: Number(row?.count || 0), skipped: Number(row?.skipped || 0) });
+});
+
+// 清空回收站：一次 HTTP 请求 + 集合式 SQL 永久删除当前用户所有未锁定笔记。
+// 附件物理文件仍需逐个 unlink，但数据库查询会分块，不受 SQLite 参数上限影响。
 app.delete("/trash/empty", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
+  const scope = resolveTrashScope(userId, c.req.query("workspaceId"));
+  if (!scope) return c.json({ error: "仅工作区管理员可清空回收站", code: "FORBIDDEN" }, 403);
 
-  // 仅清理个人空间的回收站；工作区回收站由管理员操作
   const targets = db.prepare(
-    "SELECT id FROM notes WHERE userId = ? AND workspaceId IS NULL AND isTrashed = 1 AND isLocked = 0"
-  ).all(userId) as { id: string }[];
+    `SELECT id FROM notes WHERE ${trashScopeWhere(scope)} AND isTrashed = 1 AND isLocked = 0`
+  ).all(scope.value) as { id: string }[];
 
   const skipped = (db.prepare(
-    "SELECT COUNT(*) as count FROM notes WHERE userId = ? AND workspaceId IS NULL AND isTrashed = 1 AND isLocked = 1"
-  ).get(userId) as { count: number }).count;
+    `SELECT COUNT(*) as count FROM notes WHERE ${trashScopeWhere(scope)} AND isTrashed = 1 AND isLocked = 1`
+  ).get(scope.value) as { count: number }).count;
 
   if (targets.length === 0) {
     return c.json({ success: true, count: 0, skipped, noteIds: [] });
   }
 
   const ids = targets.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(",");
 
   // ⚠ 必须在 DELETE FROM notes 之前清理磁盘附件文件：
   // attachments 表的 ON DELETE CASCADE 只会删 DB 行，磁盘 data/attachments/*.png
@@ -240,9 +291,12 @@ app.delete("/trash/empty", (c) => {
   try {
     const attBytes = db
       .prepare(
-        `SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE noteId IN (${placeholders})`,
+        `SELECT COALESCE(SUM(a.size), 0) AS bytes
+         FROM attachments a
+         JOIN notes n ON n.id = a.noteId
+         WHERE ${trashScopeWhere(scope, "n")} AND n.isTrashed = 1 AND n.isLocked = 0`,
       )
-      .get(...ids) as { bytes: number } | undefined;
+      .get(scope.value) as { bytes: number } | undefined;
     freedBytesEstimate += attBytes?.bytes || 0;
     const noteBytes = db
       .prepare(
@@ -250,32 +304,50 @@ app.delete("/trash/empty", (c) => {
            COALESCE(LENGTH(content), 0) +
            COALESCE(LENGTH(contentText), 0) +
            COALESCE(LENGTH(title), 0)
-         ), 0) AS bytes FROM notes WHERE id IN (${placeholders})`,
+         ), 0) AS bytes
+         FROM notes
+         WHERE ${trashScopeWhere(scope)} AND isTrashed = 1 AND isLocked = 0`,
       )
-      .get(...ids) as { bytes: number } | undefined;
+      .get(scope.value) as { bytes: number } | undefined;
     freedBytesEstimate += noteBytes?.bytes || 0;
   } catch {
     /* ignore — 估算失败就按 0 处理，后续不会触发 VACUUM */
   }
 
-  const deleteMany = db.transaction((list: string[]) => {
-    db.prepare(`DELETE FROM notes WHERE id IN (${placeholders})`).run(...list);
+  const deleteMany = db.transaction(() => {
+    db.prepare(`
+      DELETE FROM notes
+      WHERE ${trashScopeWhere(scope)} AND isTrashed = 1 AND isLocked = 0
+    `).run(scope.value);
   });
-  deleteMany(ids);
+  deleteMany();
 
   // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 清空回收站后清理未使用的标签
   try {
-    db.prepare(`
-      DELETE FROM tags
-      WHERE userId = ?
-        AND workspaceId IS NULL
-        AND id NOT IN (
-          SELECT DISTINCT nt.tagId
-          FROM note_tags nt
-          JOIN notes n ON n.id = nt.noteId
-          WHERE n.userId = ? AND n.isTrashed = 0
-        )
-    `).run(userId, userId);
+    if (scope.workspaceId) {
+      db.prepare(`
+        DELETE FROM tags
+        WHERE workspaceId = ?
+          AND id NOT IN (
+            SELECT DISTINCT nt.tagId
+            FROM note_tags nt
+            JOIN notes n ON n.id = nt.noteId
+            WHERE n.workspaceId = ? AND n.isTrashed = 0
+          )
+      `).run(scope.workspaceId, scope.workspaceId);
+    } else {
+      db.prepare(`
+        DELETE FROM tags
+        WHERE userId = ?
+          AND workspaceId IS NULL
+          AND id NOT IN (
+            SELECT DISTINCT nt.tagId
+            FROM note_tags nt
+            JOIN notes n ON n.id = nt.noteId
+            WHERE n.userId = ? AND n.isTrashed = 0
+          )
+      `).run(userId, userId);
+    }
   } catch (e) {
     console.warn("[notes.trash/empty] prune unused tags failed:", e);
   }
@@ -300,13 +372,25 @@ app.delete("/trash/empty", (c) => {
     tag: "notes.trash/empty",
   });
 
-  // SYNC-DELETE-01-B: 向该用户广播每条被永久删除的笔记，让列表页实时移除
-  for (const noteId of ids) {
-    try { broadcastNoteDeleted(noteId, { actorUserId: userId, trashed: false }); } catch {}
-  }
+  // 一条批量事件替代 N 条 note:deleted，避免数万次 WebSocket 发送和前端渲染。
+  try {
+    broadcastNotesDeleted(ids, {
+      actorUserId: userId,
+      workspaceId: scope.workspaceId || undefined,
+      trashed: false,
+    });
+  } catch {}
 
   emitWebhook("note.trash_emptied", userId, { count: ids.length, removedFiles, vacuumed });
-  logAudit(userId, "note", "trash_empty", { count: ids.length, noteIds: ids, removedFiles, vacuumed });
+  logAudit(userId, "note", "trash_empty", {
+    count: ids.length,
+    workspaceId: scope.workspaceId,
+    // 审计保留样本即可；把数万个 UUID 全塞入单条 JSON 会徒增数据库和序列化开销。
+    noteIdSample: ids.slice(0, 100),
+    noteIdsTruncated: ids.length > 100,
+    removedFiles,
+    vacuumed,
+  });
 
   return c.json({
     success: true,
@@ -336,6 +420,13 @@ app.put("/reorder/batch", async (c) => {
       const { permission } = resolveNotePermission(item.id, userId);
       if (hasPermission(permission, "write")) {
         stmt.run(item.sortOrder, item.id);
+        synchronizeLegacyNoteHierarchy({
+          db,
+          noteId: item.id,
+          actorUserId: userId,
+          reason: "reorder",
+          parentMode: "preserve",
+        });
       }
     }
   });
@@ -430,7 +521,8 @@ app.get("/:id", (c) => {
 
   const tags = noteTagsRepository.listTagsByNoteId(id);
 
-  return c.json({ ...note as any, tags, permission });
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags, permission });
 });
 
 // 创建笔记
@@ -479,7 +571,7 @@ app.post("/", async (c) => {
   const defaultContent = contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
   const initialContent = typeof body.content === "string" ? body.content : defaultContent;
 
-  try {
+  const legacyNoteCreateTx = db.transaction(() => {
     db.prepare(`
       INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -488,6 +580,16 @@ app.post("/", async (c) => {
       body.title || "无标题笔记", initialContent,
       extractSearchableText(initialContent, contentFormat), contentFormat,
     );
+    synchronizeLegacyNoteHierarchy({
+      db,
+      noteId: id,
+      actorUserId: userId,
+      reason: "create",
+      parentMode: "resource",
+    });
+  });
+  try {
+    legacyNoteCreateTx();
   } catch (e: any) {
     if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
       return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
@@ -565,7 +667,8 @@ app.post("/", async (c) => {
   `).get(userId, id);
   logAudit(userId, "note", "create", { noteId: id, title: body.title }, { targetType: "note", targetId: id });
 
-  return c.json({ ...note as any, tags: [] }, 201);
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags: [] }, 201);
 });
 
 // 更新笔记
@@ -823,6 +926,7 @@ app.put("/:id", async (c) => {
   }
   if (body.isLocked !== undefined) { fields.push("isLocked = ?"); params.push(body.isLocked); }
   if (body.isArchived !== undefined) { fields.push("isArchived = ?"); params.push(body.isArchived); }
+  const restoredAncestorNotebookIds: string[] = [];
   if (body.isTrashed !== undefined) {
     // v14：从回收站恢复笔记时（isTrashed=1 → 0），若其父笔记本被软删，
     // 还原后笔记会「看不见」（被侧边栏 isDeleted=0 过滤）。
@@ -861,13 +965,7 @@ app.put("/:id", async (c) => {
             .all(cur.nbId) as { id: string }[]).map((r) => r.id);
           if (restoreIds.length > 0) {
             const placeholders = restoreIds.map(() => "?").join(",");
-            db.prepare(
-              `UPDATE notebooks
-                  SET isDeleted = 0,
-                      deletedAt = NULL,
-                      updatedAt = datetime('now')
-                WHERE id IN (${placeholders})`,
-            ).run(...restoreIds);
+            restoredAncestorNotebookIds.push(...restoreIds);
           }
         }
       } catch (e) {
@@ -890,13 +988,59 @@ app.put("/:id", async (c) => {
   // 的乐观锁刷新），也不应广播 note.updated。因此仅当确有 notes 列要改时才 UPDATE。
   const hasNoteColumnChange = fields.length > 0;
 
+  const needsLegacyHierarchySync = body.notebookId !== undefined
+    || body.sortOrder !== undefined
+    || body.isTrashed !== undefined
+    || body.contentFormat !== undefined;
+
   if (hasNoteColumnChange) {
     fields.push("version = version + 1");
     if (hasContentFieldChange) {
       fields.push("updatedAt = datetime('now')");
     }
     params.push(id);
-    db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+    const legacyNoteUpdateTx = db.transaction(() => {
+      if (restoredAncestorNotebookIds.length > 0) {
+        const placeholders = restoredAncestorNotebookIds.map(() => "?").join(",");
+        db.prepare(
+          `UPDATE notebooks
+              SET isDeleted = 0,
+                  deletedAt = NULL,
+                  updatedAt = datetime('now')
+            WHERE id IN (${placeholders})`,
+        ).run(...restoredAncestorNotebookIds);
+        for (const notebookId of restoredAncestorNotebookIds) {
+          synchronizeLegacyNotebookHierarchy({
+            db,
+            notebookId,
+            actorUserId: userId,
+            reason: "restore",
+            parentMode: "preserve",
+          });
+        }
+      }
+
+      db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+      if (needsLegacyHierarchySync) {
+        const reason = body.notebookId !== undefined
+          ? "move"
+          : body.isTrashed === 1
+            ? "delete"
+            : body.isTrashed === 0
+              ? "restore"
+              : body.sortOrder !== undefined
+                ? "reorder"
+                : "metadata";
+        synchronizeLegacyNoteHierarchy({
+          db,
+          noteId: id,
+          actorUserId: userId,
+          reason,
+          parentMode: body.notebookId !== undefined ? "resource" : "preserve",
+        });
+      }
+    });
+    legacyNoteUpdateTx();
   }
 
   // v11: 同步 attachment_references 倒排（仅在 content 字段被改动时；非内容字段
@@ -1043,7 +1187,8 @@ app.put("/:id", async (c) => {
     }
   }
 
-  return c.json({ ...note as any, tags });
+  const responseNote = presentNoteForResponse(db, c, note);
+  return c.json({ ...responseNote as any, tags });
 });
 
 // BACKLINKS-02: 获取笔记的反向链接（哪些笔记引用了当前笔记）

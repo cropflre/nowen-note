@@ -43,6 +43,8 @@ export interface NoteEditorUpdatePayload {
 export interface NoteEditorProps {
   note: Note;
   onUpdate: (data: NoteEditorUpdatePayload) => void;
+  /** Emits the latest in-memory document for read-only split mirrors without persisting it. */
+  onLocalUpdate?: (data: NoteEditorUpdatePayload) => void;
   onTagsChange?: (tags: Tag[]) => void;
   onHeadingsChange?: (headings: NoteEditorHeading[]) => void;
   onEditorReady?: (scrollTo: (pos: number) => void) => void;

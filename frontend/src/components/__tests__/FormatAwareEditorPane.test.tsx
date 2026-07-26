@@ -2,7 +2,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FormatAwareEditorPane from "../FormatAwareEditorPane";
-import { EDITOR_MODE_KEY } from "@/lib/editorMode";
+import {
+  EDITOR_MODE_CHANGE_EVENT,
+  EDITOR_MODE_KEY,
+  resolveEditorMode,
+} from "@/lib/editorMode";
+import { resolveNoteEditorKind } from "@/lib/noteEditorRouting";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,6 +33,7 @@ describe("FormatAwareEditorPane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    window.history.replaceState(null, "", "/");
     mocks.state.activeNote = null;
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -37,6 +43,7 @@ describe("FormatAwareEditorPane", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.innerHTML = "";
+    window.history.replaceState(null, "", "/");
   });
 
   async function render() {
@@ -45,43 +52,43 @@ describe("FormatAwareEditorPane", () => {
     });
   }
 
-  it("Markdown 笔记在挂载主编辑器前准备 MD 模式", async () => {
+  it("Markdown note overrides an incompatible URL mode without mutating global preference", async () => {
+    localStorage.setItem(EDITOR_MODE_KEY, "tiptap");
+    window.history.replaceState(null, "", "/?md=0");
     mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
 
     await render();
 
-    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("md");
-    expect(document.querySelector('[data-testid="editor-pane"]')).not.toBeNull();
-  });
-
-  it("富文本笔记准备 Tiptap 模式", async () => {
-    mocks.state.activeNote = { id: "rich-note", contentFormat: "tiptap-json" };
-
-    await render();
-
+    expect(resolveEditorMode()).toBe("md");
     expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
     expect(document.querySelector('[data-testid="editor-pane"]')).not.toBeNull();
   });
 
-  it("切换不同格式的笔记时重新准备编辑器模式", async () => {
-    mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
-    await render();
-    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("md");
-
+  it("Tiptap note overrides ?md=1 and remains on the rich-text path", async () => {
+    window.history.replaceState(null, "", "/?md=1");
     mocks.state.activeNote = { id: "rich-note", contentFormat: "tiptap-json" };
+
     await render();
 
-    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
+    expect(resolveEditorMode()).toBe("tiptap");
   });
 
-  it("按笔记格式准备模式时不会广播账号默认编辑器变更", async () => {
+  it("routes HTML through the explicit preview kind", () => {
+    expect(resolveNoteEditorKind("html")).toBe("html-preview");
+  });
+
+  it("switches note-scoped mode without broadcasting a global preference change", async () => {
     const onPreferenceChange = vi.fn();
-    window.addEventListener("nowen:editor-mode-change", onPreferenceChange);
+    window.addEventListener(EDITOR_MODE_CHANGE_EVENT, onPreferenceChange);
     mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
+    await render();
+    expect(resolveEditorMode()).toBe("md");
 
+    mocks.state.activeNote = { id: "rich-note", contentFormat: "tiptap-json" };
     await render();
 
+    expect(resolveEditorMode()).toBe("tiptap");
     expect(onPreferenceChange).not.toHaveBeenCalled();
-    window.removeEventListener("nowen:editor-mode-change", onPreferenceChange);
+    window.removeEventListener(EDITOR_MODE_CHANGE_EVENT, onPreferenceChange);
   });
 });

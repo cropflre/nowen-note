@@ -9,6 +9,7 @@ import {
   mergeAuthoritativeNotebooks,
   replaceOptimisticNotebook,
 } from "@/lib/notebookCreateState";
+import { prepareEditorSplitClose } from "@/lib/editorSplitMirror";
 
 export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline" | "queued";
 export type MobileView = "list" | "editor";
@@ -568,8 +569,14 @@ export function useAppActions() {
     clearNoteTabs: () => dispatch({ type: "CLEAR_NOTE_TABS" }),
     setNoteTabs: (v: OpenNoteTab[]) => dispatch({ type: "SET_NOTE_TABS", payload: v }),
     splitEditor: (v: EditorSplitState) => dispatch({ type: "SPLIT_EDITOR", payload: v }),
-    closeEditorSplit: () => dispatch({ type: "CLOSE_EDITOR_SPLIT" }),
-    clearEditorSplits: () => dispatch({ type: "CLEAR_EDITOR_SPLITS" }),
+    closeEditorSplit: () => {
+      prepareEditorSplitClose();
+      dispatch({ type: "CLOSE_EDITOR_SPLIT" });
+    },
+    clearEditorSplits: () => {
+      prepareEditorSplitClose();
+      dispatch({ type: "CLEAR_EDITOR_SPLITS" });
+    },
     refreshNotebooks: () => {
       api.getNotebooks().then((v) => dispatch({ type: "SET_NOTEBOOKS", payload: v })).catch(console.error);
     },

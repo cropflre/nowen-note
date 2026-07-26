@@ -70,6 +70,7 @@ import { yCollab } from "y-codemirror.next";
 import * as Y from "yjs";
 
 import { useTranslation } from "react-i18next";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import {
   Bold,
   CheckSquare,
@@ -99,6 +100,7 @@ import {
   ExternalLink,
   Eye,
   Columns2,
+  ChevronDown,
   Film,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -112,6 +114,7 @@ import { copyText } from "@/lib/clipboard";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
+import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
@@ -202,6 +205,7 @@ function ToolbarButton({ onClick, disabled, children, title }: ToolbarButtonProp
     <button
       type="button"
       onClick={onClick}
+      onMouseDown={(event) => event.preventDefault()}
       disabled={disabled}
       title={title}
       className={cn(
@@ -378,6 +382,7 @@ function buildMarkdownVideoSnippet(result: MediaUploadResult): string {
 export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   note,
   onUpdate,
+  onLocalUpdate,
   onTagsChange,
   onHeadingsChange,
   onEditorReady,
@@ -389,6 +394,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 }, ref) {
   const { t: tr } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
+  const { visible: keyboardVisible } = useKeyboardVisible();
+  const compactMobileEditing = editable
+    && keyboardVisible
+    && typeof window !== "undefined"
+    && window.matchMedia("(max-width: 767px)").matches;
+  const [mobileToolbarExpanded, setMobileToolbarExpanded] = useState(false);
+  useEffect(() => {
+    setMobileToolbarExpanded(false);
+  }, [keyboardVisible, note.id]);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
@@ -407,6 +421,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   noteRef.current = note;
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const onLocalUpdateRef = useRef(onLocalUpdate);
+  onLocalUpdateRef.current = onLocalUpdate;
   const onHeadingsChangeRef = useRef(onHeadingsChange);
   onHeadingsChangeRef.current = onHeadingsChange;
 
@@ -894,6 +910,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       if (isSettingContent.current) return;
 
       const text = update.state.doc.toString();
+      onLocalUpdateRef.current?.({
+        title: noteRef.current.title,
+        content: text,
+        _noteId: noteRef.current.id,
+      });
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
       if (!collabEnabledRef.current) {
@@ -1003,6 +1024,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         highlightActiveLine(),
         highlightSelectionMatches(),
         EditorView.lineWrapping,
+        ...internalMarkdownMarkerExtensions,
         EditorView.contentAttributes.of({ spellcheck: "false" }),
         placeholder(tr("tiptap.placeholder") || "��ʼд��ʲô..."),
 
@@ -1535,7 +1557,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // ---------- ��Ⱦ ----------
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div
+      data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
+      className="relative flex flex-col h-full overflow-hidden"
+    >
       {noteLinkMenu.open && (
         <NoteLinkMenu
           position={noteLinkMenu.position}
@@ -1547,11 +1572,46 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       )}
       {/* Status bar (char/word count, aligned with TiptapEditor) */}
       {editable && (
-        <div
-          className={cn(
-            "sticky top-0 z-20 flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/95 backdrop-blur supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-colors",
-          )}
-        >
+        <>
+          <div
+            data-markdown-mobile-toolbar="compact"
+            className="sticky top-0 z-20 flex items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur md:hidden"
+          >
+            <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
+              <Undo size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
+              <Redo size={16} />
+            </ToolbarButton>
+            <ToolbarDivider />
+            <ToolbarButton onClick={() => setMarkdownViewMode("source")} title={tr("markdown.view.source") || "源码"}>
+              <FileCode size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => setMarkdownViewMode("preview")} title={tr("markdown.view.preview") || "预览"}>
+              <Eye size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
+              <Heading1 size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
+              <Bold size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
+              <List size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
+              <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
+            </ToolbarButton>
+          </div>
+          <div
+            data-markdown-mobile-toolbar="expanded"
+            className={cn(
+              "z-30 items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-elevated/98 px-3 py-2 backdrop-blur hide-scrollbar touch-pan-x transition-colors md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:bg-app-surface/95 md:px-4 md:supports-[backdrop-filter]:bg-app-surface/70",
+              mobileToolbarExpanded
+                ? "flex max-md:absolute max-md:left-0 max-md:right-0 max-md:top-10 max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
+                : "hidden md:flex",
+            )}
+          >
           <ToolbarButton
             onClick={() => withView((v) => undo(v))}
             title={tr("tiptap.undo") || "����"}
@@ -1780,11 +1840,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               <span className="hidden sm:inline">{tr("markdown.view.split") || "分屏"}</span>
             </button>
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {/* ������ */}
-      <div className="px-4 md:px-8 pt-4 md:pt-6 pb-2">
+      <div
+        data-markdown-mobile-title=""
+        className={cn("px-4 md:px-8 pb-2", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+      >
         <input
           ref={titleRef}
           defaultValue={note.title}
@@ -1795,9 +1859,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           onKeyDown={handleTitleKeyDown}
           spellCheck={false}
           readOnly={!editable}
-          className="w-full bg-transparent outline-none text-2xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60"
+          className={cn(
+            "w-full bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
+            compactMobileEditing && "text-lg leading-7",
+          )}
         />
-        {!isGuest && (
+        {!isGuest && !compactMobileEditing && (
           <div className="mt-2">
             <TagInput
               noteId={note.id}
@@ -1858,7 +1925,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       </div>
 
       {/* ״̬��������ͳ�ƣ��� TiptapEditor ���룩 */}
-      <div className="px-4 md:px-8 py-1.5 border-t border-app-border/60 text-[11px] text-tx-tertiary flex items-center gap-3 select-none">
+      <div
+        data-markdown-mobile-status=""
+        className={cn(
+          "px-4 md:px-8 py-1.5 border-t border-app-border/60 text-[11px] text-tx-tertiary items-center gap-3 select-none",
+          compactMobileEditing ? "hidden" : "flex",
+        )}
+      >
         <span>{wordStats.chars}{tr('tiptap.chars')}</span>
         <span className="opacity-60">·</span>
         <span>{wordStats.words}{tr('tiptap.words')}</span>

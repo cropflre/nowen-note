@@ -50,11 +50,17 @@ export default defineConfig({
         find: /^@\/components\/SearchReplacePanel$/,
         replacement: path.resolve(__dirname, "./src/components/SearchReplacePanelRuntime.tsx"),
       },
-      // Issue #369：Tiptap 派生数据只扫描一次；优化模式暂停实时全文大纲。
+      // Issue #369：统一监听 Markdown / Tiptap 首次可交互，普通模式超时后自动降级。
+      // 初始化壳再通过相对路径进入原运行时，避免精确别名递归。
+      {
+        find: /^@\/components\/MarkdownEditor$/,
+        replacement: path.resolve(__dirname, "./src/components/MarkdownEditorInitializationRuntime.tsx"),
+      },
       {
         find: /^@\/components\/TiptapEditor$/,
-        replacement: path.resolve(__dirname, "./src/components/TiptapEditorRuntime.tsx"),
+        replacement: path.resolve(__dirname, "./src/components/TiptapEditorInitializationRuntime.tsx"),
       },
+      // Issue #369：Tiptap 派生数据只扫描一次；优化模式暂停实时全文大纲。
       {
         find: /^@\/lib\/proseMirrorPlainText$/,
         replacement: path.resolve(__dirname, "./src/lib/proseMirrorPlainTextRuntime.ts"),

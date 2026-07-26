@@ -1,0 +1,64 @@
+name: Shared Knowledge Tree CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/knowledge-tree.ts'
+      - 'backend/src/services/knowledgeCapabilitiesCore.ts'
+      - 'backend/src/services/knowledgeCapabilitiesResolver.ts'
+      - 'backend/src/services/knowledgeTree.ts'
+      - 'backend/src/services/knowledgeTreeCore.ts'
+      - 'backend/src/services/sharedKnowledgeTree*.ts'
+      - 'backend/tests/shared-knowledge-tree*.test.ts'
+      - 'backend/tests/knowledge-tree.test.ts'
+      - 'frontend/src/components/KnowledgeTreePanel.tsx'
+      - 'frontend/src/lib/knowledgeTreeApi.ts'
+      - 'frontend/src/lib/sharedKnowledgeTree.ts'
+      - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
+      - 'frontend/src/lib/__tests__/knowledgeTree*.test.ts'
+      - '.github/workflows/shared-knowledge-tree-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+
+      - name: Shared knowledge-tree backend tests
+        working-directory: backend
+        run: |
+          node --import tsx --test tests/shared-knowledge-tree.test.ts
+          node --import tsx --test tests/shared-knowledge-tree-boundary.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run build:tsc
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+
+      - name: Shared knowledge-tree frontend tests
+        working-directory: frontend
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/sharedKnowledgeTree.test.ts
+          src/lib/__tests__/knowledgeTreeModel.test.ts
+          src/lib/__tests__/knowledgeTreeSidebarContract.test.ts
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b

@@ -27,7 +27,18 @@ vi.mock("@/lib/draftStorage", () => ({
 }));
 
 vi.mock("@/lib/api.impl", () => ({
+  api: {
+    attachments: { upload: async () => ({}) },
+    search: async () => [],
+    moveNotebook: async () => ({}),
+    reorderNotebooks: async () => ({}),
+    updateNotebook: async () => ({}),
+    createTask: async () => ({}),
+    getHabitCheckinLog: async () => [],
+  },
   getBaseUrl: () => "/api",
+  getCurrentWorkspace: () => null,
+  getServerUrl: () => "",
 }));
 
 vi.mock("../TiptapEditor", async () => {

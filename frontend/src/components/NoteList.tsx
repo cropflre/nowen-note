@@ -1843,13 +1843,13 @@ export default function NoteList() {
     });
   };
 
-  // 一键清空回收站：查询可删除数量 → confirm 确认 → 调用 api.emptyTrash → 刷新列表。
+  // 一键清空回收站：只查询数量 → confirm → 单次批量删除 → 刷新列表。
   // 移动端 Sidebar 未挂载，自定义事件无人监听，因此 NoteList 直接实现完整逻辑。
   const handleEmptyTrash = async () => {
     haptic.medium();
     try {
-      const notes = await api.getNotes({ isTrashed: "1" });
-      const removable = (notes as any[]).filter((n: any) => !n.isLocked).length;
+      const summary = await api.getTrashSummary();
+      const removable = summary.count;
       if (removable === 0) {
         toast.info(t('sidebar.emptyTrashEmpty'));
         return;

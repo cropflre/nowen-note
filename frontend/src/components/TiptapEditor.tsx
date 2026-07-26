@@ -81,7 +81,7 @@ import {
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, ChevronDown, Search, Upload,
+  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -146,7 +146,13 @@ import {
 } from "@/lib/outlineScroll";
 
 import { useTranslation } from "react-i18next";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { getActiveListType, type ActiveListType } from "@/lib/activeListType";
+import {
+  applyCapturedTextFormat,
+  captureTextFormat,
+  type CapturedTextFormat,
+} from "@/lib/formatPainter";
 
 const lowlight = instrumentPhaseALowlight(createLowlight(common));
 
@@ -1604,6 +1610,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const wordStatsDisplayRef = useRef<WordStatsHandle>(null);
   const [activeListType, setActiveListType] = useState<ActiveListType>(null);
   const activeListTypeRef = useRef<ActiveListType>(null);
+  const [formatPainterArmed, setFormatPainterArmed] = useState(false);
+  const formatPainterRef = useRef<CapturedTextFormat | null>(null);
+  const formatPainterSourceRef = useRef<{ from: number; to: number; noteId: string } | null>(null);
+  const formatPainterApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const formatPainterPointerSelectingRef = useRef(false);
+  const applyingFormatPainterRef = useRef(false);
   const syncActiveListType = useCallback((currentEditor: Editor | null) => {
     const next = getActiveListType(currentEditor);
     if (activeListTypeRef.current === next) return;
@@ -1669,6 +1681,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setIsMobile(mq.matches);
     return () => mq.removeEventListener("change", handler);
   }, []);
+  const { visible: keyboardVisible } = useKeyboardVisible();
+  const compactMobileEditing = isMobile && editable && keyboardVisible;
+  const [mobileToolbarExpanded, setMobileToolbarExpanded] = useState(false);
+  useEffect(() => {
+    setMobileToolbarExpanded(false);
+  }, [keyboardVisible, isMobile, note.id]);
   useEffect(() => {
     if (!imageBubble.open) setImageSizeMenuOpen(false);
   }, [imageBubble.open]);
@@ -2943,6 +2961,168 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
    *                 拿到最新 JSON+纯文本，立即回填 activeNote 后再 setEditorMode，
    *                 MD 侧的 normalizeToMarkdown 就能直接基于最新内容初始化。
    */
+  const cancelFormatPainter = useCallback((announce = false) => {
+    if (formatPainterApplyTimerRef.current) {
+      clearTimeout(formatPainterApplyTimerRef.current);
+      formatPainterApplyTimerRef.current = null;
+    }
+    formatPainterRef.current = null;
+    formatPainterSourceRef.current = null;
+    formatPainterPointerSelectingRef.current = false;
+    applyingFormatPainterRef.current = false;
+    setFormatPainterArmed(false);
+    if (announce) {
+      toast.info(t("tiptap.formatPainterCancelled", { defaultValue: "已取消格式刷" }));
+    }
+  }, [t]);
+
+  const toggleFormatPainter = useCallback(() => {
+    if (!editor || !editable || isGuest) {
+      toast.info(t("tiptap.formatPainterReadonly", { defaultValue: "当前文档不可使用格式刷" }));
+      return;
+    }
+    if (formatPainterRef.current) {
+      cancelFormatPainter(true);
+      return;
+    }
+
+    const captured = captureTextFormat(editor);
+    if (!captured.ok) {
+      const message = captured.reason === "empty-selection"
+        ? t("tiptap.formatPainterSelectSource", { defaultValue: "请先选择一段源文本" })
+        : captured.reason === "unsupported-selection"
+          ? t("tiptap.formatPainterUnsupportedSource", { defaultValue: "请选择普通文本作为格式来源" })
+          : t("tiptap.formatPainterNoText", { defaultValue: "所选内容没有可复制的文本格式" });
+      toast.info(message);
+      return;
+    }
+    if (!captured.format) {
+      toast.info(t("tiptap.formatPainterNoText", { defaultValue: "所选内容没有可复制的文本格式" }));
+      return;
+    }
+
+    formatPainterRef.current = captured.format;
+    formatPainterSourceRef.current = {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+      noteId: note.id,
+    };
+    setFormatPainterArmed(true);
+    setBubble((current) => ({ ...current, open: false }));
+    setImageBubble((current) => ({ ...current, open: false }));
+    setTableBubble((current) => ({ ...current, open: false }));
+    toast.info(t("tiptap.formatPainterChooseTarget", { defaultValue: "格式已复制，请选择目标文本" }));
+  }, [cancelFormatPainter, editable, editor, isGuest, note.id, t]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const attemptApply = () => {
+      const format = formatPainterRef.current;
+      const sourceSelection = formatPainterSourceRef.current;
+      if (!format || !sourceSelection || applyingFormatPainterRef.current) return;
+      if (sourceSelection.noteId !== noteRef.current.id) {
+        cancelFormatPainter();
+        return;
+      }
+
+      const { selection } = editor.state;
+      if (selection.empty) return;
+      if (selection.from === sourceSelection.from && selection.to === sourceSelection.to) return;
+
+      applyingFormatPainterRef.current = true;
+      const result = applyCapturedTextFormat(editor, format);
+      applyingFormatPainterRef.current = false;
+
+      if (!result.ok) {
+        if (result.reason === "empty-selection") return;
+        cancelFormatPainter();
+        toast.info(t("tiptap.formatPainterUnsupportedTarget", {
+          defaultValue: "该目标包含不支持的复杂节点，格式刷已取消",
+        }));
+        return;
+      }
+
+      cancelFormatPainter();
+      setBubble((current) => ({ ...current, open: false }));
+      toast.success(result.degraded
+        ? t("tiptap.formatPainterAppliedInlineOnly", { defaultValue: "格式已应用；跨段内容保留原有段落类型" })
+        : t("tiptap.formatPainterApplied", { defaultValue: "格式已应用" }));
+    };
+
+    const scheduleApply = (delay = 140) => {
+      if (!formatPainterRef.current) return;
+      if (formatPainterApplyTimerRef.current) clearTimeout(formatPainterApplyTimerRef.current);
+      formatPainterApplyTimerRef.current = setTimeout(() => {
+        formatPainterApplyTimerRef.current = null;
+        attemptApply();
+      }, delay);
+    };
+
+    const handleSelectionUpdate = () => {
+      if (!formatPainterRef.current || formatPainterPointerSelectingRef.current) return;
+      scheduleApply();
+    };
+    const handleTransaction = ({ transaction }: any) => {
+      if (!formatPainterRef.current || applyingFormatPainterRef.current) return;
+      if (transaction.docChanged && !transaction.getMeta("formatPainter")) {
+        cancelFormatPainter();
+      }
+    };
+    const handleBlur = () => {
+      window.setTimeout(() => {
+        if (formatPainterRef.current && !editor.isFocused) cancelFormatPainter();
+      }, 0);
+    };
+    const handlePointerDown = () => {
+      if (!formatPainterRef.current) return;
+      formatPainterPointerSelectingRef.current = true;
+      if (formatPainterApplyTimerRef.current) {
+        clearTimeout(formatPainterApplyTimerRef.current);
+        formatPainterApplyTimerRef.current = null;
+      }
+    };
+    const handlePointerUp = () => {
+      if (!formatPainterPointerSelectingRef.current) return;
+      formatPainterPointerSelectingRef.current = false;
+      scheduleApply(0);
+    };
+
+    editor.on("selectionUpdate", handleSelectionUpdate);
+    editor.on("transaction", handleTransaction);
+    editor.on("blur", handleBlur);
+    editor.view.dom.addEventListener("pointerdown", handlePointerDown, { passive: true });
+    window.addEventListener("pointerup", handlePointerUp, { passive: true });
+    window.addEventListener("pointercancel", handlePointerUp, { passive: true });
+
+    return () => {
+      editor.off("selectionUpdate", handleSelectionUpdate);
+      editor.off("transaction", handleTransaction);
+      editor.off("blur", handleBlur);
+      editor.view.dom.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      if (formatPainterApplyTimerRef.current) clearTimeout(formatPainterApplyTimerRef.current);
+    };
+  }, [cancelFormatPainter, editor, t]);
+
+  useEffect(() => {
+    cancelFormatPainter();
+  }, [cancelFormatPainter, editable, isGuest, note.id]);
+
+  useEffect(() => {
+    if (!formatPainterArmed) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelFormatPainter(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [cancelFormatPainter, formatPainterArmed]);
+
+
   useImperativeHandle(
     ref,
     () => ({
@@ -4780,7 +4960,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       .run();
   };
   return (
-    <div className={cn("flex flex-col relative", scrollLayout.root, presentationMode && "tiptap-presentation-mode")}>
+    <div
+      data-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
+      data-format-painter-active={formatPainterArmed ? "true" : "false"}
+      className={cn(
+        "flex flex-col relative",
+        scrollLayout.root,
+        presentationMode && "tiptap-presentation-mode",
+        formatPainterArmed && "[&_.ProseMirror]:cursor-crosshair",
+      )}
+    >
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
@@ -4788,14 +4977,48 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             - sticky top-0 让长内容滚动时也能随时点到工具栏；
             - z 索引压在选区/链接气泡之下（z-50），保留气泡的覆盖能力。 */}
       {!presentationMode && (
-      <div
-        ref={outlineToolbarRef}
-        className={cn(
-          "editor-toolbar-scroll-fade hide-scrollbar sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-4 py-2 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap md:overflow-visible md:touch-auto",
-          // 滚动离顶后加底部阴影，表达「工具栏浮于内容之上」
-          toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
-        )}
-      >
+      <>
+        <div
+          data-mobile-editor-toolbar="compact"
+          className={cn(
+            "md:hidden sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
+            toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
+          )}
+        >
+          <ToolbarButton compact onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
+            <Undo size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
+            <Redo size={16} />
+          </ToolbarButton>
+          <ToolbarDivider />
+          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
+            <Heading1 size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
+            <Heading2 size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
+            <Bold size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
+            <List size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
+            <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
+          </ToolbarButton>
+        </div>
+        <div
+          ref={outlineToolbarRef}
+          data-mobile-editor-toolbar="expanded"
+          className={cn(
+            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated/98 px-3 py-2 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-elevated/90 md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:supports-[backdrop-filter]:bg-app-surface/70",
+            mobileToolbarExpanded
+              ? "flex max-md:absolute max-md:left-0 max-md:right-0 max-md:top-10 max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
+              : "hidden md:flex",
+            toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
+          )}
+        >
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -4881,6 +5104,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <FontSizePopover editor={editor} iconSize={iconSize} />
         <LineHeightPopover editor={editor} iconSize={iconSize} />
         <ColorPopover editor={editor} iconSize={iconSize} />
+        <ToolbarButton
+          onClick={toggleFormatPainter}
+          isActive={formatPainterArmed}
+          disabled={!editable || isGuest}
+          title={formatPainterArmed
+            ? t("tiptap.formatPainterCancel", { defaultValue: "取消格式刷 (Esc)" })
+            : t("tiptap.formatPainter", { defaultValue: "格式刷" })}
+        >
+          <Paintbrush size={iconSize} />
+        </ToolbarButton>
         <ToolbarButton
           onClick={openLinkEditor}
           isActive={editor.isActive("link")}
@@ -5089,6 +5322,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </>
         )}
       </div>
+      </>
       )}
 
       {/* 查找替换浮窗：依附最外层 relative，右上角应于序列。
@@ -5104,7 +5338,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* Title */}
       {!presentationMode && (
-      <div className="px-4 md:px-8 pt-4 md:pt-6 pb-0">
+      <div
+        data-mobile-editor-title=""
+        className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+      >
         <input
           ref={titleRef}
           defaultValue={note.title}
@@ -5115,11 +5352,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full bg-transparent text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
+            "w-full bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
+            compactMobileEditing && "text-lg leading-7",
             !editable && "cursor-default"
           )}
         />
-        <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary">
+        <div
+          data-mobile-editor-metadata=""
+          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
+        >
           <span>{t('tiptap.version')}{note.version}</span>
           <span className="max-md:hidden">·</span>
           <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
@@ -5134,7 +5375,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       )}
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
-      {!isGuest && !windowedSection && (
+      {!isGuest && !windowedSection && !compactMobileEditing && (
         <div className="px-4 md:px-8 pb-2">
           <TagInput
             noteId={note.id}
@@ -5162,6 +5403,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             title={t('tiptap.selectAllText')}
           >
             <ArrowUp size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={toggleFormatPainter}
+            isActive={formatPainterArmed}
+            disabled={!editable || isGuest}
+            title={formatPainterArmed
+              ? t("tiptap.formatPainterCancel", { defaultValue: "取消格式刷 (Esc)" })
+              : t("tiptap.formatPainter", { defaultValue: "格式刷" })}
+          >
+            <Paintbrush size={14} />
           </ToolbarButton>
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
@@ -5804,7 +6055,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* 回到顶部按钮：滚动超过阈值后显示在编辑区右下角 */}
       <AnimatePresence>
-        {showBackToTop && scrollLayout.ownsViewportOverlay && (
+        {showBackToTop && !compactMobileEditing && scrollLayout.ownsViewportOverlay && (
           <motion.button
             type="button"
             initial={{ opacity: 0, y: 8, scale: 0.9 }}

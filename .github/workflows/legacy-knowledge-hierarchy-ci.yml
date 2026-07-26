@@ -1,0 +1,48 @@
+name: Legacy Knowledge Hierarchy CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/notes.ts'
+      - 'backend/src/routes/notebooks.ts'
+      - 'backend/src/services/legacyKnowledgeHierarchy.ts'
+      - 'backend/tests/legacy-knowledge-hierarchy.test.ts'
+      - '.github/workflows/legacy-knowledge-hierarchy-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+
+      - name: Legacy hierarchy coordinator tests
+        working-directory: backend
+        run: node --import tsx --test tests/legacy-knowledge-hierarchy.test.ts
+
+      - name: Knowledge tree regression tests
+        working-directory: backend
+        run: node --import tsx --test tests/knowledge-tree.test.ts tests/shared-knowledge-tree.test.ts tests/knowledge-tree-postgres-schema.test.ts
+
+      - name: Legacy note content compatibility
+        working-directory: backend
+        run: node --import tsx --test tests/markdown-user-content.test.ts tests/notes-content-view.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit

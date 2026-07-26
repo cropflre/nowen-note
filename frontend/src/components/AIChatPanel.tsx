@@ -597,8 +597,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             <Plus size={14} />
           </button>
         </div>
-        <ScrollArea className="flex-1">
-          <div className="px-2 py-2 space-y-0.5">
+        <ScrollArea className="flex-1 min-w-0">
+          <div className="w-full min-w-0 px-2 py-2 space-y-0.5">
             {conversations.length === 0 && (
               <div className="text-[11px] text-tx-tertiary px-2 py-4 text-center">
                 {t("aiChat.noConversations")}
@@ -612,7 +612,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 <div
                   key={c.id}
                   className={cn(
-                    "group flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors",
+                    "group flex w-full min-w-0 items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors",
                     active
                       ? "bg-accent-primary/10 text-accent-primary"
                       : "text-tx-secondary hover:bg-app-hover"
@@ -639,7 +639,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                     </span>
                   )}
                   {!isRenaming && (
-                    <div className="hidden group-hover:flex items-center gap-0.5">
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleStartRename(c); }}
                         title={t("aiChat.renameConversation")}

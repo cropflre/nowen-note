@@ -1,0 +1,55 @@
+name: Knowledge Tree Sidebar CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/Sidebar.tsx'
+      - 'frontend/src/components/KnowledgeTreeDrawer.tsx'
+      - 'frontend/src/components/KnowledgeTreePanel.tsx'
+      - 'frontend/src/components/KnowledgeTreeNodeMenu.tsx'
+      - 'frontend/src/components/SharedNotebookTree.tsx'
+      - 'frontend/src/lib/sidebarTreeMode.ts'
+      - 'frontend/src/lib/knowledgeTreeApi.ts'
+      - 'frontend/src/lib/__tests__/knowledgeTreeSidebarContract.test.ts'
+      - 'frontend/src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx'
+      - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
+      - '.github/workflows/knowledge-tree-sidebar-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Enforce unified tree as the only Sidebar hierarchy
+        run: |
+          test ! -e frontend/src/components/SharedNotebookTree.tsx
+          test ! -e frontend/src/lib/sidebarTreeMode.ts
+          ! grep -R "sidebarTreeMode\|SharedNotebookTree\|onRequestLegacy\|使用旧树\|切换到旧笔记本树" \
+            frontend/src/components/Sidebar.tsx \
+            frontend/src/components/KnowledgeTreePanel.tsx
+          grep -q "<KnowledgeTreePanel" frontend/src/components/Sidebar.tsx
+          grep -q "onContextMenu" frontend/src/components/KnowledgeTreePanel.tsx
+          grep -q "onTouchStart" frontend/src/components/KnowledgeTreePanel.tsx
+          grep -q "KnowledgeTreeNodeMenu" frontend/src/components/KnowledgeTreePanel.tsx
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+
+      - name: Unified Sidebar, context-menu and shared-tree tests
+        working-directory: frontend
+        run: npx vitest run --reporter=basic src/lib/__tests__/knowledgeTreeSidebarContract.test.ts src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx src/lib/__tests__/knowledgeTreeModel.test.ts src/lib/__tests__/sharedKnowledgeTree.test.ts
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b

@@ -209,6 +209,7 @@ function schedulePersistToNotesTable(room: RoomState) {
       console.warn(`[yjs] persistToNotesTable failed for ${room.noteId}:`, e);
     }
   }, 1500);
+  room.persistTimer?.unref();
 }
 
 function persistToNotesTable(room: RoomState) {
@@ -227,7 +228,11 @@ function persistToNotesTable(room: RoomState) {
   if (!existing) return;
   // REST or transactional writers may already have persisted this exact Yjs state.
   // Flushing the same body must not create a phantom edit or bump note.version.
-  if (existing.content === markdown && existing.contentText === contentText) return;
+  // The stored Markdown body is authoritative for edit/version identity. A REST or
+  // transactional writer may derive contentText with a richer parser than this legacy
+  // Yjs fallback. Re-flushing the same Markdown must not overwrite that projection or
+  // manufacture a phantom version bump.
+  if (existing.content === markdown) return;
 
   // P2-#8：version 粒度控制——5 分钟内连续编辑合并为同一个 version，
   // 避免 CRDT 下每 1.5s 就 ++ 把版本历史稀释成噪音
@@ -289,6 +294,7 @@ function releaseRoom(noteId: string) {
       room.doc.destroy();
       rooms.delete(noteId);
     }, ROOM_IDLE_TIMEOUT_MS);
+    room.idleTimer?.unref();
   }
 }
 
@@ -623,6 +629,7 @@ export function yReplaceContentAsUpdate(
         room!.doc.destroy();
         rooms.delete(noteId);
       }, ROOM_IDLE_TIMEOUT_MS);
+    room.idleTimer?.unref();
     }
   }
 }

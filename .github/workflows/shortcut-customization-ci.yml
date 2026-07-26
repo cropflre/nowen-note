@@ -1,0 +1,39 @@
+name: Shortcut Customization CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/lib/shortcutRegistry.ts'
+      - 'frontend/src/lib/shortcutOverrides.ts'
+      - 'frontend/src/lib/shortcuts/**'
+      - 'frontend/src/lib/__tests__/shortcut*.test.ts'
+      - 'frontend/src/components/ShortcutRuntimeBridge.tsx'
+      - 'frontend/src/components/ShortcutHelpCenter.tsx'
+      - 'frontend/src/components/settings/ShortcutSettingsPanel.tsx'
+      - 'frontend/src/components/SettingsModal.tsx'
+      - 'electron/menu.js'
+      - '.github/workflows/shortcut-customization-ci.yml'
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q source
+          cd source
+          git remote add origin https://github.com/${{ github.repository }}.git
+          git fetch -q --depth 1 origin pull/${PR_NUMBER}/merge
+          git checkout -q FETCH_HEAD
+      - name: Install frontend dependencies
+        working-directory: source/frontend
+        run: npm ci --silent
+      - name: Shortcut registry and override tests
+        working-directory: source/frontend
+        run: npx vitest run --reporter=basic src/lib/__tests__/shortcutRegistry.test.ts src/lib/__tests__/shortcutOverrides.test.ts
+      - name: Frontend typecheck
+        working-directory: source/frontend
+        run: npx tsc -b

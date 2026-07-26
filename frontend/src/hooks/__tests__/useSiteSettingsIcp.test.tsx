@@ -90,4 +90,31 @@ describe("SiteSettingsProvider ICP 备案号", () => {
       expect(host.querySelector("[data-testid='icp']")?.textContent).toBe("粤ICP备12345678号-1");
     });
   });
+
+  it("把公开站点名称和图标应用到浏览器标签页", async () => {
+    const favicon = "data:image/png;base64,AA==";
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+      site_title: "团队知识库",
+      site_favicon: favicon,
+      site_icp_beian: "",
+      editor_font_family: "",
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await act(async () => {
+      root.render(
+        <SiteSettingsProvider>
+          <div />
+        </SiteSettingsProvider>,
+      );
+    });
+
+    await waitFor(() => {
+      expect(document.title).toBe("团队知识库");
+    });
+    expect(document.head.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href).toBe(favicon);
+    expect(document.head.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')?.href).toBe(favicon);
+  });
 });

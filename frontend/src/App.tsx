@@ -13,6 +13,7 @@ import MindMapCenter from "@/components/MindMapEditor";
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
+import ShareManagementPage from "@/components/ShareManagementPage";
 import SharedNoteView from "@/components/SharedNoteView";
 import NotebookShareJoinView from "@/components/NotebookShareJoinView";
 import LoginPage from "@/components/LoginPage";
@@ -21,7 +22,7 @@ import QuickLoginEnrollDialog from "@/components/QuickLoginEnrollDialog";
 import WhatsNewModal, { useWhatsNew } from "@/components/WhatsNewModal";
 import { AppProvider, useApp, useAppActions, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELIST_WIDTH, MAX_NOTELIST_WIDTH, DEFAULT_NOTELIST_WIDTH } from "@/store/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { SiteSettingsProvider, useSiteSettings } from "@/hooks/useSiteSettings";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPreferences";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -32,8 +33,15 @@ import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
 import { resolveEditorFocusLayout } from "@/lib/editorFocusLayout";
 import { bootstrap as syncBootstrap, teardown as syncTeardown, syncNow } from "@/lib/syncEngine";
 import { realtime } from "@/lib/realtime";
+import { deleteNotes as deleteLocalNotes } from "@/lib/localStore";
 import { useBackButton, hideSplashScreen, useStatusBarSync, useKeyboardLayout, isNativePlatform } from "@/hooks/useCapacitor";
 import { useDesktopMenuBridge } from "@/hooks/useDesktopMenuBridge";
+import {
+  detectShortcutPlatform,
+  detectShortcutSurface,
+  isShortcutAllowedInTarget,
+  shortcutMatchesEvent,
+} from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
@@ -353,6 +361,7 @@ function AppLayout() {
   const isAIChatView = state.viewMode === "ai-chat";
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
+  const isSharesView = state.viewMode === "shares";
   const isRegularNoteBrowser = state.viewMode === "all" || state.viewMode === "notebook";
   const editorFocusLayout = resolveEditorFocusLayout({
     editorFullscreen: state.editorFullscreen,
@@ -441,6 +450,30 @@ function AppLayout() {
     return off;
   }, [actions, state.activeNote, t]);
 
+  // 清空回收站使用单条批量事件，避免其它标签页收到数万条 note:deleted 后
+  // 逐条 dispatch / IndexedDB delete。列表、标签页和本地缓存都一次性收敛。
+  useEffect(() => {
+    const off = realtime.on("notes:deleted", (msg: any) => {
+      const noteIds = Array.isArray(msg?.noteIds)
+        ? msg.noteIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+        : [];
+      if (noteIds.length === 0) return;
+      const deletedIds = new Set(noteIds);
+      actions.setNotes(state.notes.filter((note) => !deletedIds.has(note.id)));
+      actions.setNoteTabs(state.openNoteTabs.filter((tab) => !deletedIds.has(tab.id)));
+      void deleteLocalNotes(noteIds).catch(() => {});
+      void syncNow().catch(() => {});
+
+      if (state.activeNote && deletedIds.has(state.activeNote.id)) {
+        actions.setActiveNote(null);
+        import("@/lib/toast").then(({ toast }) => {
+          toast.info(t('noteList.noteDeleted') || "笔记已被删除");
+        }).catch(() => {});
+      }
+    });
+    return off;
+  }, [actions, state.activeNote, state.notes, state.openNoteTabs, t]);
+
   useEffect(() => {
     if (state.editorFullscreen && !state.activeNote) {
       actions.setEditorFullscreen(false);
@@ -525,11 +558,16 @@ function AppLayout() {
     }
   }, [state.selectedNotebookId, state.notebooks, actions, t]);
 
-  // Alt+N 全局快捷键：快速新建笔记
+  // 快速新建笔记：键位由统一注册表按 Web / Electron 运行端解析。
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && e.key.toLowerCase() === "n") {
-        e.preventDefault();
+    const platform = detectShortcutPlatform();
+    const surface = detectShortcutSurface();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        shortcutMatchesEvent("new-note", event, platform, surface)
+        && isShortcutAllowedInTarget("new-note", event.target)
+      ) {
+        event.preventDefault();
         void quickCreateNote();
       }
     };
@@ -730,6 +768,11 @@ function AppLayout() {
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
           <FileManager />
+        </div>
+      ) : isSharesView ? (
+        <div className="flex-1 flex min-w-0 flex-col">
+          <MobileTopBar />
+          <ShareManagementPage />
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
@@ -1250,14 +1293,12 @@ function App() {
 
   return (
     <ThemeProvider>
-      <SiteSettingsProvider>
-        <UserPreferencesProvider>
-          <ConfirmProvider>
-            <AuthGate />
-            <Toaster />
-          </ConfirmProvider>
-        </UserPreferencesProvider>
-      </SiteSettingsProvider>
+      <UserPreferencesProvider>
+        <ConfirmProvider>
+          <AuthGate />
+          <Toaster />
+        </ConfirmProvider>
+      </UserPreferencesProvider>
     </ThemeProvider>
   );
 }

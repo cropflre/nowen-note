@@ -581,7 +581,7 @@ function reconcileAcknowledgedDeletion(
     return;
   }
 
-  if (url === "/notes/trash/empty" && Array.isArray(data?.noteIds)) {
+  if (/^\/notes\/trash\/empty(?:\?|$)/.test(url) && Array.isArray(data?.noteIds)) {
     discardNoteQueueItems(data.noteIds.filter((id): id is string => typeof id === "string"));
     return;
   }
@@ -748,6 +748,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     }
     const buildHeaders = (includeConnId: boolean): HeadersInit => ({
       "Content-Type": "application/json",
+      "Accept": "application/vnd.nowen.internal-note+json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(sudoToken ? { "X-Sudo-Token": sudoToken } : {}),
       ...(includeConnId && connId ? { "X-Connection-Id": connId } : {}),
@@ -1486,8 +1487,19 @@ export const api = {
     }>(
       `/notes/${noteId}/backlinks?limit=${limit}`
     ),
-  emptyTrash: () =>
-    request<{
+  getTrashSummary: () => {
+    const currentWorkspace = getCurrentWorkspace();
+    const qs = currentWorkspace !== "personal"
+      ? `?workspaceId=${encodeURIComponent(currentWorkspace)}`
+      : "";
+    return request<{ count: number; skipped: number }>(`/notes/trash/summary${qs}`);
+  },
+  emptyTrash: () => {
+    const currentWorkspace = getCurrentWorkspace();
+    const qs = currentWorkspace !== "personal"
+      ? `?workspaceId=${encodeURIComponent(currentWorkspace)}`
+      : "";
+    return request<{
       success: boolean;
       count: number;
       skipped: number;
@@ -1499,7 +1511,8 @@ export const api = {
       vacuumed?: boolean;
       /** 估算释放的字节数（笔记文本 + 附件 size 登记值） */
       freedBytesEstimate?: number;
-    }>(`/notes/trash/empty`, { method: "DELETE" }),
+    }>(`/notes/trash/empty${qs}`, { method: "DELETE" });
+  },
   reorderNotes: (items: { id: string; sortOrder: number }[]) =>
     request<{ success: boolean }>("/notes/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
   /**
@@ -2790,6 +2803,18 @@ export const api = {
   createShare: (data: { noteId: string; permission?: string; password?: string; expiresAt?: string; maxViews?: number }) =>
     request<Share>("/shares", { method: "POST", body: JSON.stringify(data) }),
   getShares: () => request<Share[]>("/shares"),
+  getShareManagement: (params: import("@/types").ShareManagementQuery = {}) => {
+    const qs = new URLSearchParams({ management: "1" });
+    if (params.q) qs.set("q", params.q);
+    if (params.status) qs.set("status", params.status);
+    if (params.permission) qs.set("permission", params.permission);
+    if (params.hasPassword !== undefined) qs.set("hasPassword", params.hasPassword ? "1" : "0");
+    if (params.sort) qs.set("sort", params.sort);
+    if (params.order) qs.set("order", params.order);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<import("@/types").ShareManagementResponse>(`/shares?${qs.toString()}`);
+  },
   getSharesByNote: (noteId: string) => request<Share[]>(`/shares/note/${noteId}`),
   getShare: (id: string) => request<Share>(`/shares/${id}`),
   updateShare: (id: string, data: Partial<{ permission: string; password: string | null; expiresAt: string | null; maxViews: number | null; isActive: number; resetViews: boolean; rotateToken: boolean }>) =>

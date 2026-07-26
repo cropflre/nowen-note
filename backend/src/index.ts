@@ -1,6 +1,8 @@
 import { serve } from "@hono/node-server";
+import "./runtime/knowledge-tree-migration-bootstrap";
 import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
+import "./runtime/knowledge-tree";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -8,6 +10,7 @@ import { compress } from "hono/compress";
 import path from "path";
 import fs from "fs";
 import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/auth-security";
+import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
 import blocksRouter from "./routes/blocks";
@@ -467,6 +470,7 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", enforceApiTokenAccess);
 
 // API 路由（受 JWT 保护）
+app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
 app.route("/api/blocks", blocksRouter);

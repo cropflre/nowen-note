@@ -14,7 +14,6 @@ async function bootstrap(): Promise<void> {
 
   // Preserve main's SQLite startup hardening order without evaluating it in PostgreSQL mode.
   // Register feature migrations before any runtime imports can initialize the database.
-  // @ts-ignore -- this module is introduced by the main synchronization merge below.
   await import("./runtime/knowledge-tree-migration-bootstrap.js");
   // Install schema/route hardening before the main backend module evaluates.
   await import("./runtime/task-stats-hardening.js");
@@ -34,7 +33,6 @@ async function bootstrap(): Promise<void> {
   await import("./runtime/auto-full-backup.js");
   await import("./runtime/notebook-publication.js");
   // Mount the unified content tree and capability guard around the legacy note/notebook routers.
-  // @ts-ignore -- this module is introduced by the main synchronization merge below.
   await import("./runtime/knowledge-tree.js");
   await import("./index.js");
 }

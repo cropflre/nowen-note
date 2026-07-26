@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Star, Trash2, Search, ChevronRight,
@@ -17,6 +17,8 @@ import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
+import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
+import KnowledgeTreePanel, { FOCUS_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreePanel";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
@@ -456,7 +458,7 @@ function SidebarNoteItem({
       onDrop={(e) => onDrop?.(e, note.id)}
       className={cn(
         "relative flex items-center gap-1 pr-2 py-1 rounded-md text-left text-xs transition-colors cursor-grab active:cursor-grabbing",
-        constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+        "w-full min-w-0",
         dragOverZone && "bg-accent-primary/5",
         active
           ? "bg-app-active text-tx-primary"
@@ -492,12 +494,12 @@ function SidebarNoteItem({
       ) : (
         <FileText size={13} className={cn("shrink-0", active ? "text-accent-primary" : "text-tx-tertiary")} />
       )}
-      <span className="flex-1 min-w-0">
-        <span className="block truncate leading-tight">{note.title || "无标题笔记"}</span>
+      <span className="flex-1 min-w-0 overflow-hidden">
+        <span className="block truncate leading-tight" title={note.title || "无标题笔记"}>{note.title || "无标题笔记"}</span>
         {showNoteTime && <span className="block text-[10px] text-tx-tertiary truncate leading-tight mt-0.5">{noteTimeLabel(note.updatedAt)}</span>}
       </span>
       <span className={cn(
-        "text-[9px] px-1 py-0.5 rounded shrink-0 leading-none",
+        "self-start mt-px text-[9px] px-1 py-0.5 rounded shrink-0 leading-none",
         note.contentFormat === "markdown"
           ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
           : "border border-app-border bg-app-hover text-tx-tertiary"
@@ -677,7 +679,7 @@ function NotebookItem({
         animate={{ opacity: 1, x: 0 }}
         className={cn(
           "relative flex items-center gap-1 px-2 rounded-md cursor-pointer text-sm group transition-colors",
-          constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+          "w-full min-w-0",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
           showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15",
@@ -1044,6 +1046,7 @@ const MemoizedNotebookItem = React.memo(NotebookItem, (previous, next) => {
 export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | "mobile" } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const sidebarRootRef = useRef<HTMLDivElement>(null);
   const { siteConfig } = useSiteSettings();
   const isDesktop = variant === "desktop";
   const constrainNotebookTreeWidth = variant === "mobile";
@@ -1112,7 +1115,6 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       return true;
     }
   });
-  const [sharedNotebooks, setSharedNotebooks] = useState<Notebook[]>([]);
   const createTraceSequenceRef = useRef(0);
 
   const beginCreatePerfTrace = useCallback((parentId: string | null) => {
@@ -1147,6 +1149,29 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       try { localStorage.setItem("nowen-notebooks-expanded", String(next)); } catch {}
       return next;
     });
+  }, []);
+
+  useEffect(() => {
+    const focusKnowledgeTree = () => {
+      const root = sidebarRootRef.current;
+      if (!root || root.getClientRects().length === 0) return;
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event(FOCUS_KNOWLEDGE_TREE_EVENT));
+      });
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        focusKnowledgeTree();
+      }
+    };
+    window.addEventListener(OPEN_KNOWLEDGE_TREE_EVENT, focusKnowledgeTree);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener(OPEN_KNOWLEDGE_TREE_EVENT, focusKnowledgeTree);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   // 笔记本右键菜单项。
@@ -1459,7 +1484,6 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   useEffect(() => {
     const loadScopedData = () => {
       api.getNotebooks().then(actions.setNotebooks).catch(console.error);
-      api.getSharedNotebooks().then(setSharedNotebooks).catch(console.error);
       api.getTags().then(actions.setTags).catch(console.error);
     };
     // Y4: 加载当前工作区的功能开关——个人空间固定置 null（全开）
@@ -2619,11 +2643,11 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDeleteTarget(null);
   };
 
-  // 打开清空回收站确认（先去查当前可清空的数量）
+  // 打开清空回收站确认（只取聚合数量，不加载全部回收站笔记）
   const openEmptyTrashConfirm = async () => {
     try {
-      const notes = await api.getNotes({ isTrashed: "1" });
-      const removable = (notes as any[]).filter((n) => !n.isLocked).length;
+      const summary = await api.getTrashSummary();
+      const removable = summary.count;
       if (removable === 0) {
         toast.info(t('sidebar.emptyTrashEmpty'));
         return;
@@ -2760,6 +2784,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   return (
     <div
+      ref={sidebarRootRef}
       className="w-full h-full vibrancy-sidebar bg-app-sidebar border-r border-app-border flex flex-col shrink-0 transition-colors"
       style={{ width: undefined }}
     >
@@ -2837,69 +2862,23 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       {/* Separator——已移除：移动端导航迁出后无需在主区上方加分隔；
           WorkspaceSwitcher + 搜索 与笔记本的视觉间距已经足够。 */}
 
-      {/* Notebooks */}
+      {/* Unified knowledge tree is the only directory hierarchy. */}
       <div className="px-3 flex items-center justify-between mb-1">
         <button
           onClick={() => toggleNotebooksExpanded()}
-          className="flex items-center gap-1 hover:text-tx-secondary transition-colors"
+          className="flex min-w-0 items-center gap-1 hover:text-tx-secondary transition-colors"
         >
           <ChevronDown
             size={12}
             className={cn(
-              "text-tx-tertiary transition-transform duration-200",
+              "shrink-0 text-tx-tertiary transition-transform duration-200",
               !notebooksExpanded && "-rotate-90"
             )}
           />
-          <span className="text-xs font-medium text-tx-tertiary uppercase tracking-wider">{t('sidebar.notebooks')}</span>
+          <span className="truncate text-xs font-medium text-tx-tertiary uppercase tracking-wider">
+            内容
+          </span>
         </button>
-        <div className="relative flex items-center gap-0.5" ref={notebookSortMenuRef}>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-6 w-6",
-              rootNotebookSortPref.by !== "manual" && "text-accent-primary bg-accent-primary/10"
-            )}
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpenNotebookSortParentId((current) => current === ROOT_NOTEBOOK_SORT_KEY ? null : ROOT_NOTEBOOK_SORT_KEY);
-            }}
-            data-nowen-notebook-sort={isDesktop ? "true" : undefined}
-            title={notebookSortTitle}
-            aria-label={notebookSortTitle}
-          >
-            <ArrowUpDown size={14} />
-          </Button>
-          {openNotebookSortParentId === ROOT_NOTEBOOK_SORT_KEY && (
-            <NotebookSortMenu
-              value={rootNotebookSortPref}
-              onChange={(next) => {
-                setRootNotebookSortPref(next);
-              }}
-              onClose={() => setOpenNotebookSortParentId(null)}
-            />
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleToggleAllNotebooks}
-            title={toggleAllNotebooksLabel}
-            aria-label={toggleAllNotebooksLabel}
-          >
-            {hasExpandedNotebooks ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleCreateNotebook}
-            title={t("common.newNotebook")}
-            aria-label={t("common.newNotebook")}
-          >
-            <Plus size={14} />
-          </Button>
-        </div>
       </div>
 
       <AnimatePresence initial={false}>
@@ -2911,107 +2890,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             transition={{ duration: 0.2 }}
             className="flex-1 min-h-0 flex flex-col"
           >
-            <div
-              className={cn(
-                "flex-1 min-h-0 px-1 overscroll-contain",
-                constrainNotebookTreeWidth ? "overflow-y-auto overflow-x-hidden" : "overflow-auto"
-              )}
-              data-swipe-blocker="notebook-tree-scroll"
-            >
-              <div
-                className={cn(
-                  "space-y-0.5 pb-3 pr-2",
-                  constrainNotebookTreeWidth ? "w-full min-w-0" : "w-max min-w-full"
-                )}
-                style={{ minWidth: constrainNotebookTreeWidth ? undefined : `${notebookTreeMinWidth}px` }}
-              >
-                {tree.map((nb) => (
-                  <MemoizedNotebookItem
-                    key={nb.id}
-                    notebook={nb}
-                    depth={0}
-                    onSelect={stableNotebookSelect}
-                    selectedId={state.selectedNotebookId}
-                    onToggle={stableNotebookToggle}
-                    onContextMenu={stableNotebookContextMenu}
-                    onLongPress={stableNotebookLongPress}
-                    editingId={editingId}
-                    editValue={editValue}
-                    onEditChange={stableEditChange}
-                    onEditSubmit={stableEditSubmit}
-                    onEditCancel={stableEditCancel}
-                    onIconChange={stableIconChange}
-                    draggable={isManualNotebookGroup(null)}
-                    dragHint={notebookDragHint}
-                    canDragInParent={isManualNotebookGroup}
-                    getSortValue={stableGetSortValue}
-                    onDragStart={stableNotebookDragStart}
-                    onDragOver={stableNotebookDragOver}
-                    onDragEnd={stableNotebookDragEnd}
-                    onDrop={stableNotebookDrop}
-                    dragOverId={dragOverNbId}
-                    dragOverZone={dragOverNbZone}
-                    noteDragOverId={dragOverNoteNotebookId}
-                    noteItemDragOverId={dragOverSidebarNoteId}
-                    noteItemDragOverZone={dragOverSidebarNoteZone}
-                    showNotes={showNotesInNotebookTree}
-                    notesByNotebookId={notesByNotebookId}
-                    loadingNotebookIds={loadingNotebookIds}
-                    activeNoteId={state.activeNote?.id ?? null}
-                    onSelectNote={stableSelectNote}
-                    onNoteContextMenu={stableNoteContextMenu}
-                    onNoteDragStart={stableNoteDragStart}
-                    onNoteDragOver={stableNoteDragOver}
-                    onNoteDragEnd={stableNoteDragEnd}
-                    onNoteDrop={stableNoteDrop}
-                    onNoteItemDragOver={stableNoteItemDragOver}
-                    onNoteItemDrop={stableNoteItemDrop}
-                    onCreateNote={stableCreateNote}
-                    onCreateMarkdownNote={stableCreateMarkdownNote}
-                    onCreateWordNote={stableCreateWordNote}
-                    createOperations={createOperationsByNotebookId}
-                    onRetryCreate={stableRetryCreate}
-                    onCancelCreate={stableCancelCreate}
-                    constrainWidth={constrainNotebookTreeWidth}
-                    showNoteTime={userPrefs.showNoteListUpdatedTime}
-                  />
-                ))}
-              </div>
-            </div>
+            <KnowledgeTreePanel
+              variant={variant}
+              className="min-h-0 flex-1"
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Tags —— 使用 shrink-0 + 内部 max-height + scroll，避免在小屏（如 1366x768）挤压上方 Notebooks 或与 Footer 交叠 */}
-      {sharedNotebooks.length > 0 && (
-        <div className="border-t border-app-border shrink-0 px-2 py-2">
-          <div className="px-1 pb-1 text-xs font-medium text-tx-tertiary uppercase tracking-wider">
-            共享笔记本
-          </div>
-          <div className="space-y-0.5">
-            {sharedNotebooks.map((nb) => (
-              <button
-                key={nb.id}
-                type="button"
-                onClick={() => handleNotebookSelect(nb.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors",
-                  state.selectedNotebookId === nb.id
-                    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
-                    : "hover:bg-app-hover text-tx-secondary"
-                )}
-              >
-                <span className="shrink-0 text-base leading-none">{nb.icon || "📒"}</span>
-                <span className="min-w-0 flex-1 truncate">{nb.name}</span>
-                <span className="shrink-0 text-[10px] text-tx-tertiary">
-                  {nb.myRole === "editor" ? "可编辑" : "只读"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="border-t border-app-border shrink-0">
         <button
           onClick={() => toggleTagsExpanded()}

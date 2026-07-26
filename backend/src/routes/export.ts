@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
+import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { broadcastToUser } from "../services/realtime";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import fs from "fs";
@@ -262,9 +263,12 @@ app.get("/notes", (c) => {
       ${wsSql}
     ORDER BY nb.name, n.title
   `);
-  const notes = wsParam === null ? stmt.all(userId) : stmt.all(userId, wsParam);
+  const notes = (wsParam === null ? stmt.all(userId) : stmt.all(userId, wsParam)) as any[];
+  const visibleNotes = notes.map((note) =>
+    projectMarkdownNoteForUser(db, note),
+  );
 
-  return c.json(notes);
+  return c.json(visibleNotes);
 });
 
 // 前端保留富文本 -> Markdown 的格式转换，后端负责把结果和附件流式写入临时 ZIP。

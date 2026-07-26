@@ -1,0 +1,102 @@
+name: Share Management CI
+
+# V1 gate: lifecycle projection, management authorization, legacy API compatibility,
+# centralized page behavior, and frontend/backend type safety must move together.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/src/routes/shares.ts"
+      - "backend/src/services/share-management.ts"
+      - "backend/tests/share-management.test.ts"
+      - "backend/tests/share-management-route.test.ts"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/NavRail.tsx"
+      - "frontend/src/components/ShareManagementPage.tsx"
+      - "frontend/src/components/ShareModal.tsx"
+      - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/shareManagement.ts"
+      - "frontend/src/lib/__tests__/shareManagement.test.ts"
+      - "frontend/src/types/index.ts"
+      - "frontend/src/i18n/locales/*.json"
+      - ".github/workflows/share-management-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/routes/shares.ts"
+      - "backend/src/services/share-management.ts"
+      - "backend/tests/share-management.test.ts"
+      - "backend/tests/share-management-route.test.ts"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/NavRail.tsx"
+      - "frontend/src/components/ShareManagementPage.tsx"
+      - "frontend/src/components/ShareModal.tsx"
+      - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/shareManagement.ts"
+      - "frontend/src/lib/__tests__/shareManagement.test.ts"
+      - "frontend/src/types/index.ts"
+      - "frontend/src/i18n/locales/*.json"
+      - ".github/workflows/share-management-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: npm ci
+      - name: Share management service and route tests
+        id: management-tests
+        working-directory: backend
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --test tests/share-management.test.ts tests/share-management-route.test.ts > /tmp/share-management-backend.log 2>&1
+          status=$?
+          cat /tmp/share-management-backend.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: share-management-backend
+          path: /tmp/share-management-backend.log
+      - name: Require share management tests
+        if: steps.management-tests.outputs.status != '0'
+        run: exit 1
+      - name: Existing share security regression
+        working-directory: backend
+        run: node --import tsx --test tests/share-security-capabilities.test.ts
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Share management presentation and page tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/shareManagement.test.ts src/components/__tests__/ShareManagementPage.test.tsx
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b

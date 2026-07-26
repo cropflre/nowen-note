@@ -45,6 +45,7 @@ import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
+import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 
 // BLOCK-ID-01: heading blockId 扩展（与 TiptapEditor 对齐）
 // 只声明 attrs，不带 appendTransaction plugin（generateHTML/generateJSON 不需要）
@@ -593,7 +594,7 @@ export function normalizeToMarkdown(
  */
 export function markdownToPlainText(md: string): string {
   if (!md) return "";
-  let text = md;
+  let text = projectMarkdownForUser(md);
 
   // 围栏代码块
   text = text.replace(/```[\s\S]*?```/g, "");

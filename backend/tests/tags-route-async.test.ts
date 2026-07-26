@@ -84,7 +84,8 @@ test("tags route performs create, list, update, attach and transactional delete 
     name: "Async Route",
     color: "#654321",
   });
-  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.status, 200);
+  assert.equal(duplicate.json.id, tagId);
 
   const listed = await requestJson("GET", "/tags?includeEmpty=true");
   assert.equal(listed.status, 200);

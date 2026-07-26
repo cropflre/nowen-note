@@ -21,6 +21,7 @@ import { useSiteSettings } from "@/hooks/useSiteSettings";
 interface ShareModalProps {
   noteId: string;
   noteTitle: string;
+  initialShareId?: string;
   onClose: () => void;
 }
 
@@ -35,7 +36,7 @@ function permissionLabel(value: string): string {
   return value === "comment" ? "可评论" : value === "edit" ? "访客可编辑" : value === "edit_auth" ? "登录后可编辑" : "仅查看";
 }
 
-export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalProps) {
+export default function ShareModal({ noteId, noteTitle, initialShareId, onClose }: ShareModalProps) {
   const { siteConfig, updatePublicWebOrigin } = useSiteSettings();
   const [shares, setShares] = useState<Share[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,7 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
   const [originDraft, setOriginDraft] = useState(siteConfig.publicWebOrigin);
   const [originSaving, setOriginSaving] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
+  const initialShareAppliedRef = useRef<string | null>(null);
 
   const publicOrigin = resolvePublicWebOrigin({
     runtimeOrigin: siteConfig.publicWebOrigin,
@@ -65,14 +67,27 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
   const loadShares = useCallback(async () => {
     setLoading(true);
     try {
-      setShares(await api.getSharesByNote(noteId));
+      const nextShares = await api.getSharesByNote(noteId);
+      setShares(nextShares);
+      if (initialShareId && initialShareAppliedRef.current !== initialShareId) {
+        const target = nextShares.find((share) => share.id === initialShareId);
+        if (target) {
+          initialShareAppliedRef.current = initialShareId;
+          setEditingId(target.id);
+          setPermission(target.permission);
+          setPassword("");
+          setExpiresAt(toLocalDateTime(target.expiresAt));
+          setMaxViews(target.maxViews ? String(target.maxViews) : "");
+        }
+      }
     } catch (error: any) {
       toast.error(error?.message || "加载分享列表失败");
     } finally {
       setLoading(false);
     }
-  }, [noteId]);
+  }, [initialShareId, noteId]);
 
+  useEffect(() => { initialShareAppliedRef.current = null; }, [initialShareId, noteId]);
   useEffect(() => { void loadShares(); }, [loadShares]);
   useEffect(() => {
     let cancelled = false;

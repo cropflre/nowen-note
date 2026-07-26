@@ -32,17 +32,18 @@ function seedBase(): void {
 
 function seedNote(
   id: string,
-  options: { trashed?: boolean; locked?: boolean } = {},
+  options: { trashed?: boolean; locked?: boolean; workspaceId?: string | null; notebookId?: string } = {},
 ): void {
   db().prepare(`
     INSERT INTO notes (
-      id, userId, notebookId, title, content, contentText,
+      id, userId, notebookId, workspaceId, title, content, contentText,
       isTrashed, isLocked, version
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
   `).run(
     id,
     USER_ID,
-    NOTEBOOK_ID,
+    options.notebookId || NOTEBOOK_ID,
+    options.workspaceId || null,
     id,
     "{}",
     id,
@@ -212,6 +213,68 @@ test("emptying trash deletes attachments for unlocked notes but preserves locked
   assert.equal(db().prepare("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(lockedNoteId).count, 1);
   assert.equal(fs.existsSync(deletedPath), false);
   assert.equal(fs.existsSync(lockedPath), true);
+});
+
+test("trash summary returns counts without loading every note", async () => {
+  seedNote("summary-unlocked-1", { trashed: true });
+  seedNote("summary-unlocked-2", { trashed: true });
+  seedNote("summary-locked", { trashed: true, locked: true });
+  seedNote("summary-active");
+
+  const { response, json } = await requestJson("GET", "/notes/trash/summary");
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(json, { count: 2, skipped: 1 });
+});
+
+test("emptying more notes than SQLite's common variable limit stays a single bulk operation", async () => {
+  const total = 33_000;
+  const insert = db().prepare(`
+    INSERT INTO notes (
+      id, userId, notebookId, title, content, contentText,
+      isTrashed, isLocked, version
+    ) VALUES (?, ?, ?, ?, '{}', '', 1, 0, 1)
+  `);
+  db().transaction(() => {
+    for (let index = 0; index < total; index++) {
+      const id = `large-trash-${String(index).padStart(5, "0")}`;
+      insert.run(id, USER_ID, NOTEBOOK_ID, id);
+    }
+  })();
+
+  const { response, json } = await requestJson("DELETE", "/notes/trash/empty");
+
+  assert.equal(response.status, 200);
+  assert.equal(json.count, total);
+  assert.equal(json.noteIds.length, total);
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM notes WHERE isTrashed = 1").get().count, 0);
+});
+
+test("workspace trash emptying is scoped to that workspace", async () => {
+  const workspaceId = "trash-workspace";
+  const workspaceNotebookId = "trash-workspace-notebook";
+  db().prepare("INSERT INTO workspaces (id, name, ownerId) VALUES (?, ?, ?)")
+    .run(workspaceId, "Trash workspace", USER_ID);
+  db().prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, 'owner')")
+    .run(workspaceId, USER_ID);
+  db().prepare("INSERT INTO notebooks (id, userId, workspaceId, name) VALUES (?, ?, ?, ?)")
+    .run(workspaceNotebookId, USER_ID, workspaceId, "Workspace trash");
+
+  seedNote("personal-trash-kept", { trashed: true });
+  seedNote("workspace-trash-deleted", {
+    trashed: true,
+    workspaceId,
+    notebookId: workspaceNotebookId,
+  });
+
+  const summary = await requestJson("GET", `/notes/trash/summary?workspaceId=${workspaceId}`);
+  assert.deepEqual(summary.json, { count: 1, skipped: 0 });
+
+  const emptied = await requestJson("DELETE", `/notes/trash/empty?workspaceId=${workspaceId}`);
+  assert.equal(emptied.response.status, 200);
+  assert.equal(emptied.json.count, 1);
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM notes WHERE id = 'workspace-trash-deleted'").get().count, 0);
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM notes WHERE id = 'personal-trash-kept'").get().count, 1);
 });
 
 test("deduplicated physical files are retained until the final note reference is deleted", async () => {

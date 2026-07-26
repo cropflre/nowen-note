@@ -10,6 +10,7 @@
  *     "nowen:new-note"，让 App 层监听。
  *   - "搜索 / 设置" 等还没有全局 open state，暂用自定义事件 "nowen:open-search" /
  *     "nowen:open-settings"，后续由对应组件订阅。
+ *   - "键盘快捷键" 由全局 ShortcutHelpCenter 订阅 "nowen:open-shortcut-help"。
  *   - "切换侧边栏" 直接调 store actions。
  */
 import { useEffect } from "react";
@@ -65,6 +66,11 @@ export function useDesktopMenuBridge(opts: DesktopMenuBridgeOptions) {
       onMenuAction("menu:open-settings", () => {
         if (opts.onOpenSettings) opts.onOpenSettings();
         else window.dispatchEvent(new CustomEvent("nowen:open-settings"));
+      })
+    );
+    unsubs.push(
+      onMenuAction("menu:open-shortcuts", () => {
+        window.dispatchEvent(new CustomEvent("nowen:open-shortcut-help"));
       })
     );
     unsubs.push(
