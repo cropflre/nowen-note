@@ -29,15 +29,10 @@
  */
 
 import * as Y from "yjs";
-import { getDb } from "../db/schema";
 import { noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
-import {
-  assertYjsSubdocumentGeneration,
-  getYjsSubdocumentSnapshot,
-  applyYjsSubdocumentUpdate,
-  isYjsSubdocumentsEnabled,
-  prepareYjsSubdocuments,
-} from "./yjs-subdocuments.js";
+import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository.js";
+import { yjsSubdocumentsRepository } from "../repositories/yjsSubdocumentsRepository.js";
+import { isYjsSubdocumentsEnabled } from "./yjs-subdocuments.js";
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -88,7 +83,6 @@ const rooms = new Map<string, RoomState>();
  *   3. 若都没有，但 notes.content 存在 markdown 文本，则作为"种子"导入 Y.Text
  */
 function loadDocFromDb(noteId: string): Y.Doc {
-  const db = getDb();
   const doc = new Y.Doc();
 
   const snap = noteYsnapshotsRepository.getByNoteId(noteId);
@@ -119,9 +113,7 @@ function loadDocFromDb(noteId: string): Y.Doc {
 
   // 冷启动：Y 数据库还没任何 update，但 notes 表里有 markdown → 作为种子导入
   if (!appliedAny) {
-    const note = db.prepare("SELECT content, contentText FROM notes WHERE id = ?").get(noteId) as
-      | { content: string; contentText: string }
-      | undefined;
+    const note = yjsPersistenceRepository.getNoteSeed(noteId);
     if (note) {
       // 只对 markdown 文本笔记做种子导入（Tiptap JSON 的情况由前端判断是否启用协同）
       const seed = inferMarkdownSeed(note.content, note.contentText);
@@ -141,9 +133,7 @@ function loadDocFromDb(noteId: string): Y.Doc {
     // 会重新进入本分支再 seed 一次，保持幂等。
     const ytext = doc.getText("content");
     if (ytext.length === 0) {
-      const note = db.prepare("SELECT content, contentText FROM notes WHERE id = ?").get(noteId) as
-        | { content: string; contentText: string }
-        | undefined;
+      const note = yjsPersistenceRepository.getNoteSeed(noteId);
       if (note) {
         const seed = inferMarkdownSeed(note.content, note.contentText);
         if (seed) {
@@ -184,15 +174,8 @@ function persistUpdate(noteId: string, update: Uint8Array, userId: string | null
  *   - 老 updates 的真正清理由独立的 GC 步骤做（有 safety margin）
  */
 function writeSnapshot(noteId: string, doc: Y.Doc) {
-  const db = getDb();
   const state = Y.encodeStateAsUpdate(doc);
-  // 取当前最大 updateId 作为水位线（在事务内做，避免并发 insert 造成 off-by-one）
-  const tx = db.transaction(() => {
-    const maxRow = noteYupdatesRepository.getMaxId(noteId);
-    const mergedTo = maxRow?.maxId || 0;
-    noteYsnapshotsRepository.upsert(noteId, Buffer.from(state), mergedTo);
-  });
-  tx();
+  yjsPersistenceRepository.writeSnapshot(noteId, Buffer.from(state));
 }
 
 /**
@@ -229,7 +212,6 @@ function schedulePersistToNotesTable(room: RoomState) {
 }
 
 function persistToNotesTable(room: RoomState) {
-  const db = getDb();
   const ytext = room.doc.getText("content");
   const markdown = ytext.toString();
   // 生成纯文本（给 FTS 用）—— 用最朴素的剥离，复杂的由前端 contentFormat 负责
@@ -241,42 +223,24 @@ function persistToNotesTable(room: RoomState) {
     .replace(/\s+/g, " ")
     .trim();
 
-  const existing = db.prepare(
-  "SELECT version, content, contentText FROM notes WHERE id = ?",
-).get(room.noteId) as
-  | { version: number; content: string; contentText: string }
-  | undefined;
-if (!existing) return;
-// REST or transactional writers may already have persisted this exact Yjs state.
-// Flushing the same body must not create a phantom edit or bump note.version.
-if (existing.content === markdown && existing.contentText === contentText) return;
+  const existing = yjsPersistenceRepository.getNoteVersion(room.noteId);
+  if (!existing) return;
+  // REST or transactional writers may already have persisted this exact Yjs state.
+  // Flushing the same body must not create a phantom edit or bump note.version.
+  if (existing.content === markdown && existing.contentText === contentText) return;
 
   // P2-#8：version 粒度控制——5 分钟内连续编辑合并为同一个 version，
   // 避免 CRDT 下每 1.5s 就 ++ 把版本历史稀释成噪音
   const VERSION_BUMP_INTERVAL_MS = 5 * 60 * 1000;
   const now = Date.now();
   const shouldBump = now - room.lastVersionBumpAt >= VERSION_BUMP_INTERVAL_MS;
-
-  if (shouldBump) {
-    db.prepare(
-      `UPDATE notes
-         SET content = ?,
-             contentText = ?,
-             version = version + 1,
-             updatedAt = datetime('now')
-       WHERE id = ?`,
-    ).run(markdown, contentText, room.noteId);
-    room.lastVersionBumpAt = now;
-  } else {
-    // 不动 version，仅更新 content / contentText / updatedAt
-    db.prepare(
-      `UPDATE notes
-         SET content = ?,
-             contentText = ?,
-             updatedAt = datetime('now')
-       WHERE id = ?`,
-    ).run(markdown, contentText, room.noteId);
-  }
+  yjsPersistenceRepository.updateNoteContent(
+    room.noteId,
+    markdown,
+    contentText,
+    shouldBump,
+  );
+  if (shouldBump) room.lastVersionBumpAt = now;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,9 +304,7 @@ export interface YJoinResult {
 /** 客户端订阅某笔记的 CRDT 房间。返回当前的全量 state 供初次同步。 */
 export function yJoin(noteId: string, userId: string | null): YJoinResult {
   if (isYjsSubdocumentsEnabled()) {
-    const note = getDb().prepare("SELECT contentFormat FROM notes WHERE id = ?").get(noteId) as
-      | { contentFormat: string }
-      | undefined;
+    const note = yjsPersistenceRepository.getNoteSeed(noteId);
     if (note?.contentFormat === "tiptap-json") {
       throw new Error("YJS_SUBDOCUMENT_PROTOCOL_REQUIRED");
     }
@@ -513,17 +475,12 @@ export function yPrepareSubdocuments(noteId: string): {
   sections: Array<{ id: string; guid: string; startBlock: number; endBlock: number }>;
 } | null {
   if (!isYjsSubdocumentsEnabled()) return null;
-  const db = getDb();
-  const note = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(noteId) as
-    | { content: string; contentFormat: string }
-    | undefined;
-  if (!note || note.contentFormat !== "tiptap-json") return null;
-  return prepareYjsSubdocuments(db, noteId, note.content);
+  return yjsSubdocumentsRepository.prepareManifest(noteId);
 }
 
 export function yGetSubdocumentState(noteId: string, sectionId: string): { guid: string; stateBase64: string } | null {
   if (!isYjsSubdocumentsEnabled()) return null;
-  const snapshot = getYjsSubdocumentSnapshot(getDb(), noteId, sectionId);
+  const snapshot = yjsSubdocumentsRepository.getState(noteId, sectionId);
   return snapshot ? { guid: snapshot.guid, stateBase64: bufferToBase64(snapshot.snapshot) } : null;
 }
 
@@ -542,23 +499,18 @@ export function yApplySubdocumentUpdate(
   structureVersion: number;
 } | null {
   if (!isYjsSubdocumentsEnabled()) return null;
-  const db = getDb();
-  assertYjsSubdocumentGeneration(db, noteId, expectedGeneration);
+  yjsSubdocumentsRepository.assertGeneration(noteId, expectedGeneration);
   // 活跃或待回收的旧 room 可能仍含未落盘内容，协议切换必须 fail-closed。
   // 不能在章节 update 完成校验和原子提交前销毁 room 或删除旧历史。
   if (rooms.has(noteId)) throw new Error("SUBDOCUMENT_LEGACY_ROOM_ACTIVE");
   const update = base64ToUint8(updateBase64);
-  const result = applyYjsSubdocumentUpdate(db, noteId, sectionId, update, userId, expectedGeneration);
-  // 章节写入成功后旧协议历史已不再是写入源；清理失败不能把已提交请求伪装成失败。
-  try {
-    db.transaction(() => {
-      noteYupdatesRepository.deleteByNoteId(noteId);
-      noteYsnapshotsRepository.deleteByNoteId(noteId);
-    })();
-  } catch (error) {
-    console.warn(`[yjs] retire legacy history failed for ${noteId}:`, error);
-  }
-  return result;
+  return yjsSubdocumentsRepository.applyUpdate(
+    noteId,
+    sectionId,
+    update,
+    userId,
+    expectedGeneration,
+  );
 }
 
 /**

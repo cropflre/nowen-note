@@ -5,12 +5,19 @@ import { noteYupdatesRepository } from "./noteYupdatesRepository";
 export interface YjsNoteSeedRecord {
   content: string;
   contentText: string;
+  contentFormat: string;
+}
+
+export interface YjsNoteVersionRecord {
+  version: number;
+  content: string;
+  contentText: string;
 }
 
 export const yjsPersistenceRepository = {
   getNoteSeed(noteId: string): YjsNoteSeedRecord | undefined {
     return getDb()
-      .prepare("SELECT content, contentText FROM notes WHERE id = ?")
+      .prepare("SELECT content, contentText, contentFormat FROM notes WHERE id = ?")
       .get(noteId) as YjsNoteSeedRecord | undefined;
   },
 
@@ -26,10 +33,10 @@ export const yjsPersistenceRepository = {
     return mergedTo;
   },
 
-  getNoteVersion(noteId: string): { version: number } | undefined {
+  getNoteVersion(noteId: string): YjsNoteVersionRecord | undefined {
     return getDb()
-      .prepare("SELECT version FROM notes WHERE id = ?")
-      .get(noteId) as { version: number } | undefined;
+      .prepare("SELECT version, content, contentText FROM notes WHERE id = ?")
+      .get(noteId) as YjsNoteVersionRecord | undefined;
   },
 
   updateNoteContent(
