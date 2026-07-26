@@ -41,6 +41,10 @@ jobs:
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY", start)
           script = textwrap.dedent(workflow[start:end])
+          script = script.replace(
+              "persist_pattern.subn(persist_replacement, source, count=1)",
+              "persist_pattern.subn(lambda _match: persist_replacement, source, count=1)",
+          )
           exec(compile(script, 'repair-yjs-boundary.py', 'exec'), {})
           PY
 
