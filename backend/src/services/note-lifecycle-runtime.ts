@@ -45,6 +45,15 @@ interface NotebookScopeRow {
   isDeleted: boolean | number;
 }
 
+interface WorkspaceScopeRow {
+  ownerId: string;
+}
+
+interface TrashSummaryRow {
+  count: number | string | null;
+  skipped: number | string | null;
+}
+
 export interface NoteLifecycleInput {
   isTrashed?: unknown;
   sortOrder?: unknown;
@@ -55,6 +64,11 @@ export interface NoteLifecycleInput {
 export interface NoteReorderItem {
   id: string;
   sortOrder: number;
+}
+
+export interface NoteTrashSummary {
+  count: number;
+  skipped: number;
 }
 
 function hasPermission(actual: Permission | null, required: Permission): boolean {
@@ -83,6 +97,13 @@ function integerInput(value: unknown, field: string): number {
     throw new NoteCoreRuntimeError(`${field} 必须是安全整数`, "INVALID_INTEGER_FIELD", 400, { field });
   }
   return parsed;
+}
+
+function normalizeTrashSummary(row: TrashSummaryRow | undefined): NoteTrashSummary {
+  return {
+    count: Number(row?.count ?? 0),
+    skipped: Number(row?.skipped ?? 0),
+  };
 }
 
 export function createNoteLifecycleRuntime(adapter?: DatabaseAdapter) {
@@ -155,6 +176,59 @@ export function createNoteLifecycleRuntime(adapter?: DatabaseAdapter) {
       [scope.workspaceId, userId],
     );
     return { permission: rolePermission(workspaceMember?.role), scope };
+  }
+
+  async function resolveWorkspacePermission(
+    workspaceId: string,
+    userId: string,
+  ): Promise<Permission | null> {
+    const workspace = await db.queryOne<WorkspaceScopeRow>(
+      `SELECT "ownerId" AS "ownerId" FROM workspaces WHERE id = ?`,
+      [workspaceId],
+    );
+    if (!workspace) return null;
+    if (workspace.ownerId === userId) return "manage";
+    const member = await db.queryOne<RoleRow>(
+      `SELECT role FROM workspace_members WHERE "workspaceId" = ? AND "userId" = ?`,
+      [workspaceId, userId],
+    );
+    return rolePermission(member?.role);
+  }
+
+  async function getTrashSummary(
+    userId: string,
+    requestedWorkspaceId?: string,
+  ): Promise<NoteTrashSummary> {
+    const workspaceId = requestedWorkspaceId?.trim();
+    if (!workspaceId || workspaceId === "personal") {
+      const row = await db.queryOne<TrashSummaryRow>(
+        `SELECT
+           COALESCE(SUM(CASE WHEN "isLocked" = 0 THEN 1 ELSE 0 END), 0) AS count,
+           COALESCE(SUM(CASE WHEN "isLocked" = 1 THEN 1 ELSE 0 END), 0) AS skipped
+         FROM notes
+         WHERE "userId" = ? AND "workspaceId" IS NULL AND "isTrashed" = 1`,
+        [userId],
+      );
+      return normalizeTrashSummary(row);
+    }
+
+    const permission = await resolveWorkspacePermission(workspaceId, userId);
+    if (!hasPermission(permission, "manage")) {
+      throw new NoteCoreRuntimeError(
+        "仅工作区管理员可查看回收站摘要",
+        "FORBIDDEN",
+        403,
+      );
+    }
+    const row = await db.queryOne<TrashSummaryRow>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN "isLocked" = 0 THEN 1 ELSE 0 END), 0) AS count,
+         COALESCE(SUM(CASE WHEN "isLocked" = 1 THEN 1 ELSE 0 END), 0) AS skipped
+       FROM notes
+       WHERE "workspaceId" = ? AND "isTrashed" = 1`,
+      [workspaceId],
+    );
+    return normalizeTrashSummary(row);
   }
 
   async function updateNote(
@@ -277,7 +351,7 @@ export function createNoteLifecycleRuntime(adapter?: DatabaseAdapter) {
     return { success: true, updated: statements.length, skipped };
   }
 
-  return { updateNote, reorderNotes };
+  return { getTrashSummary, updateNote, reorderNotes };
 }
 
 export default createNoteLifecycleRuntime;
