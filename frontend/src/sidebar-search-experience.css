@@ -1,0 +1,31 @@
+/*
+ * 统一内容树上线后，Sidebar 旧的全文搜索输入框与树筛选框紧邻，
+ * 视觉和语义重复。旧节点暂时由兼容桥标记，避免在本次改动中冒险拆除
+ * Sidebar 内尚未完全退场的旧目录代码。
+ */
+[data-retired-sidebar-search-row="true"] {
+  display: none !important;
+}
+
+/* 内容树过滤使用“逐级收窄”的图形，不再与全文搜索共用放大镜。 */
+[data-tree-filter-surface="true"] > svg:first-child {
+  display: none;
+}
+
+[data-tree-filter-surface="true"]::before {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  content: "";
+  background-color: currentColor;
+  color: var(--tx-tertiary, currentColor);
+  opacity: 0.65;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 5h18v2H3V5Zm3 6h12v2H6v-2Zm3 6h6v2H9v-2Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 5h18v2H3V5Zm3 6h12v2H6v-2Zm3 6h6v2H9v-2Z'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}

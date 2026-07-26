@@ -14,7 +14,6 @@ export interface UserPreferences {
   noteTitleAsAppTitle: boolean;
   outlineDefaultOpen: boolean;
   lockOnOpen: boolean;
-  showNotesInNotebookTree: boolean;
   readingDensity: ReadingDensity;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
@@ -44,7 +43,6 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   noteTitleAsAppTitle: false,
   outlineDefaultOpen: false,
   lockOnOpen: false,
-  showNotesInNotebookTree: false,
   readingDensity: "cozy",
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
@@ -93,9 +91,6 @@ export function normalizeUserPreferences(
     lockOnOpen: typeof raw.lockOnOpen === "boolean"
       ? raw.lockOnOpen
       : fallback.lockOnOpen,
-    showNotesInNotebookTree: typeof raw.showNotesInNotebookTree === "boolean"
-      ? raw.showNotesInNotebookTree
-      : fallback.showNotesInNotebookTree,
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy"
       ? raw.readingDensity
       : fallback.readingDensity,

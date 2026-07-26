@@ -362,14 +362,11 @@ function AppLayout() {
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
-  const isRegularNoteBrowser = state.viewMode === "all" || state.viewMode === "notebook";
   const editorFocusLayout = resolveEditorFocusLayout({
     editorFullscreen: state.editorFullscreen,
     railVisible,
     sidebarCollapsed: state.sidebarCollapsed,
     noteListCollapsed: state.noteListCollapsed,
-    showNotesInNotebookTree: userPrefs.showNotesInNotebookTree,
-    isRegularNoteBrowser,
   });
   const showRail = editorFocusLayout.showRail;
   const showSidebar = editorFocusLayout.showSidebar;

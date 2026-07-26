@@ -662,11 +662,6 @@ function SwitchesPanel() {
       hint: t('settings.prefLockOnOpenHint'),
     },
     {
-      key: "showNotesInNotebookTree" as const,
-      label: t('settings.prefShowNotesInNotebookTree'),
-      hint: t('settings.prefShowNotesInNotebookTreeHint'),
-    },
-    {
       key: "showNoteListUpdatedTime" as const,
       label: t('settings.prefShowNoteListUpdatedTime'),
       hint: t('settings.prefShowNoteListUpdatedTimeHint'),

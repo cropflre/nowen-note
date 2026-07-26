@@ -64,3 +64,4 @@ tsconfig.tsbuildinfo
 backend-dev.out
 frontend-dev.out
 .worktrees/
+frontend/dist.bak

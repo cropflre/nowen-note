@@ -1,0 +1,115 @@
+import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+
+export const KNOWLEDGE_TREE_SORT_STORAGE_KEY = "nowen.knowledgeTree.sort";
+export const KNOWLEDGE_TREE_SORT_CHANGED_EVENT = "nowen:knowledge-tree-sort-changed";
+
+export type KnowledgeTreeSortMode =
+  | "manual"
+  | "title-asc"
+  | "title-desc"
+  | "updated-desc"
+  | "created-desc";
+
+export interface KnowledgeTreeSortOption {
+  value: KnowledgeTreeSortMode;
+  label: string;
+}
+
+export const KNOWLEDGE_TREE_SORT_OPTIONS: KnowledgeTreeSortOption[] = [
+  { value: "manual", label: "手动排序" },
+  { value: "title-asc", label: "名称 A–Z" },
+  { value: "title-desc", label: "名称 Z–A" },
+  { value: "updated-desc", label: "最近更新" },
+  { value: "created-desc", label: "最近创建" },
+];
+
+const VALID_SORT_MODES = new Set<KnowledgeTreeSortMode>(
+  KNOWLEDGE_TREE_SORT_OPTIONS.map((option) => option.value),
+);
+
+export function loadKnowledgeTreeSortMode(): KnowledgeTreeSortMode {
+  try {
+    const stored = localStorage.getItem(KNOWLEDGE_TREE_SORT_STORAGE_KEY) as KnowledgeTreeSortMode | null;
+    return stored && VALID_SORT_MODES.has(stored) ? stored : "manual";
+  } catch {
+    return "manual";
+  }
+}
+
+export function saveKnowledgeTreeSortMode(mode: KnowledgeTreeSortMode): void {
+  try {
+    localStorage.setItem(KNOWLEDGE_TREE_SORT_STORAGE_KEY, mode);
+  } catch {
+    // Current-session sorting still works when storage is unavailable.
+  }
+  window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_SORT_CHANGED_EVENT, { detail: { mode } }));
+  window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "sort-mode-changed" } }));
+}
+
+function compareText(a: KnowledgeTreeNode, b: KnowledgeTreeNode): number {
+  return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function timestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function compareKnowledgeTreeNodes(
+  a: KnowledgeTreeNode,
+  b: KnowledgeTreeNode,
+  mode: KnowledgeTreeSortMode,
+): number {
+  let result = 0;
+  switch (mode) {
+    case "title-asc":
+      result = compareText(a, b);
+      break;
+    case "title-desc":
+      result = compareText(b, a);
+      break;
+    case "updated-desc":
+      result = timestamp(b.updatedAt) - timestamp(a.updatedAt);
+      break;
+    case "created-desc":
+      result = timestamp(b.createdAt) - timestamp(a.createdAt);
+      break;
+    case "manual":
+    default:
+      result = a.sortOrder - b.sortOrder;
+      break;
+  }
+  return result || a.sortOrder - b.sortOrder || compareText(a, b) || a.id.localeCompare(b.id);
+}
+
+/**
+ * KnowledgeTreePanel currently groups nodes by parent and sorts each sibling list
+ * by sortOrder. Non-manual modes therefore project a display-only sortOrder for
+ * each sibling group; no server hierarchy or manual order is mutated.
+ */
+export function applyKnowledgeTreeSort(
+  nodes: KnowledgeTreeNode[],
+  mode: KnowledgeTreeSortMode = loadKnowledgeTreeSortMode(),
+): KnowledgeTreeNode[] {
+  if (mode === "manual") return nodes;
+
+  const siblings = new Map<string | null, KnowledgeTreeNode[]>();
+  for (const node of nodes) {
+    const group = siblings.get(node.parentId) || [];
+    group.push(node);
+    siblings.set(node.parentId, group);
+  }
+
+  const displayOrder = new Map<string, number>();
+  for (const group of siblings.values()) {
+    group
+      .slice()
+      .sort((a, b) => compareKnowledgeTreeNodes(a, b, mode))
+      .forEach((node, index) => displayOrder.set(node.id, index));
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    sortOrder: displayOrder.get(node.id) ?? node.sortOrder,
+  }));
+}

@@ -1191,7 +1191,6 @@ export const api = {
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
-    showNotesInNotebookTree: boolean;
     readingDensity: "cozy" | "compact";
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
@@ -1202,7 +1201,6 @@ export const api = {
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
-    showNotesInNotebookTree: boolean;
     readingDensity: "cozy" | "compact";
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
@@ -1211,7 +1209,6 @@ export const api = {
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
-    showNotesInNotebookTree: boolean;
     readingDensity: "cozy" | "compact";
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;

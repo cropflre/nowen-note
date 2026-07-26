@@ -3,8 +3,6 @@ export interface EditorFocusLayoutInput {
   railVisible: boolean;
   sidebarCollapsed: boolean;
   noteListCollapsed: boolean;
-  showNotesInNotebookTree: boolean;
-  isRegularNoteBrowser: boolean;
 }
 
 export interface EditorFocusLayout {
@@ -25,8 +23,6 @@ export function resolveEditorFocusLayout(input: EditorFocusLayoutInput): EditorF
   return {
     showRail: input.railVisible,
     showSidebar: !input.sidebarCollapsed,
-    showNoteList:
-      !input.noteListCollapsed &&
-      !(input.showNotesInNotebookTree && input.isRegularNoteBrowser),
+    showNoteList: !input.noteListCollapsed,
   };
 }

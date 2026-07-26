@@ -1052,7 +1052,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const constrainNotebookTreeWidth = variant === "mobile";
   const { t } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
-  const showNotesInNotebookTree = userPrefs.showNotesInNotebookTree;
+  // Unified knowledge tree is the sole directory renderer; the legacy cache path stays inert.
+  const legacyNotebookNotesEnabled = false;
   if (PHASE_B_PERF_ENABLED) {
     recordPhaseBPerfEvent({
       type: "sidebar-render",
@@ -1414,7 +1415,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   }, [notesByNotebookId]);
 
   useEffect(() => {
-    if (!showNotesInNotebookTree) return;
+    if (!legacyNotebookNotesEnabled) return;
     setNotesByNotebookId((prev) => {
       const synced = syncPinnedStateToNotebookCache(prev, state.notes);
       return syncPinnedStateToNotebookCache(
@@ -1422,14 +1423,14 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         state.activeNote ? [state.activeNote] : [],
       );
     });
-  }, [showNotesInNotebookTree, state.activeNote, state.notes]);
+  }, [legacyNotebookNotesEnabled, state.activeNote, state.notes]);
 
   useEffect(() => {
     loadingNotebookIdsRef.current = loadingNotebookIds;
   }, [loadingNotebookIds]);
 
   const loadNotesForNotebook = useCallback(async (notebookId: string, force = false) => {
-    if (!showNotesInNotebookTree) return;
+    if (!legacyNotebookNotesEnabled) return;
     if (!force && notesByNotebookIdRef.current.has(notebookId)) return;
     if (loadingNotebookIdsRef.current.has(notebookId)) return;
 
@@ -1447,39 +1448,39 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         return next;
       });
     }
-  }, [showNotesInNotebookTree, t]);
+  }, [legacyNotebookNotesEnabled, t]);
 
   useEffect(() => {
-    if (showNotesInNotebookTree) return;
+    if (legacyNotebookNotesEnabled) return;
     setNotesByNotebookId(new Map());
     setLoadingNotebookIds(new Set());
-  }, [showNotesInNotebookTree]);
+  }, [legacyNotebookNotesEnabled]);
 
   useEffect(() => {
-    if (!showNotesInNotebookTree) return;
+    if (!legacyNotebookNotesEnabled) return;
     state.notebooks.forEach((notebook) => {
       if (notebook.isExpanded === 1) void loadNotesForNotebook(notebook.id);
     });
-  }, [loadNotesForNotebook, showNotesInNotebookTree, state.notebooks]);
+  }, [loadNotesForNotebook, legacyNotebookNotesEnabled, state.notebooks]);
 
   useEffect(() => {
-    if (!showNotesInNotebookTree) return;
+    if (!legacyNotebookNotesEnabled) return;
     state.notebooks.forEach((notebook) => {
       if (notebook.isExpanded === 1 && notesByNotebookIdRef.current.has(notebook.id)) {
         void loadNotesForNotebook(notebook.id, true);
       }
     });
-  }, [loadNotesForNotebook, showNotesInNotebookTree, state.notesRefreshToken]);
+  }, [loadNotesForNotebook, legacyNotebookNotesEnabled, state.notesRefreshToken]);
 
   useEffect(() => {
-    if (!showNotesInNotebookTree || !state.activeNote) return;
+    if (!legacyNotebookNotesEnabled || !state.activeNote) return;
     const active = state.activeNote;
     if (active.isTrashed === 1 || active.isArchived === 1) return;
     setNotesByNotebookId((prev) => {
       const item = noteToListItem(active);
       return upsertNoteInNotebookCache(prev, active.notebookId, item);
     });
-  }, [showNotesInNotebookTree, state.activeNote]);
+  }, [legacyNotebookNotesEnabled, state.activeNote]);
 
   useEffect(() => {
     const loadScopedData = () => {
@@ -1788,7 +1789,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     if (isTemporaryNotebookId(id)) return;
     actions.setSelectedNotebook(id);
     actions.setViewMode("notebook");
-    if (showNotesInNotebookTree) {
+    if (legacyNotebookNotesEnabled) {
       const nb = state.notebooks.find((n) => n.id === id);
       if (nb && nb.isExpanded !== 1) {
         api.updateNotebook(id, { isExpanded: 1 } as any).catch(console.error);
@@ -1828,7 +1829,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
     actions.setNotebooks(nextNotebooks);
 
-    if (expanded === 1 && showNotesInNotebookTree) {
+    if (expanded === 1 && legacyNotebookNotesEnabled) {
       changed.forEach((notebook) => {
         void loadNotesForNotebook(notebook.id);
       });
@@ -1843,7 +1844,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       toast.error(t("common.operationFailed") || "操作失败");
       actions.refreshNotebooks();
     }
-  }, [actions, loadNotesForNotebook, showNotesInNotebookTree, state.notebooks, t]);
+  }, [actions, loadNotesForNotebook, legacyNotebookNotesEnabled, state.notebooks, t]);
 
   const handleToggleAllNotebooks = useCallback(() => {
     void handleSetAllNotebooksExpanded(nextNotebookExpansionState);

@@ -1,4 +1,5 @@
 import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
+import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
 export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin";
@@ -108,13 +109,17 @@ function workspaceQuery(includeDeleted = false): string {
   return params.toString();
 }
 
+function withDisplaySort(result: { nodes: KnowledgeTreeNode[] }): { nodes: KnowledgeTreeNode[] } {
+  return { nodes: applyKnowledgeTreeSort(result.nodes) };
+}
+
 export const knowledgeTreeApi = {
   list(includeDeleted = false) {
-    return request<{ nodes: KnowledgeTreeNode[] }>(`/?${workspaceQuery(includeDeleted)}`);
+    return request<{ nodes: KnowledgeTreeNode[] }>(`/?${workspaceQuery(includeDeleted)}`).then(withDisplaySort);
   },
 
   listShared() {
-    return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`);
+    return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
   create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string }) {

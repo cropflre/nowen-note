@@ -16,6 +16,7 @@ import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
 import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge";
 import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";
+import SidebarSearchExperienceBridge from "./components/SidebarSearchExperienceBridge";
 import MindMapAppearanceBridge from "./components/MindMapAppearanceBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import ImageExperienceBridge from "./components/ImageExperienceBridge";
@@ -39,6 +40,7 @@ import "./code-block-wrap.css";
 import "./overlay-layers.css";
 import "./space-actions.css";
 import "./settings-switches.css";
+import "./sidebar-search-experience.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -145,6 +147,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <NoteIconBridge />
           <AIProfileSwitcherBridge />
           <MarkdownExperienceBridge />
+          <SidebarSearchExperienceBridge />
           <MindMapAppearanceBridge />
           <EmbedPasswordBridge />
           <ImageExperienceBridge />
