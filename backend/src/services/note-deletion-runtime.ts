@@ -9,6 +9,10 @@ import {
   type AttachmentDeletionCandidate,
   type AttachmentDeletionCleanupResult,
 } from "./attachment-deletion-runtime";
+import {
+  createNoteDeletionEffectsRuntime,
+  type NoteDeletionCommittedEvent,
+} from "./note-deletion-effects-runtime";
 import { createNoteCoreRuntime, NoteCoreRuntimeError } from "./note-core-runtime";
 
 interface NoteDeletionRow {
@@ -51,6 +55,7 @@ export interface NoteDeletionResult {
   removedFiles: number;
   skippedSharedPaths: number;
   cleanupWarnings: string[];
+  sideEffectWarnings: string[];
 }
 
 export interface TrashEmptyResult {
@@ -62,6 +67,7 @@ export interface TrashEmptyResult {
   removedFiles: number;
   skippedSharedPaths: number;
   cleanupWarnings: string[];
+  sideEffectWarnings: string[];
   walTruncated: false;
   incrementalVacuumed: false;
   vacuumed: false;
@@ -74,6 +80,7 @@ export interface NoteDeletionRuntimeOptions {
     candidates: AttachmentDeletionCandidate[],
   ) => Promise<AttachmentDeletionCleanupResult>;
   destroyYDoc?: (noteId: string) => void;
+  dispatchEffects?: (event: NoteDeletionCommittedEvent) => Promise<string[]>;
 }
 
 function booleanNumber(value: boolean | number | null | undefined): number {
@@ -103,6 +110,8 @@ export function createNoteDeletionRuntime(
   const db = adapter ?? getDatabaseAdapter();
   const core = createNoteCoreRuntime(db);
   const cleanupAttachments = options.cleanupAttachments ?? cleanupDeletedNoteAttachments;
+  const fallbackEffects = options.dispatchEffects ? null : createNoteDeletionEffectsRuntime(db);
+  const dispatchEffects = options.dispatchEffects ?? fallbackEffects!.dispatch;
   // PostgreSQL runtime-only 尚未开放 Yjs room 路由，因此默认不存在需要销毁的
   // 内存房间；note_yupdates / note_ysnapshots 由外键级联清理。这里保留注入点，
   // 待 Yjs Runtime 迁移时由上层注入纯内存 room cleanup，避免静态导入
@@ -177,6 +186,16 @@ export function createNoteDeletionRuntime(
       }
     }
     return { removedFiles, skippedSharedPaths, cleanupWarnings };
+  }
+
+  async function runEffects(event: NoteDeletionCommittedEvent): Promise<string[]> {
+    try {
+      return await dispatchEffects(event);
+    } catch (error) {
+      return [
+        `deletion side effects failed: ${error instanceof Error ? error.message : String(error)}`,
+      ];
+    }
   }
 
   async function permanentDeleteNote(
@@ -255,11 +274,23 @@ export function createNoteDeletionRuntime(
     }
 
     const cleanup = await cleanupAfterCommit([noteId], attachments);
+    const sideEffectWarnings = await runEffects({
+      kind: "note.deleted",
+      actorUserId: userId,
+      noteOwnerUserId: note.userId,
+      workspaceId: note.workspaceId,
+      noteId,
+      attachmentCount: attachments.length,
+      removedFiles: cleanup.removedFiles,
+      skippedSharedPaths: cleanup.skippedSharedPaths,
+      cleanupWarnings: cleanup.cleanupWarnings,
+    });
     return {
       success: true,
       noteId,
       attachmentCount: attachments.length,
       ...cleanup,
+      sideEffectWarnings,
     };
   }
 
@@ -297,6 +328,7 @@ export function createNoteDeletionRuntime(
         removedFiles: 0,
         skippedSharedPaths: 0,
         cleanupWarnings: [],
+        sideEffectWarnings: [],
         walTruncated: false,
         incrementalVacuumed: false,
         vacuumed: false,
@@ -377,6 +409,19 @@ export function createNoteDeletionRuntime(
     }
 
     const cleanup = await cleanupAfterCommit(noteIds, attachments);
+    const sideEffectWarnings = await runEffects({
+      kind: "note.trash_emptied",
+      actorUserId: userId,
+      ownerUserId: scope.ownerUserId,
+      workspaceId: scope.workspaceId,
+      noteIds,
+      skipped,
+      attachmentCount: attachments.length,
+      removedFiles: cleanup.removedFiles,
+      skippedSharedPaths: cleanup.skippedSharedPaths,
+      cleanupWarnings: cleanup.cleanupWarnings,
+      freedBytesEstimate,
+    });
     return {
       success: true,
       count: noteIds.length,
@@ -384,6 +429,7 @@ export function createNoteDeletionRuntime(
       noteIds,
       attachmentCount: attachments.length,
       ...cleanup,
+      sideEffectWarnings,
       // PostgreSQL 不使用 SQLite WAL checkpoint / incremental_vacuum / VACUUM。
       // 保留旧响应字段供前端兼容，空间回收由 PostgreSQL autovacuum 及后续运维策略负责。
       walTruncated: false,
