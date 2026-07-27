@@ -13,10 +13,16 @@ import {
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
+import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
+import { createNoteDeletionRealtimeRuntime } from "./services/note-deletion-realtime-runtime";
 
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
 const adapter = getDatabaseAdapter();
+const deletionRealtime = createNoteDeletionRealtimeRuntime(adapter);
+const deletionEffects = createNoteDeletionEffectsRuntime(adapter, {
+  publishRealtime: deletionRealtime.publish,
+});
 
 app.use("*", logger());
 app.use("*", cors({
@@ -49,10 +55,17 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
+        "WS /ws (note deletion events only)",
       ],
+      migratedCapabilities: [
+        "note deletion audit logs",
+        "note deletion webhooks",
+        "single and batch note deletion realtime events",
+      ],
+      realtime: deletionRealtime.getStats(),
       pendingCapabilities: [
         "notes full-text search (#252)",
-        "yjs write routes",
+        "full realtime subscriptions, presence and yjs write routes",
       ],
     },
   }, status);
@@ -121,7 +134,9 @@ async function authenticateNoteRequest(c: Context, next: Next) {
 
 app.use("/api/notes", authenticateNoteRequest);
 app.use("/api/notes/*", authenticateNoteRequest);
-app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres"));
+app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres", {
+  dispatchEffects: deletionEffects.dispatch,
+}));
 
 app.all("*", (c) => c.json({
   error: "PostgreSQL runtime is connected, but this route has not been migrated yet",
@@ -130,9 +145,10 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes collection, single-note core, lifecycle, permanent deletion and trash-empty runtimes are enabled; remaining business routes stay disabled until #249 completes");
+console.warn("[db] Notes runtime includes deletion audit, webhook and deletion-only realtime events; remaining business routes stay disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
+delectionRealtime.attach(server);
 let shuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -147,7 +163,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExit.unref();
 
   try {
+    await deletionRealtime.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await deletionEffects.shutdown();
     await closeDatabase();
     clearTimeout(forceExit);
     process.exit(0);
