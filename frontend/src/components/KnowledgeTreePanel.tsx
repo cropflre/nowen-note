@@ -405,6 +405,7 @@ export function KnowledgeTreePanel({
     if (!draft) return;
     requestAnimationFrame(() => {
       draftInputRef.current?.focus({ preventScroll: true });
+      draftInputRef.current?.scrollIntoView({ block: "nearest" });
       draftInputRef.current?.select();
     });
   }, [draft?.kind, draft?.parentId]);
@@ -792,7 +793,7 @@ export function KnowledgeTreePanel({
   const hasRootDraft = draft?.parentId === null;
 
   return (
-    <section className={cn("relative flex min-h-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
+    <section className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
       <div className="flex items-center gap-1.5 px-2 pb-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-app-border bg-app-bg px-2 py-1.5">
           <Search size={13} className="shrink-0 text-tx-tertiary" />
@@ -815,7 +816,7 @@ export function KnowledgeTreePanel({
         <button type="button" onClick={() => void reload()} disabled={loading} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50" title="刷新内容树"><RefreshCw size={13} className={loading ? "animate-spin" : undefined} /></button>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-3" data-swipe-blocker="knowledge-tree-scroll">
+      <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3" data-swipe-blocker="knowledge-tree-scroll">
         {loading && nodes.length === 0 ? (
           <div className="flex justify-center py-14"><Loader2 size={20} className="animate-spin text-tx-tertiary" /></div>
         ) : error ? (

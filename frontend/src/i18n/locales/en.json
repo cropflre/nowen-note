@@ -82,6 +82,19 @@
       "ticketExpired": "Two-factor session expired. Please sign in again.",
       "backToLogin": "← Back to password login"
     },
+    "loginHistory": {
+      "title": "Signed-in accounts",
+      "shortTitle": "Accounts",
+      "recentAccounts": "Recent accounts",
+      "addAccount": "Sign in to another account",
+      "reauth": "Sign in again",
+      "sessionExpired": "This session has expired. Please enter the password again.",
+      "connectFailed": "Could not reach the target server. Your current account was not changed.",
+      "storageFailed": "Could not read secure storage. Your current account was not changed.",
+      "remove": "Remove login history",
+      "removeConfirm": "Remove login history for {{username}}?",
+      "removeFailed": "Failed to remove login history"
+    },
     "demoBanner": {
       "title": "Demo environment",
       "desc": "Try it out with the demo account {{username}} / {{password}}. Data may be reset periodically.",
@@ -598,8 +611,6 @@
     "prefOutlineDefaultOpenHint": "When enabled, the outline panel on the right side is expanded every time you open a note. You can still toggle it manually at any time.",
     "prefLockOnOpen": "Lock notes on open",
     "prefLockOnOpenHint": "When enabled, every note opens in read-only view; click the unlock button to start editing. This lock applies only on this device, is not written to the note, and does not affect other users.",
-    "prefShowNoteListUpdatedTime": "Show updated time in note list",
-    "prefShowNoteListUpdatedTimeHint": "Show relative dates in the note list. Turn it off for a cleaner list.",
     "enableNoteTabs": "Enable top note tabs",
     "enableNoteTabsDesc": "Open multiple notes and switch between them from the editor header. Disable to use the classic single-note mode.",
     "markdownDefaultViewMode": "Default Markdown View",

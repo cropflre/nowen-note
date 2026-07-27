@@ -98,39 +98,52 @@ html body .${SCROLL_CLASS}::-webkit-scrollbar {
   cursor: default;
   touch-action: none;
   user-select: none;
-  opacity: 0.9;
-  transition: background-color 120ms ease, opacity 120ms ease;
+  transition: background-color 140ms ease;
 }
 
 .${TRACK_CLASS}:hover,
 .${TRACK_CLASS}:focus-visible,
 .${TRACK_CLASS}[data-dragging="true"] {
-  background: color-mix(in srgb, var(--pm-scrollbar) 18%, transparent);
-  opacity: 1;
+  background: color-mix(in srgb, var(--pm-scrollbar) 12%, transparent);
   outline: none;
 }
 
 .${THUMB_CLASS} {
   position: absolute;
-  left: 1px;
-  right: 1px;
+  left: 2.5px;
+  right: 2.5px;
   top: 0;
   min-height: ${MIN_THUMB_HEIGHT}px;
   border-radius: 999px;
   background: var(--pm-scrollbar);
   cursor: grab;
-  transition: background-color 120ms ease;
+  opacity: 0.58;
+  transition: left 140ms ease, right 140ms ease, background-color 120ms ease, opacity 120ms ease;
   will-change: transform, height;
 }
 
 .${TRACK_CLASS}:hover .${THUMB_CLASS},
 .${TRACK_CLASS}:focus-visible .${THUMB_CLASS},
 .${TRACK_CLASS}[data-dragging="true"] .${THUMB_CLASS} {
+  left: 1.5px;
+  right: 1.5px;
   background: var(--pm-scrollbar-hover);
+  opacity: 0.95;
 }
 
 .${TRACK_CLASS}[data-dragging="true"] .${THUMB_CLASS} {
   cursor: grabbing;
+}
+
+.${TRACK_CLASS}[data-scrollable="false"] .${THUMB_CLASS} {
+  cursor: default;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.${TRACK_CLASS}[data-scrollable="false"]:hover,
+.${TRACK_CLASS}[data-scrollable="false"]:focus-visible {
+  background: transparent;
 }
 
 @media (max-width: 767px) {
@@ -147,12 +160,12 @@ html body .${SCROLL_CLASS}::-webkit-scrollbar {
 
 interface ScrollController {
   destroy: () => void;
+  isConnected: () => boolean;
   update: () => void;
 }
 
 const controllers = new Map<HTMLElement, ScrollController>();
 let installed = false;
-let rootObserver: MutationObserver | null = null;
 let reconcileFrame = 0;
 let generatedId = 0;
 
@@ -203,7 +216,9 @@ function attachScrollbar(scrollElement: HTMLElement): ScrollController | null {
       trackHeight,
     });
 
-    track.hidden = !latestMetrics.visible;
+    track.hidden = trackHeight <= 0;
+    track.dataset.scrollable = String(latestMetrics.visible);
+    track.setAttribute("aria-disabled", String(!latestMetrics.visible));
     track.style.top = `${scrollElement.offsetTop}px`;
     track.style.height = `${trackHeight}px`;
     thumb.style.height = `${latestMetrics.thumbHeight}px`;
@@ -308,9 +323,15 @@ function attachScrollbar(scrollElement: HTMLElement): ScrollController | null {
     characterData: true,
   });
 
+  const parentObserver = new MutationObserver(() => {
+    if (!track.isConnected) refreshKnowledgeTreeScrollbars();
+  });
+  parentObserver.observe(parent, { childList: true });
+
   update();
 
   return {
+    isConnected: () => track.isConnected,
     update: scheduleUpdate,
     destroy: () => {
       if (disposed) return;
@@ -318,6 +339,7 @@ function attachScrollbar(scrollElement: HTMLElement): ScrollController | null {
       if (updateFrame) window.cancelAnimationFrame(updateFrame);
       resizeObserver?.disconnect();
       contentObserver.disconnect();
+      parentObserver.disconnect();
       scrollElement.removeEventListener("scroll", scheduleUpdate);
       track.removeEventListener("pointerdown", onPointerDown);
       track.removeEventListener("pointermove", onPointerMove);
@@ -335,7 +357,11 @@ function attachScrollbar(scrollElement: HTMLElement): ScrollController | null {
 
 function reconcileScrollbars(): void {
   for (const [element, controller] of controllers) {
-    if (!element.isConnected || !element.matches(TREE_SCROLL_SELECTOR)) {
+    if (
+      !element.isConnected
+      || !element.matches(TREE_SCROLL_SELECTOR)
+      || !controller.isConnected()
+    ) {
       controller.destroy();
       controllers.delete(element);
     }
@@ -357,6 +383,12 @@ function scheduleReconcile(): void {
   });
 }
 
+/** 桌面侧栏挂载、卸载或轨道丢失时，显式协调树滚动条。 */
+export function refreshKnowledgeTreeScrollbars(): void {
+  if (!installed) return;
+  scheduleReconcile();
+}
+
 /**
  * Installs an OS-independent scrollbar for the desktop knowledge tree.
  * Native overlay scrollbars can remain invisible in Chrome/Web regardless of
@@ -372,8 +404,6 @@ export function installKnowledgeTreeScrollbarBridge(): () => void {
 
   const start = () => {
     scheduleReconcile();
-    rootObserver = new MutationObserver(scheduleReconcile);
-    rootObserver.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleReconcile, { passive: true });
   };
 
@@ -386,8 +416,6 @@ export function installKnowledgeTreeScrollbarBridge(): () => void {
   return () => {
     document.removeEventListener("DOMContentLoaded", start);
     window.removeEventListener("resize", scheduleReconcile);
-    rootObserver?.disconnect();
-    rootObserver = null;
     if (reconcileFrame) window.cancelAnimationFrame(reconcileFrame);
     reconcileFrame = 0;
     controllers.forEach((controller) => controller.destroy());

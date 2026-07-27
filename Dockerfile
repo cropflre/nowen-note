@@ -17,7 +17,7 @@ RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.
     case "$TARGETARCH" in \
       amd64) ROLLUP_PKG="@rollup/rollup-linux-x64-musl@${ROLLUP_VER}" ;; \
       arm64) ROLLUP_PKG="@rollup/rollup-linux-arm64-musl@${ROLLUP_VER}" ;; \
-      *)     ROLLUP_PKG="" ;;
+      *)     ROLLUP_PKG="" ;; \
     esac; \
     if [ -n "$ROLLUP_PKG" ]; then \
       echo "Installing $ROLLUP_PKG ..." && \

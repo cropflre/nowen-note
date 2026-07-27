@@ -230,6 +230,33 @@ export interface FolderSyncAPI {
   appendLog(folderId: string, type: string, message: string, detail?: unknown): Promise<{ ok: boolean }>;
 }
 
+export interface DesktopAccountHistoryItem {
+  id: string;
+  serverUrl: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string;
+  lastUsedAt: number;
+  requiresReauth: boolean;
+}
+
+export interface DesktopAccountHistoryAPI {
+  list(): Promise<DesktopAccountHistoryItem[]>;
+  save(payload: {
+    serverUrl: string;
+    userId: string;
+    username: string;
+    displayName?: string;
+    avatarUrl?: string;
+    token: string;
+    lastUsedAt?: number;
+  }): Promise<{ ok: boolean; id?: string; error?: string }>;
+  loadToken(id: string): Promise<{ ok: boolean; token?: string; error?: string }>;
+  markRequiresReauth(id: string): Promise<{ ok: boolean; error?: string }>;
+  remove(id: string): Promise<{ ok: boolean; error?: string }>;
+}
+
 interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
@@ -275,6 +302,8 @@ interface NowenDesktopAPI {
   isPortable?: boolean;
   /** 文件夹同步（Phase B：配置 CRUD；后续扩展扫描/导入）。旧版本 preload 无此字段。 */
   folderSync?: FolderSyncAPI;
+  /** 桌面端多账号登录历史；令牌由主进程 safeStorage 加密。 */
+  accountHistory?: DesktopAccountHistoryAPI;
 }
 
 function getBridge(): NowenDesktopAPI | null {

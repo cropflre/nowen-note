@@ -10,6 +10,7 @@ const {
   assetNameFromUrl,
   isUpdateMetadataName,
   parseUpdateMetadata,
+  requiresExternalBlockmap,
   validateLocalMetadataFiles,
   verifyLocalDirectory,
 } = require("./lib/update-metadata-validator.cjs");
@@ -108,7 +109,7 @@ function verifyRemoteRelease({ repo, tag, version }) {
       const remoteAsset = byName.get(name);
       if (!remoteAsset) throw new Error(`remote Release is missing metadata-referenced asset: ${name}`);
       downloadAsset(repo, tag, name, tempDir);
-      if (/\.(?:exe|zip|appimage)$/i.test(name)) {
+      if (requiresExternalBlockmap(name)) {
         const blockmapName = `${name}.blockmap`;
         if (!byName.has(blockmapName)) throw new Error(`remote Release is missing required blockmap: ${blockmapName}`);
         downloadAsset(repo, tag, blockmapName, tempDir);

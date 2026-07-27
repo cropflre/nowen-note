@@ -16,6 +16,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  UsersRound,
   X,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
@@ -37,6 +38,8 @@ import {
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { clearRememberedCredentials } from "@/lib/rememberLogin";
 import { openMobileNoteSearch } from "@/lib/mobileNoteSearch";
+import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
+import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -77,6 +80,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
@@ -313,6 +317,18 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
       </button>
 
+      {isAccountLoginHistorySupported() && (
+        <button
+          onClick={() => setLoginHistoryOpen(true)}
+          title={showLabel ? undefined : t("auth.loginHistory.title")}
+          aria-label={t("auth.loginHistory.title")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+        >
+          <UsersRound size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("auth.loginHistory.shortTitle")}</span>}
+        </button>
+      )}
+
       {isDesktopApp() && canSwitchBackToLocal && (
         <button
           onClick={handleDesktopCloudButton}
@@ -336,6 +352,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       </button>
 
       <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}</AnimatePresence>
+      <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />
     </div>
   );
 }

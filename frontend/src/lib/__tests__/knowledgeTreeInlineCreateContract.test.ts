@@ -14,6 +14,11 @@ describe("knowledge tree inline create contract", () => {
     expect(panel).not.toContain('title: parent ? `在“${parent.title}”下新建`');
   });
 
+  it("scrolls the inline create input into view after creation", () => {
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    expect(panel).toContain('draftInputRef.current?.scrollIntoView({ block: "nearest" })');
+  });
+
   it("keeps secondary creation and imports in compact submenus", () => {
     const menu = source("../../components/KnowledgeTreeNodeMenu.tsx");
     expect(menu).toContain('id: "create", label: "新建"');

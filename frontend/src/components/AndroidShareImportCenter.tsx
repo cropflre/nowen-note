@@ -607,7 +607,10 @@ export default function AndroidShareImportCenter() {
           )}
         </div>
 
-        <footer className="px-4 sm:px-5 py-3 border-t border-app-border bg-app-elevated pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <footer
+          className="px-4 sm:px-5 py-3 border-t border-app-border bg-app-elevated"
+          style={{ paddingBottom: "max(0.75rem, var(--safe-area-bottom, 0px))" }}
+        >
           <div className="flex items-center gap-2">
             <button type="button" onClick={handleDiscard} disabled={running}
               className="px-3 py-2 text-sm rounded-lg text-red-500 hover:bg-red-500/10 disabled:opacity-40">

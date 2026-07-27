@@ -25,6 +25,7 @@ function createFixture(options = {}) {
     `  - url: ${assetName}`,
     `    sha512: ${sha512}`,
     `    size: ${size}`,
+    ...(options.blockMapSize === undefined ? [] : [`    blockMapSize: ${options.blockMapSize}`]),
     `path: ${assetName}`,
     `sha512: ${sha512}`,
     "releaseDate: '2026-07-19T00:00:00.000Z'",
@@ -94,6 +95,37 @@ test("rejects a missing blockmap", () => {
     assert.throws(
       () => verifyLocalDirectory({ directory: fixture.directory, expectedVersion: "1.4.2" }),
       /required blockmap does not exist/,
+    );
+  } finally {
+    cleanup(fixture.directory);
+  }
+});
+
+test("accepts an AppImage with an embedded blockmap", () => {
+  const fixture = createFixture({
+    assetName: "Nowen-Note-Lite-1.4.2-x86_64.AppImage",
+    metadataName: "latest-lite-linux.yml",
+    blockmap: false,
+    blockMapSize: 107891,
+  });
+  try {
+    const report = verifyLocalDirectory({ directory: fixture.directory, expectedVersion: "1.4.2" });
+    assert.equal(report.assets[0].name, fixture.assetName);
+  } finally {
+    cleanup(fixture.directory);
+  }
+});
+
+test("rejects an AppImage without embedded blockmap metadata", () => {
+  const fixture = createFixture({
+    assetName: "Nowen-Note-Lite-1.4.2-x86_64.AppImage",
+    metadataName: "latest-lite-linux.yml",
+    blockmap: false,
+  });
+  try {
+    assert.throws(
+      () => verifyLocalDirectory({ directory: fixture.directory, expectedVersion: "1.4.2" }),
+      /missing a valid embedded block map size/,
     );
   } finally {
     cleanup(fixture.directory);

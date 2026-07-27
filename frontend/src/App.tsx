@@ -47,6 +47,7 @@ import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
+import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -1101,6 +1102,22 @@ function AuthGate() {
       console.warn("[App] syncBootstrap failed:", e);
     });
   }, [user?.id]);
+
+  // 桌面端 / 移动端把每次已确认的登录态写入安全历史。仅保存 token，绝不保存密码。
+  useEffect(() => {
+    if (!user?.id || !isAccountLoginHistorySupported()) return;
+    const token = localStorage.getItem("nowen-token") || "";
+    const serverUrl = getServerUrl()
+      || (window.location.origin.startsWith("http") ? window.location.origin : "");
+    if (!token || !serverUrl) return;
+    void saveAccountLoginHistory({ serverUrl, token, user })
+      .then((result) => {
+        if (!result.ok) console.warn("[App] save account login history failed:", result.error);
+      })
+      .catch((error) => {
+        console.warn("[App] save account login history failed:", error);
+      });
+  }, [user]);
 
   // 「更新日志」首次升级自动弹窗。
   //   - 仅在已登录分支生效（enable=!!user），未登录态不打扰；

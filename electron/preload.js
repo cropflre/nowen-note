@@ -219,6 +219,34 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     },
   },
 
+  /** 登录历史：账号元数据可列出，令牌只在用户显式切换时经 safeStorage 解密。 */
+  accountHistory: {
+    list() {
+      return ipcRenderer.invoke("account-history:list");
+    },
+    save(payload) {
+      if (!payload || typeof payload !== "object") return Promise.resolve({ ok: false, error: "INVALID_PAYLOAD" });
+      const safe = {};
+      if (typeof payload.serverUrl === "string") safe.serverUrl = payload.serverUrl.slice(0, 2048);
+      if (typeof payload.userId === "string") safe.userId = payload.userId.slice(0, 256);
+      if (typeof payload.username === "string") safe.username = payload.username.slice(0, 256);
+      if (typeof payload.displayName === "string") safe.displayName = payload.displayName.slice(0, 256);
+      if (typeof payload.avatarUrl === "string") safe.avatarUrl = payload.avatarUrl.slice(0, 2048);
+      if (typeof payload.token === "string") safe.token = payload.token.slice(0, 16384);
+      if (typeof payload.lastUsedAt === "number") safe.lastUsedAt = payload.lastUsedAt;
+      return ipcRenderer.invoke("account-history:save", safe);
+    },
+    loadToken(id) {
+      return ipcRenderer.invoke("account-history:load-token", typeof id === "string" ? id.slice(0, 128) : "");
+    },
+    markRequiresReauth(id) {
+      return ipcRenderer.invoke("account-history:mark-reauth", typeof id === "string" ? id.slice(0, 128) : "");
+    },
+    remove(id) {
+      return ipcRenderer.invoke("account-history:remove", typeof id === "string" ? id.slice(0, 128) : "");
+    },
+  },
+
   /**
    * 局域网服务发现（mDNS）：
    *   - start():  启动扫描 _nowen-note._tcp.local.；返回 { ok, available }

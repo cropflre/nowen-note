@@ -1,5 +1,6 @@
 import {
   readMarkdownFromZipWithMeta as readMarkdownFromZipWithMetaBase,
+  readMarkdownFiles as readMarkdownFilesBase,
   importNotes as importNotesBase,
 } from "./importService.base";
 import type {
@@ -14,6 +15,7 @@ import {
   type RoundTripImportStrategy,
 } from "./roundTripImportReview";
 import { requestRoundTripPermissionReview } from "./roundTripPermissionReview";
+import { normalizeImportedHtmlContent } from "./singleFileHtmlImport";
 
 export {
   tiptapExtensions,
@@ -21,7 +23,6 @@ export {
   PDF_NO_TEXT_LAYER_FLAG,
   PDF_TOO_LARGE_FLAG,
   deriveNotebookNameFromFile,
-  readMarkdownFiles,
   markdownToSimpleHtml,
   convertToTiptapJson,
   extractPlainText,
@@ -54,6 +55,8 @@ interface PackageManifestPreview {
   };
 }
 
+const HTML_IMPORT_SOURCES = new Set(["html", "xiaomi", "oppo", "vivo", "oneplus"]);
+
 async function readRoundTripManifest(file: File): Promise<PackageManifestPreview | null> {
   try {
     const JSZip = (await import("jszip")).default;
@@ -70,6 +73,22 @@ async function readRoundTripManifest(file: File): Promise<PackageManifestPreview
   } catch {
     return null;
   }
+}
+
+/**
+ * Browser-saved HTML (especially SingleFile) needs a DOM-aware preprocessing pass before the
+ * generic importer sees it. The base reader still owns file validation/title/source detection;
+ * this wrapper only narrows the document to its article root and de-duplicates embedded images.
+ */
+export async function readMarkdownFiles(files: FileList | File[]): Promise<ImportFileInfo[]> {
+  const fileInfos = await readMarkdownFilesBase(files);
+  return fileInfos.map((fileInfo) => {
+    if (!HTML_IMPORT_SOURCES.has(String(fileInfo.source || ""))) return fileInfo;
+    return {
+      ...fileInfo,
+      content: normalizeImportedHtmlContent(fileInfo.content),
+    };
+  });
 }
 
 /**

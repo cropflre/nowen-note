@@ -479,10 +479,7 @@ public class ShareImportPlugin extends Plugin {
         if ("attachment".equals(destination)) writeField(preamble, boundary, "noteId", noteId);
         if ("files".equals(destination) && !folderId.isEmpty()) writeField(preamble, boundary, "folderId", folderId);
         writeUtf8(preamble, "--" + boundary + "\r\n");
-        String asciiName = displayName.replaceAll("[^\\x20-\\x7E]", "_").replace("\\", "_").replace("\"", "_");
-        String encodedName = URLEncoder.encode(displayName, "UTF-8").replace("+", "%20");
-        writeUtf8(preamble, "Content-Disposition: form-data; name=\"file\"; filename=\"" + asciiName + "\"; filename*=UTF-8''" + encodedName + "\r\n");
-        writeUtf8(preamble, "Content-Type: " + (mimeType.isEmpty() ? "application/octet-stream" : mimeType) + "\r\n\r\n");
+        writeUtf8(preamble, buildMultipartFileHeaders(displayName, mimeType));
         byte[] preambleBytes = preamble.toByteArray();
         byte[] trailerBytes = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
         long contentLength = preambleBytes.length + file.length() + trailerBytes.length;
@@ -547,6 +544,13 @@ public class ShareImportPlugin extends Plugin {
             ACTIVE_UPLOADS.remove(itemId);
             connection.disconnect();
         }
+    }
+
+    static String buildMultipartFileHeaders(String displayName, String mimeType) {
+        String asciiName = displayName.replaceAll("[^\\x20-\\x7E]", "_").replace("\\", "_").replace("\"", "_");
+        // Node/Hono 的 multipart 解析器不接受 filename*=，使用安全的 ASCII 回退文件名。
+        return "Content-Disposition: form-data; name=\"file\"; filename=\"" + asciiName + "\"\r\n"
+            + "Content-Type: " + (mimeType.isEmpty() ? "application/octet-stream" : mimeType) + "\r\n\r\n";
     }
 
     private static URL buildEndpoint(String apiBaseUrl, String destination, String workspaceId) throws Exception {
