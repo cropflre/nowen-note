@@ -16,6 +16,7 @@ on:
       - "backend/src/services/note-deletion-effects-runtime.ts"
       - "backend/src/services/note-deletion-realtime-runtime.ts"
       - "backend/src/services/note-deletion-runtime.ts"
+      - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -34,6 +35,7 @@ on:
       - "backend/src/services/note-deletion-effects-runtime.ts"
       - "backend/src/services/note-deletion-realtime-runtime.ts"
       - "backend/src/services/note-deletion-runtime.ts"
+      - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -140,7 +142,7 @@ jobs:
             "GET /api/notes/:id",
             "DELETE /api/notes/:id",
             "DELETE /api/notes/trash/empty",
-            "WS /ws (note deletion events only)",
+            "WS /ws (subscriptions, presence, cursor and note/workspace events)",
           ]) {
             if (!health.runtime?.migratedRoutes?.includes(route)) {
               throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
@@ -149,11 +151,24 @@ jobs:
           for (const capability of [
             "note deletion audit logs",
             "note deletion webhooks",
-            "single and batch note deletion realtime events",
+            "note and workspace room subscriptions",
+            "note presence, editing and cursor events",
+            "connection recovery through idempotent resubscription",
+            "note create/update/trash/restore/move/reorder realtime events",
+            "single and batch permanent deletion realtime events",
           ]) {
             if (!health.runtime?.migratedCapabilities?.includes(capability)) {
               throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
             }
+          }
+          if (health.runtime?.pendingCapabilities?.includes("full realtime subscriptions, presence and yjs write routes")) {
+            throw new Error(`stale pending capability: ${JSON.stringify(health.runtime)}`);
+          }
+          if (!health.runtime?.pendingCapabilities?.includes("yjs realtime join, sync, awareness and binary write routes")) {
+            throw new Error(`missing Yjs pending boundary: ${JSON.stringify(health.runtime)}`);
+          }
+          if (health.runtime?.realtime?.attached !== true || health.runtime?.realtime?.clients !== 0) {
+            throw new Error(`unexpected realtime stats: ${JSON.stringify(health.runtime?.realtime)}`);
           }
           if (!status.includes("collection_status=401") || collection.code !== "UNAUTHENTICATED") {
             throw new Error(`unexpected collection authentication boundary: ${status}\n${JSON.stringify(collection)}`);
