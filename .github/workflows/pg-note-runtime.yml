@@ -15,6 +15,8 @@ on:
       - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/src/services/postgres-realtime-runtime.ts"
+      - "backend/src/services/postgres-yjs-read-runtime.ts"
       - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
@@ -24,6 +26,8 @@ on:
       - "backend/tests/note-realtime-route-pg.test.ts"
       - "backend/tests/note-trash-empty-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
+      - "backend/tests/postgres-realtime-yjs-pg.test.ts"
+      - "backend/tests/postgres-yjs-read-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
   pull_request:
     paths:
@@ -38,6 +42,8 @@ on:
       - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
+      - "backend/src/services/postgres-realtime-runtime.ts"
+      - "backend/src/services/postgres-yjs-read-runtime.ts"
       - "backend/tests/note-collection-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-pg.test.ts"
       - "backend/tests/note-core-runtime-formats-pg.test.ts"
@@ -47,6 +53,8 @@ on:
       - "backend/tests/note-realtime-route-pg.test.ts"
       - "backend/tests/note-trash-empty-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
+      - "backend/tests/postgres-realtime-yjs-pg.test.ts"
+      - "backend/tests/postgres-yjs-read-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
   workflow_dispatch:
 
@@ -56,7 +64,7 @@ permissions:
 jobs:
   note-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -90,7 +98,7 @@ jobs:
         run: |
           set -o pipefail
           npm run build:tsc -- --noEmit 2>&1 | tee /tmp/pg-note-runtime.log
-      - name: Real PostgreSQL note runtime tests
+      - name: Real PostgreSQL note and realtime tests
         shell: bash
         run: |
           set -o pipefail
@@ -105,6 +113,8 @@ jobs:
             tests/note-deletion-effects-runtime-pg.test.ts \
             tests/note-deletion-realtime-runtime-pg.test.ts \
             tests/note-realtime-route-pg.test.ts \
+            tests/postgres-yjs-read-runtime-pg.test.ts \
+            tests/postgres-realtime-yjs-pg.test.ts \
             2>&1 | tee -a /tmp/pg-note-runtime.log
       - name: Upload note runtime diagnostics
         if: always()
