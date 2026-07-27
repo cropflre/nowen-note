@@ -13,6 +13,8 @@ on:
       - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-effects-runtime.ts"
+      - "backend/src/services/note-deletion-realtime-runtime.ts"
       - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
@@ -29,6 +31,8 @@ on:
       - "backend/src/services/attachment-deletion-runtime.ts"
       - "backend/src/services/note-collection-runtime.ts"
       - "backend/src/services/note-core-runtime.ts"
+      - "backend/src/services/note-deletion-effects-runtime.ts"
+      - "backend/src/services/note-deletion-realtime-runtime.ts"
       - "backend/src/services/note-deletion-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/build.bundle.mjs"
@@ -136,9 +140,19 @@ jobs:
             "GET /api/notes/:id",
             "DELETE /api/notes/:id",
             "DELETE /api/notes/trash/empty",
+            "WS /ws (note deletion events only)",
           ]) {
             if (!health.runtime?.migratedRoutes?.includes(route)) {
               throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
+            }
+          }
+          for (const capability of [
+            "note deletion audit logs",
+            "note deletion webhooks",
+            "single and batch note deletion realtime events",
+          ]) {
+            if (!health.runtime?.migratedCapabilities?.includes(capability)) {
+              throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
             }
           }
           if (!status.includes("collection_status=401") || collection.code !== "UNAUTHENTICATED") {
