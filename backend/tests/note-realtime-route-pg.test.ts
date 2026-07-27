@@ -9,7 +9,7 @@ import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-d
 const USER = "pg-realtime-route-user";
 const NOTEBOOK_A = "pg-realtime-route-notebook-a";
 const NOTEBOOK_B = "pg-realtime-route-notebook-b";
-const NOTE = "a1111111-1111-4111-8111-111111111111";
+const NOTE = "e1111111-1111-4111-8111-111111111111";
 const CONNECTION = "pg-realtime-route-connection";
 
 async function requestJson(
@@ -55,43 +55,20 @@ test("PostgreSQL notes router publishes mutation events only after commits", { s
     const router = createNotesRuntimeRouter(adapter, "postgres", {}, {
       publishMutation: async (event) => {
         if (event.kind === "note.created") {
-          const row = await pool.query(
-            `SELECT title, version FROM notes WHERE id = $1`,
-            [event.note.id],
-          );
+          const row = await pool.query(`SELECT title, version FROM notes WHERE id = $1`, [event.note.id]);
           assert.equal(row.rowCount, 1);
-          assert.equal(row.rows[0].title, "Created");
-          assert.equal(row.rows[0].version, 1);
+          assert.deepEqual([row.rows[0].title, row.rows[0].version], ["Created", 1]);
         } else if (event.kind === "note.updated") {
-          const row = await pool.query(
-            `SELECT title, version FROM notes WHERE id = $1`,
-            [event.note.id],
-          );
-          assert.equal(row.rows[0].title, "Updated");
-          assert.equal(row.rows[0].version, 2);
-        } else if (event.kind === "note.trashed") {
-          const row = await pool.query(
-            `SELECT "isTrashed" FROM notes WHERE id = $1`,
-            [event.note.id],
-          );
-          assert.equal(row.rows[0].isTrashed, true);
-        } else if (event.kind === "note.restored") {
-          const row = await pool.query(
-            `SELECT "isTrashed" FROM notes WHERE id = $1`,
-            [event.note.id],
-          );
-          assert.equal(row.rows[0].isTrashed, false);
+          const row = await pool.query(`SELECT title, version FROM notes WHERE id = $1`, [event.note.id]);
+          assert.deepEqual([row.rows[0].title, row.rows[0].version], ["Updated", 2]);
+        } else if (event.kind === "note.trashed" || event.kind === "note.restored") {
+          const row = await pool.query(`SELECT "isTrashed" FROM notes WHERE id = $1`, [event.note.id]);
+          assert.equal(row.rows[0].isTrashed, event.kind === "note.trashed");
         } else if (event.kind === "note.moved") {
-          const row = await pool.query(
-            `SELECT "notebookId" FROM notes WHERE id = $1`,
-            [event.note.id],
-          );
+          const row = await pool.query(`SELECT "notebookId" FROM notes WHERE id = $1`, [event.note.id]);
           assert.equal(row.rows[0].notebookId, NOTEBOOK_B);
-        } else if (event.kind === "notes.reordered") {
-          const row = await pool.query(
-            `SELECT "sortOrder" FROM notes WHERE id = $1`,
-            [NOTE],
-          );
+        } else {
+          const row = await pool.query(`SELECT "sortOrder" FROM notes WHERE id = $1`, [NOTE]);
           assert.equal(row.rows[0].sortOrder, 77);
         }
         events.push(event);
@@ -107,8 +84,7 @@ test("PostgreSQL notes router publishes mutation events only after commits", { s
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json() as Record<string, unknown>;
-    assert.equal(created.id, NOTE);
-    assert.equal(created.version, 1);
+    assert.deepEqual([created.id, created.version], [NOTE, 1]);
 
     const staleEventCount = events.length;
     const staleResponse = await requestJson(router, `/${NOTE}`, "PUT", {
@@ -124,32 +100,23 @@ test("PostgreSQL notes router publishes mutation events only after commits", { s
     });
     assert.equal(updatedResponse.status, 200);
     const updated = await updatedResponse.json() as Record<string, unknown>;
-    assert.equal(updated.title, "Updated");
-    assert.equal(updated.version, 2);
+    assert.deepEqual([updated.title, updated.version], ["Updated", 2]);
 
-    const trashedResponse = await requestJson(router, `/${NOTE}`, "PUT", { isTrashed: 1 });
-    assert.equal(trashedResponse.status, 200);
-    const restoredResponse = await requestJson(router, `/${NOTE}`, "PUT", { isTrashed: 0 });
-    assert.equal(restoredResponse.status, 200);
-    const movedResponse = await requestJson(router, `/${NOTE}`, "PUT", { notebookId: NOTEBOOK_B });
-    assert.equal(movedResponse.status, 200);
-
-    const reorderedResponse = await requestJson(router, "/reorder/batch", "PUT", {
+    assert.equal((await requestJson(router, `/${NOTE}`, "PUT", { isTrashed: 1 })).status, 200);
+    assert.equal((await requestJson(router, `/${NOTE}`, "PUT", { isTrashed: 0 })).status, 200);
+    assert.equal((await requestJson(router, `/${NOTE}`, "PUT", { notebookId: NOTEBOOK_B })).status, 200);
+    assert.equal((await requestJson(router, "/reorder/batch", "PUT", {
       items: [{ id: NOTE, sortOrder: 77 }],
-    });
-    assert.equal(reorderedResponse.status, 200);
+    })).status, 200);
 
-    assert.deepEqual(
-      events.map((event) => event.kind),
-      [
-        "note.created",
-        "note.updated",
-        "note.trashed",
-        "note.restored",
-        "note.moved",
-        "notes.reordered",
-      ],
-    );
+    assert.deepEqual(events.map((event) => event.kind), [
+      "note.created",
+      "note.updated",
+      "note.trashed",
+      "note.restored",
+      "note.moved",
+      "notes.reordered",
+    ]);
     for (const event of events) {
       assert.equal(event.actorUserId, USER);
       assert.equal(event.actorConnectionId, CONNECTION);
@@ -188,17 +155,15 @@ test("realtime publishing failure warns without rolling back committed note writ
       version: number;
       runtimeWarnings?: string[];
     };
-    assert.equal(body.title, "Committed during outage");
-    assert.equal(body.version, 2);
-    assert.equal(body.runtimeWarnings?.length, 1);
+    assert.deepEqual([body.title, body.version, body.runtimeWarnings?.length], [
+      "Committed during outage",
+      2,
+      1,
+    ]);
     assert.match(body.runtimeWarnings?.[0] || "", /simulated realtime outage/);
 
-    const stored = await pool.query(
-      `SELECT title, version FROM notes WHERE id = $1`,
-      [NOTE],
-    );
-    assert.equal(stored.rows[0].title, "Committed during outage");
-    assert.equal(stored.rows[0].version, 2);
+    const stored = await pool.query(`SELECT title, version FROM notes WHERE id = $1`, [NOTE]);
+    assert.deepEqual([stored.rows[0].title, stored.rows[0].version], ["Committed during outage", 2]);
   } finally {
     await closePgPool(pool);
   }
