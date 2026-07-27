@@ -16,7 +16,7 @@ const MEMBER = "pg-yws-member";
 const OUTSIDER = "pg-yws-outsider";
 const WORKSPACE = "pg-yws-workspace";
 const NOTEBOOK = "pg-yws-notebook";
-const NOTE = "e1111111-1111-4111-8111-111111111111";
+const NOTE = "e91f6e2c-5b41-4af0-9e6d-cc0f71b2a864";
 
 interface ConnectedClient {
   ws: WebSocket;
@@ -91,6 +91,7 @@ function decodeYDoc(stateBase64: string): Y.Doc {
 
 async function prepareFixture(pool: import("pg").Pool): Promise<Uint8Array> {
   await initPgSchema(pool);
+  await pool.query(`DELETE FROM notes WHERE id = $1`, [NOTE]);
   await pool.query(`DELETE FROM users WHERE id = ANY($1::text[])`, [[OWNER, MEMBER, OUTSIDER]]);
   for (const userId of [OWNER, MEMBER, OUTSIDER]) {
     await pool.query(
