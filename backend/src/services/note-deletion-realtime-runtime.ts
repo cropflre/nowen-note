@@ -25,8 +25,9 @@ interface WorkspaceOwnerRow {
   ownerId: string;
 }
 
-interface WorkspaceMemberRow {
-  userId: string;
+interface NoteWorkspaceRow {
+  workspaceId: string | null;
+  ownerId: string | null;
 }
 
 interface ClientInfo {
@@ -81,7 +82,11 @@ export interface NoteDeletionRealtimeRuntime {
   attach(server: Server): void;
   publish(event: NoteDeletionCommittedEvent): Promise<void>;
   publishMutation(event: NoteRuntimeMutationEvent): Promise<void>;
-  publishToUser(userId: string, message: Record<string, unknown>, excludeConnectionId?: string | null): void;
+  publishToUser(
+    userId: string,
+    message: Record<string, unknown>,
+    excludeConnectionId?: string | null,
+  ): void;
   close(): Promise<void>;
   getStats(): {
     clients: number;
@@ -97,21 +102,21 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const CLIENT_TIMEOUT_MS = 60_000;
 const MAX_ROOM_ID_LENGTH = 200;
 
-function unauthorized(socket: any, status = "401 Unauthorized"): void {
+function isDisabled(value: boolean | number): boolean {
+  return value === true || value === 1;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function rejectUpgrade(socket: any, status = "401 Unauthorized"): void {
   try {
     socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
   } catch {}
   try {
     socket.destroy();
   } catch {}
-}
-
-function disabled(value: boolean | number): boolean {
-  return value === true || value === 1;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function createNoteDeletionRealtimeRuntime(
@@ -136,17 +141,17 @@ export function createNoteDeletionRealtimeRuntime(
 
   function addClient(client: RuntimeClient): void {
     clients.set(client.info.connectionId, client);
-    const userConnections = clientsByUser.get(client.info.userId) ?? new Set<string>();
-    userConnections.add(client.info.connectionId);
-    clientsByUser.set(client.info.userId, userConnections);
+    const connections = clientsByUser.get(client.info.userId) ?? new Set<string>();
+    connections.add(client.info.connectionId);
+    clientsByUser.set(client.info.userId, connections);
   }
 
   function removeClientIndex(info: ClientInfo): void {
     clients.delete(info.connectionId);
-    const userConnections = clientsByUser.get(info.userId);
-    if (!userConnections) return;
-    userConnections.delete(info.connectionId);
-    if (userConnections.size === 0) clientsByUser.delete(info.userId);
+    const connections = clientsByUser.get(info.userId);
+    if (!connections) return;
+    connections.delete(info.connectionId);
+    if (connections.size === 0) clientsByUser.delete(info.userId);
   }
 
   function joinRoom(connectionId: string, room: string): void {
@@ -160,23 +165,17 @@ export function createNoteDeletionRealtimeRuntime(
 
   function leaveRoom(connectionId: string, room: string): void {
     const members = rooms.get(room);
-    if (members) {
-      members.delete(connectionId);
-      if (members.size === 0) rooms.delete(room);
-    }
+    members?.delete(connectionId);
+    if (members?.size === 0) rooms.delete(room);
     clients.get(connectionId)?.info.rooms.delete(room);
   }
 
   function collectRoomTargets(room: string, target: Set<string>): void {
-    const members = rooms.get(room);
-    if (!members) return;
-    for (const connectionId of members) target.add(connectionId);
+    for (const connectionId of rooms.get(room) ?? []) target.add(connectionId);
   }
 
   function collectUserTargets(userId: string, target: Set<string>): void {
-    const userConnections = clientsByUser.get(userId);
-    if (!userConnections) return;
-    for (const connectionId of userConnections) target.add(connectionId);
+    for (const connectionId of clientsByUser.get(userId) ?? []) target.add(connectionId);
   }
 
   function sendTargets(
@@ -211,28 +210,21 @@ export function createNoteDeletionRealtimeRuntime(
     sendTargets(target, message, excludeConnectionId);
   }
 
-  function buildPresence(noteId: string): Array<{
-    userId: string;
-    username: string;
-    connectionId: string;
-    editing: boolean;
-  }> {
+  function presenceUsers(noteId: string) {
     const result: Array<{
       userId: string;
       username: string;
       connectionId: string;
       editing: boolean;
     }> = [];
-    const members = rooms.get(`note:${noteId}`);
-    if (!members) return result;
-    for (const connectionId of members) {
+    for (const connectionId of rooms.get(`note:${noteId}`) ?? []) {
       const client = clients.get(connectionId);
-      if (!client) continue;
+      if (!client || client.info.activeNoteId !== noteId) continue;
       result.push({
         userId: client.info.userId,
         username: client.info.username,
         connectionId,
-        editing: client.info.editing && client.info.activeNoteId === noteId,
+        editing: client.info.editing,
       });
     }
     return result;
@@ -242,7 +234,7 @@ export function createNoteDeletionRealtimeRuntime(
     broadcastRoom(`note:${noteId}`, {
       type: "presence",
       noteId,
-      users: buildPresence(noteId),
+      users: presenceUsers(noteId),
     });
   }
 
@@ -254,7 +246,7 @@ export function createNoteDeletionRealtimeRuntime(
          FROM users WHERE id = ?`,
       [payload.userId],
     );
-    if (!user || disabled(user.isDisabled)) return null;
+    if (!user || isDisabled(user.isDisabled)) return null;
     if ((payload.tver ?? 0) !== (user.tokenVersion ?? 0)) return null;
 
     if (payload.jti) {
@@ -269,66 +261,92 @@ export function createNoteDeletionRealtimeRuntime(
     return user;
   }
 
-  async function canJoinNoteRoom(noteId: string, userId: string): Promise<boolean> {
-    const resolved = await noteCore.resolveNotePermissionAsync(noteId, userId);
-    return resolved.permission !== null;
-  }
-
   async function canJoinWorkspaceRoom(
     workspaceId: string,
-    userId: string,
-    role: string,
+    info: Pick<ClientInfo, "userId" | "role">,
   ): Promise<boolean> {
-    if (role === "admin") return true;
-    const owner = await adapter.queryOne<WorkspaceOwnerRow>(
+    const workspace = await adapter.queryOne<WorkspaceOwnerRow>(
       `SELECT "ownerId" AS "ownerId" FROM workspaces WHERE id = ?`,
       [workspaceId],
     );
-    if (!owner) return false;
-    if (owner.ownerId === userId) return true;
-    const member = await adapter.queryOne<{ present: number }>(
+    if (!workspace) return false;
+    if (info.role === "admin" || workspace.ownerId === info.userId) return true;
+    return Boolean(await adapter.queryOne<{ present: number }>(
       `SELECT 1 AS present FROM workspace_members WHERE "workspaceId" = ? AND "userId" = ?`,
-      [workspaceId, userId],
+      [workspaceId, info.userId],
+    ));
+  }
+
+  async function canJoinNoteRoom(
+    noteId: string,
+    info: Pick<ClientInfo, "userId" | "role">,
+  ): Promise<boolean> {
+    const note = await adapter.queryOne<NoteWorkspaceRow>(
+      `SELECT n."workspaceId" AS "workspaceId", w."ownerId" AS "ownerId"
+         FROM notes n
+         LEFT JOIN workspaces w ON w.id = n."workspaceId"
+        WHERE n.id = ?`,
+      [noteId],
     );
-    return Boolean(member);
+    if (!note) return false;
+    if (info.role === "admin" || note.ownerId === info.userId) return true;
+    const resolved = await noteCore.resolveNotePermissionAsync(noteId, info.userId);
+    return resolved.permission !== null;
+  }
+
+  function roomError(client: RuntimeClient, room: string, code: string, error: string): void {
+    send(client.ws, { type: "error", room, code, error });
   }
 
   async function subscribe(connectionId: string, room: string): Promise<void> {
     const client = clients.get(connectionId);
     if (!client) return;
     if (!room || room.length > MAX_ROOM_ID_LENGTH) {
-      send(client.ws, { type: "error", error: "Invalid room", code: "INVALID_ROOM", room });
+      roomError(client, room, "INVALID_ROOM", "Invalid room");
       return;
     }
 
     if (room.startsWith("note:")) {
       const noteId = room.slice(5);
-      if (!noteId || !(await canJoinNoteRoom(noteId, client.info.userId))) {
-        send(client.ws, { type: "error", error: "Forbidden", code: "FORBIDDEN", room });
+      if (!noteId || !(await canJoinNoteRoom(noteId, client.info))) {
+        roomError(client, room, "FORBIDDEN", "Forbidden");
         return;
       }
       joinRoom(connectionId, room);
-      const previous = client.info.activeNoteId;
-      client.info.activeNoteId = noteId;
-      if (previous && previous !== noteId) broadcastPresence(previous);
       broadcastPresence(noteId);
       return;
     }
 
     if (room.startsWith("workspace:")) {
       const workspaceId = room.slice(10);
-      if (
-        !workspaceId
-        || !(await canJoinWorkspaceRoom(workspaceId, client.info.userId, client.info.role))
-      ) {
-        send(client.ws, { type: "error", error: "Forbidden", code: "FORBIDDEN", room });
+      if (!workspaceId || !(await canJoinWorkspaceRoom(workspaceId, client.info))) {
+        roomError(client, room, "FORBIDDEN", "Forbidden");
         return;
       }
       joinRoom(connectionId, room);
       return;
     }
 
-    send(client.ws, { type: "error", error: "Unknown room type", code: "UNKNOWN_ROOM", room });
+    roomError(client, room, "UNKNOWN_ROOM", "Unknown room type");
+  }
+
+  async function setPresence(client: RuntimeClient, noteId: string | null, editing: boolean): Promise<void> {
+    const previous = client.info.activeNoteId;
+    if (!noteId) {
+      client.info.activeNoteId = null;
+      client.info.editing = false;
+      if (previous) broadcastPresence(previous);
+      return;
+    }
+    if (!(await canJoinNoteRoom(noteId, client.info))) {
+      send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" });
+      return;
+    }
+    joinRoom(client.info.connectionId, `note:${noteId}`);
+    client.info.activeNoteId = noteId;
+    client.info.editing = editing;
+    if (previous && previous !== noteId) broadcastPresence(previous);
+    broadcastPresence(noteId);
   }
 
   async function handleMessage(connectionId: string, data: RawData): Promise<void> {
@@ -340,7 +358,7 @@ export function createNoteDeletionRealtimeRuntime(
     try {
       message = JSON.parse(data.toString()) as ClientMessage;
     } catch {
-      send(client.ws, { type: "error", error: "Invalid JSON", code: "INVALID_JSON" });
+      send(client.ws, { type: "error", code: "INVALID_JSON", error: "Invalid JSON" });
       return;
     }
 
@@ -348,12 +366,10 @@ export function createNoteDeletionRealtimeRuntime(
       send(client.ws, { type: "pong", t: Date.now() });
       return;
     }
-
     if (message.type === "subscribe") {
       await subscribe(connectionId, String(message.room || ""));
       return;
     }
-
     if (message.type === "unsubscribe") {
       const room = String(message.room || "");
       if (!room) return;
@@ -368,123 +384,74 @@ export function createNoteDeletionRealtimeRuntime(
       }
       return;
     }
-
     if (message.type === "presence") {
-      const nextNoteId = typeof message.noteId === "string" && message.noteId
-        ? message.noteId
-        : null;
-      const previous = client.info.activeNoteId;
-      if (!nextNoteId) {
-        client.info.activeNoteId = null;
-        client.info.editing = false;
-        if (previous) broadcastPresence(previous);
-        return;
-      }
-      if (!(await canJoinNoteRoom(nextNoteId, client.info.userId))) {
-        send(client.ws, {
-          type: "error",
-          error: "Forbidden",
-          code: "FORBIDDEN",
-          noteId: nextNoteId,
-        });
-        return;
-      }
-      joinRoom(connectionId, `note:${nextNoteId}`);
-      client.info.activeNoteId = nextNoteId;
-      client.info.editing = Boolean(message.editing);
-      if (previous && previous !== nextNoteId) broadcastPresence(previous);
-      broadcastPresence(nextNoteId);
+      const noteId = typeof message.noteId === "string" && message.noteId ? message.noteId : null;
+      await setPresence(client, noteId, Boolean(message.editing));
       return;
     }
-
     if (message.type === "editing") {
       const noteId = typeof message.noteId === "string" && message.noteId
         ? message.noteId
         : client.info.activeNoteId;
-      if (!noteId || !client.info.rooms.has(`note:${noteId}`)) {
-        send(client.ws, {
-          type: "error",
-          error: "Not subscribed",
-          code: "NOT_SUBSCRIBED",
-          noteId,
-        });
+      if (!noteId || client.info.activeNoteId !== noteId || !client.info.rooms.has(`note:${noteId}`)) {
+        send(client.ws, { type: "error", noteId, code: "NOT_SUBSCRIBED", error: "Not subscribed" });
         return;
       }
-      client.info.activeNoteId = noteId;
       client.info.editing = Boolean(message.editing);
       broadcastPresence(noteId);
       return;
     }
-
     if (message.type === "cursor") {
       const noteId = typeof message.noteId === "string" && message.noteId
         ? message.noteId
         : client.info.activeNoteId;
-      if (!noteId || !client.info.rooms.has(`note:${noteId}`)) return;
-      broadcastRoom(
-        `note:${noteId}`,
-        {
-          type: "presence",
-          noteId,
-          cursorUpdate: {
-            userId: client.info.userId,
-            username: client.info.username,
-            connectionId,
-            cursor: message.cursor || null,
-          },
+      if (!noteId || client.info.activeNoteId !== noteId || !client.info.rooms.has(`note:${noteId}`)) return;
+      broadcastRoom(`note:${noteId}`, {
+        type: "presence",
+        noteId,
+        cursorUpdate: {
+          userId: client.info.userId,
+          username: client.info.username,
+          connectionId,
+          cursor: message.cursor || null,
         },
-        connectionId,
-      );
+      }, connectionId);
       return;
     }
-
     if (message.type?.startsWith("y:")) {
       send(client.ws, {
         type: "error",
-        error: "PostgreSQL Yjs realtime routes are not migrated yet",
-        code: "POSTGRES_YJS_MIGRATION_PENDING",
         noteId: message.noteId || null,
+        code: "POSTGRES_YJS_MIGRATION_PENDING",
+        error: "PostgreSQL Yjs realtime routes are not migrated yet",
       });
       return;
     }
-
     send(client.ws, {
       type: "error",
-      error: "Unknown message type",
       code: "UNKNOWN_MESSAGE_TYPE",
+      error: "Unknown message type",
     });
   }
 
   function cleanupClient(connectionId: string): void {
     const client = clients.get(connectionId);
     if (!client) return;
-    const previousNoteId = client.info.activeNoteId;
+    const previous = client.info.activeNoteId;
     for (const room of Array.from(client.info.rooms)) leaveRoom(connectionId, room);
     removeClientIndex(client.info);
-    if (previousNoteId) broadcastPresence(previousNoteId);
+    if (previous) broadcastPresence(previous);
   }
 
   const upgradeHandler = async (req: IncomingMessage, socket: any, head: Buffer) => {
     try {
-      if (!req.url) {
-        unauthorized(socket, "400 Bad Request");
-        return;
-      }
+      if (!req.url) return rejectUpgrade(socket, "400 Bad Request");
       const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-      if (url.pathname !== "/ws") {
-        unauthorized(socket, "404 Not Found");
-        return;
-      }
+      if (url.pathname !== "/ws") return rejectUpgrade(socket, "404 Not Found");
       const token = url.searchParams.get("token");
-      if (!token) {
-        unauthorized(socket);
-        return;
-      }
+      if (!token) return rejectUpgrade(socket);
       const user = await authenticate(token);
-      if (!user || !wss) {
-        unauthorized(socket);
-        return;
-      }
+      if (!user || !wss) return rejectUpgrade(socket);
 
       wss.handleUpgrade(req, socket, head, (ws) => {
         const info: ClientInfo = {
@@ -512,10 +479,10 @@ export function createNoteDeletionRealtimeRuntime(
           ],
           pendingCapabilities: ["yjs-realtime"],
         });
-        ws.on("message", (data) => {
-          void handleMessage(info.connectionId, data).catch((error) => {
+        ws.on("message", (raw) => {
+          void handleMessage(info.connectionId, raw).catch((error) => {
             console.warn("[postgres-realtime-runtime] message failed:", errorMessage(error));
-            send(ws, { type: "error", error: "Realtime message failed", code: "REALTIME_FAILED" });
+            send(ws, { type: "error", code: "REALTIME_FAILED", error: "Realtime message failed" });
           });
         });
         ws.on("close", () => cleanupClient(info.connectionId));
@@ -523,7 +490,7 @@ export function createNoteDeletionRealtimeRuntime(
       });
     } catch (error) {
       console.warn("[postgres-realtime-runtime] upgrade failed:", errorMessage(error));
-      unauthorized(socket);
+      rejectUpgrade(socket);
     }
   };
 
@@ -549,14 +516,14 @@ export function createNoteDeletionRealtimeRuntime(
     console.log("[postgres-realtime-runtime] room and presence hub attached at /ws");
   }
 
-  async function workspaceRecipientUserIds(workspaceId: string): Promise<Set<string>> {
+  async function workspaceRecipients(workspaceId: string): Promise<Set<string>> {
     const recipients = new Set<string>();
-    const owner = await adapter.queryOne<WorkspaceOwnerRow>(
+    const workspace = await adapter.queryOne<WorkspaceOwnerRow>(
       `SELECT "ownerId" AS "ownerId" FROM workspaces WHERE id = ?`,
       [workspaceId],
     );
-    if (owner?.ownerId) recipients.add(owner.ownerId);
-    const members = await adapter.queryMany<WorkspaceMemberRow>(
+    if (workspace?.ownerId) recipients.add(workspace.ownerId);
+    const members = await adapter.queryMany<{ userId: string }>(
       `SELECT "userId" AS "userId" FROM workspace_members WHERE "workspaceId" = ?`,
       [workspaceId],
     );
@@ -569,30 +536,29 @@ export function createNoteDeletionRealtimeRuntime(
     collectUserTargets(event.actorUserId, target);
     if (event.workspaceId) {
       collectRoomTargets(`workspace:${event.workspaceId}`, target);
-      for (const userId of await workspaceRecipientUserIds(event.workspaceId)) {
-        collectUserTargets(userId, target);
-      }
+      for (const userId of await workspaceRecipients(event.workspaceId)) collectUserTargets(userId, target);
     }
 
-    const message = event.kind === "note.deleted"
-      ? {
-          type: "note:deleted",
-          noteId: event.noteId,
-          actorConnectionId: null,
-          actorUserId: event.actorUserId,
-          workspaceId: event.workspaceId,
-          trashed: false,
-        }
-      : {
-          type: "notes:deleted",
-          noteIds: event.noteIds,
-          actorUserId: event.actorUserId,
-          workspaceId: event.workspaceId,
-          trashed: false,
-        };
+    if (event.kind === "note.deleted") {
+      collectRoomTargets(`note:${event.noteId}`, target);
+      sendTargets(target, {
+        type: "note:deleted",
+        noteId: event.noteId,
+        actorConnectionId: null,
+        actorUserId: event.actorUserId,
+        workspaceId: event.workspaceId,
+        trashed: false,
+      });
+      return;
+    }
 
-    if (event.kind === "note.deleted") collectRoomTargets(`note:${event.noteId}`, target);
-    sendTargets(target, message);
+    sendTargets(target, {
+      type: "notes:deleted",
+      noteIds: event.noteIds,
+      actorUserId: event.actorUserId,
+      workspaceId: event.workspaceId,
+      trashed: false,
+    });
   }
 
   async function publishMutation(event: NoteRuntimeMutationEvent): Promise<void> {
@@ -608,15 +574,15 @@ export function createNoteDeletionRealtimeRuntime(
       }, actorConnectionId);
       if (noteIds.length === 0) return;
       const placeholders = noteIds.map(() => "?").join(",");
-      const rows = await adapter.queryMany<{ workspaceId: string | null }>(
+      const scopes = await adapter.queryMany<{ workspaceId: string | null }>(
         `SELECT DISTINCT "workspaceId" AS "workspaceId" FROM notes WHERE id IN (${placeholders})`,
         noteIds,
       );
-      for (const row of rows) {
-        if (!row.workspaceId) continue;
-        broadcastRoom(`workspace:${row.workspaceId}`, {
+      for (const scope of scopes) {
+        if (!scope.workspaceId) continue;
+        broadcastRoom(`workspace:${scope.workspaceId}`, {
           type: "workspace:updated",
-          workspaceId: row.workspaceId,
+          workspaceId: scope.workspaceId,
           kind: "notebook:updated",
           reason: "notes:reordered",
           noteIds,
@@ -634,15 +600,14 @@ export function createNoteDeletionRealtimeRuntime(
       actorUserId: event.actorUserId,
       actorConnectionId,
     };
+    const target = new Set<string>();
+    collectRoomTargets(`note:${note.id}`, target);
+    collectUserTargets(event.actorUserId, target);
 
     if (event.kind === "note.trashed") {
-      const message = { type: "note:deleted", ...common, trashed: true };
-      const target = new Set<string>();
-      collectRoomTargets(`note:${note.id}`, target);
-      collectUserTargets(event.actorUserId, target);
-      sendTargets(target, message, actorConnectionId);
+      sendTargets(target, { type: "note:deleted", ...common, trashed: true }, actorConnectionId);
     } else {
-      const message = {
+      sendTargets(target, {
         type: "note:updated",
         ...common,
         version: note.version,
@@ -650,11 +615,7 @@ export function createNoteDeletionRealtimeRuntime(
         title: note.title,
         contentText: note.contentText,
         mutationKind: event.kind,
-      };
-      const target = new Set<string>();
-      collectRoomTargets(`note:${note.id}`, target);
-      collectUserTargets(event.actorUserId, target);
-      sendTargets(target, message, actorConnectionId);
+      }, actorConnectionId);
     }
 
     publishToUser(event.actorUserId, {
@@ -670,7 +631,11 @@ export function createNoteDeletionRealtimeRuntime(
       broadcastRoom(`workspace:${note.workspaceId}`, {
         type: "workspace:updated",
         workspaceId: note.workspaceId,
-        kind: event.kind === "note.created" ? "note:created" : event.kind === "note.trashed" ? "note:deleted" : "notebook:updated",
+        kind: event.kind === "note.created"
+          ? "note:created"
+          : event.kind === "note.trashed"
+            ? "note:deleted"
+            : "notebook:updated",
         reason: event.kind,
         noteId: note.id,
         notebookId: note.notebookId,
@@ -683,7 +648,7 @@ export function createNoteDeletionRealtimeRuntime(
   async function close(): Promise<void> {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
-    if (server) server.off("upgrade", upgradeHandler);
+    server?.off("upgrade", upgradeHandler);
     for (const client of clients.values()) {
       try {
         client.ws.close(1001, "server shutdown");
@@ -692,9 +657,7 @@ export function createNoteDeletionRealtimeRuntime(
     clients.clear();
     clientsByUser.clear();
     rooms.clear();
-    if (wss) {
-      await new Promise<void>((resolve) => wss?.close(() => resolve()));
-    }
+    if (wss) await new Promise<void>((resolve) => wss?.close(() => resolve()));
     wss = null;
     server = null;
   }
@@ -704,7 +667,7 @@ export function createNoteDeletionRealtimeRuntime(
     let workspaceRooms = 0;
     for (const room of rooms.keys()) {
       if (room.startsWith("note:")) noteRooms += 1;
-      if (room.startsWith("workspace:")) workspaceRooms += 1;
+      else if (room.startsWith("workspace:")) workspaceRooms += 1;
     }
     return {
       clients: clients.size,
