@@ -125,6 +125,7 @@ async function prepareFixture(pool: import("pg").Pool): Promise<Uint8Array> {
   const snapshotVector = Y.encodeStateVector(source);
   source.getText("content").insert(source.getText("content").length, " + delta");
   const delta = Y.encodeStateAsUpdate(source, snapshotVector);
+  source.destroy();
   await pool.query(
     `INSERT INTO note_ysnapshots ("noteId", snapshot_blob, "updatesMergedTo") VALUES ($1, $2, 0)`,
     [NOTE, Buffer.from(snapshot)],
@@ -146,6 +147,8 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
   });
   const realtime = createPostgresRealtimeRuntime(adapter);
   const sockets: WebSocket[] = [];
+  let awareness: Awareness | null = null;
+  let awarenessDoc: Y.Doc | null = null;
 
   try {
     const snapshot = await prepareFixture(pool);
@@ -165,7 +168,9 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
     const memberSync = await waitForMessage(member.messages, "y:sync", (message) => message.noteId === NOTE);
     assert.equal(ownerSync.readOnly, true);
     assert.equal(memberSync.replayedUpdates, 1);
-    assert.equal(decodeYDoc(ownerSync.state).getText("content").toString(), "server snapshot + delta");
+    const decoded = decodeYDoc(ownerSync.state);
+    assert.equal(decoded.getText("content").toString(), "server snapshot + delta");
+    decoded.destroy();
     await waitForMessage(outsider.messages, "error", (message) => (
       message.noteId === NOTE && message.code === "FORBIDDEN"
     ));
@@ -182,9 +187,10 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
     const step2 = await waitForMessage(owner.messages, "y:sync-step2", (message) => message.noteId === NOTE);
     Y.applyUpdate(partial, new Uint8Array(Buffer.from(step2.update, "base64")));
     assert.equal(partial.getText("content").toString(), "server snapshot + delta");
+    partial.destroy();
 
-    const awarenessDoc = new Y.Doc();
-    const awareness = new Awareness(awarenessDoc);
+    awarenessDoc = new Y.Doc();
+    awareness = new Awareness(awarenessDoc);
     awareness.setLocalState({ user: { id: MEMBER, name: MEMBER } });
     const awarenessBase64 = Buffer.from(
       encodeAwarenessUpdate(awareness, [awareness.clientID]),
@@ -261,6 +267,8 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
     outsider.ws.terminate();
     await waitForCondition(() => realtime.getStats().clients === 0);
   } finally {
+    awareness?.destroy();
+    awarenessDoc?.destroy();
     for (const ws of sockets) {
       try {
         ws.terminate();
