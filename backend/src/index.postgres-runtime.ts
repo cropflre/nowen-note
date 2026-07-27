@@ -55,17 +55,21 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
-        "WS /ws (note deletion events only)",
+        "WS /ws (subscriptions, presence, cursor and note/workspace events)",
       ],
       migratedCapabilities: [
         "note deletion audit logs",
         "note deletion webhooks",
-        "single and batch note deletion realtime events",
+        "note and workspace room subscriptions",
+        "note presence, editing and cursor events",
+        "connection recovery through idempotent resubscription",
+        "note create/update/trash/restore/move/reorder realtime events",
+        "single and batch permanent deletion realtime events",
       ],
       realtime: hub.getStats(),
       pendingCapabilities: [
         "notes full-text search (#252)",
-        "full realtime subscriptions, presence and yjs write routes",
+        "yjs realtime join, sync, awareness and binary write routes",
       ],
     },
   }, status);
@@ -134,9 +138,12 @@ async function authenticateNoteRequest(c: Context, next: Next) {
 
 app.use("/api/notes", authenticateNoteRequest);
 app.use("/api/notes/*", authenticateNoteRequest);
-app.route("/api/notes", createNotesRuntimeRouter(adapter, "postgres", {
-  dispatchEffects: deletionEffects.dispatch,
-}));
+app.route("/api/notes", createNotesRuntimeRouter(
+  adapter,
+  "postgres",
+  { dispatchEffects: deletionEffects.dispatch },
+  { publishMutation: hub.publishMutation },
+));
 
 app.all("*", (c) => c.json({
   error: "PostgreSQL runtime is connected, but this route has not been migrated yet",
@@ -145,7 +152,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes runtime includes deletion audit, webhook and deletion-only realtime events; remaining business routes stay disabled until #249 completes");
+console.warn("[db] Notes runtime includes PostgreSQL-safe subscriptions, presence and note/workspace mutation events; Yjs realtime routes remain disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
