@@ -13,6 +13,7 @@ import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
+import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
 import { cn } from "@/lib/utils";
 import { useApp, useAppActions } from "@/store/AppContext";
 
@@ -52,13 +53,15 @@ export const KNOWLEDGE_TREE_SCROLLBAR_CSS = `
 
 [data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar-thumb {
   min-height: 36px;
-  border: 2px solid transparent;
+  border: 2.5px solid transparent;
   border-radius: 999px;
   background: var(--pm-scrollbar);
   background-clip: content-box;
+  transition: border-width 140ms ease, background-color 120ms ease;
 }
 
 [data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar-thumb:hover {
+  border-width: 1.5px;
   background: var(--pm-scrollbar-hover);
   background-clip: content-box;
 }
@@ -112,6 +115,12 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       window.removeEventListener(KNOWLEDGE_TREE_CHANGED_EVENT, refresh);
     };
   }, [refreshSidebarData]);
+
+  useEffect(() => {
+    if (variant !== "desktop") return;
+    refreshKnowledgeTreeScrollbars();
+    return () => refreshKnowledgeTreeScrollbars();
+  }, [variant]);
 
   useEffect(() => {
     const focusKnowledgeTree = () => {
@@ -221,7 +230,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         <div className="shrink-0 px-4 pb-1 pt-2 text-[11px] font-medium text-tx-tertiary">
           内容
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <KnowledgeTreePanel variant={variant} />
         </div>
       </section>

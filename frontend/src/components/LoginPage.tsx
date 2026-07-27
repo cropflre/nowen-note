@@ -16,6 +16,8 @@ import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
+import { AccountLoginHistoryList } from "@/components/AccountLoginHistory";
+import { consumePendingAccountReauth } from "@/lib/accountLoginHistory";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -94,6 +96,18 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
       setServerParts(parseServerUrl(window.location.origin));
     }
   }, [isClientMode]);
+
+  useEffect(() => {
+    if (!isClientMode) return;
+    const pending = consumePendingAccountReauth();
+    if (!pending) return;
+    setServerParts(parseServerUrl(pending.serverUrl));
+    setServerUrl(pending.serverUrl);
+    setServerStatus("ok");
+    setUsername(pending.username);
+    setMode("login");
+    setError(t("auth.loginHistory.sessionExpired"));
+  }, [isClientMode, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,6 +415,13 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
                 : isRegister ? t("auth.registerSubtitle") : isClientMode ? t("auth.subtitleClient") : t("auth.subtitle")}
             </p>
           </div>
+
+          {!isTwoFactorStep && !isRegister && isClientMode && (
+            <AccountLoginHistoryList
+              className="mb-5"
+              title={t("auth.loginHistory.recentAccounts")}
+            />
+          )}
 
           {!isTwoFactorStep && (
           <div className="flex items-center gap-1 p-1 mb-5 rounded-lg bg-zinc-100 dark:bg-zinc-800">

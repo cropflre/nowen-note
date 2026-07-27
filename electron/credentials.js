@@ -3,6 +3,7 @@
 const { ipcMain, safeStorage } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 let credentialsFile = null;
 
@@ -20,16 +21,30 @@ function encAvailable() {
 }
 
 function emptyStore() {
-  return { version: 2 };
+  return { version: 2, accountHistory: [] };
 }
 
 function normalizeRaw(value) {
   const raw = value && typeof value === "object" ? value : {};
+  const accountHistory = Array.isArray(raw.accountHistory)
+    ? raw.accountHistory.filter((item) => item && typeof item === "object").map((item) => ({
+        id: typeof item.id === "string" ? item.id : "",
+        serverUrl: typeof item.serverUrl === "string" ? item.serverUrl : "",
+        userId: typeof item.userId === "string" ? item.userId : "",
+        username: typeof item.username === "string" ? item.username : "",
+        displayName: typeof item.displayName === "string" ? item.displayName : "",
+        avatarUrl: typeof item.avatarUrl === "string" ? item.avatarUrl : "",
+        tokenCipher: typeof item.tokenCipher === "string" ? item.tokenCipher : "",
+        lastUsedAt: Number.isFinite(item.lastUsedAt) ? item.lastUsedAt : 0,
+        requiresReauth: !!item.requiresReauth,
+      })).filter((item) => item.id && item.serverUrl && item.userId && item.username)
+    : [];
   return {
     version: 2,
     remember: raw.remember && typeof raw.remember === "object" ? raw.remember : undefined,
     autoLogin: !!raw.autoLogin,
     savedAt: Number.isFinite(raw.savedAt) ? raw.savedAt : undefined,
+    accountHistory,
   };
 }
 
@@ -62,7 +77,7 @@ function writeRaw(value) {
 }
 
 function maybeDeleteEmptyStore(raw) {
-  if (raw.remember) return writeRaw(raw);
+  if (raw.remember || raw.accountHistory?.length) return writeRaw(raw);
   try {
     const file = getFile();
     if (fs.existsSync(file)) fs.unlinkSync(file);
@@ -144,6 +159,101 @@ function clear() {
   return { ok: maybeDeleteEmptyStore(raw) };
 }
 
+function normalizeHistoryServerUrl(value) {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeAccountHistoryItem(item) {
+  return {
+    id: item.id,
+    serverUrl: item.serverUrl,
+    userId: item.userId,
+    username: item.username,
+    displayName: item.displayName || "",
+    avatarUrl: item.avatarUrl || "",
+    lastUsedAt: item.lastUsedAt || 0,
+    requiresReauth: !!item.requiresReauth || !item.tokenCipher,
+  };
+}
+
+function listAccountHistory() {
+  return readRaw().accountHistory
+    .map(sanitizeAccountHistoryItem)
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+}
+
+function saveAccountHistory(payload) {
+  const serverUrl = normalizeHistoryServerUrl(payload?.serverUrl);
+  const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
+  const username = typeof payload?.username === "string" ? payload.username.trim() : "";
+  const token = typeof payload?.token === "string" ? payload.token : "";
+  if (!serverUrl || !userId || !username || !token) return { ok: false, error: "INVALID_PAYLOAD" };
+  const tokenCipher = encryptSecret(token);
+  if (!tokenCipher) return { ok: false, error: "ENCRYPTION_UNAVAILABLE" };
+
+  const raw = readRaw();
+  const existing = raw.accountHistory.find((item) => item.serverUrl === serverUrl && item.userId === userId);
+  const id = existing?.id || crypto.randomUUID();
+  const next = {
+    id,
+    serverUrl,
+    userId,
+    username,
+    displayName: typeof payload.displayName === "string" ? payload.displayName.trim() : "",
+    avatarUrl: typeof payload.avatarUrl === "string" ? payload.avatarUrl.trim() : "",
+    tokenCipher,
+    lastUsedAt: Number.isFinite(payload.lastUsedAt) ? payload.lastUsedAt : Date.now(),
+    requiresReauth: false,
+  };
+  raw.accountHistory = [
+    next,
+    ...raw.accountHistory.filter((item) => item.id !== id),
+  ];
+  return writeRaw(raw) ? { ok: true, id } : { ok: false, error: "WRITE_FAILED" };
+}
+
+function loadAccountHistoryToken(id) {
+  if (typeof id !== "string" || !id) return { ok: false, error: "INVALID_ID" };
+  const raw = readRaw();
+  const item = raw.accountHistory.find((entry) => entry.id === id);
+  if (!item || !item.tokenCipher) return { ok: false, error: "TOKEN_UNAVAILABLE" };
+  try {
+    const token = decryptSecret(item.tokenCipher);
+    if (!token) throw new Error("empty token");
+    return { ok: true, token };
+  } catch (error) {
+    console.warn("[credentials] account history decrypt failed:", error?.message || error);
+    item.tokenCipher = "";
+    item.requiresReauth = true;
+    writeRaw(raw);
+    return { ok: false, error: "TOKEN_UNAVAILABLE" };
+  }
+}
+
+function removeAccountHistory(id) {
+  if (typeof id !== "string" || !id) return { ok: false, error: "INVALID_ID" };
+  const raw = readRaw();
+  raw.accountHistory = raw.accountHistory.filter((item) => item.id !== id);
+  return { ok: maybeDeleteEmptyStore(raw) };
+}
+
+function markAccountHistoryRequiresReauth(id) {
+  if (typeof id !== "string" || !id) return { ok: false, error: "INVALID_ID" };
+  const raw = readRaw();
+  const item = raw.accountHistory.find((entry) => entry.id === id);
+  if (!item) return { ok: false, error: "NOT_FOUND" };
+  item.tokenCipher = "";
+  item.requiresReauth = true;
+  return { ok: writeRaw(raw) };
+}
+
 function registerCredentialsIpc() {
   const { assertMainWindowSender } = require("./security");
   const secure = (event) => assertMainWindowSender(event);
@@ -173,6 +283,41 @@ function registerCredentialsIpc() {
   ipcMain.removeHandler("credentials:is-encryption-available");
   ipcMain.handle("credentials:is-encryption-available", (event) => { const reject = secure(event); return reject || encAvailable(); });
 
+  ipcMain.removeHandler("account-history:list");
+  ipcMain.handle("account-history:list", (event) => {
+    const reject = secure(event); return reject || listAccountHistory();
+  });
+  ipcMain.removeHandler("account-history:save");
+  ipcMain.handle("account-history:save", (event, payload) => {
+    const reject = secure(event); if (reject) return reject;
+    if (!payload || typeof payload !== "object") return { ok: false, error: "INVALID_PAYLOAD" };
+    if (typeof payload.serverUrl !== "string" || payload.serverUrl.length > 2048) return { ok: false, error: "INVALID_SERVER_URL" };
+    if (typeof payload.userId !== "string" || payload.userId.length > 256) return { ok: false, error: "INVALID_USER_ID" };
+    if (typeof payload.username !== "string" || payload.username.length > 256) return { ok: false, error: "INVALID_USERNAME" };
+    if (typeof payload.token !== "string" || payload.token.length > 16384) return { ok: false, error: "INVALID_TOKEN" };
+    if (payload.displayName !== undefined && (typeof payload.displayName !== "string" || payload.displayName.length > 256)) return { ok: false, error: "INVALID_DISPLAY_NAME" };
+    if (payload.avatarUrl !== undefined && (typeof payload.avatarUrl !== "string" || payload.avatarUrl.length > 2048)) return { ok: false, error: "INVALID_AVATAR_URL" };
+    return saveAccountHistory(payload);
+  });
+  ipcMain.removeHandler("account-history:load-token");
+  ipcMain.handle("account-history:load-token", (event, id) => {
+    const reject = secure(event); if (reject) return reject;
+    if (typeof id !== "string" || id.length > 128) return { ok: false, error: "INVALID_ID" };
+    return loadAccountHistoryToken(id);
+  });
+  ipcMain.removeHandler("account-history:mark-reauth");
+  ipcMain.handle("account-history:mark-reauth", (event, id) => {
+    const reject = secure(event); if (reject) return reject;
+    if (typeof id !== "string" || id.length > 128) return { ok: false, error: "INVALID_ID" };
+    return markAccountHistoryRequiresReauth(id);
+  });
+  ipcMain.removeHandler("account-history:remove");
+  ipcMain.handle("account-history:remove", (event, id) => {
+    const reject = secure(event); if (reject) return reject;
+    if (typeof id !== "string" || id.length > 128) return { ok: false, error: "INVALID_ID" };
+    return removeAccountHistory(id);
+  });
+
 }
 
 module.exports = {
@@ -181,4 +326,9 @@ module.exports = {
   load,
   save,
   clear,
+  listAccountHistory,
+  saveAccountHistory,
+  loadAccountHistoryToken,
+  markAccountHistoryRequiresReauth,
+  removeAccountHistory,
 };

@@ -4,10 +4,15 @@ const path = require("node:path");
 
 const UPDATE_METADATA_NAME_RE = /^(?:latest(?:-[a-z0-9._-]+)?|lite(?:-[a-z0-9._-]+)?)\.ya?ml$/i;
 const SAFE_ASSET_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const BLOCKMAP_EXT_RE = /\.(?:exe|zip|appimage)$/i;
+const EXTERNAL_BLOCKMAP_EXT_RE = /\.(?:exe|zip)$/i;
+const EMBEDDED_BLOCKMAP_EXT_RE = /\.appimage$/i;
 
 function isUpdateMetadataName(name) {
   return UPDATE_METADATA_NAME_RE.test(path.basename(String(name || "")));
+}
+
+function requiresExternalBlockmap(name) {
+  return EXTERNAL_BLOCKMAP_EXT_RE.test(String(name || ""));
 }
 
 function unquoteYamlScalar(raw) {
@@ -62,11 +67,11 @@ function parseUpdateMetadata(text, source = "latest.yml") {
       continue;
     }
     if (!current) continue;
-    const property = line.match(/^(url|sha512|size)\s*:\s*(.*)$/);
+    const property = line.match(/^(url|sha512|size|blockMapSize)\s*:\s*(.*)$/);
     if (!property) continue;
-    if (property[1] === "size") {
+    if (property[1] === "size" || property[1] === "blockMapSize") {
       const parsed = Number(unquoteYamlScalar(property[2]));
-      current.size = Number.isFinite(parsed) ? parsed : null;
+      current[property[1]] = Number.isFinite(parsed) ? parsed : null;
     } else {
       current[property[1]] = unquoteYamlScalar(property[2]);
     }
@@ -158,10 +163,14 @@ function validateMetadataFile(metadataPath, options) {
     if (!file.sha512) errors.push(`${metadataName}: ${assetName} is missing sha512`);
     else if (sha512File(localPath) !== file.sha512) errors.push(`${metadataName}: ${assetName} sha512 mismatch`);
 
-    if (BLOCKMAP_EXT_RE.test(assetName)) {
+    if (requiresExternalBlockmap(assetName)) {
       const blockmapPath = `${localPath}.blockmap`;
       if (!fs.existsSync(blockmapPath) || !fs.statSync(blockmapPath).isFile() || fs.statSync(blockmapPath).size <= 0) {
         errors.push(`${metadataName}: required blockmap does not exist: ${assetName}.blockmap`);
+      }
+    } else if (EMBEDDED_BLOCKMAP_EXT_RE.test(assetName)) {
+      if (!Number.isFinite(file.blockMapSize) || file.blockMapSize <= 0) {
+        errors.push(`${metadataName}: ${assetName} is missing a valid embedded block map size`);
       }
     }
     checkedAssets.push({ name: assetName, path: localPath, size: stat.size });
@@ -234,6 +243,7 @@ module.exports = {
   discoverMetadataFiles,
   isUpdateMetadataName,
   parseUpdateMetadata,
+  requiresExternalBlockmap,
   sha512File,
   validateLocalMetadataFiles,
   validateMetadataFile,

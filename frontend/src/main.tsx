@@ -15,6 +15,7 @@ import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
 import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge";
+import EmbeddingIndexTaskCopyBridge from "./components/EmbeddingIndexTaskCopyBridge";
 import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";
 import SidebarSearchExperienceBridge from "./components/SidebarSearchExperienceBridge";
 import MindMapAppearanceBridge from "./components/MindMapAppearanceBridge";
@@ -150,6 +151,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <>
           <NoteIconBridge />
           <AIProfileSwitcherBridge />
+          <EmbeddingIndexTaskCopyBridge />
           <MarkdownExperienceBridge />
           <SidebarSearchExperienceBridge />
           <MindMapAppearanceBridge />
