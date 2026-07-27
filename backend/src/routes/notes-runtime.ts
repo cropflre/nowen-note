@@ -15,11 +15,19 @@ import {
   createNoteDeletionRuntime,
   type NoteDeletionRuntimeOptions,
 } from "../services/note-deletion-runtime";
+import type {
+  NoteRuntimeMutationEvent,
+  RealtimeNoteSnapshot,
+} from "../services/note-deletion-realtime-runtime";
 import {
   createNoteLifecycleRuntime,
   type NoteLifecycleInput,
   type NoteReorderItem,
 } from "../services/note-lifecycle-runtime";
+
+export interface NoteRuntimeRealtimeOptions {
+  publishMutation?: (event: NoteRuntimeMutationEvent) => Promise<void> | void;
+}
 
 function errorResponse(c: Context, error: unknown) {
   if (error instanceof NoteCoreRuntimeError) {
@@ -41,16 +49,65 @@ function setRuntimeWarningHeader(c: Context, ...groups: string[][]): void {
   if (count > 0) c.header("X-Nowen-Runtime-Warnings", String(count));
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function stringValue(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  return String(value ?? "");
+}
+
+function numberValue(value: unknown): number {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function realtimeSnapshot(note: Record<string, unknown>): RealtimeNoteSnapshot {
+  return {
+    id: stringValue(note.id),
+    workspaceId: note.workspaceId ? stringValue(note.workspaceId) : null,
+    version: numberValue(note.version),
+    updatedAt: stringValue(note.updatedAt),
+    title: typeof note.title === "string" ? note.title : undefined,
+    contentText: typeof note.contentText === "string" ? note.contentText : undefined,
+    notebookId: typeof note.notebookId === "string" ? note.notebookId : undefined,
+  };
+}
+
+function lifecycleMutationKind(
+  body: Record<string, unknown>,
+): "note.updated" | "note.trashed" | "note.restored" | "note.moved" {
+  if (body.isTrashed !== undefined) {
+    return body.isTrashed === true || body.isTrashed === 1 || body.isTrashed === "1"
+      ? "note.trashed"
+      : "note.restored";
+  }
+  if (body.notebookId !== undefined) return "note.moved";
+  return "note.updated";
+}
+
 export function createNotesRuntimeRouter(
   adapter?: DatabaseAdapter,
   dialect?: DatabaseDialect,
   deletionOptions: NoteDeletionRuntimeOptions = {},
+  realtimeOptions: NoteRuntimeRealtimeOptions = {},
 ) {
   const app = new Hono();
   const core = createNoteCoreRuntime(adapter, dialect);
   const collection = createNoteCollectionRuntime(adapter, dialect);
   const lifecycle = createNoteLifecycleRuntime(adapter);
   const deletion = createNoteDeletionRuntime(adapter, deletionOptions);
+  const publishMutation = realtimeOptions.publishMutation ?? (() => {});
+
+  async function publishMutationSafely(event: NoteRuntimeMutationEvent): Promise<string[]> {
+    try {
+      await publishMutation(event);
+      return [];
+    } catch (error) {
+      return [`realtime mutation event failed: ${errorMessage(error)}`];
+    }
+  }
 
   app.get("/", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
@@ -85,7 +142,18 @@ export function createNotesRuntimeRouter(
     }
 
     try {
-      return c.json(await collection.createNote(userId, body), 201);
+      const note = await collection.createNote(userId, body);
+      const realtimeWarnings = await publishMutationSafely({
+        kind: "note.created",
+        actorUserId: userId,
+        actorConnectionId: c.req.header("X-Connection-Id") || null,
+        note: realtimeSnapshot(note),
+      });
+      setRuntimeWarningHeader(c, realtimeWarnings);
+      return c.json({
+        ...note,
+        ...(realtimeWarnings.length > 0 ? { runtimeWarnings: realtimeWarnings } : {}),
+      }, 201);
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -100,7 +168,23 @@ export function createNotesRuntimeRouter(
       return c.json({ error: "请求格式错误", code: "INVALID_BODY" }, 400);
     }
     try {
-      return c.json(await lifecycle.reorderNotes(userId, body.items as NoteReorderItem[]));
+      const items = body.items as NoteReorderItem[];
+      const result = await lifecycle.reorderNotes(userId, items);
+      const skipped = new Set(result.skipped);
+      const noteIds = Array.isArray(items)
+        ? items.map((item) => item?.id).filter((id): id is string => Boolean(id) && !skipped.has(id))
+        : [];
+      const realtimeWarnings = await publishMutationSafely({
+        kind: "notes.reordered",
+        actorUserId: userId,
+        actorConnectionId: c.req.header("X-Connection-Id") || null,
+        noteIds,
+      });
+      setRuntimeWarningHeader(c, realtimeWarnings);
+      return c.json({
+        ...result,
+        ...(realtimeWarnings.length > 0 ? { runtimeWarnings: realtimeWarnings } : {}),
+      });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -163,16 +247,32 @@ export function createNotesRuntimeRouter(
           );
         }
         await lifecycle.updateNote(userId, c.req.param("id"), body as NoteLifecycleInput);
-        return c.json(await core.getNote(userId, c.req.param("id")));
+        const note = await core.getNote(userId, c.req.param("id"));
+        const realtimeWarnings = await publishMutationSafely({
+          kind: lifecycleMutationKind(body),
+          actorUserId: userId,
+          actorConnectionId: c.req.header("X-Connection-Id") || null,
+          note: realtimeSnapshot(note),
+        });
+        setRuntimeWarningHeader(c, realtimeWarnings);
+        return c.json({
+          ...note,
+          ...(realtimeWarnings.length > 0 ? { runtimeWarnings: realtimeWarnings } : {}),
+        });
       }
 
       const result = await core.saveNote(userId, c.req.param("id"), body as NoteCoreSaveInput);
-      if (result.warnings.length > 0) {
-        c.header("X-Nowen-Runtime-Warnings", String(result.warnings.length));
-      }
+      const realtimeWarnings = await publishMutationSafely({
+        kind: "note.updated",
+        actorUserId: userId,
+        actorConnectionId: c.req.header("X-Connection-Id") || null,
+        note: realtimeSnapshot(result.note),
+      });
+      const warnings = [...result.warnings, ...realtimeWarnings];
+      setRuntimeWarningHeader(c, warnings);
       return c.json({
         ...result.note,
-        ...(result.warnings.length > 0 ? { runtimeWarnings: result.warnings } : {}),
+        ...(warnings.length > 0 ? { runtimeWarnings: warnings } : {}),
       });
     } catch (error) {
       return errorResponse(c, error);
