@@ -63,6 +63,7 @@ import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
+import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";
 
 void cleanupRemovedServerProfiles();
 
@@ -86,6 +87,7 @@ function BootSplashRemover() {
 }
 
 installKnowledgeTreeScrollbarBridge();
+installWorkspaceRealtimeSubscription();
 installNodeViewMutationGuard();
 installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
