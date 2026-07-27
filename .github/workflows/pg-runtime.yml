@@ -168,6 +168,8 @@ jobs:
           tests/note-lifecycle-runtime-pg.test.ts
           tests/note-deletion-runtime-pg.test.ts
           tests/note-trash-empty-runtime-pg.test.ts
+          tests/note-deletion-effects-runtime-pg.test.ts
+          tests/note-deletion-realtime-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -226,9 +228,19 @@ jobs:
               "PUT /api/notes/reorder/batch",
               "DELETE /api/notes/:id",
               "DELETE /api/notes/trash/empty",
+              "WS /ws (note deletion events only)",
             ]) {
               if (!health.runtime?.migratedRoutes?.includes(route)) {
                 throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
+              }
+            }
+            for (const capability of [
+              "note deletion audit logs",
+              "note deletion webhooks",
+              "single and batch note deletion realtime events",
+            ]) {
+              if (!health.runtime?.migratedCapabilities?.includes(capability)) {
+                throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
               }
             }
           '
