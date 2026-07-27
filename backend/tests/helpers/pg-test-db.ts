@@ -1,4 +1,5 @@
-import { readPostgresSchemaSource } from "../../src/db/postgres/schemaLoader";
+import { PostgresAdapter } from "../../src/db/postgresAdapter";
+import { runPostgresMigrations } from "../../src/db/postgres/migrations";
 
 const PG_URL = process.env.TEST_PG_DATABASE_URL;
 
@@ -8,8 +9,13 @@ export async function getPgPool() {
   return new Pool({ connectionString: PG_URL });
 }
 
+/**
+ * Mirror production startup: bootstrap the idempotent schema and then apply every
+ * immutable versioned migration. Tests must not silently run against a smaller
+ * schema than PostgreSQL runtime-only uses in production.
+ */
 export async function initPgSchema(pool: import("pg").Pool) {
-  await pool.query(readPostgresSchemaSource());
+  await runPostgresMigrations(new PostgresAdapter(pool));
 }
 
 export async function cleanTable(pool: import("pg").Pool, table: string) {
