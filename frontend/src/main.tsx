@@ -62,6 +62,7 @@ import { installRoundTripPermissionExportBridge } from "./lib/roundTripPermissio
 import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
+import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
 
 void cleanupRemovedServerProfiles();
 
@@ -84,6 +85,7 @@ function BootSplashRemover() {
   return null;
 }
 
+installKnowledgeTreeScrollbarBridge();
 installNodeViewMutationGuard();
 installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
