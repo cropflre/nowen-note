@@ -14,6 +14,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   Printer,
   ShieldCheck,
   SplitSquareHorizontal,
@@ -22,6 +23,7 @@ import {
   StarOff,
   Trash2,
   Unlock,
+  Upload,
 } from "lucide-react";
 
 import ContextMenu, { type ContextMenuItem } from "@/components/ContextMenu";
@@ -36,7 +38,9 @@ import {
   exportSingleNoteAsPDF,
   exportNoteAsImage,
 } from "@/lib/exportService";
-import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
+import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { knowledgeTreeApi } from "@/lib/knowledgeTreeApi";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { Notebook } from "@/types";
@@ -51,6 +55,7 @@ export interface KnowledgeTreeNodeMenuProps {
   onClose: () => void;
   onOpen: (node: KnowledgeTreeNode) => void | Promise<void>;
   onSplit: (node: KnowledgeTreeNode, direction: "right" | "down") => void;
+  onCreate: (node: KnowledgeTreeNode, kind: KnowledgeTreeInlineCreateKind) => void;
   onRename: (node: KnowledgeTreeNode) => void | Promise<void>;
   onMove: (node: KnowledgeTreeNode) => void;
   onPermissions: (node: KnowledgeTreeNode) => void;
@@ -69,6 +74,21 @@ function exportChildren(): ContextMenuItem[] {
     { id: "export_note_png", label: "PNG", icon: <ImageIcon size={14} /> },
     { id: "export_note_jpg", label: "JPG", icon: <ImageIcon size={14} /> },
     { id: "export_note_word", label: "Word", icon: <FileType2 size={14} /> },
+  ];
+}
+
+function createChildren(): ContextMenuItem[] {
+  return [
+    { id: "new_note", label: "文档", icon: <FilePlus size={14} /> },
+    { id: "new_markdown", label: "Markdown 文档", icon: <FileCode size={14} /> },
+    { id: "new_folder", label: "文件夹", icon: <FolderPlus size={14} /> },
+  ];
+}
+
+function importChildren(): ContextMenuItem[] {
+  return [
+    { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} /> },
+    { id: "import_url", label: "公众号文章", icon: <Link2 size={14} /> },
   ];
 }
 
@@ -94,11 +114,8 @@ export function buildKnowledgeTreeNodeMenuItems(
   if (capabilities.canCreate) {
     if (items.length) items.push(separator("sep-create"));
     items.push(
-      { id: "new_note", label: "新建富文本文档", icon: <FilePlus size={14} /> },
-      { id: "new_markdown", label: "新建 Markdown", icon: <FileCode size={14} /> },
-      { id: "import_word", label: "导入 Word 文档", icon: <FileType2 size={14} /> },
-      { id: "import_url", label: "导入公众号文章", icon: <Link2 size={14} /> },
-      { id: "new_folder", label: "新建子文件夹", icon: <FolderPlus size={14} /> },
+      { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren() },
+      { id: "import", label: "导入", icon: <Upload size={14} />, children: importChildren() },
     );
   }
 
@@ -201,6 +218,7 @@ export default function KnowledgeTreeNodeMenu({
   onClose,
   onOpen,
   onSplit,
+  onCreate,
   onRename,
   onMove,
   onPermissions,
@@ -246,6 +264,7 @@ export default function KnowledgeTreeNodeMenu({
       updatedAt: value.updatedAt,
     });
     actions.setMobileView("editor");
+    actions.setMobileSidebar(false);
   };
 
   const resolvePhysicalNotebookId = async (parent: KnowledgeTreeNode): Promise<string> => {
@@ -261,37 +280,6 @@ export default function KnowledgeTreeNodeMenu({
       return (await api.getNote(parent.resourceId)).notebookId;
     }
     throw new Error("找不到可用于导入的物理目录");
-  };
-
-  const finishCreatedNote = async (createdNode: KnowledgeTreeNode) => {
-    const value = await api.getNote(createdNode.resourceId);
-    openLoadedNote(value);
-    await onReload();
-    actions.refreshNotes();
-    actions.refreshNotebooks();
-  };
-
-  const createDirectChild = async (kind: "note" | "markdown" | "folder") => {
-    if (!node) return;
-    let title = kind === "note" ? "无标题笔记" : kind === "markdown" ? "无标题 Markdown" : "";
-    if (kind === "folder") {
-      const value = await appPrompt({
-        title: "新建子文件夹",
-        placeholder: "文件夹名称",
-        confirmText: "创建",
-        validate: (input) => input.trim() ? null : "名称不能为空",
-      });
-      if (value == null) return;
-      title = value.trim();
-    }
-    const created = await knowledgeTreeApi.create({ parentId: node.id, nodeType: kind, title });
-    if (kind === "folder") {
-      await onReload();
-      actions.refreshNotebooks();
-      toast.success("已创建文件夹");
-    } else {
-      await finishCreatedNote(created);
-    }
   };
 
   const importWord = async () => {
@@ -441,9 +429,9 @@ export default function KnowledgeTreeNodeMenu({
         case "open": await onOpen(node); break;
         case "split_right": onSplit(node, "right"); break;
         case "split_down": onSplit(node, "down"); break;
-        case "new_note": await createDirectChild("note"); break;
-        case "new_markdown": await createDirectChild("markdown"); break;
-        case "new_folder": await createDirectChild("folder"); break;
+        case "new_note": onCreate(node, "note"); break;
+        case "new_markdown": onCreate(node, "markdown"); break;
+        case "new_folder": onCreate(node, "folder"); break;
         case "import_word": await importWord(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;

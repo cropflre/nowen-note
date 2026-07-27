@@ -31,6 +31,40 @@ interface TagColorTarget {
 }
 
 /**
+ * Keep the desktop tree scrollbar discoverable even when Chromium/Windows uses
+ * auto-hiding overlay scrollbars. Mobile keeps its native touch-scrolling UI.
+ */
+export const KNOWLEDGE_TREE_SCROLLBAR_CSS = `
+[data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"] {
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pm-scrollbar) transparent;
+}
+
+[data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar {
+  width: 9px;
+}
+
+[data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--pm-scrollbar);
+  background-clip: content-box;
+}
+
+[data-sidebar-variant="desktop"] [data-swipe-blocker="knowledge-tree-scroll"]::-webkit-scrollbar-thumb:hover {
+  background: var(--pm-scrollbar-hover);
+  background-clip: content-box;
+}
+`;
+
+/**
  * Unified sidebar.
  *
  * The legacy notebook-directory renderer, direct-note caches, notebook DnD,
@@ -157,6 +191,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       data-unified-sidebar=""
       data-sidebar-variant={variant}
     >
+      {variant === "desktop" && (
+        <style data-knowledge-tree-scrollbar="">{KNOWLEDGE_TREE_SCROLLBAR_CSS}</style>
+      )}
+
       <header
         className="flex shrink-0 items-center justify-between border-b border-app-border px-4 py-3"
         style={{ paddingTop: "calc(var(--safe-area-top) + 12px)" }}

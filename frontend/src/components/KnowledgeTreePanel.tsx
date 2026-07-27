@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   FileCode,
@@ -23,6 +24,12 @@ import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { api } from "@/lib/api";
+import {
+  defaultInlineCreateTitle,
+  normalizeInlineCreateTitle,
+  type KnowledgeTreeInlineCreateKind,
+  type KnowledgeTreeInlineDraft,
+} from "@/lib/knowledgeTreeInlineCreate";
 import {
   knowledgeTreeApi,
   type KnowledgePermissionRow,
@@ -68,6 +75,12 @@ function nodeIcon(node: KnowledgeTreeNode) {
       : <Folder size={15} className="text-amber-500" />;
   }
   if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
+  return <FileText size={15} className="text-accent-primary" />;
+}
+
+function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
+  if (kind === "folder") return <Folder size={15} className="text-amber-500" />;
+  if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -319,12 +332,14 @@ export function KnowledgeTreePanel({
   const actions = useAppActions();
   const surfaceActive = useActiveSidebarSurface(variant);
   const searchRef = useRef<HTMLInputElement>(null);
+  const draftInputRef = useRef<HTMLInputElement>(null);
   const [nodes, setNodes] = useState<KnowledgeTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sharedLoadError, setSharedLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<KnowledgeTreeInlineDraft | null>(null);
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const { menu, menuRef, openMenu, openMenuAt, closeMenu } = useContextMenu();
@@ -358,8 +373,7 @@ export function KnowledgeTreePanel({
         return new Set(Array.from(current).filter((id) => ids.has(id)));
       });
     } catch (requestError: any) {
-      const message = requestError?.message || "加载内容树失败";
-      setError(message);
+      setError(requestError?.message || "加载内容树失败");
     } finally {
       setLoading(false);
     }
@@ -382,17 +396,41 @@ export function KnowledgeTreePanel({
 
   useEffect(() => {
     if (!surfaceActive) return;
-    const focus = () => {
-      requestAnimationFrame(() => searchRef.current?.focus());
-    };
+    const focus = () => requestAnimationFrame(() => searchRef.current?.focus());
     window.addEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
     return () => window.removeEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
   }, [surfaceActive]);
+
+  useEffect(() => {
+    if (!draft) return;
+    requestAnimationFrame(() => {
+      draftInputRef.current?.focus({ preventScroll: true });
+      draftInputRef.current?.select();
+    });
+  }, [draft?.kind, draft?.parentId]);
 
   const allChildren = useMemo(() => buildChildren(nodes), [nodes]);
   const filteredNodes = useMemo(() => filterKnowledgeTreeNodes(nodes, query), [nodes, query]);
   const children = useMemo(() => buildChildren(filteredNodes), [filteredNodes]);
   const effectiveExpanded = query.trim() ? new Set(filteredNodes.map((node) => node.id)) : expanded;
+
+  const activateNote = useCallback((note: Awaited<ReturnType<typeof api.getNote>>) => {
+    actions.setActiveNote(note);
+    actions.setSelectedNotebook(note.notebookId);
+    actions.setViewMode("notebook");
+    actions.openNoteTab({
+      id: note.id,
+      title: note.title,
+      notebookId: note.notebookId,
+      workspaceId: note.workspaceId,
+      contentFormat: note.contentFormat,
+      isLocked: note.isLocked,
+      isTrashed: note.isTrashed,
+      updatedAt: note.updatedAt,
+    });
+    actions.setMobileView("editor");
+    if (variant === "mobile") actions.setMobileSidebar(false);
+  }, [actions, variant]);
 
   const toggle = async (node: KnowledgeTreeNode) => {
     const next = new Set(expanded);
@@ -412,21 +450,7 @@ export function KnowledgeTreePanel({
     }
     if (node.resourceType !== "note") return;
     try {
-      const note = await api.getNote(node.resourceId);
-      actions.setActiveNote(note);
-      actions.setSelectedNotebook(note.notebookId);
-      actions.setViewMode("notebook");
-      actions.openNoteTab({
-        id: note.id,
-        title: note.title,
-        notebookId: note.notebookId,
-        workspaceId: note.workspaceId,
-        contentFormat: note.contentFormat,
-        isLocked: note.isLocked,
-        isTrashed: note.isTrashed,
-        updatedAt: note.updatedAt,
-      });
-      actions.setMobileView("editor");
+      activateNote(await api.getNote(node.resourceId));
     } catch (requestError: any) {
       toast.error(requestError?.message || "打开文档失败");
     }
@@ -438,39 +462,69 @@ export function KnowledgeTreePanel({
     closeMenu();
   };
 
-  const createChild = async (parent: KnowledgeTreeNode | null) => {
+  const startInlineCreate = useCallback((parent: KnowledgeTreeNode | null, kind: KnowledgeTreeInlineCreateKind) => {
+    if (parent && !parent.access.capabilities.canCreate) return;
+    if (!parent && kind !== "folder") return;
     closeMenu();
-    const choice = await choose({
-      title: parent ? `在“${parent.title}”下新建` : "新建根内容",
-      choices: parent
-        ? [
-            { value: "folder", label: "子文件夹" },
-            { value: "note", label: "子文档" },
-            { value: "markdown", label: "Markdown 文档" },
-            { value: "word", label: "Word 文档" },
-          ]
-        : [{ value: "folder", label: "根文件夹" }],
+    setQuery("");
+    if (parent) {
+      setExpanded((current) => new Set(current).add(parent.id));
+      if (!parent.sharedRootId) void knowledgeTreeApi.update(parent.id, { isExpanded: true }).catch(() => {});
+    }
+    setDraft({
+      parentId: parent?.id || null,
+      kind,
+      title: defaultInlineCreateTitle(kind),
+      saving: false,
+      error: null,
     });
-    if (!choice || !["folder", "note", "markdown", "word"].includes(choice)) return;
-    const title = await prompt({
-      title: "输入名称",
-      confirmText: "创建",
-      validate: (value) => value.trim() ? null : "名称不能为空",
-    });
-    if (title == null) return;
+  }, [closeMenu]);
+
+  const commitDraft = async () => {
+    if (!draft || draft.saving) return;
+    const title = normalizeInlineCreateTitle(draft.title);
+    if (!title) {
+      setDraft((current) => current ? { ...current, error: "名称不能为空" } : null);
+      requestAnimationFrame(() => draftInputRef.current?.focus());
+      return;
+    }
+
+    const snapshot = { ...draft, title };
+    setDraft((current) => current ? { ...current, title, saving: true, error: null } : null);
+
+    let created: KnowledgeTreeNode;
     try {
-      await knowledgeTreeApi.create({
-        parentId: parent?.id || null,
-        nodeType: choice as "folder" | "note" | "markdown" | "word",
-        title: title.trim(),
+      created = await knowledgeTreeApi.create({
+        parentId: snapshot.parentId,
+        nodeType: snapshot.kind,
+        title,
       });
-      if (parent) setExpanded((current) => new Set(current).add(parent.id));
-      emitTreeChanged("node-created");
-      await reload();
-      actions.refreshNotebooks();
-      toast.success("已创建");
     } catch (requestError: any) {
-      toast.error(requestError?.message || "创建失败");
+      setDraft((current) => current ? {
+        ...current,
+        saving: false,
+        error: requestError?.message || "创建失败，请重试",
+      } : null);
+      requestAnimationFrame(() => draftInputRef.current?.focus());
+      return;
+    }
+
+    setDraft(null);
+    if (snapshot.parentId) setExpanded((current) => new Set(current).add(snapshot.parentId!));
+    emitTreeChanged("node-created-inline");
+    await reload();
+    actions.refreshNotebooks();
+    actions.refreshNotes();
+
+    if (snapshot.kind === "folder") {
+      toast.success("已创建文件夹");
+      return;
+    }
+
+    try {
+      activateNote(await api.getNote(created.resourceId));
+    } catch (requestError: any) {
+      toast.error(requestError?.message || "文档已创建，但自动打开失败");
     }
   };
 
@@ -579,9 +633,74 @@ export function KnowledgeTreePanel({
     if (dx * dx + dy * dy > 100) cancelLongPress();
   };
 
+  const renderDraft = (depth: number) => {
+    if (!draft) return null;
+    return (
+      <div
+        key={`inline-create:${draft.parentId ?? "root"}`}
+        className={cn(
+          "rounded-md bg-accent-primary/5",
+          draft.error && "bg-red-500/5",
+        )}
+        style={{ paddingLeft: `${depth * 16 + 2}px` }}
+        data-knowledge-tree-inline-create=""
+      >
+        <div className="flex min-w-0 items-center py-0.5">
+          <span className="flex h-7 w-5 shrink-0 items-center justify-center" />
+          <span className="mr-1.5 shrink-0">{draftIcon(draft.kind)}</span>
+          <input
+            ref={draftInputRef}
+            value={draft.title}
+            disabled={draft.saving}
+            onChange={(event) => setDraft((current) => current ? { ...current, title: event.target.value, error: null } : null)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !draft.saving) {
+                event.preventDefault();
+                setDraft(null);
+                return;
+              }
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                event.preventDefault();
+                void commitDraft();
+              }
+            }}
+            className={cn(
+              "min-w-0 flex-1 rounded border bg-app-bg px-1.5 py-1 text-xs text-tx-primary outline-none",
+              draft.error ? "border-red-500" : "border-accent-primary/60 focus:border-accent-primary",
+            )}
+            aria-label="新内容名称"
+          />
+          <button
+            type="button"
+            disabled={draft.saving}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void commitDraft()}
+            className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50"
+            title="确认创建"
+            aria-label="确认创建"
+          >
+            {draft.saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+          </button>
+          <button
+            type="button"
+            disabled={draft.saving}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setDraft(null)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
+            title="取消创建"
+            aria-label="取消创建"
+          >
+            <X size={13} />
+          </button>
+        </div>
+        {draft.error && <p className="pb-1 pl-7 pr-2 text-[10px] text-red-500">{draft.error}</p>}
+      </div>
+    );
+  };
+
   const renderNode = (node: KnowledgeTreeNode, depth: number): React.ReactNode => {
     const childNodes = children.get(node.id) || [];
-    const hasChildren = childNodes.length > 0 || node.childCount > 0;
+    const hasChildren = childNodes.length > 0 || node.childCount > 0 || draft?.parentId === node.id;
     const isExpanded = effectiveExpanded.has(node.id);
     const active = node.resourceType === "note" && state.activeNote?.id === node.resourceId;
     const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
@@ -593,7 +712,7 @@ export function KnowledgeTreePanel({
             active && "bg-app-active text-tx-primary",
           )}
           style={{ paddingLeft: `${depth * 16 + 2}px` }}
-           draggable={node.access.capabilities.canMove && !isSharedRoot(node)}
+          draggable={node.access.capabilities.canMove && !isSharedRoot(node)}
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("application/x-nowen-tree-node", node.id);
@@ -613,6 +732,7 @@ export function KnowledgeTreePanel({
           onTouchMove={moveLongPress}
           onTouchEnd={cancelLongPress}
           onTouchCancel={cancelLongPress}
+          data-knowledge-tree-node-id={node.id}
         >
           <button type="button" onClick={() => hasChildren && void toggle(node)} className="flex h-7 w-5 shrink-0 items-center justify-center text-tx-tertiary" aria-label={isExpanded ? "折叠" : "展开"}>
             {hasChildren ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : null}
@@ -628,11 +748,22 @@ export function KnowledgeTreePanel({
           >
             {nodeIcon(node)}
             <span className="min-w-0 flex-1 truncate">{node.title}</span>
-             {isSharedRoot(node) && <span className="rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary">共享</span>}
-             {node.access.source === "inherited" && <span className="rounded bg-app-active px-1 text-[9px] text-tx-tertiary">继承</span>}
+            {isSharedRoot(node) && <span className="rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary">共享</span>}
+            {node.access.source === "inherited" && <span className="rounded bg-app-active px-1 text-[9px] text-tx-tertiary">继承</span>}
           </button>
           {node.access.capabilities.canCreate && (
-            <button type="button" onClick={() => void createChild(node)} className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)} title="新建子内容"><Plus size={13} /></button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                startInlineCreate(node, "note");
+              }}
+              className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
+              title="新建文档"
+              aria-label={`在“${node.title}”下新建文档`}
+            >
+              <Plus size={13} />
+            </button>
           )}
           <button
             type="button"
@@ -644,9 +775,13 @@ export function KnowledgeTreePanel({
             className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
             title="更多"
           ><MoreHorizontal size={14} /></button>
-
         </div>
-        {isExpanded && childNodes.map((child) => renderNode(child, depth + 1))}
+        {isExpanded && (
+          <>
+            {childNodes.map((child) => renderNode(child, depth + 1))}
+            {draft?.parentId === node.id && renderDraft(depth + 1)}
+          </>
+        )}
       </div>
     );
   };
@@ -654,6 +789,7 @@ export function KnowledgeTreePanel({
   const rootNodes = children.get(null) || [];
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
+  const hasRootDraft = draft?.parentId === null;
 
   return (
     <section className={cn("relative flex min-h-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
@@ -670,7 +806,12 @@ export function KnowledgeTreePanel({
           />
           {query && <button type="button" onClick={() => setQuery("")} className="text-tx-tertiary hover:text-tx-primary" aria-label="清空筛选"><X size={12} /></button>}
         </div>
-        <button type="button" onClick={() => void createChild(null)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" title="新建根文件夹"><Plus size={14} /></button>
+        <button
+          type="button"
+          onClick={() => startInlineCreate(null, "folder")}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+          title="新建根文件夹"
+        ><Plus size={14} /></button>
         <button type="button" onClick={() => void reload()} disabled={loading} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50" title="刷新内容树"><RefreshCw size={13} className={loading ? "animate-spin" : undefined} /></button>
       </div>
 
@@ -685,22 +826,23 @@ export function KnowledgeTreePanel({
               <button type="button" onClick={() => void reload()} className="rounded-md bg-accent-primary px-2.5 py-1 text-[10px] font-medium text-white">重试</button>
             </div>
           </div>
-        ) : filteredNodes.length === 0 && !sharedLoadError ? (
+        ) : filteredNodes.length === 0 && !sharedLoadError && !draft ? (
           <div className="flex flex-col items-center py-14 text-center">
             <TreePine size={28} className="mb-2 text-tx-tertiary/40" />
             <p className="text-xs text-tx-secondary">{query ? "没有匹配内容" : "暂无内容"}</p>
-            {!query && <p className="mt-1 max-w-[230px] text-[10px] leading-relaxed text-tx-tertiary">先创建根文件夹，再在文件夹或文档下继续创建子内容。</p>}
+            {!query && <p className="mt-1 max-w-[230px] text-[10px] leading-relaxed text-tx-tertiary">点击上方加号创建根文件夹，再在树中直接创建文档。</p>}
           </div>
         ) : (
           <>
-            {ownedRoots.length > 0 && (
+            {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
                 <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">当前空间</div>
                 {ownedRoots.map((node) => renderNode(node, 0))}
+                {hasRootDraft && renderDraft(0)}
               </div>
             )}
             {sharedRoots.length > 0 && (
-              <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
+              <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && !hasRootDraft && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
                 <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">共享给我</div>
                 {sharedRoots.map((node) => renderNode(node, 0))}
               </div>
@@ -724,6 +866,7 @@ export function KnowledgeTreePanel({
         onClose={closeMenu}
         onOpen={openDocument}
         onSplit={openSplit}
+        onCreate={startInlineCreate}
         onRename={rename}
         onMove={setMovingNode}
         onPermissions={setPermissionsNode}
