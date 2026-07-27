@@ -36,6 +36,11 @@ function errorResponse(c: Context, error: unknown) {
   }, 500);
 }
 
+function setRuntimeWarningHeader(c: Context, ...groups: string[][]): void {
+  const count = groups.reduce((total, warnings) => total + warnings.length, 0);
+  if (count > 0) c.header("X-Nowen-Runtime-Warnings", String(count));
+}
+
 export function createNotesRuntimeRouter(
   adapter?: DatabaseAdapter,
   dialect?: DatabaseDialect,
@@ -115,9 +120,7 @@ export function createNotesRuntimeRouter(
     const userId = c.req.header("X-User-Id") || "";
     try {
       const result = await deletion.emptyTrash(userId, c.req.query("workspaceId"));
-      if (result.cleanupWarnings.length > 0) {
-        c.header("X-Nowen-Runtime-Warnings", String(result.cleanupWarnings.length));
-      }
+      setRuntimeWarningHeader(c, result.cleanupWarnings, result.sideEffectWarnings);
       return c.json(result);
     } catch (error) {
       return errorResponse(c, error);
@@ -180,9 +183,7 @@ export function createNotesRuntimeRouter(
     const userId = c.req.header("X-User-Id") || "";
     try {
       const result = await deletion.permanentDeleteNote(userId, c.req.param("id"));
-      if (result.cleanupWarnings.length > 0) {
-        c.header("X-Nowen-Runtime-Warnings", String(result.cleanupWarnings.length));
-      }
+      setRuntimeWarningHeader(c, result.cleanupWarnings, result.sideEffectWarnings);
       return c.json(result);
     } catch (error) {
       return errorResponse(c, error);
