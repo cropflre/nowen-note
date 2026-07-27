@@ -21,6 +21,7 @@ on:
       - "backend/tests/note-deletion-runtime-pg.test.ts"
       - "backend/tests/note-deletion-effects-runtime-pg.test.ts"
       - "backend/tests/note-deletion-realtime-runtime-pg.test.ts"
+      - "backend/tests/note-realtime-route-pg.test.ts"
       - "backend/tests/note-trash-empty-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
@@ -43,6 +44,7 @@ on:
       - "backend/tests/note-deletion-runtime-pg.test.ts"
       - "backend/tests/note-deletion-effects-runtime-pg.test.ts"
       - "backend/tests/note-deletion-realtime-runtime-pg.test.ts"
+      - "backend/tests/note-realtime-route-pg.test.ts"
       - "backend/tests/note-trash-empty-runtime-pg.test.ts"
       - "backend/tests/note-lifecycle-runtime-pg.test.ts"
       - ".github/workflows/pg-note-runtime.yml"
@@ -102,6 +104,7 @@ jobs:
             tests/note-trash-empty-runtime-pg.test.ts \
             tests/note-deletion-effects-runtime-pg.test.ts \
             tests/note-deletion-realtime-runtime-pg.test.ts \
+            tests/note-realtime-route-pg.test.ts \
             2>&1 | tee -a /tmp/pg-note-runtime.log
       - name: Upload note runtime diagnostics
         if: always()
