@@ -19,9 +19,9 @@ import { createNoteDeletionRealtimeRuntime } from "./services/note-deletion-real
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
 const adapter = getDatabaseAdapter();
-const deletionRealtime = createNoteDeletionRealtimeRuntime(adapter);
+const deletionHub = createNoteDeletionRealtimeRuntime(adapter);
 const deletionEffects = createNoteDeletionEffectsRuntime(adapter, {
-  publishRealtime: deletionRealtime.publish,
+  publishRealtime: deletionHub.publish,
 });
 
 app.use("*", logger());
@@ -62,7 +62,7 @@ app.get("/api/health", async (c) => {
         "note deletion webhooks",
         "single and batch note deletion realtime events",
       ],
-      realtime: deletionRealtime.getStats(),
+      realtime: deletionHub.getStats(),
       pendingCapabilities: [
         "notes full-text search (#252)",
         "full realtime subscriptions, presence and yjs write routes",
@@ -148,7 +148,7 @@ console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
 console.warn("[db] Notes runtime includes deletion audit, webhook and deletion-only realtime events; remaining business routes stay disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
-delectionRealtime.attach(server);
+delectionHub.attach(server);
 let shuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -163,7 +163,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExit.unref();
 
   try {
-    await deletionRealtime.close();
+    await deletionHub.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await deletionEffects.shutdown();
     await closeDatabase();
