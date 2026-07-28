@@ -1,0 +1,42 @@
+name: URL Import DNS CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/index.hardened.ts'
+      - 'backend/src/lib/dnsSystemLookupCompat.ts'
+      - 'backend/src/runtime/url-import-dns-compat.ts'
+      - 'backend/src/routes/url-import.ts'
+      - 'backend/tests/url-import-dns-compat.test.ts'
+      - '.github/workflows/url-import-dns-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+
+      - name: URL-import DNS compatibility tests
+        working-directory: backend
+        run: node --import tsx --test tests/url-import-dns-compat.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: Production bundle
+        working-directory: backend
+        run: npm run build
