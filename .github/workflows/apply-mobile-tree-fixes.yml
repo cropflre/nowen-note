@@ -1,0 +1,54 @@
+name: Apply Mobile Tree Fixes
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-mobile-tree-fixes.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Patch mobile knowledge tree
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/components/MobileKnowledgeTreePanel.tsx")
+          source = path.read_text(encoding="utf-8")
+
+          replacements = [
+              ("  Check,\n", ""),
+              ('import { canMoveWithinSharedRoot, isSharedRoot } from "@/lib/sharedKnowledgeTree";',
+               'import { isSharedRoot } from "@/lib/sharedKnowledgeTree";'),
+              ('''    try {\n      const created = await knowledgeTreeApi.create({\n        parentId: parent?.id || null,\n        nodeType: kind,\n        title: normalizeInlineCreateTitle(title),\n      });''',
+               '''    const normalizedTitle = normalizeInlineCreateTitle(title);\n    if (!normalizedTitle) return;\n    try {\n      const created = await knowledgeTreeApi.create({\n        parentId: parent?.id || null,\n        nodeType: kind,\n        title: normalizedTitle,\n      });'''),
+              ('''  const renderNode = (node: KnowledgeTreeNode, showPath = false) => {\n    const active = node.resourceType === "note" && state.activeNote?.id === node.resourceId;''',
+               '''  const renderNode = (node: KnowledgeTreeNode, showPath = false) => {\n    const active = node.resourceType === "note" && state.activeNote?.id === node.resourceId;\n    const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);'''),
+              ('''        </button>\n        {node.access.capabilities.canCreate && (''',
+               '''        </button>\n        {node.nodeType !== "folder" && hasChildren && (\n          <button\n            type="button"\n            onClick={(event) => {\n              event.stopPropagation();\n              setView("browse");\n              setParentId(node.id);\n              setQuery("");\n            }}\n            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-tx-tertiary hover:bg-app-active hover:text-tx-primary"\n            aria-label={`查看“${node.title}”的子内容`}\n          >\n            <ChevronRight size={16} />\n          </button>\n        )}\n        {node.access.capabilities.canCreate && ('''),
+              ('''        onMove={(node) => {\n          if (node.sharedRootId && !canMoveWithinSharedRoot(node, node)) return;\n          setMovingNode(node);\n        }}''',
+               '''        onMove={setMovingNode}'''),
+          ]
+
+          for old, new in replacements:
+              if old not in source:
+                  raise SystemExit(f"expected patch target not found:\n{old[:160]}")
+              source = source.replace(old, new, 1)
+
+          path.write_text(source, encoding="utf-8")
+          PY
+          rm .github/workflows/apply-mobile-tree-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/MobileKnowledgeTreePanel.tsx .github/workflows/apply-mobile-tree-fixes.yml
+          git commit -m "fix(mobile): finalize flat tree navigation"
+          git push origin HEAD:${{ github.head_ref }}
