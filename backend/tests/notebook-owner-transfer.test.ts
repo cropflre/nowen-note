@@ -12,11 +12,12 @@ process.env.ELECTRON_USER_DATA = dir;
 let closeDb: () => void;
 
 test("personal notebook owner can transfer the complete subtree to an existing collaborator", async () => {
+  // Match production startup: register feature migrations and modular notebook routes before getDb().
+  await import("../src/runtime/knowledge-tree-migration-bootstrap");
   const [{ default: notebooksRouter }, schema] = await Promise.all([
     import("../src/routes/notebooks"),
     import("../src/db/schema"),
   ]);
-  await import("../src/runtime/notebook-permission-management");
   closeDb = schema.closeDb;
   const db = schema.getDb();
 
