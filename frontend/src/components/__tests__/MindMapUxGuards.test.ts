@@ -78,4 +78,18 @@ describe("MindMapEditor UX guardrails", () => {
     expect(source).toContain("handleNodeResizeStart");
     expect(source).toContain("applyNodeWidth");
   });
+  it("clears stale mind map content when switching folders", () => {
+    expect(source).toContain("const mapLoadRequestRef = useRef(0)");
+    expect(source).toContain("const clearActiveMap = useCallback");
+    expect(source).toContain("const requestId = ++mapLoadRequestRef.current");
+    expect(source).toContain("if (requestId !== mapLoadRequestRef.current) return");
+    expect(source).toContain("setActiveMap((current) => current?.id === updated.id ? updated : current)");
+
+    const folderTree = source.slice(
+      source.indexOf("const renderFolder"),
+      source.indexOf("if (!hasResults && q)"),
+    );
+    expect(folderTree).toContain("clearActiveMap();");
+  });
+
 });
