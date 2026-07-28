@@ -5,8 +5,11 @@ on:
     paths:
       - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
       - "frontend/src/components/Sidebar.tsx"
+      - "frontend/src/components/SidebarSearchExperienceBridge.tsx"
       - "frontend/src/components/__tests__/MobileKnowledgeTreePanel.test.ts"
+      - "frontend/src/components/__tests__/MobileKnowledgeTreeModeSwitch.test.ts"
       - "frontend/src/lib/mobileKnowledgeTree.ts"
+      - "frontend/src/lib/mobileKnowledgeTreeViewMode.ts"
       - "frontend/src/lib/__tests__/mobileKnowledgeTree.test.ts"
       - ".github/workflows/mobile-knowledge-tree-ci.yml"
   workflow_dispatch:
@@ -31,6 +34,7 @@ jobs:
           npm run test:run --
           src/lib/__tests__/mobileKnowledgeTree.test.ts
           src/components/__tests__/MobileKnowledgeTreePanel.test.ts
+          src/components/__tests__/MobileKnowledgeTreeModeSwitch.test.ts
       - name: Frontend typecheck
         id: typecheck
         shell: bash
