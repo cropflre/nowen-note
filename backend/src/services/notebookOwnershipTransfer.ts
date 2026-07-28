@@ -104,22 +104,28 @@ export function transferNotebookOwnership(
     );
   }
 
-  const notebookIds = (db.prepare(
-    `WITH RECURSIVE subtree(id) AS (
-       SELECT id FROM notebooks WHERE id = ? AND isDeleted = 0
+  const treeRows = db.prepare(
+    `WITH RECURSIVE subtree(id, parentId) AS (
+       SELECT id, parentId FROM notebooks WHERE id = ? AND isDeleted = 0
        UNION ALL
-       SELECT child.id
+       SELECT child.id, child.parentId
          FROM notebooks child
          JOIN subtree parent ON child.parentId = parent.id
         WHERE child.isDeleted = 0
      )
-     SELECT id FROM subtree`,
-  ).all(notebookId) as Array<{ id: string }>).map((row) => row.id);
+     SELECT id, parentId FROM subtree`,
+  ).all(notebookId) as Array<{ id: string; parentId: string | null }>;
 
-  if (notebookIds.length === 0) {
+  if (treeRows.length === 0) {
     throw new NotebookOwnershipTransferError("NOTEBOOK_NOT_FOUND", "目录不存在或已删除", 404);
   }
 
+  const notebookIds = treeRows.map((row) => row.id);
+  const notebookIdSet = new Set(notebookIds);
+  const internalEdges = treeRows.filter(
+    (row): row is { id: string; parentId: string } =>
+      Boolean(row.parentId && notebookIdSet.has(row.parentId)),
+  );
   const notebookMarks = placeholders(notebookIds.length);
   const noteIds = (db.prepare(
     `SELECT id FROM notes WHERE notebookId IN (${notebookMarks})`,
@@ -131,17 +137,13 @@ export function transferNotebookOwnership(
   ensureNotebookAclOverridesTable();
 
   const execute = db.transaction(() => {
-    if (root.parentId) {
-      db.prepare(
-        "UPDATE notebooks SET parentId = NULL, updatedAt = datetime('now') WHERE id = ?",
-      ).run(notebookId);
-    }
-
+    // Tree guards intentionally reject a half-transferred tree. Temporarily detach the subtree,
+    // move resources and ownership while every node is a root, then restore only internal edges.
     db.prepare(
       `UPDATE notebooks
-          SET userId = ?, updatedAt = datetime('now')
-        WHERE id IN (${notebookMarks})`,
-    ).run(targetUserId, ...notebookIds);
+          SET parentId = NULL, updatedAt = datetime('now')
+        WHERE id IN (${notebookMarks}) AND parentId IS NOT NULL`,
+    ).run(...notebookIds);
 
     if (noteIds.length > 0) {
       db.prepare(
@@ -156,6 +158,19 @@ export function transferNotebookOwnership(
           WHERE noteId IN (${noteMarks})`,
       ).run(targetUserId, ...noteIds);
       attachmentCount = attachmentResult.changes;
+    }
+
+    db.prepare(
+      `UPDATE notebooks
+          SET userId = ?, updatedAt = datetime('now')
+        WHERE id IN (${notebookMarks})`,
+    ).run(targetUserId, ...notebookIds);
+
+    const restoreParent = db.prepare(
+      "UPDATE notebooks SET parentId = ?, updatedAt = datetime('now') WHERE id = ?",
+    );
+    for (const edge of internalEdges) {
+      restoreParent.run(edge.parentId, edge.id);
     }
 
     db.prepare(
