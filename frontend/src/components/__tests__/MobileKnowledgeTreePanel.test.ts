@@ -37,9 +37,11 @@ describe("MobileKnowledgeTreePanel product contract", () => {
     expect(mobileSource).toContain("onMove={setMovingNode}");
   });
 
-  it("stores real open history and falls back to updatedAt", () => {
+  it("keeps opened documents before updatedAt-only fallback documents", () => {
     expect(mobileSource).toContain("upsertMobileKnowledgeTreeRecentEntry");
-    expect(helperSource).toContain("Math.max(openedAtByNode.get(a.id) || 0, timestamp(a.updatedAt))");
+    expect(helperSource).toContain("const openedDocuments = documents");
+    expect(helperSource).toContain("const fallbackDocuments = documents");
+    expect(helperSource).toContain("return [...openedDocuments, ...fallbackDocuments]");
     expect(helperSource).toContain('return "updated-desc"');
   });
 });
