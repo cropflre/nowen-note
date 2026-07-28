@@ -1,0 +1,124 @@
+/*
+ * Mobile / Android knowledge-tree density.
+ *
+ * The desktop tree intentionally keeps its current comfortable spacing. On a
+ * narrow sidebar every horizontal pixel matters, so the mobile surface uses a
+ * compact 26px row, a 10px hierarchy step and one visible row action. Creating
+ * children remains available from the More / long-press menu, so the repeated
+ * inline plus button is redundant on touch devices.
+ */
+@media (max-width: 767px) {
+  [data-nowen-knowledge-tree="embedded"] {
+    --nowen-mobile-tree-row-height: 26px;
+    --nowen-mobile-tree-indent: 10px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] {
+    min-height: var(--nowen-mobile-tree-row-height);
+    border-radius: 6px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child {
+    width: 14px !important;
+    height: var(--nowen-mobile-tree-row-height) !important;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child > svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) {
+    min-height: var(--nowen-mobile-tree-row-height);
+    gap: 4px !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > span:first-child {
+    width: 14px !important;
+    font-size: 13px !important;
+  }
+
+  /* The same Create command exists in the More / long-press menu on mobile. */
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[aria-label$="下新建文档"] {
+    display: none !important;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] {
+    display: flex !important;
+    width: 22px !important;
+    height: var(--nowen-mobile-tree-row-height) !important;
+    flex: 0 0 22px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] > svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  /*
+   * KnowledgeTreePanel currently writes desktop indentation inline. Override it
+   * only on the mobile breakpoint and derive compact depth from the recursive
+   * wrapper structure. Eight levels covers the supported practical depth while
+   * keeping the document data untouched.
+   */
+  [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id] {
+    padding-left: 0 !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 1) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 2) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 3) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 4) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 5) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 6) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 7) !important;
+  }
+
+  [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+    padding-left: calc(var(--nowen-mobile-tree-indent) * 8) !important;
+  }
+
+  [data-knowledge-tree-section] > div:first-child {
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    line-height: 14px;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-inline-create] > div {
+    min-height: 28px;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  [data-nowen-knowledge-tree="embedded"] [data-swipe-blocker="knowledge-tree-scroll"] {
+    padding-bottom: 8px !important;
+  }
+}
