@@ -44,6 +44,7 @@ import "./overlay-layers.css";
 import "./space-actions.css";
 import "./settings-switches.css";
 import "./sidebar-search-experience.css";
+import "./mobile-knowledge-tree-compact.css";
 import "./siyuan-rich-text-callout.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
