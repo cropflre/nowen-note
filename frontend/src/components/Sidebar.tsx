@@ -7,6 +7,7 @@ import KnowledgeTreePanel, {
   FOCUS_KNOWLEDGE_TREE_EVENT,
   KNOWLEDGE_TREE_CHANGED_EVENT,
 } from "@/components/KnowledgeTreePanel";
+import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -70,9 +71,9 @@ export const KNOWLEDGE_TREE_SCROLLBAR_CSS = `
 /**
  * Unified sidebar.
  *
- * The legacy notebook-directory renderer, direct-note caches, notebook DnD,
- * duplicate context menus and the former tree/list switch have been removed.
- * Folder and document operations now live exclusively in KnowledgeTreePanel.
+ * Desktop keeps the recursive knowledge tree for drag/drop organization. Mobile uses a
+ * recent-first, one-level-at-a-time navigator so opening the drawer never restores dozens
+ * of expanded folders that push top-level directories off screen.
  */
 export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | "mobile" } = {}) {
   const { state } = useApp();
@@ -231,7 +232,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           内容
         </div>
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <KnowledgeTreePanel variant={variant} />
+          {variant === "mobile" ? <MobileKnowledgeTreePanel /> : <KnowledgeTreePanel variant="desktop" />}
         </div>
       </section>
 
