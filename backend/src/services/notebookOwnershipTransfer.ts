@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
+import { ensureNotebookAclOverridesTable } from "../queries/memberQueryService";
 
 export interface TransferNotebookOwnershipInput {
   notebookId: string;
@@ -128,6 +128,7 @@ export function transferNotebookOwnership(
 
   let attachmentCount = 0;
   const detachedFromParent = Boolean(root.parentId);
+  ensureNotebookAclOverridesTable();
 
   const execute = db.transaction(() => {
     if (root.parentId) {
@@ -157,14 +158,12 @@ export function transferNotebookOwnership(
       attachmentCount = attachmentResult.changes;
     }
 
-    // 清理旧所有者 / 新所有者在子树中的显式覆盖，避免 owner/editor 身份被 none 覆盖。
     db.prepare(
       `DELETE FROM notebook_acl_overrides
         WHERE notebookId IN (${notebookMarks})
           AND userId IN (?, ?)`,
     ).run(...notebookIds, actorUserId, targetUserId);
 
-    // 子目录里可能存在历史 owner 成员行，统一降级为 editor；真正所有权以 notebooks.userId 为准。
     db.prepare(
       `UPDATE notebook_members
           SET role = 'editor', status = 'active', updatedAt = datetime('now')
