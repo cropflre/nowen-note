@@ -52,13 +52,34 @@ test("personal notebook owner can transfer the complete subtree to an existing c
   assert.equal(result.notebookCount, 2);
   assert.equal(result.noteCount, 1);
 
-  const notebooks = db.prepare("SELECT id, userId FROM notebooks ORDER BY id").all() as Array<{ id: string; userId: string }>;
+  const notebooks = db.prepare("SELECT id, userId, parentId FROM notebooks ORDER BY id").all() as Array<{
+    id: string;
+    userId: string;
+    parentId: string | null;
+  }>;
   assert.deepEqual(notebooks, [
-    { id: "child", userId: "target" },
-    { id: "root", userId: "target" },
+    { id: "child", userId: "target", parentId: "root" },
+    { id: "root", userId: "target", parentId: null },
   ]);
   const note = db.prepare("SELECT userId FROM notes WHERE id = 'note'").get() as { userId: string };
   assert.equal(note.userId, "target");
+
+  const knowledgeNodes = db.prepare(
+    `SELECT id, userId, scopeKey, parentId
+       FROM knowledge_tree_nodes
+      WHERE id IN ('notebook:root', 'notebook:child', 'note:note')
+      ORDER BY id`,
+  ).all() as Array<{
+    id: string;
+    userId: string;
+    scopeKey: string;
+    parentId: string | null;
+  }>;
+  assert.deepEqual(knowledgeNodes, [
+    { id: "note:note", userId: "target", scopeKey: "personal:target", parentId: "notebook:child" },
+    { id: "notebook:child", userId: "target", scopeKey: "personal:target", parentId: "notebook:root" },
+    { id: "notebook:root", userId: "target", scopeKey: "personal:target", parentId: null },
+  ]);
 
   const memberships = db.prepare(
     "SELECT userId, role, status FROM notebook_members WHERE notebookId = 'root' ORDER BY role DESC, userId ASC",
