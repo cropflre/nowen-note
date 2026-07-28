@@ -1,3 +1,5 @@
+// Install the system-resolver fallback before url-import captures dns.resolve4/resolve6.
+import "./runtime/url-import-dns-compat.js";
 // Register feature migrations before any runtime imports can initialize the database.
 import "./runtime/knowledge-tree-migration-bootstrap.js";
 // Install schema/route hardening before the main backend module evaluates.
