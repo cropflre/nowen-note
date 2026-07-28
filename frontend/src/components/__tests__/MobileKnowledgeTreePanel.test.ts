@@ -21,13 +21,20 @@ describe("MobileKnowledgeTreePanel product contract", () => {
     expect(mobileSource).not.toContain("setExpanded(");
   });
 
+  it("keeps document children reachable without reopening a recursive tree", () => {
+    expect(mobileSource).toContain("const hasChildren = node.childCount > 0");
+    expect(mobileSource).toContain('node.nodeType !== "folder" && hasChildren');
+    expect(mobileSource).toContain("查看“${node.title}”的子内容");
+    expect(mobileSource).toContain("setParentId(node.id)");
+  });
+
   it("keeps global search, mobile sorting, creation and the full node menu", () => {
     expect(mobileSource).toContain("filterMobileKnowledgeTreeNodes(nodes, query, sortMode)");
     expect(mobileSource).toContain("saveMobileKnowledgeTreeSortMode(next)");
     expect(mobileSource).toContain("openCreateMenu");
     expect(mobileSource).toContain("<KnowledgeTreeNodeMenu");
     expect(mobileSource).toContain("onPermissions={setPermissionsNode}");
-    expect(mobileSource).toContain("onMove=");
+    expect(mobileSource).toContain("onMove={setMovingNode}");
   });
 
   it("stores real open history and falls back to updatedAt", () => {
