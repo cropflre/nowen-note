@@ -7,7 +7,7 @@ const source = readFileSync(path.resolve(__dirname, "../NotebookShareDialog.tsx"
 describe("NotebookShareDialog clipboard compatibility", () => {
   it("uses the shared HTTP-compatible clipboard fallback", () => {
     expect(source).toContain('import { copyText } from "@/lib/clipboard";');
-    expect(source).toContain("const copied = await copyText(value);");
+    expect(source).toMatch(/await copyText\(value\)/);
     expect(source).not.toContain("navigator.clipboard.writeText");
   });
 });
