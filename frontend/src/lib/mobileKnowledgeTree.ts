@@ -150,15 +150,23 @@ export function buildMobileKnowledgeTreeRecentNodes(
   limit = MOBILE_KNOWLEDGE_TREE_RECENT_LIMIT,
 ): KnowledgeTreeNode[] {
   const openedAtByNode = new Map(entries.map((entry) => [entry.nodeId, entry.openedAt]));
-  return nodes
-    .filter((node) => node.resourceType === "note" && node.isDeleted !== 1)
-    .slice()
-    .sort((a, b) => {
-      const aRecentAt = Math.max(openedAtByNode.get(a.id) || 0, timestamp(a.updatedAt));
-      const bRecentAt = Math.max(openedAtByNode.get(b.id) || 0, timestamp(b.updatedAt));
-      return bRecentAt - aRecentAt || compareTitle(a, b) || a.id.localeCompare(b.id);
-    })
-    .slice(0, limit);
+  const documents = nodes.filter((node) => node.resourceType === "note" && node.isDeleted !== 1);
+  const openedDocuments = documents
+    .filter((node) => openedAtByNode.has(node.id))
+    .sort((a, b) => (
+      (openedAtByNode.get(b.id) || 0) - (openedAtByNode.get(a.id) || 0)
+      || compareTitle(a, b)
+      || a.id.localeCompare(b.id)
+    ));
+  const fallbackDocuments = documents
+    .filter((node) => !openedAtByNode.has(node.id))
+    .sort((a, b) => (
+      timestamp(b.updatedAt) - timestamp(a.updatedAt)
+      || compareTitle(a, b)
+      || a.id.localeCompare(b.id)
+    ));
+
+  return [...openedDocuments, ...fallbackDocuments].slice(0, limit);
 }
 
 function getLocalStorage(): Storage | null {
