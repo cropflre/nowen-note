@@ -32,6 +32,24 @@ jobs:
           src/lib/__tests__/mobileKnowledgeTree.test.ts
           src/components/__tests__/MobileKnowledgeTreePanel.test.ts
       - name: Frontend typecheck
-        run: npx tsc -b
+        id: typecheck
+        shell: bash
+        run: |
+          set +e
+          npx tsc -b > mobile-tree-typecheck.log 2>&1
+          code=$?
+          cat mobile-tree-typecheck.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-knowledge-tree-typecheck
+          path: frontend/mobile-tree-typecheck.log
+          if-no-files-found: error
+      - name: Require frontend typecheck
+        if: steps.typecheck.outputs.exit_code != '0'
+        run: exit 1
       - name: Frontend production build
         run: npm run build
