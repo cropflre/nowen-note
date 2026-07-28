@@ -16,6 +16,7 @@ test("personal notebook owner can transfer the complete subtree to an existing c
     import("../src/routes/notebooks"),
     import("../src/db/schema"),
   ]);
+  await import("../src/runtime/notebook-permission-management");
   closeDb = schema.closeDb;
   const db = schema.getDb();
 
@@ -33,12 +34,16 @@ test("personal notebook owner can transfer the complete subtree to an existing c
   const app = new Hono();
   app.route("/notebooks", notebooksRouter);
 
-  const membersBefore = await app.request("/notebooks/root/members", {
+  const summaryBefore = await app.request("/notebooks/root/permission-summary", {
     headers: { "X-User-Id": "owner" },
   });
-  assert.equal(membersBefore.status, 200);
-  const rowsBefore = await membersBefore.json() as Array<{ userId: string; role: string }>;
-  assert.deepEqual(rowsBefore.map((row) => [row.userId, row.role]), [
+  assert.equal(summaryBefore.status, 200);
+  const before = await summaryBefore.json() as {
+    ownerId: string;
+    members: Array<{ userId: string; role: string }>;
+  };
+  assert.equal(before.ownerId, "owner");
+  assert.deepEqual(before.members.map((row) => [row.userId, row.role]), [
     ["owner", "owner"],
     ["target", "editor"],
   ]);
@@ -75,12 +80,16 @@ test("personal notebook owner can transfer the complete subtree to an existing c
   const note = db.prepare("SELECT userId FROM notes WHERE id = 'note'").get() as { userId: string };
   assert.equal(note.userId, "target");
 
-  const membersAfter = await app.request("/notebooks/root/members", {
+  const summaryAfter = await app.request("/notebooks/root/permission-summary", {
     headers: { "X-User-Id": "target" },
   });
-  assert.equal(membersAfter.status, 200);
-  const rowsAfter = await membersAfter.json() as Array<{ userId: string; role: string }>;
-  assert.deepEqual(rowsAfter.map((row) => [row.userId, row.role]), [
+  assert.equal(summaryAfter.status, 200);
+  const after = await summaryAfter.json() as {
+    ownerId: string;
+    members: Array<{ userId: string; role: string }>;
+  };
+  assert.equal(after.ownerId, "target");
+  assert.deepEqual(after.members.map((row) => [row.userId, row.role]), [
     ["target", "owner"],
     ["owner", "editor"],
   ]);
