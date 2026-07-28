@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft,
   ArrowUpDown,
-  Check,
   ChevronRight,
   Clock3,
   FileCode,
@@ -51,7 +50,7 @@ import {
   type MobileKnowledgeTreeRecentEntry,
   type MobileKnowledgeTreeSortMode,
 } from "@/lib/mobileKnowledgeTree";
-import { canMoveWithinSharedRoot, isSharedRoot } from "@/lib/sharedKnowledgeTree";
+import { isSharedRoot } from "@/lib/sharedKnowledgeTree";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -496,11 +495,13 @@ export default function MobileKnowledgeTreePanel() {
       validate: (value) => normalizeInlineCreateTitle(value) ? null : "名称不能为空",
     });
     if (title == null) return;
+    const normalizedTitle = normalizeInlineCreateTitle(title);
+    if (!normalizedTitle) return;
     try {
       const created = await knowledgeTreeApi.create({
         parentId: parent?.id || null,
         nodeType: kind,
-        title: normalizeInlineCreateTitle(title),
+        title: normalizedTitle,
       });
       emitTreeChanged("node-created-mobile");
       await reload();
@@ -637,6 +638,7 @@ export default function MobileKnowledgeTreePanel() {
 
   const renderNode = (node: KnowledgeTreeNode, showPath = false) => {
     const active = node.resourceType === "note" && state.activeNote?.id === node.resourceId;
+    const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);
     const path = showPath ? buildMobileKnowledgeTreePath(node, nodes) : "";
     const updatedAt = formatUpdatedAt(node.updatedAt);
     return (
@@ -677,6 +679,21 @@ export default function MobileKnowledgeTreePanel() {
           </span>
           {node.nodeType === "folder" && <ChevronRight size={16} className="shrink-0 text-tx-tertiary" />}
         </button>
+        {node.nodeType !== "folder" && hasChildren && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setView("browse");
+              setParentId(node.id);
+              setQuery("");
+            }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-tx-tertiary hover:bg-app-active hover:text-tx-primary"
+            aria-label={`查看“${node.title}”的子内容`}
+          >
+            <ChevronRight size={16} />
+          </button>
+        )}
         {node.access.capabilities.canCreate && (
           <button
             type="button"
@@ -882,10 +899,7 @@ export default function MobileKnowledgeTreePanel() {
         onSplit={openSplit}
         onCreate={(node, kind) => { void createNode(node, kind); }}
         onRename={rename}
-        onMove={(node) => {
-          if (node.sharedRootId && !canMoveWithinSharedRoot(node, node)) return;
-          setMovingNode(node);
-        }}
+        onMove={setMovingNode}
         onPermissions={setPermissionsNode}
         onDelete={remove}
         onReload={reload}
