@@ -87,7 +87,7 @@ describe("mobile knowledge tree navigation", () => {
     ]);
   });
 
-  it("uses actual open history before falling back to updatedAt", () => {
+  it("keeps actual open history ahead of updatedAt-only fallback documents", () => {
     const rows = [
       node("note:a", "A", {
         nodeType: "note",
@@ -97,13 +97,20 @@ describe("mobile knowledge tree navigation", () => {
       node("note:b", "B", {
         nodeType: "note",
         resourceType: "note",
+        updatedAt: "2026-07-07T00:00:00.000Z",
+      }),
+      node("note:c", "C", {
+        nodeType: "note",
+        resourceType: "note",
         updatedAt: "2026-07-09T00:00:00.000Z",
       }),
     ];
-    const entries = upsertMobileKnowledgeTreeRecentEntry([], "note:b", Date.parse("2026-07-11T00:00:00.000Z"));
+    let entries = upsertMobileKnowledgeTreeRecentEntry([], "note:b", Date.parse("2026-07-08T00:00:00.000Z"));
+    entries = upsertMobileKnowledgeTreeRecentEntry(entries, "note:c", Date.parse("2026-07-06T00:00:00.000Z"));
 
     expect(buildMobileKnowledgeTreeRecentNodes(rows, entries).map((row) => row.id)).toEqual([
       "note:b",
+      "note:c",
       "note:a",
     ]);
   });
