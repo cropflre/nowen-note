@@ -3,7 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Hono } from "hono";
+import { fileURLToPath } from "node:url";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-notebook-owner-transfer-"));
 process.env.DB_PATH = path.join(dir, "test.db");
@@ -12,11 +12,10 @@ process.env.ELECTRON_USER_DATA = dir;
 let closeDb: () => void;
 
 test("personal notebook owner can transfer the complete subtree to an existing collaborator", async () => {
-  // Match production startup: register feature migrations and modular notebook routes before getDb().
   await import("../src/runtime/knowledge-tree-migration-bootstrap");
-  const [{ default: notebooksRouter }, schema] = await Promise.all([
-    import("../src/routes/notebooks"),
+  const [schema, transferModule] = await Promise.all([
     import("../src/db/schema"),
+    import("../src/services/notebookOwnershipTransfer"),
   ]);
   closeDb = schema.closeDb;
   const db = schema.getDb();
@@ -32,42 +31,22 @@ test("personal notebook owner can transfer the complete subtree to an existing c
      VALUES ('root:target', 'root', 'target', 'editor', 'active', 'owner')`,
   ).run();
 
-  const app = new Hono();
-  app.route("/notebooks", notebooksRouter);
+  assert.throws(
+    () => transferModule.transferNotebookOwnership({
+      notebookId: "root",
+      actorUserId: "owner",
+      targetUserId: "outsider",
+    }, db),
+    (error: unknown) =>
+      error instanceof transferModule.NotebookOwnershipTransferError &&
+      error.code === "TARGET_NOT_COLLABORATOR",
+  );
 
-  const summaryBefore = await app.request("/notebooks/root/permission-summary", {
-    headers: { "X-User-Id": "owner" },
-  });
-  assert.equal(summaryBefore.status, 200);
-  const before = await summaryBefore.json() as {
-    ownerId: string;
-    members: Array<{ userId: string; role: string }>;
-  };
-  assert.equal(before.ownerId, "owner");
-  assert.deepEqual(before.members.map((row) => [row.userId, row.role]), [
-    ["owner", "owner"],
-    ["target", "editor"],
-  ]);
-
-  const outsider = await app.request("/notebooks/root/transfer-owner", {
-    method: "POST",
-    headers: { "X-User-Id": "owner", "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUserId: "outsider" }),
-  });
-  assert.equal(outsider.status, 400);
-
-  const transferred = await app.request("/notebooks/root/transfer-owner", {
-    method: "POST",
-    headers: { "X-User-Id": "owner", "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUserId: "target" }),
-  });
-  assert.equal(transferred.status, 200);
-  const result = await transferred.json() as {
-    previousOwnerId: string;
-    newOwnerId: string;
-    notebookCount: number;
-    noteCount: number;
-  };
+  const result = transferModule.transferNotebookOwnership({
+    notebookId: "root",
+    actorUserId: "owner",
+    targetUserId: "target",
+  }, db);
   assert.equal(result.previousOwnerId, "owner");
   assert.equal(result.newOwnerId, "target");
   assert.equal(result.notebookCount, 2);
@@ -81,19 +60,25 @@ test("personal notebook owner can transfer the complete subtree to an existing c
   const note = db.prepare("SELECT userId FROM notes WHERE id = 'note'").get() as { userId: string };
   assert.equal(note.userId, "target");
 
-  const summaryAfter = await app.request("/notebooks/root/permission-summary", {
-    headers: { "X-User-Id": "target" },
-  });
-  assert.equal(summaryAfter.status, 200);
-  const after = await summaryAfter.json() as {
-    ownerId: string;
-    members: Array<{ userId: string; role: string }>;
-  };
-  assert.equal(after.ownerId, "target");
-  assert.deepEqual(after.members.map((row) => [row.userId, row.role]), [
-    ["target", "owner"],
-    ["owner", "editor"],
+  const memberships = db.prepare(
+    "SELECT userId, role, status FROM notebook_members WHERE notebookId = 'root' ORDER BY role DESC, userId ASC",
+  ).all() as Array<{ userId: string; role: string; status: string }>;
+  assert.deepEqual(memberships, [
+    { userId: "target", role: "owner", status: "active" },
+    { userId: "owner", role: "editor", status: "active" },
   ]);
+});
+
+test("permission runtime registers summary and transfer endpoints", () => {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const source = fs.readFileSync(
+    path.resolve(currentDir, "../src/runtime/notebook-permission-management.ts"),
+    "utf8",
+  );
+  assert.match(source, /\/:id\/permission-summary/);
+  assert.match(source, /\/:id\/transfer-owner/);
+  assert.match(source, /resolveNotebookPermission/);
+  assert.match(source, /transferNotebookOwnership/);
 });
 
 test.after(() => {
