@@ -18,6 +18,13 @@ describe("Notebook permission management", () => {
     expect(source).toContain("权限配置");
   });
 
+  it("supports search, selection and batch collaborator operations", () => {
+    expect(source).toContain("memberSearch");
+    expect(source).toContain("toggleVisibleMembers");
+    expect(source).toContain("batchSetRole");
+    expect(source).toContain("batchRemove");
+  });
+
   it("supports owner transfer without exposing it for workspace notebooks", () => {
     expect(source).toContain("!notebook.workspaceId");
     expect(source).toContain("notebookPermissionManagementApi.transferOwnership");
