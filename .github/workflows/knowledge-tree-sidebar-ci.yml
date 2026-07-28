@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'frontend/src/main.tsx'
+      - 'frontend/src/mobile-knowledge-tree-compact.css'
       - 'frontend/src/components/Sidebar.tsx'
       - 'frontend/src/components/KnowledgeTreeDrawer.tsx'
       - 'frontend/src/components/KnowledgeTreePanel.tsx'
@@ -41,6 +43,9 @@ jobs:
           grep -q "onContextMenu" frontend/src/components/KnowledgeTreePanel.tsx
           grep -q "onTouchStart" frontend/src/components/KnowledgeTreePanel.tsx
           grep -q "KnowledgeTreeNodeMenu" frontend/src/components/KnowledgeTreePanel.tsx
+          grep -q "mobile-knowledge-tree-compact.css" frontend/src/main.tsx
+          grep -q -- "--nowen-mobile-tree-row-height: 26px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-indent: 10px" frontend/src/mobile-knowledge-tree-compact.css
 
       - name: Install frontend dependencies
         working-directory: frontend
