@@ -8,10 +8,14 @@ on:
       - "frontend/src/main.tsx"
       - "frontend/src/components/SiyuanImportProgressBridge.tsx"
       - "frontend/src/components/SiyuanRichTextCalloutBridge.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
       - "frontend/src/components/__tests__/SiyuanImportProgressBridge.test.ts"
       - "frontend/src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
       - "frontend/src/lib/siyuanRichTextCallout.ts"
       - "frontend/src/lib/__tests__/siyuanRichTextCallout.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx"
       - "frontend/src/siyuan-rich-text-callout.css"
       - ".github/workflows/siyuan-import-feedback-ci.yml"
   push:
@@ -22,10 +26,14 @@ on:
       - "frontend/src/main.tsx"
       - "frontend/src/components/SiyuanImportProgressBridge.tsx"
       - "frontend/src/components/SiyuanRichTextCalloutBridge.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
       - "frontend/src/components/__tests__/SiyuanImportProgressBridge.test.ts"
       - "frontend/src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
       - "frontend/src/lib/siyuanRichTextCallout.ts"
       - "frontend/src/lib/__tests__/siyuanRichTextCallout.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx"
       - "frontend/src/siyuan-rich-text-callout.css"
       - ".github/workflows/siyuan-import-feedback-ci.yml"
 
@@ -66,11 +74,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: SiYuan zip detection and rich-text Callout tests
+      - name: SiYuan rich-text and Markdown Callout tests
         run: >-
           npm run test:run --
           src/components/__tests__/SiyuanImportProgressBridge.test.ts
           src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx
+          src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx
           src/lib/__tests__/siyuanRichTextCallout.test.ts
+          src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
