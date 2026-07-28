@@ -1,1 +1,1 @@
-Trigger Notebook Permission Management CI for PR #513.
+Collect Notebook Permission Management CI diagnostics for PR #513.
