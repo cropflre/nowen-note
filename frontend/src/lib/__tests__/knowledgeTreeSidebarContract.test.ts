@@ -62,15 +62,18 @@ describe("knowledge tree sidebar contract", () => {
     expect(menu).toContain("onNotePatched(node.id, patch)");
   });
 
-  it("uses the actual mobile Sidebar as the compact-density boundary", () => {
+  it("scopes compact density to the dedicated mobile tree portal slot", () => {
     const main = source("../../main.tsx");
     const compactCss = source("../../mobile-knowledge-tree-compact.css");
+    const bridge = source("../../components/SidebarSearchExperienceBridge.tsx");
     const menu = source("../../components/KnowledgeTreeNodeMenu.tsx");
 
     expect(main).toContain('import "./mobile-knowledge-tree-compact.css"');
     expect(main).not.toContain('import "./desktop-knowledge-tree-compact.css"');
-    expect(compactCss).toContain('[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"]');
-    expect(compactCss).not.toContain("@media (max-width: 767px)");
+    expect(bridge).toContain('const MOBILE_TREE_SLOT_ATTRIBUTE = "data-mobile-knowledge-tree-classic-slot"');
+    expect(compactCss).toContain('[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"]');
+    expect(compactCss).not.toContain('@media (max-width: 767px)');
+    expect(compactCss).not.toContain('[data-sidebar-variant="mobile"]');
     expect(compactCss).toContain("--nowen-mobile-tree-row-height: 26px");
     expect(compactCss).toContain("--nowen-mobile-tree-descendant-row-height: 22px");
     expect(compactCss).toContain("--nowen-mobile-tree-indent: 10px");
@@ -79,7 +82,8 @@ describe("knowledge tree sidebar contract", () => {
     expect(compactCss).toContain("min-width: var(--nowen-mobile-tree-expander-width) !important");
     expect(compactCss).toContain("max-width: var(--nowen-mobile-tree-expander-width) !important");
     expect(compactCss).toContain("flex: 0 0 var(--nowen-mobile-tree-expander-width) !important");
-    expect(compactCss).toContain("[data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id]");
+    expect(compactCss).toContain("[data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id]");
+    expect(compactCss).not.toContain("[data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id]");
     expect(compactCss).toContain("height: var(--nowen-mobile-tree-descendant-row-height) !important");
     expect(compactCss).toContain("padding-top: 1px !important");
     expect(compactCss).toContain("padding-bottom: 1px !important");
