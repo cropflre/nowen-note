@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const bridgeSource = readFileSync(path.resolve(__dirname, "../SidebarSearchExperienceBridge.tsx"), "utf8");
 const settingsSource = readFileSync(path.resolve(__dirname, "../SettingsModal.tsx"), "utf8");
 const helperSource = readFileSync(path.resolve(__dirname, "../../lib/mobileKnowledgeTreeViewMode.ts"), "utf8");
+const compactCssSource = readFileSync(path.resolve(__dirname, "../../mobile-knowledge-tree-compact.css"), "utf8");
 const zhSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/zh-CN.json"), "utf8");
 const enSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/en.json"), "utf8");
 const appSource = readFileSync(path.resolve(__dirname, "../../App.tsx"), "utf8");
@@ -17,6 +18,15 @@ describe("mobile knowledge tree mode switch contract", () => {
     expect(bridgeSource).toContain('surface.navigatorSurface.style.display = mode === "tree" ? "none" : ""');
     expect(bridgeSource).not.toContain("MOBILE_MODE_SWITCH_SLOT_ATTRIBUTE");
     expect(bridgeSource).not.toContain('aria-label="目录浏览方式"');
+  });
+
+  it("keeps browser and Android tree mode visibly compact", () => {
+    expect(compactCssSource).toContain("--nowen-mobile-tree-root-folder-row-height: 22px");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-folder-row-height: 20px");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 16px");
+    expect(compactCssSource).toMatch(/\[data-knowledge-tree-node-id\]\s*\{[\s\S]*min-height:\s*var\(--nowen-mobile-tree-note-row-height\)\s*!important/);
+    expect(compactCssSource).toContain("font-size: 11px !important");
+    expect(compactCssSource).toContain("touch-action: manipulation");
   });
 
   it("exposes one clear tree-mode switch in Settings", () => {
