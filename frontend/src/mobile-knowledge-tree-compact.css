@@ -1,12 +1,13 @@
 /*
  * Mobile / Android tree-mode density.
  *
- * The mobile tree is rendered through a Portal and some Android WebViews can
- * report a viewport wider than the CSS breakpoint. Scope the compact rules to
- * the actual mobile Sidebar instead of relying on max-width, so Android, iOS
- * and mobile Web all use the same density while desktop/Web stay unchanged.
+ * The classic mobile tree is mounted through SidebarSearchExperienceBridge into
+ * the dedicated `data-mobile-knowledge-tree-classic-slot` portal host. Scope
+ * density to that host directly instead of relying on viewport width or the
+ * surrounding Sidebar ancestry. This keeps browser mobile emulation, Android
+ * WebView and iOS on the same path while leaving desktop/Web trees untouched.
  */
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] {
   --nowen-mobile-tree-row-height: 26px;
   --nowen-mobile-tree-descendant-row-height: 22px;
   --nowen-mobile-tree-indent: 10px;
@@ -14,12 +15,12 @@
   --nowen-mobile-tree-content-gap: 3px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] {
   min-height: var(--nowen-mobile-tree-row-height);
   border-radius: 6px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child {
   width: var(--nowen-mobile-tree-expander-width) !important;
   min-width: var(--nowen-mobile-tree-expander-width) !important;
   max-width: var(--nowen-mobile-tree-expander-width) !important;
@@ -29,13 +30,13 @@
   padding: 0 !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child > svg {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:first-child > svg {
   width: 10px;
   height: 10px;
   flex: 0 0 10px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) {
   min-height: var(--nowen-mobile-tree-row-height);
   justify-content: flex-start;
   gap: var(--nowen-mobile-tree-content-gap) !important;
@@ -48,96 +49,131 @@
   line-height: 18px !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > svg {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > svg {
   width: 14px;
   height: 14px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > span:first-child {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button:nth-child(2) > span:first-child {
   width: 14px !important;
   font-size: 13px !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[aria-label$="下新建文档"] {
+/* Mobile creation remains available from More / long-press. */
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[aria-label$="下新建文档"] {
   display: none !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] {
   display: flex !important;
   width: 22px !important;
   height: var(--nowen-mobile-tree-row-height) !important;
   flex: 0 0 22px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] > svg {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-node-id] > button[title="更多"] > svg {
   width: 13px;
   height: 13px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id] {
+/*
+ * Match the recursive wrapper structure explicitly. The previous broad
+ * `> div > div [data-knowledge-tree-node-id]` selector was difficult to audit
+ * and failed to distinguish the rendered descendant rows in some portal DOMs.
+ */
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
   min-height: var(--nowen-mobile-tree-descendant-row-height);
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id] > button:first-child,
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id] > button[title="更多"] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:first-child,
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"],
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button[title="更多"] {
   height: var(--nowen-mobile-tree-descendant-row-height) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-section] > div > div [data-knowledge-tree-node-id] > button:nth-child(2) {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2),
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] > button:nth-child(2) {
   min-height: var(--nowen-mobile-tree-descendant-row-height);
   padding-top: 1px !important;
   padding-bottom: 1px !important;
   line-height: 16px !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id] {
+/* Compact hierarchy indentation, aligned with the same recursive wrappers. */
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id] {
   padding-left: 0 !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 1) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 2) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 3) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 4) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 5) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 6) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 7) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div > div > div > div > div > div > div > div > div > [data-knowledge-tree-node-id] {
   padding-left: calc(var(--nowen-mobile-tree-indent) * 8) !important;
 }
 
-[data-sidebar-variant="mobile"] [data-knowledge-tree-section] > div:first-child {
+[data-mobile-knowledge-tree-classic-slot] [data-knowledge-tree-section] > div:first-child {
   padding-top: 2px !important;
   padding-bottom: 2px !important;
   line-height: 14px;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-inline-create] > div {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-knowledge-tree-inline-create] > div {
   min-height: 28px;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
 
-[data-sidebar-variant="mobile"] [data-nowen-knowledge-tree="embedded"] [data-swipe-blocker="knowledge-tree-scroll"] {
+[data-mobile-knowledge-tree-classic-slot] [data-nowen-knowledge-tree="embedded"] [data-swipe-blocker="knowledge-tree-scroll"] {
   padding-bottom: 8px !important;
 }
