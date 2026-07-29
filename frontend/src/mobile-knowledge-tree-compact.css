@@ -1,116 +1,144 @@
 /*
  * Mobile tree-mode density.
  *
- * The mobile classic tree receives `nowen-mobile-tree-density` directly from
- * SidebarSearchExperienceBridge. This avoids viewport, Portal-host and recursive
- * wrapper guesses: the rules always follow the rendered mobile KnowledgeTreePanel.
- * Folder rows keep a comfortable 26px height; note and Markdown rows use a
- * visibly denser 20px height so large notebooks fit more content on screen.
+ * The compact class is mounted directly on the mobile KnowledgeTreePanel, so
+ * these rules do not depend on viewport width, Portal ancestry or recursive DOM
+ * guesses. Document rows use the smallest baseline. Folder enhancements use
+ * :has() when available; browsers without :has() still receive the compact
+ * document baseline instead of falling back to the former spacious layout.
  */
 .nowen-mobile-tree-density {
   /* Compatibility aliases retained for existing CI and downstream themes. */
   --nowen-mobile-tree-row-height: 26px;
   --nowen-mobile-tree-indent: 10px;
-  --nowen-mobile-tree-folder-row-height: 26px;
-  --nowen-mobile-tree-note-row-height: 20px;
-  --nowen-mobile-tree-expander-width: 8px;
-  --nowen-mobile-tree-content-gap: 3px;
+
+  --nowen-mobile-tree-root-folder-row-height: 22px;
+  --nowen-mobile-tree-folder-row-height: 20px;
+  --nowen-mobile-tree-note-row-height: 16px;
+  --nowen-mobile-tree-expander-width: 7px;
+  --nowen-mobile-tree-content-gap: 2px;
+  --nowen-mobile-tree-action-width: 22px;
 }
 
+/*
+ * Compact fallback: every row starts at document density. This guarantees a
+ * visible reduction even in older embedded browsers without :has() support.
+ */
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] {
-  min-height: var(--nowen-mobile-tree-folder-row-height);
-  border-radius: 6px;
+  min-height: var(--nowen-mobile-tree-note-row-height) !important;
+  border-radius: 4px;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button:first-child {
   width: var(--nowen-mobile-tree-expander-width) !important;
   min-width: var(--nowen-mobile-tree-expander-width) !important;
   max-width: var(--nowen-mobile-tree-expander-width) !important;
-  height: var(--nowen-mobile-tree-folder-row-height) !important;
+  height: var(--nowen-mobile-tree-note-row-height) !important;
   flex: 0 0 var(--nowen-mobile-tree-expander-width) !important;
-  margin-right: -1px !important;
+  margin-right: 0 !important;
   padding: 0 !important;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button:first-child > svg {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button:nth-child(2) {
-  min-height: var(--nowen-mobile-tree-folder-row-height);
+  min-height: var(--nowen-mobile-tree-note-row-height) !important;
   justify-content: flex-start;
   gap: var(--nowen-mobile-tree-content-gap) !important;
   margin-left: 0 !important;
-  padding: 2px 0 !important;
-  font-size: 12px !important;
-  line-height: 18px !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  line-height: 14px !important;
+  touch-action: manipulation;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button:nth-child(2) > svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button:nth-child(2) > span:first-child {
-  width: 14px !important;
-  font-size: 13px !important;
+  width: 13px !important;
+  font-size: 12px !important;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button[aria-label$="下新建文档"],
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button[title="更多"] {
   display: flex !important;
-  width: 24px !important;
-  height: var(--nowen-mobile-tree-folder-row-height) !important;
-  flex: 0 0 24px;
+  width: var(--nowen-mobile-tree-action-width) !important;
+  height: var(--nowen-mobile-tree-note-row-height) !important;
+  flex: 0 0 var(--nowen-mobile-tree-action-width);
   touch-action: manipulation;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-node-id] > button[title="更多"] > svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
-/*
- * Only document rows are compact. Folder rows—including top-level notebooks and
- * nested folders—retain the larger height for hierarchy readability.
- */
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) {
-  min-height: var(--nowen-mobile-tree-note-row-height) !important;
+/* Nested folders remain slightly taller than documents for hierarchy scanning. */
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder),
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) {
+  min-height: var(--nowen-mobile-tree-folder-row-height) !important;
 }
 
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) > button:first-child,
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) > button[aria-label$="下新建文档"],
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) > button[title="更多"] {
-  height: var(--nowen-mobile-tree-note-row-height) !important;
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button:first-child,
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button:first-child,
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button[aria-label$="下新建文档"],
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button[aria-label$="下新建文档"],
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button[title="更多"],
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button[title="更多"] {
+  height: var(--nowen-mobile-tree-folder-row-height) !important;
 }
 
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) > button:nth-child(2) {
-  min-height: var(--nowen-mobile-tree-note-row-height) !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button:nth-child(2),
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button:nth-child(2) {
+  min-height: var(--nowen-mobile-tree-folder-row-height) !important;
+  padding: 1px 0 !important;
   line-height: 16px !important;
-  touch-action: manipulation;
 }
 
-.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg:is(.lucide-file-text, .lucide-file-code)) > button:nth-child(2) > svg {
+.nowen-mobile-tree-density [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button:nth-child(2) > svg {
   width: 13px;
   height: 13px;
+}
+
+/* Top-level notebook folders keep one extra density step for readability. */
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder),
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) {
+  min-height: var(--nowen-mobile-tree-root-folder-row-height) !important;
+}
+
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button:first-child,
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button:first-child,
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button[aria-label$="下新建文档"],
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button[aria-label$="下新建文档"],
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button[title="更多"],
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button[title="更多"] {
+  height: var(--nowen-mobile-tree-root-folder-row-height) !important;
+}
+
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > svg.lucide-folder) > button:nth-child(2),
+.nowen-mobile-tree-density [data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has(> button:nth-child(2) > span:first-child) > button:nth-child(2) {
+  min-height: var(--nowen-mobile-tree-root-folder-row-height) !important;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-section] > div:first-child {
-  padding-top: 2px !important;
-  padding-bottom: 2px !important;
-  line-height: 14px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 12px;
 }
 
 .nowen-mobile-tree-density [data-knowledge-tree-inline-create] > div {
-  min-height: 28px;
+  min-height: 24px;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
 
 .nowen-mobile-tree-density [data-swipe-blocker="knowledge-tree-scroll"] {
-  padding-bottom: 8px !important;
+  padding-bottom: 6px !important;
 }
