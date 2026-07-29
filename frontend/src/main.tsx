@@ -71,6 +71,7 @@ import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
+import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 
 void cleanupRemovedServerProfiles();
 
@@ -132,7 +133,7 @@ try {
 }
 
 function resolvePublicNotebookRoute(): { matched: boolean; token?: string } {
-  const match = window.location.pathname.match(/^\/public(?:\/([^/]+))?\/?$/);
+  const match = resolveCurrentAppPathname().match(/^\/public(?:\/([^/]+))?\/?$/);
   if (!match) return { matched: false };
   if (!match[1]) return { matched: true };
   try {
