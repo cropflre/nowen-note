@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { navigateToAppPath } from "@/lib/appPathNavigation";
 
 const LEGACY_TRANSFER_TRIGGER = 'button[aria-label="跨空间转移笔记"]';
 const RAIL_MOUNT_ATTRIBUTE = "data-nowen-space-actions-mount";
@@ -214,7 +215,7 @@ export default function PublicSpaceLauncher() {
 
   const openPublicSpace = () => {
     setPanel(null);
-    window.location.assign("/public");
+    navigateToAppPath("/public");
   };
 
   const renderRailButton = (mount: RailMount) => {
