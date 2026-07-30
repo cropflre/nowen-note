@@ -8,7 +8,6 @@ import type { DatabaseAdapter } from "../db/adapters/types";
 import { verifyLoginToken } from "../lib/auth-security";
 import { createPostgresSubdocumentWebsocketRepository } from "../repositories/postgresSubdocumentWebsocketRepository";
 import { createNoteCoreRuntime } from "./note-core-runtime";
-import type { NoteRuntimeMutationEvent } from "./postgres-realtime-runtime";
 import {
   createPostgresYjsSubdocumentRuntime,
   PostgresYjsSubdocumentRuntimeError,
@@ -36,12 +35,27 @@ interface ClientMessage {
 
 type UpgradeHandler = (req: IncomingMessage, socket: any, head: Buffer) => void;
 
+export interface PostgresYjsSubdocumentMutationEvent {
+  kind: "note.updated";
+  actorUserId: string;
+  actorConnectionId: null;
+  note: {
+    id: string;
+    workspaceId: string | null;
+    notebookId: string;
+    version: number;
+    updatedAt: string;
+    title: string;
+    contentText: string;
+  };
+}
+
 export interface PostgresYjsSubdocumentWebsocketOptions {
   path?: string;
   heartbeatIntervalMs?: number;
   clientTimeoutMs?: number;
   maxUpdateBytes?: number;
-  publishMutation?: (event: NoteRuntimeMutationEvent) => Promise<void>;
+  publishMutation?: (event: PostgresYjsSubdocumentMutationEvent) => Promise<void>;
 }
 
 export interface PostgresYjsSubdocumentWebsocketRuntime {
