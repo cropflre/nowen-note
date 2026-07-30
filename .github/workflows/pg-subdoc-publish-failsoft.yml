@@ -1,0 +1,49 @@
+name: Reconcile Subdocument Mutation Publish Boundary
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/workflows/pg-subdoc-publish-failsoft.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Make mutation publication fail-soft
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts")
+          text = path.read_text()
+          old = '''      await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);\n'''
+          new = '''      try {\n        await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);\n      } catch (publishError) {\n        console.warn(\n          "[postgres-subdocument-ws] note mutation publish failed:",\n          errorMessage(publishError),\n        );\n      }\n'''
+          if text.count(old) != 1:
+              raise SystemExit("unexpected subdocument publish marker")
+          path.write_text(text.replace(old, new, 1))
+      - name: Validate TypeScript
+        working-directory: backend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:tsc -- --noEmit
+      - name: Commit reconciled source
+        run: |
+          git rm .github/workflows/pg-subdoc-publish-failsoft.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts
+          git commit -m "fix(pg): keep subdocument writes successful when relay publish fails"
+          git push origin HEAD:pg-migration-unified
