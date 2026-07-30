@@ -94,7 +94,7 @@ export interface NoteEditorHandle {
    * 未就绪（编辑器尚未 mount）时返回 null。
    * CRDT 模式下 content 由 yDoc 接管，返回的 content 仅供临时回填，不代表服务端权威。
    */
-  getSnapshot?: () => { content: string; contentText: string } | null;
+  getSnapshot?: () => { content: string; contentText: string; title?: string } | null;
   /** 标记一次已经由当前编辑器发起并得到服务器确认的保存。 */
   acknowledgeSave?: (ack: {
     noteId: string;

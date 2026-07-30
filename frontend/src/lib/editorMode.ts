@@ -10,8 +10,9 @@
  *      这里扩展，而不是散落在组件里。
  *
  * 兼容约定：
- *   - 读取优先级：URL `?md=1|0` → localStorage → 默认 `"tiptap"`
- *   - 写入只写 localStorage；URL 上的强制标记由 clearForcedModeFromUrl 显式清除
+ *   - 读取优先级：当前笔记 contentFormat 覆盖 → URL `?md=1|0` → localStorage → 默认 `"tiptap"`
+ *   - 存在当前笔记覆盖时，写入只更新内存覆盖，不污染全局 localStorage / 偏好同步
+ *   - 没有当前笔记覆盖时，写入 localStorage；URL 强制标记由 clearForcedModeFromUrl 显式清除
  *   - 所有方法对 SSR / 无 window 环境安全，读取失败时返回默认值
  */
 
@@ -30,8 +31,9 @@ export function setActiveNoteEditorModeOverride(mode: EditorMode | null): void {
 }
 
 /**
- * 根据 URL / localStorage 解析当前编辑器模式。
+ * 根据当前笔记覆盖 / URL / localStorage 解析当前编辑器模式。
  *
+ * - 当前笔记 contentFormat 覆盖存在时优先使用，避免格式不兼容的编辑器污染笔记
  * - `?md=1` → "md"
  * - `?md=0` → "tiptap"
  * - 否则取 localStorage，非法值回落到 "tiptap"
@@ -57,10 +59,18 @@ export function resolveEditorMode(defaultMode: EditorMode = "tiptap"): EditorMod
 }
 
 /**
- * 把当前选择持久化到 localStorage，并广播给账号偏好同步层。失败时静默
- * （隐私模式 / quota）。调用方应在成功切换后调用。
+ * 保存编辑器模式。
+ *
+ * 当前笔记存在 contentFormat 覆盖时，切换只属于这篇笔记：更新内存覆盖即可，
+ * 不写全局 localStorage，也不广播账号偏好变化。没有笔记覆盖时才保留旧的
+ * 全局偏好行为。失败时静默（隐私模式 / quota）。
  */
 export function persistEditorMode(mode: EditorMode): void {
+  if (activeNoteEditorModeOverride) {
+    activeNoteEditorModeOverride = mode;
+    return;
+  }
+
   try {
     localStorage.setItem(EDITOR_MODE_KEY, mode);
   } catch {

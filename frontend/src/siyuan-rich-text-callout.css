@@ -1,0 +1,79 @@
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout {
+  --nowen-callout-color: #4f46e5;
+  border-left: 4px solid var(--nowen-callout-color);
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  margin: 1rem 0;
+  color: var(--pm-text);
+  font-style: normal;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="tip"] {
+  --nowen-callout-color: #22a447;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="note"] {
+  --nowen-callout-color: #3b6ef5;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="important"] {
+  --nowen-callout-color: #8b5cf6;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="warning"] {
+  --nowen-callout-color: #f08c00;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="caution"] {
+  --nowen-callout-color: #e33d32;
+}
+
+.dark :is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="tip"] {
+  --nowen-callout-color: #65d37e;
+}
+
+.dark :is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="note"] {
+  --nowen-callout-color: #7da2ff;
+}
+
+.dark :is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="important"] {
+  --nowen-callout-color: #b497ff;
+}
+
+.dark :is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="warning"] {
+  --nowen-callout-color: #ffb347;
+}
+
+.dark :is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout[data-callout-type="caution"] {
+  --nowen-callout-color: #ff7770;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout > p.nowen-siyuan-callout-header:first-child {
+  position: relative;
+  min-height: 1.55rem;
+  margin: 0 0 0.2rem;
+  color: transparent;
+  font-size: 0;
+  line-height: 1.55rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout > p.nowen-siyuan-callout-header:first-child::before {
+  content: attr(data-callout-icon) "  " attr(data-callout-title);
+  color: var(--nowen-callout-color);
+  font-size: 0.98rem;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.55rem;
+  white-space: pre-wrap;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout > p:not(:first-child) {
+  margin: 0.18rem 0;
+  color: var(--pm-text);
+  font-style: normal;
+}
+
+:is(.ProseMirror, .prose[contenteditable="true"]) blockquote.nowen-siyuan-callout > :last-child {
+  margin-bottom: 0;
+}

@@ -264,7 +264,9 @@ function registerCredentialsIpc() {
     const data = load();
     if (!data) return null;
     const summary = { serverUrl: data.serverUrl, username: data.username, hasPassword: data.hasPassword, autoLogin: data.autoLogin };
-    if (data.autoLogin && data.hasPassword) summary.password = data.password;
+    // renderer 只有在用户打开登录页时才会主动读取；safeStorage 负责静态加密，
+    // “记住密码”不应被“自动登录”开关阻断，否则桌面端永远无法回填密码。
+    if (data.hasPassword) summary.password = data.password;
     return summary;
   });
 

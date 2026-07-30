@@ -22,7 +22,7 @@ vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: mocks.state }),
 }));
 
-vi.mock("@/components/EditorPane", () => ({
+vi.mock("../EditorPane", () => ({
   default: () => <div data-testid="editor-pane" />,
 }));
 

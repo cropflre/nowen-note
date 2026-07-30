@@ -111,6 +111,57 @@ test("Markdown blocks receive persisted block markers", () => {
   assert.deepEqual(second.blocks.map((block) => block.blockId), first.blocks.map((block) => block.blockId));
 });
 
+test("Markdown indexing removes orphaned generated block markers without creating phantom paragraphs", () => {
+  const noteId = "4a444444-4444-4444-8444-444444444444";
+  const content = [
+    " ^blk_d765500d-f8a2-4507-b53f-4fae35ba069",
+    "^blk_b0865a9c-e954-45bd-a8ad-d4ef75834f77",
+    "",
+    " ^blk_95b3cd1f-82e2-4655-86ad-d50423fd9f58",
+  ].join("\n");
+  db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(noteId, owner, notebookId, "Damaged Markdown", content, "", "markdown");
+
+  const synced = syncNoteBlocks(db, noteId, content, "markdown");
+
+  assert.equal(synced.content, "");
+  assert.equal(synced.contentText, "");
+  assert.deepEqual(synced.blocks, []);
+});
+
+test("Markdown indexing keeps the generated marker that belongs to a fenced code block", () => {
+  const noteId = "4b444444-4444-4444-8444-444444444444";
+  const blockId = "blk_33333333-3333-4333-8333-333333333333";
+  const content = ["```ts", "const value = 1;", "```", `^${blockId}`].join("\n");
+  db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(noteId, owner, notebookId, "Code Markdown", content, "", "markdown");
+
+  const synced = syncNoteBlocks(db, noteId, content, "markdown");
+
+  assert.equal(synced.content, content);
+  assert.equal(synced.blocks.length, 1);
+  assert.equal(synced.blocks[0].blockId, blockId);
+  assert.equal(synced.blocks[0].blockType, "codeBlock");
+});
+
+test("Markdown indexing repairs a generated block marker attached directly to user text", () => {
+  const noteId = "4c444444-4444-4444-8444-444444444444";
+  const blockId = "blk_8f7a8f5f-8245-4cad-baf8-f04641653522";
+  const content = `as^${blockId}`;
+  db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(noteId, owner, notebookId, "Attached marker", content, "", "markdown");
+
+  const synced = syncNoteBlocks(db, noteId, content, "markdown");
+
+  assert.equal(synced.content, `as ^${blockId}`);
+  assert.equal(synced.contentText, "as");
+  assert.equal(synced.blocks.length, 1);
+  assert.equal(synced.blocks[0].blockId, blockId);
+});
+
 test("block backlinks are visible to another user with note ACL", async () => {
   const response = await blocksApp.request(
     `/blocks/${targetId}/blk_target/backlinks`,

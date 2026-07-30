@@ -28,6 +28,7 @@ import DockerUpdateCenter from "./components/DockerUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
 import TaskDataTransferBridgeV2 from "./components/TaskDataTransferBridgeV2";
 import SystemFullDataTransferBridge from "./components/SystemFullDataTransferBridge";
+import BackupWebDavBridge from "./components/BackupWebDavBridge";
 import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import DocxImportCenter from "./components/DocxImportCenter";
@@ -35,6 +36,8 @@ import NoteTransferCenter from "./components/NoteTransferCenter";
 import RoundTripImportBatchCenter from "./components/RoundTripImportBatchCenter";
 import RoundTripPermissionMappingCenter from "./components/RoundTripPermissionMappingCenter";
 import RoundTripPermissionExportCenter from "./components/RoundTripPermissionExportCenter";
+import SiyuanImportProgressBridge from "./components/SiyuanImportProgressBridge";
+import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -42,6 +45,9 @@ import "./overlay-layers.css";
 import "./space-actions.css";
 import "./settings-switches.css";
 import "./sidebar-search-experience.css";
+import "./mobile-knowledge-tree-compact.css";
+import "./siyuan-rich-text-callout.css";
+import "./knowledge-tree-markdown-drop.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -65,6 +71,8 @@ import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
 import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";
+import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
+import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 
 void cleanupRemovedServerProfiles();
 
@@ -89,6 +97,7 @@ function BootSplashRemover() {
 
 installKnowledgeTreeScrollbarBridge();
 installWorkspaceRealtimeSubscription();
+installKnowledgeTreeMarkdownDrop();
 installNodeViewMutationGuard();
 installEditorMediaScopeGuard();
 installAndroidNativeHttpBridge();
@@ -126,7 +135,7 @@ try {
 }
 
 function resolvePublicNotebookRoute(): { matched: boolean; token?: string } {
-  const match = window.location.pathname.match(/^\/public(?:\/([^/]+))?\/?$/);
+  const match = resolveCurrentAppPathname().match(/^\/public(?:\/([^/]+))?\/?$/);
   if (!match) return { matched: false };
   if (!match[1]) return { matched: true };
   try {
@@ -164,6 +173,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <TwoFactorLoginChallengeCenter />
           <TaskDataTransferBridgeV2 />
           <SystemFullDataTransferBridge />
+          <BackupWebDavBridge />
           <AndroidShareImportCenter />
           <NoteImageExportCenter />
           <DocxImportCenter />
@@ -172,6 +182,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <RoundTripImportBatchCenter />
           <RoundTripPermissionMappingCenter />
           <RoundTripPermissionExportCenter />
+          <SiyuanImportProgressBridge />
+          <SiyuanRichTextCalloutBridge />
           <App />
         </>
       )}

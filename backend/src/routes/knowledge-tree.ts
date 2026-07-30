@@ -1,6 +1,10 @@
 import { Hono } from "hono";
+import bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 
 import { getDb } from "../db/schema.js";
+import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
+import { signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
   clearKnowledgeNodeRole,
   hasKnowledgeCapability,
@@ -192,6 +196,101 @@ app.post("/nodes/:nodeId/restore", async (c) => {
       nodeId: c.req.param("nodeId"),
       includeSubtree: body.includeSubtree !== false,
     }));
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
+function notebookPasswordTarget(nodeId: string, userId: string) {
+  const db = getDb();
+  ensureKnowledgeTreePasswordTable(db);
+  const access = resolveKnowledgeNodeAccess(nodeId, userId, db);
+  const node = db.prepare(`
+    SELECT resourceId FROM knowledge_tree_nodes
+    WHERE id = ? AND resourceType = 'notebook' AND isDeleted = 0
+  `).get(nodeId) as { resourceId: string } | undefined;
+  if (!node) throw new KnowledgeTreeError("KNOWLEDGE_FOLDER_NOT_FOUND", 404, "文件夹不存在");
+  return { db, access, notebookId: node.resourceId };
+}
+
+function passwordDigest(password: string): string {
+  return createHash("sha256").update(password, "utf8").digest("base64");
+}
+
+app.post("/nodes/:nodeId/unlock", async (c) => {
+  try {
+    const target = notebookPasswordTarget(c.req.param("nodeId"), userIdOf(c));
+    if (!target.access.capabilities.canView) {
+      return c.json({ error: "没有查看权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const password = typeof body.password === "string" ? body.password : "";
+    const row = target.db.prepare("SELECT passwordHash, passwordVersion FROM notebook_passwords WHERE notebookId = ?")
+      .get(target.notebookId) as { passwordHash: string; passwordVersion: number } | undefined;
+    if (!row) {
+      return c.json({
+        success: true,
+        isPasswordProtected: false,
+        unlockToken: signFolderUnlockToken({
+          userId: userIdOf(c),
+          nodeId: c.req.param("nodeId"),
+          notebookId: target.notebookId,
+          passwordVersion: 0,
+        }),
+      });
+    }
+    if (!password || !(await bcrypt.compare(passwordDigest(password), row.passwordHash))) {
+      return c.json({ error: "密码错误", code: "FOLDER_PASSWORD_INVALID" }, 403);
+    }
+    return c.json({
+      success: true,
+      isPasswordProtected: true,
+      unlockToken: signFolderUnlockToken({
+        userId: userIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        notebookId: target.notebookId,
+        passwordVersion: row.passwordVersion,
+      }),
+    });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
+app.put("/nodes/:nodeId/password", async (c) => {
+  try {
+    const target = notebookPasswordTarget(c.req.param("nodeId"), userIdOf(c));
+    if (!target.access.capabilities.canManageMembers) {
+      return c.json({ error: "没有密码管理权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+    const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+    if (newPassword.length < 4 || newPassword.length > 64 || !newPassword.trim()) {
+      return c.json({ error: "密码长度需为 4–64 个字符", code: "FOLDER_PASSWORD_INVALID_LENGTH" }, 400);
+    }
+    const current = target.db.prepare("SELECT passwordHash, passwordVersion FROM notebook_passwords WHERE notebookId = ?")
+      .get(target.notebookId) as { passwordHash: string; passwordVersion: number } | undefined;
+    if (current && (!currentPassword || !(await bcrypt.compare(passwordDigest(currentPassword), current.passwordHash)))) {
+      return c.json({ error: "当前密码错误", code: "FOLDER_PASSWORD_CURRENT_INVALID" }, 403);
+    }
+    const passwordHash = await bcrypt.hash(passwordDigest(newPassword), 10);
+    const nextVersion = (current?.passwordVersion || 0) + 1;
+    target.db.transaction(() => {
+      target.db.prepare(`
+        INSERT INTO notebook_passwords (notebookId, passwordHash, passwordVersion, updatedAt)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(notebookId) DO UPDATE SET
+          passwordHash = excluded.passwordHash,
+          passwordVersion = excluded.passwordVersion,
+          updatedAt = datetime('now')
+      `).run(target.notebookId, passwordHash, nextVersion);
+      target.db.prepare("UPDATE knowledge_tree_nodes SET isExpanded = 0, updatedAt = datetime('now') WHERE id = ?")
+        .run(c.req.param("nodeId"));
+      target.db.prepare("UPDATE notebooks SET isExpanded = 0, updatedAt = datetime('now') WHERE id = ?")
+        .run(target.notebookId);
+    })();
+    return c.json({ success: true, isPasswordProtected: true });
   } catch (error) {
     return mapError(c, error);
   }

@@ -9,6 +9,7 @@ import {
   MessageCircle,
   ImagePlus,
   Camera,
+  MoreHorizontal,
   Video,
   X,
   Calendar,
@@ -138,6 +139,99 @@ function mediaTypeForFile(file: File): "image" | "video" | null {
   if (ALLOWED_IMAGE_MIMES.has(mime)) return "image";
   if (ALLOWED_VIDEO_MIMES.has(mime)) return "video";
   return null;
+}
+
+function MoreMediaMenu({
+  cameraDisabled,
+  videoDisabled,
+  onCamera,
+  onVideo,
+  onRecord,
+}: {
+  cameraDisabled: boolean;
+  videoDisabled: boolean;
+  onCamera: () => void;
+  onVideo: () => void;
+  onRecord: () => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const allDisabled = cameraDisabled && videoDisabled;
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  const items = [
+    { id: "camera", label: t("diary.media.camera"), icon: <Camera size={14} />, disabled: cameraDisabled, action: onCamera },
+    { id: "video", label: t("diary.media.video"), icon: <Play size={14} />, disabled: videoDisabled, action: onVideo },
+    { id: "record", label: t("diary.media.record"), icon: <Video size={14} />, disabled: videoDisabled, action: onRecord },
+  ];
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        disabled={allDisabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+          allDisabled
+            ? "text-tx-tertiary/50 cursor-not-allowed"
+            : open
+            ? "bg-app-hover text-tx-secondary"
+            : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+        )}
+        title={t("diary.media.more", { defaultValue: "更多" })}
+      >
+        <MoreHorizontal size={15} />
+        <span className="hidden sm:inline">{t("diary.media.more", { defaultValue: "更多" })}</span>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, scale: 0.96, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute bottom-full left-0 mb-2 w-36 p-1.5 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50 origin-bottom-left"
+          >
+            {items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  item.action();
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors",
+                  item.disabled
+                    ? "text-tx-tertiary/50 cursor-not-allowed"
+                    : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+                )}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 // ============================================================
@@ -755,48 +849,13 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
               </span>
             )}
           </button>
-          <button
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={remainingImageSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingImageSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.camera")}
-          >
-            <Camera size={15} />
-            <span className="hidden sm:inline">{t("diary.media.camera")}</span>
-          </button>
-          <button
-            onClick={() => videoInputRef.current?.click()}
-            disabled={remainingVideoSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingVideoSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.video")}
-          >
-            <Video size={15} />
-            <span className="hidden sm:inline">{t("diary.media.video")}</span>
-          </button>
-          <button
-            onClick={() => recordInputRef.current?.click()}
-            disabled={remainingVideoSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingVideoSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.record")}
-          >
-            <Video size={15} />
-            <span className="hidden sm:inline">{t("diary.media.record")}</span>
-          </button>
+          <MoreMediaMenu
+            cameraDisabled={remainingImageSlots <= 0}
+            videoDisabled={remainingVideoSlots <= 0}
+            onCamera={() => cameraInputRef.current?.click()}
+            onVideo={() => videoInputRef.current?.click()}
+            onRecord={() => recordInputRef.current?.click()}
+          />
           <input
             ref={fileInputRef}
             type="file"
@@ -1614,7 +1673,7 @@ function DiaryEditor({
               </span>
             </button>
             {showDatePicker && (
-              <div className="absolute top-full left-0 mt-2 p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
+              <div className="absolute top-full left-0 mt-2 w-[240px] max-w-[calc(100vw-32px)] p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
                 <div className="text-[11px] text-tx-tertiary mb-2">
                   {t("diary.editDateHint", { defaultValue: "修改说说的显示时间" })}
                 </div>
@@ -1661,53 +1720,13 @@ function DiaryEditor({
             )}
           </button>
 
-          {/* 拍照 */}
-          <button
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={remainingSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.camera")}
-          >
-            <Camera size={15} />
-            <span className="hidden sm:inline">{t("diary.media.camera")}</span>
-          </button>
-
-          {/* 视频 */}
-          <button
-            onClick={() => videoInputRef.current?.click()}
-            disabled={remainingVideoSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingVideoSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.video")}
-          >
-            <Video size={15} />
-            <span className="hidden sm:inline">{t("diary.media.video")}</span>
-          </button>
-
-          {/* 录像 */}
-          <button
-            onClick={() => recordInputRef.current?.click()}
-            disabled={remainingVideoSlots <= 0}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
-              remainingVideoSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-            )}
-            title={t("diary.media.record")}
-          >
-            <Video size={15} />
-            <span className="hidden sm:inline">{t("diary.media.record")}</span>
-          </button>
+          <MoreMediaMenu
+            cameraDisabled={remainingSlots <= 0}
+            videoDisabled={remainingVideoSlots <= 0}
+            onCamera={() => cameraInputRef.current?.click()}
+            onVideo={() => videoInputRef.current?.click()}
+            onRecord={() => recordInputRef.current?.click()}
+          />
 
           <input
             ref={fileInputRef}

@@ -165,6 +165,20 @@ test("file list returns signed display URLs for thumbnails and previews", async 
   assert.match(payload.accessUrls?.[attachmentId] || "", /[?&]sig=/);
 });
 
+test("note attachment list includes files owned by a blank source note", async () => {
+  const response = await app.request(`/files?noteId=${NOTE_ID}`, {
+    headers: { "X-User-Id": OWNER_ID },
+  });
+  assert.equal(response.status, 200);
+
+  const payload = await responseJson<{
+    items: Array<{ id: string }>;
+    total: number;
+  }>(response);
+  assert.equal(payload.total, 1);
+  assert.deepEqual(payload.items.map((item) => item.id), [attachmentId]);
+});
+
 test("unrelated users cannot exchange a guessed note id for attachment URLs", async () => {
   const response = await app.request(`/attachments/access/urls?noteId=${NOTE_ID}`, {
     headers: { "X-User-Id": STRANGER_ID },

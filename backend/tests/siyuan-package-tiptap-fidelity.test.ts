@@ -408,10 +408,10 @@ test("Rich Text import safely preserves advanced Siyuan nodes without unknown sc
   assert.equal(result.stats.unsupportedNodes.NodeAudio, 1);
   assert.equal(result.stats.unsupportedNodes.NodeIFrame, 2);
   assert.equal(result.stats.unsupportedNodes.NodeWidget, 1);
-  assert.equal(result.stats.unsupportedNodes.NodeCallout, 1);
+  assert.equal(result.stats.unsupportedNodes.NodeCallout || 0, 0);
   assert.ok(result.warnings.some((item) => item.includes("audio") && item.includes("link")));
   assert.ok(result.warnings.some((item) => item.includes("iframe") && item.includes("downgraded")));
-  assert.ok(result.warnings.some((item) => item.includes("callout") && item.includes("blockquote")));
+  assert.ok(!result.warnings.some((item: string) => item.includes("callout") && item.includes("blockquote")));
   assert.ok(result.warnings.some((item) => item.includes("widget") && item.includes("link")));
 
   const note = getNoteByTitle("高级节点保真");

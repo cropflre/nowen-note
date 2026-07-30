@@ -147,7 +147,7 @@ function isDemoUser(userId: string): boolean {
 }
 
 // 从请求中解析当前 userId（auth 路由未走全局 JWT 中间件，必要处手动解析）
-// 同时校验 tokenVersion，禁用/改密后旧 token 不再可用。
+// 同时校验 tokenVersion 与单设备 session，禁用/改密/下线后旧 token 不再可用。
 function extractUserId(c: any): string | null {
   const authHeader = c.req.header("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
@@ -162,6 +162,10 @@ function extractUserId(c: any): string | null {
   if (!user) return null;
   // 旧 token 没有 tver 字段，按 0 比对：一旦 DB 中 tokenVersion > 0 则拒绝
   if ((payload.tver ?? 0) !== user.tokenVersion) return null;
+  if (payload.jti) {
+    const session = userSessionsRepository.getByIdAndUser(payload.jti, user.id);
+    if (!session || session.revokedAt) return null;
+  }
   return user.id;
 }
 

@@ -3545,26 +3545,42 @@ export default function NoteList() {
           )}
           {state.notes.length === 0 && !state.isLoading && !notesLoadError && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-accent-primary/10 flex items-center justify-center mb-4">
-                <FileText size={28} className="text-accent-primary/40" />
+              <div className={cn(
+                "w-16 h-16 rounded-2xl flex items-center justify-center mb-4",
+                state.viewMode === "trash" ? "bg-app-hover" : "bg-accent-primary/10",
+              )}>
+                {state.viewMode === "trash" ? (
+                  <Trash2 size={28} className="text-tx-tertiary/50" />
+                ) : (
+                  <FileText size={28} className="text-accent-primary/40" />
+                )}
               </div>
               <p className="text-sm font-medium text-tx-secondary mb-1">
-                {state.viewMode === "tag" && state.selectedTagIds.length > 1
+                {state.viewMode === "trash"
+                  ? t('noteList.trashEmptyTitle')
+                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagCombo') || "当前标签组合下没有笔记")
                   : t('common.noNotes')}
               </p>
-              <p className="text-xs text-tx-tertiary mb-5 max-w-[200px] leading-relaxed">
-                {state.viewMode === "tag" && state.selectedTagIds.length > 1
+              <p className={cn(
+                "text-xs text-tx-tertiary max-w-[200px] leading-relaxed",
+                state.viewMode !== "trash" && "mb-5",
+              )}>
+                {state.viewMode === "trash"
+                  ? t('noteList.trashEmptyHint')
+                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagComboHint') || "尝试减少标签筛选条件")
                   : t('common.noNotesHint')}
               </p>
-              <button
-                onClick={() => handleCreateNote("normal")}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
-              >
-                <Plus size={14} />
-                {t('common.newNote')}
-              </button>
+              {state.viewMode !== "trash" && (
+                <button
+                  onClick={() => handleCreateNote("normal")}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
+                >
+                  <Plus size={14} />
+                  {t('common.newNote')}
+                </button>
+              )}
             </div>
           )}
           {/* 骨架屏 Loading */}
@@ -3593,18 +3609,20 @@ export default function NoteList() {
       </div>
 
       {/* Mobile FAB - 新建笔记（点击默认普通笔记，长按弹类型选择） */}
-      <button
-        ref={createMenuAnchorFabRef}
-        onClick={() => handleCreateNote("normal")}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setCreateNoteMenuSource("fab");
-          setCreateNoteMenuOpen(true);
-        }}
-        className="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-accent-primary rounded-2xl shadow-lg shadow-accent-primary/30 flex items-center justify-center text-white active:scale-95 transition-transform z-10"
-      >
-        <Plus size={24} />
-      </button>
+      {state.viewMode !== "trash" && (
+        <button
+          ref={createMenuAnchorFabRef}
+          onClick={() => handleCreateNote("normal")}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCreateNoteMenuSource("fab");
+            setCreateNoteMenuOpen(true);
+          }}
+          className="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-accent-primary rounded-2xl shadow-lg shadow-accent-primary/30 flex items-center justify-center text-white active:scale-95 transition-transform z-10"
+        >
+          <Plus size={24} />
+        </button>
+      )}
 
       {/* Note Context Menu */}
       <ContextMenu

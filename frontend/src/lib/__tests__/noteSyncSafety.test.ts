@@ -5,8 +5,10 @@ import {
   isServerConfirmedNoteWrite,
   isVersionedNoteMutation,
   listNoteSyncConflicts,
+  preserveNoteSyncConflictSnapshot,
   recordNoteSyncConflict,
 } from "@/lib/noteSyncSafety";
+import { getQueue } from "@/lib/offlineQueue";
 
 describe("note sync safety", () => {
   beforeEach(() => {
@@ -52,6 +54,43 @@ describe("note sync safety", () => {
         localContent: "local body",
         serverContent: "server body",
         reason: "VERSION_CONFLICT",
+      }),
+    ]);
+  });
+
+  it("preserves a debounced editor snapshot without issuing a server write", () => {
+    preserveNoteSyncConflictSnapshot(
+      "note-1",
+      {
+        version: 8,
+        title: "刚输入的标题",
+        content: "刚输入的正文",
+        contentText: "刚输入的正文",
+        contentFormat: "tiptap-json",
+      },
+      8,
+      {
+        id: "note-1",
+        version: 8,
+        title: "服务器标题",
+        content: "服务器正文",
+        contentText: "服务器正文",
+      },
+    );
+
+    expect(getQueue()).toEqual([
+      expect.objectContaining({
+        noteId: "note-1",
+        conflict: true,
+        localPayload: expect.objectContaining({ content: "刚输入的正文" }),
+      }),
+    ]);
+    expect(localStorage.getItem("nowen-draft-note-1")).toContain("刚输入的正文");
+    expect(listNoteSyncConflicts()).toEqual([
+      expect.objectContaining({
+        noteId: "note-1",
+        serverVersion: 8,
+        localContent: "刚输入的正文",
       }),
     ]);
   });

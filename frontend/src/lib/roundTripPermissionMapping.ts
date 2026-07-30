@@ -1,4 +1,5 @@
 import { getBaseUrl } from "./api";
+import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "./knowledgeTreePassword";
 
 export type WorkspacePermissionRole = "owner" | "admin" | "editor" | "viewer";
 
@@ -38,6 +39,7 @@ function authHeaders(): HeadersInit {
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({})) as T & { error?: string; code?: string };
   if (!response.ok) {
+    if (payload.code === "FOLDER_UNLOCK_REQUIRED") clearFolderUnlockTokens();
     const error = new Error(payload.error || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
     error.code = payload.code;
     error.status = response.status;
@@ -50,7 +52,7 @@ export async function downloadNowenPackageWithPermissions(workspaceId: string): 
   const params = new URLSearchParams({ workspaceId });
   const response = await fetch(`${getBaseUrl()}/settings/roundtrip-permissions/package?${params}`, {
     credentials: "include",
-    headers: authHeaders(),
+    headers: { ...authHeaders(), ...folderUnlockRequestHeaders() },
   });
   if (!response.ok) await parseResponse(response);
   const disposition = response.headers.get("content-disposition") || "";

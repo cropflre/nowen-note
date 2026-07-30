@@ -15,7 +15,7 @@ test.after(() => {
   delete process.env.DB_PATH;
 });
 
-test("v64 migration builds a mixed tree and enforces inherited capabilities", async () => {
+test("latest knowledge-tree migrations build a mixed tree and enforce inherited capabilities", async () => {
   phase("bootstrap");
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
@@ -35,7 +35,7 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
   } = await import("../src/services/knowledgeCapabilities.js");
 
   const db = getDb();
-  assert.equal(getDbSchemaVersion(), 64);
+  assert.equal(getDbSchemaVersion(), 65);
 
   phase("seed users and workspace");
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
@@ -86,11 +86,17 @@ test("v64 migration builds a mixed tree and enforces inherited capabilities", as
     db,
   });
 
+  db.prepare(`INSERT INTO favorites (userId, noteId, workspaceId, createdAt)
+    VALUES (?, ?, ?, datetime('now'))`)
+    .run("owner", product.resourceId, "ws");
+
   phase("list mixed tree");
   const tree = listKnowledgeTree({ userId: "owner", workspaceId: "ws", db });
   assert.equal(tree.find((node) => node.id === orderFolder.id)?.parentId, product.id);
   assert.equal(tree.find((node) => node.id === production.id)?.parentId, orderFolder.id);
   assert.equal(tree.find((node) => node.id === product.id)?.childCount, 1);
+  assert.equal(tree.find((node) => node.id === product.id)?.isFavorite, 1);
+  assert.equal(tree.find((node) => node.id === production.id)?.isFavorite, 0);
 
   phase("legacy sort and expand update");
   db.prepare("UPDATE notebooks SET sortOrder = sortOrder + 1, isExpanded = 0 WHERE id = ?")

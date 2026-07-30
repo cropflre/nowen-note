@@ -321,7 +321,7 @@ export default function FileManager() {
   const [batchDeleting, setBatchDeleting] = useState(false);
 
   // 可回收空间（dryRun 扫出的"孤儿附件"汇总）：
-  //   顶部徽标展示"可清理 N 项 / 释放 X"，一键触发真清理。
+  //   顶部清理按钮始终可见；有可回收项时附带展示数量与空间。
   //   挂载/上传/删除/清空回收站之后都会刷新。
   //   不做轮询——只在明显会改变占用的操作后刷，避免 N+1 请求。
   const [reclaimable, setReclaimable] = useState<{ items: number; bytes: number } | null>(null);
@@ -461,22 +461,24 @@ export default function FileManager() {
   // 放在 loadList 之后声明，避免"使用前声明"的 TS 错误。
   const handleCleanupOrphans = useCallback(async () => {
     if (cleaningUp) return;
-    // 没有可回收的就不弹确认（按钮本来也不会出现，这里兜底）
-    if (reclaimable && reclaimable.items === 0) {
-      toast.success("没有可清理的孤儿附件");
-      return;
-    }
-    const sizeStr = reclaimable ? humanSize(reclaimable.bytes) : "";
-    const countStr = reclaimable ? reclaimable.items : "若干";
-    const ok = await confirmDialog({
-      title: "确定清理孤儿附件？",
-      description: `本次将清理 ${countStr} 个没有被任何笔记引用的附件，预计释放约 ${sizeStr}。刚上传 24 小时内的附件不会被清理。该操作不可撤销。`,
-      confirmText: "立即清理",
-      danger: true,
-    });
-    if (!ok) return;
     setCleaningUp(true);
     try {
+      // 点击后重新扫描，不依赖挂载时可能已过期的统计。
+      const preview = await api.dataFile.cleanupOrphans({ dryRun: true });
+      setReclaimable({ items: preview.totalRemovedItems, bytes: preview.totalFreedBytes });
+      if (preview.totalRemovedItems === 0) {
+        toast.success("当前没有可清理的未引用附件（最近 24 小时上传的附件会暂时保留）");
+        return;
+      }
+
+      const ok = await confirmDialog({
+        title: "确定清理未引用附件？",
+        description: `本次将清理 ${preview.totalRemovedItems} 个没有被任何笔记引用的附件，预计释放约 ${humanSize(preview.totalFreedBytes)}。最近 24 小时上传的附件不会被清理。该操作不可撤销。`,
+        confirmText: "立即清理",
+        danger: true,
+      });
+      if (!ok) return;
+
       const res = await api.dataFile.cleanupOrphans({ dryRun: false });
       toast.success(
         `已清理 ${res.totalRemovedItems} 个附件，释放 ${humanSize(res.totalFreedBytes)}`,
@@ -498,7 +500,7 @@ export default function FileManager() {
     } finally {
       setCleaningUp(false);
     }
-  }, [cleaningUp, reclaimable, loadList, loadStats, loadReclaimable]);
+  }, [cleaningUp, loadList, loadStats, loadReclaimable]);
 
   // 工作区切换：清空多选 + 回到第 1 页，effect 链会自然触发 loadList/loadStats 重拉
   useEffect(() => {
@@ -1214,29 +1216,35 @@ export default function FileManager() {
           )}
         </Button>
 
-        {/* 可回收空间徽标：
-            - 仅在检测到"有可清理的孤儿"时显示（items>0），避免干扰正常使用；
-            - 点击触发真清理（含二次确认）；
-            - 扫描失败或还没扫完则不渲染，保持顶栏简洁。 */}
-        {reclaimable && reclaimable.items > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleCleanupOrphans}
-            disabled={cleaningUp}
-            className="shrink-0 text-amber-600 border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/60"
-            title={`发现 ${reclaimable.items} 个没有被任何笔记引用的附件，可释放约 ${humanSize(reclaimable.bytes)}`}
-          >
-            {cleaningUp ? (
-              <Loader2 size={14} className="mr-1 animate-spin" />
-            ) : (
-              <Sparkles size={14} className="mr-1" />
-            )}
-            <span className="hidden sm:inline">可回收 </span>
-            <span>{humanSize(reclaimable.bytes)}</span>
-            <span className="ml-1 text-[10px] opacity-70">({reclaimable.items})</span>
-          </Button>
-        )}
+        {/* 手动清理始终可见，避免用户只有在扫描到孤儿后才偶然发现这项能力。 */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleCleanupOrphans}
+          disabled={cleaningUp}
+          className={cn(
+            "shrink-0",
+            reclaimable && reclaimable.items > 0 &&
+              "text-amber-600 border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/60",
+          )}
+          title={
+            reclaimable && reclaimable.items > 0
+              ? `发现 ${reclaimable.items} 个没有被任何笔记引用的附件，可释放约 ${humanSize(reclaimable.bytes)}`
+              : "扫描并清理没有被任何笔记引用的附件"
+          }
+        >
+          {cleaningUp ? (
+            <Loader2 size={14} className="mr-1 animate-spin" />
+          ) : (
+            <Trash2 size={14} className="mr-1" />
+          )}
+          <span>清理附件</span>
+          {reclaimable && reclaimable.items > 0 && (
+            <span className="hidden sm:inline ml-1 text-[10px] opacity-80">
+              {humanSize(reclaimable.bytes)} · {reclaimable.items} 项
+            </span>
+          )}
+        </Button>
 
         <Button size="sm" onClick={() => setUploadDialogOpen(true)} disabled={uploading} className="shrink-0">
           {uploading ? <Loader2 size={14} className="animate-spin mr-1" /> : <Upload size={14} className="mr-1" />}

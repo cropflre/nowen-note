@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { parseFolderUnlockTokens } from "../lib/knowledgeTreePasswordAccess";
 import {
   applyRoundTripPermissionMappings,
   createNowenPackageWithPermissions,
@@ -30,6 +31,7 @@ app.get("/package", async (c) => {
       notebookId: (c.req.query("notebookId") || "").trim() || undefined,
       includeSubNotebooks: c.req.query("includeSubNotebooks") !== "false",
       includeTrashed: c.req.query("includeTrashed") === "true",
+      folderUnlockTokens: parseFolderUnlockTokens(c.req.header("X-Folder-Unlock-Tokens")),
     });
     return new Response(new Uint8Array(result.buffer), {
       status: 200,

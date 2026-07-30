@@ -23,6 +23,22 @@ import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPorta
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
+import {
+  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
+  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
+  loadMobileKnowledgeTreeCompact,
+  loadDesktopKnowledgeTreeViewMode,
+  loadMobileKnowledgeTreeViewMode,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY,
+  MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
+  MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
+  saveDesktopKnowledgeTreeViewMode,
+  saveMobileKnowledgeTreeCompact,
+  saveMobileKnowledgeTreeViewMode,
+  type DesktopKnowledgeTreeViewMode,
+  type MobileKnowledgeTreeViewMode,
+} from "@/lib/mobileKnowledgeTreeViewMode";
 
 type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
@@ -378,10 +394,15 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
 function AboutPanel() {
   const { t } = useTranslation();
   const [showSponsor, setShowSponsor] = useState(false);
+  const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showAuthorStory, setShowAuthorStory] = useState(false);
   // 赞赏码大图预览：点击赞赏码缩略图时弹起 Lightbox
   const [sponsorPreviewOpen, setSponsorPreviewOpen] = useState(false);
+  const sponsorImage = sponsorMethod === "wechat" ? "/weixin.jpg" : "/zhifubao.png";
+  const sponsorLabel = sponsorMethod === "wechat"
+    ? t('about.sponsorWechat')
+    : t('about.sponsorAlipay');
   return (
     <div className="space-y-6">
       {/* 标题区 */}
@@ -520,18 +541,52 @@ function AboutPanel() {
               className="overflow-hidden"
             >
               <div className="px-4 pb-4 pt-2 flex flex-col items-center gap-3 border-t border-zinc-200/60 dark:border-zinc-800/60">
+                <div
+                  className="grid w-full max-w-xs grid-cols-2 rounded-lg bg-zinc-200/70 p-1 dark:bg-zinc-800"
+                  role="tablist"
+                  aria-label={t('about.sponsorMethod')}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sponsorMethod === "wechat"}
+                    onClick={() => setSponsorMethod("wechat")}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      sponsorMethod === "wechat"
+                        ? "bg-emerald-500 text-white shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                    )}
+                  >
+                    {t('about.sponsorWechat')}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sponsorMethod === "alipay"}
+                    onClick={() => setSponsorMethod("alipay")}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      sponsorMethod === "alipay"
+                        ? "bg-blue-500 text-white shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                    )}
+                  >
+                    {t('about.sponsorAlipay')}
+                  </button>
+                </div>
                 {/* 点击图片打开 Lightbox 看大图（按钮包裹 → 无障碍/键盘可达） */}
                 <button
                   type="button"
                   onClick={() => setSponsorPreviewOpen(true)}
                   className="group relative rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-                  title={t('about.sponsor')}
-                  aria-label={t('about.sponsor')}
+                  title={sponsorLabel}
+                  aria-label={sponsorLabel}
                 >
                   <img
-                    src="/weixin.jpg"
-                    alt={t('about.sponsor')}
-                    className="w-44 h-44 sm:w-52 sm:h-52 object-contain rounded-lg bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
+                    src={sponsorImage}
+                    alt={sponsorLabel}
+                    className="w-44 sm:w-52 max-h-72 object-contain rounded-lg bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
                     loading="lazy"
                     draggable={false}
                   />
@@ -544,7 +599,9 @@ function AboutPanel() {
                   </span>
                 </button>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 text-center">
-                  {t('about.sponsorTip')}
+                  {sponsorMethod === "wechat"
+                    ? t('about.sponsorWechatTip')
+                    : t('about.sponsorAlipayTip')}
                 </p>
               </div>
             </motion.div>
@@ -572,8 +629,8 @@ function AboutPanel() {
       {/* 赞赏码大图预览 Lightbox */}
       {sponsorPreviewOpen && (
         <ImageLightbox
-          src="/weixin.jpg"
-          alt={t('about.sponsor')}
+          src={sponsorImage}
+          alt={sponsorLabel}
           onClose={() => setSponsorPreviewOpen(false)}
         />
       )}
@@ -589,6 +646,15 @@ function SwitchesPanel() {
   const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(true);
   const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useState<MobileKnowledgeTreeViewMode>(
+    () => loadMobileKnowledgeTreeViewMode(),
+  );
+  const [mobileKnowledgeTreeCompact, setMobileKnowledgeTreeCompact] = useState(
+    () => loadMobileKnowledgeTreeCompact(),
+  );
+  const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
+    () => loadDesktopKnowledgeTreeViewMode(),
+  );
   const desktop = isDesktop();
   const supportsDesktopMenuBarToggle = desktop && desktopPlatform !== "darwin";
   const markdownDefaultModes = [
@@ -616,6 +682,62 @@ function SwitchesPanel() {
     }
     return () => { cancelled = true; };
   }, [desktop]);
+
+  useEffect(() => {
+    const syncMode = () => setMobileKnowledgeTreeMode(loadMobileKnowledgeTreeViewMode());
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
+    };
+    window.addEventListener(MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncCompact = () => setMobileKnowledgeTreeCompact(loadMobileKnowledgeTreeCompact());
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY) syncCompact();
+    };
+    window.addEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncMode = () => setDesktopKnowledgeTreeMode(loadDesktopKnowledgeTreeViewMode());
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
+    };
+    window.addEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  const handleToggleMobileKnowledgeTreeMode = (treeEnabled: boolean) => {
+    const nextMode: MobileKnowledgeTreeViewMode = treeEnabled ? "tree" : "navigator";
+    setMobileKnowledgeTreeMode(nextMode);
+    saveMobileKnowledgeTreeViewMode(nextMode);
+  };
+
+  const handleToggleMobileKnowledgeTreeCompact = (nextCompact: boolean) => {
+    setMobileKnowledgeTreeCompact(nextCompact);
+    saveMobileKnowledgeTreeCompact(nextCompact);
+  };
+
+  const handleToggleDesktopKnowledgeTreeMode = (quickEnabled: boolean) => {
+    const nextMode: DesktopKnowledgeTreeViewMode = quickEnabled ? "quick" : "tree";
+    setDesktopKnowledgeTreeMode(nextMode);
+    saveDesktopKnowledgeTreeViewMode(nextMode);
+  };
 
   const handleToggleWebUi = async (next: boolean) => {
     const prev = webUiEnabled;
@@ -726,6 +848,66 @@ function SwitchesPanel() {
             </div>
           </label>
         ))}
+
+        <label
+          data-settings-switch="mobile-knowledge-tree"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={mobileKnowledgeTreeMode === "tree"}
+            onChange={(event) => handleToggleMobileKnowledgeTreeMode(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.mobileKnowledgeTreeMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.mobileKnowledgeTreeModeDesc")}
+            </p>
+          </div>
+        </label>
+
+        <label
+          data-settings-switch="mobile-knowledge-tree-compact"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={mobileKnowledgeTreeCompact}
+            onChange={(event) => handleToggleMobileKnowledgeTreeCompact(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.mobileKnowledgeTreeCompact")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.mobileKnowledgeTreeCompactDesc")}
+            </p>
+          </div>
+        </label>
+
+        <label
+          data-settings-switch="desktop-knowledge-tree"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={desktopKnowledgeTreeMode === "quick"}
+            onChange={(event) => handleToggleDesktopKnowledgeTreeMode(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.desktopKnowledgeTreeMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.desktopKnowledgeTreeModeDesc")}
+            </p>
+          </div>
+        </label>
 
         {supportsDesktopMenuBarToggle && (
           <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">

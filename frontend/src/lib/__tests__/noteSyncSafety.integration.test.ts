@@ -7,10 +7,7 @@ import {
   installNoteSyncSafety,
   NOTE_SYNC_PENDING_EVENT,
 } from "@/lib/noteSyncSafety";
-import {
-  getQueue,
-  OFFLINE_QUEUE_CONFLICT_EVENT,
-} from "@/lib/offlineQueue";
+import { getQueue } from "@/lib/offlineQueue";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__";
 const realGetNote = api.getNote;
@@ -116,7 +113,7 @@ describe("installed note sync safety", () => {
     installNoteSyncSafety();
 
     const conflictEvents = vi.fn();
-    window.addEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, conflictEvents);
+    window.addEventListener("offlineQueue:conflict", conflictEvents);
     await expect(api.updateNote("note-1", {
       version: 4,
       title: "Title",
@@ -136,11 +133,11 @@ describe("installed note sync safety", () => {
       version: 9,
       content: "latest local body",
     });
-    window.removeEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, conflictEvents);
+    window.removeEventListener("offlineQueue:conflict", conflictEvents);
 
     expect(transportGet).toHaveBeenCalledTimes(1);
     expect(transportUpdate).not.toHaveBeenCalled();
-    expect(conflictEvents).toHaveBeenCalledTimes(1);
+    expect(conflictEvents).not.toHaveBeenCalled();
     expect(getQueue()).toEqual([
       expect.objectContaining({
         noteId: "note-1",

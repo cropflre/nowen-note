@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { buildKnowledgeTreeNodeMenuItems } from "@/components/KnowledgeTreeNodeMenu";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+
+const menuSource = readFileSync(path.resolve(__dirname, "../../components/KnowledgeTreeNodeMenu.tsx"), "utf8");
 
 function node(overrides: Partial<KnowledgeTreeNode> = {}): KnowledgeTreeNode {
   return {
@@ -51,6 +55,7 @@ describe("knowledge tree node menu", () => {
     expect(actions).toEqual(expect.arrayContaining([
       "new_note",
       "new_markdown",
+      "import_markdown",
       "import_word",
       "import_url",
       "new_folder",
@@ -83,6 +88,7 @@ describe("knowledge tree node menu", () => {
       "toggle_pin",
       "toggle_favorite",
       "toggle_lock",
+      "share_note",
       "export_note_md",
       "export_note_pdf",
       "export_note_png",
@@ -119,6 +125,24 @@ describe("knowledge tree node menu", () => {
     const actions = ids(buildKnowledgeTreeNodeMenuItems(readonly, null));
     expect(actions).toEqual(expect.arrayContaining(["open", "split_right", "export_note_md"]));
     expect(actions).not.toEqual(expect.arrayContaining(["toggle_pin", "toggle_favorite", "toggle_lock", "move", "delete"]));
+    expect(actions).not.toContain("share_note");
+  });
+
+  it("allows sharing a shared document only with reshare permission", () => {
+    const shared = node({
+      id: "note:shared",
+      nodeType: "note",
+      resourceType: "note",
+      resourceId: "shared",
+      sharedRootId: "notebook:shared-root",
+    });
+    expect(ids(buildKnowledgeTreeNodeMenuItems(shared, null))).toContain("share_note");
+  });
+
+  it("opens the existing note share modal from the context-menu action", () => {
+    expect(menuSource).toContain('case "share_note":');
+    expect(menuSource).toContain("<ShareModal");
+    expect(menuSource).toContain("noteId={shareNote.id}");
   });
 
   it("disables deleting a locked document", () => {

@@ -2,8 +2,12 @@ import type Database from "better-sqlite3";
 
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
+import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { resolveKnowledgeNodeAccess } from "./knowledgeCapabilities.js";
 import type { KnowledgeTreeNode } from "./knowledgeTreeCore.js";
+
+const ROOT_DOCUMENT_NOTEBOOK_PREFIX = "__nowen_root_documents__:";
+const ROOT_DOCUMENT_NODE_PREFIX = `notebook:${ROOT_DOCUMENT_NOTEBOOK_PREFIX}`;
 
 type ListedNodeRow = Omit<KnowledgeTreeNode, "access">;
 
@@ -32,6 +36,7 @@ export function listKnowledgeTree(input: {
 }): KnowledgeTreeNode[] {
   const db = input.db || getDb();
   ensureKnowledgeTreeTables(db);
+  ensureKnowledgeTreePasswordTable(db);
   const key = scopeKey(input.userId, input.workspaceId);
   const rows = db.prepare(`
     SELECT node.id, node.userId, node.workspaceId, node.scopeKey, node.parentId,
@@ -40,13 +45,19 @@ export function listKnowledgeTree(input: {
            ${TITLE_EXPRESSION} AS title,
            CASE WHEN node.resourceType = 'notebook' THEN nb.icon ELSE NULL END AS icon,
            CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isPinned, 0) ELSE 0 END AS isPinned,
-           CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isFavorite, 0) ELSE 0 END AS isFavorite,
+           CASE WHEN node.resourceType = 'note' AND EXISTS(
+             SELECT 1 FROM favorites favorite
+             WHERE favorite.noteId = note.id AND favorite.userId = ?
+           ) THEN 1 ELSE 0 END AS isFavorite,
            CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isLocked, 0) ELSE 0 END AS isLocked,
+           CASE WHEN node.resourceType = 'notebook' AND notebook_password.notebookId IS NOT NULL THEN 1 ELSE 0 END AS isPasswordProtected,
            CASE WHEN node.resourceType = 'note' THEN note.contentFormat ELSE NULL END AS contentFormat,
            (SELECT COUNT(*) FROM knowledge_tree_nodes child
              WHERE child.parentId = node.id AND child.isDeleted = 0) AS childCount
     FROM knowledge_tree_nodes node
     LEFT JOIN notebooks nb ON node.resourceType = 'notebook' AND nb.id = node.resourceId
+    LEFT JOIN notebook_passwords notebook_password
+      ON node.resourceType = 'notebook' AND notebook_password.notebookId = node.resourceId
     LEFT JOIN notes note ON node.resourceType = 'note' AND note.id = node.resourceId
     LEFT JOIN mindmaps mm ON node.resourceType = 'mindmap' AND mm.id = node.resourceId
     LEFT JOIN files file ON node.resourceType = 'file' AND file.id = node.resourceId
@@ -57,9 +68,14 @@ export function listKnowledgeTree(input: {
       node.sortOrder,
       lower(${TITLE_EXPRESSION}),
       node.id
-  `).all(key) as ListedNodeRow[];
+  `).all(input.userId, key) as ListedNodeRow[];
 
   return rows
-    .map((row) => ({ ...row, access: resolveKnowledgeNodeAccess(row.id, input.userId, db) }))
+    .filter((row) => !(row.resourceType === "notebook" && row.resourceId.startsWith(ROOT_DOCUMENT_NOTEBOOK_PREFIX)))
+    .map((row) => ({
+      ...row,
+      parentId: row.parentId?.startsWith(ROOT_DOCUMENT_NODE_PREFIX) ? null : row.parentId,
+      access: resolveKnowledgeNodeAccess(row.id, input.userId, db),
+    }))
     .filter((row) => row.access.capabilities.canView);
 }

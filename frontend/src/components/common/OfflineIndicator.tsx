@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CloudDownload,
   CloudOff,
-  CloudUpload,
   Download,
   Loader2,
   RefreshCw,
@@ -24,14 +22,10 @@ import {
   SYNC_SNAPSHOT_APPLIED_EVENT,
   type SyncSummary,
 } from "@/lib/syncEngine";
-import {
-  resolveNoteConflict,
-  type ConflictResolutionChoice,
-} from "@/lib/conflictResolution";
 import { toast } from "@/lib/toast";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { useApp, useAppActions } from "@/store/AppContext";
-import { confirm as confirmDialog } from "@/components/ui/confirm";
+import { useAppActions } from "@/store/AppContext";
+import { isMobileRuntime } from "@/lib/textActions";
 
 function itemTypeLabel(item: OfflineQueueItem): string {
   if (item.type === "createNote") return "新建笔记";
@@ -60,9 +54,6 @@ export function getQueueItemNotePreview(item: OfflineQueueItem): string {
 }
 
 export function getQueueItemStatusMessage(item: OfflineQueueItem): string {
-  if (item.conflict || item.errorCode === "VERSION_CONFLICT") {
-    return "两个版本均已保留。请选择保留此设备内容，或使用服务器内容。";
-  }
   return item.message || (item.blocked ? "自动同步已暂停，本地内容仍然保留。" : "正在等待服务器确认。");
 }
 
@@ -88,6 +79,7 @@ export interface SyncIndicatorPresentationInput {
   conflictCount: number;
   queueCount: number;
   lastError?: string | null;
+  suppressOffline?: boolean;
 }
 
 /**
@@ -104,15 +96,18 @@ export function getSyncIndicatorPresentation({
   conflictCount,
   queueCount,
   lastError,
+  suppressOffline = false,
 }: SyncIndicatorPresentationInput): SyncIndicatorPresentation | null {
+  const visibleFailedCount = Math.max(0, failedCount - conflictCount);
+  const visiblePendingCount = Math.max(0, pendingCount - conflictCount);
+
   if (!isOnline) {
+    if (suppressOffline) return null;
     return {
       tone: "offline",
-      label: "当前离线",
-      description: pendingCount > 0
-        ? `${pendingCount} 项修改已保存在本机，联网后将自动同步。`
-        : "联网后将自动恢复同步。",
+      label: "离线",
       action: "none",
+      compact: true,
     };
   }
 
@@ -126,18 +121,8 @@ export function getSyncIndicatorPresentation({
     };
   }
 
-  if (conflictCount > 0) {
-    return {
-      tone: "error",
-      label: `${conflictCount} 篇笔记存在版本冲突`,
-      description: "本地和服务器内容都已保留，请选择最终版本。",
-      action: queueCount > 0 ? "details" : "retry",
-      actionLabel: queueCount > 0 ? "处理冲突" : "重新同步",
-    };
-  }
-
-  if (failedCount > 0 || lastError) {
-    const count = Math.max(failedCount, pendingCount);
+  if (visibleFailedCount > 0 || lastError) {
+    const count = Math.max(visibleFailedCount, visiblePendingCount);
     return {
       tone: "error",
       label: count > 0 ? `${count} 项修改尚未同步` : "同步暂时失败",
@@ -149,10 +134,10 @@ export function getSyncIndicatorPresentation({
     };
   }
 
-  if (pendingCount > 0 && showPending) {
+  if (visiblePendingCount > 0 && showPending) {
     return {
       tone: "pending",
-      label: `${pendingCount} 项修改尚未同步`,
+      label: `${visiblePendingCount} 项修改尚未同步`,
       description: "本地内容已保存，正在等待服务器确认。",
       action: queueCount > 0 ? "details" : "retry",
       actionLabel: queueCount > 0 ? "查看并重试" : "重新同步",
@@ -175,7 +160,6 @@ function downloadDiagnostics(): void {
 }
 
 export default function OfflineIndicator() {
-  const { state } = useApp();
   const actions = useAppActions();
   const { isOnline, wasOffline, pendingCount, flush } = useNetworkStatus();
   const [summary, setSummary] = useState<SyncSummary>(() => getSyncSummary());
@@ -183,13 +167,10 @@ export default function OfflineIndicator() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
-  const [resolvingConflict, setResolvingConflict] = useState<{
-    itemId: string;
-    choice: ConflictResolutionChoice;
-  } | null>(null);
   const [showPending, setShowPending] = useState(false);
   const [showSyncing, setShowSyncing] = useState(false);
   const recoveryToastShownRef = useRef(false);
+  const suppressOffline = isMobileRuntime();
 
   useEffect(() => subscribeSyncSummary(setSummary), []);
   useEffect(() => subscribeOfflineQueue(() => setQueue(getQueue())), []);
@@ -212,9 +193,10 @@ export default function OfflineIndicator() {
   const conflictCount = failedItems.filter(
     (item) => item.conflict || item.errorCode === "VERSION_CONFLICT",
   ).length;
-  const retryableCount = queue.filter(
-    (item) => !(item.conflict || item.errorCode === "VERSION_CONFLICT") && item.retryable !== false,
-  ).length;
+  const visibleQueue = useMemo(() => queue.filter(
+    (item) => !(item.conflict || item.errorCode === "VERSION_CONFLICT"),
+  ), [queue]);
+  const retryableCount = visibleQueue.filter((item) => item.retryable !== false).length;
 
   // A normal save often enters and leaves the queue within one network round trip. Do not flash
   // a global warning unless it remains pending long enough to be meaningful to the user.
@@ -269,25 +251,27 @@ export default function OfflineIndicator() {
     showPending,
     failedCount: failedItems.length,
     conflictCount,
-    queueCount: queue.length,
+    queueCount: visibleQueue.length,
     lastError: summary.lastError,
+    suppressOffline,
   }), [
     conflictCount,
     failedItems.length,
     isOnline,
     pendingCount,
-    queue.length,
+    visibleQueue.length,
     showPending,
     showSyncing,
     summary.lastError,
     summary.state,
+    suppressOffline,
   ]);
 
   useEffect(() => {
-    if (!status || status.action !== "details" || queue.length === 0) {
+    if (!status || status.action !== "details" || visibleQueue.length === 0) {
       setDetailsOpen(false);
     }
-  }, [queue.length, status]);
+  }, [status, visibleQueue.length]);
 
   const retryOne = useCallback(async (item: OfflineQueueItem) => {
     if (!isOnline || item.conflict || item.errorCode === "VERSION_CONFLICT" || item.retryable === false) return;
@@ -310,49 +294,14 @@ export default function OfflineIndicator() {
     }
   }, [flush, isOnline]);
 
-  const handleResolveConflict = useCallback(async (
-    item: OfflineQueueItem,
-    choice: ConflictResolutionChoice,
-  ) => {
-    if (!isOnline || resolvingConflict) return;
-
-    const keepLocal = choice === "keep-local";
-    const confirmed = await confirmDialog({
-      title: keepLocal ? "保留此设备版本？" : "使用服务器版本？",
-      description: keepLocal
-        ? "此设备中的内容将成为正式版本。服务器当前内容会保留在版本历史中，之后仍可恢复。"
-        : "服务器内容将继续作为正式版本；此设备中的修改会先另存为一篇冲突副本，不会直接丢弃。",
-      confirmText: keepLocal ? "保留此设备版本" : "使用服务器版本",
-      cancelText: "取消",
-      danger: false,
-    });
-    if (!confirmed) return;
-
-    setResolvingConflict({ itemId: item.id, choice });
-    try {
-      const result = await resolveNoteConflict(item, choice);
-      if (state.activeNote?.id === item.noteId) {
-        actions.setActiveNote(result.note);
-      }
-      actions.refreshNotes();
-      if (choice === "keep-local") {
-        toast.success("已保留此设备版本，冲突已解决");
-      } else if (result.conflictCopy) {
-        toast.success(`已使用服务器版本，本地修改已另存为“${result.conflictCopy.title}”`);
-      } else {
-        toast.success("本地和服务器内容一致，冲突已清理");
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error || "处理失败");
-      toast.error(`冲突处理失败：${message}`);
-    } finally {
-      setResolvingConflict(null);
-    }
-  }, [actions, isOnline, resolvingConflict, state.activeNote?.id]);
-
   if (!status) return null;
 
   if (status.compact) {
+    const CompactStatusIcon = status.tone === "offline" ? CloudOff : Loader2;
+    const compactToneClasses = status.tone === "offline"
+      ? "border-zinc-300 text-tx-secondary dark:border-zinc-700"
+      : "border-blue-200 text-tx-secondary dark:border-blue-900";
+
     return (
       <div
         className="fixed right-3 z-[95]"
@@ -360,8 +309,11 @@ export default function OfflineIndicator() {
         role="status"
         aria-live="polite"
       >
-        <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-app-elevated px-3 py-2 text-xs font-medium text-tx-secondary shadow-lg dark:border-blue-900">
-          <Loader2 size={14} className="animate-spin text-blue-600 dark:text-blue-400" />
+        <div className={`inline-flex items-center gap-2 rounded-full border bg-app-elevated px-3 py-2 text-xs font-medium shadow-lg ${compactToneClasses}`}>
+          <CompactStatusIcon
+            size={14}
+            className={status.tone === "offline" ? undefined : "animate-spin text-blue-600 dark:text-blue-400"}
+          />
           {status.label}
         </div>
       </div>
@@ -376,17 +328,15 @@ export default function OfflineIndicator() {
   }[status.tone];
 
   const StatusIcon = status.tone === "offline" ? CloudOff : status.tone === "error" ? AlertTriangle : RefreshCw;
-  const detailsTitle = conflictCount > 0 ? "处理版本冲突" : "未同步内容";
-  const detailsDescription = conflictCount > 0
-    ? "每篇笔记都可以单独选择最终版本。任何一侧的内容都不会被静默删除。"
-    : "这些修改尚未得到服务器确认，本地内容仍然保留。";
+  const detailsTitle = "未同步内容";
+  const detailsDescription = "这些修改尚未得到服务器确认，本地内容仍然保留。";
 
   return (
     <div
       className="fixed right-3 z-[95] w-[min(440px,calc(100vw-24px))]"
       style={{ bottom: "calc(12px + var(--safe-area-bottom, 0px))" }}
     >
-      {detailsOpen && queue.length > 0 && status.action === "details" && (
+      {detailsOpen && visibleQueue.length > 0 && status.action === "details" && (
         <section className="mb-2 max-h-[min(72vh,620px)] overflow-hidden rounded-2xl border border-app-border bg-app-elevated shadow-2xl">
           <header className="flex items-start justify-between gap-3 border-b border-app-border px-4 py-3">
             <div className="min-w-0">
@@ -405,12 +355,10 @@ export default function OfflineIndicator() {
 
           <div className="max-h-[480px] overflow-y-auto p-3">
             <div className="space-y-2">
-              {queue.map((item) => {
-                const isConflict = item.conflict || item.errorCode === "VERSION_CONFLICT";
-                const canRetry = isOnline && !isConflict && item.retryable !== false;
+              {visibleQueue.map((item) => {
+                const canRetry = isOnline && item.retryable !== false;
                 const noteTitle = getQueueItemNoteTitle(item);
                 const notePreview = getQueueItemNotePreview(item);
-                const resolving = resolvingConflict?.itemId === item.id;
                 return (
                   <article key={item.id} className="rounded-xl border border-app-border bg-app-bg/60 p-3">
                     <div className="min-w-0">
@@ -421,25 +369,18 @@ export default function OfflineIndicator() {
                           </p>
                           <div className="mt-0.5 flex flex-wrap items-center gap-2">
                             <span className="text-[11px] text-tx-tertiary">{itemTypeLabel(item)}</span>
-                            {isConflict && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-                                版本冲突
-                              </span>
-                            )}
                           </div>
                         </div>
-                        {!isConflict && (
-                          <button
-                            type="button"
-                            disabled={!canRetry || retryingId === item.id}
-                            onClick={() => void retryOne(item)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover disabled:cursor-not-allowed disabled:opacity-40"
-                            title={item.retryable === false ? "该操作不能自动重试，请先导出本地副本" : "重新同步此项"}
-                          >
-                            {retryingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                            重试
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          disabled={!canRetry || retryingId === item.id}
+                          onClick={() => void retryOne(item)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover disabled:cursor-not-allowed disabled:opacity-40"
+                          title={item.retryable === false ? "该操作不能自动重试，请先导出本地副本" : "重新同步此项"}
+                        >
+                          {retryingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                          重试
+                        </button>
                       </div>
 
                       {notePreview && (
@@ -450,33 +391,6 @@ export default function OfflineIndicator() {
                       <p className="mt-2 text-xs leading-5 text-tx-secondary">
                         {getQueueItemStatusMessage(item)}
                       </p>
-
-                      {isConflict && (
-                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <button
-                            type="button"
-                            disabled={!isOnline || resolving}
-                            onClick={() => void handleResolveConflict(item, "use-server")}
-                            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-elevated px-3 py-2 text-xs font-medium text-tx-primary hover:bg-app-hover disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            {resolving && resolvingConflict?.choice === "use-server"
-                              ? <Loader2 size={13} className="animate-spin" />
-                              : <CloudDownload size={13} />}
-                            使用服务器版本
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!isOnline || resolving}
-                            onClick={() => void handleResolveConflict(item, "keep-local")}
-                            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            {resolving && resolvingConflict?.choice === "keep-local"
-                              ? <Loader2 size={13} className="animate-spin" />
-                              : <CloudUpload size={13} />}
-                            保留此设备版本
-                          </button>
-                        </div>
-                      )}
 
                       <details className="mt-2 text-[10px] text-tx-tertiary">
                         <summary className="cursor-pointer select-none hover:text-tx-secondary">技术详情</summary>

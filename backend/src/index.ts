@@ -85,7 +85,7 @@ app.use("*", cors({
     return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
+  allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
   credentials: true,
 }));
 

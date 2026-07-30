@@ -9,6 +9,7 @@ process.env.DB_PATH = path.join(tmpDir, "test.db");
 
 let closeDb: () => void;
 let embedQuery: typeof import("../src/services/embedding-worker").embedQuery;
+let rebuildAllEmbeddings: typeof import("../src/services/embedding-worker").rebuildAllEmbeddings;
 let startEmbeddingWorker: typeof import("../src/services/embedding-worker").startEmbeddingWorker;
 let stopEmbeddingWorker: typeof import("../src/services/embedding-worker").stopEmbeddingWorker;
 let setUserAISettings: typeof import("../src/services/user-ai-settings").setUserAISettings;
@@ -23,6 +24,7 @@ test.before(async () => {
   closeDb = schema.closeDb;
   getDb = schema.getDb;
   embedQuery = worker.embedQuery;
+  rebuildAllEmbeddings = worker.rebuildAllEmbeddings;
   startEmbeddingWorker = worker.startEmbeddingWorker;
   stopEmbeddingWorker = worker.stopEmbeddingWorker;
   setUserAISettings = settings.setUserAISettings;
@@ -32,6 +34,7 @@ test.before(async () => {
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-invalid", "embed-invalid", "hash");
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-whitespace", "embed-whitespace", "hash");
   schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-profile", "embed-profile", "hash");
+  schema.getDb().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run("embed-rebuild", "embed-rebuild", "hash");
 });
 
 test.after(async () => {
@@ -161,6 +164,35 @@ test("blank embedding URL falls back after trimming", async () => {
 
   assert.equal(requestedUrl, "https://fallback.example/v1/embeddings");
   assert.equal(requestedAuthorization, "Bearer fallback-key");
+});
+
+test("user-scoped rebuild enqueues attachments without ambiguous scope columns", () => {
+  const db = getDb();
+  db.prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)")
+    .run("embed-rebuild-notebook", "embed-rebuild", "Rebuild notebook");
+  db.prepare("INSERT INTO notes (id, userId, notebookId, title, contentText) VALUES (?, ?, ?, ?, ?)")
+    .run("embed-rebuild-note", "embed-rebuild", "embed-rebuild-notebook", "Rebuild title", "Rebuild body");
+  db.prepare(`
+    INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "embed-rebuild-attachment",
+    "embed-rebuild-note",
+    "embed-rebuild",
+    "rebuild.txt",
+    "text/plain",
+    12,
+    "rebuild.txt",
+  );
+
+  const result = rebuildAllEmbeddings({ userId: "embed-rebuild", workspaceId: null });
+
+  assert.equal(result.enqueued, 2);
+  assert.equal(
+    (db.prepare("SELECT status FROM attachment_embedding_queue WHERE attachmentId = ?")
+      .get("embed-rebuild-attachment") as { status: string }).status,
+    "pending",
+  );
 });
 
 test("background queue uses the same default URL semantics as embedQuery", async () => {

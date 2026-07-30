@@ -191,13 +191,15 @@ export default function NoteAttachmentsPanel({ noteId, noteTitle, onClose }: Pro
     });
   }, [items, activeCategory, searchInput]);
 
-  // 复制直链：写入剪贴板，2s 后恢复 icon
+  // 复制笔记内链接：保留后端返回的 `/api/attachments/...` 相对路径。
+  // 不调用 resolveAttachmentUrl，否则会把当前配置的 NAS IP / 本地端口写入笔记，
+  // 换到外网域名访问时链接就会失效。渲染和下载时再按当前环境动态补地址。
   const handleCopyLink = async (item: FileItem) => {
     try {
-      await copyText(resolveAttachmentUrl(item.url));
+      await copyText(item.url);
       setCopiedId(item.id);
       setTimeout(() => setCopiedId((cur) => (cur === item.id ? null : cur)), 1800);
-      toast.success("链接已复制");
+      toast.success("相对链接已复制");
     } catch {
       toast.error("复制失败");
     }
@@ -367,7 +369,7 @@ export default function NoteAttachmentsPanel({ noteId, noteTitle, onClose }: Pro
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          title="复制直链"
+                          title="复制笔记内链接"
                           onClick={() => handleCopyLink(item)}
                         >
                           {copiedId === item.id ? (

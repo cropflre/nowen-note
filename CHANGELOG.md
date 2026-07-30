@@ -12,6 +12,306 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.4.4 - 2026-07-30
+
+### ✨ 新增
+
+- 移动端知识树支持紧凑模式 (c66752a)
+- 知识树支持全部展开/收起并优化加载失败态 (7d8aedb)
+- 支持笔记 Markdown 与富文本格式互转 (fda5b37)
+- 笔记列表回收站空状态展示 (b11d7df)
+
+### 🐛 修复
+
+- **share**: show guest nickname in public comments (#543) (8dd7b47)
+- **permissions**: install routes in legacy backend entry (eb645bd)
+- **share**: prompt guest nickname before public comments (#541) (862fbcf)
+- **editor**: restore rich-text interaction after format conversion (#539) (bf92883)
+- 窗口化 Tiptap 编辑器大纲滚动定位 (afaecde)
+- 右键菜单子菜单按视口智能定位 (877b7dc)
+- 知识树根文档下创建子节点包裹隐藏根容器 (3a2fec3)
+- 增强斜杠菜单中文输入法组合态处理 (37ec249)
+- 优化 Markdown 隐藏块标记的容错与编辑器光标稳定 (8210c8f)
+- 移动端抽屉导航栏宽度规则仅作用于导航项 (b4520aa)
+
+### 📝 文档
+
+- 设计 GitHub SignPath Windows 更新签名方案 (5c73e1f)
+- **readme**: sync v1.4.3 capabilities (1f77093)
+
+### ✅ 测试
+
+- **permissions**: cover legacy backend route bootstrap (c2af22b)
+
+### 🤖 CI
+
+- **permissions**: watch legacy runtime bootstrap (45a20a9)
+
+
+## v1.4.3 - 2026-07-29
+
+### ✨ 新增
+
+- 导出/导入支持解锁受密码保护的笔记本 (f3d1165)
+- 知识树文件夹支持 JWT 解锁令牌 (d865ebe)
+- 编辑器支持从文件管理插入已有附件 (ff011d9)
+- 知识树文件夹支持密码保护 (8aec91e)
+- **mobile**: 支持导入 Markdown 文件并优化移动端菜单交互 (2c35dc3)
+- **ui**: add reusable user picker combobox (546c7dc)
+- 登录会话改用 /me 校验并支持账号切换回退重登 (692bba0)
+- 登录页支持记住账号与自动登录 (981b98b)
+- 当前空间显示笔记本数量 (4c08908)
+- 支持编辑器大纲栏拖拽宽度 (8a05e7a)
+- 调整桌面和移动端知识树模式 (dfc2594)
+- 知识树支持导入与权限管理 (15608c1)
+- 完善图片编辑功能 (7f79618)
+- **mobile**: 增加目录浏览模式开关 (6b9fe40)
+- **mobile**: 最近优先与逐层目录导航 (b3b1111)
+- **backup**: mount WebDAV backup settings bridge (d162785)
+- **backup**: add WebDAV backup settings UI (2f88f69)
+- **backup**: upload automatic backups to WebDAV (9f2168a)
+- **backup**: enable WebDAV backup runtime (484323e)
+- **backup**: mount WebDAV backup runtime routes (2ee8547)
+- **backup**: add WebDAV configuration and upload routes (7051845)
+- **backup**: add encrypted WebDAV backup service (7fb1cd3)
+- **tree**: hide physical root document containers (7c09035)
+- **tree**: route root document operations through compatibility layer (e41b5eb)
+- **tree**: support documents at knowledge tree root (d3f2fc6)
+- **tree**: route tree panel through create menu runtime (d433927)
+- **tree**: add unified plus create menu runtime (d7bbd38)
+- **permissions**: add DingTalk-style notebook access management (bc82df5)
+- **mobile**: load compact knowledge tree styles (36acf46)
+- **mobile**: add compact knowledge tree density (cc25787)
+- **tree**: install Markdown file drop bridge (3ee5f77)
+- **tree**: support dropping Markdown files into content tree (c2d267d)
+- **import**: mount rich text callout compatibility (e4d8bfa)
+- **import**: install rich text callout decorator (9609c6e)
+- **import**: decorate SiYuan callouts in rich text (4af9143)
+- **import**: mount Siyuan import feedback bridge (1a68337)
+- **sync**: auto-resolve version conflicts before snapshot pull (7158a7c)
+- **sync**: add latest-write conflict resolution strategy (7dc340c)
+- 知识树嵌入优化、远程图片本地化及设置面板改进 (b6c3952)
+
+### 🐛 修复
+
+- 斜杠菜单中文输入法回车误触选择 (cf722d2)
+- 附件面板复制保留笔记内相对链接 (e28d5dd)
+- 文件管理器清理附件按钮常驻并点击重新扫描 (b9770f7)
+- 修复笔记附件目录遗漏归属文件 (88f0e8f)
+- **mobile**: 进一步压缩移动端知识树目录行高并修正操作按钮尺寸 (b006c70)
+- **mobile**: 进一步压缩浏览器移动端树目录间距 (77d747f)
+- **editor**: stabilize code block indentation and numbering (#327) (96f1162)
+- **mobile**: 明显缩小移动端笔记节点间距 (8d720e2)
+- **mobile**: make note rows visibly denser than folders (93413d1)
+- **mobile**: scope dense tree styling to the rendered panel (ea434b0)
+- **editor**: add stable code block indent commands (#327) (9ea12bd)
+- **ui**: keep empty user picker exclusions stable (8ab8a47)
+- **permissions**: use dropdown user picker for ACL rules (4cde233)
+- **mobile**: 修复浏览器移动端树节点间距未生效 (72a16c0)
+- **mobile**: scope compact tree density to mobile sidebar (b38f7c4)
+- **desktop**: keep public notebook navigation inside app entry (9b3fff6)
+- **desktop**: use file-safe public space navigation (9254fbd)
+- **desktop**: resolve public routes from file-safe query (0555d7c)
+- **desktop**: add file-safe app navigation helper (c37bebe)
+- **tree**: correct note counts and compact mobile rows (d8d959c)
+- **ui**: 全端默认关闭拼写检查 (84dde03)
+- **tree**: simplify desktop row hover actions (4469f15)
+- **desktop**: compact offline indicator (2f202c8)
+- **mobile**: suppress offline status banner (20840ff)
+- 鼠标悬停时隐藏笔记本数量 (a1ac584)
+- **sync**: retain pending editor snapshots locally (d9e7262)
+- **editor**: preserve debounced edits during conflict sync (b1ea57a)
+- **sync**: preserve edits during silent conflict resolution (deac023)
+- **sync**: resolve version conflicts silently (5e42b79)
+- **share**: hide internal markdown block markers (a310f6a)
+- **android**: limit preview tap capture to touch pointers (05d728f)
+- **android**: close image preview when tapping image (270938e)
+- **tree**: use anchored dropdown for new content (33e20a7)
+- **backup**: harden WebDAV request parsing (80807a8)
+- **backup**: use symbol-safe WebDAV route guard (bac976b)
+- **permissions**: transfer unified knowledge tree ownership atomically (d075622)
+- **migrations**: load permission runtime after feature registration (049b26b)
+- **migrations**: keep db runtimes out of migration bootstrap (b0bc728)
+- **url-import**: tighten DNS compatibility typings (0764830)
+- **url-import**: load DNS compat before route modules (6772896)
+- **url-import**: install DNS fallback before routes load (f18661d)
+- **url-import**: add system resolver fallback for DNS checks (4686c04)
+- **mobile**: tighten tree expander and icon spacing (2aa9ddf)
+- **share**: 修复 Edge 分享链接复制失败 (0ea07d1)
+- **tree**: include note version when writing dropped Markdown (7ecb3c8)
+- **mindmap**: 切换目录时清空旧导图内容 (eacd871)
+- **editor**: scope callout selector to both editor roots (0958545)
+- **import**: render SiYuan progress inside import panel (12f7e35)
+- **editor**: style callouts in production rich-text root (1efc07a)
+- **editor**: detect callouts in actual Tiptap root (e23c8ee)
+- **import**: treat SiYuan callouts as supported content (069a6be)
+- **android**: open mobile tree drawer by default (7f02fee)
+- **import**: detect Siyuan zip contents and show progress (52924a5)
+- **markdown**: read normalized Callout data properties (e6351a8)
+- **markdown**: allow hyphenated Callout HAST attributes (2e9902f)
+- **import**: refresh knowledge tree after note imports (4dbb441)
+- **markdown**: preserve callouts beside raw iframe HTML (2d422f1)
+- **siyuan**: normalize iframe entities and heading IAL (bc8a661)
+
+### ⚡ 优化
+
+- **windows**: speed portable extraction and show startup splash (3d94397)
+- **desktop**: shrink production backend bundle for faster startup (da25b73)
+- 优化一级目录笔记本数量统计 (3af7c08)
+
+### ♻️ 重构
+
+- **permissions**: reuse user picker for collaborators (485f382)
+
+### 📝 文档
+
+- 记录附件目录归属修复设计 (1019df7)
+- restore WeChat and Alipay sponsor codes (10f51f7)
+- **readme**: sync current features and simplify project overview (3f35622)
+- **backup**: add native WebDAV backup guide (7e948e1)
+- **backup**: document WebDAV encryption key (0ad89f1)
+
+### 💄 样式
+
+- **mobile**: compact nested knowledge tree rows (c3caa82)
+- **tree**: load desktop compact density (467dbce)
+- **tree**: compact nested desktop rows (9f15085)
+- **tree**: add fallback drop target highlight (9002741)
+- **tree**: highlight Markdown file drop target (8f500dd)
+- **import**: render SiYuan callout variants in editor (be7739f)
+
+### ✅ 测试
+
+- 补充附件面板复制相对链接测试 (9407320)
+- **editor**: account for trailing paragraph in indent transactions (4b33aa7)
+- **editor**: expose issue 327 transaction shapes (8f94193)
+- **mobile**: verify note-only compact tree density (382ab9e)
+- **mobile**: lock dense tree panel class (1b684dc)
+- **permissions**: cover shared people pickers (fcade60)
+- **editor**: cover code block indent transactions (#327) (6e122b8)
+- **permissions**: lock ACL user picker behavior (5559496)
+- **mobile**: cover sidebar-scoped compact tree density (19ae641)
+- **desktop**: lock Windows startup performance build settings (6572c97)
+- **desktop**: cover file-safe public space navigation (dd70e98)
+- **mobile**: lock compact nested tree spacing (f9709de)
+- **tree**: lock compact descendant row density (bf0fb86)
+- **ui**: 覆盖全局拼写检查关闭 (d6f960e)
+- **android**: keep desktop mouse drag unaffected (95be27e)
+- **android**: cover image preview tap close (7f98dad)
+- **tree**: cover anchored create dropdown (cfed8a4)
+- **permissions**: cover v64 unified tree ownership transfer (8e1f632)
+- **backup**: cover encrypted WebDAV configuration (dff4e96)
+- **migrations**: lock feature registration before db runtime (f3b4efa)
+- **tree**: initialize optional tree resource schemas (eedd474)
+- **tree**: cover root rich text and markdown documents (d147e25)
+- **url-import**: verify DNS installer is executable and idempotent (0bc83f6)
+- **url-import**: cover system DNS fallback and bootstrap order (1771f3b)
+- **mobile**: lock compact tree expander geometry (b94b947)
+- **mobile**: lock compact knowledge tree contract (811076f)
+- **tree**: cover external Markdown drop detection (b3145a7)
+- **editor**: stabilize production-root assertion (fe4f035)
+- **editor**: assert real root class contract (a7153e6)
+- **import**: cover inline SiYuan progress host (15f3a0c)
+- **editor**: observe callouts in production root (3a16ad9)
+- **editor**: cover production Tiptap callout root (86aec10)
+- **markdown**: validate live-preview Callouts independently (32a7f87)
+- **markdown**: avoid CodeMirror DOM implementation assertion (5c9467b)
+- **markdown**: isolate live-preview Callout blocks (743d1c5)
+- **markdown**: cover five Callouts in live preview (5b0d80f)
+- **markdown**: cover five SiYuan Callout preview types (fed348c)
+- **import**: add SiYuan Callout fixture (e5765b3)
+- **import**: cover callout bridge lifecycle (4f604a8)
+- **import**: preserve callouts across rich text and markdown (175bf79)
+- **import**: cover rich text callout decoration (f2794d2)
+- **android**: cover default drawer and rail label layout (d3cd3d9)
+- **import**: cover Siyuan zip detection and request matching (5d0b4ac)
+- **sync**: cover automatic latest-write conflict resolution (5d1875c)
+- **markdown**: split issue 494 preview assertions (1b6ada7)
+- **import**: verify content tree refresh bridge (d226b21)
+- **markdown**: isolate issue 494 callout iframe regression (03a6ba6)
+- **markdown**: isolate issue 494 regression scenario (e0eb933)
+- **markdown**: consolidate issue 494 coverage (3b5575b)
+- **markdown**: exercise issue 494 preview path in runtime CI (59a44a0)
+- **markdown**: cover issue 494 callout and iframe compatibility (dea425b)
+- **siyuan**: cover issue 494 markdown regressions (9271a17)
+
+### 📦 构建
+
+- **windows**: add portable extraction splash asset (5c51ac3)
+
+### 🤖 CI
+
+- **mobile**: preserve legacy density variable aliases (5db4ff9)
+- **editor**: make issue 327 integration patch resilient (c1bf619)
+- **editor**: run issue 327 integration from draft PR (ca8ddbb)
+- **editor**: apply and verify issue 327 integration patch (56ee76c)
+- **share**: add markdown presentation regression (fbbd246)
+- **android**: validate image preview tap close (ca63b99)
+- **backup**: validate WebDAV backup support (af5307f)
+- **migrations**: verify bootstrap ordering regression (2751b07)
+- **tree**: record issue 512 validation result (b223d9f)
+- **tree**: rerun issue 512 validation (d2c72af)
+- **tree**: trigger issue 512 validation (3eb6d5b)
+- **tree**: add issue 512 validation workflow (a8ac7bf)
+- **permissions**: retain ownership regression diagnostics (1e8499a)
+- **permissions**: add notebook permission management checks (799f515)
+- **url-import**: verify DNS fallback and backend build (a81866f)
+- **mobile**: enforce compact expander footprint (ede4dfd)
+- **mobile**: cover compact knowledge tree styles (18e5f5c)
+- **markdown**: split Callout preview diagnostics (1366287)
+- **import**: verify Markdown Callouts in preview modes (0975f20)
+- **import**: include Callout bridge lifecycle test (4f1f1a4)
+- **import**: cover rich text callout compatibility (616d97f)
+- **import**: validate Siyuan import feedback bridge (7ec68ac)
+- pinpoint issue 494 preview regressions (108da88)
+- isolate issue 494 frontend checks (c24d00a)
+- run issue 494 frontend regressions (c017741)
+- run SiYuan markdown regression coverage (6f9eedf)
+
+### 🔧 其他
+
+- remove temporary file (81cc37a)
+- apply share marker fix (bdbd85a)
+- **ci**: remove redundant create dropdown migration (d1e1dd8)
+- **ci**: add create dropdown migration (9a2f7a1)
+- **tree**: remove temporary issue 512 validation report (684d598)
+- **tree**: remove issue 512 validation marker (06d02f3)
+- **tree**: remove temporary issue 512 validation workflow (b52cb03)
+- **tree**: remove temporary issue 512 PR workflow (1125092)
+- **tree**: remove temporary issue 512 command workflow (4c0ed7f)
+- **tree**: remove temporary issue 512 marker (9a25d64)
+- **tree**: remove temporary issue 512 trigger workflow (1469b98)
+- **tree**: remove temporary issue 512 apply workflow (8856324)
+- **ci**: add PR trigger for issue 512 implementation (65dab80)
+- **ci**: add issue 512 command workflow (bebedb4)
+- **ci**: remove permission integration workflow (fed1cab)
+- **ci**: start issue 512 implementation (3764f5b)
+- **ci**: add issue 512 workflow trigger (22e9793)
+- **ci**: apply issue 512 implementation (c855426)
+- **ci**: trigger permission integration when ready (445c8cb)
+- **ci**: run permission integration from pull request (5133737)
+- **ci**: add one-shot permission management integration (605fe70)
+- remove temporary Edge copy fix workflow (071cb3f)
+- clean Edge copy trigger marker (1621e83)
+- trigger Edge copy fix from pull request (aa7cf8b)
+- add one-shot Edge share copy fix trigger (001509c)
+- remove one-shot mind map fix trigger (10f1a84)
+- add one-shot mind map folder fix trigger (19d9eb8)
+- remove accidental temporary file (c866133)
+- **import**: remove unused Callout fixture (180187b)
+- remove accidental placeholder (4ab8b36)
+
+### ⏪ 回滚
+
+- **tree**: remove desktop compact spacing stylesheet (4f87b3b)
+- **tree**: stop loading desktop compact spacing (86e9412)
+
+### 📌 杂项
+
+- noop (ca8b780)
+- 修复知识树置顶统计 (00cb50e)
+
+
 ## v1.4.2 - 2026-07-27
 
 ### ✨ 新增

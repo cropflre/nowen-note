@@ -4,6 +4,7 @@ import { getDb } from "../db/schema";
 import { extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
+import { parseFolderUnlockTokens } from "../lib/knowledgeTreePasswordAccess";
 import { broadcastToUser } from "../services/realtime";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import fs from "fs";
@@ -729,6 +730,7 @@ app.get("/nowen-package", async (c) => {
       notebookId,
       includeSubNotebooks,
       includeTrashed,
+      folderUnlockTokens: parseFolderUnlockTokens(c.req.header("X-Folder-Unlock-Tokens")),
     });
 
     return new Response(new Uint8Array(result.buffer), {
@@ -743,7 +745,8 @@ app.get("/nowen-package", async (c) => {
     });
   } catch (err: any) {
     console.error("[export/nowen-package] Error:", err);
-    return c.json({ error: err.message || "Export failed", code: "EXPORT_FAILED" }, 500);
+    const status = Number.isInteger(err?.status) ? err.status : 500;
+    return c.json({ error: err.message || "Export failed", code: err?.code || "EXPORT_FAILED" }, status as any);
   }
 });
 

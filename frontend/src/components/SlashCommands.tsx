@@ -9,7 +9,7 @@ import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
   Quote, FileCode, Minus, ImagePlus, Sparkles,
   Bold, Italic, Highlighter, Table2,
-  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film
+  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -71,6 +71,13 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
   // 被菜单和编辑器处理，造成命令执行两次或额外插入段落。
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isImeComposing = e.isComposing || editor.view.composing;
+      if (isImeComposing) {
+        // 组合态回车只负责确认输入法候选词。阻止它继续传到 ProseMirror，
+        // 避免额外插入段落；组合结束后的下一次回车再执行菜单命令。
+        if (e.key === "Enter") e.stopPropagation();
+        return;
+      }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
@@ -98,7 +105,7 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [filteredItems, selectedIndex, onSelect, onClose]);
+  }, [editor, filteredItems, selectedIndex, onSelect, onClose]);
 
   // 点击外部关闭。使用 pointerdown capture，让鼠标、触控笔和触屏路径一致。
   useEffect(() => {
@@ -175,7 +182,12 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
 }
 
 // 获取默认的斜杠命令列表
-export function getDefaultSlashCommands(t: (key: string) => string, onImageUpload?: () => void, onAIAssistant?: () => void): SlashCommandItem[] {
+export function getDefaultSlashCommands(
+  t: (key: string) => string,
+  onImageUpload?: () => void,
+  onAIAssistant?: () => void,
+  onAttachmentLibrary?: () => void,
+): SlashCommandItem[] {
   return [
     // 标题
     {
@@ -484,6 +496,15 @@ export function getDefaultSlashCommands(t: (key: string) => string, onImageUploa
       category: t("slash.catInsert"),
       keywords: ["image", "picture", "photo", "图片", "插图"],
       action: () => onImageUpload?.(),
+    },
+    {
+      id: "attachmentLibrary",
+      label: t("slash.attachmentLibrary"),
+      description: t("slash.attachmentLibraryDesc"),
+      icon: <FolderSearch size={16} />,
+      category: t("slash.catInsert"),
+      keywords: ["fj", "attachment", "file", "library", "附件", "文件", "文件管理"],
+      action: () => onAttachmentLibrary?.(),
     },
     {
       // 视频：弹窗输 URL 后调 setVideo。支持直链 mp4/webm + B 站 / YouTube /

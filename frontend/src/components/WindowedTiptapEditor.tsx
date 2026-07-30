@@ -383,6 +383,27 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       windowedHostRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     }, []);
 
+    const scrollToSectionFrame = useCallback((sectionId: string) => {
+      const host = windowedHostRef.current;
+      if (!host) return;
+      const frame = Array.from(host.querySelectorAll<HTMLElement>("[data-windowed-tiptap-section]"))
+        .find((candidate) => candidate.dataset.windowedTiptapSection === sectionId);
+      if (!frame) return;
+      const hostRect = host.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+      host.scrollTo({
+        top: Math.max(0, host.scrollTop + frameRect.top - hostRect.top),
+        behavior: "smooth",
+      });
+    }, []);
+
+    useEffect(() => {
+      if (!manifestReady) return;
+      const pending = pendingOutlineTargetRef.current;
+      if (!pending || outlineScrollersRef.current.has(pending.sectionId)) return;
+      void loadSection(pending.sectionId);
+    }, [loadSection, manifestReady]);
+
     useEffect(() => {
       onEditorReady?.((token: number) => {
         const target = outlineTargetsRef.current.get(token);
@@ -394,15 +415,10 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
           scrollLocal(target.localPos);
           return;
         }
+        scrollToSectionFrame(target.sectionId);
         void loadSection(target.sectionId);
-        requestAnimationFrame(() => {
-          const frame = windowedHostRef.current?.querySelector<HTMLElement>(
-            `[data-windowed-tiptap-section="${target.sectionId}"]`,
-          );
-          frame?.scrollIntoView({ block: "start", behavior: "smooth" });
-        });
       });
-    }, [loadSection, onEditorReady]);
+    }, [loadSection, onEditorReady, scrollToSectionFrame]);
 
     const handleVisibility = useCallback((sectionId: string, visible: boolean, height?: number) => {
       if (height && height > 0) setHeights((current) => current[sectionId] === height ? current : { ...current, [sectionId]: height });

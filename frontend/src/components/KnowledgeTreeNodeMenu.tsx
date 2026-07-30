@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
+  ArrowLeftRight,
   Download,
   FileCode,
   FilePlus,
@@ -10,6 +11,7 @@ import {
   Image as ImageIcon,
   Link2,
   Lock,
+  LockKeyhole,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -17,6 +19,7 @@ import {
   Plus,
   Printer,
   ShieldCheck,
+  Share2,
   SplitSquareHorizontal,
   SplitSquareVertical,
   Star,
@@ -29,7 +32,13 @@ import {
 import ContextMenu, { type ContextMenuItem } from "@/components/ContextMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
-import { prompt as appPrompt } from "@/components/ui/confirm";
+import ShareModal from "@/components/ShareModal";
+import { confirm } from "@/components/ui/confirm";
+import {
+  importMarkdownIntoKnowledgeTree,
+  importWeChatArticleIntoKnowledgeTree,
+  importWordIntoKnowledgeTree,
+} from "@/components/knowledgeTreeImport";
 import type { ContextMenuState } from "@/hooks/useContextMenu";
 import { api } from "@/lib/api";
 import {
@@ -40,12 +49,17 @@ import {
 } from "@/lib/exportService";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
-import { knowledgeTreeApi } from "@/lib/knowledgeTreeApi";
+import {
+  convertNoteContent,
+  getNoteFormatConversionTarget,
+  requestActiveNoteFormatConversion,
+} from "@/lib/noteFormatConversion";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { Notebook } from "@/types";
 
 type LoadedNote = Awaited<ReturnType<typeof api.getNote>>;
+type NoteStatusPatch = Partial<Pick<LoadedNote, "isPinned" | "isFavorite" | "isLocked">>;
 
 export interface KnowledgeTreeNodeMenuProps {
   menu: ContextMenuState;
@@ -59,8 +73,12 @@ export interface KnowledgeTreeNodeMenuProps {
   onRename: (node: KnowledgeTreeNode) => void | Promise<void>;
   onMove: (node: KnowledgeTreeNode) => void;
   onPermissions: (node: KnowledgeTreeNode) => void;
+  onPassword: (node: KnowledgeTreeNode) => void;
+  isNodeUnlocked: (node: KnowledgeTreeNode) => boolean;
+  onUnlockNode: (node: KnowledgeTreeNode) => void;
   onDelete: (node: KnowledgeTreeNode) => void | Promise<void>;
   onReload: () => void | Promise<void>;
+  onNotePatched: (nodeId: string, patch: NoteStatusPatch) => void;
 }
 
 function separator(id: string): ContextMenuItem {
@@ -87,6 +105,7 @@ function createChildren(): ContextMenuItem[] {
 
 function importChildren(): ContextMenuItem[] {
   return [
+    { id: "import_markdown", label: "Markdown 文件", icon: <FileCode size={14} /> },
     { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} /> },
     { id: "import_url", label: "公众号文章", icon: <Link2 size={14} /> },
   ];
@@ -140,6 +159,12 @@ export function buildKnowledgeTreeNodeMenuItems(
         icon: note?.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
         disabled: !note,
       },
+      {
+        id: "convert_format",
+        label: note?.contentFormat === "markdown" ? "转换为富文本" : "转换为 Markdown",
+        icon: <ArrowLeftRight size={14} />,
+        disabled: !note || note.isLocked === 1,
+      },
     );
   }
 
@@ -147,7 +172,17 @@ export function buildKnowledgeTreeNodeMenuItems(
   if (isNotebook && capabilities.canEdit) {
     management.push({ id: "change_icon", label: "修改图标", icon: <MoreHorizontal size={14} /> });
   }
+  if (isNotebook && capabilities.canManageMembers) {
+    management.push({
+      id: "folder_password",
+      label: node.isPasswordProtected === 1 ? "修改密码" : "设置密码",
+      icon: <LockKeyhole size={14} />,
+    });
+  }
   if (capabilities.canEdit) management.push({ id: "rename", label: "重命名", icon: <Pencil size={14} /> });
+  if (isDocument && (isOwned || capabilities.canReshare)) {
+    management.push({ id: "share_note", label: "分享", icon: <Share2 size={14} /> });
+  }
   if (isNotebook && (capabilities.canReshare || capabilities.canManageMembers)) {
     management.push({ id: "share", label: "分享与发布", icon: <Link2 size={14} /> });
   }
@@ -222,13 +257,18 @@ export default function KnowledgeTreeNodeMenu({
   onRename,
   onMove,
   onPermissions,
+  onPassword,
+  isNodeUnlocked,
+  onUnlockNode,
   onDelete,
   onReload,
+  onNotePatched,
 }: KnowledgeTreeNodeMenuProps) {
   const { state } = useApp();
   const actions = useAppActions();
   const [note, setNote] = useState<LoadedNote | null>(null);
   const [shareNotebook, setShareNotebook] = useState<Notebook | null>(null);
+  const [shareNote, setShareNote] = useState<{ id: string; title: string } | null>(null);
   const [iconPicker, setIconPicker] = useState<{ notebook: Notebook; top: number; left: number } | null>(null);
 
   useEffect(() => {
@@ -267,77 +307,46 @@ export default function KnowledgeTreeNodeMenu({
     actions.setMobileSidebar(false);
   };
 
-  const resolvePhysicalNotebookId = async (parent: KnowledgeTreeNode): Promise<string> => {
-    let cursor: KnowledgeTreeNode | undefined = parent;
-    const byId = new Map(nodes.map((candidate) => [candidate.id, candidate]));
-    const visited = new Set<string>();
-    while (cursor && !visited.has(cursor.id)) {
-      visited.add(cursor.id);
-      if (cursor.resourceType === "notebook") return cursor.resourceId;
-      cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
-    }
-    if (parent.resourceType === "note") {
-      return (await api.getNote(parent.resourceId)).notebookId;
-    }
-    throw new Error("找不到可用于导入的物理目录");
-  };
-
   const importWord = async () => {
     if (!node) return;
-    const notebookId = await resolvePhysicalNotebookId(node);
-    const { pickDocxFile, importDocxAsNote } = await import("@/lib/wordNoteService");
-    const file = await pickDocxFile();
-    if (!file) return;
-    const toastId = toast.info("正在导入 Word 文档…", 0);
-    try {
-      const { note: imported } = await importDocxAsNote({ notebookId, file });
-      if (node.id !== `notebook:${notebookId}`) {
-        await knowledgeTreeApi.move(`note:${imported.id}`, { parentId: node.id });
-      }
-      toast.dismiss(toastId);
-      toast.success("导入成功");
-      openLoadedNote(imported as LoadedNote);
-      await onReload();
-      actions.refreshNotes();
-      actions.refreshNotebooks();
-    } catch (error: any) {
-      toast.dismiss(toastId);
-      throw error;
-    }
+    const imported = await importWordIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
+  const importMarkdown = async () => {
+    if (!node) return;
+    const imported = await importMarkdownIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
   };
 
   const importUrl = async () => {
     if (!node) return;
-    const raw = await appPrompt({
-      title: "导入公众号文章",
-      description: "请输入微信公众号文章链接",
-      placeholder: "https://mp.weixin.qq.com/s/...",
-      confirmText: "导入",
-      validate: (value) => {
-        const url = value.trim();
-        if (!url) return "请输入文章链接";
-        return /^https:\/\/mp\.weixin\.qq\.com\/s[\/?]/.test(url) ? null : "暂只支持微信公众号文章链接";
-      },
+    const imported = await importWeChatArticleIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
     });
-    if (raw == null) return;
-    const notebookId = await resolvePhysicalNotebookId(node);
-    const toastId = toast.info("正在导入文章…", 0);
-    try {
-      const result = await api.urlImport(raw.trim(), notebookId);
-      if (node.id !== `notebook:${notebookId}`) {
-        await knowledgeTreeApi.move(`note:${result.noteId}`, { parentId: node.id });
-      }
-      const imported = await api.getNote(result.noteId);
-      toast.dismiss(toastId);
-      toast.success(`已导入：${result.title}`);
-      openLoadedNote(imported);
-      await onReload();
-      actions.refreshNotes();
-      actions.refreshNotebooks();
-    } catch (error: any) {
-      toast.dismiss(toastId);
-      throw error;
-    }
+    if (!imported) return;
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
   };
 
   const getNotebook = async (): Promise<Notebook> => {
@@ -350,16 +359,64 @@ export default function KnowledgeTreeNodeMenu({
     return found;
   };
 
-  const patchNote = async (patch: Partial<LoadedNote>) => {
+  const patchNote = async (patch: NoteStatusPatch) => {
     if (!node || node.resourceType !== "note") return;
     const current = note || await api.getNote(node.resourceId);
     await api.updateNote(current.id, patch as any);
+    onNotePatched(node.id, patch);
     const next = { ...current, ...patch } as LoadedNote;
     setNote(next);
     actions.updateNoteInList({ id: current.id, ...patch } as any);
     if (patch.isLocked !== undefined) actions.updateNoteTab({ id: current.id, isLocked: patch.isLocked });
     if (state.activeNote?.id === current.id) actions.setActiveNote({ ...state.activeNote, ...patch } as any);
     actions.refreshNotes();
+  };
+
+  const convertFormat = async () => {
+    if (!node || node.resourceType !== "note") return;
+    const current = note || await api.getNote(node.resourceId);
+    const targetFormat = getNoteFormatConversionTarget(current.contentFormat);
+    const targetLabel = targetFormat === "markdown" ? "Markdown" : "富文本";
+    const accepted = await confirm({
+      title: `转换为${targetLabel}？`,
+      description: "笔记会在原位置切换编辑器。复杂排版在两种格式之间转换时可能略有差异。",
+      confirmText: "转换",
+    });
+    if (!accepted) return;
+
+    if (state.activeNote?.id === current.id) {
+      requestActiveNoteFormatConversion({ noteId: current.id, targetFormat });
+      return;
+    }
+
+    const converted = convertNoteContent(current.content, current.contentText, targetFormat);
+    const updated = await api.updateNoteConfirmed(current.id, {
+      ...converted,
+      version: current.version,
+      ...(targetFormat === "markdown" ? { syncToYjs: true } : {}),
+    } as any);
+    if (targetFormat === "tiptap-json") {
+      try { await api.releaseYjsRoom(current.id); } catch { /* 下次打开时会重新建立房间 */ }
+    }
+    setNote(updated);
+    actions.updateNoteInList({
+      id: updated.id,
+      contentText: updated.contentText,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+      version: updated.version,
+    });
+    actions.updateNoteTab({
+      id: updated.id,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+    });
+    await onReload();
+    actions.refreshNotes();
+    window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+      detail: { reason: "note-format-converted", noteId: current.id },
+    }));
+    toast.success(`已转换为${targetLabel}`);
   };
 
   const exportFolder = async () => {
@@ -424,6 +481,20 @@ export default function KnowledgeTreeNodeMenu({
     }
     if (!node) return;
     onClose();
+    const protectedContentActions = new Set([
+      "new_note",
+      "new_markdown",
+      "new_folder",
+      "import_markdown",
+      "import_word",
+      "import_url",
+      "export_folder",
+      "delete",
+    ]);
+    if (node.nodeType === "folder" && !isNodeUnlocked(node) && protectedContentActions.has(actionId)) {
+      onUnlockNode(node);
+      return;
+    }
     try {
       switch (actionId) {
         case "open": await onOpen(node); break;
@@ -432,16 +503,20 @@ export default function KnowledgeTreeNodeMenu({
         case "new_note": onCreate(node, "note"); break;
         case "new_markdown": onCreate(node, "markdown"); break;
         case "new_folder": onCreate(node, "folder"); break;
+        case "import_markdown": await importMarkdown(); break;
         case "import_word": await importWord(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;
         case "toggle_favorite": await patchNote({ isFavorite: note?.isFavorite === 1 ? 0 : 1 }); break;
         case "toggle_lock": await patchNote({ isLocked: note?.isLocked === 1 ? 0 : 1 }); break;
+        case "convert_format": await convertFormat(); break;
         case "rename": await onRename(node); break;
         case "move": onMove(node); break;
         case "permissions": onPermissions(node); break;
+        case "folder_password": onPassword(node); break;
         case "delete": await onDelete(node); break;
         case "share": setShareNotebook(await getNotebook()); break;
+        case "share_note": setShareNote({ id: node.resourceId, title: node.title }); break;
         case "change_icon": {
           const notebook = await getNotebook();
           setIconPicker({ notebook, top: menu.y, left: menu.x });
@@ -472,6 +547,13 @@ export default function KnowledgeTreeNodeMenu({
         header={node?.title}
       />
       {shareNotebook && <NotebookShareDialog notebook={shareNotebook} onClose={() => setShareNotebook(null)} />}
+      {shareNote && (
+        <ShareModal
+          noteId={shareNote.id}
+          noteTitle={shareNote.title}
+          onClose={() => setShareNote(null)}
+        />
+      )}
       {iconPicker && (
         <EmojiIconPicker
           currentIcon={iconPicker.notebook.icon || "📁"}

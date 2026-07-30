@@ -3,17 +3,23 @@ import { knowledgeTreeResourceMigration } from "../db/knowledgeTreeResourceMigra
 import { knowledgeTreeParentPreservationMigration } from "../db/knowledgeTreeParentPreservationMigration.js";
 import { knowledgeTreeLegacySyncMigration } from "../db/knowledgeTreeLegacySyncMigration.js";
 import { knowledgeTreeStructuralGuardMigration } from "../db/knowledgeTreeStructuralGuardMigration.js";
+import { knowledgeTreePasswordMigration } from "../db/knowledgeTreePasswordMigration.js";
 import { MIGRATIONS as BASE_MIGRATIONS } from "../db/migrations.impl.js";
 
 // index.hardened imports this module before any runtime that can open the database.
 // Mutating the historical base list here lets migrations.ts compute CURRENT_SCHEMA_VERSION
 // with the feature migrations included, without coupling the main migration wrapper to them.
+//
+// Do not import route/runtime installers from this file. Some of them depend on ACL services
+// that install database guards at module-evaluation time. Opening the database here would load
+// migrations.ts before versions 60-65 are appended and freeze CURRENT_SCHEMA_VERSION at 59.
 for (const featureMigration of [
   knowledgeTreeMigration,
   knowledgeTreeResourceMigration,
   knowledgeTreeParentPreservationMigration,
   knowledgeTreeLegacySyncMigration,
   knowledgeTreeStructuralGuardMigration,
+  knowledgeTreePasswordMigration,
 ]) {
   if (!BASE_MIGRATIONS.some((migration) => migration.version === featureMigration.version)) {
     BASE_MIGRATIONS.push(featureMigration);

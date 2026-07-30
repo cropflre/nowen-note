@@ -41,6 +41,25 @@ describe("projectMarkdownForUser", () => {
     expect(projectMarkdownForUser(source)).toBe(source);
   });
 
+  it("hides a truncated generated block marker instead of exposing it in the editor", () => {
+    const damaged = "blk_d765500d-f8a2-4507-b53f-4fae35ba069";
+    const source = `正文 ^${damaged}`;
+
+    expect(projectMarkdownForUser(source)).toBe("正文");
+    expect(findInternalMarkdownMarkerRanges(source)).toEqual([
+      expect.objectContaining({ kind: "inline", blockId: damaged }),
+    ]);
+  });
+
+  it("hides a generated block marker when its leading space was removed", () => {
+    const source = `as^${PARAGRAPH_ID}`;
+
+    expect(projectMarkdownForUser(source)).toBe("as");
+    expect(findInternalMarkdownMarkerRanges(source)).toEqual([
+      expect.objectContaining({ from: 2, kind: "inline", blockId: PARAGRAPH_ID }),
+    ]);
+  });
+
   it("returns source offsets for editor decorations", () => {
     const source = `a ^${HEADING_ID}\n^${CODE_ID}\n`;
     expect(findInternalMarkdownMarkerRanges(source).map(({ kind, blockId }) => ({ kind, blockId }))).toEqual([

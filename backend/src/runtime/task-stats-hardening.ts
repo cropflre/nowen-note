@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
+// Both backend entrypoints load this runtime after the migration bootstrap. Keep the
+// modular permission routes installed when a tsc/legacy build starts src/index.ts directly.
+import "./notebook-permission-management.js";
 import { getDb } from "../db/schema.js";
 import {
   canManageResource,

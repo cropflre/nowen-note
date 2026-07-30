@@ -631,16 +631,20 @@ export function rebuildAllEmbeddings(opts: {
   // 设计：notes 表与 note_embeddings 表的 scope 列同名（userId / workspaceId），
   //      因此可以共享同一段 WHERE。
   const conds: string[] = [];
+  const attachmentConds: string[] = [];
   const params: any[] = [];
   if (userId !== undefined) {
     conds.push(`userId = ?`);
+    attachmentConds.push(`a.userId = ?`);
     params.push(userId);
   }
   if (wsRaw !== undefined) {
     if (wsRaw === null) {
       conds.push(`workspaceId IS NULL`);
+      attachmentConds.push(`a.workspaceId IS NULL`);
     } else {
       conds.push(`workspaceId = ?`);
+      attachmentConds.push(`a.workspaceId = ?`);
       params.push(wsRaw);
     }
   }
@@ -685,10 +689,10 @@ export function rebuildAllEmbeddings(opts: {
   // 与笔记索引同步：切换 embedding 模型或点"重建索引"时，附件向量也需要
   // 重算——否则两种向量维度不一致会在 vec0 表里打架。attachment_embedding_queue
   // 按 (userId, workspaceId) 维护自己的 scope 列（v8 迁移创建时已冗余），
-  // 条件 WHERE 复用 conds。
+  // JOIN 查询使用带 attachments 别名的条件，避免与 notes 的同名列产生歧义。
   let attEnqueued = 0;
   try {
-    attEnqueued = rebuildAttachmentEmbeddingsInternal(db, conds, params, clearExisting);
+    attEnqueued = rebuildAttachmentEmbeddingsInternal(db, conds, attachmentConds, params, clearExisting);
   } catch (e) {
     console.warn("[embedding-worker] attachment rebuild failed:", e);
   }
@@ -704,6 +708,7 @@ export function rebuildAllEmbeddings(opts: {
 function rebuildAttachmentEmbeddingsInternal(
   db: Database.Database,
   conds: string[],
+  attachmentConds: string[],
   params: any[],
   clearExisting?: boolean,
 ): number {
@@ -732,7 +737,7 @@ function rebuildAttachmentEmbeddingsInternal(
     }
 
     // 入队：只入"所属笔记未回收"的附件
-    const attachWhere = conds.length > 0 ? conds.join(" AND ") + " AND " : "";
+    const attachWhere = attachmentConds.length > 0 ? attachmentConds.join(" AND ") + " AND " : "";
     db.prepare(
       `INSERT INTO attachment_embedding_queue
          (attachmentId, userId, workspaceId, noteId, status, retries, enqueuedAt, updatedAt)

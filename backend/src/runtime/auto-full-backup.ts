@@ -1,5 +1,6 @@
 import { BackupManager, type BackupInfo } from "../services/backup.js";
 import { getDb } from "../db/schema.js";
+import { uploadAutomaticBackupToWebDav } from "../services/backup-webdav.js";
 
 export type AutoBackupType = "full" | "db-only";
 
@@ -141,6 +142,19 @@ function installAutoFullBackupPatch(): void {
         description: backupType === "full" ? "自动备份（全量）" : "自动备份（仅数据库）",
       });
       console.log(`[Backup] 自动${backupType === "full" ? "全量" : "数据库"}备份完成: ${info.filename}`);
+
+      // Remote delivery is deliberately best-effort: a WebDAV outage must never turn a valid
+      // local snapshot into a failed backup or block local retention and email delivery.
+      await uploadAutomaticBackupToWebDav(info.filename)
+        .then((uploaded) => {
+          if (uploaded) console.log(`[Backup] 自动备份已同步到 WebDAV: ${info.filename}`);
+        })
+        .catch((error: unknown) => {
+          console.warn(
+            "[Backup] 自动备份 WebDAV 上传失败，本地备份仍然有效:",
+            error instanceof Error ? error.message : error,
+          );
+        });
 
       const keepCount = Number(config.keepCount) || 15;
       for (const filename of automaticBackupsToPrune(manager.listBackups(), backupType, keepCount)) {

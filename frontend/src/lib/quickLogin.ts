@@ -9,7 +9,7 @@
  *    的 token，跳过用户名密码输入。
  * 2. token 存放在 Android Keystore / iOS Keychain（@aparajita/capacitor-secure-storage），
  *    Web / Electron 端降级为不可用（不在 localStorage 落第二份）。
- * 3. 启动时 token 取出后仍走 /auth/verify 校验，过期 / 改密 / 被踢都能正确
+ * 3. 启动时 token 取出后仍走 /me 校验，过期 / 改密 / 被踢都能正确
  *    回退到密码登录。
  *
  * 与现有体系的关系
@@ -281,7 +281,7 @@ export async function disableQuickLogin(): Promise<void> {
  *   1) 校验开关已开 + 生物识别可用；
  *   2) 弹生物识别认证；
  *   3) 取出 token + serverUrl + username；
- *   4) 由调用方拿去走 /auth/verify。
+ *   4) 由调用方拿去走 /me。
  *
  * 函数本身不会调 verify，也不会写 localStorage——这两步都交给 AuthGate /
  * QuickLoginGate 处理，使得本模块零依赖业务路由。

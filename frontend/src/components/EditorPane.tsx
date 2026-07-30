@@ -60,7 +60,7 @@ import {
   is409Error,
   isAborted,
 } from "@/lib/optimisticLockApi";
-import { enqueue as enqueueOfflineMutation, OFFLINE_QUEUE_CONFLICT_EVENT } from "@/lib/offlineQueue";
+import { enqueue as enqueueOfflineMutation } from "@/lib/offlineQueue";
 import {
   saveDraft,
   loadDraft,
@@ -76,6 +76,23 @@ import {
   shouldSkipUnchangedTitleOnlyUpdate,
 } from "@/lib/editorSyncGuards";
 import { canWriteNote } from "@/lib/notePermissions";
+import {
+  DEFAULT_OUTLINE_WIDTH,
+  clampOutlineWidth,
+  getSavedOutlineWidth,
+  persistOutlineWidth,
+} from "@/lib/outlinePanelWidth";
+import { preserveNoteSyncConflictSnapshot } from "@/lib/noteSyncSafety";
+import {
+  NOTE_CONFLICT_AUTO_RESOLVED_EVENT,
+  shouldPersistPendingConflictSnapshot,
+  type NoteConflictAutoResolvedDetail,
+} from "@/lib/conflictResolution";
+import {
+  convertNoteContent,
+  REQUEST_NOTE_FORMAT_CONVERSION_EVENT,
+  type NoteFormatConversionRequest,
+} from "@/lib/noteFormatConversion";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -116,6 +133,7 @@ export default function EditorPane({
   // 因为长期使用极少的用户来说，每次新笔记都反向丢失偏好会很不习惯。
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
   const [showOutline, setShowOutline] = useState<boolean>(() => userPrefs.outlineDefaultOpen);
+  const [outlineWidth, setOutlineWidth] = useState(getSavedOutlineWidth);
   // 视图级只读：除了 DB 的 isLocked，还有用户偏好带来的"会话锁"。
   // 新笔记打开时如果启用了 lockOnOpen 偏好，就把当前笔记 id 加入集合，
   // 编辑器变为只读，用户需要点解锁按钮移除，从而恢复编辑能力。
@@ -149,24 +167,34 @@ export default function EditorPane({
   const showDesktopOutline = showOutline && !state.editorFullscreen;
   const compactMobileEditing = keyboardVisible && canEditActiveNote && !effectiveLocked;
 
-  useEffect(() => {
-    const handleOfflineConflict = (event: Event) => {
-      const detail = (event as CustomEvent<{ noteId?: string; serverVersion?: number }>).detail || {};
-      console.warn("[EditorPane] offline queue version conflict:", detail);
-      if (detail.noteId && detail.noteId === activeNote?.id) {
-        actions.setSyncStatus("error");
-      }
-      toast.error(
-        t("editor.offlineVersionConflict", {
-          defaultValue: "检测到多端冲突，已停止自动覆盖，请刷新或打开版本历史处理。",
-        })
-      );
+  const handleOutlineResizeStart = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = outlineWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = clampOutlineWidth(startWidth - (moveEvent.clientX - startX));
+      setOutlineWidth(nextWidth);
+      persistOutlineWidth(nextWidth);
     };
 
-    window.addEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, handleOfflineConflict);
-    return () => window.removeEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, handleOfflineConflict);
-  }, [activeNote?.id, actions, t]);
+    const handleMouseUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
 
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, [outlineWidth]);
+
+  const handleOutlineWidthReset = useCallback(() => {
+    setOutlineWidth(DEFAULT_OUTLINE_WIDTH);
+    persistOutlineWidth(DEFAULT_OUTLINE_WIDTH);
+  }, []);
   useEffect(() => subscribeOpenInternalNoteLink(async ({ noteId }) => {
     await loadNote({
       noteId,
@@ -661,6 +689,120 @@ export default function EditorPane({
   const syncStatusRef = useRef(syncStatus);
   syncStatusRef.current = syncStatus;
 
+  const convertActiveNoteFormat = useCallback(async ({
+    noteId,
+    targetFormat,
+  }: NoteFormatConversionRequest) => {
+    const initialNote = activeNoteRef.current;
+    if (!initialNote || initialNote.id !== noteId || modeSwitchInflightRef.current) return;
+    if (initialNote.isLocked || viewLockedIdsRef.current.has(noteId)) {
+      toast.warning("请先解锁笔记再转换格式");
+      return;
+    }
+
+    modeSwitchInflightRef.current = true;
+    setModeSwitching(true);
+    let snapshot: { content: string; contentText: string } | null = null;
+
+    try {
+      snapshot = editorHandleRef.current?.getSnapshot?.() ?? {
+        content: initialNote.content,
+        contentText: initialNote.contentText,
+      };
+      editorHandleRef.current?.discardPending?.();
+
+      if (saveInflightRef.current) {
+        try { await saveInflightRef.current; } catch { /* 使用当前编辑器快照继续转换 */ }
+      }
+      if (activeNoteRef.current?.id !== noteId) return;
+
+      const persisted = await api.getNote(noteId);
+      const converted = convertNoteContent(
+        snapshot.content,
+        snapshot.contentText,
+        targetFormat,
+      );
+      actions.setSyncStatus("saving");
+      const updated = await api.updateNoteConfirmed(noteId, {
+        ...converted,
+        version: persisted.version,
+        ...(targetFormat === "markdown" ? { syncToYjs: true } : {}),
+      } as any);
+
+      activeNoteRef.current = updated;
+      actions.setActiveNote(updated);
+      actions.updateNoteInList({
+        id: updated.id,
+        contentText: updated.contentText,
+        contentFormat: updated.contentFormat,
+        updatedAt: updated.updatedAt,
+        version: updated.version,
+      });
+      actions.updateNoteTab({
+        id: updated.id,
+        contentFormat: updated.contentFormat,
+        updatedAt: updated.updatedAt,
+      });
+
+      const nextMode: EditorMode = targetFormat === "markdown" ? "md" : "tiptap";
+      persistEditorMode(nextMode);
+      clearForcedModeFromUrl();
+      setEditorMode(nextMode);
+      editorModeRef.current = nextMode;
+      try { clearDraft(noteId); } catch { /* ignore */ }
+
+      if (targetFormat === "tiptap-json") {
+        try { await api.releaseYjsRoom(noteId); } catch { /* 下次打开时会重新建立房间 */ }
+      }
+
+      actions.setSyncStatus("saved");
+      actions.setLastSynced(new Date().toISOString());
+      actions.refreshNotes();
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+        detail: { reason: "note-format-converted", noteId },
+      }));
+      toast.success(targetFormat === "markdown" ? "已转换为 Markdown" : "已转换为富文本");
+    } catch (error) {
+      console.error("[EditorPane] convert note format failed:", error);
+      const current = activeNoteRef.current;
+      if (snapshot && current?.id === noteId) {
+        const restored = {
+          ...current,
+          content: snapshot.content,
+          contentText: snapshot.contentText,
+        };
+        activeNoteRef.current = restored;
+        actions.setActiveNote(restored);
+        try {
+          saveDraft({
+            noteId,
+            editorMode: editorModeRef.current,
+            content: snapshot.content,
+            contentText: snapshot.contentText,
+            title: restored.title,
+            baseVersion: restored.version,
+            savedAt: Date.now(),
+          });
+        } catch { /* ignore */ }
+      }
+      actions.setSyncStatus("error");
+      toast.error("格式转换失败，当前内容已保留");
+    } finally {
+      modeSwitchInflightRef.current = false;
+      setModeSwitching(false);
+    }
+  }, [actions]);
+
+  useEffect(() => {
+    const handleRequest = (event: Event) => {
+      const detail = (event as CustomEvent<NoteFormatConversionRequest>).detail;
+      if (!detail?.noteId || !detail.targetFormat) return;
+      void convertActiveNoteFormat(detail);
+    };
+    window.addEventListener(REQUEST_NOTE_FORMAT_CONVERSION_EVENT, handleRequest);
+    return () => window.removeEventListener(REQUEST_NOTE_FORMAT_CONVERSION_EVENT, handleRequest);
+  }, [convertActiveNoteFormat]);
+
 
 
   // ---------------------------------------------------------------------------
@@ -689,6 +831,58 @@ export default function EditorPane({
     if (!current || (data._noteId && data._noteId !== current.id)) return;
     publishEditorSplitMirrorUpdate(current.id, data);
   }, []);
+
+  const persistPendingConflictSnapshot = useCallback((detail: NoteConflictAutoResolvedDetail): boolean => {
+    const current = activeNoteRef.current;
+    if (!current || current.id !== detail.note.id) return false;
+
+    const editorHandle = editorHandleRef.current;
+    if (editorHandle) {
+      let snapshot: ReturnType<NonNullable<NoteEditorHandle["getSnapshot"]>> = null;
+      try {
+        snapshot = editorHandle.getSnapshot?.() ?? null;
+      } catch {
+        return false;
+      }
+      if (!snapshot) return false;
+
+      const snapshotTitle = snapshot.title ?? current.title;
+      if (shouldPersistPendingConflictSnapshot(snapshot, current.title, detail)) {
+        preserveNoteSyncConflictSnapshot(current.id, {
+          version: current.version,
+          title: snapshotTitle,
+          content: snapshot.content,
+          contentText: snapshot.contentText,
+          contentFormat: current.contentFormat,
+        }, current.version, detail.note);
+        editorHandle.discardPending?.();
+        const localNote = {
+          ...current,
+          title: snapshotTitle,
+          content: snapshot.content,
+          contentText: snapshot.contentText,
+        };
+        activeNoteRef.current = localNote;
+        actions.setActiveNote(localNote);
+        return false;
+      }
+      editorHandle.discardPending?.();
+    }
+
+    activeNoteRef.current = detail.note;
+    actions.setActiveNote(detail.note);
+    return true;
+  }, [actions]);
+
+  useEffect(() => {
+    const handleAutoResolvedConflict = (event: Event) => {
+      const detail = (event as CustomEvent<NoteConflictAutoResolvedDetail>).detail;
+      if (!detail?.note || !detail.resolvedLocal) return;
+      persistPendingConflictSnapshot(detail);
+    };
+    window.addEventListener(NOTE_CONFLICT_AUTO_RESOLVED_EVENT, handleAutoResolvedConflict);
+    return () => window.removeEventListener(NOTE_CONFLICT_AUTO_RESOLVED_EVENT, handleAutoResolvedConflict);
+  }, [persistPendingConflictSnapshot]);
 
   useEffect(() => {
     const prepareSplitClose = (event: Event) => {
@@ -3572,8 +3766,11 @@ const moveToTrash = useCallback(async () => {
       {showDesktopOutline && (
           <OutlinePanel
             headings={headings}
+            width={outlineWidth}
             onSelect={(pos) => scrollToRef.current?.(pos)}
             onClose={() => setShowOutline(false)}
+            onResizeStart={handleOutlineResizeStart}
+            onResetWidth={handleOutlineWidthReset}
           />
         )}
       </div>
@@ -3584,16 +3781,33 @@ const moveToTrash = useCallback(async () => {
 /* ===== ������ ===== */
 function OutlinePanel({
   headings,
+  width,
   onSelect,
   onClose,
+  onResizeStart,
+  onResetWidth,
 }: {
   headings: NoteEditorHeading[];
+  width: number;
   onSelect: (pos: number) => void;
   onClose: () => void;
+  onResizeStart: (event: React.MouseEvent) => void;
+  onResetWidth: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="hidden md:flex flex-col w-56 min-w-[200px] border-l border-app-border bg-app-surface/50 transition-colors">
+    <div
+      className="relative hidden md:flex flex-none flex-col border-l border-app-border bg-app-surface/50 transition-colors"
+      style={{ width: `${width}px` }}
+    >
+      <div
+        onMouseDown={onResizeStart}
+        onDoubleClick={onResetWidth}
+        className="absolute inset-y-0 left-0 z-10 flex w-1 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-accent-primary/30 active:bg-accent-primary/50 transition-colors group"
+        title="拖拽调整大纲宽度 / 双击恢复默认"
+      >
+        <div className="h-8 w-[2px] rounded-full bg-transparent group-hover:bg-accent-primary/60 transition-colors" />
+      </div>
       <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
         <div className="flex items-center gap-1.5 text-xs font-medium text-tx-secondary">
           <ListTree size={13} className="text-accent-primary" />

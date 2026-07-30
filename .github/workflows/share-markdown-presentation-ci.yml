@@ -1,0 +1,37 @@
+name: Share Markdown Presentation CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/SharedNoteView.tsx'
+      - 'frontend/src/components/__tests__/SharedNoteViewLinks.test.ts'
+      - 'frontend/src/lib/markdownUserContent.ts'
+      - 'frontend/src/lib/__tests__/markdownUserContent.test.ts'
+      - '.github/workflows/share-markdown-presentation-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+
+      - name: Shared Markdown presentation regression
+        working-directory: frontend
+        run: npx vitest run --reporter=basic src/components/__tests__/SharedNoteViewLinks.test.ts src/lib/__tests__/markdownUserContent.test.ts
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b

@@ -29,7 +29,7 @@
  *
  * 失效清理
  * ----------------------------------------------------------------------------
- * - 切换服务器 / 主动登出 / verify 失败 → 调 clearRememberedCredentials()
+ * - 用户取消“记住账号和密码”或主动清除配置 → 调 clearRememberedCredentials()
  * - Electron 端"清除服务器"也会触发主进程级 clear
  */
 

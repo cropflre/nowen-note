@@ -40,6 +40,7 @@ import {
 
 import { normalizeServerBaseUrl as _normalizeBase } from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
+import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "@/lib/knowledgeTreePassword";
 import {
   registerAttachmentAccessUrls,
   resolveAttachmentAccessUrl,
@@ -2107,10 +2108,11 @@ export const api = {
     const token = getToken();
     const res = await fetch(`${getBaseUrl()}/export/nowen-package${qs}`, {
       credentials: "include",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...folderUnlockRequestHeaders() },
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "Export failed" }));
+      const err = await res.json().catch(() => ({ error: "Export failed", code: "" }));
+      if (err.code === "FOLDER_UNLOCK_REQUIRED") clearFolderUnlockTokens();
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     const blob = await res.blob();

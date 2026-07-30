@@ -55,11 +55,28 @@ function timestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function compareKnowledgeTreePinnedPriority(
+  a: KnowledgeTreeNode,
+  b: KnowledgeTreeNode,
+): number {
+  const aFolder = a.nodeType === "folder";
+  const bFolder = b.nodeType === "folder";
+  if (aFolder !== bFolder) return aFolder ? -1 : 1;
+
+  const aPinned = a.resourceType === "note" && a.isPinned === 1;
+  const bPinned = b.resourceType === "note" && b.isPinned === 1;
+  if (aPinned !== bPinned) return aPinned ? -1 : 1;
+  return 0;
+}
+
 export function compareKnowledgeTreeNodes(
   a: KnowledgeTreeNode,
   b: KnowledgeTreeNode,
   mode: KnowledgeTreeSortMode,
 ): number {
+  const pinnedPriority = compareKnowledgeTreePinnedPriority(a, b);
+  if (pinnedPriority !== 0) return pinnedPriority;
+
   let result = 0;
   switch (mode) {
     case "title-asc":

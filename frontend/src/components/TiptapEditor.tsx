@@ -9,6 +9,7 @@ import { Plugin, PluginKey } from "prosemirror-state";
 const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPreview"));
 // 复用的附件详情抽屉（与 FileManager 同一份实现）
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
+import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
 import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -81,7 +82,7 @@ import {
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload,
+  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -98,7 +99,7 @@ import { copyText } from "@/lib/clipboard";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { choose as chooseDialog, prompt as promptDialog } from "@/components/ui/confirm";
-import { Note, Tag } from "@/types";
+import { Note, Tag, type FileItem } from "@/types";
 import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
@@ -120,6 +121,7 @@ import {
 } from "@/components/FontSizeExtension";
 import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeightExtension";
 import CodeBlockView from "@/components/CodeBlockView";
+import { IndentExtension } from "@/lib/codeBlockIndent";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
@@ -729,61 +731,6 @@ function toggleHeadingSmart(editor: any, level: 1 | 2 | 3 | 4 | 5 | 6) {
     editor.chain().focus().toggleHeading({ level }).run();
   }
 }
-
-// 自定义缩进扩展
-// 支持段落、标题、列表（bullet / ordered / task）、引用、代码块整体做"手动缩进"调整。
-// 通过 data-indent 属性 + CSS 的 padding-left 实现纯视觉缩进，不破坏文档结构。
-const INDENT_MIN = 0;
-const INDENT_MAX = 8;
-const INDENTABLE_TYPES = [
-  "paragraph",
-  "heading",
-  "blockquote",
-  "codeBlock",
-  "bulletList",
-  "orderedList",
-  "taskList",
-] as const;
-
-const IndentExtension = Extension.create({
-  name: "indent",
-  addGlobalAttributes() {
-    return [
-      {
-        types: [...INDENTABLE_TYPES],
-        attributes: {
-          indent: {
-            default: 0,
-            parseHTML: (element) => parseInt(element.getAttribute("data-indent") || "0", 10),
-            renderHTML: (attributes) => {
-              if (!attributes.indent || attributes.indent === 0) return {};
-              return { "data-indent": attributes.indent };
-            },
-          },
-        },
-      },
-    ];
-  },
-  addCommands() {
-    return {
-      // 对选区覆盖的可缩进块按 delta 调整 indent（限制 0..INDENT_MAX）
-      changeIndent: (delta: number) => ({ state, tr, dispatch }: any) => {
-        const { from, to } = state.selection;
-        let changed = false;
-        state.doc.nodesBetween(from, to, (node: any, pos: number) => {
-          if (!(INDENTABLE_TYPES as readonly string[]).includes(node.type.name)) return;
-          const current = (node.attrs as any).indent || 0;
-          const next = Math.max(INDENT_MIN, Math.min(INDENT_MAX, current + delta));
-          if (next === current) return;
-          tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next });
-          changed = true;
-        });
-        if (changed && dispatch) dispatch(tr);
-        return changed;
-      },
-    } as any;
-  },
-});
 
 /**
  * BLOCK-ID-01: 块 ID 扩展
@@ -1633,6 +1580,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [attachmentPreview, setAttachmentPreview] = useState<
     { id: string; isDocx: boolean; filename: string } | null
   >(null);  // 图片预览状态
+  const [attachmentLibraryOpen, setAttachmentLibraryOpen] = useState(false);
+  const attachmentLibraryAnchorRef = useRef<AsyncInsertAnchor | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageZoom, setImageZoom] = useState(1);
   const [imageDrag, setImageDrag] = useState({ x: 0, y: 0 });
@@ -3163,6 +3112,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         return {
           content: JSON.stringify(editor.getJSON()),
           contentText: getEditorPlainTextForSave(editor, analysisCacheRef.current),
+          title: titleRef.current?.value || noteRef.current.title,
         };
       },
       acknowledgeSave: (ack) => {
@@ -3255,6 +3205,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       })) {
         titleRef.current.value = note.title;
       }
+      return;
+    }
+
+    // 自动保存开始时，父组件会先把编辑器刚发出的内容同步回 activeNote。
+    // 同笔记且原始 JSON 已与当前编辑器一致时无需再次修复或 setContent，
+    // 否则会重置斜杠菜单、选区等正在进行的编辑器交互。
+    if (
+      editor
+      && !noteChanged
+      && note.content === JSON.stringify(editor.getJSON())
+    ) {
       return;
     }
 
@@ -4385,6 +4346,35 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor);
   }, []);
 
+  const closeAttachmentLibrary = useCallback(() => {
+    setAttachmentLibraryOpen(false);
+    releaseEditorInsertAnchor(attachmentLibraryAnchorRef.current);
+    attachmentLibraryAnchorRef.current = null;
+  }, [releaseEditorInsertAnchor]);
+
+  const openAttachmentLibrary = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    releaseEditorInsertAnchor(attachmentLibraryAnchorRef.current);
+    attachmentLibraryAnchorRef.current = captureEditorInsertAnchor();
+    setAttachmentLibraryOpen(true);
+  }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor]);
+
+  const insertExistingAttachment = useCallback((item: FileItem) => {
+    const anchor = attachmentLibraryAnchorRef.current;
+    if (!editor || !restoreEditorInsertAnchor(anchor)) {
+      closeAttachmentLibrary();
+      toast.error(t("tiptap.attachmentInsertPositionLost", { defaultValue: "插入位置已失效，请重试" }));
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
+      .run();
+    closeAttachmentLibrary();
+    toast.success(t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
+  }, [closeAttachmentLibrary, editor, restoreEditorInsertAnchor, t]);
+
   const handleImageUpload = useCallback(() => {
     if (!editor) return;
     const insertAnchor = captureEditorInsertAnchor();
@@ -5190,8 +5180,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
           <Upload size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleAttachmentUpload} title={t('tiptap.insertAttachment')}>
+        <ToolbarButton
+          onClick={handleAttachmentUpload}
+          title={t("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
+        >
           <Paperclip size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={openAttachmentLibrary}
+          title={t("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
+        >
+          <FolderSearch size={iconSize} />
         </ToolbarButton>
         <TableGridPicker iconSize={iconSize} onPick={insertTable} />
         <ToolbarButton onClick={insertMermaid} title={t('tiptap.insertMermaid')}>
@@ -5211,6 +5210,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
         <ToolbarButton
           onClick={() => {
+            // Code blocks own their indentation even when nested in a list item.
+            // Route them through changeIndent before list commands can move the surrounding item.
+            if (editor.isActive("codeBlock")) {
+              (editor.chain().focus() as any).changeIndent(1).run();
+              return;
+            }
             if (editor.isActive("taskList")) {
               if (editor.chain().focus().sinkListItem("taskItem").run()) return;
             } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
@@ -5227,6 +5232,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         </ToolbarButton>
         <ToolbarButton
           onClick={() => {
+            // Code blocks own their indentation even when nested in a list item.
+            // Route them through changeIndent before list commands can move the surrounding item.
+            if (editor.isActive("codeBlock")) {
+              (editor.chain().focus() as any).changeIndent(-1).run();
+              return;
+            }
             if (editor.isActive("taskList")) {
               if (editor.chain().focus().liftListItem("taskItem").run()) return;
             } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
@@ -6126,7 +6137,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant)}
+        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary)}
+      />
+
+      <AttachmentLibraryPicker
+        open={attachmentLibraryOpen}
+        onClose={closeAttachmentLibrary}
+        onSelect={insertExistingAttachment}
       />
 
       {/* 笔记引用搜索菜单 */}

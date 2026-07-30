@@ -2,8 +2,10 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  ANDROID_DRAWER_SAFE_AREA_CSS,
   annotateMobileDrawerControls,
   getSidebarSearchInput,
+  isMobileDrawerViewport,
   shouldCloseDrawerAfterSearchBlur,
   shouldCloseDrawerOnSearchEnter,
 } from "@/components/MobileDrawerUxBridge";
@@ -11,6 +13,25 @@ import {
 describe("MobileDrawerUxBridge helpers", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("treats phone widths as the default-open drawer surface", () => {
+    expect(isMobileDrawerViewport(360)).toBe(true);
+    expect(isMobileDrawerViewport(767)).toBe(true);
+    expect(isMobileDrawerViewport(768)).toBe(false);
+    expect(isMobileDrawerViewport(Number.NaN)).toBe(false);
+  });
+
+  it("keeps Android label mode wide enough without clipping CJK glyphs", () => {
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).toContain("width: 72px !important");
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).toContain("line-height: 1.35 !important");
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).toContain("text-overflow: clip !important");
+  });
+
+  it("只限制导航项宽度，不影响导航栏内打开的弹窗按钮", () => {
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).toContain("[data-mobile-drawer-rail-item]");
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).not.toContain("[data-mobile-drawer-rail].w-16 button {");
+    expect(ANDROID_DRAWER_SAFE_AREA_CSS).not.toContain("[data-mobile-drawer-rail].w-16 button > span:last-child");
   });
 
   it("closes on a committed Enter but not while an IME is composing", () => {

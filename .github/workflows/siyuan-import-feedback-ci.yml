@@ -1,0 +1,91 @@
+name: Siyuan Import Feedback CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/lib/siyuanSyParser.ts"
+      - "backend/tests/siyuan-callout-content-format.test.ts"
+      - "frontend/src/main.tsx"
+      - "frontend/src/components/SiyuanImportProgressBridge.tsx"
+      - "frontend/src/components/SiyuanRichTextCalloutBridge.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/__tests__/SiyuanImportProgressBridge.test.ts"
+      - "frontend/src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
+      - "frontend/src/lib/siyuanRichTextCallout.ts"
+      - "frontend/src/lib/__tests__/siyuanRichTextCallout.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx"
+      - "frontend/src/siyuan-rich-text-callout.css"
+      - ".github/workflows/siyuan-import-feedback-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/lib/siyuanSyParser.ts"
+      - "backend/tests/siyuan-callout-content-format.test.ts"
+      - "frontend/src/main.tsx"
+      - "frontend/src/components/SiyuanImportProgressBridge.tsx"
+      - "frontend/src/components/SiyuanRichTextCalloutBridge.tsx"
+      - "frontend/src/components/MarkdownPreview.tsx"
+      - "frontend/src/components/__tests__/SiyuanImportProgressBridge.test.ts"
+      - "frontend/src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
+      - "frontend/src/lib/siyuanRichTextCallout.ts"
+      - "frontend/src/lib/__tests__/siyuanRichTextCallout.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx"
+      - "frontend/src/siyuan-rich-text-callout.css"
+      - ".github/workflows/siyuan-import-feedback-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: SiYuan Callout content-format tests
+        run: node --import tsx --test tests/siyuan-callout-content-format.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: SiYuan import and rich-text Callout tests
+        run: >-
+          npm run test:run --
+          src/components/__tests__/SiyuanImportProgressBridge.test.ts
+          src/components/__tests__/SiyuanRichTextCalloutBridge.test.tsx
+          src/lib/__tests__/siyuanRichTextCallout.test.ts
+      - name: Markdown complete-preview five Callouts
+        if: always()
+        run: npm run test:run -- src/components/__tests__/MarkdownPreview.calloutTypes.test.tsx
+      - name: Markdown live-preview five Callouts
+        if: always()
+        run: npm run test:run -- src/lib/__tests__/markdownLivePreview.calloutTypes.test.tsx
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b

@@ -21,6 +21,7 @@ import TiptapEditor from "@/components/TiptapEditor";
 import type { Note } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { navigateToAppPath } from "@/lib/appPathNavigation";
 import {
   notebookPublicationApi,
   type PublicComment,
@@ -79,7 +80,7 @@ function PublicNotebookIndex() {
             </div>
           </div>
           {hasLoginToken() && (
-            <Button variant="outline" onClick={() => window.location.assign("/")}>返回工作台</Button>
+            <Button variant="outline" onClick={() => navigateToAppPath("/")}>返回工作台</Button>
           )}
         </div>
       </header>
@@ -103,7 +104,7 @@ function PublicNotebookIndex() {
               <button
                 key={item.token}
                 type="button"
-                onClick={() => window.location.assign(`/public/${item.token}`)}
+                onClick={() => navigateToAppPath(`/public/${item.token}`)}
                 className="group rounded-2xl border border-app-border bg-app-surface p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent-primary/40 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -318,7 +319,7 @@ function PublicNotebookReader({ token }: { token: string }) {
     try {
       await notebookPublicationApi.joinPublication(token, accessToken || undefined);
       toast.success(info?.permission === "write" && info.allowEdit ? "已加入，可在工作台编辑" : "已加入到共享笔记本");
-      window.location.assign("/");
+      navigateToAppPath("/");
     } catch (err: any) {
       toast.error(err?.message || "加入失败");
     } finally {
@@ -337,7 +338,7 @@ function PublicNotebookReader({ token }: { token: string }) {
           <LockKeyhole size={30} className="mx-auto mb-3 text-tx-tertiary" />
           <h1 className="font-semibold">无法访问公共知识库</h1>
           <p className="mt-2 text-sm text-tx-secondary">{error || "发布不存在或已被撤销"}</p>
-          <Button variant="outline" className="mt-5" onClick={() => window.location.assign("/public")}>返回公共空间</Button>
+          <Button variant="outline" className="mt-5" onClick={() => navigateToAppPath("/public")}>返回公共空间</Button>
         </div>
       </div>
     );
@@ -362,7 +363,7 @@ function PublicNotebookReader({ token }: { token: string }) {
             autoFocus
           />
           <Button className="mt-3 w-full" onClick={verifySecret} disabled={!secret.trim()}>验证并进入</Button>
-          <button className="mt-4 w-full text-center text-xs text-tx-tertiary hover:text-accent-primary" onClick={() => window.location.assign("/public")}>返回公共空间</button>
+          <button className="mt-4 w-full text-center text-xs text-tx-tertiary hover:text-accent-primary" onClick={() => navigateToAppPath("/public")}>返回公共空间</button>
         </div>
       </div>
     );
@@ -372,7 +373,7 @@ function PublicNotebookReader({ token }: { token: string }) {
     <div className="flex h-screen min-h-0 bg-app-bg text-tx-primary">
       <aside className="hidden w-[280px] shrink-0 flex-col border-r border-app-border bg-app-surface md:flex">
         <div className="border-b border-app-border p-4">
-          <button className="flex min-w-0 items-center gap-3 text-left" onClick={() => window.location.assign("/public")}>
+          <button className="flex min-w-0 items-center gap-3 text-left" onClick={() => navigateToAppPath("/public")}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-app-hover text-xl">{info.icon || "📚"}</div>
             <div className="min-w-0"><div className="truncate text-sm font-semibold">{info.name}</div><div className="truncate text-[11px] text-tx-tertiary">{info.ownerDisplayName || info.ownerUsername} 的公共知识库</div></div>
           </button>
@@ -412,7 +413,7 @@ function PublicNotebookReader({ token }: { token: string }) {
       <main className="min-w-0 flex-1 overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-app-border bg-app-surface/90 px-4 py-3 backdrop-blur-xl md:hidden">
           <div className="flex items-center justify-between gap-3">
-            <button className="flex min-w-0 items-center gap-2" onClick={() => window.location.assign("/public")}><BookOpen size={17} className="text-accent-primary" /><span className="truncate text-sm font-semibold">{info.name}</span></button>
+            <button className="flex min-w-0 items-center gap-2" onClick={() => navigateToAppPath("/public")}><BookOpen size={17} className="text-accent-primary" /><span className="truncate text-sm font-semibold">{info.name}</span></button>
             <Button size="sm" variant="outline" onClick={join}><UserPlus size={13} className="mr-1" />加入</Button>
           </div>
           <select className="mt-3 h-9 w-full rounded-lg border border-app-border bg-app-bg px-3 text-xs" value={activeNoteId} onChange={(event) => setActiveNoteId(event.target.value)}>

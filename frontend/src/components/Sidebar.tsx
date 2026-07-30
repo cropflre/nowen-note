@@ -7,6 +7,7 @@ import KnowledgeTreePanel, {
   FOCUS_KNOWLEDGE_TREE_EVENT,
   KNOWLEDGE_TREE_CHANGED_EVENT,
 } from "@/components/KnowledgeTreePanel";
+import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -14,6 +15,12 @@ import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
+import {
+  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
+  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
+  loadDesktopKnowledgeTreeViewMode,
+  type DesktopKnowledgeTreeViewMode,
+} from "@/lib/mobileKnowledgeTreeViewMode";
 import { cn } from "@/lib/utils";
 import { useApp, useAppActions } from "@/store/AppContext";
 
@@ -70,9 +77,7 @@ export const KNOWLEDGE_TREE_SCROLLBAR_CSS = `
 /**
  * Unified sidebar.
  *
- * The legacy notebook-directory renderer, direct-note caches, notebook DnD,
- * duplicate context menus and the former tree/list switch have been removed.
- * Folder and document operations now live exclusively in KnowledgeTreePanel.
+ * 桌面端默认保留递归目录树，并可按本地偏好切换为快捷浏览；移动端默认使用快捷浏览。
  */
 export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | "mobile" } = {}) {
   const { state } = useApp();
@@ -94,6 +99,22 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   });
   const [deleteTagTarget, setDeleteTagTarget] = useState<DeleteTagTarget | null>(null);
   const [tagColorPopover, setTagColorPopover] = useState<TagColorTarget | null>(null);
+  const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
+    () => loadDesktopKnowledgeTreeViewMode(),
+  );
+
+  useEffect(() => {
+    const syncMode = () => setDesktopKnowledgeTreeMode(loadDesktopKnowledgeTreeViewMode());
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
+    };
+    window.addEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
 
   const refreshSidebarData = useCallback(async () => {
     try {
@@ -231,7 +252,13 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           内容
         </div>
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <KnowledgeTreePanel variant={variant} />
+          {variant === "mobile" ? (
+            <MobileKnowledgeTreePanel />
+          ) : desktopKnowledgeTreeMode === "quick" ? (
+            <MobileKnowledgeTreePanel variant="desktop" />
+          ) : (
+            <KnowledgeTreePanel variant="desktop" />
+          )}
         </div>
       </section>
 

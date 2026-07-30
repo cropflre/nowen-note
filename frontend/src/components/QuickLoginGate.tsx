@@ -7,7 +7,7 @@
  * - 平台不支持（Web / Electron）→ 立即调 onSettled(false)，UI 走原密码登录路径。
  * - 未启用快速登录 → 同上。
  * - 已启用 → 渲染一个全屏占位 + 唤起生物识别。
- *   - 认证成功：把 token 写回 localStorage，调 /auth/verify 拉用户信息后
+ *   - 认证成功：把 token 写回 localStorage，调 /me 拉用户信息并校验会话后
  *     onSettled(true) + 调 onLogin 让 AuthGate 直接进主界面。
  *   - 认证失败 / token 已被吊销：清掉 secure storage 中的镜像，onSettled(false)
  *     回到密码登录页。
@@ -131,8 +131,8 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
 
       const baseUrl = ssServer || lsServer || "";
       const verifyUrl = baseUrl
-        ? `${baseUrl}/api/auth/verify`
-        : "/api/auth/verify";
+        ? `${baseUrl}/api/me`
+        : "/api/me";
 
       try {
         const ctrl = new AbortController();
@@ -160,7 +160,7 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
         } catch {
           /* ignore */
         }
-        onSettled(true, { token: result.token, user: data.user });
+        onSettled(true, { token: result.token, user: data });
       } catch (e: any) {
         if (cancelled) return;
         setErrorMsg(

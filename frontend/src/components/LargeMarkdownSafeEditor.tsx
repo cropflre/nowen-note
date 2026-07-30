@@ -314,6 +314,7 @@ const LargeMarkdownSafeEditor = forwardRef<
       return {
         content: markdownText,
         contentText: currentSearchText(markdownText),
+        title: titleRef.current?.value || note.title,
       };
     },
     isReady: () => !!viewRef.current,

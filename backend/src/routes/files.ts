@@ -440,9 +440,9 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
   // noteId：本笔记引用过的附件（含自己上传 + 引用别处的）
   if (noteIdFilter) {
     whereParts.push(
-      "EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id AND ar.noteId = ?)",
+      "(a.noteId = ? OR EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id AND ar.noteId = ?))",
     );
-    params.push(noteIdFilter);
+    params.push(noteIdFilter, noteIdFilter);
   }
 
   // folderId：按附件文件夹筛选

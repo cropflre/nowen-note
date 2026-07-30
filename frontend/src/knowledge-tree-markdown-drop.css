@@ -1,0 +1,27 @@
+[data-nowen-knowledge-tree="embedded"] .knowledge-tree-markdown-drop-target {
+  background: rgba(99, 102, 241, 0.12) !important;
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent) !important;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.75);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 75%, transparent);
+  color: var(--tx-primary, inherit);
+}
+
+[data-nowen-knowledge-tree="embedded"] .knowledge-tree-markdown-drop-target::after {
+  content: "拖放 Markdown 到这里";
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 4px;
+  background: var(--accent-primary, #6366f1);
+  padding: 2px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #fff;
+  pointer-events: none;
+}

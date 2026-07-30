@@ -1,4 +1,5 @@
 import { api, getBaseUrl, getCurrentWorkspace } from "./api";
+import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "./knowledgeTreePassword";
 
 export interface RoundTripPermissionExportRequest {
   id: number;
@@ -66,10 +67,11 @@ export async function downloadRoundTripPermissionPackage(options: {
   const token = readToken();
   const response = await fetch(`${getBaseUrl()}/settings/import-batches/package?${params.toString()}`, {
     credentials: "include",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...folderUnlockRequestHeaders() },
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    const payload = await response.json().catch(() => null) as { error?: string; code?: string } | null;
+    if (payload?.code === "FOLDER_UNLOCK_REQUIRED") clearFolderUnlockTokens();
     throw new Error(payload?.error || `HTTP ${response.status}`);
   }
   return {

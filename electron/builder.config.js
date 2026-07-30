@@ -20,6 +20,11 @@ module.exports = {
   portable: {
     ...(base.portable || {}),
     artifactName: "Nowen-Note-${version}-portable.${ext}",
+    // Portable EXE 必须先解压整个应用再启动 Electron。ZIP 解压明显快于默认 LZMA，
+    // 以少量体积增长换取 Windows 端更短的双击等待时间。
+    useZip: true,
+    // NSIS 在 Electron 进程启动前显示该图，避免大型 portable 包解压时毫无反馈。
+    splashImage: "build/portable-splash.bmp",
   },
   mac: {
     ...(base.mac || {}),

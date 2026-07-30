@@ -42,6 +42,9 @@ interface BlockCandidate extends Omit<NoteBlockIndexRow, "blockId"> {
 const SUPPORTED = new Set<string>(SUPPORTED_NOTE_BLOCK_TYPES);
 const BLOCK_ID_RE = /^blk_[A-Za-z0-9_-]{6,}$/;
 const MARKDOWN_BLOCK_ID_RE = /(?:\s+|^)(\^blk_[A-Za-z0-9_-]{6,})\s*$/;
+const GENERATED_MARKDOWN_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
+const GENERATED_MARKER_LINE_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
+const ATTACHED_GENERATED_MARKER_RE = new RegExp(String.raw`^(.*\S)\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
 
 function makeBlockId(): string {
   return `blk_${uuid()}`;
@@ -171,12 +174,69 @@ function cleanMarkdownText(type: NoteBlockType, value: string): string {
   return text.replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/, "").trim();
 }
 
+function normalizeGeneratedMarkdownMarkers(content: string): string {
+  if (!content.includes("^blk_")) return content;
+  const lines = lineOffsets(content);
+  const edits: Array<{ from: number; to: number; insert: string }> = [];
+  let fenceChar = "";
+  let fenceLength = 0;
+  let expectsCodeMarker = false;
+
+  for (const line of lines) {
+    if (fenceChar) {
+      const closeRe = new RegExp(`^[ \\t]{0,3}${fenceChar}{${fenceLength},}[ \\t]*$`);
+      if (closeRe.test(line.text)) {
+        fenceChar = "";
+        fenceLength = 0;
+        expectsCodeMarker = true;
+      }
+      continue;
+    }
+
+    const marker = line.text.match(GENERATED_MARKER_LINE_RE);
+    if (expectsCodeMarker) {
+      expectsCodeMarker = false;
+      if (marker) continue;
+    }
+
+    const opener = line.text.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (opener) {
+      fenceChar = opener[1][0];
+      fenceLength = opener[1].length;
+      continue;
+    }
+
+    if (marker) {
+      edits.push({ from: line.start, to: line.endWithNewline, insert: "" });
+      continue;
+    }
+
+    // 隐藏标记边界被回车或输入破坏时，块 ID 可能直接粘在正文后面。
+    // 仅修复严格的系统 UUID，避免改写用户主动输入的普通 ^blk_ 文本。
+    const attached = line.text.match(ATTACHED_GENERATED_MARKER_RE);
+    if (attached) {
+      edits.push({
+        from: line.start,
+        to: line.end,
+        insert: `${attached[1]} ^${attached[2]}`,
+      });
+    }
+  }
+
+  let normalized = content;
+  for (const edit of edits.sort((a, b) => b.from - a.from)) {
+    normalized = normalized.slice(0, edit.from) + edit.insert + normalized.slice(edit.to);
+  }
+  return normalized.trim() ? normalized : "";
+}
+
 function parseMarkdown(noteId: string, content: string): {
   normalizedContent: string;
   candidates: BlockCandidate[];
   changed: boolean;
 } {
-  const lines = lineOffsets(content);
+  const normalizedContent = normalizeGeneratedMarkdownMarkers(content);
+  const lines = lineOffsets(normalizedContent);
   const candidates: BlockCandidate[] = [];
   let order = 0;
 
@@ -204,7 +264,7 @@ function parseMarkdown(noteId: string, content: string): {
       }
       const start = line.start;
       const end = (j > i ? lines[j - 1].endWithNewline : line.endWithNewline);
-      const raw = content.slice(start, end);
+      const raw = normalizedContent.slice(start, end);
       const plainText = raw
         .replace(/^\s*(```+|~~~+)[^\n]*\n?/, "")
         .replace(/\n?\s*(```+|~~~+)\s*(?:\n\^blk_[A-Za-z0-9_-]+)?\s*$/, "")
@@ -242,7 +302,7 @@ function parseMarkdown(noteId: string, content: string): {
     }
     const start = line.start;
     const end = lines[j - 1].endWithNewline;
-    const raw = content.slice(start, end).replace(/\n$/, "");
+    const raw = normalizedContent.slice(start, end).replace(/\n$/, "");
     const stripped = stripMarkdownMarker(raw);
     const plainText = cleanMarkdownText(type, stripped.text.replace(/\n/g, " "));
     candidates.push({
@@ -263,7 +323,7 @@ function parseMarkdown(noteId: string, content: string): {
     i = j;
   }
 
-  return { normalizedContent: content, candidates, changed: false };
+  return { normalizedContent, candidates, changed: normalizedContent !== content };
 }
 
 export function ensureNoteBlockTables(db: Database.Database): void {

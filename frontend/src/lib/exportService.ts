@@ -10,12 +10,14 @@ function sanitizeSingleNoteExportFilename(name: string): string {
 
 function buildSingleNoteFrontmatter(note: {
   title: string;
+  contentFormat?: string;
   createdAt: string;
   updatedAt: string;
 }): string {
   return [
     "---",
     `title: "${note.title.replace(/"/g, '\\"')}"`,
+    `contentFormat: "${note.contentFormat || "tiptap-json"}"`,
     `created: ${note.createdAt}`,
     `updated: ${note.updatedAt}`,
     "---",

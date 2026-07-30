@@ -2,8 +2,11 @@ import crypto from "crypto";
 import JSZip from "jszip";
 import path from "path";
 import { getDb, getDbSchemaVersion } from "../db/schema";
+import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration";
+import { verifyFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess";
 import { getUserWorkspaceRole, isSystemAdmin } from "../middleware/acl";
 import { readAttachmentObject } from "./attachment-storage";
+import { resolveResourceKnowledgeAccess } from "./knowledgeCapabilities";
 
 /**
  * Nowen v2 round-trip package.
@@ -37,6 +40,7 @@ interface ExportParams {
   inlineImages?: boolean;
   layout?: "notebooks" | "flat";
   filenameBase?: string;
+  folderUnlockTokens?: string[];
 }
 
 interface ExportStats {
@@ -69,6 +73,15 @@ interface ExportNotebook {
   isExpanded: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export class NowenPackageExportAccessError extends Error {
+  readonly status = 403;
+
+  constructor(readonly code: "NOWEN_EXPORT_FORBIDDEN" | "FOLDER_UNLOCK_REQUIRED", message: string) {
+    super(message);
+    this.name = "NowenPackageExportAccessError";
+  }
 }
 
 interface ExportNote {
@@ -256,6 +269,74 @@ function selectNotebooks(
   return all.filter((item) => ids.has(item.id));
 }
 
+function assertNowenPackageExportAccess(input: {
+  userId: string;
+  allScopeNotebooks: ExportNotebook[];
+  selectedNotebooks: ExportNotebook[];
+  folderUnlockTokens: string[];
+}): void {
+  const db = getDb();
+  ensureKnowledgeTreePasswordTable(db);
+
+  if (!isSystemAdmin(input.userId)) {
+    for (const notebook of input.selectedNotebooks) {
+      const access = resolveResourceKnowledgeAccess("notebook", notebook.id, input.userId, db);
+      if (!access.capabilities.canDownload) {
+        throw new NowenPackageExportAccessError(
+          "NOWEN_EXPORT_FORBIDDEN",
+          `你没有导出“${notebook.name}”的权限`,
+        );
+      }
+    }
+  }
+
+  const byId = new Map(input.allScopeNotebooks.map((notebook) => [notebook.id, notebook]));
+  const requiredNotebookIds = new Set<string>();
+  for (const notebook of input.selectedNotebooks) {
+    let current: ExportNotebook | undefined = notebook;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      requiredNotebookIds.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+  }
+  if (requiredNotebookIds.size === 0) return;
+
+  const ids = Array.from(requiredNotebookIds);
+  const placeholders = ids.map(() => "?").join(",");
+  const protectedFolders = db.prepare(`
+    SELECT node.id AS nodeId, node.resourceId AS notebookId,
+           notebook.name, password.passwordVersion
+      FROM knowledge_tree_nodes node
+      JOIN notebooks notebook ON notebook.id = node.resourceId
+      JOIN notebook_passwords password ON password.notebookId = node.resourceId
+     WHERE node.resourceType = 'notebook'
+       AND node.isDeleted = 0
+       AND node.resourceId IN (${placeholders})
+  `).all(...ids) as Array<{
+    nodeId: string;
+    notebookId: string;
+    name: string;
+    passwordVersion: number;
+  }>;
+
+  for (const folder of protectedFolders) {
+    const unlocked = input.folderUnlockTokens.some((token) => verifyFolderUnlockToken(token, {
+      userId: input.userId,
+      nodeId: folder.nodeId,
+      notebookId: folder.notebookId,
+      passwordVersion: folder.passwordVersion,
+    }));
+    if (!unlocked) {
+      throw new NowenPackageExportAccessError(
+        "FOLDER_UNLOCK_REQUIRED",
+        `“${folder.name}”受密码保护，请先在目录中解锁后再导出`,
+      );
+    }
+  }
+}
+
 function buildExportPaths(notebooks: ExportNotebook[]): {
   pathById: Map<string, string>;
   exportNameById: Map<string, string>;
@@ -353,6 +434,7 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
     includeHumanReadableTree = packageKind === "markdown",
     layout = "notebooks",
     filenameBase,
+    folderUnlockTokens = [],
   } = params;
 
   assertWorkspaceReadable(userId, workspaceId);
@@ -389,6 +471,14 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
   if (notebookId) notes = notes.filter((note) => notebookIds.has(note.notebookId));
   if (!notebooks.length && notes.length) throw new Error("No notebooks found for selected notes");
   if (!notebooks.length && !notes.length) throw new Error("No data found in export scope");
+  if (packageKind === "nowen") {
+    assertNowenPackageExportAccess({
+      userId,
+      allScopeNotebooks,
+      selectedNotebooks: notebooks,
+      folderUnlockTokens,
+    });
+  }
 
   const preparedById = new Map(preparedMarkdown.map((item) => [item.id, item]));
   if (packageKind === "markdown" && preparedById.size !== notes.length) {

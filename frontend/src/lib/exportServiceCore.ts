@@ -1370,6 +1370,7 @@ export async function exportSingleNote(
     const frontmatter = [
       "---",
       `title: "${note.title.replace(/"/g, '\\"')}"`,
+      `contentFormat: "${note.contentFormat || 'tiptap-json'}"`,
       `created: ${note.createdAt}`,
       `updated: ${note.updatedAt}`,
       "---",

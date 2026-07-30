@@ -107,6 +107,12 @@ test("shared knowledge tree exposes only authorized mixed subtrees", async () =>
     db,
   });
 
+  db.prepare(`INSERT INTO favorites (userId, noteId, workspaceId, createdAt)
+    VALUES (?, ?, ?, datetime('now'))`)
+    .run("viewer", production.resourceId, null);
+  db.prepare("UPDATE notes SET isFavorite = 1 WHERE id = ?")
+    .run(directlySharedNote.resourceId);
+
   const viewerRows = listSharedKnowledgeTree({ userId: "viewer", workspaceId: null, db });
   const viewerIds = viewerRows.map((node) => node.id);
   assert.equal(new Set(viewerIds).size, viewerIds.length);
@@ -128,6 +134,8 @@ test("shared knowledge tree exposes only authorized mixed subtrees", async () =>
   assert.equal(sharedProduction.access.capabilities.canEdit, false);
   assert.equal(directNote.parentId, null);
   assert.equal(directNote.sharedRootId, directlySharedNote.id);
+  assert.equal(sharedProduction.isFavorite, 1);
+  assert.equal(directNote.isFavorite, 0);
 
   const editorCreated = createKnowledgeChild({
     actorUserId: "editor",

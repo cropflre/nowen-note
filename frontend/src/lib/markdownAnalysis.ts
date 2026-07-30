@@ -1,4 +1,5 @@
 import type { NoteEditorHeading } from "@/components/editors/types";
+import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 
 export const MARKDOWN_ANALYSIS_SEARCH_TEXT_LIMIT = 1_000_000;
 export const MARKDOWN_ANALYSIS_OUTLINE_LIMIT = 400;
@@ -24,7 +25,7 @@ function boundSearchText(text: string, limit: number): string {
 }
 
 function stripInlineMarkdown(line: string): string {
-  return line
+  return projectMarkdownForUser(line)
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/^\s{0,3}#{1,6}\s+/, "")
     .replace(/^\s{0,3}>\s?/, "")

@@ -1,0 +1,75 @@
+name: Notebook Permission Management CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/index.hardened.ts"
+      - "backend/src/runtime/notebook-permission-management.ts"
+      - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
+      - "backend/src/runtime/task-stats-hardening.ts"
+      - "backend/src/services/notebookOwnershipTransfer.ts"
+      - "backend/tests/migration-bootstrap-order.test.ts"
+      - "backend/tests/notebook-owner-transfer.test.ts"
+      - "frontend/src/components/NotebookShareDialog.tsx"
+      - "frontend/src/components/__tests__/NotebookPermissionManagement.test.ts"
+      - "frontend/src/components/__tests__/NotebookShareDialogClipboard.test.ts"
+      - "frontend/src/lib/notebookPermissionManagementApi.ts"
+      - ".github/workflows/notebook-permission-management-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: npm ci
+      - name: Permission backend regressions
+        id: permission_backend
+        working-directory: backend
+        shell: bash
+        run: |
+          set +e
+          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+            tests/migration-bootstrap-order.test.ts \
+            tests/notebook-owner-transfer.test.ts > permission-backend-test.log 2>&1
+          code=$?
+          cat permission-backend-test.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload permission backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebook-permission-backend-log
+          path: backend/permission-backend-test.log
+          if-no-files-found: error
+      - name: Require permission backend regressions
+        if: steps.permission_backend.outputs.exit_code != '0'
+        run: exit 1
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Permission management regression
+        working-directory: frontend
+        run: npm run test:run -- src/components/__tests__/NotebookPermissionManagement.test.ts src/components/__tests__/NotebookShareDialogClipboard.test.ts
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build

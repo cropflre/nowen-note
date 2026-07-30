@@ -19,6 +19,7 @@ import {
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { toast } from "@/lib/toast";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
 import {
@@ -42,6 +43,7 @@ import YoudaoImport from "@/components/YoudaoImport";
 import ObsidianImport from "@/components/ObsidianImport";
 import WeChatFavoritesImport from "@/components/WeChatFavoritesImport";
 import UrlImport from "@/components/UrlImport";
+import RemoteImageLocalizationPanel from "@/components/RemoteImageLocalizationPanel";
 import {
   IMPORT_METHOD_GROUPS,
   persistImportMethod,
@@ -86,10 +88,7 @@ function SyncCenterCard() {
   const [summary, setSummary] = useState<SyncSummary>(() => getSyncSummary());
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
-  const hasOnlyVersionConflicts = summary.pending > 0 && summary.pending === summary.versionConflicts;
-  const conflictMessage = hasOnlyVersionConflicts
-    ? `有 ${summary.versionConflicts} 条版本冲突待人工处理，本地内容已保留；刷新不会自动覆盖服务器内容。`
-    : "";
+  const visiblePending = Math.max(0, summary.pending - summary.versionConflicts);
 
   useEffect(() => {
     void getLastSyncAt();
@@ -101,11 +100,7 @@ function SyncCenterCard() {
     setMessage("");
     const res = await syncNow();
     setSyncing(false);
-    if (res.ok && res.versionConflicts > 0) {
-      setMessage(`服务器内容已刷新；${res.versionConflicts} 条版本冲突未自动覆盖。`);
-    } else {
-      setMessage(res.ok ? "同步完成" : `同步失败：${res.error || "unknown"}`);
-    }
+    setMessage(res.ok ? "同步完成" : `同步失败：${res.error || "unknown"}`);
   };
 
   return (
@@ -117,7 +112,7 @@ function SyncCenterCard() {
             本地优先同步
           </span>
           <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span>{hasOnlyVersionConflicts ? `待处理冲突 ${summary.versionConflicts} 条` : `待同步 ${summary.pending} 条`}</span>
+          <span>待同步 {visiblePending} 条</span>
           <span className="text-zinc-300 dark:text-zinc-700">·</span>
           <span className="min-w-0 truncate">上次同步 {formatSyncTime(summary.lastSyncAt)}</span>
           <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">·</span>
@@ -129,17 +124,16 @@ function SyncCenterCard() {
           type="button"
           onClick={handleSyncNow}
           disabled={syncing}
-          title={hasOnlyVersionConflicts ? "仅刷新服务器内容，不会自动覆盖版本冲突" : undefined}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
         >
           {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          {hasOnlyVersionConflicts ? "刷新服务器内容" : "立即同步"}
+          立即同步
         </button>
       </div>
 
-      {(conflictMessage || summary.lastError || message) && (
-        <p className={`mt-1.5 text-xs ${conflictMessage || summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
-          {conflictMessage || (summary.lastError ? `最近错误：${summary.lastError}` : message)}
+      {(summary.lastError || message) && (
+        <p className={`mt-1.5 text-xs ${summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
+          {summary.lastError ? `最近错误：${summary.lastError}` : message}
         </p>
       )}
     </section>
@@ -765,6 +759,7 @@ export default function DataManager() {
         // 的错觉。这里在 HTTP 调用的 happy path 里补一次显式 refresh，把
         // ws 当作"加固通道"而不是"唯一通道"。
         actions.refreshNotes();
+        emitKnowledgeTreeRefresh("notes-imported-http");
       }
       setTimeout(() => {
         setImportFiles([]);
@@ -976,6 +971,7 @@ export default function DataManager() {
         <div className="space-y-3 mb-4">
           <SyncCenterCard />
           <DesktopDataSafetyCard />
+          <RemoteImageLocalizationPanel />
         </div>
 
         {/* ===== 一级 Tab：scope（个人空间 / 工作区 / 系统） =====

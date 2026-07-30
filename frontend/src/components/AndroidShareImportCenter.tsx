@@ -19,6 +19,7 @@ import type { Note, NoteListItem, Notebook, Workspace } from "@/types";
 import { toast } from "@/lib/toast";
 import { confirm } from "@/components/ui/confirm";
 import { cn } from "@/lib/utils";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import {
   cancelAndroidShareUpload,
   completeAndroidShareItems,
@@ -363,6 +364,7 @@ export default function AndroidShareImportCenter() {
         await completeAndroidShareItems(current.id, completed, true);
         window.dispatchEvent(new CustomEvent("nowen:open-note", { detail: { noteId: note.id } }));
         window.dispatchEvent(new CustomEvent("nowen:notes-changed", { detail: { noteId: note.id } }));
+        if (createdNew) emitKnowledgeTreeRefresh("android-share-note-created");
         toast.success(`${createdNew ? "已新建笔记并导入" : "已插入笔记"}${failed ? `，${failed} 个文件失败可重试` : ""}`);
       } else {
         toast.error("没有文件上传成功，未保留空笔记");

@@ -22,6 +22,12 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      // Issue #512：内容树快捷“+”统一选择富文本、Markdown 或文件夹。
+      // Runtime 壳通过相对路径加载原面板，避免精确别名递归。
+      {
+        find: /^@\/components\/KnowledgeTreePanel$/,
+        replacement: path.resolve(__dirname, "./src/components/KnowledgeTreeCreateMenuRuntime.tsx"),
+      },
       // Issue #218：只替换 App / SettingsModal 使用的绝对导入。
       // 壳组件内部通过相对路径导入原组件，因此不会发生递归别名。
       {
@@ -74,6 +80,12 @@ export default defineConfig({
       {
         find: /^@\/lib\/largeMarkdownSafety$/,
         replacement: path.resolve(__dirname, "./src/lib/largeMarkdownSafetyRuntime.ts"),
+      },
+      // 公开分享评论：先收集匿名访客昵称，再把后端 displayName/guestName 投影到旧 username 展示字段。
+      // 壳组件通过相对路径串联身份与展示运行时，避免精确别名递归。
+      {
+        find: /^@\/components\/SharedNoteView$/,
+        replacement: path.resolve(__dirname, "./src/components/SharedNoteCommentDisplayRuntime.tsx"),
       },
       // Issue #369 P2：在不侵入 EditorPane 主体的前提下增加事务化文档拆分入口。
       {

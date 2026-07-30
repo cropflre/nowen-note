@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import {
   buildPublicWebUrl,
   getPublicWebOriginSourceLabel,
@@ -180,17 +181,18 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
 
   const shareUrl = (token: string) => buildPublicWebUrl(`/share/${token}`, publicOriginOptions);
   const copy = async (value: string, id: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(id);
-      window.setTimeout(() => setCopied(null), 1600);
-      if (publicOrigin.requiresAnonymousCheck) {
-        toast.warning("链接已复制，请在无痕窗口、微信或未登录设备中验证");
-      } else {
-        toast.success("分享链接已复制");
-      }
-    } catch {
+    const ok = await copyText(value);
+    if (!ok) {
       toast.error("复制失败，请手动复制");
+      return;
+    }
+
+    setCopied(id);
+    window.setTimeout(() => setCopied((current) => current === id ? null : current), 1600);
+    if (publicOrigin.requiresAnonymousCheck) {
+      toast.warning("链接已复制，请在无痕窗口、微信或未登录设备中验证");
+    } else {
+      toast.success("分享链接已复制");
     }
   };
 

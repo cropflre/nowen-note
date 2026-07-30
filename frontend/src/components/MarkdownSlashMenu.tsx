@@ -23,6 +23,7 @@ import {
   Heading5,
   Heading6,
   Image as ImagePlus,
+  FolderSearch,
   Italic,
   List,
   ListOrdered,
@@ -60,7 +61,11 @@ export interface MdSlashItem {
 
 export function getDefaultMdSlashItems(
   t: (key: string) => string,
-  opts: { onImageUpload?: () => void; onAIAssistant?: () => void },
+  opts: {
+    onImageUpload?: () => void;
+    onAttachmentLibrary?: () => void;
+    onAIAssistant?: () => void;
+  },
 ): MdSlashItem[] {
   const size = 16;
   return [
@@ -198,6 +203,15 @@ export function getDefaultMdSlashItems(
       category: t("slash.catInsert"),
       keywords: ["image", "picture", "photo", "图片", "插图"],
       run: () => opts.onImageUpload?.(),
+    },
+    {
+      id: "attachmentLibrary",
+      label: t("slash.attachmentLibrary"),
+      description: t("slash.attachmentLibraryDesc"),
+      icon: <FolderSearch size={size} />,
+      category: t("slash.catInsert"),
+      keywords: ["fj", "attachment", "file", "library", "附件", "文件", "文件管理"],
+      run: () => opts.onAttachmentLibrary?.(),
     },
     {
       id: "table",
@@ -362,6 +376,13 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
     if (!state.active || !view) return;
     const handler = (e: KeyboardEvent) => {
       if (!state.active) return;
+      // 中文输入法确认候选词时也会触发 Enter。监听器与 CodeMirror 位于同一节点，
+      // 需要阻断同节点后续监听器，避免回车被编辑器处理为换行并关闭菜单。
+      const isImeComposing = e.isComposing || view.composing;
+      if (isImeComposing) {
+        if (e.key === "Enter") e.stopImmediatePropagation();
+        return;
+      }
       if (filtered.length === 0) {
         if (e.key === "Escape") {
           onClose();

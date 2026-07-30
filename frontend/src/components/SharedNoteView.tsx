@@ -17,6 +17,7 @@ import { detectFormat } from "@/lib/contentFormat";
 import MermaidView from "@/components/MermaidView";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { renderKatex } from "@/lib/katexRenderer";
+import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
@@ -60,6 +61,11 @@ export function normalizeExternalHref(href: string): string {
     return `${protocol}${trimmed}`;
   }
   return trimmed;
+}
+
+/** Remove Nowen's persisted Markdown block identity markers from public presentation only. */
+export function prepareSharedMarkdownForDisplay(markdown: string): string {
+  return projectMarkdownForUser(markdown);
 }
 
 export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
@@ -122,6 +128,12 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
   const [lightboxScale, setLightboxScale] = useState(1);
   const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
+  const sharedMarkdownForDisplay = useMemo(
+  () => content && detectFormat(content.content) === "md"
+    ? prepareSharedMarkdownForDisplay(content.content)
+    : "",
+  [content?.content],
+);
 
   // Lightbox Esc 关闭 + 滚动锁 + 缩放
   useEffect(() => {
@@ -1290,8 +1302,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               >
                 {preprocessMarkdownMath(
                   preprocessMarkdownFootnotes(
-                    content.content,
-                    computeFootnoteOrderFromMarkdown(content.content)
+                    sharedMarkdownForDisplay,
+                    computeFootnoteOrderFromMarkdown(sharedMarkdownForDisplay)
                   )
                 )}
               </ReactMarkdown>

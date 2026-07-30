@@ -14,4 +14,10 @@ describe("AndroidShareImportCenter", () => {
     );
     expect(source).not.toContain("env(safe-area-inset-bottom)");
   });
+
+  it("refreshes the knowledge tree after creating a note from an Android share", () => {
+    expect(source).toContain(
+      'if (createdNew) emitKnowledgeTreeRefresh("android-share-note-created")',
+    );
+  });
 });

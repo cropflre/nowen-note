@@ -76,10 +76,27 @@ function readString(node: SiyuanNode, keys: string[]): string {
     return "";
 }
 
+/**
+ * SiYuan stores HTML fragments inside JSON, so an iframe URL may already be
+ * entity-escaped before it reaches this parser. Decode only ampersand entities
+ * (up to a bounded number of passes), then escape exactly once when serializing
+ * the final iframe tag. This preserves query/hash parameter separators without
+ * decoding unrelated HTML supplied by the note.
+ */
+function decodeHtmlAmpersands(value: string): string {
+    let decoded = value;
+    for (let pass = 0; pass < 3; pass += 1) {
+        const next = decoded.replace(/&(?:amp|#0*38|#x0*26);/gi, "&");
+        if (next === decoded) break;
+        decoded = next;
+    }
+    return decoded;
+}
+
 function extractIframeSrc(node: SiyuanNode): string {
     const raw = readString(node, ["src", "href", "url", "Data", "Tokens", "HTML", "html"]);
     const candidate = raw.match(/\bsrc=["']([^"']+)["']/i)?.[1] || raw.match(/\(([^)]+)\)/)?.[1] || raw;
-    const value = candidate.trim();
+    const value = decodeHtmlAmpersands(candidate.trim());
     if (!value) return "";
     try {
         const parsed = new URL(value);
@@ -186,6 +203,31 @@ function countNodeType(node: SiyuanNode, type: string): number {
     return count;
 }
 
+/** Remove inline Kramdown block attributes accidentally appended to ATX headings. */
+function normalizeHeadingAttributeSuffixes(markdown: string): string {
+    const lines = markdown.split("\n");
+    let fence: { marker: "`" | "~"; length: number } | null = null;
+
+    return lines.map((line) => {
+        const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (fenceMatch) {
+            const marker = fenceMatch[1][0] as "`" | "~";
+            if (!fence) fence = { marker, length: fenceMatch[1].length };
+            else if (fence.marker === marker && fenceMatch[1].length >= fence.length) fence = null;
+            return line;
+        }
+        if (fence) return line;
+
+        const heading = /^( {0,3}#{1,6}[\t ]+)(.*)$/.exec(line);
+        if (!heading) return line;
+        const text = heading[2]
+            .replace(/[\t ]+\{:\s*[^}\r\n]+\}[\t ]*$/, "")
+            .replace(/[\t ]+#+[\t ]*$/, "")
+            .trimEnd();
+        return `${heading[1]}${text}`;
+    }).join("\n");
+}
+
 /**
  * Compatibility wrapper around the mature SiYuan parser.
  *
@@ -196,7 +238,6 @@ function countNodeType(node: SiyuanNode, type: string): number {
  */
 export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
     const iframeCount = countNodeType(doc, "NodeIFrame");
-    const calloutCount = countNodeType(doc, "NodeCallout");
     const prepared = prepareNode(doc);
     const result = legacySiyuanSyToMarkdown(prepared);
     const images = new Set(result.stats.images);
@@ -210,15 +251,10 @@ export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
         unsupportedNodes.NodeIFrame = (unsupportedNodes.NodeIFrame || 0) + iframeCount;
         warnings.push("Siyuan iframe is preserved in Markdown; rich text uses a supported video or a downgraded safe link.");
     }
-    if (calloutCount > 0) {
-        // Retain an import-report entry because rich text represents the alert with
-        // supported blockquote/paragraph nodes rather than a native callout schema.
-        unsupportedNodes.NodeCallout = (unsupportedNodes.NodeCallout || 0) + calloutCount;
-        warnings.push("Siyuan callout was mapped to a styled blockquote with its type, title, fold state and body preserved.");
-    }
 
     return {
         ...result,
+        markdown: normalizeHeadingAttributeSuffixes(result.markdown),
         warnings,
         stats: {
             ...result.stats,

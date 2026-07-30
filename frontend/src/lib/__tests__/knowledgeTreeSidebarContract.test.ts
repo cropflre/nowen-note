@@ -46,4 +46,56 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain('data-sidebar-surface-active={surfaceActive ? "true" : "false"}');
     expect(panel).toContain("if (!surfaceActive) return");
   });
+
+  it("keeps pinned and favorite note states visible beside the tree title", () => {
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    expect(panel).toContain('aria-label="已置顶"');
+    expect(panel).toContain('aria-label="已收藏"');
+    expect(panel).toContain("node.isPinned === 1");
+    expect(panel).toContain("node.isFavorite === 1");
+  });
+
+  it("updates tree note status immediately after a successful menu action", () => {
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    const menu = source("../../components/KnowledgeTreeNodeMenu.tsx");
+    expect(panel).toContain("onNotePatched={patchNoteStatus}");
+    expect(menu).toContain("onNotePatched(node.id, patch)");
+  });
+
+  it("applies an unmistakably compact mobile density with a safe fallback", () => {
+    const main = source("../../main.tsx");
+    const compactCss = source("../../mobile-knowledge-tree-compact.css");
+    const bridge = source("../../components/SidebarSearchExperienceBridge.tsx");
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+
+    expect(main).toContain('import "./mobile-knowledge-tree-compact.css"');
+    expect(main).not.toContain('import "./desktop-knowledge-tree-compact.css"');
+    expect(bridge).toContain('<KnowledgeTreePanel variant="mobile" className="nowen-mobile-tree-density" />');
+    expect(compactCss).toContain(".nowen-mobile-tree-density");
+
+    // Root folders remain readable, nested folders are tighter, and documents are dense.
+    expect(compactCss).toContain("--nowen-mobile-tree-root-folder-row-height: 22px");
+    expect(compactCss).toContain("--nowen-mobile-tree-folder-row-height: 20px");
+    expect(compactCss).toContain("--nowen-mobile-tree-note-row-height: 16px");
+    expect(compactCss).toContain("font-size: 11px !important");
+    expect(compactCss).toContain("line-height: 14px !important");
+    expect(compactCss).toContain("padding: 0 !important");
+
+    // Browsers without :has() still receive the 16px compact baseline.
+    expect(compactCss).toMatch(/\[data-knowledge-tree-node-id\]\s*\{[\s\S]*min-height:\s*var\(--nowen-mobile-tree-note-row-height\)\s*!important/);
+    expect(compactCss).toContain("svg.lucide-folder");
+    expect(compactCss).toContain("[data-knowledge-tree-section] > div > [data-knowledge-tree-node-id]:has");
+    expect(compactCss).toContain("touch-action: manipulation");
+    expect(compactCss).not.toContain("data-mobile-knowledge-tree-classic-slot");
+    expect(compactCss).not.toContain("data-sidebar-variant");
+    expect(compactCss).not.toContain("@media (max-width: 767px)");
+
+    // Existing interaction and title/status behavior must remain intact.
+    expect(panel).toContain("onClick={() => hasChildren && void toggle(node)}");
+    expect(panel).toContain('className="min-w-0 flex-1 truncate"');
+    expect(panel).toContain('aria-label={`在“${node.title}”下新建文档`}');
+    expect(panel).toContain('title="更多"');
+    expect(panel).toContain('aria-label="已置顶"');
+    expect(panel).toContain('aria-label="已收藏"');
+  });
 });

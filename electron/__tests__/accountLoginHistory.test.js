@@ -37,6 +37,40 @@ function loadCredentialsWithSafeStorage() {
   }
 }
 
+test("桌面端记住密码后可在登录页回填，且磁盘不保存明文", async (t) => {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-remember-login-"));
+  t.after(() => fs.rmSync(userDataPath, { recursive: true, force: true }));
+  const { credentials, handlers } = loadCredentialsWithSafeStorage();
+  credentials.setCredentialsPath(userDataPath);
+
+  const saved = credentials.save({
+    remember: true,
+    autoLogin: false,
+    serverUrl: "https://notes.example.com",
+    username: "alice",
+    password: "secret-password",
+  });
+  assert.equal(saved.ok, true);
+
+  const originalLoad = Module._load;
+  Module._load = function patchedSecurityLoad(request, parent, isMain) {
+    if (request === "./security") return { assertMainWindowSender: () => null };
+    return originalLoad(request, parent, isMain);
+  };
+  try {
+    credentials.registerCredentialsIpc();
+  } finally {
+    Module._load = originalLoad;
+  }
+  const loaded = await handlers.get("credentials:load")({});
+  assert.equal(loaded.username, "alice");
+  assert.equal(loaded.password, "secret-password");
+  assert.equal(loaded.autoLogin, false);
+
+  const rawText = fs.readFileSync(path.join(userDataPath, "credentials.json"), "utf8");
+  assert.equal(rawText.includes("secret-password"), false);
+});
+
 test("桌面端安全保存多个账号且不把 token 明文落盘", (t) => {
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-account-history-"));
   t.after(() => fs.rmSync(userDataPath, { recursive: true, force: true }));

@@ -9,8 +9,6 @@
 
 export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
 
-export const OFFLINE_QUEUE_CONFLICT_EVENT = "offlineQueue:conflict";
-
 export interface OfflineQueueItem {
   id: string;
   type: OfflineMutationType;
@@ -295,6 +293,57 @@ export function updateItem(itemId: string, patch: Partial<OfflineQueueItem>): vo
   notifyListeners();
 }
 
+/** 用新身份替换队列项，使在途处理能够识别期间发生的本地内容更新。 */
+export function replaceItem(
+  itemId: string,
+  patch: Partial<OfflineQueueItem>,
+): OfflineQueueItem | null {
+  const queue = getQueue();
+  const index = queue.findIndex((item) => item.id === itemId);
+  if (index === -1) return null;
+  const replacement: OfflineQueueItem = {
+    ...queue[index],
+    ...patch,
+    id: generateId(),
+    enqueuedAt: Date.now(),
+    retryCount: 0,
+  };
+  queue[index] = replacement;
+  persistQueue(queue);
+  notifyListeners();
+  return replacement;
+}
+
+function queuePayloadFingerprint(item: OfflineQueueItem): string {
+  return JSON.stringify(item.localPayload ?? item.body ?? null);
+}
+
+/**
+ * 仅当待处理项的身份和 payload 都未变化时，清理它及同一笔记更早的队列项。
+ * 若处理期间出现新编辑，保留新队列项和所有恢复数据。
+ */
+export function discardResolvedQueueItems(expected: OfflineQueueItem): {
+  discarded: boolean;
+  remainingForNote: boolean;
+} {
+  const queue = getQueue();
+  const resolvedIndex = queue.findIndex((item) => item.id === expected.id);
+  if (resolvedIndex === -1 || queuePayloadFingerprint(queue[resolvedIndex]) !== queuePayloadFingerprint(expected)) {
+    return {
+      discarded: false,
+      remainingForNote: queue.some((item) => item.noteId === expected.noteId),
+    };
+  }
+
+  const next = queue.filter((item, index) => item.noteId !== expected.noteId || index > resolvedIndex);
+  persistQueue(next);
+  notifyListeners();
+  return {
+    discarded: true,
+    remainingForNote: next.some((item) => item.noteId === expected.noteId),
+  };
+}
+
 function markVersionConflict(item: OfflineQueueItem, currentVersion?: number): void {
   const localPayload = item.body ? { ...item.body } : null;
   const message = "版本冲突：已停止自动覆盖，并保留本地内容等待处理。";
@@ -315,17 +364,6 @@ function markVersionConflict(item: OfflineQueueItem, currentVersion?: number): v
     localVersion: item.body?.version,
     serverVersion: currentVersion,
   });
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(OFFLINE_QUEUE_CONFLICT_EVENT, {
-      detail: {
-        noteId: item.noteId,
-        localVersion: item.body?.version,
-        serverVersion: currentVersion,
-        localPayload,
-        message,
-      },
-    }));
-  }
 }
 
 function messageFromResponse(status: number, data: any): string {

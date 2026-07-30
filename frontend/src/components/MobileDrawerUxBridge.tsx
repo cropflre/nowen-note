@@ -10,6 +10,10 @@ import {
 
 export const MOBILE_DRAWER_SEARCH_BLUR_DELAY_MS = 160;
 
+export function isMobileDrawerViewport(width: number): boolean {
+  return Number.isFinite(width) && width < 768;
+}
+
 export function getSidebarSearchInput(target: EventTarget | null): HTMLInputElement | null {
   if (!(target instanceof HTMLInputElement)) return null;
   return target.matches("[data-sidebar-search]") ? target : null;
@@ -68,7 +72,7 @@ export function annotateMobileDrawerControls(root: ParentNode = document): void 
   });
 }
 
-const ANDROID_DRAWER_SAFE_AREA_CSS = `
+export const ANDROID_DRAWER_SAFE_AREA_CSS = `
 @media (max-width: 767px) {
   html[data-native="android"] [data-mobile-safe-topbar] {
     padding-top: max(calc(var(--safe-area-top) + 8px), 44px) !important;
@@ -87,6 +91,31 @@ const ANDROID_DRAWER_SAFE_AREA_CSS = `
 
   html[data-native="android"] [data-mobile-drawer-rail] {
     padding-top: max(calc(var(--safe-area-top) + 8px), 44px) !important;
+  }
+
+  /* Android WebView may enlarge tiny CJK text and clip it against the 64px label rail.
+     Give label mode a little more room and use a non-clipping line box. Icon mode keeps
+     its compact width, so switching modes still behaves as expected. */
+  html[data-native="android"] [data-mobile-drawer-rail].w-16 {
+    width: 72px !important;
+    min-width: 72px !important;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html[data-native="android"] [data-mobile-drawer-rail].w-16 [data-mobile-drawer-rail-item] {
+    width: 64px !important;
+    max-width: 64px !important;
+  }
+
+  html[data-native="android"] [data-mobile-drawer-rail].w-16 [data-mobile-drawer-rail-item] > span:last-child {
+    max-width: 64px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    line-height: 1.35 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
   }
 }
 `;
@@ -111,7 +140,6 @@ export default function MobileDrawerUxBridge() {
   const actions = useAppActions();
   const mobileSidebarOpenRef = useRef(state.mobileSidebarOpen);
   const blurTimerRef = useRef<number | null>(null);
-  const layoutInitializedRef = useRef(false);
   const previousViewModeRef = useRef(state.viewMode);
 
   useEffect(() => {
@@ -137,14 +165,16 @@ export default function MobileDrawerUxBridge() {
     if (functionalList) {
       if (viewChanged && state.mobileView !== "list") actions.setMobileView("list");
     } else if (state.mobileView !== "editor") {
-      // First boot goes directly to the editor empty state. A later Android back
-      // action previously targeting the retired list now opens the unified tree.
+      // The retired note-list route now maps to the editor shell. On phones, open the
+      // unified tree immediately on first boot as well as after a later Android-back
+      // navigation, so users never have to press Back once just to reach their notebooks.
       actions.setMobileView("editor");
-      if (layoutInitializedRef.current) actions.setMobileSidebar(true);
+      if (typeof window !== "undefined" && isMobileDrawerViewport(window.innerWidth)) {
+        actions.setMobileSidebar(true);
+      }
     }
 
     previousViewModeRef.current = state.viewMode;
-    layoutInitializedRef.current = true;
   }, [actions, state.mobileView, state.noteListCollapsed, state.viewMode]);
 
   useEffect(() => {

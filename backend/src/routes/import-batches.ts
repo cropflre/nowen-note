@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
+import { parseFolderUnlockTokens } from "../lib/knowledgeTreePasswordAccess";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import { RoundTripImportUndoError } from "../services/roundTripImportBatches";
 import {
@@ -62,6 +63,7 @@ app.get("/package", async (c) => {
       includeSubNotebooks: c.req.query("includeSubNotebooks") !== "false",
       includeTrashed: c.req.query("includeTrashed") === "true",
       includePermissions,
+      folderUnlockTokens: parseFolderUnlockTokens(c.req.header("X-Folder-Unlock-Tokens")),
     });
     return new Response(new Uint8Array(result.buffer), {
       status: 200,
@@ -76,7 +78,10 @@ app.get("/package", async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return c.json({ error: message, code: "ROUNDTRIP_EXPORT_FAILED" }, errorStatus(error) as any);
+    return c.json({
+      error: message,
+      code: String((error as { code?: unknown })?.code || "ROUNDTRIP_EXPORT_FAILED"),
+    }, errorStatus(error) as any);
   }
 });
 

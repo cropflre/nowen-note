@@ -1054,6 +1054,8 @@ export default function MindMapCenter() {
   const [listSearch, setListSearch] = useState("");
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 每次选择导图或切换目录都递增，用于丢弃已经失效的异步加载结果。
+  const mapLoadRequestRef = useRef(0);
 
 
   // 节点搜索
@@ -1131,19 +1133,31 @@ export default function MindMapCenter() {
     loadMaps(); loadFolders();
   }, [loadMaps]);
 
+  // 切换目录后不保留上一个导图，避免用户误以为目录没有切换成功。
+  // 同时递增请求序号，让切换前发出的 getMindMap 请求即使晚返回也不能恢复旧内容。
+  const clearActiveMap = useCallback(() => {
+    mapLoadRequestRef.current += 1;
+    setActiveMap(null);
+    setMapData(null);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setEditingNodeId(null);
+    setFocusedNodeId(null);
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchIndex(0);
+  }, []);
+
   // 工作区切换：清空当前打开的导图 + 重拉列表，避免显示其他 scope 的图
   useEffect(() => {
     const onWs = () => {
-      setActiveMap(null);
-      setMapData(null);
-      setSelectedNodeId(null);
-      setSelectedNodeIds([]);
-      setEditingNodeId(null);
+      clearActiveMap();
       loadMaps();
     };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [loadMaps]);
+  }, [clearActiveMap, loadMaps]);
 
   // 选择一个导图
   // 收藏/取消收藏
@@ -1157,8 +1171,10 @@ export default function MindMapCenter() {
   }, []);
 
   const handleSelect = useCallback(async (id: string) => {
+    const requestId = ++mapLoadRequestRef.current;
     try {
       const map = await api.getMindMap(id);
+      if (requestId !== mapLoadRequestRef.current) return;
       setActiveMap(map);
       try {
         const parsed = JSON.parse(map.data);
@@ -1226,7 +1242,7 @@ export default function MindMapCenter() {
         const payload: { data: string; title?: string } = { data: JSON.stringify(data) };
         if (title !== undefined) payload.title = title;
         const updated = await api.updateMindMap(activeMap.id, payload);
-        setActiveMap(updated);
+        setActiveMap((current) => current?.id === updated.id ? updated : current);
         setMaps((prev) =>
           prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
         );
@@ -2573,7 +2589,15 @@ export default function MindMapCenter() {
                   <div
                     className={cn("group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.04] text-sm", dropFolderId === folder.id && "ring-2 ring-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-500/10")}
                     style={{ paddingLeft: depth * 16 + 8 }}
-                    onClick={() => setExpandedFolders(prev => { const next = new Set(prev); if (next.has(folder.id)) next.delete(folder.id); else next.add(folder.id); return next; })}
+                    onClick={() => {
+                      clearActiveMap();
+                      setExpandedFolders(prev => {
+                        const next = new Set(prev);
+                        if (next.has(folder.id)) next.delete(folder.id);
+                        else next.add(folder.id);
+                        return next;
+                      });
+                    }}
                     onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId(folder.id); } }}
                     onDragLeave={() => { if (dropFolderId === folder.id) setDropFolderId(null); }}
                     onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, folder.id).then(() => { loadMaps(); loadFolders(); }); setDragMapId(null); setDropFolderId(null); } }}

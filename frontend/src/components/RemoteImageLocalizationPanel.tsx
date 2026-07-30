@@ -136,16 +136,16 @@ export default function RemoteImageLocalizationPanel() {
   }, [actions, state.activeNote?.id]);
 
   useEffect(() => {
-    if (!open) return;
+    if (job) return;
     let disposed = false;
     void remoteImageLocalizationApi.listJobs(10).then(({ jobs }) => {
-      if (disposed || job) return;
+      if (disposed) return;
       const active = jobs.find(isRemoteImageLocalizationJobActive);
       if (active) setJob(active);
       else if (jobs[0]) setJob(jobs[0]);
     }).catch(() => {});
     return () => { disposed = true; };
-  }, [job, open]);
+  }, [job]);
 
   useEffect(() => {
     if (!job || !isRemoteImageLocalizationJobActive(job)) return;
@@ -499,15 +499,36 @@ export default function RemoteImageLocalizationPanel() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-[80] flex items-center gap-2 rounded-full border border-app-border bg-app-elevated px-4 py-2.5 text-sm font-medium text-tx-primary shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-app-hover"
+      <div
+        className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center sm:justify-between"
+        data-settings-tool="remote-image-localization"
       >
-        <Image size={17} className="text-accent-primary" />
-        {tr("remoteImageLocalization.trigger", "网络图片保护", "Protect remote images")}
-        {job && isRemoteImageLocalizationJobActive(job) && <Loader2 size={14} className="animate-spin text-accent-primary" />}
-      </button>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
+            <Image size={17} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {tr("remoteImageLocalization.trigger", "网络图片保护", "Protect remote images")}
+              {job && isRemoteImageLocalizationJobActive(job) && (
+                <Loader2 size={13} className="animate-spin text-accent-primary" aria-label={tr("remoteImageLocalization.running", "任务进行中", "Job in progress")} />
+              )}
+            </div>
+            <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+              {tr(
+                "remoteImageLocalization.settingsDesc",
+                "将历史笔记中的网络图片保存为本地附件，避免原图失效",
+                "Save remote images as local attachments to prevent broken images",
+              )}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" onClick={() => setOpen(true)} className="shrink-0 self-end sm:self-auto">
+          {job && isRemoteImageLocalizationJobActive(job)
+            ? tr("remoteImageLocalization.viewProgress", "查看进度", "View progress")
+            : tr("remoteImageLocalization.openTool", "打开工具", "Open tool")}
+        </Button>
+      </div>
       {typeof document !== "undefined" && panel ? createPortal(panel, document.body) : null}
     </>
   );

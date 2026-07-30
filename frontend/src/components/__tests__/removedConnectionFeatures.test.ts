@@ -45,4 +45,27 @@ describe("已移除的连接与迁移功能", () => {
     expect(navRailSource).toContain("handleDesktopCloudButton");
     expect(dataManagerSource).toContain("resetDesktopLocalAuth");
   });
+
+  it("版本冲突不再出现在数据管理同步卡片中", () => {
+    const dataManagerSource = readSource("src/components/DataManager.tsx");
+    const editorSource = readSource("src/components/EditorPane.tsx");
+    const indicatorSource = readSource("src/components/common/OfflineIndicator.tsx");
+    const syncEngineSource = readSource("src/lib/syncEngine.ts");
+
+    expect(dataManagerSource).not.toContain("待处理冲突");
+    expect(dataManagerSource).not.toContain("版本冲突待人工处理");
+    expect(dataManagerSource).not.toContain("版本冲突未自动覆盖");
+    expect(dataManagerSource).toContain("summary.pending - summary.versionConflicts");
+    expect(editorSource).not.toContain("offlineQueue:conflict");
+    expect(editorSource).not.toContain("offlineVersionConflict");
+    expect(indicatorSource).not.toContain("处理冲突");
+    expect(indicatorSource).not.toContain("请选择保留此设备内容");
+    expect(indicatorSource).not.toContain("NOTE_CONFLICT_AUTO_RESOLVED_EVENT");
+    expect(editorSource).toContain("NOTE_CONFLICT_AUTO_RESOLVED_EVENT");
+    expect(editorSource).toContain("handleAutoResolvedConflict");
+    expect(editorSource).toContain("persistPendingConflictSnapshot");
+    expect(editorSource).toContain("editorHandle.discardPending?.()");
+    expect(editorSource).toContain("preserveNoteSyncConflictSnapshot");
+    expect(syncEngineSource).not.toContain("请在同步状态面板处理");
+  });
 });

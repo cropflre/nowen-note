@@ -1,7 +1,7 @@
 import type { Note } from "@/types";
 import { api } from "@/lib/api";
 import {
-  discardNoteQueueItems,
+  discardResolvedQueueItems,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
 import { clearDraft, loadDraft } from "@/lib/draftStorage";
@@ -9,10 +9,41 @@ import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
 import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
 export type ConflictResolutionChoice = "keep-local" | "use-server";
+export const NOTE_CONFLICT_AUTO_RESOLVED_EVENT = "nowen:note-conflict-auto-resolved";
+
+export interface NoteConflictAutoResolvedDetail {
+  note: Note;
+  resolvedLocal: {
+    title: string;
+    content: string;
+    contentText: string;
+  };
+}
+
+export function shouldPersistPendingConflictSnapshot(
+  snapshot: { content: string; contentText: string; title?: string },
+  currentTitle: string,
+  detail: NoteConflictAutoResolvedDetail,
+): boolean {
+  const snapshotTitle = snapshot.title ?? currentTitle;
+  const matchesResolvedLocal = snapshot.content === detail.resolvedLocal.content
+    && snapshotTitle === detail.resolvedLocal.title;
+  const matchesServer = snapshot.content === detail.note.content
+    && snapshotTitle === detail.note.title;
+  return !matchesResolvedLocal && !matchesServer;
+}
 
 export interface ConflictResolutionResult {
   note: Note;
   conflictCopy?: Note;
+  resolvedLocal: NoteConflictAutoResolvedDetail["resolvedLocal"];
+}
+
+export interface AutoConflictResolutionResult {
+  attempted: number;
+  resolved: number;
+  failed: number;
+  failures: Array<{ noteId: string; message: string }>;
 }
 
 type ConflictPayload = {
@@ -85,11 +116,13 @@ export function getConflictCopyId(itemId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function clearResolvedConflict(noteId: string): void {
-  discardNoteQueueItems([noteId]);
-  clearDraft(noteId);
-  clearNoteSyncConflict(noteId);
-  clearOfflineNoteSnapshot(noteId);
+function clearResolvedConflict(item: OfflineQueueItem): boolean {
+  const cleanup = discardResolvedQueueItems(item);
+  if (!cleanup.discarded || cleanup.remainingForNote) return false;
+  clearDraft(item.noteId);
+  clearNoteSyncConflict(item.noteId);
+  clearOfflineNoteSnapshot(item.noteId);
+  return true;
 }
 
 async function keepLocalVersion(
@@ -107,8 +140,10 @@ async function keepLocalVersion(
   if (typeof updated.version !== "number" || updated.version <= remote.version) {
     throw new Error("服务器尚未确认此设备版本，请保持页面打开后重试。");
   }
-  clearResolvedConflict(item.noteId);
-  return { note: updated };
+  if (!clearResolvedConflict(item)) {
+    throw new Error("处理期间本地内容已更新，等待下一次后台同步。");
+  }
+  return { note: updated, resolvedLocal: local };
 }
 
 async function createOrLoadConflictCopy(
@@ -145,8 +180,10 @@ async function useServerVersion(
   if (!sameContent(local, remote)) {
     conflictCopy = await createOrLoadConflictCopy(item, remote, local);
   }
-  clearResolvedConflict(item.noteId);
-  return { note: remote, conflictCopy };
+  if (!clearResolvedConflict(item)) {
+    throw new Error("处理期间本地内容已更新，等待下一次后台同步。");
+  }
+  return { note: remote, conflictCopy, resolvedLocal: local };
 }
 
 export async function resolveNoteConflict(
@@ -164,4 +201,48 @@ export async function resolveNoteConflict(
     return keepLocalVersion(item, remote, local);
   }
   return useServerVersion(item, remote, local);
+}
+
+export async function resolveQueuedNoteConflicts(
+  items: ReadonlyArray<OfflineQueueItem>,
+): Promise<AutoConflictResolutionResult> {
+  const latestByNote = new Map<string, OfflineQueueItem>();
+  for (const item of items) {
+    if (item.type !== "updateNote" || !(item.conflict || item.errorCode === "VERSION_CONFLICT")) continue;
+    const previous = latestByNote.get(item.noteId);
+    if (!previous || item.enqueuedAt >= previous.enqueuedAt) latestByNote.set(item.noteId, item);
+  }
+
+  const conflicts = [...latestByNote.values()].sort((left, right) => left.enqueuedAt - right.enqueuedAt);
+  const failures: AutoConflictResolutionResult["failures"] = [];
+  let resolved = 0;
+
+  for (const item of conflicts) {
+    try {
+      // 服务器当前 revision 作为正式版本；清理冲突前先确认本地副本已经落库。
+      const result = await resolveNoteConflict(item, "use-server");
+      if (typeof window !== "undefined") {
+        const detail: NoteConflictAutoResolvedDetail = {
+          note: result.note,
+          resolvedLocal: result.resolvedLocal,
+        };
+        window.dispatchEvent(new CustomEvent(NOTE_CONFLICT_AUTO_RESOLVED_EVENT, {
+          detail,
+        }));
+      }
+      resolved += 1;
+    } catch (error) {
+      failures.push({
+        noteId: item.noteId,
+        message: error instanceof Error ? error.message : String(error || "自动处理失败"),
+      });
+    }
+  }
+
+  return {
+    attempted: conflicts.length,
+    resolved,
+    failed: failures.length,
+    failures,
+  };
 }

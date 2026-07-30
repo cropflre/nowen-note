@@ -497,7 +497,14 @@ function getTurndown(): TurndownService {
         return `\n${marker} ${clean} ^${id}\n`;
       }
       if (el.nodeName === "BLOCKQUOTE") return `\n\n> ${clean.replace(/\n/g, "\n> ")} ^${id}\n\n`;
-      if (el.nodeName === "PRE") return `\n\n${clean}\n^${id}\n\n`;
+      if (el.nodeName === "PRE") {
+        const code = el.querySelector("code");
+        const source = (code?.textContent || el.textContent || "").replace(/\n$/, "");
+        const language = (code?.getAttribute("class") || "").match(/(?:^|\s)language-([^\s]+)/)?.[1] || "";
+        const longestBacktickRun = Math.max(0, ...Array.from(source.matchAll(/`+/g), (match) => match[0].length));
+        const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
+        return `\n\n${fence}${language}\n${source}\n${fence}\n^${id}\n\n`;
+      }
       if (el.parentElement?.nodeName === "LI") return content;
       return `\n\n${clean} ^${id}\n\n`;
     },
@@ -773,14 +780,15 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
     }
     case "Link": {
       // 结构：Link [ LinkMark "[" , inline... , LinkMark "]" , LinkMark "(", URL, LinkMark ")" ]
-      const url = findChildText(src, node, "URL");
-      const inner = renderInlineChildren(src, node);
+      // 链接文字本身是 URL 时会出现两个 URL 子节点，最后一个才是目标地址。
+      const url = findLastChildText(src, node, "URL");
+      const inner = renderLinkLabel(src, node);
       if (!url) return inner;
       return `<a href="${escapeAttr(url)}">${inner}</a>`;
     }
     case "Image": {
       // 结构：Image [ "!", "[", alt..., "]", "(", URL, ")" ]
-      const url = findChildText(src, node, "URL");
+      const url = findLastChildText(src, node, "URL");
       const alt = extractImageAlt(src, node);
       if (!url) return escapeHtml(sliceText(src, node));
       return `<img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}">`;
@@ -803,6 +811,24 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
       if (node.firstChild) return renderInlineChildren(src, node);
       return escapeHtml(sliceText(src, node));
   }
+}
+
+function renderLinkLabel(src: string, node: SyntaxNode): string {
+  const kids = childrenOf(node);
+  const open = kids.findIndex((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "[");
+  const close = kids.findIndex((kid, index) => index > open && kid.name === "LinkMark" && sliceText(src, kid) === "]");
+  if (open < 0 || close <= open) return "";
+
+  let html = "";
+  let cursor = kids[open].to;
+  for (const child of kids.slice(open + 1, close)) {
+    if (child.from > cursor) html += escapeHtml(src.slice(cursor, child.from));
+    if (child.name === "URL") html += escapeHtml(sliceText(src, child));
+    else if (!isMarkNode(child.name)) html += renderInlineNode(src, child);
+    cursor = child.to;
+  }
+  if (cursor < kids[close].from) html += escapeHtml(src.slice(cursor, kids[close].from));
+  return html;
 }
 
 function extractInlineCodeText(src: string, node: SyntaxNode): string {
@@ -849,6 +875,20 @@ function findChildText(
     c = c.nextSibling;
   }
   return null;
+}
+
+function findLastChildText(
+  src: string,
+  node: SyntaxNode,
+  childName: string,
+): string | null {
+  let value: string | null = null;
+  let child = node.firstChild;
+  while (child) {
+    if (child.name === childName) value = sliceText(src, child).trim();
+    child = child.nextSibling;
+  }
+  return value;
 }
 
 /**

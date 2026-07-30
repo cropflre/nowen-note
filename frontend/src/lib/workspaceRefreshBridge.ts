@@ -6,6 +6,7 @@ import {
 
 const INSTALL_KEY = "__NOWEN_WORKSPACE_REFRESH_BRIDGE__" as const;
 const BUTTON_ATTRIBUTE = "data-nowen-workspace-refresh";
+const KNOWLEDGE_TREE_CHANGED_EVENT = "nowen:knowledge-tree-changed";
 const AUTO_REFRESH_COOLDOWN_MS = 4_000;
 const BACKGROUND_REFRESH_MIN_MS = 800;
 const DESKTOP_POLL_INTERVAL_MS = 30_000;
@@ -26,6 +27,7 @@ type RefreshReason =
   | "sync-snapshot";
 
 let refreshPromise: Promise<RefreshResult> | null = null;
+let activeRefreshReason: RefreshReason | null = null;
 let lastAutomaticRefreshAt = 0;
 let lastSnapshotAnnouncementAt = 0;
 let backgroundedAt = 0;
@@ -64,6 +66,12 @@ function resolveCopy() {
         success: "Current space refreshed",
         failed: "Refresh failed. Check the connection and try again.",
       };
+}
+
+export function emitKnowledgeTreeRefresh(reason: string): void {
+  window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CHANGED_EVENT, {
+    detail: { reason, at: Date.now() },
+  }));
 }
 
 function emitCollectionRefresh(reason: RefreshReason): void {
@@ -116,7 +124,9 @@ export async function refreshWorkspaceCollections(
   if (automatic) lastAutomaticRefreshAt = now;
 
   const copy = resolveCopy();
-  setButtonsBusy(true);
+  const showBusy = reason === "manual";
+  if (showBusy) setButtonsBusy(true);
+  activeRefreshReason = reason;
   refreshPromise = syncNow()
     .then(async (result) => {
       // syncNow normally dispatches SYNC_SNAPSHOT_APPLIED_EVENT. Keep this direct
@@ -138,7 +148,8 @@ export async function refreshWorkspaceCollections(
     })
     .finally(() => {
       refreshPromise = null;
-      setButtonsBusy(false);
+      activeRefreshReason = null;
+      if (showBusy) setButtonsBusy(false);
     });
 
   return refreshPromise;
@@ -207,7 +218,20 @@ export function installWorkspaceRefreshBridge(): void {
 
   const onSnapshotApplied = () => {
     lastSnapshotAnnouncementAt = Date.now();
-    emitCollectionRefresh("sync-snapshot");
+    emitCollectionRefresh(activeRefreshReason || "sync-snapshot");
+  };
+  const onNotesImported = (payload: unknown) => {
+    const detail = typeof payload === "object" && payload !== null
+      ? payload as { reason?: unknown; source?: unknown }
+      : null;
+    // The desktop poll emits a synthetic notes:imported event so NoteList can
+    // reuse its existing invalidation path. It is not an actual import and must
+    // not make the knowledge tree visibly reload every polling interval.
+    if (detail?.source === "workspace-refresh-bridge" && detail.reason === "poll") return;
+    const reason = detail && "reason" in detail
+      ? String(detail.reason || "notes-imported")
+      : "notes-imported";
+    emitKnowledgeTreeRefresh(reason);
   };
   const onBlur = () => {
     backgroundedAt = Date.now();
@@ -234,6 +258,7 @@ export function installWorkspaceRefreshBridge(): void {
   mountDesktopRefreshButton();
   const observer = new MutationObserver(scheduleMount);
   observer.observe(document.body, { childList: true, subtree: true });
+  const unsubscribeNotesImported = realtime.on("notes:imported", onNotesImported);
 
   // Electron/desktop keeps polling only while visible. This covers MCP/CLI writes
   // from older servers that do not yet broadcast note creation events, while the
@@ -253,6 +278,7 @@ export function installWorkspaceRefreshBridge(): void {
 
   bridgeWindow[INSTALL_KEY] = () => {
     observer.disconnect();
+    unsubscribeNotesImported();
     if (mutationFrame) window.cancelAnimationFrame(mutationFrame);
     if (refreshTimer !== null) window.clearTimeout(refreshTimer);
     if (pollTimer !== null) window.clearInterval(pollTimer);

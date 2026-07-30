@@ -83,7 +83,7 @@ test("issue 284 real-shape package keeps Markdown callout, iframe and media sema
   assert.equal(result.success, true);
   assert.equal(result.count, 1);
   assert.equal(result.stats.importedAssets, 1);
-  assert.equal(result.stats.unsupportedNodes.NodeCallout, 1);
+  assert.equal(result.stats.unsupportedNodes.NodeCallout || 0, 0);
   assert.equal(result.stats.unsupportedNodes.NodeIFrame, 1);
 
   const note = db.prepare("SELECT content, contentText, contentFormat FROM notes WHERE id = ?")
@@ -95,7 +95,7 @@ test("issue 284 real-shape package keeps Markdown callout, iframe and media sema
   assert.match(note.content, /<iframe[^>]+password=issue284-secret/);
   assert.match(note.content, /\[音频\]\(\/api\/attachments\/[0-9a-f-]+\?download=1\)/i);
   assert.match(note.contentText, /Callout 正文必须/);
-  assert.ok(result.warnings.some((warning: string) => /callout.*styled blockquote/i.test(warning)));
+  assert.ok(!result.warnings.some((warning: string) => /callout.*styled blockquote/i.test(warning)));
   assert.ok(result.warnings.some((warning: string) => /iframe.*downgraded safe link/i.test(warning)));
 });
 

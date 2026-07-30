@@ -39,6 +39,7 @@ export interface KnowledgeTreeNode {
   isPinned?: number;
   isFavorite?: number;
   isLocked?: number;
+  isPasswordProtected?: number;
   contentFormat?: string | null;
   sortOrder: number;
   isExpanded: number;
@@ -184,5 +185,19 @@ export const knowledgeTreeApi = {
 
   history(nodeId: string) {
     return request<{ history: Array<Record<string, unknown>> }>(`/nodes/${encodeURIComponent(nodeId)}/history`);
+  },
+
+  unlockFolder(nodeId: string, password: string) {
+    return request<{ success: true; isPasswordProtected: boolean; unlockToken: string }>(
+      `/nodes/${encodeURIComponent(nodeId)}/unlock`,
+      { method: "POST", body: JSON.stringify({ password }) },
+    );
+  },
+
+  setFolderPassword(nodeId: string, input: { currentPassword?: string; newPassword: string }) {
+    return request<{ success: true; isPasswordProtected: true }>(
+      `/nodes/${encodeURIComponent(nodeId)}/password`,
+      { method: "PUT", body: JSON.stringify(input) },
+    );
   },
 };

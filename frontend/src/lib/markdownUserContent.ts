@@ -7,8 +7,10 @@ export interface InternalMarkdownMarkerRange {
   blockId: string;
 }
 
-const GENERATED_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`;
-const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]+\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
+// 系统生成的块 ID 偶尔会在隐藏标记边界被误删尾部字符；仍按内部标记处理，
+// 但保留严格的 UUID 结构，避免隐藏用户主动输入的 ^blk_example_text。
+const GENERATED_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
+const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
 const LINE_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 

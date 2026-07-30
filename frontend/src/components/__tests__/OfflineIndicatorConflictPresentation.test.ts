@@ -3,7 +3,6 @@ import type { OfflineQueueItem } from "@/lib/offlineQueue";
 import {
   getQueueItemNotePreview,
   getQueueItemNoteTitle,
-  getQueueItemStatusMessage,
   getSyncIndicatorPresentation,
 } from "../common/OfflineIndicator";
 
@@ -57,12 +56,6 @@ describe("OfflineIndicator conflict presentation", () => {
     expect(getQueueItemNotePreview(conflictItem())).toBe("同步冲突处理方案");
   });
 
-  it("explains the two explicit resolution choices", () => {
-    expect(getQueueItemStatusMessage(conflictItem())).toBe(
-      "两个版本均已保留。请选择保留此设备内容，或使用服务器内容。",
-    );
-  });
-
   it("falls back safely when old queue data has no title or content", () => {
     const item = conflictItem({ body: null, localPayload: null });
     expect(getQueueItemNoteTitle(item)).toBe("未命名笔记");
@@ -96,18 +89,28 @@ describe("OfflineIndicator status information architecture", () => {
     });
   });
 
-  it("explains offline preservation without exposing the queue", () => {
+  it("shows desktop offline state as a compact indicator", () => {
     expect(getSyncIndicatorPresentation({
       ...basePresentationInput,
       isOnline: false,
       pendingCount: 2,
       queueCount: 2,
-    })).toMatchObject({
+    })).toEqual({
       tone: "offline",
-      label: "当前离线",
-      description: "2 项修改已保存在本机，联网后将自动同步。",
+      label: "离线",
       action: "none",
+      compact: true,
     });
+  });
+
+  it("keeps the mobile offline state completely silent", () => {
+    expect(getSyncIndicatorPresentation({
+      ...basePresentationInput,
+      isOnline: false,
+      pendingCount: 2,
+      queueCount: 2,
+      suppressOffline: true,
+    })).toBeNull();
   });
 
   it("does not flash transient pending writes before they become meaningful", () => {
@@ -133,19 +136,45 @@ describe("OfflineIndicator status information architecture", () => {
     });
   });
 
-  it("opens the real conflict resolution flow instead of a dead-end queue state", () => {
+  it("keeps version conflicts silent while background resolution is pending", () => {
     expect(getSyncIndicatorPresentation({
       ...basePresentationInput,
       pendingCount: 3,
       failedCount: 3,
       conflictCount: 3,
       queueCount: 3,
+    })).toBeNull();
+  });
+
+  it("keeps version conflicts out of the offline pending count", () => {
+    expect(getSyncIndicatorPresentation({
+      ...basePresentationInput,
+      isOnline: false,
+      pendingCount: 3,
+      failedCount: 3,
+      conflictCount: 3,
+      queueCount: 3,
+    })).toEqual({
+      tone: "offline",
+      label: "离线",
+      action: "none",
+      compact: true,
+    });
+  });
+
+  it("still reports non-conflict failures when conflicts are also pending", () => {
+    expect(getSyncIndicatorPresentation({
+      ...basePresentationInput,
+      pendingCount: 4,
+      failedCount: 4,
+      conflictCount: 3,
+      queueCount: 1,
+      lastError: "network failure",
     })).toMatchObject({
       tone: "error",
-      label: "3 篇笔记存在版本冲突",
-      description: "本地和服务器内容都已保留，请选择最终版本。",
+      label: "1 项修改尚未同步",
       action: "details",
-      actionLabel: "处理冲突",
+      actionLabel: "查看并重试",
     });
   });
 

@@ -48,6 +48,7 @@ import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
+import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -901,7 +902,8 @@ function AuthGate() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
-    fetch(`${baseUrl}/auth/verify`, {
+    // /me 经过服务端完整的 session 校验；旧版 /auth/verify 不检查已撤销 jti。
+    fetch(`${baseUrl}/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     })
@@ -931,7 +933,7 @@ function AuthGate() {
         throw err;
       })
       .then((data) => {
-        const verifiedUser = data.user as User;
+        const verifiedUser = data as User;
         saveCachedAuthUser(authScope, token, verifiedUser);
         setUser(verifiedUser);
         setIsAuthenticated(true);
@@ -1214,6 +1216,7 @@ function AuthGate() {
     return (
       <LoginPage
         onLogin={handlePasswordLogin}
+        onAccountLogin={handleLogin}
         isClientMode={isClientMode}
         onDisconnect={isClientMode ? handleDisconnect : undefined}
       />
@@ -1223,6 +1226,7 @@ function AuthGate() {
   // 已登录
   return (
     <AppProvider>
+      <SidebarSearchExperienceBridge />
       <TooltipProvider>
         <PhaseAPerfProfiler id="AppLayout"><AppLayout /></PhaseAPerfProfiler>
         {/* Phase 7: 客户端模式下，密码登录成功后引导启用快速登录。

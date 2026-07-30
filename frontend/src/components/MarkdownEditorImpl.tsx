@@ -102,11 +102,13 @@ import {
   Columns2,
   ChevronDown,
   Film,
+  FolderSearch,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
 import { useUserPreferences, type MarkdownViewMode } from "@/hooks/useUserPreferences";
 
-import { Note, Tag } from "@/types";
+import { Note, Tag, type FileItem } from "@/types";
 import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import { toast } from "@/lib/toast";
@@ -494,6 +496,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     from: 0,
     to: 0,
   });
+  const [attachmentLibraryOpen, setAttachmentLibraryOpen] = useState(false);
+  const attachmentLibrarySelectionRef = useRef<{ from: number; to: number } | null>(null);
   // �༭���Ƿ�۽� ���� ���������ƶ��˸����������Ƿ���ʾ
 
   // �ƶ����������Ƿ���������ԭ�� + ���̵���ʱ���ض������������ߵײ�������������
@@ -585,17 +589,56 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     queueMicrotask(() => view.focus());
   }, []);
 
-  // slash �˵������ tr / openAIAssistant / ͼƬ�ϴ��ص���
+  const closeAttachmentLibrary = useCallback(() => {
+    setAttachmentLibraryOpen(false);
+    attachmentLibrarySelectionRef.current = null;
+  }, []);
+
+  const openAttachmentLibrary = useCallback(() => {
+    const view = viewRef.current;
+    if (!view || !editable) return;
+    const selection = view.state.selection.main;
+    attachmentLibrarySelectionRef.current = {
+      from: selection.from,
+      to: selection.to,
+    };
+    setAttachmentLibraryOpen(true);
+  }, [editable]);
+
+  const insertExistingAttachment = useCallback((item: FileItem) => {
+    const view = viewRef.current;
+    const selection = attachmentLibrarySelectionRef.current;
+    if (!view || !selection || selection.to > view.state.doc.length) {
+      closeAttachmentLibrary();
+      toast.error(tr("tiptap.attachmentInsertPositionLost", { defaultValue: "插入位置已失效，请重试" }));
+      return;
+    }
+    const snippet = buildMarkdownAttachmentSnippet(item);
+    view.dispatch({
+      changes: {
+        from: selection.from,
+        to: selection.to,
+        insert: snippet,
+      },
+      selection: { anchor: selection.from + snippet.length },
+    });
+    closeAttachmentLibrary();
+    queueMicrotask(() => view.focus());
+    toast.success(tr("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
+  }, [closeAttachmentLibrary, tr]);
+
+  // slash 菜单项：图片、已有附件和 AI 共用编辑器级动作。
   const slashItems: MdSlashItem[] = useMemo(
     () =>
       getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
         onImageUpload: () => {
           triggerImagePicker();
         },
+        onAttachmentLibrary: openAttachmentLibrary,
         onAIAssistant: isGuest ? undefined : openAIAssistant,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, openAIAssistant],
+    [tr, isGuest, openAIAssistant, openAttachmentLibrary],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -853,6 +896,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         return {
           content: md,
           contentText: markdownToPlainText(md),
+          title: titleRef.current?.value || noteRef.current.title,
         };
       },
       isReady: () => !!viewRef.current,
@@ -1246,11 +1290,34 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const currentDoc = view.state.doc.toString();
     if (currentDoc !== nextDoc) {
       isSettingContent.current = true;
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: nextDoc },
-        // �ѹ��ŵ��ĵ���ͷ������ɹ��λ��Խ��
-        selection: { anchor: 0 },
-      });
+      if (isSwitchingNote) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: nextDoc },
+          selection: { anchor: 0 },
+        });
+      } else {
+        // 同一笔记的保存回填只替换实际变化的区间，让 CodeMirror 自动映射原选区。
+        // 服务端在行尾补充隐藏块 ID 时，末尾回车后的光标会随插入量向后移动，
+        // 不再因整篇替换并强制 anchor=0 而跳到文档开头。
+        let from = 0;
+        const sharedLength = Math.min(currentDoc.length, nextDoc.length);
+        while (from < sharedLength && currentDoc[from] === nextDoc[from]) from += 1;
+
+        let currentTo = currentDoc.length;
+        let nextTo = nextDoc.length;
+        while (
+          currentTo > from
+          && nextTo > from
+          && currentDoc[currentTo - 1] === nextDoc[nextTo - 1]
+        ) {
+          currentTo -= 1;
+          nextTo -= 1;
+        }
+
+        view.dispatch({
+          changes: { from, to: currentTo, insert: nextDoc.slice(from, nextTo) },
+        });
+      }
       // ������һ΢������������� Tiptap ��ȼ��߼���
       queueMicrotask(() => {
         isSettingContent.current = false;
@@ -1778,8 +1845,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.insertVideo") || "插入视频"}>
             <Film size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton onClick={triggerAttachmentPicker} title={tr("tiptap.insertAttachment") || "���븽��"}>
+          <ToolbarButton
+            onClick={triggerAttachmentPicker}
+            title={tr("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
+          >
             <Paperclip size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={openAttachmentLibrary}
+            title={tr("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
+          >
+            <FolderSearch size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
             onClick={() => withView((v) => insertTable(v))}
@@ -1946,6 +2022,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         onClose={() => setSlashState(emptySlashState)}
       />
 
+      <AttachmentLibraryPicker
+        open={attachmentLibraryOpen}
+        onClose={closeAttachmentLibrary}
+        onSelect={insertExistingAttachment}
+      />
+
       {/*
         �������ݲ˵������� Tiptap �� BubbleMenu��
         - ֻ���зǿ�ѡ�� + �༭���۽�ʱ����
@@ -2065,5 +2147,13 @@ function formatBytesMd(bytes: number): string {
   if (mb < 1024) return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
   const gb = mb / 1024;
   return `${gb.toFixed(gb < 10 ? 2 : 1)} GB`;
+}
+
+function buildMarkdownAttachmentSnippet(item: FileItem): string {
+  const label = (item.filename || "attachment")
+    .replace(/\\/g, "\\\\")
+    .replace(/\]/g, "\\]");
+  const sizeLabel = formatBytesMd(item.size);
+  return `[📎 ${label}${sizeLabel ? ` (${sizeLabel})` : ""}](${encodeMarkdownUrl(item.url)})`;
 }
 void StateEffect;
