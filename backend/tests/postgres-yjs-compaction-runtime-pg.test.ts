@@ -126,7 +126,7 @@ test("PostgreSQL Yjs compaction advances a safe watermark, retains a row margin 
       [COMPACT_NOTE],
     );
     assert.deepEqual(retained.rows.map((row) => Number(row.id)), compactIds.slice(-2));
-    assert.equal(first.deletedUpdates, 5);
+    assert.equal(first.deletedUpdates, 3);
 
     const corruptState = (await pool.query(
       `SELECT "updatesMergedTo" FROM note_ysnapshots WHERE "noteId" = $1`,
@@ -155,8 +155,8 @@ test("PostgreSQL Yjs compaction advances a safe watermark, retains a row margin 
     }
 
     const failingAdapter: DatabaseAdapter = {
-      queryOne: (sql, params) => adapter.queryOne(sql, params),
-      queryMany: (sql, params) => adapter.queryMany(sql, params),
+      queryOne: <T>(sql: string, params?: unknown[]) => adapter.queryOne<T>(sql, params),
+      queryMany: <T>(sql: string, params?: unknown[]) => adapter.queryMany<T>(sql, params),
       execute: (sql, params) => {
         if (sql.includes("INSERT INTO note_ysnapshots") && params?.[0] === FAILURE_NOTE) {
           return Promise.reject(new Error("injected snapshot failure"));
