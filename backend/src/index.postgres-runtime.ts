@@ -15,11 +15,14 @@ import { verifyLoginToken } from "./lib/auth-security";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
+import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
 
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
 const adapter = getDatabaseAdapter();
 const hub = createPostgresRealtimeRuntime(adapter);
+const yjsCompaction = createPostgresYjsCompactionRuntime(adapter);
+yjsCompaction.start();
 const deletionEffects = createNoteDeletionEffectsRuntime(adapter, {
   publishRealtime: hub.publish,
 });
@@ -55,7 +58,7 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
-        "WS /ws (subscriptions, presence, note/workspace events and Yjs read sync)",
+        "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
       ],
       migratedCapabilities: [
         "note deletion audit logs",
@@ -68,12 +71,13 @@ app.get("/api/health", async (c) => {
         "Yjs snapshot and update replay from PostgreSQL",
         "Yjs join, leave and state-vector read synchronization",
         "Yjs awareness relay between joined connections",
-      ],
-      realtime: hub.getStats(),
-      pendingCapabilities: [
-        "notes full-text search (#252)",
         "Yjs update persistence and notes.content dual-write",
         "Yjs snapshot compaction and update garbage collection",
+      ],
+      realtime: hub.getStats(),
+      yjsCompaction: yjsCompaction.getStats(),
+      pendingCapabilities: [
+        "notes full-text search (#252)",
         "Yjs subdocument write protocol",
       ],
     },
@@ -157,7 +161,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes runtime includes PostgreSQL-safe rooms, presence, mutations and Yjs read sync; Yjs writes and compaction remain disabled until #249 completes");
+console.warn("[db] Notes runtime includes PostgreSQL-safe rooms, presence, Yjs read/write sync and background snapshot compaction; subdocument writes remain disabled until #249 completes");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
@@ -175,6 +179,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExit.unref();
 
   try {
+    await yjsCompaction.close();
     await hub.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await deletionEffects.shutdown();
