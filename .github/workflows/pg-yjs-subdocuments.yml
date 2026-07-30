@@ -1,0 +1,64 @@
+name: PostgreSQL Yjs Subdocuments
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations.ts"
+      - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-yjs-subdocuments.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations.ts"
+      - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-yjs-subdocuments.yml"
+  workflow_dispatch:
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+      - name: Migration bootstrap and idempotency
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Build production backend bundle
+        run: npm run build
+      - name: Verify subdocument migration is packaged
+        run: test -f dist/postgres/migrations/0013_yjs_subdocuments.sql
