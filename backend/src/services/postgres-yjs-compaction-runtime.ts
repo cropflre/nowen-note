@@ -1,10 +1,9 @@
 import * as Y from "yjs";
 
-import type { DatabaseAdapter } from "../db/adapters/types";
+import type { DatabaseAdapter, DbStatement } from "../db/adapters/types";
 
 interface CandidateRow {
   noteId: string;
-  pendingUpdates: number;
   maxUpdateId: number;
 }
 
@@ -119,9 +118,18 @@ export function createPostgresYjsCompactionRuntime(
          FROM note_ysnapshots WHERE "noteId" = ?`,
       [noteId],
     );
-    const mergedTo = Number(snapshot?.updatesMergedTo) || 0;
+
+    // A snapshot is the CRDT identity anchor. Rebuilding one from notes.content would
+    // preserve visible text but lose the original Yjs client/clock history and can
+    // duplicate content when an old client reconnects. Keep this fail-closed until
+    // the write runtime has persisted a real seed snapshot.
+    if (!snapshot) return { compacted: false, deletedUpdates: 0, blocked: true };
+
+    const mergedTo = Number(snapshot.updatesMergedTo) || 0;
     const targetUpdateId = Number(candidate.maxUpdateId) || 0;
-    if (targetUpdateId <= mergedTo) return { compacted: false, deletedUpdates: 0, blocked: false };
+    if (targetUpdateId <= mergedTo) {
+      return { compacted: false, deletedUpdates: 0, blocked: false };
+    }
 
     const note = await adapter.queryOne<NoteRow>(
       `SELECT content, "contentText" AS "contentText", "contentFormat" AS "contentFormat", version
@@ -150,76 +158,75 @@ export function createPostgresYjsCompactionRuntime(
 
     const doc = new Y.Doc();
     try {
-      if (snapshot) {
-        try {
-          Y.applyUpdate(doc, toUint8Array(snapshot.snapshotBlob));
-        } catch {
-          return { compacted: false, deletedUpdates: 0, blocked: true };
-        }
-      }
-
       try {
+        Y.applyUpdate(doc, toUint8Array(snapshot.snapshotBlob));
         for (const update of updates) Y.applyUpdate(doc, toUint8Array(update.updateBlob));
       } catch {
         return { compacted: false, deletedUpdates: 0, blocked: true };
       }
 
-      const expectedMarkdown = inferMarkdown(note);
-      let markdown = doc.getText("content").toString();
-      if (!snapshot && markdown !== expectedMarkdown) {
-        doc.destroy();
-        const bootstrap = new Y.Doc();
-        try {
-          if (expectedMarkdown) bootstrap.getText("content").insert(0, expectedMarkdown);
-          const current = await adapter.queryOne<NoteRow>(
-            `SELECT content, "contentText" AS "contentText", "contentFormat" AS "contentFormat", version
-               FROM notes WHERE id = ?`,
-            [noteId],
-          );
-          if (!current || Number(current.version) !== targetClock || inferMarkdown(current) !== expectedMarkdown) {
-            return { compacted: false, deletedUpdates: 0, blocked: false };
-          }
-          const state = Y.encodeStateAsUpdate(bootstrap);
-          await adapter.execute(
-            `INSERT INTO note_ysnapshots ("noteId", snapshot_blob, "updatesMergedTo", "updatedAt")
-             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT ("noteId") DO UPDATE SET
-               snapshot_blob = EXCLUDED.snapshot_blob,
-               "updatesMergedTo" = EXCLUDED."updatesMergedTo",
-               "updatedAt" = CURRENT_TIMESTAMP
-             WHERE note_ysnapshots."updatesMergedTo" <= EXCLUDED."updatesMergedTo"`,
-            [noteId, Buffer.from(state), targetUpdateId],
-          );
-        } finally {
-          bootstrap.destroy();
-        }
-      } else {
-        if (markdown !== expectedMarkdown) {
-          return { compacted: false, deletedUpdates: 0, blocked: true };
-        }
-        const current = await adapter.queryOne<NoteRow>(
-          `SELECT content, "contentText" AS "contentText", "contentFormat" AS "contentFormat", version
-             FROM notes WHERE id = ?`,
-          [noteId],
-        );
-        if (!current || Number(current.version) !== targetClock || inferMarkdown(current) !== markdown) {
-          return { compacted: false, deletedUpdates: 0, blocked: false };
-        }
-        const state = Y.encodeStateAsUpdate(doc);
-        await adapter.execute(
-          `INSERT INTO note_ysnapshots ("noteId", snapshot_blob, "updatesMergedTo", "updatedAt")
-           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT ("noteId") DO UPDATE SET
-             snapshot_blob = EXCLUDED.snapshot_blob,
-             "updatesMergedTo" = EXCLUDED."updatesMergedTo",
-             "updatedAt" = CURRENT_TIMESTAMP
-           WHERE note_ysnapshots."updatesMergedTo" <= EXCLUDED."updatesMergedTo"`,
-          [noteId, Buffer.from(state), targetUpdateId],
-        );
+      const markdown = doc.getText("content").toString();
+      if (markdown !== inferMarkdown(note)) {
+        return { compacted: false, deletedUpdates: 0, blocked: true };
       }
 
+      const current = await adapter.queryOne<NoteRow>(
+        `SELECT content, "contentText" AS "contentText", "contentFormat" AS "contentFormat", version
+           FROM notes WHERE id = ?`,
+        [noteId],
+      );
+      if (!current || Number(current.version) !== targetClock || inferMarkdown(current) !== markdown) {
+        return { compacted: false, deletedUpdates: 0, blocked: false };
+      }
+
+      const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+      const cutoff = await adapter.queryOne<{ id: number }>(
+        `SELECT id
+           FROM note_yupdates
+          WHERE "noteId" = ? AND id <= ?
+          ORDER BY id DESC
+          OFFSET ? LIMIT 1`,
+        [noteId, targetUpdateId, gcSafetyMargin],
+      );
+      const cutoffId = Number(cutoff?.id) || 0;
+      const beforeDelete = cutoffId > 0
+        ? Number((await adapter.queryOne<{ count: number }>(
+            `SELECT COUNT(*)::int AS count
+               FROM note_yupdates
+              WHERE "noteId" = ? AND id <= ?`,
+            [noteId, cutoffId],
+          ))?.count) || 0
+        : 0;
+
+      const statements: DbStatement[] = [
+        {
+          sql: `INSERT INTO note_ysnapshots ("noteId", snapshot_blob, "updatesMergedTo", "updatedAt")
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT ("noteId") DO UPDATE SET
+                  snapshot_blob = EXCLUDED.snapshot_blob,
+                  "updatesMergedTo" = EXCLUDED."updatesMergedTo",
+                  "updatedAt" = CURRENT_TIMESTAMP
+                WHERE note_ysnapshots."updatesMergedTo" <= EXCLUDED."updatesMergedTo"`,
+          params: [noteId, state, targetUpdateId],
+        },
+      ];
+      if (cutoffId > 0) {
+        statements.push({
+          sql: `DELETE FROM note_yupdates
+                 WHERE "noteId" = ? AND id <= ?
+                   AND id <= (
+                     SELECT "updatesMergedTo" FROM note_ysnapshots WHERE "noteId" = ?
+                   )`,
+          params: [noteId, cutoffId, noteId],
+        });
+      }
+
+      // Snapshot advancement and update reclamation must commit or roll back together.
+      await adapter.executeStatements(statements);
+
       const persisted = await adapter.queryOne<{ updatesMergedTo: number }>(
-        `SELECT "updatesMergedTo" AS "updatesMergedTo" FROM note_ysnapshots WHERE "noteId" = ?`,
+        `SELECT "updatesMergedTo" AS "updatesMergedTo"
+           FROM note_ysnapshots WHERE "noteId" = ?`,
         [noteId],
       );
       const persistedWatermark = Number(persisted?.updatesMergedTo) || 0;
@@ -227,30 +234,22 @@ export function createPostgresYjsCompactionRuntime(
         return { compacted: false, deletedUpdates: 0, blocked: false };
       }
 
-      let deletedUpdates = 0;
-      if (gcSafetyMargin >= 0) {
-        const cutoff = await adapter.queryOne<{ id: number }>(
-          `SELECT id
-             FROM note_yupdates
-            WHERE "noteId" = ? AND id <= ?
-            ORDER BY id DESC
-            OFFSET ? LIMIT 1`,
-          [noteId, persistedWatermark, gcSafetyMargin],
-        );
-        if (cutoff?.id) {
-          const deleted = await adapter.execute(
-            `DELETE FROM note_yupdates
-              WHERE "noteId" = ? AND id <= ?
-                AND id <= (SELECT "updatesMergedTo" FROM note_ysnapshots WHERE "noteId" = ?)`,
-            [noteId, cutoff.id, noteId],
-          );
-          deletedUpdates = deleted.changes;
-        }
-      }
+      const afterDelete = cutoffId > 0
+        ? Number((await adapter.queryOne<{ count: number }>(
+            `SELECT COUNT(*)::int AS count
+               FROM note_yupdates
+              WHERE "noteId" = ? AND id <= ?`,
+            [noteId, cutoffId],
+          ))?.count) || 0
+        : 0;
 
-      return { compacted: true, deletedUpdates, blocked: false };
+      return {
+        compacted: true,
+        deletedUpdates: Math.max(0, beforeDelete - afterDelete),
+        blocked: false,
+      };
     } finally {
-      if (!doc.isDestroyed) doc.destroy();
+      doc.destroy();
     }
   }
 
@@ -262,11 +261,10 @@ export function createPostgresYjsCompactionRuntime(
       blockedNotes: 0,
       failures: 0,
     };
+
     try {
       const candidates = await adapter.queryMany<CandidateRow>(
-        `SELECT u."noteId" AS "noteId",
-                COUNT(*)::int AS "pendingUpdates",
-                MAX(u.id)::int AS "maxUpdateId"
+        `SELECT u."noteId" AS "noteId", MAX(u.id)::int AS "maxUpdateId"
            FROM note_yupdates u
            LEFT JOIN note_ysnapshots s ON s."noteId" = u."noteId"
           WHERE u.id > COALESCE(s."updatesMergedTo", 0)
@@ -277,6 +275,7 @@ export function createPostgresYjsCompactionRuntime(
         [minUpdates, maxNotesPerRun],
       );
       result.scannedNotes = candidates.length;
+
       for (const candidate of candidates) {
         try {
           const compacted = await compactCandidate(candidate);
@@ -306,7 +305,15 @@ export function createPostgresYjsCompactionRuntime(
   }
 
   function runOnce(): Promise<PostgresYjsCompactionRunResult> {
-    if (closed) return Promise.resolve({ scannedNotes: 0, compactedNotes: 0, deletedUpdates: 0, blockedNotes: 0, failures: 0 });
+    if (closed) {
+      return Promise.resolve({
+        scannedNotes: 0,
+        compactedNotes: 0,
+        deletedUpdates: 0,
+        blockedNotes: 0,
+        failures: 0,
+      });
+    }
     if (activeRun) return activeRun;
     activeRun = executeRun().finally(() => {
       activeRun = null;
