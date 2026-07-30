@@ -381,10 +381,12 @@ export function createPostgresYjsReadRuntime(
     const update = decodeBase64(updateBase64, maxUpdateBytes, "YJS_INVALID_UPDATE");
     const candidate = new Y.Doc();
     let markdown = "";
+    let baselineState = new Uint8Array();
     try {
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.doc));
       Y.applyUpdate(candidate, update);
       markdown = candidate.getText("content").toString();
+      baselineState = Y.encodeStateAsUpdate(candidate);
     } catch (error) {
       throw new PostgresYjsReadRuntimeError(
         "YJS_INVALID_UPDATE",
@@ -407,6 +409,13 @@ export function createPostgresYjsReadRuntime(
                  WHERE id = ? AND version = ? AND "contentFormat" = 'markdown'`,
           params: [markdown, contentText, version, updatedAt, noteId, previousVersion],
           requireChanges: 1,
+        },
+        {
+          sql: `INSERT INTO note_ysnapshots ("noteId", snapshot_blob, "updatesMergedTo", "updatedAt")
+                SELECT ?, ?, COALESCE((SELECT MAX(id) FROM note_yupdates WHERE "noteId" = ?), 0), ?
+                 WHERE NOT EXISTS (SELECT 1 FROM note_ysnapshots WHERE "noteId" = ?)
+                ON CONFLICT ("noteId") DO NOTHING`,
+          params: [noteId, Buffer.from(baselineState), noteId, updatedAt, noteId],
         },
         {
           sql: `INSERT INTO note_yupdates ("noteId", "userId", update_blob, clock, "createdAt")
