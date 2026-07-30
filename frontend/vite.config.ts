@@ -81,11 +81,11 @@ export default defineConfig({
         find: /^@\/lib\/largeMarkdownSafety$/,
         replacement: path.resolve(__dirname, "./src/lib/largeMarkdownSafetyRuntime.ts"),
       },
-      // 公开分享评论：匿名访客首次评论前收集昵称，失效登录态按服务端结果回退重试。
-      // 壳组件通过相对路径加载原 SharedNoteView，避免精确别名递归。
+      // 公开分享评论：先收集匿名访客昵称，再把后端 displayName/guestName 投影到旧 username 展示字段。
+      // 壳组件通过相对路径串联身份与展示运行时，避免精确别名递归。
       {
         find: /^@\/components\/SharedNoteView$/,
-        replacement: path.resolve(__dirname, "./src/components/SharedNoteCommentIdentityRuntime.tsx"),
+        replacement: path.resolve(__dirname, "./src/components/SharedNoteCommentDisplayRuntime.tsx"),
       },
       // Issue #369 P2：在不侵入 EditorPane 主体的前提下增加事务化文档拆分入口。
       {
