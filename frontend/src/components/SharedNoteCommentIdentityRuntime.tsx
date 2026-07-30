@@ -8,12 +8,14 @@ import { api } from "@/lib/api";
 const GUEST_NAME_KEY = "nowen-guest-name";
 const COMMENT_IDENTITY_STATE_KEY = "__nowenSharedCommentIdentityRuntime__" as const;
 
+type AddSharedComment = typeof api.addSharedComment;
+type AddSharedCommentArgs = Parameters<AddSharedComment>;
 type GuestNameRequester = () => Promise<string | null>;
 
 interface CommentIdentityRuntimeState {
   requester: GuestNameRequester | null;
   patched: boolean;
-  nativeAddSharedComment: typeof api.addSharedComment | null;
+  nativeAddSharedComment: AddSharedComment | null;
 }
 
 function getCommentIdentityRuntimeState(): CommentIdentityRuntimeState {
@@ -65,7 +67,8 @@ function installCommentIdentityBridge(): void {
   runtime.patched = true;
   runtime.nativeAddSharedComment = api.addSharedComment.bind(api);
 
-  api.addSharedComment = (async (token, data, accessToken) => {
+  api.addSharedComment = (async (...args: AddSharedCommentArgs) => {
+    const [token, data, accessToken] = args;
     const state = getCommentIdentityRuntimeState();
     const nativeAddSharedComment = state.nativeAddSharedComment;
     if (!nativeAddSharedComment) {
@@ -108,7 +111,7 @@ function installCommentIdentityBridge(): void {
         accessToken,
       );
     }
-  }) as typeof api.addSharedComment;
+  }) as AddSharedComment;
 }
 
 installCommentIdentityBridge();
