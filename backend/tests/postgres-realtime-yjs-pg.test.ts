@@ -13,6 +13,7 @@ import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-d
 
 const OWNER = "pg-yws-owner";
 const MEMBER = "pg-yws-member";
+const VIEWER = "pg-yws-viewer";
 const OUTSIDER = "pg-yws-outsider";
 const WORKSPACE = "pg-yws-workspace";
 const NOTEBOOK = "pg-yws-notebook";
@@ -75,7 +76,8 @@ async function connectClient(port: number, userId: string): Promise<ConnectedCli
   assert.ok(connected.capabilities.includes("room-subscriptions"));
   assert.ok(connected.capabilities.includes("yjs-read-sync"));
   assert.ok(connected.capabilities.includes("yjs-awareness-relay"));
-  assert.deepEqual(connected.pendingCapabilities, ["yjs-update-write", "yjs-snapshot-compaction"]);
+  assert.ok(connected.capabilities.includes("yjs-update-write"));
+  assert.deepEqual(connected.pendingCapabilities, ["yjs-snapshot-compaction"]);
   return { ws, messages, connectionId: String(connected.connectionId) };
 }
 
@@ -92,8 +94,8 @@ function decodeYDoc(stateBase64: string): Y.Doc {
 async function prepareFixture(pool: import("pg").Pool): Promise<Uint8Array> {
   await initPgSchema(pool);
   await pool.query(`DELETE FROM notes WHERE id = $1`, [NOTE]);
-  await pool.query(`DELETE FROM users WHERE id = ANY($1::text[])`, [[OWNER, MEMBER, OUTSIDER]]);
-  for (const userId of [OWNER, MEMBER, OUTSIDER]) {
+  await pool.query(`DELETE FROM users WHERE id = ANY($1::text[])`, [[OWNER, MEMBER, VIEWER, OUTSIDER]]);
+  for (const userId of [OWNER, MEMBER, VIEWER, OUTSIDER]) {
     await pool.query(
       `INSERT INTO users (id, username, "passwordHash", "tokenVersion", "isDisabled", role)
        VALUES ($1, $1, 'hash', 0, false, 'user')`,
@@ -107,6 +109,10 @@ async function prepareFixture(pool: import("pg").Pool): Promise<Uint8Array> {
   await pool.query(
     `INSERT INTO workspace_members ("workspaceId", "userId", role) VALUES ($1, $2, 'editor')`,
     [WORKSPACE, MEMBER],
+  );
+  await pool.query(
+    `INSERT INTO workspace_members ("workspaceId", "userId", role) VALUES ($1, $2, 'viewer')`,
+    [WORKSPACE, VIEWER],
   );
   await pool.query(
     `INSERT INTO notebooks (id, "userId", "workspaceId", name) VALUES ($1, $2, $3, 'Yjs websocket')`,
@@ -137,7 +143,7 @@ async function prepareFixture(pool: import("pg").Pool): Promise<Uint8Array> {
   return snapshot;
 }
 
-test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and rejects writes", { skip: !hasPg }, async () => {
+test("PostgreSQL websocket Yjs boundary persists authorized updates and rejects invalid or read-only writes", { skip: !hasPg }, async () => {
   const pool = await getPgPool();
   assert.ok(pool);
   const adapter = new PostgresAdapter(pool);
@@ -157,16 +163,21 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
 
     const owner = await connectClient(port, OWNER);
     const member = await connectClient(port, MEMBER);
+    const viewer = await connectClient(port, VIEWER);
     const outsider = await connectClient(port, OUTSIDER);
-    sockets.push(owner.ws, member.ws, outsider.ws);
+    sockets.push(owner.ws, member.ws, viewer.ws, outsider.ws);
 
     send(owner, { type: "y:join", noteId: NOTE });
     send(member, { type: "y:join", noteId: NOTE });
+    send(viewer, { type: "y:join", noteId: NOTE });
     send(outsider, { type: "y:join", noteId: NOTE });
 
     const ownerSync = await waitForMessage(owner.messages, "y:sync", (message) => message.noteId === NOTE);
     const memberSync = await waitForMessage(member.messages, "y:sync", (message) => message.noteId === NOTE);
-    assert.equal(ownerSync.readOnly, true);
+    const viewerSync = await waitForMessage(viewer.messages, "y:sync", (message) => message.noteId === NOTE);
+    assert.equal(ownerSync.readOnly, false);
+    assert.equal(memberSync.readOnly, false);
+    assert.equal(viewerSync.readOnly, true);
     assert.equal(memberSync.replayedUpdates, 1);
     const decoded = decodeYDoc(ownerSync.state);
     assert.equal(decoded.getText("content").toString(), "server snapshot + delta");
@@ -175,7 +186,7 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
       message.noteId === NOTE && message.code === "FORBIDDEN"
     ));
     assert.equal(realtime.getStats().yjsRooms, 1);
-    assert.equal(realtime.getStats().yjsConnections, 2);
+    assert.equal(realtime.getStats().yjsConnections, 3);
 
     const partial = new Y.Doc();
     Y.applyUpdate(partial, snapshot);
@@ -206,22 +217,53 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
       `SELECT COUNT(*)::int AS count FROM note_yupdates WHERE "noteId" = $1`,
       [NOTE],
     )).rows[0].count);
+    const editingDoc = decodeYDoc(ownerSync.state);
+    const beforeVector = Y.encodeStateVector(editingDoc);
+    editingDoc.getText("content").insert(editingDoc.getText("content").length, " + persisted");
+    const validUpdate = Buffer.from(Y.encodeStateAsUpdate(editingDoc, beforeVector)).toString("base64");
+    editingDoc.destroy();
+
+    send(member, { type: "y:update", noteId: NOTE, update: validUpdate });
+    const ack = await waitForMessage(member.messages, "y:update-ack", (message) => message.noteId === NOTE);
+    assert.equal(ack.version, 2);
+    const ownerUpdate = await waitForMessage(owner.messages, "y:update", (message) => message.noteId === NOTE);
+    const viewerUpdate = await waitForMessage(viewer.messages, "y:update", (message) => message.noteId === NOTE);
+    assert.equal(ownerUpdate.update, validUpdate);
+    assert.equal(viewerUpdate.version, 2);
+
+    const afterWriteRows = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM note_yupdates WHERE "noteId" = $1`,
+      [NOTE],
+    );
+    assert.equal(Number(afterWriteRows.rows[0].count), beforeWrites + 1);
+    const persistedNote = (await pool.query(
+      `SELECT content, "contentText", version FROM notes WHERE id = $1`,
+      [NOTE],
+    )).rows[0];
+    assert.equal(persistedNote.content, "server snapshot + delta + persisted");
+    assert.equal(persistedNote.contentText, "server snapshot + delta + persisted");
+    assert.equal(Number(persistedNote.version), 2);
+
+    send(viewer, { type: "y:update", noteId: NOTE, update: validUpdate });
+    await waitForMessage(viewer.messages, "error", (message) => (
+      message.noteId === NOTE && message.code === "FORBIDDEN"
+    ));
     send(member, {
       type: "y:update",
       noteId: NOTE,
       update: Buffer.from([1, 2, 3]).toString("base64"),
     });
     await waitForMessage(member.messages, "error", (message) => (
-      message.noteId === NOTE && message.code === "POSTGRES_YJS_WRITE_PENDING"
+      message.noteId === NOTE && message.code === "YJS_INVALID_UPDATE"
     ));
-    const afterWrites = Number((await pool.query(
+    const finalWrites = Number((await pool.query(
       `SELECT COUNT(*)::int AS count FROM note_yupdates WHERE "noteId" = $1`,
       [NOTE],
     )).rows[0].count);
-    assert.equal(afterWrites, beforeWrites);
+    assert.equal(finalWrites, beforeWrites + 1);
 
     send(member, { type: "y:leave", noteId: NOTE });
-    await waitForCondition(() => realtime.getStats().yjsConnections === 1);
+    await waitForCondition(() => realtime.getStats().yjsConnections === 2);
     send(member, { type: "y:awareness", noteId: NOTE, update: awarenessBase64 });
     await waitForMessage(member.messages, "error", (message) => (
       message.noteId === NOTE && message.code === "YJS_NOT_JOINED"
@@ -264,6 +306,7 @@ test("PostgreSQL websocket Yjs boundary supports join/sync-step1/awareness and r
 
     owner.ws.terminate();
     member.ws.terminate();
+    viewer.ws.terminate();
     outsider.ws.terminate();
     await waitForCondition(() => realtime.getStats().clients === 0);
   } finally {

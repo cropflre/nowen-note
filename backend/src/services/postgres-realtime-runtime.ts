@@ -104,6 +104,7 @@ export interface PostgresRealtimeRuntime {
     yjsRooms: number;
     yjsConnections: number;
     yjsLoadingRooms: number;
+    yjsWritingRooms: number;
     yjsSeededRooms: number;
     yjsReplayedUpdates: number;
     attached: boolean;
@@ -158,7 +159,13 @@ export function createPostgresRealtimeRuntime(
     noteId?: string | null,
   ): void {
     if (error instanceof PostgresYjsReadRuntimeError) {
-      send(client.ws, { type: "error", noteId: noteId || null, code: error.code, error: error.message });
+      send(client.ws, {
+        type: "error",
+        noteId: noteId || null,
+        code: error.code,
+        error: error.message,
+        details: error.details,
+      });
       return;
     }
     send(client.ws, {
@@ -332,6 +339,15 @@ export function createPostgresRealtimeRuntime(
     return resolved.permission !== null;
   }
 
+  async function canWriteNote(
+    noteId: string,
+    info: Pick<ClientInfo, "userId" | "role">,
+  ): Promise<boolean> {
+    if (info.role === "admin") return true;
+    const resolved = await noteCore.resolveNotePermissionAsync(noteId, info.userId);
+    return resolved.permission === "write" || resolved.permission === "manage";
+  }
+
   function roomError(client: RuntimeClient, room: string, code: string, error: string): void {
     send(client.ws, { type: "error", room, code, error });
   }
@@ -400,6 +416,7 @@ export function createPostgresRealtimeRuntime(
         send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" });
         return true;
       }
+      const writable = await canWriteNote(noteId, client.info);
       try {
         const result = await yjs.join(noteId, connectionId);
         const current = clients.get(connectionId);
@@ -416,7 +433,7 @@ export function createPostgresRealtimeRuntime(
           source: result.source,
           replayedUpdates: result.replayedUpdates,
           warnings: result.warnings,
-          readOnly: true,
+          readOnly: !writable,
         });
       } catch (error) {
         sendRuntimeError(client, error, noteId);
@@ -443,7 +460,8 @@ export function createPostgresRealtimeRuntime(
       }
       try {
         const update = yjs.syncStep1(noteId, connectionId, message.stateVector);
-        send(client.ws, { type: "y:sync-step2", noteId, update, readOnly: true });
+        const writable = await canWriteNote(noteId, client.info);
+        send(client.ws, { type: "y:sync-step2", noteId, update, readOnly: !writable });
       } catch (error) {
         sendRuntimeError(client, error, noteId);
       }
@@ -469,16 +487,60 @@ export function createPostgresRealtimeRuntime(
 
     if (message.type === "y:update") {
       if (!noteId) return true;
+      if (!message.update) {
+        send(client.ws, { type: "error", noteId, code: "YJS_UPDATE_REQUIRED", error: "Missing update" });
+        return true;
+      }
       if (!yjs.hasJoined(noteId, connectionId)) {
         send(client.ws, { type: "error", noteId, code: "YJS_NOT_JOINED", error: "Yjs room has not been joined" });
         return true;
       }
-      send(client.ws, {
-        type: "error",
-        noteId,
-        code: "POSTGRES_YJS_WRITE_PENDING",
-        error: "PostgreSQL Yjs update persistence is not migrated yet",
-      });
+      if (!(await canWriteNote(noteId, client.info))) {
+        send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Write permission required" });
+        return true;
+      }
+      try {
+        const persisted = await yjs.applyUpdate(
+          noteId,
+          connectionId,
+          client.info.userId,
+          message.update,
+        );
+        broadcastYRoom(noteId, {
+          type: "y:update",
+          noteId,
+          update: persisted.updateBase64,
+          version: persisted.version,
+          updatedAt: persisted.updatedAt,
+          actorConnectionId: connectionId,
+          actorUserId: client.info.userId,
+        }, connectionId);
+        send(client.ws, {
+          type: "y:update-ack",
+          noteId,
+          version: persisted.version,
+          updatedAt: persisted.updatedAt,
+        });
+        await publishMutation({
+          kind: "note.updated",
+          actorUserId: client.info.userId,
+          actorConnectionId: connectionId,
+          note: {
+            id: noteId,
+            workspaceId: persisted.workspaceId,
+            notebookId: persisted.notebookId,
+            version: persisted.version,
+            updatedAt: persisted.updatedAt,
+            title: persisted.title,
+            contentText: persisted.contentText,
+          },
+        });
+      } catch (error) {
+        if (error instanceof PostgresYjsReadRuntimeError && error.code === "YJS_WRITE_CONFLICT") {
+          for (const current of clients.values()) current.info.yRooms.delete(noteId);
+        }
+        sendRuntimeError(client, error, noteId);
+      }
       return true;
     }
 
@@ -619,8 +681,9 @@ export function createPostgresRealtimeRuntime(
             "workspace-events",
             "yjs-read-sync",
             "yjs-awareness-relay",
+            "yjs-update-write",
           ],
-          pendingCapabilities: ["yjs-update-write", "yjs-snapshot-compaction"],
+          pendingCapabilities: ["yjs-snapshot-compaction"],
         });
         ws.on("message", (raw) => {
           void handleMessage(info.connectionId, raw).catch((error) => {
@@ -656,7 +719,7 @@ export function createPostgresRealtimeRuntime(
       }
     }, HEARTBEAT_INTERVAL_MS);
     heartbeatTimer.unref?.();
-    console.log("[postgres-realtime-runtime] room, presence and Yjs read-sync hub attached at /ws");
+    console.log("[postgres-realtime-runtime] room, presence and Yjs read/write hub attached at /ws");
   }
 
   async function workspaceRecipients(workspaceId: string): Promise<Set<string>> {
@@ -829,6 +892,7 @@ export function createPostgresRealtimeRuntime(
       yjsRooms: yjsStats.rooms,
       yjsConnections: yjsStats.connections,
       yjsLoadingRooms: yjsStats.loadingRooms,
+      yjsWritingRooms: yjsStats.writingRooms,
       yjsSeededRooms: yjsStats.seededRooms,
       yjsReplayedUpdates: yjsStats.replayedUpdates,
       attached: Boolean(server),
