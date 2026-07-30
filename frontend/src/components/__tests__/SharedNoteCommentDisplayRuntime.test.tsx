@@ -2,6 +2,7 @@
 
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ShareComment } from "@/types";
 
 const mocks = vi.hoisted(() => ({
   getSharedComments: vi.fn(),
@@ -26,12 +27,22 @@ import SharedNoteCommentDisplayRuntime, {
   normalizeSharedCommentDisplayName,
 } from "../SharedNoteCommentDisplayRuntime";
 
-const BASE_COMMENT = {
+const NOW = new Date(0).toISOString();
+const BASE_COMMENT: ShareComment = {
   id: "comment-1",
   noteId: "note-1",
   userId: null,
+  displayName: undefined,
+  isGuest: true,
+  guestName: null,
+  username: null,
+  avatarUrl: null,
+  parentId: null,
   content: "test",
-  createdAt: new Date(0).toISOString(),
+  anchorData: null,
+  isResolved: 0,
+  createdAt: NOW,
+  updatedAt: NOW,
 };
 
 describe("SharedNoteCommentDisplayRuntime", () => {
@@ -44,7 +55,6 @@ describe("SharedNoteCommentDisplayRuntime", () => {
     mocks.getSharedComments.mockResolvedValue([
       {
         ...BASE_COMMENT,
-        username: null,
         guestName: "访客甲",
         displayName: "访客甲",
       },
@@ -59,7 +69,6 @@ describe("SharedNoteCommentDisplayRuntime", () => {
   it("projects the nickname immediately after an anonymous comment is added", async () => {
     mocks.addSharedComment.mockResolvedValue({
       ...BASE_COMMENT,
-      username: null,
       guestName: "访客乙",
       displayName: "访客乙",
     });
@@ -74,8 +83,11 @@ describe("SharedNoteCommentDisplayRuntime", () => {
   });
 
   it("falls back from displayName to guestName and finally 匿名", () => {
-    expect(normalizeSharedCommentDisplayName({ guestName: " 小王 " }).username).toBe("小王");
-    expect(normalizeSharedCommentDisplayName({}).username).toBe("匿名");
+    expect(normalizeSharedCommentDisplayName({
+      ...BASE_COMMENT,
+      guestName: " 小王 ",
+    }).username).toBe("小王");
+    expect(normalizeSharedCommentDisplayName(BASE_COMMENT).username).toBe("匿名");
   });
 
   it("keeps the identity runtime mounted", () => {
