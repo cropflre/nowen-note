@@ -421,7 +421,14 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
         generation: persisted.generation,
         structureVersion: persisted.structureVersion,
       });
-      await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);
+      try {
+        await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);
+      } catch (publishError) {
+        console.warn(
+          "[postgres-subdocument-ws] note mutation publish failed:",
+          errorMessage(publishError),
+        );
+      }
     } catch (error) {
       if (
         error instanceof PostgresYjsSubdocumentRuntimeError
