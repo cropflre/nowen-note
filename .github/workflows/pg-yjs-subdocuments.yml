@@ -8,9 +8,12 @@ on:
       - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
       - "backend/src/db/postgres/migrations.ts"
       - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/src/index.postgres-runtime.ts"
       - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
       - "backend/build.bundle.mjs"
       - ".github/workflows/pg-yjs-subdocuments.yml"
   pull_request:
@@ -18,9 +21,12 @@ on:
       - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
       - "backend/src/db/postgres/migrations.ts"
       - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/src/index.postgres-runtime.ts"
       - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
       - "backend/build.bundle.mjs"
       - ".github/workflows/pg-yjs-subdocuments.yml"
   workflow_dispatch:
@@ -65,6 +71,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
       - name: Stable-section subdocument transaction
         run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
+      - name: Subdocument websocket protocol
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
       - name: Build production backend bundle
         run: npm run build
       - name: Verify subdocument migration is packaged
