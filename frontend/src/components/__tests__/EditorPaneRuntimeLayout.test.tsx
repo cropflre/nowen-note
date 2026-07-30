@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../EditorPane", () => ({
+vi.mock("../FormatAwareEditorPane", () => ({
   default: (props: {
     canSplitDocument?: boolean;
     onSplitDocument?: () => void;
@@ -75,7 +75,7 @@ describe("EditorPaneRuntime layout", () => {
     }
   });
 
-  it("delegates an available split action to the editor without rendering a floating button", async () => {
+  it("delegates an available split action through the format-aware editor", async () => {
     mocks.state.activeNote = {
       id: "split-note",
       title: "可拆分笔记",
