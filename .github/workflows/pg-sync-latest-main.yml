@@ -5,6 +5,9 @@ on:
     branches: [pg-migration-unified]
     paths:
       - .github/pg-sync-latest-main-trigger
+  pull_request:
+    branches: [pg-migration-unified]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
