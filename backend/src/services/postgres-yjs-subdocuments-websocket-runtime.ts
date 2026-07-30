@@ -6,6 +6,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import type { DatabaseAdapter } from "../db/adapters/types";
 import { verifyLoginToken } from "../lib/auth-security";
+import { createPostgresSubdocumentWebsocketRepository } from "../repositories/postgresSubdocumentWebsocketRepository";
 import { createNoteCoreRuntime } from "./note-core-runtime";
 import type { NoteRuntimeMutationEvent } from "./postgres-realtime-runtime";
 import {
@@ -13,19 +14,6 @@ import {
   PostgresYjsSubdocumentRuntimeError,
   type PostgresYjsSubdocumentManifest,
 } from "./postgres-yjs-subdocuments-runtime";
-
-interface RuntimeUserRow {
-  id: string;
-  username: string;
-  role: string;
-  tokenVersion: number;
-  isDisabled: boolean | number;
-}
-
-interface RuntimeSessionRow {
-  revokedAt: string | Date | null;
-  expiresAt: string | Date | null;
-}
 
 interface RuntimeClient {
   ws: WebSocket;
@@ -76,10 +64,6 @@ const DEFAULT_CLIENT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_UPDATE_BYTES = 1024 * 1024;
 const MAX_ID_LENGTH = 200;
 
-function isDisabled(value: boolean | number): boolean {
-  return value === true || value === 1;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -93,6 +77,14 @@ function rejectUpgrade(socket: any, status = "401 Unauthorized"): void {
   } catch {}
 }
 
+function validId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
+}
+
+function roomKey(noteId: string, sectionId: string): string {
+  return `${noteId}\u0000${sectionId}`;
+}
+
 function decodeCanonicalBase64(value: unknown, maxBytes: number): Uint8Array {
   const input = typeof value === "string" ? value.trim() : "";
   if (!input || input.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(input)) {
@@ -102,8 +94,7 @@ function decodeCanonicalBase64(value: unknown, maxBytes: number): Uint8Array {
     );
   }
   const buffer = Buffer.from(input, "base64");
-  const canonical = buffer.toString("base64").replace(/=+$/u, "");
-  if (canonical !== input.replace(/=+$/u, "")) {
+  if (buffer.toString("base64").replace(/=+$/u, "") !== input.replace(/=+$/u, "")) {
     throw new PostgresYjsSubdocumentRuntimeError(
       "SUBDOCUMENT_INVALID_UPDATE",
       "Invalid base64 subdocument update",
@@ -119,14 +110,6 @@ function decodeCanonicalBase64(value: unknown, maxBytes: number): Uint8Array {
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
-function validId(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
-}
-
-function sectionRoomKey(noteId: string, sectionId: string): string {
-  return `${noteId}\u0000${sectionId}`;
-}
-
 export function createPostgresYjsSubdocumentWebsocketRuntime(
   adapter: DatabaseAdapter,
   options: PostgresYjsSubdocumentWebsocketOptions = {},
@@ -135,6 +118,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const clientTimeoutMs = options.clientTimeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS;
   const maxUpdateBytes = options.maxUpdateBytes ?? DEFAULT_MAX_UPDATE_BYTES;
+  const repository = createPostgresSubdocumentWebsocketRepository(adapter);
   const noteCore = createNoteCoreRuntime(adapter, "postgres");
   const subdocuments = createPostgresYjsSubdocumentRuntime(adapter);
   const clients = new Map<string, RuntimeClient>();
@@ -184,38 +168,29 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     });
   }
 
-  async function authenticate(token: string): Promise<RuntimeUserRow | null> {
+  async function authenticate(token: string) {
     const payload = verifyLoginToken(token);
     if (!payload?.userId) return null;
-    const user = await adapter.queryOne<RuntimeUserRow>(
-      `SELECT id, username, role, "tokenVersion" AS "tokenVersion", "isDisabled" AS "isDisabled"
-         FROM users WHERE id = ?`,
-      [payload.userId],
-    );
-    if (!user || isDisabled(user.isDisabled)) return null;
+    const user = await repository.findUser(payload.userId);
+    if (!user || user.isDisabled === true || user.isDisabled === 1) return null;
     if ((payload.tver ?? 0) !== (user.tokenVersion ?? 0)) return null;
     if (payload.jti) {
-      const session = await adapter.queryOne<RuntimeSessionRow>(
-        `SELECT "revokedAt" AS "revokedAt", "expiresAt" AS "expiresAt"
-           FROM user_sessions WHERE id = ? AND "userId" = ?`,
-        [payload.jti, payload.userId],
-      );
+      const session = await repository.findSession(payload.jti, payload.userId);
       if (!session || session.revokedAt) return null;
       if (session.expiresAt && new Date(session.expiresAt).getTime() <= Date.now()) return null;
     }
     return user;
   }
 
-  async function canReadNote(noteId: string, client: RuntimeClient): Promise<boolean> {
+  async function canRead(noteId: string, client: RuntimeClient): Promise<boolean> {
     if (client.role === "admin") return true;
-    const resolved = await noteCore.resolveNotePermissionAsync(noteId, client.userId);
-    return resolved.permission !== null;
+    return (await noteCore.resolveNotePermissionAsync(noteId, client.userId)).permission !== null;
   }
 
-  async function canWriteNote(noteId: string, client: RuntimeClient): Promise<boolean> {
+  async function canWrite(noteId: string, client: RuntimeClient): Promise<boolean> {
     if (client.role === "admin") return true;
-    const resolved = await noteCore.resolveNotePermissionAsync(noteId, client.userId);
-    return resolved.permission === "write" || resolved.permission === "manage";
+    const permission = (await noteCore.resolveNotePermissionAsync(noteId, client.userId)).permission;
+    return permission === "write" || permission === "manage";
   }
 
   function addMembership(client: RuntimeClient, noteId: string, sectionId?: string): void {
@@ -224,27 +199,27 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     noteRooms.set(noteId, noteMembers);
     client.joinedNotes.add(noteId);
     if (!sectionId) return;
-    const key = sectionRoomKey(noteId, sectionId);
-    const members = sectionRooms.get(key) ?? new Set<string>();
-    members.add(client.connectionId);
-    sectionRooms.set(key, members);
+    const key = roomKey(noteId, sectionId);
+    const sectionMembers = sectionRooms.get(key) ?? new Set<string>();
+    sectionMembers.add(client.connectionId);
+    sectionRooms.set(key, sectionMembers);
     client.joinedSections.add(key);
   }
 
   function removeMembership(client: RuntimeClient, noteId: string, sectionId?: string): void {
     if (sectionId) {
-      const key = sectionRoomKey(noteId, sectionId);
-      const members = sectionRooms.get(key);
-      members?.delete(client.connectionId);
-      if (members?.size === 0) sectionRooms.delete(key);
+      const key = roomKey(noteId, sectionId);
+      const sectionMembers = sectionRooms.get(key);
+      sectionMembers?.delete(client.connectionId);
+      if (sectionMembers?.size === 0) sectionRooms.delete(key);
       client.joinedSections.delete(key);
       if (Array.from(client.joinedSections).some((entry) => entry.startsWith(`${noteId}\u0000`))) return;
     } else {
       for (const key of Array.from(client.joinedSections)) {
         if (!key.startsWith(`${noteId}\u0000`)) continue;
-        const members = sectionRooms.get(key);
-        members?.delete(client.connectionId);
-        if (members?.size === 0) sectionRooms.delete(key);
+        const sectionMembers = sectionRooms.get(key);
+        sectionMembers?.delete(client.connectionId);
+        if (sectionMembers?.size === 0) sectionRooms.delete(key);
         client.joinedSections.delete(key);
       }
     }
@@ -267,7 +242,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     message: Record<string, unknown>,
     excludeConnectionId?: string,
   ): void {
-    for (const connectionId of sectionRooms.get(sectionRoomKey(noteId, sectionId)) ?? []) {
+    for (const connectionId of sectionRooms.get(roomKey(noteId, sectionId)) ?? []) {
       if (connectionId === excludeConnectionId) continue;
       const client = clients.get(connectionId);
       if (client) send(client.ws, message);
@@ -303,39 +278,29 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
         "Subdocument protocol requires a Tiptap JSON note",
       );
     }
-    const previousGeneration = knownGenerations.get(noteId);
-    if (previousGeneration != null && previousGeneration !== manifest.generation) {
+    const previous = knownGenerations.get(noteId);
+    if (previous != null && previous !== manifest.generation) {
       invalidateNote(noteId, "manifest-generation-changed", manifest);
     }
     knownGenerations.set(noteId, manifest.generation);
     return manifest;
   }
 
-  async function sendState(
-    client: RuntimeClient,
-    noteId: string,
-    sectionId?: string,
-  ): Promise<void> {
-    if (!(await canReadNote(noteId, client))) {
+  async function sendState(client: RuntimeClient, noteId: string, sectionId?: string): Promise<void> {
+    if (!(await canRead(noteId, client))) {
       send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" });
       return;
     }
     const manifest = await prepareForJoin(noteId);
-    const readOnly = !(await canWriteNote(noteId, client));
+    const readOnly = !(await canWrite(noteId, client));
     let section: Record<string, unknown> | null = null;
     if (sectionId) {
       const descriptor = manifest.sections.find((entry) => entry.id === sectionId);
-      if (!descriptor) {
+      const state = descriptor ? await subdocuments.getState(noteId, sectionId) : null;
+      if (!descriptor || !state) {
         throw new PostgresYjsSubdocumentRuntimeError(
           "SUBDOCUMENT_NOT_FOUND",
           "Subdocument section not found",
-        );
-      }
-      const state = await subdocuments.getState(noteId, sectionId);
-      if (!state) {
-        throw new PostgresYjsSubdocumentRuntimeError(
-          "SUBDOCUMENT_NOT_FOUND",
-          "Subdocument section state not found",
         );
       }
       section = {
@@ -362,17 +327,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     contentText: string,
   ): Promise<void> {
     if (!options.publishMutation) return;
-    const note = await adapter.queryOne<{
-      workspaceId: string | null;
-      notebookId: string;
-      title: string;
-      updatedAt: string | Date;
-    }>(
-      `SELECT "workspaceId" AS "workspaceId", "notebookId" AS "notebookId", title,
-              "updatedAt" AS "updatedAt"
-         FROM notes WHERE id = ?`,
-      [noteId],
-    );
+    const note = await repository.findNoteSnapshot(noteId);
     if (!note) return;
     await options.publishMutation({
       kind: "note.updated",
@@ -390,6 +345,87 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     });
   }
 
+  async function handleUpdate(
+    client: RuntimeClient,
+    message: ClientMessage,
+    noteId: string,
+    sectionId: string,
+  ): Promise<void> {
+    if (!client.joinedSections.has(roomKey(noteId, sectionId))) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        sectionId,
+        code: "SUBDOCUMENT_NOT_JOINED",
+        error: "Subdocument section has not been joined",
+      });
+      return;
+    }
+    if (!(await canWrite(noteId, client))) {
+      send(client.ws, { type: "error", noteId, sectionId, code: "FORBIDDEN", error: "Write permission required" });
+      return;
+    }
+    if (!Number.isInteger(message.generation) || Number(message.generation) < 1) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        sectionId,
+        code: "SUBDOCUMENT_GENERATION_REQUIRED",
+        error: "Missing generation",
+      });
+      return;
+    }
+    try {
+      const update = decodeCanonicalBase64(message.update, maxUpdateBytes);
+      const persisted = await subdocuments.applyUpdate(
+        noteId,
+        sectionId,
+        update,
+        client.userId,
+        Number(message.generation),
+      );
+      updates += 1;
+      knownGenerations.set(noteId, persisted.generation);
+      const updateBase64 = Buffer.from(update).toString("base64");
+      broadcastSection(noteId, sectionId, {
+        type: "y:subdoc:update",
+        noteId,
+        sectionId,
+        update: updateBase64,
+        version: persisted.version,
+        generation: persisted.generation,
+        structureVersion: persisted.structureVersion,
+        actorConnectionId: client.connectionId,
+        actorUserId: client.userId,
+      }, client.connectionId);
+      send(client.ws, {
+        type: "y:subdoc:update-ack",
+        noteId,
+        sectionId,
+        version: persisted.version,
+        generation: persisted.generation,
+        structureVersion: persisted.structureVersion,
+      });
+      await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);
+    } catch (error) {
+      if (
+        error instanceof PostgresYjsSubdocumentRuntimeError
+        && [
+          "SUBDOCUMENT_GENERATION_CONFLICT",
+          "SUBDOCUMENT_WRITE_CONFLICT",
+          "SUBDOCUMENT_STRUCTURE_CHANGE_PENDING",
+        ].includes(error.code)
+      ) {
+        invalidateNote(
+          noteId,
+          error.code,
+          error.details?.currentManifest as PostgresYjsSubdocumentManifest | undefined,
+        );
+      }
+      sendError(client, error, noteId, sectionId);
+    }
+  }
+
   async function handleMessage(client: RuntimeClient, data: RawData): Promise<void> {
     client.lastSeen = Date.now();
     let message: ClientMessage;
@@ -399,7 +435,6 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
       send(client.ws, { type: "error", code: "INVALID_JSON", error: "Invalid JSON" });
       return;
     }
-
     if (message.type === "ping") {
       send(client.ws, { type: "pong", t: Date.now() });
       return;
@@ -444,8 +479,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     }
 
     if (message.type === "y:subdoc:leave") {
-      if (!noteId) return;
-      removeMembership(client, noteId, sectionId || undefined);
+      if (noteId) removeMembership(client, noteId, sectionId || undefined);
       return;
     }
 
@@ -460,76 +494,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
         });
         return;
       }
-      if (!client.joinedSections.has(sectionRoomKey(noteId, sectionId))) {
-        send(client.ws, {
-          type: "error",
-          noteId,
-          sectionId,
-          code: "SUBDOCUMENT_NOT_JOINED",
-          error: "Subdocument section has not been joined",
-        });
-        return;
-      }
-      if (!(await canWriteNote(noteId, client))) {
-        send(client.ws, { type: "error", noteId, sectionId, code: "FORBIDDEN", error: "Write permission required" });
-        return;
-      }
-      if (!Number.isInteger(message.generation) || Number(message.generation) < 1) {
-        send(client.ws, {
-          type: "error",
-          noteId,
-          sectionId,
-          code: "SUBDOCUMENT_GENERATION_REQUIRED",
-          error: "Missing generation",
-        });
-        return;
-      }
-      try {
-        const update = decodeCanonicalBase64(message.update, maxUpdateBytes);
-        const persisted = await subdocuments.applyUpdate(
-          noteId,
-          sectionId,
-          update,
-          client.userId,
-          Number(message.generation),
-        );
-        updates += 1;
-        knownGenerations.set(noteId, persisted.generation);
-        const updateBase64 = Buffer.from(update).toString("base64");
-        broadcastSection(noteId, sectionId, {
-          type: "y:subdoc:update",
-          noteId,
-          sectionId,
-          update: updateBase64,
-          version: persisted.version,
-          generation: persisted.generation,
-          structureVersion: persisted.structureVersion,
-          actorConnectionId: client.connectionId,
-          actorUserId: client.userId,
-        }, client.connectionId);
-        send(client.ws, {
-          type: "y:subdoc:update-ack",
-          noteId,
-          sectionId,
-          version: persisted.version,
-          generation: persisted.generation,
-          structureVersion: persisted.structureVersion,
-        });
-        await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);
-      } catch (error) {
-        if (
-          error instanceof PostgresYjsSubdocumentRuntimeError
-          && [
-            "SUBDOCUMENT_GENERATION_CONFLICT",
-            "SUBDOCUMENT_WRITE_CONFLICT",
-            "SUBDOCUMENT_STRUCTURE_CHANGE_PENDING",
-          ].includes(error.code)
-        ) {
-          const manifest = error.details?.currentManifest as PostgresYjsSubdocumentManifest | undefined;
-          invalidateNote(noteId, error.code, manifest);
-        }
-        sendError(client, error, noteId, sectionId);
-      }
+      await handleUpdate(client, message, noteId, sectionId);
       return;
     }
 
