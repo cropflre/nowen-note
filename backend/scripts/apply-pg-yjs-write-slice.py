@@ -58,29 +58,22 @@ replace_once(
   function roomError(client: RuntimeClient, room: string, code: string, error: string): void {''',
     "write permission helper",
 )
-replace_once(
+regex_once(
     REALTIME,
-    '''      if (!(await canJoinNoteRoom(noteId, client.info))) {
-        send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" });
+    r'''(      if \(!\(await canJoinNoteRoom\(noteId, client\.info\)\)\) \{
+        send\(client\.ws, \{ type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" \}\);
         return true;
-      }
-      try {
-        const joined = await yjs.join(noteId, connectionId);''',
-    '''      if (!(await canJoinNoteRoom(noteId, client.info))) {
-        send(client.ws, { type: "error", noteId, code: "FORBIDDEN", error: "Forbidden" });
-        return true;
-      }
-      const writable = await canWriteNote(noteId, client.info);
-      try {
-        const joined = await yjs.join(noteId, connectionId);''',
+      \}
+)(      try \{
+        const result = await yjs\.join\(noteId, connectionId\);)''',
+    r'''\1      const writable = await canWriteNote(noteId, client.info);
+\2''',
     "join write permission",
 )
 replace_once(
     REALTIME,
-    '''          readOnly: true,
-          source: joined.source,''',
-    '''          readOnly: !writable,
-          source: joined.source,''',
+    "          warnings: result.warnings,\n          readOnly: true,",
+    "          warnings: result.warnings,\n          readOnly: !writable,",
     "join readOnly capability",
 )
 replace_once(
@@ -168,23 +161,23 @@ replace_once(
     }''',
     "transactional y:update handler",
 )
-replace_once(
+regex_once(
     REALTIME,
-    '''        "yjs-read-sync",
-        "yjs-awareness-relay",
-      ],
-      pendingCapabilities: ["yjs-update-write", "yjs-snapshot-compaction"],''',
-    '''        "yjs-read-sync",
-        "yjs-awareness-relay",
-        "yjs-update-write",
-      ],
-      pendingCapabilities: ["yjs-snapshot-compaction"],''',
+    r'''(?P<indent>\s*)"yjs-read-sync",
+(?P=indent)"yjs-awareness-relay",
+(?P<close>\s*)\],
+(?P<pending>\s*)pendingCapabilities: \["yjs-update-write", "yjs-snapshot-compaction"\],''',
+    '''            "yjs-read-sync",
+            "yjs-awareness-relay",
+            "yjs-update-write",
+          ],
+          pendingCapabilities: ["yjs-snapshot-compaction"],''',
     "runtime capabilities",
 )
 replace_once(
     REALTIME,
-    '[postgres-realtime-runtime] room, presence and Yjs read-sync hub attached at /ws',
-    '[postgres-realtime-runtime] room, presence and Yjs read/write hub attached at /ws',
+    "[postgres-realtime-runtime] room, presence and Yjs read-sync hub attached at /ws",
+    "[postgres-realtime-runtime] room, presence and Yjs read/write hub attached at /ws",
     "runtime log",
 )
 replace_once(
