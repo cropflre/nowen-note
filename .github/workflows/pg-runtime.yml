@@ -173,6 +173,7 @@ jobs:
           tests/note-realtime-route-pg.test.ts
           tests/postgres-yjs-read-runtime-pg.test.ts
           tests/postgres-realtime-yjs-pg.test.ts
+          tests/postgres-yjs-compaction-runtime-pg.test.ts
 
       - name: Build production backend bundle
         run: npm run build
@@ -231,7 +232,7 @@ jobs:
               "PUT /api/notes/reorder/batch",
               "DELETE /api/notes/:id",
               "DELETE /api/notes/trash/empty",
-              "WS /ws (subscriptions, presence, note/workspace events and Yjs read sync)",
+              "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
             ]) {
               if (!health.runtime?.migratedRoutes?.includes(route)) {
                 throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
@@ -248,26 +249,26 @@ jobs:
               "Yjs snapshot and update replay from PostgreSQL",
               "Yjs join, leave and state-vector read synchronization",
               "Yjs awareness relay between joined connections",
+              "Yjs update persistence and notes.content dual-write",
+              "Yjs snapshot compaction and update garbage collection",
             ]) {
               if (!health.runtime?.migratedCapabilities?.includes(capability)) {
                 throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
               }
             }
-            for (const pending of [
-              "Yjs update persistence and notes.content dual-write",
-              "Yjs snapshot compaction and update garbage collection",
-              "Yjs subdocument write protocol",
-            ]) {
-              if (!health.runtime?.pendingCapabilities?.includes(pending)) {
-                throw new Error(`missing pending boundary ${pending}: ${JSON.stringify(health.runtime)}`);
-              }
+            if (!health.runtime?.pendingCapabilities?.includes("Yjs subdocument write protocol")) {
+              throw new Error(`missing pending subdocument boundary: ${JSON.stringify(health.runtime)}`);
             }
-            if (health.runtime?.pendingCapabilities?.some((entry) => /join|awareness/i.test(entry))) {
-              throw new Error(`stale Yjs read-sync pending capability: ${JSON.stringify(health.runtime)}`);
+            if (health.runtime?.pendingCapabilities?.some((entry) => /join|awareness|update persistence|snapshot compaction/i.test(entry))) {
+              throw new Error(`stale Yjs pending capability: ${JSON.stringify(health.runtime)}`);
             }
             const realtime = health.runtime?.realtime;
             if (realtime?.attached !== true || realtime?.yjsRooms !== 0 || realtime?.yjsConnections !== 0) {
               throw new Error(`unexpected realtime stats: ${JSON.stringify(realtime)}`);
+            }
+            const compaction = health.runtime?.yjsCompaction;
+            if (compaction?.scheduled !== true || compaction?.failures !== 0) {
+              throw new Error(`unexpected compaction stats: ${JSON.stringify(compaction)}`);
             }
           '
 
