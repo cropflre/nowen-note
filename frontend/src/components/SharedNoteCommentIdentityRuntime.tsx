@@ -6,11 +6,29 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 const GUEST_NAME_KEY = "nowen-guest-name";
+const COMMENT_IDENTITY_STATE_KEY = Symbol.for("nowen.shared-comment-identity-runtime");
 
 type GuestNameRequester = () => Promise<string | null>;
 
-let activeGuestNameRequester: GuestNameRequester | null = null;
-let commentApiPatched = false;
+interface CommentIdentityRuntimeState {
+  requester: GuestNameRequester | null;
+  patched: boolean;
+  nativeAddSharedComment: typeof api.addSharedComment | null;
+}
+
+function getCommentIdentityRuntimeState(): CommentIdentityRuntimeState {
+  const globalStore = globalThis as typeof globalThis & {
+    [COMMENT_IDENTITY_STATE_KEY]?: CommentIdentityRuntimeState;
+  };
+  if (!globalStore[COMMENT_IDENTITY_STATE_KEY]) {
+    globalStore[COMMENT_IDENTITY_STATE_KEY] = {
+      requester: null,
+      patched: false,
+      nativeAddSharedComment: null,
+    };
+  }
+  return globalStore[COMMENT_IDENTITY_STATE_KEY]!;
+}
 
 function readStoredGuestName(): string {
   try {
@@ -41,11 +59,19 @@ function createCancelledCommentError(): Error & { code: string } {
 }
 
 function installCommentIdentityBridge(): void {
-  if (commentApiPatched) return;
-  commentApiPatched = true;
+  const runtime = getCommentIdentityRuntimeState();
+  if (runtime.patched) return;
 
-  const nativeAddSharedComment = api.addSharedComment.bind(api);
+  runtime.patched = true;
+  runtime.nativeAddSharedComment = api.addSharedComment.bind(api);
+
   api.addSharedComment = (async (token, data, accessToken) => {
+    const state = getCommentIdentityRuntimeState();
+    const nativeAddSharedComment = state.nativeAddSharedComment;
+    if (!nativeAddSharedComment) {
+      throw new Error("公开评论接口尚未初始化");
+    }
+
     let nextData = { ...data };
     const explicitName = nextData.guestName?.trim() || "";
     const storedName = readStoredGuestName();
@@ -55,8 +81,8 @@ function installCommentIdentityBridge(): void {
     }
 
     // 普通匿名访客没有登录令牌时，提交前先收集昵称，避免先产生一次 400 请求。
-    if (!nextData.guestName && !hasAuthToken() && activeGuestNameRequester) {
-      const requestedName = await activeGuestNameRequester();
+    if (!nextData.guestName && !hasAuthToken() && state.requester) {
+      const requestedName = await state.requester();
       if (!requestedName) throw createCancelledCommentError();
       nextData.guestName = requestedName;
     }
@@ -65,15 +91,16 @@ function installCommentIdentityBridge(): void {
       return await nativeAddSharedComment(token, nextData, accessToken);
     } catch (error) {
       // 浏览器可能残留已失效 token，前端误以为已登录；以后端结果为准，再补昵称重试一次。
+      const requester = getCommentIdentityRuntimeState().requester;
       if (
         nextData.guestName
-        || !activeGuestNameRequester
+        || !requester
         || !isGuestNameRequiredError(error)
       ) {
         throw error;
       }
 
-      const requestedName = await activeGuestNameRequester();
+      const requestedName = await requester();
       if (!requestedName) throw error;
       return nativeAddSharedComment(
         token,
@@ -130,11 +157,12 @@ export default function SharedNoteCommentIdentityRuntime({
   }, []);
 
   // 子组件在本次 render 后才可能触发评论，因此同步注册可消除 useEffect 首帧空窗。
-  activeGuestNameRequester = requestGuestName;
+  getCommentIdentityRuntimeState().requester = requestGuestName;
 
   useEffect(() => () => {
-    if (activeGuestNameRequester === requestGuestName) {
-      activeGuestNameRequester = null;
+    const runtime = getCommentIdentityRuntimeState();
+    if (runtime.requester === requestGuestName) {
+      runtime.requester = null;
     }
     resolverRef.current?.(null);
     resolverRef.current = null;
