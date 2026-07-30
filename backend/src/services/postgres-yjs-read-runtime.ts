@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 
-import type { DatabaseAdapter } from "../db/adapters/types";
+import {
+  DbStatementChangeError,
+  type DatabaseAdapter,
+} from "../db/adapters/types";
 
 interface SnapshotRow {
   snapshotBlob: unknown;
@@ -13,9 +16,14 @@ interface UpdateRow {
 }
 
 interface NoteSeedRow {
+  title: string;
   content: string | null;
   contentText: string | null;
   contentFormat: string | null;
+  version: number;
+  updatedAt: string | Date;
+  workspaceId: string | null;
+  notebookId: string;
 }
 
 type RoomSource = "snapshot" | "updates" | "seed" | "empty";
@@ -28,22 +36,41 @@ interface ReadRoom {
   source: RoomSource;
   replayedUpdates: number;
   loadWarnings: string[];
+  title: string;
+  contentFormat: string;
+  version: number;
+  updatedAt: string;
+  workspaceId: string | null;
+  notebookId: string;
 }
 
 export interface PostgresYjsReadRuntimeOptions {
   idleTimeoutMs?: number;
   maxStateVectorBytes?: number;
   maxAwarenessBytes?: number;
+  maxUpdateBytes?: number;
 }
 
 export class PostgresYjsReadRuntimeError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "PostgresYjsReadRuntimeError";
   }
+}
+
+export interface PostgresYjsWriteResult {
+  updateBase64: string;
+  markdown: string;
+  contentText: string;
+  version: number;
+  updatedAt: string;
+  title: string;
+  workspaceId: string | null;
+  notebookId: string;
 }
 
 export interface PostgresYjsReadRuntime {
@@ -56,6 +83,12 @@ export interface PostgresYjsReadRuntime {
   leave(noteId: string, connectionId: string): void;
   syncStep1(noteId: string, connectionId: string, stateVectorBase64: string): string;
   validateAwareness(noteId: string, connectionId: string, updateBase64: string): string;
+  applyUpdate(
+    noteId: string,
+    connectionId: string,
+    actorUserId: string,
+    updateBase64: string,
+  ): Promise<PostgresYjsWriteResult>;
   hasJoined(noteId: string, connectionId: string): boolean;
   getMembers(noteId: string): string[];
   closeConnection(connectionId: string): void;
@@ -65,6 +98,7 @@ export interface PostgresYjsReadRuntime {
     rooms: number;
     connections: number;
     loadingRooms: number;
+    writingRooms: number;
     seededRooms: number;
     replayedUpdates: number;
   };
@@ -73,9 +107,15 @@ export interface PostgresYjsReadRuntime {
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_STATE_VECTOR_BYTES = 64 * 1024;
 const DEFAULT_MAX_AWARENESS_BYTES = 256 * 1024;
+const DEFAULT_MAX_UPDATE_BYTES = 1024 * 1024;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function toIso(value: string | Date): string {
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
 }
 
 function toUint8Array(value: unknown): Uint8Array {
@@ -104,7 +144,10 @@ function decodeBase64(value: string, maxBytes: number, code: string): Uint8Array
     throw new PostgresYjsReadRuntimeError(code, "Invalid base64 payload");
   }
   if (buffer.byteLength > maxBytes) {
-    throw new PostgresYjsReadRuntimeError(code, `Payload exceeds ${maxBytes} bytes`);
+    throw new PostgresYjsReadRuntimeError(code, `Payload exceeds ${maxBytes} bytes`, {
+      maxBytes,
+      actualBytes: buffer.byteLength,
+    });
   }
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
@@ -119,6 +162,16 @@ function inferSeed(row: NoteSeedRow): string {
   return content || contentText;
 }
 
+function markdownToPlainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/gu, "")
+    .replace(/!\[[^\]]*\]\([^)]+\)/gu, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
+    .replace(/[#>*_`~\-]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 export function createPostgresYjsReadRuntime(
   adapter: DatabaseAdapter,
   options: PostgresYjsReadRuntimeOptions = {},
@@ -126,8 +179,10 @@ export function createPostgresYjsReadRuntime(
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const maxStateVectorBytes = options.maxStateVectorBytes ?? DEFAULT_MAX_STATE_VECTOR_BYTES;
   const maxAwarenessBytes = options.maxAwarenessBytes ?? DEFAULT_MAX_AWARENESS_BYTES;
+  const maxUpdateBytes = options.maxUpdateBytes ?? DEFAULT_MAX_UPDATE_BYTES;
   const rooms = new Map<string, ReadRoom>();
   const loadingRooms = new Map<string, Promise<ReadRoom>>();
+  const writeQueues = new Map<string, Promise<unknown>>();
   const epochs = new Map<string, number>();
   let closed = false;
 
@@ -137,7 +192,9 @@ export function createPostgresYjsReadRuntime(
 
   async function loadRoom(noteId: string): Promise<ReadRoom> {
     const seed = await adapter.queryOne<NoteSeedRow>(
-      `SELECT content, "contentText" AS "contentText", "contentFormat" AS "contentFormat"
+      `SELECT title, content, "contentText" AS "contentText", "contentFormat" AS "contentFormat",
+              version, "updatedAt" AS "updatedAt", "workspaceId" AS "workspaceId",
+              "notebookId" AS "notebookId"
          FROM notes WHERE id = ?`,
       [noteId],
     );
@@ -201,6 +258,12 @@ export function createPostgresYjsReadRuntime(
       source,
       replayedUpdates,
       loadWarnings: warnings,
+      title: seed.title,
+      contentFormat: seed.contentFormat || "markdown",
+      version: Number(seed.version) || 1,
+      updatedAt: toIso(seed.updatedAt),
+      workspaceId: seed.workspaceId || null,
+      notebookId: seed.notebookId,
     };
   }
 
@@ -299,6 +362,117 @@ export function createPostgresYjsReadRuntime(
     ));
   }
 
+  async function applyUpdateNow(
+    noteId: string,
+    connectionId: string,
+    actorUserId: string,
+    updateBase64: string,
+  ): Promise<PostgresYjsWriteResult> {
+    if (closed) throw new PostgresYjsReadRuntimeError("YJS_RUNTIME_CLOSED", "Yjs runtime is closed");
+    const room = requireJoined(noteId, connectionId);
+    if (room.contentFormat !== "markdown") {
+      throw new PostgresYjsReadRuntimeError(
+        "YJS_UNSUPPORTED_CONTENT_FORMAT",
+        `Yjs write sync only supports markdown notes, received ${room.contentFormat}`,
+        { contentFormat: room.contentFormat },
+      );
+    }
+
+    const update = decodeBase64(updateBase64, maxUpdateBytes, "YJS_INVALID_UPDATE");
+    const candidate = new Y.Doc();
+    let markdown = "";
+    try {
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.doc));
+      Y.applyUpdate(candidate, update);
+      markdown = candidate.getText("content").toString();
+    } catch (error) {
+      throw new PostgresYjsReadRuntimeError(
+        "YJS_INVALID_UPDATE",
+        `Yjs update could not be applied: ${errorMessage(error)}`,
+      );
+    } finally {
+      candidate.destroy();
+    }
+
+    const contentText = markdownToPlainText(markdown);
+    const updatedAt = new Date().toISOString();
+    const previousVersion = room.version;
+    const version = previousVersion + 1;
+
+    try {
+      await adapter.executeStatements([
+        {
+          sql: `UPDATE notes
+                   SET content = ?, "contentText" = ?, version = ?, "updatedAt" = ?
+                 WHERE id = ? AND version = ? AND "contentFormat" = 'markdown'`,
+          params: [markdown, contentText, version, updatedAt, noteId, previousVersion],
+          requireChanges: 1,
+        },
+        {
+          sql: `INSERT INTO note_yupdates ("noteId", "userId", update_blob, clock, "createdAt")
+                VALUES (?, ?, ?, ?, ?)`,
+          params: [noteId, actorUserId, Buffer.from(update), version, updatedAt],
+          requireChanges: 1,
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof DbStatementChangeError) {
+        const latest = await adapter.queryOne<{ version: number; contentFormat: string }>(
+          `SELECT version, "contentFormat" AS "contentFormat" FROM notes WHERE id = ?`,
+          [noteId],
+        );
+        destroyNote(noteId);
+        throw new PostgresYjsReadRuntimeError(
+          "YJS_WRITE_CONFLICT",
+          "The note changed outside this Yjs room; rejoin before editing again",
+          {
+            expectedVersion: previousVersion,
+            currentVersion: latest?.version ?? null,
+            contentFormat: latest?.contentFormat ?? null,
+          },
+        );
+      }
+      throw new PostgresYjsReadRuntimeError(
+        "YJS_PERSIST_FAILED",
+        `PostgreSQL Yjs update transaction failed: ${errorMessage(error)}`,
+      );
+    }
+
+    if (rooms.get(noteId) === room) {
+      Y.applyUpdate(room.doc, update);
+      room.version = version;
+      room.updatedAt = updatedAt;
+      if (room.source === "empty" || room.source === "seed") room.source = "updates";
+    }
+
+    return {
+      updateBase64: encodeBase64(update),
+      markdown,
+      contentText,
+      version,
+      updatedAt,
+      title: room.title,
+      workspaceId: room.workspaceId,
+      notebookId: room.notebookId,
+    };
+  }
+
+  function applyUpdate(
+    noteId: string,
+    connectionId: string,
+    actorUserId: string,
+    updateBase64: string,
+  ): Promise<PostgresYjsWriteResult> {
+    const previous = writeQueues.get(noteId) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(() => (
+      applyUpdateNow(noteId, connectionId, actorUserId, updateBase64)
+    ));
+    writeQueues.set(noteId, task);
+    return task.finally(() => {
+      if (writeQueues.get(noteId) === task) writeQueues.delete(noteId);
+    });
+  }
+
   function hasJoined(noteId: string, connectionId: string): boolean {
     return rooms.get(noteId)?.members.has(connectionId) ?? false;
   }
@@ -328,14 +502,16 @@ export function createPostgresYjsReadRuntime(
     for (const noteId of new Set([...rooms.keys(), ...loadingRooms.keys()])) {
       epochs.set(noteId, currentEpoch(noteId) + 1);
     }
-    const pending = Array.from(loadingRooms.values());
-    await Promise.allSettled(pending);
+    const pendingLoads = Array.from(loadingRooms.values());
+    const pendingWrites = Array.from(writeQueues.values());
+    await Promise.allSettled([...pendingLoads, ...pendingWrites]);
     for (const room of rooms.values()) {
       if (room.idleTimer) clearTimeout(room.idleTimer);
       room.doc.destroy();
     }
     rooms.clear();
     loadingRooms.clear();
+    writeQueues.clear();
   }
 
   function getStats() {
@@ -351,6 +527,7 @@ export function createPostgresYjsReadRuntime(
       rooms: rooms.size,
       connections: connections.size,
       loadingRooms: loadingRooms.size,
+      writingRooms: writeQueues.size,
       seededRooms,
       replayedUpdates,
     };
@@ -361,6 +538,7 @@ export function createPostgresYjsReadRuntime(
     leave,
     syncStep1,
     validateAwareness,
+    applyUpdate,
     hasJoined,
     getMembers,
     closeConnection,
