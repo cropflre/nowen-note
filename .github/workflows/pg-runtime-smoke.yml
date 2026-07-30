@@ -7,6 +7,7 @@ on:
     paths:
       - "backend/src/db/**"
       - "backend/src/lib/**"
+      - "backend/src/repositories/postgresSubdocumentWebsocketRepository.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
@@ -21,6 +22,8 @@ on:
       - "backend/src/services/postgres-realtime-runtime.ts"
       - "backend/src/services/postgres-yjs-compaction-runtime.ts"
       - "backend/src/services/postgres-yjs-read-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -29,6 +32,7 @@ on:
     paths:
       - "backend/src/db/**"
       - "backend/src/lib/**"
+      - "backend/src/repositories/postgresSubdocumentWebsocketRepository.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/routes/notes-runtime.ts"
@@ -43,6 +47,8 @@ on:
       - "backend/src/services/postgres-realtime-runtime.ts"
       - "backend/src/services/postgres-yjs-compaction-runtime.ts"
       - "backend/src/services/postgres-yjs-read-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
       - "backend/package-lock.json"
@@ -149,6 +155,7 @@ jobs:
             "DELETE /api/notes/:id",
             "DELETE /api/notes/trash/empty",
             "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
+            "WS /ws/subdocuments (Tiptap manifest/state and stable-section Yjs writes)",
           ]) {
             if (!health.runtime?.migratedRoutes?.includes(route)) {
               throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
@@ -167,20 +174,25 @@ jobs:
             "Yjs awareness relay between joined connections",
             "Yjs update persistence and notes.content dual-write",
             "Yjs snapshot compaction and update garbage collection",
+            "Yjs subdocument manifest/state and stable-section write protocol",
           ]) {
             if (!health.runtime?.migratedCapabilities?.includes(capability)) {
               throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
             }
           }
-          if (!health.runtime?.pendingCapabilities?.includes("Yjs subdocument write protocol")) {
-            throw new Error(`missing pending subdocument boundary: ${JSON.stringify(health.runtime)}`);
+          if (!health.runtime?.pendingCapabilities?.includes("Yjs subdocument structure-changing writes")) {
+            throw new Error(`missing pending structure-change boundary: ${JSON.stringify(health.runtime)}`);
           }
-          if (health.runtime?.pendingCapabilities?.some((entry) => /join|awareness|update persistence|snapshot compaction/i.test(entry))) {
-            throw new Error(`stale Yjs pending capability: ${JSON.stringify(health.runtime)}`);
+          if (health.runtime?.pendingCapabilities?.includes("Yjs subdocument write protocol")) {
+            throw new Error(`stale subdocument pending capability: ${JSON.stringify(health.runtime)}`);
           }
           const realtime = health.runtime?.realtime;
           if (realtime?.attached !== true || realtime?.clients !== 0 || realtime?.yjsRooms !== 0 || realtime?.yjsConnections !== 0) {
             throw new Error(`unexpected realtime stats: ${JSON.stringify(realtime)}`);
+          }
+          const subdocuments = health.runtime?.subdocuments;
+          if (subdocuments?.attached !== true || subdocuments?.clients !== 0 || subdocuments?.sectionRooms !== 0 || subdocuments?.updates !== 0 || subdocuments?.invalidations !== 0) {
+            throw new Error(`unexpected subdocument stats: ${JSON.stringify(subdocuments)}`);
           }
           const compaction = health.runtime?.yjsCompaction;
           if (compaction?.scheduled !== true || compaction?.failures !== 0) {
