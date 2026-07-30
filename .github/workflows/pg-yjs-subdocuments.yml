@@ -52,6 +52,7 @@ jobs:
       DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
       TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
       DB_DRIVER: postgres
+      DB_PATH: /tmp/nowen-subdocument-ws-test.db
       NODE_ENV: test
     defaults:
       run:
