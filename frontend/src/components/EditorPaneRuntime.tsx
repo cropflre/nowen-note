@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-import EditorPane from "./EditorPane";
+import FormatAwareEditorPane from "./FormatAwareEditorPane";
 import NoteSplitDialog from "@/components/NoteSplitDialog";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { canWriteNote } from "@/lib/notePermissions";
@@ -24,7 +24,7 @@ function resolvePreferredLevel(note: Note | null | undefined): NoteSplitHeadingL
 
 /**
  * 文档拆分运行时外壳：打开笔记时扫描一次可用标题层级，
- * 将拆分能力交给编辑器菜单，并持有事务化预览弹窗。
+ * 将拆分能力交给按 contentFormat 路由的编辑器，并持有事务化预览弹窗。
  */
 export default function EditorPaneRuntime() {
   const { state } = useApp();
@@ -79,7 +79,7 @@ export default function EditorPaneRuntime() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      <EditorPane
+      <FormatAwareEditorPane
         canSplitDocument={canSplit}
         onSplitDocument={() => setDialogOpen(true)}
       />
