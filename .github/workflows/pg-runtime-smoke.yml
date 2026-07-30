@@ -19,6 +19,7 @@ on:
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/src/services/postgres-realtime-runtime.ts"
+      - "backend/src/services/postgres-yjs-compaction-runtime.ts"
       - "backend/src/services/postgres-yjs-read-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -40,6 +41,7 @@ on:
       - "backend/src/services/note-lifecycle-runtime.ts"
       - "backend/src/services/note-link-titles-runtime.ts"
       - "backend/src/services/postgres-realtime-runtime.ts"
+      - "backend/src/services/postgres-yjs-compaction-runtime.ts"
       - "backend/src/services/postgres-yjs-read-runtime.ts"
       - "backend/build.bundle.mjs"
       - "backend/package.json"
@@ -146,7 +148,7 @@ jobs:
             "GET /api/notes/:id",
             "DELETE /api/notes/:id",
             "DELETE /api/notes/trash/empty",
-            "WS /ws (subscriptions, presence, note/workspace events and Yjs read sync)",
+            "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
           ]) {
             if (!health.runtime?.migratedRoutes?.includes(route)) {
               throw new Error(`missing migrated route ${route}: ${JSON.stringify(health.runtime)}`);
@@ -163,26 +165,26 @@ jobs:
             "Yjs snapshot and update replay from PostgreSQL",
             "Yjs join, leave and state-vector read synchronization",
             "Yjs awareness relay between joined connections",
+            "Yjs update persistence and notes.content dual-write",
+            "Yjs snapshot compaction and update garbage collection",
           ]) {
             if (!health.runtime?.migratedCapabilities?.includes(capability)) {
               throw new Error(`missing migrated capability ${capability}: ${JSON.stringify(health.runtime)}`);
             }
           }
-          for (const pending of [
-            "Yjs update persistence and notes.content dual-write",
-            "Yjs snapshot compaction and update garbage collection",
-            "Yjs subdocument write protocol",
-          ]) {
-            if (!health.runtime?.pendingCapabilities?.includes(pending)) {
-              throw new Error(`missing pending boundary ${pending}: ${JSON.stringify(health.runtime)}`);
-            }
+          if (!health.runtime?.pendingCapabilities?.includes("Yjs subdocument write protocol")) {
+            throw new Error(`missing pending subdocument boundary: ${JSON.stringify(health.runtime)}`);
           }
-          if (health.runtime?.pendingCapabilities?.some((entry) => /join|awareness/i.test(entry))) {
-            throw new Error(`stale Yjs read-sync pending capability: ${JSON.stringify(health.runtime)}`);
+          if (health.runtime?.pendingCapabilities?.some((entry) => /join|awareness|update persistence|snapshot compaction/i.test(entry))) {
+            throw new Error(`stale Yjs pending capability: ${JSON.stringify(health.runtime)}`);
           }
           const realtime = health.runtime?.realtime;
           if (realtime?.attached !== true || realtime?.clients !== 0 || realtime?.yjsRooms !== 0 || realtime?.yjsConnections !== 0) {
             throw new Error(`unexpected realtime stats: ${JSON.stringify(realtime)}`);
+          }
+          const compaction = health.runtime?.yjsCompaction;
+          if (compaction?.scheduled !== true || compaction?.failures !== 0) {
+            throw new Error(`unexpected compaction stats: ${JSON.stringify(compaction)}`);
           }
           if (!status.includes("collection_status=401") || collection.code !== "UNAUTHENTICATED") {
             throw new Error(`unexpected collection authentication boundary: ${status}\n${JSON.stringify(collection)}`);
