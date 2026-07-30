@@ -7,18 +7,24 @@ on:
       - "frontend/vite.config.ts"
       - "frontend/src/components/SharedNoteView.tsx"
       - "frontend/src/components/SharedNoteCommentIdentityRuntime.tsx"
+      - "frontend/src/components/SharedNoteCommentDisplayRuntime.tsx"
       - "frontend/src/components/__tests__/SharedNoteCommentIdentityRuntime.test.tsx"
+      - "frontend/src/components/__tests__/SharedNoteCommentDisplayRuntime.test.tsx"
       - "frontend/src/lib/api.impl.ts"
       - "backend/src/routes/shares.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
       - ".github/workflows/shared-comment-ci.yml"
   pull_request:
     paths:
       - "frontend/vite.config.ts"
       - "frontend/src/components/SharedNoteView.tsx"
       - "frontend/src/components/SharedNoteCommentIdentityRuntime.tsx"
+      - "frontend/src/components/SharedNoteCommentDisplayRuntime.tsx"
       - "frontend/src/components/__tests__/SharedNoteCommentIdentityRuntime.test.tsx"
+      - "frontend/src/components/__tests__/SharedNoteCommentDisplayRuntime.test.tsx"
       - "frontend/src/lib/api.impl.ts"
       - "backend/src/routes/shares.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
       - ".github/workflows/shared-comment-ci.yml"
 
 permissions:
@@ -39,8 +45,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Guest comment identity regression
-        run: npm run test:run -- src/components/__tests__/SharedNoteCommentIdentityRuntime.test.tsx
+      - name: Guest comment identity regressions
+        run: >-
+          npm run test:run --
+          src/components/__tests__/SharedNoteCommentIdentityRuntime.test.tsx
+          src/components/__tests__/SharedNoteCommentDisplayRuntime.test.tsx
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
