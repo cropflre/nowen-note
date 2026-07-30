@@ -29,6 +29,7 @@ export interface PostgresSubdocumentWebsocketRepository {
   findNoteSnapshot(noteId: string): Promise<PostgresSubdocumentNoteSnapshotRow | undefined>;
 }
 
+/** PostgreSQL-only persistence boundary used by the subdocument WebSocket protocol. */
 export function createPostgresSubdocumentWebsocketRepository(
   adapter: DatabaseAdapter,
 ): PostgresSubdocumentWebsocketRepository {
