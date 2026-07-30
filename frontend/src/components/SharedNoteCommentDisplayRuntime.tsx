@@ -2,18 +2,12 @@ import React from "react";
 
 import SharedNoteCommentIdentityRuntime from "./SharedNoteCommentIdentityRuntime";
 import { api } from "@/lib/api";
+import type { ShareComment } from "@/types";
 
 const COMMENT_DISPLAY_STATE_KEY = "__nowenSharedCommentDisplayRuntime__" as const;
 
 type GetSharedComments = typeof api.getSharedComments;
 type AddSharedComment = typeof api.addSharedComment;
-
-type SharedCommentIdentityFields = {
-  username?: string | null;
-  displayName?: string | null;
-  guestName?: string | null;
-  [key: string]: unknown;
-};
 
 interface CommentDisplayRuntimeState {
   version: number;
@@ -41,7 +35,7 @@ function getCommentDisplayRuntimeState(): CommentDisplayRuntimeState {
  * identity into the legacy field at the runtime boundary so both existing and newly-added
  * comments render the nickname without changing the management-side comment contract.
  */
-export function normalizeSharedCommentDisplayName<T extends SharedCommentIdentityFields>(comment: T): T {
+export function normalizeSharedCommentDisplayName(comment: ShareComment): ShareComment {
   const displayName = [comment.displayName, comment.guestName, comment.username]
     .find((value) => typeof value === "string" && value.trim())
     ?.trim() || "匿名";
@@ -51,7 +45,7 @@ export function normalizeSharedCommentDisplayName<T extends SharedCommentIdentit
     ...comment,
     username: displayName,
     displayName,
-  } as T;
+  };
 }
 
 function installCommentDisplayBridge(): void {
@@ -64,15 +58,15 @@ function installCommentDisplayBridge(): void {
   const nativeGetSharedComments = state.nativeGetSharedComments;
   const nativeAddSharedComment = state.nativeAddSharedComment;
 
-  api.getSharedComments = (async (...args: Parameters<GetSharedComments>) => {
+  api.getSharedComments = async (...args: Parameters<GetSharedComments>) => {
     const comments = await nativeGetSharedComments(...args);
-    return comments.map((comment) => normalizeSharedCommentDisplayName(comment));
-  }) as GetSharedComments;
+    return comments.map(normalizeSharedCommentDisplayName);
+  };
 
-  api.addSharedComment = (async (...args: Parameters<AddSharedComment>) => {
+  api.addSharedComment = async (...args: Parameters<AddSharedComment>) => {
     const comment = await nativeAddSharedComment(...args);
     return normalizeSharedCommentDisplayName(comment);
-  }) as AddSharedComment;
+  };
 
   state.version = 1;
 }
