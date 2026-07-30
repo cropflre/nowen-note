@@ -135,6 +135,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
   const repository = createPostgresSubdocumentWebsocketRepository(adapter);
   const noteCore = createNoteCoreRuntime(adapter, "postgres");
   const subdocuments = createPostgresYjsSubdocumentRuntime(adapter);
+  const prepareManifest = subdocuments.prepare;
   const clients = new Map<string, RuntimeClient>();
   const noteRooms = new Map<string, Set<string>>();
   const sectionRooms = new Map<string, Set<string>>();
@@ -285,7 +286,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
   }
 
   async function prepareForJoin(noteId: string): Promise<PostgresYjsSubdocumentManifest> {
-    const manifest = await subdocuments.prepare(noteId);
+    const manifest = await prepareManifest(noteId);
     if (!manifest) {
       throw new PostgresYjsSubdocumentRuntimeError(
         "SUBDOCUMENT_UNSUPPORTED_CONTENT_FORMAT",
