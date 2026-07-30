@@ -85,6 +85,8 @@ test("PostgreSQL Yjs compaction advances an atomic watermark, retains a safety m
   const pool = await getPgPool();
   assert.ok(pool);
   await initPgSchema(pool);
+  await pool.query(`DELETE FROM note_yupdates`);
+  await pool.query(`DELETE FROM note_ysnapshots`);
   await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
   await pool.query(
     `INSERT INTO users (id, username, "passwordHash", "tokenVersion", "isDisabled")
