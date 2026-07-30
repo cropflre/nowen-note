@@ -2,17 +2,18 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import test from "node:test";
+import { URL } from "node:url";
 
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 import { PostgresAdapter } from "../src/db/postgresAdapter";
 import { signLoginToken } from "../src/lib/auth-security";
-import { createPostgresRealtimeRuntime } from "../src/services/postgres-realtime-runtime";
 import {
   createPostgresYjsSubdocumentContentUpdate,
 } from "../src/services/postgres-yjs-subdocuments-runtime";
 import {
   createPostgresYjsSubdocumentWebsocketRuntime,
+  type PostgresYjsSubdocumentMutationEvent,
 } from "../src/services/postgres-yjs-subdocuments-websocket-runtime";
 import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-db";
 
@@ -85,6 +86,10 @@ async function listen(server: Server): Promise<number> {
 async function closeServer(server: Server): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function closeWebSocketServer(wss: WebSocketServer): Promise<void> {
+  await new Promise<void>((resolve) => wss.close(() => resolve()));
 }
 
 async function waitForMessage(
@@ -162,21 +167,37 @@ test("PostgreSQL subdocument websocket joins, relays stable-section writes and f
     res.statusCode = 404;
     res.end();
   });
-  const hub = createPostgresRealtimeRuntime(adapter);
+  const normalWss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (req, socket, head) => {
+    const pathname = new URL(req.url || "", `http://${req.headers.host || "localhost"}`).pathname;
+    if (pathname !== "/ws") {
+      socket.destroy();
+      return;
+    }
+    normalWss.handleUpgrade(req, socket, head, (ws) => {
+      ws.send(JSON.stringify({
+        type: "connected",
+        connectionId: "normal-websocket-test",
+        capabilities: ["normal-websocket-test"],
+      }));
+    });
+  });
+  const mutationEvents: PostgresYjsSubdocumentMutationEvent[] = [];
   const subdocuments = createPostgresYjsSubdocumentWebsocketRuntime(adapter, {
-    publishMutation: hub.publishMutation,
+    publishMutation: async (event) => {
+      mutationEvents.push(event);
+    },
     heartbeatIntervalMs: 50,
     clientTimeoutMs: 2_000,
   });
   const sockets: WebSocket[] = [];
 
   try {
-    hub.attach(server);
     subdocuments.attach(server);
     const port = await listen(server);
 
     const normal = await connectClient(port, OWNER, "/ws");
-    assert.ok((await waitForMessage(normal.messages, "connected")).capabilities.includes("yjs-read-sync"));
+    assert.ok((await waitForMessage(normal.messages, "connected")).capabilities.includes("normal-websocket-test"));
 
     const owner = await connectClient(port, OWNER, "/ws/subdocuments");
     const member = await connectClient(port, MEMBER, "/ws/subdocuments");
@@ -263,6 +284,9 @@ test("PostgreSQL subdocument websocket joins, relays stable-section writes and f
       `SELECT COUNT(*)::int AS count FROM note_y_subdocument_updates WHERE "noteId" = $1`,
       [NOTE],
     )).rows[0].count), 1);
+    assert.equal(mutationEvents.length, 1);
+    assert.equal(mutationEvents[0]?.note.id, NOTE);
+    assert.equal(mutationEvents[0]?.note.version, 2);
 
     send(viewer, {
       type: "y:subdoc:update",
@@ -321,7 +345,7 @@ test("PostgreSQL subdocument websocket joins, relays stable-section writes and f
       } catch {}
     }
     await subdocuments.close();
-    await hub.close();
+    await closeWebSocketServer(normalWss);
     await closeServer(server);
     await closePgPool(pool);
   }
