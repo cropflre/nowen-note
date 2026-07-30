@@ -36,7 +36,8 @@ const patterns = [
   },
   {
     kind: "prepare-call",
-    regex: /\b[A-Za-z_$][\w$]*\.prepare\s*\(/g,
+    // subdocuments.prepare() prepares a CRDT manifest and is not a SQL statement.
+    regex: /\b(?!subdocuments\.prepare\b)[A-Za-z_$][\w$]*\.prepare\s*\(/g,
     description: "Direct prepared statement usage",
   },
   {
