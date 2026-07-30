@@ -81,7 +81,7 @@ export default defineConfig({
         find: /^@\/lib\/largeMarkdownSafety$/,
         replacement: path.resolve(__dirname, "./src/lib/largeMarkdownSafetyRuntime.ts"),
       },
-      // 公开分享评论：匿名访客首次评论前收集昵称，并在本机复用。
+      // 公开分享评论：匿名访客首次评论前收集昵称，失效登录态按服务端结果回退重试。
       // 壳组件通过相对路径加载原 SharedNoteView，避免精确别名递归。
       {
         find: /^@\/components\/SharedNoteView$/,
