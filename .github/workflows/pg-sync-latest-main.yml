@@ -1,0 +1,239 @@
+name: Sync latest main into PostgreSQL migration
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - .github/pg-sync-latest-main-trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pg-sync-latest-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge and reconcile latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          before=$(git rev-parse HEAD)
+          main=$(git rev-parse origin/main)
+          echo "PG before: ${before}"
+          echo "Main: ${main}"
+
+          git merge --no-ff --no-edit -X ours origin/main
+
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import subprocess
+
+          def read_main(path: str) -> str:
+              return subprocess.check_output(["git", "show", f"origin/main:{path}"], text=True)
+
+          # Keep main's bundle startup optimizations while packaging PostgreSQL runtime SQL resources.
+          build_path = Path("backend/build.bundle.mjs")
+          build = read_main("backend/build.bundle.mjs")
+          build = build.replace(
+              'import { rmSync, mkdirSync, statSync } from "node:fs";',
+              'import { copyFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";',
+          )
+          marker = "const ms = Date.now() - start;"
+          pg_assets = '''const postgresSourceDir = join(__dirname, "src", "db", "postgres");
+          const postgresOutputDir = join(outdir, "postgres");
+          const migrationsSourceDir = join(postgresSourceDir, "migrations");
+          const migrationsOutputDir = join(postgresOutputDir, "migrations");
+          mkdirSync(migrationsOutputDir, { recursive: true });
+          copyFileSync(join(postgresSourceDir, "schema.sql"), join(postgresOutputDir, "schema.sql"));
+          copyFileSync(join(postgresSourceDir, "schema.base.sql"), join(postgresOutputDir, "schema.base.sql"));
+          for (const file of readdirSync(migrationsSourceDir)) {
+            if (!file.endsWith(".sql")) continue;
+            copyFileSync(join(migrationsSourceDir, file), join(migrationsOutputDir, file));
+          }
+
+          '''
+          if marker not in build:
+              raise SystemExit("backend bundle timing marker missing")
+          build = build.replace(marker, pg_assets + marker, 1)
+          build += '\nconsole.log(`[backend bundle] PostgreSQL resources -> ${postgresOutputDir}`);\n'
+          build_path.write_text(build)
+
+          # Preserve PG runtime fail-closed startup and absorb all new SQLite startup modules from main.
+          index_path = Path("backend/src/index.hardened.ts")
+          index = index_path.read_text()
+          inserts = [
+              (
+                  '  // Register feature migrations before any runtime imports can initialize the database.\n',
+                  '  // Install the system-resolver fallback before url-import captures dns.resolve4/resolve6.\n'
+                  '  await import("./runtime/url-import-dns-compat.js");\n'
+                  '  // Register feature migrations before any runtime imports can initialize the database.\n',
+              ),
+              (
+                  '  await import("./runtime/knowledge-tree-migration-bootstrap.js");\n',
+                  '  await import("./runtime/knowledge-tree-migration-bootstrap.js");\n'
+                  '  // Permission routes must load after feature migration registration.\n'
+                  '  await import("./runtime/notebook-permission-management.js");\n',
+              ),
+              (
+                  '  await import("./runtime/auto-full-backup.js");\n',
+                  '  await import("./runtime/auto-full-backup.js");\n'
+                  '  // Mount encrypted WebDAV backup routes before the legacy backup router.\n'
+                  '  await import("./runtime/backup-webdav.js");\n',
+              ),
+          ]
+          for old, new in inserts:
+              if new not in index:
+                  if old not in index:
+                      raise SystemExit(f"index bootstrap marker missing: {old!r}")
+                  index = index.replace(old, new, 1)
+          index_path.write_text(index)
+
+          # Use main's current frontend bootstrap, then restore PG-only runtime hooks.
+          main_path = Path("frontend/src/main.tsx")
+          main_source = read_main("frontend/src/main.tsx")
+          replacements = [
+              (
+                  'import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";\n',
+                  'import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";\n'
+                  'import SidebarSearchExperienceBridge from "./components/SidebarSearchExperienceBridge";\n',
+              ),
+              (
+                  'import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";\n',
+                  'import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";\n'
+                  'import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";\n',
+              ),
+              (
+                  'installKnowledgeTreeScrollbarBridge();\n',
+                  'installKnowledgeTreeScrollbarBridge();\ninstallWorkspaceRealtimeSubscription();\n',
+              ),
+              (
+                  '          <MarkdownExperienceBridge />\n',
+                  '          <MarkdownExperienceBridge />\n          <SidebarSearchExperienceBridge />\n',
+              ),
+          ]
+          for old, new in replacements:
+              if old not in main_source:
+                  raise SystemExit(f"frontend bootstrap marker missing: {old!r}")
+              main_source = main_source.replace(old, new, 1)
+          main_path.write_text(main_source)
+
+          # Keep migration audit commands while adopting the released backend version.
+          package_path = Path("backend/package.json")
+          package = json.loads(package_path.read_text())
+          main_package = json.loads(read_main("backend/package.json"))
+          package["version"] = main_package["version"]
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n")
+          PY
+
+          python backend/scripts/reconcile-pg-main-merge.py
+
+          test "$(node -p "require('./backend/package.json').version")" = "1.4.4"
+          grep -q 'installWorkspaceRealtimeSubscription' frontend/src/main.tsx
+          grep -q 'BackupWebDavBridge' frontend/src/main.tsx
+          grep -q 'SiyuanImportProgressBridge' frontend/src/main.tsx
+          grep -q 'notebook-permission-management' backend/src/index.hardened.ts
+          grep -q 'backup-webdav' backend/src/index.hardened.ts
+          grep -q 'postgresOutputDir' backend/build.bundle.mjs
+
+          git rm -f .github/pg-sync-latest-main-trigger .github/workflows/pg-sync-latest-main.yml
+          git add -A
+          git commit --amend --no-edit
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Backend TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+
+      - name: Direct DB audit
+        working-directory: backend
+        run: npm run audit:sqlite-boundaries
+
+      - name: PostgreSQL schema parity
+        working-directory: backend
+        run: npm run audit:pg-schema-parity
+
+      - name: PostgreSQL runtime regression
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-migrations.test.ts
+          tests/database-runtime.test.ts
+          tests/repository-batch-a-pg.test.ts
+          tests/repository-batch-b-pg.test.ts
+          tests/repository-permissions-pg.test.ts
+          tests/repository-access-session-pg.test.ts
+          tests/note-core-runtime-pg.test.ts
+          tests/note-core-runtime-formats-pg.test.ts
+          tests/note-collection-runtime-pg.test.ts
+          tests/note-realtime-route-pg.test.ts
+          tests/postgres-yjs-read-runtime-pg.test.ts
+          tests/postgres-realtime-yjs-pg.test.ts
+
+      - name: Full SQLite regression
+        working-directory: backend
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        run: npm run test:serial
+
+      - name: Production backend bundle
+        working-directory: backend
+        run: npm run build
+
+      - name: Verify PostgreSQL migration resources
+        working-directory: backend
+        run: |
+          test -f dist/postgres/schema.sql
+          test -f dist/postgres/schema.base.sql
+          test -f dist/postgres/migrations/0012_tag_scope_unique_names.sql
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Push synchronized branch
+        run: git push origin HEAD:pg-migration-unified
