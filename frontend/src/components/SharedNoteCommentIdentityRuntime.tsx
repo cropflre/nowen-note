@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 const GUEST_NAME_KEY = "nowen-guest-name";
-const COMMENT_IDENTITY_STATE_KEY = Symbol.for("nowen.shared-comment-identity-runtime");
+const COMMENT_IDENTITY_STATE_KEY = "__nowenSharedCommentIdentityRuntime__" as const;
 
 type GuestNameRequester = () => Promise<string | null>;
 
@@ -18,7 +18,7 @@ interface CommentIdentityRuntimeState {
 
 function getCommentIdentityRuntimeState(): CommentIdentityRuntimeState {
   const globalStore = globalThis as typeof globalThis & {
-    [COMMENT_IDENTITY_STATE_KEY]?: CommentIdentityRuntimeState;
+    __nowenSharedCommentIdentityRuntime__?: CommentIdentityRuntimeState;
   };
   if (!globalStore[COMMENT_IDENTITY_STATE_KEY]) {
     globalStore[COMMENT_IDENTITY_STATE_KEY] = {
