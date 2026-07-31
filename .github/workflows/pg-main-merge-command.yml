@@ -42,3 +42,5 @@ jobs:
           test -z "$(git diff --name-only --diff-filter=U)"
           git commit -m "chore(pg): merge latest main after structure migration"
           git push origin HEAD:pg-migration-unified
+
+# Trigger latest main merge.
