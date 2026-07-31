@@ -29,6 +29,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0011_note_block_runtime",
     "0012_tag_scope_unique_names",
     "0013_yjs_subdocuments",
+    "0014_yjs_subdocument_structure_operations",
   ]);
 
   const stateTable = await pool.query(
@@ -62,6 +63,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "note_split_items",
     "note_split_operations",
     "note_y_subdocument_manifests",
+    "note_y_subdocument_structure_operations",
     "note_y_subdocument_updates",
     "note_y_subdocuments",
     "notebook_acl_overrides",
@@ -177,12 +179,17 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
 
   const subdocumentIndexes = await pool.query(
     `SELECT to_regclass('public.idx_note_y_subdocuments_order') AS order_index,
-            to_regclass('public.idx_note_y_subdocument_updates_section') AS update_index`,
+            to_regclass('public.idx_note_y_subdocument_updates_section') AS update_index,
+            to_regclass('public.idx_note_y_subdocument_structure_operations_created') AS structure_operation_index`,
   );
   assert.equal(subdocumentIndexes.rows[0].order_index, "idx_note_y_subdocuments_order");
   assert.equal(
     subdocumentIndexes.rows[0].update_index,
     "idx_note_y_subdocument_updates_section",
+  );
+  assert.equal(
+    subdocumentIndexes.rows[0].structure_operation_index,
+    "idx_note_y_subdocument_structure_operations_created",
   );
 
   const second = await runPostgresMigrations(adapter);
