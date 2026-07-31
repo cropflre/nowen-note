@@ -2,7 +2,17 @@
 
 > 面向普通用户、NAS 用户、团队管理员和开发者的统一文档入口。
 
-[官方网站](http://nowen.cn/) · [在线体验](http://note.nowen.cn/) · [客户端下载](https://github.com/cropflre/nowen-note/releases) · [问题反馈](https://github.com/cropflre/nowen-note/issues)
+[官方网站](http://nowen.cn/) · [在线体验](http://note.nowen.cn/) · [客户端下载](https://github.com/cropflre/nowen-note/releases) · [MCP 安装](./mcp.md) · [问题反馈](https://github.com/cropflre/nowen-note/issues)
+
+## MCP 快速入口
+
+需要让 Claude Code、Cursor、VS Code 等 AI 客户端访问 Nowen Note？直接阅读：
+
+- [MCP Server 安装与使用教程](./mcp.md)
+- [MCP Server installation guide](./mcp.en.md)
+- [nowen-mcp 独立包说明](../../packages/nowen-mcp/README.md)
+
+教程包含 Node.js 安装、源码构建、Personal API Token、Windows / macOS / Linux 路径、Claude Code / Cursor / VS Code 配置、连接验证、升级和常见错误排查。
 
 ## 在线帮助中心
 
@@ -24,7 +34,8 @@
 | **部署到 NAS / 服务器** | [Docker 部署](./docker-deploy.md) → [NAS 部署](./nas-deploy.md) → [备份与迁移](./backup-migrate.md) |
 | **高效写作和整理知识** | [富文本编辑器](./editor-rich-text.md) → [Markdown 编辑器](./editor-markdown.md) → [标签与收藏](./tags-favorites.md) → [搜索](./search.md) |
 | **团队协作与公开发布** | [工作区](./workspace.md) → [实时协作](./realtime-collab.md) → [分享与权限](./sharing.md) |
-| **接入 AI 和自动化** | [AI 配置](./ai-setup.md) → [AI 知识问答](./ai-rag.md) → [API](./api.md) → [MCP](./mcp.md) |
+| **让 AI 客户端操作笔记** | [MCP 5 分钟安装](./mcp.md) → 创建 restricted Token → 配置客户端 → 验证工具 |
+| **接入其他自动化** | [API](./api.md) → [SDK](./sdk.md) → [CLI](./cli.md) → [Webhook](./webhook.md) |
 
 ---
 
@@ -125,14 +136,14 @@ Nowen Note 还支持把笔记本发布为公开知识空间，并按目录继承
 
 | 教程 | 内容 |
 |---|---|
+| [MCP Server（中文）](./mcp.md) / [English](./mcp.en.md) | Claude Code、Cursor、VS Code 等客户端的完整安装、配置、验证与排障 |
 | [OpenAPI](./api.md) | REST API、鉴权和接口调试 |
 | [TypeScript SDK](./sdk.md) | 在 Node.js / TypeScript 中调用 Nowen Note |
 | [CLI](./cli.md) | 命令行管理笔记、附件和其他资源 |
-| [MCP Server](./mcp.md) | 让支持 MCP 的 AI 客户端访问知识库 |
 | [Webhook](./webhook.md) | 事件通知和外部工作流 |
 | [浏览器剪藏](./clipper.md) | 从 Chrome / Edge 保存网页内容 |
 
-Personal API Token 支持权限范围和笔记本资源范围。自动化场景应遵循最小权限原则，不要把管理员 Token 写入公开脚本。
+Personal API Token 支持权限范围和笔记本资源范围。自动化场景应遵循最小权限原则，不要把管理员 Token 或真实 API Token 写入公开脚本和仓库配置。
 
 ## 10. 常见问题
 
@@ -151,5 +162,6 @@ Personal API Token 支持权限范围和笔记本资源范围。自动化场景�
 
 - 教程内容以 `main` 分支当前实现和最新稳定 Release 为准，不再绑定某个过期版本号。
 - 新功能应同时更新仓库教程入口和 `nowen-blog` 官网帮助中心。
+- MCP 的安装路径、客户端配置格式和 Token 安全要求发生变化时，应同步更新 `mcp.md`、`mcp.en.md`、根 README 和 `packages/nowen-mcp/README.md`。
 - 安装包、平台支持范围和版本号以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
 - 发现过期步骤或错误链接，请直接提交 [Issue](https://github.com/cropflre/nowen-note/issues)。
