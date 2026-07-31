@@ -10,7 +10,7 @@ on:
       - "frontend/src/lib/offlineWorkspaceSync.ts"
       - "frontend/src/lib/__tests__/offlineWorkspaceSync.test.ts"
       - "frontend/src/components/settings/OfflineSyncSettings.tsx"
-      - "scripts/apply-complete-offline-sync.py"
+      - "scripts/apply-complete-offline-sync-review.py"
       - ".github/workflows/apply-complete-offline-sync.yml"
 
 permissions:
@@ -33,8 +33,8 @@ jobs:
           cache-dependency-path: |
             frontend/package-lock.json
             backend/package-lock.json
-      - name: Apply implementation patches
-        run: python3 scripts/apply-complete-offline-sync.py
+      - name: Apply final hardening patches
+        run: python3 scripts/apply-complete-offline-sync-review.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -53,15 +53,15 @@ jobs:
       - name: Backend typecheck
         working-directory: backend
         run: npm run build:tsc
-      - name: Commit implementation
+      - name: Commit hardening
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend frontend
           if git diff --cached --quiet; then
-            echo "No implementation changes to commit"
+            echo "No hardening changes to commit"
             exit 0
           fi
-          git commit -m "feat(sync): complete offline workspace synchronization"
+          git commit -m "fix(sync): harden complete offline workspace synchronization"
           git push origin HEAD:${{ github.head_ref }}
