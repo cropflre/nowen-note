@@ -63,7 +63,7 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
         "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
-        "WS /ws/subdocuments (Tiptap manifest/state and stable-section Yjs writes)",
+        "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
       ],
       migratedCapabilities: [
         "note deletion audit logs",
@@ -79,13 +79,13 @@ app.get("/api/health", async (c) => {
         "Yjs update persistence and notes.content dual-write",
         "Yjs snapshot compaction and update garbage collection",
         "Yjs subdocument manifest/state and stable-section write protocol",
+        "Yjs subdocument idempotent structure changes and root manifest rebuild",
       ],
       realtime: hub.getStats(),
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
         "notes full-text search (#252)",
-        "Yjs subdocument structure-changing writes",
       ],
     },
   }, status);
@@ -168,7 +168,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes runtime includes PostgreSQL-safe rooms, Yjs read/write sync, snapshot compaction and stable-section subdocument writes; structure-changing subdocument writes remain disabled until #249 completes");
+console.warn("[db] Notes runtime includes PostgreSQL-safe rooms, Yjs read/write sync, snapshot compaction, stable-section writes and idempotent subdocument structure rebuilds; production cutover remains disabled until the remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);

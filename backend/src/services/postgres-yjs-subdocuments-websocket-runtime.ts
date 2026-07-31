@@ -30,6 +30,8 @@ interface ClientMessage {
   noteId?: string;
   sectionId?: string;
   update?: string;
+  content?: string;
+  operationId?: string;
   generation?: number;
 }
 
@@ -55,6 +57,7 @@ export interface PostgresYjsSubdocumentWebsocketOptions {
   heartbeatIntervalMs?: number;
   clientTimeoutMs?: number;
   maxUpdateBytes?: number;
+  maxStructureContentBytes?: number;
   publishMutation?: (event: PostgresYjsSubdocumentMutationEvent) => Promise<void>;
 }
 
@@ -68,6 +71,7 @@ export interface PostgresYjsSubdocumentWebsocketRuntime {
     sectionRooms: number;
     memberships: number;
     updates: number;
+    structureChanges: number;
     invalidations: number;
   };
 }
@@ -76,6 +80,7 @@ const DEFAULT_PATH = "/ws/subdocuments";
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const DEFAULT_CLIENT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_UPDATE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_STRUCTURE_CONTENT_BYTES = 8 * 1024 * 1024;
 const MAX_ID_LENGTH = 200;
 
 function errorMessage(error: unknown): string {
@@ -132,6 +137,8 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const clientTimeoutMs = options.clientTimeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS;
   const maxUpdateBytes = options.maxUpdateBytes ?? DEFAULT_MAX_UPDATE_BYTES;
+  const maxStructureContentBytes = options.maxStructureContentBytes
+    ?? DEFAULT_MAX_STRUCTURE_CONTENT_BYTES;
   const repository = createPostgresSubdocumentWebsocketRepository(adapter);
   const noteCore = createNoteCoreRuntime(adapter, "postgres");
   const subdocuments = createPostgresYjsSubdocumentRuntime(adapter);
@@ -146,6 +153,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
   let capturedUpgradeHandlers: UpgradeHandler[] = [];
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let updates = 0;
+  let structureChanges = 0;
   let invalidations = 0;
 
   function send(ws: WebSocket, message: Record<string, unknown>): void {
@@ -448,6 +456,117 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
     }
   }
 
+
+  async function handleStructureChange(
+    client: RuntimeClient,
+    message: ClientMessage,
+    noteId: string,
+  ): Promise<void> {
+    if (!client.joinedNotes.has(noteId)) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "SUBDOCUMENT_NOT_JOINED",
+        error: "Join the manifest before changing structure",
+      });
+      return;
+    }
+    if (!(await canWrite(noteId, client))) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "FORBIDDEN",
+        error: "Write permission required",
+      });
+      return;
+    }
+    if (!Number.isInteger(message.generation) || Number(message.generation) < 1) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "SUBDOCUMENT_GENERATION_REQUIRED",
+        error: "Missing generation",
+      });
+      return;
+    }
+    if (!validId(message.operationId)) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "SUBDOCUMENT_OPERATION_ID_INVALID",
+        error: "Missing or invalid operationId",
+      });
+      return;
+    }
+    if (typeof message.content !== "string" || message.content.length === 0) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "SUBDOCUMENT_INVALID_CONTENT",
+        error: "Missing structure content",
+      });
+      return;
+    }
+    const contentBytes = Buffer.byteLength(message.content, "utf8");
+    if (contentBytes > maxStructureContentBytes) {
+      send(client.ws, {
+        type: "error",
+        noteId,
+        code: "SUBDOCUMENT_STRUCTURE_CONTENT_TOO_LARGE",
+        error: `Structure content must not exceed ${maxStructureContentBytes} bytes`,
+        details: { maxBytes: maxStructureContentBytes, actualBytes: contentBytes },
+      });
+      return;
+    }
+
+    try {
+      const persisted = await subdocuments.applyStructureChange(
+        noteId,
+        message.content,
+        client.userId,
+        Number(message.generation),
+        message.operationId,
+      );
+      if (!persisted.replayed) structureChanges += 1;
+      knownGenerations.set(noteId, persisted.generation);
+      send(client.ws, {
+        type: "y:subdoc:structure-ack",
+        noteId,
+        operationId: persisted.operationId,
+        version: persisted.version,
+        generation: persisted.generation,
+        structureVersion: persisted.structureVersion,
+        manifest: persisted.manifest,
+        replayed: persisted.replayed,
+      });
+      invalidateNote(
+        noteId,
+        persisted.replayed ? "structure-operation-replayed" : "structure-changed",
+        persisted.manifest,
+      );
+      try {
+        await publishNoteMutation(noteId, client, persisted.version, persisted.contentText);
+      } catch (publishError) {
+        console.warn(
+          "[postgres-subdocument-ws] structure mutation publish failed:",
+          errorMessage(publishError),
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof PostgresYjsSubdocumentRuntimeError
+        && ["SUBDOCUMENT_GENERATION_CONFLICT", "SUBDOCUMENT_WRITE_CONFLICT"].includes(error.code)
+      ) {
+        invalidateNote(
+          noteId,
+          error.code,
+          error.details?.currentManifest as PostgresYjsSubdocumentManifest | undefined,
+        );
+      }
+      sendError(client, error, noteId);
+    }
+  }
+
   async function handleMessage(client: RuntimeClient, data: RawData): Promise<void> {
     client.lastSeen = Date.now();
     let message: ClientMessage;
@@ -505,6 +624,19 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
       return;
     }
 
+    if (message.type === "y:subdoc:structure") {
+      if (!noteId) {
+        send(client.ws, {
+          type: "error",
+          code: "SUBDOCUMENT_NOTE_ID_REQUIRED",
+          error: "Missing noteId",
+        });
+        return;
+      }
+      await handleStructureChange(client, message, noteId);
+      return;
+    }
+
     if (message.type === "y:subdoc:update") {
       if (!noteId || !sectionId) {
         send(client.ws, {
@@ -558,8 +690,10 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
             "yjs-subdocument-manifest",
             "yjs-subdocument-state",
             "yjs-subdocument-stable-section-write",
+            "yjs-subdocument-structure-change",
+            "yjs-subdocument-idempotent-structure-operations",
           ],
-          pendingCapabilities: ["yjs-subdocument-structure-change"],
+          pendingCapabilities: [],
         });
         ws.on("message", (raw) => {
           void handleMessage(client, raw).catch((error) => {
@@ -608,7 +742,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
       }
     }, heartbeatIntervalMs);
     heartbeatTimer.unref?.();
-    console.log(`[postgres-subdocument-ws] stable-section protocol attached at ${path}`);
+    console.log(`[postgres-subdocument-ws] stable-section and structure protocol attached at ${path}`);
   }
 
   async function close(): Promise<void> {
@@ -644,6 +778,7 @@ export function createPostgresYjsSubdocumentWebsocketRuntime(
       sectionRooms: sectionRooms.size,
       memberships,
       updates,
+      structureChanges,
       invalidations,
     };
   }

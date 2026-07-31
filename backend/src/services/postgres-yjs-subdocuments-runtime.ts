@@ -37,6 +37,14 @@ interface SectionRow {
   payloadHash: string;
 }
 
+interface StructureOperationRow {
+  operationId: string;
+  contentHash: string;
+  resultGeneration: number;
+  resultStructureVersion: number;
+  resultVersion: number;
+}
+
 export interface PostgresYjsSubdocumentSection {
   id: string;
   guid: string;
@@ -64,6 +72,17 @@ export interface PostgresYjsSubdocumentApplyResult {
   structureVersion: number;
 }
 
+export interface PostgresYjsSubdocumentStructureResult {
+  content: string;
+  contentText: string;
+  version: number;
+  generation: number;
+  structureVersion: number;
+  manifest: PostgresYjsSubdocumentManifest;
+  operationId: string;
+  replayed: boolean;
+}
+
 export class PostgresYjsSubdocumentRuntimeError extends Error {
   constructor(
     readonly code: string,
@@ -85,9 +104,18 @@ export interface PostgresYjsSubdocumentRuntime {
     actorUserId: string | null,
     expectedGeneration: number,
   ): Promise<PostgresYjsSubdocumentApplyResult>;
+  applyStructureChange(
+    noteId: string,
+    content: string,
+    actorUserId: string | null,
+    expectedGeneration: number,
+    operationId: string,
+  ): Promise<PostgresYjsSubdocumentStructureResult>;
 }
 
 const MAX_UPDATE_BYTES = 1024 * 1024;
+const MAX_STRUCTURE_CONTENT_BYTES = 8 * 1024 * 1024;
+const MAX_OPERATION_ID_LENGTH = 200;
 
 function hash(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -666,7 +694,358 @@ export function createPostgresYjsSubdocumentRuntime(
     };
   }
 
-  return { prepare, getState, applyUpdate };
+
+  async function readStructureOperation(
+    noteId: string,
+    operationId: string,
+  ): Promise<StructureOperationRow | undefined> {
+    return adapter.queryOne<StructureOperationRow>(
+      `SELECT "operationId" AS "operationId", "contentHash" AS "contentHash",
+              "resultGeneration" AS "resultGeneration",
+              "resultStructureVersion" AS "resultStructureVersion",
+              "resultVersion" AS "resultVersion"
+         FROM note_y_subdocument_structure_operations
+        WHERE "noteId" = ? AND "operationId" = ?`,
+      [noteId, operationId],
+    );
+  }
+
+  async function replayStructureOperation(
+    noteId: string,
+    operationId: string,
+    requestedContentHash: string,
+    operation: StructureOperationRow,
+  ): Promise<PostgresYjsSubdocumentStructureResult> {
+    if (operation.contentHash !== requestedContentHash) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_OPERATION_REUSED",
+        "The structure operation ID was already used with different content",
+        { operationId },
+      );
+    }
+    const manifest = await readManifest(noteId);
+    const rows = manifest ? await readRows(noteId) : [];
+    const note = await adapter.queryOne<NoteRow>(
+      `SELECT content, "contentFormat" AS "contentFormat", "contentText" AS "contentText",
+              title, "userId" AS "userId", version
+         FROM notes WHERE id = ?`,
+      [noteId],
+    );
+    if (!manifest || rows.length === 0 || !note) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_OPERATION_STATE_MISSING",
+        "The persisted structure operation no longer has a readable manifest",
+        { operationId },
+      );
+    }
+    if (Number(manifest.generation) < Number(operation.resultGeneration)) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_OPERATION_STATE_MISMATCH",
+        "The current manifest is older than the persisted operation result",
+        { operationId },
+      );
+    }
+    return {
+      content: note.content,
+      contentText: note.contentText,
+      version: Number(note.version),
+      generation: Number(manifest.generation),
+      structureVersion: Number(manifest.structureVersion),
+      manifest: manifestFromRows(manifest, rows),
+      operationId,
+      replayed: true,
+    };
+  }
+
+  async function applyStructureChange(
+    noteId: string,
+    content: string,
+    actorUserId: string | null,
+    expectedGeneration: number,
+    operationId: string,
+  ): Promise<PostgresYjsSubdocumentStructureResult> {
+    const normalizedOperationId = String(operationId || "").trim();
+    if (
+      normalizedOperationId.length === 0
+      || normalizedOperationId.length > MAX_OPERATION_ID_LENGTH
+      || !/^[A-Za-z0-9._:-]+$/u.test(normalizedOperationId)
+    ) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_OPERATION_ID_INVALID",
+        "Structure operationId must be a stable 1-200 character identifier",
+      );
+    }
+    if (typeof content !== "string" || content.length === 0) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_INVALID_CONTENT",
+        "Structure changes require a complete Tiptap document",
+      );
+    }
+    const contentBytes = Buffer.byteLength(content, "utf8");
+    if (contentBytes > MAX_STRUCTURE_CONTENT_BYTES) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_STRUCTURE_CONTENT_TOO_LARGE",
+        `Structure content must not exceed ${MAX_STRUCTURE_CONTENT_BYTES} bytes`,
+        { maxBytes: MAX_STRUCTURE_CONTENT_BYTES, actualBytes: contentBytes },
+      );
+    }
+    if (!Number.isInteger(expectedGeneration) || expectedGeneration < 1) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_GENERATION_REQUIRED",
+        "A positive expected generation is required",
+      );
+    }
+
+    const requestedContentHash = hash(content);
+    const previousOperation = await readStructureOperation(noteId, normalizedOperationId);
+    if (previousOperation) {
+      return replayStructureOperation(
+        noteId,
+        normalizedOperationId,
+        requestedContentHash,
+        previousOperation,
+      );
+    }
+
+    const manifest = await readManifest(noteId);
+    const rows = manifest ? await readRows(noteId) : [];
+    if (!manifest || rows.length === 0 || manifest.status !== "healthy") {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_NOT_FOUND",
+        "A healthy subdocument manifest is required before changing structure",
+      );
+    }
+    const currentManifest = manifestFromRows(manifest, rows);
+    if (Number(manifest.generation) !== expectedGeneration) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_GENERATION_CONFLICT",
+        "Subdocument generation changed; reload before changing structure",
+        { currentManifest },
+      );
+    }
+
+    const note = await adapter.queryOne<NoteRow>(
+      `SELECT content, "contentFormat" AS "contentFormat", "contentText" AS "contentText",
+              title, "userId" AS "userId", version
+         FROM notes WHERE id = ?`,
+      [noteId],
+    );
+    if (!note) {
+      throw new PostgresYjsSubdocumentRuntimeError("SUBDOCUMENT_NOTE_NOT_FOUND", "Note not found");
+    }
+    if (note.contentFormat !== "tiptap-json") {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_UNSUPPORTED_CONTENT_FORMAT",
+        "Structure changes require Tiptap JSON notes",
+      );
+    }
+
+    const blockPlan = buildNoteBlockIndexPlan(noteId, content, "tiptap-json");
+    if (!blockPlan) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_INVALID_CONTENT",
+        "Structure content is not a valid Tiptap document",
+      );
+    }
+    if (blockPlan.changed) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_NORMALIZATION_REQUIRED",
+        "Structure changes must preserve stable block IDs",
+      );
+    }
+
+    const nextSections = splitSections(
+      noteId,
+      blockPlan.content,
+      inferMaxBlocks(note.content, currentManifest.sections),
+    );
+    if (!nextSections) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_INVALID_CONTENT",
+        "Structure content could not be split into subdocuments",
+      );
+    }
+    if (sameStructure(currentManifest.sections, nextSections)) {
+      throw new PostgresYjsSubdocumentRuntimeError(
+        "SUBDOCUMENT_STRUCTURE_UNCHANGED",
+        "Use a stable-section update when section boundaries do not change",
+      );
+    }
+
+    const generation = expectedGeneration + 1;
+    const structureVersion = Number(manifest.structureVersion) + 1;
+    const version = Number(note.version) + 1;
+    const { rootGuid, rootSnapshot } = buildRootSnapshot(noteId, nextSections);
+    const nextManifest: PostgresYjsSubdocumentManifest = {
+      rootGuid,
+      generation,
+      structureVersion,
+      sections: nextSections.map(({ id, guid, startBlock, endBlock }) => ({
+        id,
+        guid,
+        startBlock,
+        endBlock,
+      })),
+    };
+
+    const statements: DbStatement[] = [
+      {
+        sql: `UPDATE notes
+                 SET content = ?, "contentText" = ?, version = ?, "updatedAt" = CURRENT_TIMESTAMP
+               WHERE id = ? AND version = ? AND "contentFormat" = 'tiptap-json'`,
+        params: [blockPlan.content, blockPlan.contentText, version, noteId, note.version],
+        requireChanges: 1,
+      },
+      {
+        sql: `INSERT INTO note_versions (
+                id, "noteId", "userId", title, content, "contentText",
+                "contentFormat", version, "changeType", "changeSummary", "createdAt"
+              ) VALUES (?, ?, ?, ?, ?, ?, 'tiptap-json', ?, 'edit', ?, CURRENT_TIMESTAMP)`,
+        params: [
+          randomUUID(),
+          noteId,
+          actorUserId || note.userId,
+          note.title,
+          note.content,
+          note.contentText,
+          note.version,
+          `Yjs subdocument structure change: ${normalizedOperationId}`,
+        ],
+      },
+      { sql: `DELETE FROM note_blocks_index WHERE "noteId" = ?`, params: [noteId] },
+    ];
+
+    for (const block of blockPlan.rows) {
+      statements.push({
+        sql: `INSERT INTO note_blocks_index (
+                "noteId", "blockId", "blockType", "parentBlockId", "blockOrder",
+                "plainText", "contentHash", path, "startOffset", "endOffset",
+                "createdAt", "updatedAt"
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        params: [
+          block.noteId,
+          block.blockId,
+          block.blockType,
+          block.parentBlockId,
+          block.blockOrder,
+          block.plainText,
+          block.contentHash,
+          block.path,
+          block.startOffset,
+          block.endOffset,
+        ],
+      });
+    }
+
+    statements.push(
+      { sql: `DELETE FROM note_y_subdocument_updates WHERE "noteId" = ?`, params: [noteId] },
+      { sql: `DELETE FROM note_y_subdocuments WHERE "noteId" = ?`, params: [noteId] },
+    );
+    for (const section of nextSections) {
+      statements.push({
+        sql: `INSERT INTO note_y_subdocuments (
+                "noteId", "sectionId", guid, "blockStart", "blockEnd",
+                "snapshotBlob", "payloadHash", "updatedAt"
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        params: [
+          noteId,
+          section.id,
+          section.guid,
+          section.startBlock,
+          section.endBlock,
+          encodeSection(section),
+          hash(section.content),
+        ],
+      });
+    }
+    statements.push(
+      {
+        sql: `UPDATE note_y_subdocument_manifests
+                 SET "rootGuid" = ?, "rootSnapshot" = ?, "contentHash" = ?,
+                     "sectionCount" = ?, generation = ?, "structureVersion" = ?,
+                     status = 'healthy', "mismatchReason" = NULL,
+                     "updatedAt" = CURRENT_TIMESTAMP
+               WHERE "noteId" = ? AND generation = ?`,
+        params: [
+          rootGuid,
+          rootSnapshot,
+          hash(blockPlan.content),
+          nextSections.length,
+          generation,
+          structureVersion,
+          noteId,
+          expectedGeneration,
+        ],
+        requireChanges: 1,
+      },
+      {
+        sql: `INSERT INTO note_y_subdocument_structure_operations (
+                "noteId", "operationId", "userId", "baseGeneration",
+                "resultGeneration", "resultStructureVersion", "resultVersion",
+                "contentHash", "createdAt"
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        params: [
+          noteId,
+          normalizedOperationId,
+          actorUserId,
+          expectedGeneration,
+          generation,
+          structureVersion,
+          version,
+          requestedContentHash,
+        ],
+        requireChanges: 1,
+      },
+      { sql: `DELETE FROM note_yupdates WHERE "noteId" = ?`, params: [noteId] },
+      { sql: `DELETE FROM note_ysnapshots WHERE "noteId" = ?`, params: [noteId] },
+    );
+
+    try {
+      await adapter.executeStatements(statements);
+    } catch (error) {
+      const concurrentOperation = await readStructureOperation(noteId, normalizedOperationId);
+      if (concurrentOperation) {
+        return replayStructureOperation(
+          noteId,
+          normalizedOperationId,
+          requestedContentHash,
+          concurrentOperation,
+        );
+      }
+      if (error instanceof DbStatementChangeError) {
+        const latestManifest = await readManifest(noteId);
+        const latestRows = latestManifest ? await readRows(noteId) : [];
+        const latestNote = await adapter.queryOne<{ version: number }>(
+          `SELECT version FROM notes WHERE id = ?`,
+          [noteId],
+        );
+        throw new PostgresYjsSubdocumentRuntimeError(
+          "SUBDOCUMENT_WRITE_CONFLICT",
+          "The note or manifest changed while rebuilding subdocuments",
+          {
+            currentVersion: latestNote?.version ?? null,
+            currentManifest: latestManifest && latestRows.length > 0
+              ? manifestFromRows(latestManifest, latestRows)
+              : null,
+          },
+        );
+      }
+      throw error;
+    }
+
+    return {
+      content: blockPlan.content,
+      contentText: blockPlan.contentText,
+      version,
+      generation,
+      structureVersion,
+      manifest: nextManifest,
+      operationId: normalizedOperationId,
+      replayed: false,
+    };
+  }
+
+  return { prepare, getState, applyUpdate, applyStructureChange };
 }
 
 export default createPostgresYjsSubdocumentRuntime;
