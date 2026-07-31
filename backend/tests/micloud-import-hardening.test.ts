@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import { Hono } from "hono";
+import "../src/runtime/knowledge-tree-migration-bootstrap.js";
 import { getDb, closeDb } from "../src/db/schema.js";
 import miCloudRouter from "../src/routes/micloud.js";
 import "../src/runtime/micloud-import-hardening.js";
@@ -119,6 +120,39 @@ test("isolates each Xiaomi note and stores imported content as HTML", async () =
   assert.equal(originCount.count, 2);
 });
 
+test("ignores a deleted Xiaomi notebook and creates a new active personal target", async () => {
+  const db = getDb();
+  const deletedNotebookId = "deleted-xiaomi-notebook";
+  db.prepare(`
+    INSERT INTO notebooks (id, userId, workspaceId, name, icon, isDeleted, deletedAt)
+    VALUES (?, ?, NULL, '小米云笔记', '📱', 1, datetime('now'))
+  `).run(deletedNotebookId, USER_ID);
+
+  const app = createApp();
+  const { response, payload } = await importNotes(app, ["note-after-delete"]);
+
+  assert.equal(response.status, 201);
+  assert.equal(payload.success, true);
+  assert.equal(payload.createdCount, 1);
+  assert.notEqual(payload.notebookId, deletedNotebookId);
+
+  const activeNotebooks = db.prepare(`
+    SELECT id, workspaceId, isDeleted
+    FROM notebooks
+    WHERE userId = ? AND name = '小米云笔记' AND isDeleted = 0
+  `).all(USER_ID) as Array<{ id: string; workspaceId: string | null; isDeleted: number }>;
+  assert.equal(activeNotebooks.length, 1);
+  assert.equal(activeNotebooks[0].workspaceId, null);
+
+  const note = db.prepare(`
+    SELECT notebookId, workspaceId
+    FROM notes
+    WHERE title = 'Title note-after-delete'
+  `).get() as { notebookId: string; workspaceId: string | null };
+  assert.equal(note.notebookId, activeNotebooks[0].id);
+  assert.equal(note.workspaceId, null);
+});
+
 test("retries are idempotent and do not duplicate already imported Xiaomi notes", async () => {
   const app = createApp();
   const first = await importNotes(app, ["note-1", "note-2"]);
@@ -154,6 +188,7 @@ test("one database failure no longer rolls back the other notes or returns a pla
   assert.equal(payload.createdCount, 1);
   assert.equal(payload.errors.length, 1);
   assert.match(payload.errors[0], /bad-note/);
+  assert.match(payload.errors[0], /forced Xiaomi note failure/);
 
   const notes = db.prepare("SELECT title FROM notes ORDER BY title").all() as Array<{ title: string }>;
   assert.deepEqual(notes.map((row) => row.title), ["Title good-note"]);
