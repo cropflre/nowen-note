@@ -11,6 +11,7 @@ on:
       - "frontend/src/lib/__tests__/offlineWorkspaceSync.test.ts"
       - "frontend/src/components/settings/OfflineSyncSettings.tsx"
       - "scripts/apply-complete-offline-sync-review.py"
+      - "scripts/fix-complete-offline-review.py"
       - ".github/workflows/apply-complete-offline-sync.yml"
 
 permissions:
@@ -34,9 +35,9 @@ jobs:
             frontend/package-lock.json
             backend/package-lock.json
       - name: Apply final hardening patches
-        run: python3 scripts/apply-complete-offline-sync-review.py
-      - name: Print generated backend route
-        run: nl -ba backend/src/routes/offline-sync.ts | sed -n '215,250p'
+        run: |
+          python3 scripts/apply-complete-offline-sync-review.py
+          python3 scripts/fix-complete-offline-review.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
