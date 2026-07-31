@@ -1,19 +1,24 @@
 import { api, getBaseUrl, getServerUrl } from "@/lib/api";
 import {
   clearOfflineScope,
+  deleteOfflineAttachmentJob,
   deleteOfflineAttachmentsByNote,
   evictOfflineAttachmentsToFit,
+  getAllOfflineAttachmentJobs,
   getMeta,
   getOfflineAttachment,
   getOfflineStorageStats,
-  putNote,
-  putNotebooks,
+  putCompleteOfflineNote,
+  putCompleteOfflineNotebooks,
+  putCompleteOfflineTags,
   putOfflineAttachment,
-  putTags,
+  putOfflineAttachmentJob,
+  reconcileOfflineAttachmentJobs,
   reconcileOfflineAttachments,
   reconcileOfflineScope,
   setMeta,
   type CachedNote,
+  type OfflineAttachmentJob,
   type OfflineAttachmentRecord,
   type OfflineStorageStats,
 } from "@/lib/localStore";
@@ -138,6 +143,7 @@ const LAST_RUN_META = "offlineWorkspaceSync:lastRunAt";
 const SNAPSHOT_COMPLETE_PREFIX = "offlineWorkspaceSync:snapshotComplete:";
 const SEQUENCE_PREFIX = "offlineWorkspaceSync:sequence:";
 const FINGERPRINT_PREFIX = "offlineWorkspaceSync:fingerprint:";
+const POLICY_PREFIX = "offlineWorkspaceSync:policy:";
 const API_TIMEOUT_MS = 90_000;
 const ATTACHMENT_CONCURRENCY = 3;
 const DEFAULT_ATTACHMENT_LIMIT = 5 * 1024 * 1024 * 1024;
@@ -263,6 +269,11 @@ export function setOfflineSyncUser(userId: string | null): void {
     failedAttachments: 0,
     lastError: null,
   });
+  if (userId) {
+    void Promise.all([getMeta<number>(LAST_RUN_META), getOfflineStorageStats()]).then(([lastSyncAt, storage]) => {
+      if (activeUserId === userId) emit({ lastSyncAt: Number(lastSyncAt || 0) || null, storage });
+    }).catch(() => {});
+  }
 }
 
 export function getOfflineSyncSettings(): OfflineSyncSettings {
@@ -431,10 +442,12 @@ async function cacheAttachment(
   if (settings.maxAttachmentBytes > 0) {
     const storage = await getOfflineStorageStats();
     if (attachment.size > settings.maxAttachmentBytes) return "skipped";
-    const required = Math.max(0, storage.attachmentBytes + attachment.size - settings.maxAttachmentBytes);
-    if (required > 0) {
-      await evictOfflineAttachmentsToFit(required, new Set([attachment.id]));
-    }
+    const projected = storage.attachmentBytes - Number(existing?.size || 0) + attachment.size;
+    const required = Math.max(0, projected - settings.maxAttachmentBytes);
+    if (required > 0) await evictOfflineAttachmentsToFit(required, new Set([attachment.id]));
+    const afterEviction = await getOfflineStorageStats();
+    const finalProjected = afterEviction.attachmentBytes - Number(existing?.size || 0) + attachment.size;
+    if (finalProjected > settings.maxAttachmentBytes) return "skipped";
   }
 
   const blob = await fetchAttachmentBlob(attachment, signal);
@@ -463,34 +476,39 @@ async function runPool<T>(
   await Promise.all(runners);
 }
 
-async function syncBundleAttachments(
+async function queueBundleAttachments(
   bundle: NoteBundle,
   settings: OfflineSyncSettings,
-  signal: AbortSignal,
 ): Promise<void> {
   const desired = bundle.attachmentDownloadAllowed
     ? bundle.attachments.filter((attachment) => isOfflineAttachmentWanted(attachment, settings))
     : [];
-  await reconcileOfflineAttachments(bundle.note.id, new Set(desired.map((item) => item.id)));
-  if (desired.length === 0) return;
-  if (!connectionAllowsLargeDownloads(settings)) return;
+  const keepIds = new Set(desired.map((item) => item.id));
+  await reconcileOfflineAttachments(bundle.note.id, keepIds);
+  await reconcileOfflineAttachmentJobs(bundle.note.id, keepIds);
 
-  await runPool(desired, async (attachment) => {
-    try {
-      const result = await cacheAttachment(attachment, settings, signal);
-      emit({
-        completedAttachments: progress.completedAttachments + 1,
-        downloadedBytes: progress.downloadedBytes + (result === "cached" ? attachment.size : 0),
-      });
-    } catch (error) {
-      if ((error as { name?: string })?.name === "AbortError") throw error;
-      console.warn("[offline-sync] attachment download failed", attachment.id, error);
-      emit({
-        completedAttachments: progress.completedAttachments + 1,
-        failedAttachments: progress.failedAttachments + 1,
-      });
+  const jobsById = new Map(
+    (await getAllOfflineAttachmentJobs()).map((job) => [job.id, job] as const),
+  );
+  for (const attachment of desired) {
+    const existing = await getOfflineAttachment(attachment.id);
+    const current = !!existing
+      && existing.size === attachment.size
+      && existing.mimeType === attachment.mimeType
+      && existing.filename === attachment.filename;
+    if (current) {
+      await deleteOfflineAttachmentJob(attachment.id);
+      continue;
     }
-  }, ATTACHMENT_CONCURRENCY);
+    const prior = jobsById.get(attachment.id);
+    await putOfflineAttachmentJob({
+      ...attachment,
+      queuedAt: prior?.queuedAt || Date.now(),
+      retryCount: prior?.retryCount || 0,
+      lastAttemptAt: prior?.lastAttemptAt,
+      lastError: prior?.lastError,
+    });
+  }
 }
 
 async function applyBundle(
@@ -499,11 +517,62 @@ async function applyBundle(
   signal: AbortSignal,
   queuedNoteIds: Set<string>,
 ): Promise<void> {
+  if (signal.aborted) throw new DOMException("Sync aborted", "AbortError");
   if (!queuedNoteIds.has(bundle.note.id)) {
-    await putNote({ ...bundle.note, __detailCached: true } as CachedNote);
+    await putCompleteOfflineNote({ ...bundle.note, __detailCached: true } as CachedNote);
+    if (signal.aborted) throw new DOMException("Sync aborted", "AbortError");
+    await queueBundleAttachments(bundle, settings);
   }
-  await syncBundleAttachments(bundle, settings, signal);
   emit({ completedNotes: progress.completedNotes + 1 });
+}
+
+async function processPendingAttachmentJobs(
+  settings: OfflineSyncSettings,
+  signal: AbortSignal,
+): Promise<{ remaining: number; deferredForNetwork: boolean }> {
+  const jobs = await getAllOfflineAttachmentJobs();
+  if (jobs.length === 0) return { remaining: 0, deferredForNetwork: false };
+  const totalBytes = jobs.reduce((sum, job) => sum + Number(job.size || 0), 0);
+  emit({
+    state: "downloading-attachments",
+    completedAttachments: 0,
+    totalAttachments: jobs.length,
+    downloadedBytes: 0,
+    totalAttachmentBytes: totalBytes,
+    failedAttachments: 0,
+  });
+
+  if (!connectionAllowsLargeDownloads(settings)) {
+    return { remaining: jobs.length, deferredForNetwork: true };
+  }
+
+  await runPool(jobs, async (job) => {
+    if (signal.aborted) throw new DOMException("Sync aborted", "AbortError");
+    try {
+      const result = await cacheAttachment(job, settings, signal);
+      if (result === "skipped") throw new Error("附件超过本机缓存上限");
+      await deleteOfflineAttachmentJob(job.id);
+      emit({
+        completedAttachments: progress.completedAttachments + 1,
+        downloadedBytes: progress.downloadedBytes + (result === "cached" ? job.size : 0),
+      });
+    } catch (error) {
+      if ((error as { name?: string })?.name === "AbortError") throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      await putOfflineAttachmentJob({
+        ...job,
+        retryCount: job.retryCount + 1,
+        lastAttemptAt: Date.now(),
+        lastError: message,
+      });
+      emit({
+        completedAttachments: progress.completedAttachments + 1,
+        failedAttachments: progress.failedAttachments + 1,
+      });
+    }
+  }, ATTACHMENT_CONCURRENCY);
+
+  return { remaining: (await getAllOfflineAttachmentJobs()).length, deferredForNetwork: false };
 }
 
 async function ackScope(scopeKey: string, sequence: number, signal: AbortSignal): Promise<void> {
@@ -526,16 +595,16 @@ async function fullSnapshot(
   const remoteNotebookIds = new Set(plan.notebooks.map((notebook) => notebook.id));
   const remoteTagIds = new Set(plan.tags.map((tag) => tag.id));
 
-  await putNotebooks(plan.notebooks);
-  await putTags(plan.tags);
+  await putCompleteOfflineNotebooks(plan.notebooks);
+  await putCompleteOfflineTags(plan.tags);
   emit({
     state: "downloading-notes",
     completedNotes: 0,
     totalNotes: plan.noteCount,
     completedAttachments: 0,
-    totalAttachments: plan.attachmentCount,
+    totalAttachments: 0,
     downloadedBytes: 0,
-    totalAttachmentBytes: plan.attachmentBytes,
+    totalAttachmentBytes: 0,
     failedAttachments: 0,
   });
 
@@ -550,9 +619,6 @@ async function fullSnapshot(
     snapshotSequence = page.snapshotSequence;
     for (const bundle of page.items) {
       remoteNoteIds.add(bundle.note.id);
-      if (bundle.attachments.some((attachment) => isOfflineAttachmentWanted(attachment, settings))) {
-        emit({ state: "downloading-attachments" });
-      }
       await applyBundle(bundle, settings, signal, queuedNoteIds);
       emit({ state: "downloading-notes" });
     }
@@ -635,8 +701,8 @@ async function syncTarget(
     {},
     signal,
   );
-  await putNotebooks(plan.notebooks);
-  await putTags(plan.tags);
+  await putCompleteOfflineNotebooks(plan.notebooks);
+  await putCompleteOfflineTags(plan.tags);
   await reconcileOfflineScope(target.workspaceId, {
     notebookIds: new Set(plan.notebooks.map((notebook) => notebook.id)),
     tagIds: new Set(plan.tags.map((tag) => tag.id)),
@@ -645,10 +711,13 @@ async function syncTarget(
 
   const snapshotComplete = Boolean(await getMeta<boolean>(`${SNAPSHOT_COMPLETE_PREFIX}${target.scopeKey}`));
   const fingerprint = await getMeta<string>(`${FINGERPRINT_PREFIX}${target.scopeKey}`);
+  const policy = `${settings.attachmentMode}:${settings.workspaceMode}:${settings.workspaceIds.slice().sort().join(",")}`;
+  const storedPolicy = await getMeta<string>(`${POLICY_PREFIX}${target.scopeKey}`);
   let sequence = storedSequence;
   const requiresSnapshot = !snapshotComplete
     || plan.resetRequired
-    || fingerprint !== plan.accessFingerprint;
+    || fingerprint !== plan.accessFingerprint
+    || storedPolicy !== policy;
 
   if (requiresSnapshot) {
     sequence = await fullSnapshot(target, plan, settings, signal, queuedNoteIds);
@@ -664,6 +733,7 @@ async function syncTarget(
   }
 
   await setMeta(`${FINGERPRINT_PREFIX}${target.scopeKey}`, plan.accessFingerprint);
+  await setMeta(`${POLICY_PREFIX}${target.scopeKey}`, policy);
   await setMeta(`${SEQUENCE_PREFIX}${target.scopeKey}`, sequence);
   await ackScope(target.scopeKey, sequence, signal);
 }
@@ -715,6 +785,7 @@ async function executeSync(options: SyncOptions): Promise<OfflineSyncProgress> {
       if (signal.aborted) throw new DOMException("Sync aborted", "AbortError");
       await syncTarget(target, settings, signal, queuedNoteIds);
     }
+    const attachmentResult = await processPendingAttachmentJobs(settings, signal);
     const now = Date.now();
     await setMeta(LAST_RUN_META, now);
     const storage = await getOfflineStorageStats();
@@ -723,9 +794,11 @@ async function executeSync(options: SyncOptions): Promise<OfflineSyncProgress> {
       scopeKey: null,
       scopeLabel: null,
       lastSyncAt: now,
-      lastError: progress.failedAttachments > 0
-        ? `${progress.failedAttachments} 个附件暂未下载，将在下次同步时重试。`
-        : null,
+      lastError: attachmentResult.deferredForNetwork
+        ? `${attachmentResult.remaining} 个附件正在等待 Wi-Fi / 有线网络。`
+        : attachmentResult.remaining > 0
+          ? `${attachmentResult.remaining} 个附件暂未下载，任务已保留并会自动重试。`
+          : null,
       storage,
     });
     if (typeof window !== "undefined") {
@@ -777,7 +850,6 @@ export function resumeOfflineWorkspaceSync(): Promise<OfflineSyncProgress> {
 export function stopOfflineWorkspaceSync(): void {
   activeController?.abort();
   activeController = null;
-  activePromise = null;
 }
 
 export async function clearAllOfflineWorkspaceData(): Promise<void> {

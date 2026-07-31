@@ -17,6 +17,19 @@ export interface OfflineAttachmentRecord {
   cachedAt: number;
 }
 
+export interface OfflineAttachmentJob {
+  id: string;
+  noteId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  queuedAt: number;
+  retryCount: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+}
+
 export interface OfflineStorageStats {
   cachedNotes: number;
   placeholderNotes: number;
@@ -62,6 +75,14 @@ interface NowenCacheSchema extends DBSchema {
     indexes: {
       "by-note": string;
       "by-cached": number;
+    };
+  };
+  offlineAttachmentJobs: {
+    key: string;
+    value: OfflineAttachmentJob;
+    indexes: {
+      "by-note": string;
+      "by-queued": number;
     };
   };
   meta: {
@@ -158,6 +179,11 @@ function getDb(): Promise<IDBPDatabase<NowenCacheSchema>> | null {
           const store = db.createObjectStore("offlineAttachments", { keyPath: "id" });
           store.createIndex("by-note", "noteId");
           store.createIndex("by-cached", "cachedAt");
+        }
+        if (!db.objectStoreNames.contains("offlineAttachmentJobs")) {
+          const store = db.createObjectStore("offlineAttachmentJobs", { keyPath: "id" });
+          store.createIndex("by-note", "noteId");
+          store.createIndex("by-queued", "queuedAt");
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta", { keyPath: "key" });
@@ -367,18 +393,49 @@ export async function clearAll(): Promise<void> {
   if (!connection) return;
   await safe(async () => {
     const db = await connection;
-    const transaction = db.transaction(["notebooks", "notes", "tags", "offlineAttachments", "meta"], "readwrite");
+    const attachmentIds = (await db.getAllKeys("offlineAttachments")).map(String);
+    const transaction = db.transaction(["notebooks", "notes", "tags", "offlineAttachments", "offlineAttachmentJobs", "meta"], "readwrite");
     await Promise.all([
       transaction.objectStore("notebooks").clear(),
       transaction.objectStore("notes").clear(),
       transaction.objectStore("tags").clear(),
       transaction.objectStore("offlineAttachments").clear(),
+      transaction.objectStore("offlineAttachmentJobs").clear(),
       transaction.objectStore("meta").clear(),
     ]);
+    dispatchOfflineAttachmentRemoval(attachmentIds);
     await transaction.done;
   }, undefined, "clearAll");
 }
 
+
+
+/** Offline snapshot writes are strict: quota or transaction failures must stop cursor advancement. */
+export async function putCompleteOfflineNote(note: CachedNote): Promise<void> {
+  const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  const detailCached = note.__detailCached === true
+    || (note.__detailCached !== false && typeof note.content === "string");
+  await (await connection).put("notes", { ...note, __detailCached: detailCached });
+}
+
+export async function putCompleteOfflineNotebooks(notebooks: Notebook[]): Promise<void> {
+  const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  const db = await connection;
+  const transaction = db.transaction("notebooks", "readwrite");
+  for (const notebook of notebooks) await transaction.store.put(notebook);
+  await transaction.done;
+}
+
+export async function putCompleteOfflineTags(tags: Tag[]): Promise<void> {
+  const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  const db = await connection;
+  const transaction = db.transaction("tags", "readwrite");
+  for (const tag of tags) await transaction.store.put(tag);
+  await transaction.done;
+}
 
 function dispatchOfflineAttachmentRemoval(ids: readonly string[]): void {
   if (ids.length === 0 || typeof window === "undefined") return;
@@ -389,10 +446,59 @@ function dispatchOfflineAttachmentRemoval(ids: readonly string[]): void {
 
 export async function putOfflineAttachment(record: OfflineAttachmentRecord): Promise<void> {
   const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  await (await connection).put("offlineAttachments", record);
+}
+
+
+export async function putOfflineAttachmentJob(job: OfflineAttachmentJob): Promise<void> {
+  const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  await (await connection).put("offlineAttachmentJobs", job);
+}
+
+export async function getAllOfflineAttachmentJobs(): Promise<OfflineAttachmentJob[]> {
+  const connection = getDb();
+  if (!connection) return [];
+  return safe(
+    async () => (await connection).getAllFromIndex("offlineAttachmentJobs", "by-queued"),
+    [],
+    "getAllOfflineAttachmentJobs",
+  );
+}
+
+export async function deleteOfflineAttachmentJob(id: string): Promise<void> {
+  const connection = getDb();
   if (!connection) return;
-  await safe(async () => {
-    await (await connection).put("offlineAttachments", record);
-  }, undefined, "putOfflineAttachment");
+  await (await connection).delete("offlineAttachmentJobs", id);
+}
+
+export async function deleteOfflineAttachmentJobsByNote(noteId: string): Promise<string[]> {
+  const connection = getDb();
+  if (!connection) return [];
+  const db = await connection;
+  const jobs = await db.getAllFromIndex("offlineAttachmentJobs", "by-note", noteId);
+  if (jobs.length === 0) return [];
+  const transaction = db.transaction("offlineAttachmentJobs", "readwrite");
+  for (const job of jobs) await transaction.store.delete(job.id);
+  await transaction.done;
+  return jobs.map((job) => job.id);
+}
+
+export async function reconcileOfflineAttachmentJobs(
+  noteId: string,
+  keepIds: ReadonlySet<string>,
+): Promise<string[]> {
+  const connection = getDb();
+  if (!connection) return [];
+  const db = await connection;
+  const jobs = await db.getAllFromIndex("offlineAttachmentJobs", "by-note", noteId);
+  const removed = jobs.filter((job) => !keepIds.has(job.id));
+  if (removed.length === 0) return [];
+  const transaction = db.transaction("offlineAttachmentJobs", "readwrite");
+  for (const job of removed) await transaction.store.delete(job.id);
+  await transaction.done;
+  return removed.map((job) => job.id);
 }
 
 export async function getOfflineAttachment(id: string): Promise<OfflineAttachmentRecord | undefined> {
@@ -529,6 +635,7 @@ export async function reconcileOfflineScope(
   const removedAttachmentIds: string[] = [];
   for (const noteId of deleteNoteIds) {
     removedAttachmentIds.push(...await deleteOfflineAttachmentsByNote(noteId));
+    await deleteOfflineAttachmentJobsByNote(noteId);
     await deleteNote(noteId);
   }
 

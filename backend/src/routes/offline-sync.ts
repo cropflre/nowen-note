@@ -122,14 +122,6 @@ function personalNotebookAccess(db: Database.Database, userId: string): {
   ids: Set<string>;
   fingerprintParts: string[];
 } {
-  const rows = db.prepare(`
-    SELECT id, userId, workspaceId, parentId, name, description, icon, color,
-           sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt
-    FROM notebooks
-    WHERE workspaceId IS NULL
-    ORDER BY id ASC
-  `).all() as NotebookRow[];
-
   const members = db.prepare(`
     SELECT notebookId, role, allowDownload, allowReshare, status, updatedAt
     FROM notebook_members
@@ -144,35 +136,35 @@ function personalNotebookAccess(db: Database.Database, userId: string): {
     updatedAt: string;
   }>;
 
-  const ids = new Set<string>();
-  for (const row of rows) {
-    if (row.userId === userId) ids.add(row.id);
-  }
-  for (const member of members) ids.add(member.notebookId);
-
-  // Notebook sharing inherits down the tree. Expand all descendants of owned or
-  // shared roots so the offline snapshot matches resolveNotebookPermission().
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const row of rows) {
-      if (row.parentId && ids.has(row.parentId) && !ids.has(row.id)) {
-        ids.add(row.id);
-        changed = true;
-      }
-    }
-  }
-
+  const rows = db.prepare(`
+    WITH RECURSIVE accessible(id) AS (
+      SELECT id FROM notebooks
+      WHERE workspaceId IS NULL
+        AND (userId = ? OR id IN (
+          SELECT notebookId FROM notebook_members
+          WHERE userId = ? AND status != 'removed'
+        ))
+      UNION
+      SELECT child.id
+      FROM notebooks child
+      INNER JOIN accessible parent ON child.parentId = parent.id
+      WHERE child.workspaceId IS NULL
+    )
+    SELECT n.id, n.userId, n.workspaceId, n.parentId, n.name, n.description,
+           n.icon, n.color, n.sortOrder, n.isExpanded, n.isDeleted,
+           n.deletedAt, n.createdAt, n.updatedAt
+    FROM notebooks n
+    INNER JOIN accessible a ON a.id = n.id
+    ORDER BY n.id ASC
+  `).all(userId, userId) as NotebookRow[];
+  const ids = new Set(rows.map((row) => row.id));
   const fingerprintParts = [
-    ...rows
-      .filter((row) => ids.has(row.id))
-      .map((row) => `n:${row.id}:${row.parentId || ""}:${row.userId}:${row.updatedAt}:${row.isDeleted || 0}`),
+    ...rows.map((row) => `n:${row.id}:${row.parentId || ""}:${row.userId}:${row.updatedAt}:${row.isDeleted || 0}`),
     ...members.map((member) =>
       `m:${member.notebookId}:${member.role}:${member.allowDownload}:${member.allowReshare}:${member.updatedAt}`,
     ),
   ];
-
-  return { rows: rows.filter((row) => ids.has(row.id)), ids, fingerprintParts };
+  return { rows, ids, fingerprintParts };
 }
 
 function workspaceNotebookAccess(
@@ -219,8 +211,7 @@ function noteIsInScope(
 ): boolean {
   if (scope.workspaceId) return note.workspaceId === scope.workspaceId;
   if (note.workspaceId !== null) return false;
-  if (note.userId === userId || notebookIds.has(note.notebookId)) return true;
-  return resolveEffectiveNoteCapabilities(note.id, userId).read;
+  return note.userId === userId || notebookIds.has(note.notebookId);
 }
 
 function noteSelectSql(): string {
@@ -234,18 +225,34 @@ function noteSelectSql(): string {
     FROM notes n`;
 }
 
+function personalNoteAccess(
+  userId: string,
+  notebookIds: Set<string>,
+  alias = "n",
+): { clause: string; params: unknown[] } {
+  const ids = [...notebookIds];
+  const notebookClause = ids.length > 0
+    ? ` OR ${alias}.notebookId IN (${ids.map(() => "?").join(",")})`
+    : "";
+  return {
+    clause: `${alias}.workspaceId IS NULL AND (${alias}.userId = ?${notebookClause})`,
+    params: [userId, ...ids],
+  };
+}
+
 function listAllAccessibleNotes(
   db: Database.Database,
   userId: string,
   scope: SyncScope,
   notebookIds: Set<string>,
 ): NoteRow[] {
-  const rows = scope.workspaceId
-    ? db.prepare(`${noteSelectSql()} WHERE n.workspaceId = ? ORDER BY n.id ASC`)
-        .all(userId, scope.workspaceId) as NoteRow[]
-    : db.prepare(`${noteSelectSql()} WHERE n.workspaceId IS NULL ORDER BY n.id ASC`)
-        .all(userId) as NoteRow[];
-  return rows.filter((row) => noteIsInScope(row, userId, scope, notebookIds));
+  if (scope.workspaceId) {
+    return db.prepare(`${noteSelectSql()} WHERE n.workspaceId = ? ORDER BY n.id ASC`)
+      .all(userId, scope.workspaceId) as NoteRow[];
+  }
+  const access = personalNoteAccess(userId, notebookIds);
+  return db.prepare(`${noteSelectSql()} WHERE ${access.clause} ORDER BY n.id ASC`)
+    .all(userId, ...access.params) as NoteRow[];
 }
 
 function listSnapshotPage(
@@ -257,65 +264,94 @@ function listSnapshotPage(
   limit: number,
 ): { rows: NoteRow[]; hasMore: boolean; nextCursor: string | null } {
   const target = limit + 1;
-  const collected: NoteRow[] = [];
-  let scanCursor = cursor;
-  let reachedEnd = false;
-
-  while (collected.length < target && !reachedEnd) {
-    const scanLimit = Math.max(100, target * 3);
-    const rows = scope.workspaceId
-      ? db.prepare(`${noteSelectSql()} WHERE n.workspaceId = ? AND n.id > ? ORDER BY n.id ASC LIMIT ?`)
-          .all(userId, scope.workspaceId, scanCursor, scanLimit) as NoteRow[]
-      : db.prepare(`${noteSelectSql()} WHERE n.workspaceId IS NULL AND n.id > ? ORDER BY n.id ASC LIMIT ?`)
-          .all(userId, scanCursor, scanLimit) as NoteRow[];
-
-    if (rows.length === 0) break;
-    for (const row of rows) {
-      if (noteIsInScope(row, userId, scope, notebookIds)) collected.push(row);
-      if (collected.length >= target) break;
-    }
-    scanCursor = rows[rows.length - 1].id;
-    reachedEnd = rows.length < scanLimit;
-  }
-
-  const hasMore = collected.length > limit;
-  const rows = hasMore ? collected.slice(0, limit) : collected;
+  const rows = scope.workspaceId
+    ? db.prepare(`${noteSelectSql()} WHERE n.workspaceId = ? AND n.id > ? ORDER BY n.id ASC LIMIT ?`)
+        .all(userId, scope.workspaceId, cursor, target) as NoteRow[]
+    : (() => {
+        const access = personalNoteAccess(userId, notebookIds);
+        return db.prepare(`${noteSelectSql()} WHERE ${access.clause} AND n.id > ? ORDER BY n.id ASC LIMIT ?`)
+          .all(userId, ...access.params, cursor, target) as NoteRow[];
+      })();
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
   return {
-    rows,
+    rows: page,
     hasMore,
-    nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
+    nextCursor: hasMore && page.length > 0 ? page[page.length - 1].id : null,
   };
 }
 
-function listAttachments(db: Database.Database, noteId: string): AttachmentRow[] {
-  return db.prepare(`
-    SELECT id, noteId, filename, mimeType, size, createdAt
-    FROM attachments
-    WHERE noteId = ?
-    ORDER BY id ASC
-  `).all(noteId) as AttachmentRow[];
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
 }
 
-function listNoteTags(db: Database.Database, noteId: string): any[] {
-  return db.prepare(`
-    SELECT t.*
-    FROM tags t
-    INNER JOIN note_tags nt ON nt.tagId = t.id
-    WHERE nt.noteId = ?
-    ORDER BY t.name COLLATE NOCASE ASC, t.id ASC
-  `).all(noteId) as any[];
+function attachmentMapForNotes(
+  db: Database.Database,
+  noteIds: string[],
+): Map<string, AttachmentRow[]> {
+  const result = new Map<string, AttachmentRow[]>();
+  for (const batch of chunks(noteIds, 400)) {
+    if (batch.length === 0) continue;
+    const rows = db.prepare(`
+      SELECT id, noteId, filename, mimeType, size, createdAt
+      FROM attachments
+      WHERE noteId IN (${batch.map(() => "?").join(",")})
+      ORDER BY noteId ASC, id ASC
+    `).all(...batch) as AttachmentRow[];
+    for (const row of rows) {
+      const list = result.get(row.noteId) || [];
+      list.push(row);
+      result.set(row.noteId, list);
+    }
+  }
+  return result;
 }
 
-function buildBundle(db: Database.Database, userId: string, note: NoteRow) {
-  const capabilities = resolveEffectiveNoteCapabilities(note.id, userId);
-  const downloadAllowed = Boolean(capabilities.read && capabilities.download);
-  const attachments = downloadAllowed ? listAttachments(db, note.id) : [];
-  return {
-    note: { ...note, tags: listNoteTags(db, note.id) },
-    attachments,
-    attachmentDownloadAllowed: downloadAllowed,
-    attachmentBytes: attachments.reduce((sum, attachment) => sum + Number(attachment.size || 0), 0),
-  };
+function tagMapForNotes(db: Database.Database, noteIds: string[]): Map<string, any[]> {
+  const result = new Map<string, any[]>();
+  for (const batch of chunks(noteIds, 400)) {
+    if (batch.length === 0) continue;
+    const rows = db.prepare(`
+      SELECT nt.noteId AS linkedNoteId, t.*
+      FROM note_tags nt
+      INNER JOIN tags t ON t.id = nt.tagId
+      WHERE nt.noteId IN (${batch.map(() => "?").join(",")})
+      ORDER BY nt.noteId ASC, t.name COLLATE NOCASE ASC, t.id ASC
+    `).all(...batch) as Array<any & { linkedNoteId: string }>;
+    for (const row of rows) {
+      const { linkedNoteId, ...tag } = row;
+      const list = result.get(linkedNoteId) || [];
+      list.push(tag);
+      result.set(linkedNoteId, list);
+    }
+  }
+  return result;
+}
+
+function buildBundles(db: Database.Database, userId: string, notes: NoteRow[]) {
+  const noteIds = notes.map((note) => note.id);
+  const attachmentsByNote = attachmentMapForNotes(db, noteIds);
+  const tagsByNote = tagMapForNotes(db, noteIds);
+  return notes.map((note) => {
+    const allAttachments = attachmentsByNote.get(note.id) || [];
+    const downloadAllowed = allAttachments.length === 0
+      || Boolean(resolveEffectiveNoteCapabilities(note.id, userId).download);
+    const attachments = downloadAllowed ? allAttachments : [];
+    return {
+      note: { ...note, tags: tagsByNote.get(note.id) || [] },
+      attachments,
+      attachmentDownloadAllowed: downloadAllowed,
+      attachmentBytes: attachments.reduce(
+        (sum, attachment) => sum + Number(attachment.size || 0),
+        0,
+      ),
+      rawAttachmentCount: allAttachments.length,
+    };
+  });
 }
 
 function listTagsForScope(
@@ -348,7 +384,9 @@ function listTagsForScope(
     SELECT * FROM tags
     WHERE workspaceId IS NULL
     ORDER BY name COLLATE NOCASE ASC, id ASC
-  `).all() as any[]).filter((tag) => tag.userId === userId || linkedTagIds.has(tag.id));
+  `).all() as any[]).filter(
+    (tag) => tag.userId === userId || linkedTagIds.has(tag.id),
+  );
 }
 
 app.get("/plan", (c) => {
@@ -359,15 +397,7 @@ app.get("/plan", (c) => {
   const scope = scopeResult.scope!;
   const access = resolveNotebookAccess(db, userId, scope);
   const notes = listAllAccessibleNotes(db, userId, scope, access.ids);
-  const accessFingerprint = createHash("sha256")
-    .update([
-      access.accessFingerprint,
-      ...notes.map((note) => {
-        const capabilities = resolveEffectiveNoteCapabilities(note.id, userId);
-        return `note:${note.id}:${note.notebookId}:${note.workspaceId || ""}:${capabilities.permission || ""}:${capabilities.download ? 1 : 0}`;
-      }),
-    ].sort().join("\n"))
-    .digest("hex");
+  const accessFingerprint = access.accessFingerprint;
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
   const minSequence = minAvailableSequence(db);
   const serverSequence = currentSequence(db);
@@ -375,20 +405,15 @@ app.get("/plan", (c) => {
   let attachmentCount = 0;
   let attachmentBytes = 0;
   let attachmentForbiddenNotes = 0;
-  for (const note of notes) {
-    const row = db.prepare(`
-      SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
-      FROM attachments WHERE noteId = ?
-    `).get(note.id) as { count: number; bytes: number };
-    const count = Number(row.count || 0);
-    if (count === 0) continue;
-    const capabilities = resolveEffectiveNoteCapabilities(note.id, userId);
-    if (!capabilities.read || !capabilities.download) {
-      attachmentForbiddenNotes += 1;
-      continue;
+  for (const batch of chunks(notes, 200)) {
+    for (const bundle of buildBundles(db, userId, batch)) {
+      if (bundle.rawAttachmentCount > 0 && !bundle.attachmentDownloadAllowed) {
+        attachmentForbiddenNotes += 1;
+        continue;
+      }
+      attachmentCount += bundle.attachments.length;
+      attachmentBytes += bundle.attachmentBytes;
     }
-    attachmentCount += count;
-    attachmentBytes += Number(row.bytes || 0);
   }
 
   return c.json({
@@ -424,7 +449,7 @@ app.get("/snapshot", (c) => {
   return c.json({
     scopeKey: scope.key,
     snapshotSequence,
-    items: page.rows.map((note) => buildBundle(db, userId, note)),
+    items: buildBundles(db, userId, page.rows).map(({ rawAttachmentCount: _raw, ...bundle }) => bundle),
     hasMore: page.hasMore,
     nextCursor: page.nextCursor,
   });
@@ -468,7 +493,7 @@ app.get("/changes", (c) => {
         LIMIT ?
       `).all(after, limit) as ChangeRow[];
 
-  const nextSequence = raw.length > 0 ? raw[raw.length - 1].sequence : serverSequence;
+  const nextSequence = raw.length < limit ? serverSequence : raw[raw.length - 1].sequence;
   const latestByNote = new Map<string, ChangeRow>();
   for (const change of raw) {
     const noteId = change.noteId || (change.entityType === "note" ? change.entityId : "");
@@ -482,21 +507,24 @@ app.get("/changes", (c) => {
     }
   }
 
+  const candidateIds = [...latestByNote.keys()];
+  const currentNotes: NoteRow[] = [];
+  for (const batch of chunks(candidateIds, 400)) {
+    if (batch.length === 0) continue;
+    currentNotes.push(...db.prepare(`${noteSelectSql()} WHERE n.id IN (${batch.map(() => "?").join(",")})`)
+      .all(userId, ...batch) as NoteRow[]);
+  }
+  const bundles = new Map(
+    buildBundles(db, userId, currentNotes)
+      .map(({ rawAttachmentCount: _raw, ...bundle }) => [bundle.note.id, bundle] as const),
+  );
   const items: any[] = [];
   for (const [noteId, change] of latestByNote.entries()) {
-    const note = db.prepare(`${noteSelectSql()} WHERE n.id = ?`).get(userId, noteId) as NoteRow | undefined;
-    if (note && noteIsInScope(note, userId, scope, access.ids)) {
-      items.push({
-        sequence: change.sequence,
-        operation: "upsert",
-        ...buildBundle(db, userId, note),
-      });
+    const bundle = bundles.get(noteId);
+    if (bundle && noteIsInScope(bundle.note, userId, scope, access.ids)) {
+      items.push({ sequence: change.sequence, operation: "upsert", ...bundle });
     } else {
-      items.push({
-        sequence: change.sequence,
-        operation: "delete",
-        noteId,
-      });
+      items.push({ sequence: change.sequence, operation: "delete", noteId });
     }
   }
   items.sort((a, b) => a.sequence - b.sequence);

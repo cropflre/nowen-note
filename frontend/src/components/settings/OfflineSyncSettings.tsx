@@ -21,6 +21,7 @@ import {
   refreshOfflineStorageStats,
   resumeOfflineWorkspaceSync,
   setOfflineSyncSettings,
+  stopOfflineWorkspaceSync,
   subscribeOfflineSyncProgress,
   syncOfflineWorkspace,
   type OfflineAttachmentMode,
@@ -94,6 +95,22 @@ export default function OfflineSyncSettings() {
     : Math.max(0.1, settings.maxAttachmentBytes / 1024 / 1024 / 1024);
   const selectedWorkspaceSet = useMemo(() => new Set(settings.workspaceIds), [settings.workspaceIds]);
 
+  useEffect(() => {
+    if (!settings.enabled || settings.paused) return;
+    const timer = window.setTimeout(() => {
+      void syncOfflineWorkspace({ force: true, reason: "settings" });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    settings.attachmentMode,
+    settings.maxAttachmentBytes,
+    settings.wifiOnly,
+    settings.workspaceIds,
+    settings.workspaceMode,
+    settings.enabled,
+    settings.paused,
+  ]);
+
   const update = (patch: Partial<OfflineSyncSettings>) => {
     const next = setOfflineSyncSettings(patch);
     setSettings(next);
@@ -103,6 +120,7 @@ export default function OfflineSyncSettings() {
   const toggleEnabled = (enabled: boolean) => {
     const next = update({ enabled, paused: enabled ? false : settings.paused });
     if (next.enabled) void syncOfflineWorkspace({ force: true, reason: "settings" });
+    else stopOfflineWorkspaceSync();
   };
 
   const toggleWorkspace = (workspaceId: string) => {
@@ -122,6 +140,7 @@ export default function OfflineSyncSettings() {
       danger: true,
     });
     if (!ok) return;
+    setSettings(setOfflineSyncSettings({ enabled: false, paused: false }));
     await clearAllOfflineWorkspaceData();
   };
 
@@ -322,7 +341,7 @@ export default function OfflineSyncSettings() {
             ) : (
               <button
                 type="button"
-                disabled={!settings.enabled || !busy}
+                disabled={!settings.enabled}
                 onClick={() => {
                   const next = pauseOfflineWorkspaceSync();
                   setSettings(next);

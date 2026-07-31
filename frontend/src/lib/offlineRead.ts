@@ -124,8 +124,21 @@ async function withFallback<T>(
   }
 }
 
+function activeWorkspaceId(): string | null {
+  try {
+    const workspace = localStorage.getItem("nowen-current-workspace") || "personal";
+    return workspace === "personal" ? null : workspace;
+  } catch {
+    return null;
+  }
+}
+
+function matchesActiveWorkspace(value: { workspaceId?: string | null }): boolean {
+  return (value.workspaceId ?? null) === activeWorkspaceId();
+}
+
 export function readNotebooks(online: () => Promise<Notebook[]>): Promise<Notebook[]> {
-  return withFallback(online, () => getAllNotebooks());
+  return withFallback(online, async () => (await getAllNotebooks()).filter(matchesActiveWorkspace));
 }
 
 export function readNotesList(
@@ -141,7 +154,7 @@ export function readNotesList(
 }
 
 export function readTags(online: () => Promise<Tag[]>): Promise<Tag[]> {
-  return withFallback(online, () => getAllTags());
+  return withFallback(online, async () => (await getAllTags()).filter(matchesActiveWorkspace));
 }
 
 export function readNote(id: string, online: () => Promise<Note>): Promise<Note> {
