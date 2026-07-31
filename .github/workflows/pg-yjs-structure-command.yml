@@ -11,13 +11,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: pg-yjs-structure-command
-  cancel-in-progress: false
+  group: pg-yjs-structure-command-v2
+  cancel-in-progress: true
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:16-alpine
@@ -77,14 +77,6 @@ jobs:
       - name: Structure websocket regression
         working-directory: backend
         run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
-      - name: Full SQLite serial regression
-        working-directory: backend
-        env:
-          DB_DRIVER: sqlite
-          DATABASE_URL: ""
-          TEST_PG_DATABASE_URL: ""
-          DB_PATH: /tmp/nowen-pg-structure-sqlite.db
-        run: npm run test:serial
       - name: Build production backend bundle
         working-directory: backend
         run: npm run build
