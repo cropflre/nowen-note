@@ -9,8 +9,11 @@ on:
       - "backend/src/lib/remote-image-localization.ts"
       - "backend/src/services/remote-image-import.ts"
       - "backend/src/services/remote-image-localization*.ts"
+      - "backend/src/services/siyuanImportedRemoteImages.ts"
+      - "backend/src/services/siyuanPackageImportLegacy.ts"
       - "backend/src/routes/remote-image-import.ts"
       - "backend/tests/remote-image-localization*.test.ts"
+      - "backend/tests/siyuan-markdown-remote-images.test.ts"
       - "frontend/src/lib/remoteImageLocalizationApi.ts"
       - "frontend/src/components/RemoteImageLocalizationPanel.tsx"
       - "frontend/src/components/TaskCenter.tsx"
@@ -20,8 +23,11 @@ on:
       - "backend/src/lib/remote-image-localization.ts"
       - "backend/src/services/remote-image-import.ts"
       - "backend/src/services/remote-image-localization*.ts"
+      - "backend/src/services/siyuanImportedRemoteImages.ts"
+      - "backend/src/services/siyuanPackageImportLegacy.ts"
       - "backend/src/routes/remote-image-import.ts"
       - "backend/tests/remote-image-localization*.test.ts"
+      - "backend/tests/siyuan-markdown-remote-images.test.ts"
       - "frontend/src/lib/remoteImageLocalizationApi.ts"
       - "frontend/src/components/RemoteImageLocalizationPanel.tsx"
       - "frontend/src/components/TaskCenter.tsx"
@@ -54,6 +60,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/remote-image-localization-service.test.ts
       - name: Authority, Yjs and rollback tests
         run: node --import tsx --test --test-concurrency=1 tests/remote-image-localization-authority.test.ts
+      - name: SiYuan Markdown remote image import tests
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test --test-concurrency=1 tests/siyuan-markdown-remote-images.test.ts
       - name: Build backend bundle
         run: npm run build
 
