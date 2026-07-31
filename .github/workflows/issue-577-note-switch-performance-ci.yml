@@ -8,6 +8,7 @@ on:
       - fix/issue-577-note-switch-performance
     paths:
       - "frontend/src/components/EditorPaneRuntime.tsx"
+      - "frontend/src/components/__tests__/EditorPaneRuntimeLayout.test.tsx"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/noteSplitAnalysis.ts"
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - "frontend/src/components/EditorPaneRuntime.tsx"
+      - "frontend/src/components/__tests__/EditorPaneRuntimeLayout.test.tsx"
       - "frontend/src/lib/editorRuntimePolicy.ts"
       - "frontend/src/lib/largeRichTextSafeMode.ts"
       - "frontend/src/lib/noteSplitAnalysis.ts"
@@ -51,6 +53,7 @@ jobs:
           src/lib/__tests__/editorRuntimePolicy.test.ts
           src/lib/__tests__/largeRichTextSafeMode.test.ts
           src/lib/__tests__/noteSplitAnalysis.test.ts
+          src/components/__tests__/EditorPaneRuntimeLayout.test.tsx
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b --pretty false
