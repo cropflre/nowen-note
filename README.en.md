@@ -11,6 +11,7 @@
     <a href="http://note.nowen.cn/">Live Demo</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
+    <a href="./docs/tutorials/mcp.en.md">MCP Installation</a> ·
     <a href="./CHANGELOG.md">Changelog</a>
   </p>
 </div>
@@ -26,6 +27,16 @@
 </div>
 
 > Nowen Note is more than an editor. It is designed as user-controlled knowledge infrastructure that can run long-term on a NAS or server and remain accessible from the web, desktop, and mobile clients.
+
+## Connect AI clients to Nowen Note
+
+Nowen Note still includes a supported MCP Server. Claude Code, Cursor, VS Code, and other compatible AI clients can search, read, create, and update notes within the permissions granted by your account and token.
+
+- [MCP Server installation guide](./docs/tutorials/mcp.en.md)
+- [中文安装教程](./docs/tutorials/mcp.md)
+- [Standalone nowen-mcp package README](./packages/nowen-mcp/README.md)
+
+The currently supported distribution is a source build: install Node.js 20+, build `packages/nowen-mcp`, create a restricted Personal API Token in Nowen Note, and configure the absolute path to `dist/scoped-entry.js` in your client. The guide covers Windows, macOS, Linux/WSL, NAS addresses, Claude Code, Cursor, VS Code, verification, updates, and troubleshooting.
 
 ## Why Nowen Note
 
@@ -53,7 +64,7 @@
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, and Callouts. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, and controlled rollback. Exported notes include `contentFormat` so re-import can restore the original editor format. |
 | **Attachments and storage** | Local attachments organized under `YYYY/MM`; reuse existing files from the attachment library and insert portable relative links; thumbnails, note ownership, reference checks, orphan rescans and cleanup; local disk or S3/R2/MinIO storage. |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, and protected attachment access. |
-| **Backups, automation, and developer APIs** | Local backups, full ZIP backups, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, MCP Server, and a browser clipper. |
+| **Backups, automation, and developer APIs** | Local backups, full ZIP backups, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, [MCP Server](./docs/tutorials/mcp.en.md), and a browser clipper. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. Mobile includes Markdown import, recent-first navigation, step-by-step browsing, tree mode, and an optional compact density setting. |
 
 ## Recent highlights
@@ -295,6 +306,8 @@ nowen-note/
 
 ## Documentation
 
+- [MCP Server installation and usage](./docs/tutorials/mcp.en.md)
+- [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [Tutorial center](./docs/tutorials/README.md)
 - [Feature documentation](http://nowen.cn/docs/nowen-note-features)
 - [Installation and troubleshooting](http://nowen.cn/docs/nowen-note-help)
