@@ -1,22 +1,43 @@
-﻿import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bot, Send, Trash2, X, Loader2, FileText, Sparkles, User,
-  BookOpen, Database, MessageCircleQuestion, ArrowRight,
-  Upload, FileUp, Wand2, FolderUp, Check, Copy, ChevronDown, ChevronUp,
-  Paperclip, Plus, MessageSquare, Menu, Pencil
+  ArrowRight,
+  BookOpen,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Database,
+  FileText,
+  FileUp,
+  FolderUp,
+  Loader2,
+  Menu,
+  MessageCircleQuestion,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Square,
+  Trash2,
+  Upload,
+  User,
+  Wand2,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
+import { withAbortableAiFetch } from "@/lib/abortableAiAsk";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useApp } from "@/store/AppContext";
 
-// AI 知识库引用。v8 起区分 note / attachment：
-//   - note：点击跳转到笔记（onNavigateToNote）
-//   - attachment：点击下载附件（/api/attachments/:id?download=1）
 interface ChatReference {
   id: string;
   title: string;
@@ -31,6 +52,8 @@ interface ChatMessage {
   content: string;
   references?: ChatReference[];
   isStreaming?: boolean;
+  stopped?: boolean;
+  createdAt?: string;
 }
 
 interface KnowledgeStats {
@@ -42,13 +65,6 @@ interface KnowledgeStats {
   indexed: boolean;
 }
 
-// 对话记录持久化：改为后端持久化（见 /api/ai/chat-history），
-// 优势：多端同步、不受浏览器 storage 限制、账号隔离。
-// v10 起支持多会话（ai_chat_conversations）：左侧是会话列表，右侧是当前会话消息。
-// 本组件职责：拉取会话列表、切换会话、增删改会话、拉/追加/清空会话消息。
-const HISTORY_LIMIT = 100;
-
-// 会话列表条目（对应 /api/ai/conversations 返回的单条 conversation）
 interface ConversationSummary {
   id: string;
   title: string;
@@ -60,96 +76,101 @@ interface ConversationSummary {
   lastRole: string | null;
 }
 
-// 根据首条消息内容生成会话标题（截断 + 去多余空白）。
-// 没标题时前端展示 i18n 的"新对话"，这里是用户发出第一个问题后用问题前 20 字自动命名。
-const deriveTitleFromQuestion = (q: string) => q.trim().replace(/\s+/g, " ").slice(0, 20);
+const HISTORY_LIMIT = 100;
+const deriveTitleFromQuestion = (question: string) => question.trim().replace(/\s+/g, " ").slice(0, 20);
+
+function formatMessageTime(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function mapHistoryMessage(message: {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  references?: ChatReference[];
+  createdAt: string;
+}): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    references: message.references,
+    createdAt: message.createdAt,
+  };
+}
 
 export default function AIChatPanel({ onClose, onNavigateToNote }: {
   onClose: () => void;
   onNavigateToNote?: (noteId: string) => void;
 }) {
   const { t } = useTranslation();
+  const { state: appState } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
-  // 历史加载中：避免首次渲染闪一下"空状态"然后再跳到历史
   const [historyLoading, setHistoryLoading] = useState(true);
-
-  // ===== 多会话相关 state =====
-  // conversations: 会话列表；currentConvId: 当前激活的会话 id；
-  // sidebarOpen: 侧栏展开（移动/窄屏默认收起，点按钮展开）；
-  // renamingId / renameDraft: 行内重命名状态。
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-
-  // 知识库范围
-  const { state: appState } = useApp();
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [nbScope, setNbScope] = useState<"all" | "notebook">("all");
-  const [nbScopeId, setNbScopeId] = useState<string>("");
+  const [nbScopeId, setNbScopeId] = useState("");
   const [nbIncludeChildren, setNbIncludeChildren] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
 
-  // 加载知识库统计
-  // v7：切换工作区会换一份索引 scope，必须重拉；不重拉的话 UI 还显示
-  // 切换前的"个人空间笔记数 / 已索引"，给人"工作区里没东西"的错觉。
+  useEffect(() => () => abortControllerRef.current?.abort(), []);
+
   useEffect(() => {
-    const reload = () => {
-      api.getKnowledgeStats().then(setStats).catch(() => {});
-    };
+    const reload = () => api.getKnowledgeStats().then(setStats).catch(() => {});
     reload();
     window.addEventListener("nowen:workspace-changed", reload);
-    return () => {
-      window.removeEventListener("nowen:workspace-changed", reload);
-    };
+    return () => window.removeEventListener("nowen:workspace-changed", reload);
   }, []);
 
-  // 拉会话列表。失败（未登录 / 老后端未部署）退回空列表，不阻塞聊天。
   const reloadConversations = useCallback(async (): Promise<ConversationSummary[]> => {
     try {
-      const res = await api.aiConversations.list();
-      setConversations(res.conversations);
-      return res.conversations;
+      const result = await api.aiConversations.list();
+      setConversations(result.conversations);
+      return result.conversations;
     } catch {
       setConversations([]);
       return [];
     }
   }, []);
 
-  // 初始化：拉会话列表 → 选最近一条 → 拉它的消息。
-  // 如果用户还没有任何会话（新用户或迁移前），消息列表保持空、currentConvId 为 null；
-  // 首次发送时会通过 POST /chat-history 自动创建"默认会话"（后端兜底）。
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const list = await reloadConversations();
       if (cancelled) return;
-
-      // 选择激活会话：优先 list[0]（updatedAt 最新），否则保持 null 等待首次发送
-      const targetId = list.length > 0 ? list[0].id : null;
+      const targetId = list[0]?.id || null;
       setCurrentConvId(targetId);
-
       if (!targetId) {
         setHistoryLoading(false);
         return;
       }
-
       try {
-        const res = await api.getAiChatHistory(HISTORY_LIMIT, targetId);
-        if (cancelled) return;
-        setMessages(res.messages.map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          references: m.references,
-        })));
+        const result = await api.getAiChatHistory(HISTORY_LIMIT, targetId);
+        if (!cancelled) setMessages(result.messages.map(mapHistoryMessage));
       } catch {
-        /* ignore：首次使用或离线状态 */
+        // Opening chat must still work when history is temporarily unavailable.
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
@@ -161,253 +182,359 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+  useEffect(() => scrollToBottom(), [messages, scrollToBottom]);
 
-  // 切换会话：拉目标会话的消息。
-  // 流式中不允许切换（会把 assistant 的增量写到错误会话）；上层按钮 disabled 阻挡。
-  const handleSelectConversation = useCallback(async (convId: string) => {
-    if (isLoading || convId === currentConvId) return;
-    setCurrentConvId(convId);
+  const handleSelectConversation = useCallback(async (conversationId: string) => {
+    if (isLoading || conversationId === currentConvId) return;
+    setCurrentConvId(conversationId);
     setMessages([]);
     setHistoryLoading(true);
     try {
-      const res = await api.getAiChatHistory(HISTORY_LIMIT, convId);
-      setMessages(res.messages.map(m => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        references: m.references,
-      })));
+      const result = await api.getAiChatHistory(HISTORY_LIMIT, conversationId);
+      setMessages(result.messages.map(mapHistoryMessage));
     } catch {
-      /* ignore */
+      // Keep the selected conversation open and allow a retry by switching back.
     } finally {
       setHistoryLoading(false);
     }
-  }, [isLoading, currentConvId]);
+  }, [currentConvId, isLoading]);
 
-  // 新建会话：成功后立即切到它。若创建失败，降级为"清空当前消息"的本地效果，
-  // 至少不阻断使用——用户下一次发送时后端会兜底创建。
   const handleNewConversation = useCallback(async () => {
     if (isLoading) return;
     try {
-      const res = await api.aiConversations.create();
-      const created = res.conversation;
-      setConversations(prev => [created, ...prev]);
-      setCurrentConvId(created.id);
+      const result = await api.aiConversations.create();
+      setConversations((previous) => [result.conversation, ...previous]);
+      setCurrentConvId(result.conversation.id);
       setMessages([]);
     } catch {
-      // 后端未部署 / 离线：前端先给空会话体验，后续 append 会自动建
       setCurrentConvId(null);
       setMessages([]);
     }
   }, [isLoading]);
 
-  // 行内重命名：进入/取消/提交三个动作
-  const handleStartRename = (conv: ConversationSummary) => {
-    setRenamingId(conv.id);
-    setRenameDraft(conv.title || "");
+  const handleStartRename = (conversation: ConversationSummary) => {
+    setRenamingId(conversation.id);
+    setRenameDraft(conversation.title || "");
   };
+
   const handleCancelRename = () => {
     setRenamingId(null);
     setRenameDraft("");
   };
+
   const handleSubmitRename = useCallback(async () => {
     if (!renamingId) return;
     const title = renameDraft.trim().slice(0, 100);
     try {
       await api.aiConversations.update(renamingId, { title });
-      setConversations(prev => prev.map(c => c.id === renamingId ? { ...c, title } : c));
+      setConversations((previous) => previous.map((item) => item.id === renamingId ? { ...item, title } : item));
     } catch {
-      /* ignore；保留原名 */
+      // Preserve the old title when the server rejects the rename.
     } finally {
-      setRenamingId(null);
-      setRenameDraft("");
+      handleCancelRename();
     }
-  }, [renamingId, renameDraft]);
+  }, [renameDraft, renamingId]);
 
-  const handleDeleteConversation = useCallback(async (convId: string) => {
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
     if (isLoading) return;
-    // 项目统一的命令式 confirm 弹窗，与设置/孤儿附件清理等模块同款；
-    // danger:true → 红色确认按钮 + 默认聚焦取消按钮，避免误删
-    const ok = await confirmDialog({
+    const confirmed = await confirmDialog({
       title: t("common.delete"),
       description: t("aiChat.deleteConversationConfirm"),
       confirmText: t("common.delete"),
       cancelText: t("common.cancel"),
       danger: true,
     });
-    if (!ok) return;
+    if (!confirmed) return;
     try {
-      await api.aiConversations.remove(convId);
+      await api.aiConversations.remove(conversationId);
     } catch {
-      /* 即便后端失败也按本地成功处理，避免 UI 卡住；下次打开会自动对齐 */
+      // The next list refresh will reconcile a failed optimistic removal.
     }
-    // 本地移除并选下一个可用会话
-    const rest = conversations.filter(c => c.id !== convId);
-    setConversations(rest);
-    if (convId === currentConvId) {
-      if (rest.length > 0) {
-        await handleSelectConversation(rest[0].id);
-      } else {
-        setCurrentConvId(null);
-        setMessages([]);
-      }
+    const remaining = conversations.filter((item) => item.id !== conversationId);
+    setConversations(remaining);
+    if (conversationId !== currentConvId) return;
+    if (remaining[0]) await handleSelectConversation(remaining[0].id);
+    else {
+      setCurrentConvId(null);
+      setMessages([]);
     }
   }, [conversations, currentConvId, handleSelectConversation, isLoading, t]);
+
+  const persistConversationSnapshot = useCallback(async (nextMessages: ChatMessage[]) => {
+    if (!currentConvId) return;
+    try {
+      await api.clearAiChatHistory(currentConvId);
+      for (const message of nextMessages) {
+        if (message.isStreaming || !message.content.trim()) continue;
+        await api.appendAiChatHistory({
+          id: message.id,
+          conversationId: currentConvId,
+          role: message.role,
+          content: message.content,
+          references: message.references,
+        });
+      }
+      await reloadConversations();
+    } catch {
+      // Local editing remains usable offline; reopening the conversation will reconcile it.
+    }
+  }, [currentConvId, reloadConversations]);
+
+  const handleStopGeneration = useCallback(() => {
+    if (!isLoading) return;
+    stopRequestedRef.current = true;
+    abortControllerRef.current?.abort();
+  }, [isLoading]);
+
+  const streamAssistantReply = useCallback(async (args: {
+    question: string;
+    history: { role: string; content: string }[];
+    assistantMessage: ChatMessage;
+    conversationId: string | null;
+    baseMessages: ChatMessage[];
+    replaceHistory?: boolean;
+  }) => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    stopRequestedRef.current = false;
+    let finalContent = "";
+    let finalReferences: ChatReference[] | undefined;
+    let stopped = false;
+
+    try {
+      await withAbortableAiFetch(controller, () => api.aiAsk(
+        args.question,
+        args.history,
+        (chunk) => {
+          finalContent += chunk;
+          setMessages((previous) => previous.map((message) =>
+            message.id === args.assistantMessage.id
+              ? { ...message, content: message.content + chunk }
+              : message
+          ));
+        },
+        (references) => {
+          finalReferences = references;
+          setMessages((previous) => previous.map((message) =>
+            message.id === args.assistantMessage.id
+              ? { ...message, references }
+              : message
+          ));
+        },
+        nbScope === "notebook" ? {
+          notebookId: nbScopeId,
+          includeChildren: nbIncludeChildren,
+        } : undefined,
+      ));
+    } catch (error: any) {
+      stopped = stopRequestedRef.current || controller.signal.aborted || error?.name === "AbortError";
+      if (!stopped) {
+        finalContent = error?.message || t("ai.requestFailed");
+        setMessages((previous) => previous.map((message) =>
+          message.id === args.assistantMessage.id
+            ? { ...message, content: finalContent }
+            : message
+        ));
+      }
+    } finally {
+      const completed: ChatMessage = {
+        ...args.assistantMessage,
+        content: finalContent,
+        references: finalReferences,
+        isStreaming: false,
+        stopped,
+      };
+      setMessages((previous) => previous.map((message) =>
+        message.id === args.assistantMessage.id ? completed : message
+      ));
+      setIsLoading(false);
+      stopRequestedRef.current = false;
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+
+      if (args.replaceHistory) {
+        const snapshot = args.baseMessages.map((message) =>
+          message.id === completed.id ? completed : message
+        );
+        await persistConversationSnapshot(snapshot);
+      } else if (finalContent.trim()) {
+        api.appendAiChatHistory({
+          id: completed.id,
+          conversationId: args.conversationId || undefined,
+          role: "assistant",
+          content: finalContent,
+          references: finalReferences,
+        }).catch(() => {});
+      }
+      reloadConversations().catch(() => {});
+    }
+  }, [nbIncludeChildren, nbScope, nbScopeId, persistConversationSnapshot, reloadConversations, t]);
 
   const handleSend = useCallback(async (override?: string) => {
     const question = (override ?? input).trim();
     if (!question || isLoading) return;
 
-    // 若当前没有激活会话（新用户首发 / 之前创建失败），先显式建一条新会话。
-    // 现场建会话能保证前端立刻拿到 id，并让侧栏在第一条消息发送前就出现条目。
-    let convId = currentConvId;
-    if (!convId) {
+    let conversationId = currentConvId;
+    if (!conversationId) {
       try {
-        const res = await api.aiConversations.create();
-        convId = res.conversation.id;
-        setConversations(prev => [res.conversation, ...prev]);
-        setCurrentConvId(convId);
+        const result = await api.aiConversations.create();
+        conversationId = result.conversation.id;
+        setConversations((previous) => [result.conversation, ...previous]);
+        setCurrentConvId(conversationId);
       } catch {
-        // 后端暂时不可用时降级：convId 仍为 null，后端 POST /chat-history 不传
-        // conversationId 会兜底落到"最近活跃会话"，功能不中断。
+        // Old backends create a default conversation when history is appended.
       }
     }
 
-    const userMsg: ChatMessage = {
+    const now = new Date().toISOString();
+    const userMessage: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
       content: question,
+      createdAt: now,
     };
-
-    const assistantMsg: ChatMessage = {
+    const assistantMessage: ChatMessage = {
       id: `a-${Date.now()}`,
       role: "assistant",
       content: "",
       isStreaming: true,
+      createdAt: now,
     };
+    const baseMessages = [...messages, userMessage, assistantMessage];
+    const history = messages
+      .filter((message) => !message.isStreaming)
+      .map((message) => ({ role: message.role, content: message.content }));
 
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
+    setMessages(baseMessages);
     setInput("");
     setIsLoading(true);
 
-    // 立即把用户消息持久化到后端，避免流式中途断开时这条提问丢失
     api.appendAiChatHistory({
-      id: userMsg.id,
-      conversationId: convId || undefined,
+      id: userMessage.id,
+      conversationId: conversationId || undefined,
       role: "user",
-      content: userMsg.content,
-    }).catch(() => { /* 持久化失败不影响对话 */ });
+      content: question,
+    }).catch(() => {});
 
-    // 若当前会话还没有标题（新建会话的占位 ""），用问题前 20 字自动命名。
-    // 只在第一次发送时改；后续用户可以手动重命名覆盖。
-    if (convId) {
-      const conv = conversations.find(c => c.id === convId);
-      if (conv && !conv.title) {
-        const autoTitle = deriveTitleFromQuestion(question);
-        if (autoTitle) {
-          api.aiConversations.update(convId, { title: autoTitle }).catch(() => {});
-          setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: autoTitle } : c));
+    if (conversationId) {
+      const conversation = conversations.find((item) => item.id === conversationId);
+      if (conversation && !conversation.title) {
+        const title = deriveTitleFromQuestion(question);
+        if (title) {
+          api.aiConversations.update(conversationId, { title }).catch(() => {});
+          setConversations((previous) => previous.map((item) =>
+            item.id === conversationId ? { ...item, title } : item
+          ));
         }
       }
     }
 
-    // Build history from previous messages
+    await streamAssistantReply({
+      question,
+      history,
+      assistantMessage,
+      conversationId,
+      baseMessages,
+    });
+  }, [conversations, currentConvId, input, isLoading, messages, streamAssistantReply]);
+
+  const handleRegenerate = useCallback(async (assistantId: string) => {
+    if (isLoading) return;
+    const assistantIndex = messages.findIndex((message) => message.id === assistantId && message.role === "assistant");
+    if (assistantIndex < 0) return;
+    let userIndex = assistantIndex - 1;
+    while (userIndex >= 0 && messages[userIndex].role !== "user") userIndex -= 1;
+    if (userIndex < 0) return;
+
+    const question = messages[userIndex].content;
+    const assistantMessage: ChatMessage = {
+      id: `a-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      createdAt: new Date().toISOString(),
+    };
+    const baseMessages = [...messages.slice(0, assistantIndex), assistantMessage];
     const history = messages
-      .filter(m => !m.isStreaming)
-      .map(m => ({ role: m.role, content: m.content }));
+      .slice(0, userIndex)
+      .filter((message) => !message.isStreaming)
+      .map((message) => ({ role: message.role, content: message.content }));
 
-    // 收集流式期间累积的最终内容和 references，结束后一次性落库
-    let finalContent = "";
-    let finalRefs: ChatReference[] | undefined;
+    setMessages(baseMessages);
+    setIsLoading(true);
+    await streamAssistantReply({
+      question,
+      history,
+      assistantMessage,
+      conversationId: currentConvId,
+      baseMessages,
+      replaceHistory: true,
+    });
+  }, [currentConvId, isLoading, messages, streamAssistantReply]);
 
+  const handleCopyMessage = useCallback(async (message: ChatMessage) => {
     try {
-      await api.aiAsk(
-        question,
-        history,
-        (chunk) => {
-          finalContent += chunk;
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsg.id
-              ? { ...m, content: m.content + chunk }
-              : m
-          ));
-        },
-        (refs) => {
-          finalRefs = refs;
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsg.id
-              ? { ...m, references: refs }
-              : m
-          ));
-        },
-        nbScope === "notebook" ? { notebookId: nbScopeId, includeChildren: nbIncludeChildren } : undefined
-      );
-    } catch (err: any) {
-      finalContent = err.message || t("ai.requestFailed");
-      setMessages(prev => prev.map(m =>
-        m.id === assistantMsg.id
-          ? { ...m, content: finalContent }
-          : m
-      ));
-    } finally {
-      setMessages(prev => prev.map(m =>
-        m.id === assistantMsg.id
-          ? { ...m, isStreaming: false }
-          : m
-      ));
-      setIsLoading(false);
-
-      // 流式结束后把完整的 assistant 消息落库（含 references）。
-      // 空内容时后端会跳过入库（见 /chat-history POST 对空内容的处理）。
-      if (finalContent.trim().length > 0) {
-        api.appendAiChatHistory({
-          id: assistantMsg.id,
-          conversationId: convId || undefined,
-          role: "assistant",
-          content: finalContent,
-          references: finalRefs,
-        }).catch(() => { /* 持久化失败不影响对话 */ });
-      }
-
-      // 流式结束后刷新会话列表：更新 updatedAt / lastMessage / messageCount，
-      // 失败不处理——列表里的"最近活动时间"与"预览"是次要 UX。
-      reloadConversations().catch(() => {});
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1500);
+    } catch {
+      // Clipboard permission may be denied in an embedded WebView.
     }
-  }, [input, isLoading, messages, t, currentConvId, conversations, reloadConversations]);
+  }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  const handleStartEditMessage = (message: ChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditDraft(message.content);
+  };
+
+  const handleSaveMessageEdit = useCallback(async (messageId: string) => {
+    const content = editDraft.trim();
+    if (!content) return;
+    const nextMessages = messages.map((message) =>
+      message.id === messageId ? { ...message, content } : message
+    );
+    setMessages(nextMessages);
+    setEditingMessageId(null);
+    setEditDraft("");
+    await persistConversationSnapshot(nextMessages);
+  }, [editDraft, messages, persistConversationSnapshot]);
+
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (isLoading) return;
+    const nextMessages = messages.filter((message) => message.id !== messageId);
+    setMessages(nextMessages);
+    if (editingMessageId === messageId) {
+      setEditingMessageId(null);
+      setEditDraft("");
+    }
+    await persistConversationSnapshot(nextMessages);
+  }, [editingMessageId, isLoading, messages, persistConversationSnapshot]);
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void handleSend();
     }
   };
 
   const clearChat = () => {
     setMessages([]);
-    // 同步清空后端持久化记录（仅清当前会话的消息；会话本身保留便于保留标题）
     if (currentConvId) {
-      api.clearAiChatHistory(currentConvId).catch(() => { /* ignore */ });
-      // 本地更新会话列表的 messageCount / lastMessage
-      setConversations(prev => prev.map(c =>
-        c.id === currentConvId ? { ...c, messageCount: 0, lastMessage: null, lastRole: null } : c
+      api.clearAiChatHistory(currentConvId).catch(() => {});
+      setConversations((previous) => previous.map((conversation) =>
+        conversation.id === currentConvId
+          ? { ...conversation, messageCount: 0, lastMessage: null, lastRole: null }
+          : conversation
       ));
     } else {
-      // 兜底：没有 convId 时老后端会清"最近活跃会话"，等效于本地清空
-      api.clearAiChatHistory().catch(() => { /* ignore */ });
+      api.clearAiChatHistory().catch(() => {});
     }
   };
 
-  // ===== ③ 文档解析状态 =====
   const [docParsing, setDocParsing] = useState(false);
   const [docResult, setDocResult] = useState<string | null>(null);
   const [docFileName, setDocFileName] = useState("");
   const docInputRef = useRef<HTMLInputElement>(null);
 
-  // 真正的"处理一个文件"逻辑。抽出来是为了让 <input type=file> change
-  // 和拖拽 drop 两条入口走同一段代码——避免逻辑分叉。
   const doParseDocument = useCallback(async (file: File) => {
     setDocParsing(true);
     setDocFileName(file.name);
@@ -415,127 +542,100 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     try {
       const result = await api.parseDocument(file, { formatMode: "note" });
       setDocResult(result.markdown);
-    } catch (err: any) {
-      setDocResult(`❌ ${err.message}`);
+    } catch (error: any) {
+      setDocResult(`❌ ${error.message}`);
     } finally {
       setDocParsing(false);
       if (docInputRef.current) docInputRef.current.value = "";
     }
   }, []);
 
-  const handleDocUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    void doParseDocument(file);
+  const handleDocUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) void doParseDocument(file);
   }, [doParseDocument]);
 
-  const handleCopyMarkdown = useCallback(() => {
-    if (docResult) {
-      navigator.clipboard.writeText(docResult);
-    }
-  }, [docResult]);
-
-  // ===== ⑥ 知识库导入状态 =====
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // 同样抽出"接收一组 File"的核心逻辑，让点击和拖拽复用
   const doKnowledgeImport = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
+    if (!files.length) return;
     setImportLoading(true);
     setImportResult(null);
     try {
       const result = await api.importToKnowledge(files);
       setImportResult(t("aiChat.importSuccess", { success: result.success, failed: result.failed }));
-      // 刷新统计
       api.getKnowledgeStats().then(setStats).catch(() => {});
-    } catch (err: any) {
-      setImportResult(`❌ ${err.message}`);
+    } catch (error: any) {
+      setImportResult(`❌ ${error.message}`);
     } finally {
       setImportLoading(false);
       if (importInputRef.current) importInputRef.current.value = "";
     }
   }, [t]);
 
-  const handleKnowledgeImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    void doKnowledgeImport(Array.from(files));
+  const handleKnowledgeImport = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files?.length) void doKnowledgeImport(Array.from(files));
   }, [doKnowledgeImport]);
 
-  // ===== 拖拽上传支持 =====
-  // 把两个上传卡片本身做成 dropzone：拖文件进去时高亮边框，松手即触发
-  // 与点击按钮完全一致的处理流程（共用 doParseDocument / doKnowledgeImport）。
-  // 用 counter 记 enter/leave 是因为子节点会冒泡 dragleave，单纯靠 boolean
-  // 会在子元素切换时闪烁；累计计数能正确处理嵌套。
   const [docDragOver, setDocDragOver] = useState(false);
   const docDragCounter = useRef(0);
   const [importDragOver, setImportDragOver] = useState(false);
   const importDragCounter = useRef(0);
 
-  // 按后缀名过滤拖入的文件。dragover 阶段拿不到文件名（仅有 dataTransfer.items
-  // 的 kind/type），所以高亮总是显示——真正过滤放在 drop 阶段。
   const filterByExt = useCallback((files: File[], accept: string): File[] => {
-    const exts = accept.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (exts.length === 0) return files;
-    return files.filter(f => {
-      const name = f.name.toLowerCase();
-      return exts.some(ext => name.endsWith(ext));
-    });
+    const extensions = accept.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+    return files.filter((file) => extensions.some((extension) => file.name.toLowerCase().endsWith(extension)));
   }, []);
 
-  const makeDropHandlers = useCallback(
-    (
-      setOver: (v: boolean) => void,
-      counterRef: React.MutableRefObject<number>,
-      onFiles: (files: File[]) => void,
-      accept: string,
-    ) => ({
-      onDragEnter: (e: React.DragEvent) => {
-        if (!e.dataTransfer.types.includes("Files")) return;
-        e.preventDefault();
-        counterRef.current++;
-        setOver(true);
-      },
-      onDragOver: (e: React.DragEvent) => {
-        if (e.dataTransfer.types.includes("Files")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      },
-      onDragLeave: () => {
-        counterRef.current--;
-        if (counterRef.current <= 0) {
-          counterRef.current = 0;
-          setOver(false);
-        }
-      },
-      onDrop: (e: React.DragEvent) => {
-        e.preventDefault();
+  const makeDropHandlers = useCallback((
+    setOver: (value: boolean) => void,
+    counterRef: React.MutableRefObject<number>,
+    onFiles: (files: File[]) => void,
+    accept: string,
+  ) => ({
+    onDragEnter: (event: React.DragEvent) => {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      counterRef.current += 1;
+      setOver(true);
+    },
+    onDragOver: (event: React.DragEvent) => {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    onDragLeave: () => {
+      counterRef.current -= 1;
+      if (counterRef.current <= 0) {
         counterRef.current = 0;
         setOver(false);
-        const files = filterByExt(Array.from(e.dataTransfer.files || []), accept);
-        if (files.length > 0) onFiles(files);
-      },
-    }),
-    [filterByExt],
-  );
+      }
+    },
+    onDrop: (event: React.DragEvent) => {
+      event.preventDefault();
+      counterRef.current = 0;
+      setOver(false);
+      const files = filterByExt(Array.from(event.dataTransfer.files || []), accept);
+      if (files.length) onFiles(files);
+    },
+  }), [filterByExt]);
 
   const docDropHandlers = makeDropHandlers(
     setDocDragOver,
     docDragCounter,
-    files => { if (files[0]) void doParseDocument(files[0]); },
+    (files) => { if (files[0]) void doParseDocument(files[0]); },
     ".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm",
   );
   const importDropHandlers = makeDropHandlers(
     setImportDragOver,
     importDragCounter,
-    files => void doKnowledgeImport(files),
+    (files) => void doKnowledgeImport(files),
     ".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm,.json",
   );
 
-  // ===== ⑤ 批量格式化状态 =====
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [showTools, setShowTools] = useState(false);
@@ -544,113 +644,114 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     setBatchLoading(true);
     setBatchResult(null);
     try {
-      // 获取所有未锁定的笔记ID
       const notes = await api.getNotes();
-      const validIds = notes.filter(n => !n.isLocked && !n.isTrashed).map(n => n.id).slice(0, 20);
-      if (validIds.length === 0) {
+      const validIds = notes.filter((note) => !note.isLocked && !note.isTrashed).map((note) => note.id).slice(0, 20);
+      if (!validIds.length) {
         setBatchResult("没有可格式化的笔记");
-        setBatchLoading(false);
         return;
       }
       const result = await api.batchFormatNotes(validIds);
       setBatchResult(t("aiChat.formatSuccess", { success: result.success, failed: result.failed }));
-    } catch (err: any) {
-      setBatchResult(`❌ ${err.message}`);
+    } catch (error: any) {
+      setBatchResult(`❌ ${error.message}`);
     } finally {
       setBatchLoading(false);
     }
   }, [t]);
 
-  // 快捷提问
   const suggestedQuestions = [
     t("aiChat.suggestRecent"),
     t("aiChat.suggestSummary"),
     t("aiChat.suggestTodo"),
   ];
 
-  const handleSuggestedQuestion = (q: string) => {
-    // 直接把问题发送出去（原实现仅 setInput，用户还需手动回车，
-    // 经常被误以为"AI 问答没反应"）。
-    if (isLoading) return;
-    setInput("");
-    handleSend(q);
+  const handleReferenceClick = (reference: ChatReference) => {
+    const isAttachment = reference.kind === "attachment" && reference.attachmentId;
+    if (isAttachment && reference.attachmentId) {
+      window.open(`/api/attachments/${reference.attachmentId}?download=1`, "_blank");
+    } else if (onNavigateToNote) {
+      onNavigateToNote(reference.id);
+    }
   };
 
   return (
     <div className="flex h-full bg-app-bg">
-      {/* ===== 左侧：会话列表 ===== */}
-      {/* 收起时宽度为 0；展开时占 208px。用 overflow-hidden 让内容动画收纳。 */}
-      <aside
-        className={cn(
-          "flex flex-col border-r border-app-border bg-app-surface/30 transition-[width] duration-150 overflow-hidden shrink-0",
-          sidebarOpen ? "w-52" : "w-0"
-        )}
-      >
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-app-border">
+      <aside className={cn(
+        "flex shrink-0 flex-col overflow-hidden border-r border-app-border bg-app-surface/30 transition-[width] duration-150",
+        sidebarOpen ? "w-52" : "w-0",
+      )}>
+        <div className="flex items-center justify-between border-b border-app-border px-3 py-2.5">
           <span className="text-xs font-semibold text-tx-secondary">{t("aiChat.conversations")}</span>
           <button
-            onClick={handleNewConversation}
+            type="button"
+            onClick={() => void handleNewConversation()}
             disabled={isLoading}
             title={t("aiChat.newConversation")}
-            className="p-1 rounded-md text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors disabled:opacity-50"
+            className="rounded-md p-1 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-accent-primary disabled:opacity-50"
           >
             <Plus size={14} />
           </button>
         </div>
-        <ScrollArea className="flex-1 min-w-0">
-          <div className="w-full min-w-0 px-2 py-2 space-y-0.5">
-            {conversations.length === 0 && (
-              <div className="text-[11px] text-tx-tertiary px-2 py-4 text-center">
-                {t("aiChat.noConversations")}
-              </div>
+        <ScrollArea className="min-w-0 flex-1">
+          <div className="w-full min-w-0 space-y-0.5 px-2 py-2">
+            {!conversations.length && (
+              <div className="px-2 py-4 text-center text-[11px] text-tx-tertiary">{t("aiChat.noConversations")}</div>
             )}
-            {conversations.map((c) => {
-              const active = c.id === currentConvId;
-              const displayTitle = c.title || t("aiChat.untitledConversation");
-              const isRenaming = renamingId === c.id;
+            {conversations.map((conversation) => {
+              const active = conversation.id === currentConvId;
+              const displayTitle = conversation.title || t("aiChat.untitledConversation");
+              const isRenaming = renamingId === conversation.id;
               return (
                 <div
-                  key={c.id}
+                  key={conversation.id}
                   className={cn(
-                    "group flex w-full min-w-0 items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors",
-                    active
-                      ? "bg-accent-primary/10 text-accent-primary"
-                      : "text-tx-secondary hover:bg-app-hover"
+                    "group flex w-full min-w-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-xs transition-colors",
+                    active ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary hover:bg-app-hover",
                   )}
-                  onClick={() => !isRenaming && handleSelectConversation(c.id)}
+                  onClick={() => !isRenaming && void handleSelectConversation(conversation.id)}
                 >
                   <MessageSquare size={12} className="shrink-0" />
                   {isRenaming ? (
                     <input
                       autoFocus
                       value={renameDraft}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onBlur={handleSubmitRename}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); handleSubmitRename(); }
-                        else if (e.key === "Escape") { e.preventDefault(); handleCancelRename(); }
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onBlur={() => void handleSubmitRename()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSubmitRename();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          handleCancelRename();
+                        }
                       }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex-1 min-w-0 px-1 py-0.5 bg-app-bg border border-accent-primary/40 rounded text-xs text-tx-primary outline-none"
+                      onClick={(event) => event.stopPropagation()}
+                      className="min-w-0 flex-1 rounded border border-accent-primary/40 bg-app-bg px-1 py-0.5 text-xs text-tx-primary outline-none"
                     />
                   ) : (
-                    <span className="flex-1 min-w-0 truncate" title={displayTitle}>
-                      {displayTitle}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate" title={displayTitle}>{displayTitle}</span>
                   )}
                   {!isRenaming && (
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
+                    <div className={cn(
+                      "flex shrink-0 items-center gap-0.5 transition-opacity",
+                      active
+                        ? "opacity-100"
+                        : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+                    )}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleStartRename(c); }}
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); handleStartRename(conversation); }}
                         title={t("aiChat.renameConversation")}
-                        className="p-0.5 rounded text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
+                        className="rounded p-0.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
                       >
                         <Pencil size={10} />
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); void handleDeleteConversation(c.id); }}
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); void handleDeleteConversation(conversation.id); }}
                         title={t("aiChat.deleteConversation")}
-                        className="p-0.5 rounded text-tx-tertiary hover:text-red-500 hover:bg-app-hover"
+                        className="rounded p-0.5 text-tx-tertiary hover:bg-app-hover hover:text-red-500"
                       >
                         <Trash2 size={10} />
                       </button>
@@ -663,429 +764,525 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
         </ScrollArea>
       </aside>
 
-      {/* ===== 右侧：消息主区 ===== */}
-      <div className="flex flex-col flex-1 min-w-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border bg-app-surface/50">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSidebarOpen(v => !v)}
-            title={sidebarOpen ? t("aiChat.collapseSidebar") : t("aiChat.expandSidebar")}
-            className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover transition-colors"
-          >
-            <Menu size={14} />
-          </button>
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center">
-            <Bot size={14} className="text-white" />
-          </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-app-border bg-app-surface/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-tx-primary">{t("aiChat.title")}</span>
-            {stats && (
-              <span className="text-[10px] text-tx-tertiary bg-app-hover px-1.5 py-0.5 rounded-full">
-                {t("aiChat.statsNotes", { count: stats.noteCount })}
-              </span>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((value) => !value)}
+              title={sidebarOpen ? t("aiChat.collapseSidebar") : t("aiChat.expandSidebar")}
+              className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
+            >
+              <Menu size={14} />
+            </button>
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500">
+              <Bot size={14} className="text-white" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-tx-primary">{t("aiChat.title")}</span>
+              {stats && (
+                <span className="rounded-full bg-app-hover px-1.5 py-0.5 text-[10px] text-tx-tertiary">
+                  {t("aiChat.statsNotes", { count: stats.noteCount })}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void handleNewConversation()}
+              disabled={isLoading}
+              title={t("aiChat.newConversation")}
+              className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-accent-primary disabled:opacity-50"
+            >
+              <Plus size={14} />
+            </button>
+            {!!messages.length && (
+              <button
+                type="button"
+                onClick={clearChat}
+                title={t("aiChat.clearChat")}
+                className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-red-500"
+              >
+                <Trash2 size={14} />
+              </button>
             )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
+            >
+              <X size={14} />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleNewConversation}
-            disabled={isLoading}
-            title={t("aiChat.newConversation")}
-            className="p-1.5 rounded-md text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors disabled:opacity-50"
-          >
-            <Plus size={14} />
-          </button>
-          {messages.length > 0 && (
-            <button
-              onClick={clearChat}
-              className="p-1.5 rounded-md text-tx-tertiary hover:text-red-500 hover:bg-app-hover transition-colors"
-              title={t("aiChat.clearChat")}
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover transition-colors"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1">
-        <div className="px-4 py-4 space-y-4">
-          {historyLoading && messages.length === 0 && (
-            <div className="flex items-center justify-center py-8 text-tx-tertiary">
-              <Loader2 size={16} className="animate-spin" />
-            </div>
-          )}
-          {!historyLoading && messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/10 to-indigo-500/10 flex items-center justify-center mb-4">
-                <Sparkles size={28} className="text-violet-500/60" />
+        <ScrollArea
+          className="min-h-0 flex-1"
+          scrollbarClassName="w-3 bg-app-surface/70"
+          thumbClassName="bg-tx-tertiary/50 hover:bg-tx-secondary/70"
+        >
+          <div className="space-y-4 px-4 py-4">
+            {historyLoading && !messages.length && (
+              <div className="flex items-center justify-center py-8 text-tx-tertiary">
+                <Loader2 size={16} className="animate-spin" />
               </div>
-              <p className="text-sm text-tx-secondary mb-1">{t("aiChat.empty")}</p>
-              <p className="text-xs text-tx-tertiary max-w-[240px] mb-5">{t("aiChat.emptyHint")}</p>
+            )}
 
-              {/* 知识库统计卡片 */}
-              {stats && stats.noteCount > 0 && (
-                <div className="w-full max-w-sm mb-5">
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="flex flex-col items-center py-2.5 px-2 rounded-xl bg-app-surface border border-app-border">
-                      <BookOpen size={16} className="text-indigo-500/70 mb-1" />
-                      <span className="text-base font-bold text-tx-primary">{stats.noteCount}</span>
-                      <span className="text-[10px] text-tx-tertiary">{t("aiChat.statNotes")}</span>
-                    </div>
-                    <div className="flex flex-col items-center py-2.5 px-2 rounded-xl bg-app-surface border border-app-border">
-                      <Database size={16} className="text-emerald-500/70 mb-1" />
-                      <span className="text-base font-bold text-tx-primary">{stats.ftsCount}</span>
-                      <span className="text-[10px] text-tx-tertiary">{t("aiChat.statIndexed")}</span>
-                    </div>
-                    <div className="flex flex-col items-center py-2.5 px-2 rounded-xl bg-app-surface border border-app-border">
-                      <FileText size={16} className="text-amber-500/70 mb-1" />
-                      <span className="text-base font-bold text-tx-primary">{stats.notebookCount}</span>
-                      <span className="text-[10px] text-tx-tertiary">{t("aiChat.statNotebooks")}</span>
-                    </div>
-                  </div>
+            {!historyLoading && !messages.length && (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/10 to-indigo-500/10">
+                  <Sparkles size={28} className="text-violet-500/60" />
                 </div>
-              )}
+                <p className="mb-1 text-sm text-tx-secondary">{t("aiChat.empty")}</p>
+                <p className="mb-5 max-w-[240px] text-xs text-tx-tertiary">{t("aiChat.emptyHint")}</p>
 
-              {/* AI 工具区 */}
-              <div className="w-full max-w-sm mb-5">
-                <button
-                  onClick={() => setShowTools(!showTools)}
-                  className="flex items-center justify-center gap-1.5 w-full py-1.5 text-[10px] text-tx-tertiary hover:text-accent-primary transition-colors"
-                >
-                  <Wand2 size={10} />
-                  {t("aiChat.toolsSection")}
-                  {showTools ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                </button>
-                {showTools && (
-                  <div className="space-y-2 mt-2">
-                    {/* ③ 文档解析 */}
-                    <div
-                      {...docDropHandlers}
-                      className={cn(
-                        "rounded-xl bg-app-surface border p-3 transition-colors",
-                        docDragOver
-                          ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/30"
-                          : "border-app-border",
-                      )}
-                    >
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <FileUp size={14} className="text-blue-500" />
-                        <span className="text-xs font-medium text-tx-primary">{t("aiChat.docParse")}</span>
+                {stats && stats.noteCount > 0 && (
+                  <div className="mb-5 w-full max-w-sm">
+                    <div className="mb-3 grid grid-cols-3 gap-2">
+                      <div className="flex flex-col items-center rounded-xl border border-app-border bg-app-surface px-2 py-2.5">
+                        <BookOpen size={16} className="mb-1 text-indigo-500/70" />
+                        <span className="text-base font-bold text-tx-primary">{stats.noteCount}</span>
+                        <span className="text-[10px] text-tx-tertiary">{t("aiChat.statNotes")}</span>
                       </div>
-                      <p className="text-[10px] text-tx-tertiary mb-2">{t("aiChat.docParseDesc")}</p>
-                      <input
-                        ref={docInputRef}
-                        type="file"
-                        accept=".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm"
-                        onChange={handleDocUpload}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => docInputRef.current?.click()}
-                        disabled={docParsing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50 w-full justify-center"
-                      >
-                        {docParsing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                        {docParsing ? t("aiChat.parsing") : t("aiChat.uploadDoc")}
-                      </button>
-                      <p className="text-[9px] text-tx-tertiary mt-1 text-center">{t("aiChat.uploadDocHint")}</p>
-                      {/* 解析结果预览 */}
-                      {docResult && (
-                        <div className="mt-2 rounded-lg bg-app-bg border border-app-border">
-                          <div className="flex items-center justify-between px-2 py-1 border-b border-app-border">
-                            <span className="text-[10px] text-tx-secondary truncate">{docFileName}</span>
-                            <div className="flex gap-1">
-                              <button onClick={handleCopyMarkdown} className="p-0.5 rounded hover:bg-app-hover text-tx-tertiary" title={t("aiChat.copyMarkdown")}>
-                                <Copy size={10} />
-                              </button>
-                              <button onClick={() => setDocResult(null)} className="p-0.5 rounded hover:bg-app-hover text-tx-tertiary" title={t("aiChat.closePreview")}>
-                                <X size={10} />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="p-2 max-h-40 overflow-auto text-[10px] text-tx-secondary whitespace-pre-wrap">
-                            {docResult.slice(0, 1000)}{docResult.length > 1000 && "..."}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ⑥ 知识库导入 */}
-                    <div
-                      {...importDropHandlers}
-                      className={cn(
-                        "rounded-xl bg-app-surface border p-3 transition-colors",
-                        importDragOver
-                          ? "border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/30"
-                          : "border-app-border",
-                      )}
-                    >
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <FolderUp size={14} className="text-emerald-500" />
-                        <span className="text-xs font-medium text-tx-primary">{t("aiChat.importKnowledge")}</span>
+                      <div className="flex flex-col items-center rounded-xl border border-app-border bg-app-surface px-2 py-2.5">
+                        <Database size={16} className="mb-1 text-emerald-500/70" />
+                        <span className="text-base font-bold text-tx-primary">{stats.ftsCount}</span>
+                        <span className="text-[10px] text-tx-tertiary">{t("aiChat.statIndexed")}</span>
                       </div>
-                      <p className="text-[10px] text-tx-tertiary mb-2">{t("aiChat.importKnowledgeDesc")}</p>
-                      <input
-                        ref={importInputRef}
-                        type="file"
-                        accept=".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm,.json"
-                        multiple
-                        onChange={handleKnowledgeImport}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => importInputRef.current?.click()}
-                        disabled={importLoading}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 w-full justify-center"
-                      >
-                        {importLoading ? <Loader2 size={12} className="animate-spin" /> : <FolderUp size={12} />}
-                        {importLoading ? t("aiChat.importing") : t("aiChat.importFiles")}
-                      </button>
-                      <p className="text-[9px] text-tx-tertiary mt-1 text-center">{t("aiChat.importFilesHint")}</p>
-                      {importResult && (
-                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px]">
-                          <Check size={10} />
-                          {importResult}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ⑤ 批量格式化 */}
-                    <div className="rounded-xl bg-app-surface border border-app-border p-3">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <Wand2 size={14} className="text-amber-500" />
-                        <span className="text-xs font-medium text-tx-primary">{t("aiChat.batchFormat")}</span>
+                      <div className="flex flex-col items-center rounded-xl border border-app-border bg-app-surface px-2 py-2.5">
+                        <FileText size={16} className="mb-1 text-amber-500/70" />
+                        <span className="text-base font-bold text-tx-primary">{stats.notebookCount}</span>
+                        <span className="text-[10px] text-tx-tertiary">{t("aiChat.statNotebooks")}</span>
                       </div>
-                      <p className="text-[10px] text-tx-tertiary mb-2">{t("aiChat.batchFormatDesc")}</p>
-                      <button
-                        onClick={handleBatchFormat}
-                        disabled={batchLoading}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50 w-full justify-center"
-                      >
-                        {batchLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
-                        {batchLoading ? t("aiChat.formatting") : t("aiChat.batchFormat")}
-                      </button>
-                      <p className="text-[9px] text-tx-tertiary mt-1 text-center">{t("aiChat.selectNotesHint")}</p>
-                      {batchResult && (
-                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px]">
-                          <Check size={10} />
-                          {batchResult}
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* 快捷问题建议 */}
-              <div className="w-full max-w-sm space-y-1.5">
-                <p className="text-[10px] text-tx-tertiary uppercase tracking-wider mb-2 flex items-center gap-1 justify-center">
-                  <MessageCircleQuestion size={10} />
-                  {t("aiChat.trySuggestions")}
-                </p>
-                {suggestedQuestions.map((q, i) => (
+                <div className="mb-5 w-full max-w-sm">
                   <button
-                    key={i}
-                    onClick={() => handleSuggestedQuestion(q)}
-                    className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-xs text-tx-secondary bg-app-surface border border-app-border hover:border-accent-primary/30 hover:bg-accent-primary/5 hover:text-accent-primary transition-all group text-left"
+                    type="button"
+                    onClick={() => setShowTools((value) => !value)}
+                    className="flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] text-tx-tertiary transition-colors hover:text-accent-primary"
                   >
-                    <span>{q}</span>
-                    <ArrowRight size={12} className="text-tx-tertiary group-hover:text-accent-primary transition-colors shrink-0 ml-2" />
+                    <Wand2 size={10} />
+                    {t("aiChat.toolsSection")}
+                    {showTools ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {messages.map((msg) => (
-            <div key={msg.id} className={cn("flex gap-2.5", msg.role === "user" ? "flex-row-reverse" : "")}>
-              {/* Avatar */}
-              <div className={cn(
-                "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
-                msg.role === "user"
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "bg-gradient-to-br from-violet-500 to-indigo-500 text-white"
-              )}>
-                {msg.role === "user" ? <User size={13} /> : <Bot size={13} />}
-              </div>
-
-              {/* Content */}
-              <div className={cn(
-                "flex-1 min-w-0",
-                msg.role === "user" ? "text-right" : ""
-              )}>
-                <div className={cn(
-                  "inline-block text-sm leading-relaxed rounded-xl px-3.5 py-2.5 max-w-[85%] text-left",
-                  msg.role === "user"
-                    ? "bg-accent-primary text-white rounded-tr-md"
-                    : "bg-app-surface border border-app-border text-tx-primary rounded-tl-md"
-                )}>
-                  {msg.role === "user" ? (
-                    <div className="whitespace-pre-wrap break-words">
-                      {msg.content}
-                    </div>
-                  ) : (
-                    <div className="markdown-body break-words prose prose-sm dark:prose-invert max-w-none
-                      prose-p:my-1.5 prose-p:leading-relaxed
-                      prose-headings:my-2 prose-headings:font-semibold
-                      prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
-                      prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
-                      prose-code:text-xs prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:bg-black/5 dark:prose-code:bg-white/10 prose-code:before:content-none prose-code:after:content-none
-                      prose-pre:my-2 prose-pre:rounded-lg prose-pre:bg-black/5 dark:prose-pre:bg-white/5 prose-pre:p-3
-                      prose-blockquote:my-2 prose-blockquote:border-violet-400 prose-blockquote:text-tx-secondary
-                      prose-hr:my-3
-                      prose-a:text-accent-primary prose-a:no-underline hover:prose-a:underline
-                      prose-strong:text-tx-primary
-                      prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1
-                    ">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content}
-                      </ReactMarkdown>
-                      {msg.isStreaming && msg.content.length === 0 && (
-                        // 首个 chunk 到达前气泡是空的，显示"思考中"避免看起来卡死
-                        <div className="flex items-center gap-2 text-tx-tertiary text-xs py-0.5">
-                          <span className="flex gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/60 animate-bounce" />
-                          </span>
-                          <span>{t("aiChat.thinking")}</span>
+                  {showTools && (
+                    <div className="mt-2 space-y-2">
+                      <div
+                        {...docDropHandlers}
+                        className={cn(
+                          "rounded-xl border bg-app-surface p-3 transition-colors",
+                          docDragOver
+                            ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/30"
+                            : "border-app-border",
+                        )}
+                      >
+                        <div className="mb-1.5 flex items-center gap-2">
+                          <FileUp size={14} className="text-blue-500" />
+                          <span className="text-xs font-medium text-tx-primary">{t("aiChat.docParse")}</span>
                         </div>
-                      )}
-                      {msg.isStreaming && msg.content.length > 0 && (
-                        <span className="inline-block w-1.5 h-4 bg-accent-primary/60 animate-pulse ml-0.5 align-middle rounded-sm" />
-                      )}
+                        <p className="mb-2 text-[10px] text-tx-tertiary">{t("aiChat.docParseDesc")}</p>
+                        <input
+                          ref={docInputRef}
+                          type="file"
+                          accept=".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm"
+                          onChange={handleDocUpload}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => docInputRef.current?.click()}
+                          disabled={docParsing}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 transition-colors hover:bg-blue-500/20 disabled:opacity-50 dark:text-blue-400"
+                        >
+                          {docParsing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                          {docParsing ? t("aiChat.parsing") : t("aiChat.uploadDoc")}
+                        </button>
+                        <p className="mt-1 text-center text-[9px] text-tx-tertiary">{t("aiChat.uploadDocHint")}</p>
+                        {docResult && (
+                          <div className="mt-2 rounded-lg border border-app-border bg-app-bg">
+                            <div className="flex items-center justify-between border-b border-app-border px-2 py-1">
+                              <span className="truncate text-[10px] text-tx-secondary">{docFileName}</span>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(docResult).catch(() => {})}
+                                  className="rounded p-0.5 text-tx-tertiary hover:bg-app-hover"
+                                  title={t("aiChat.copyMarkdown")}
+                                >
+                                  <Copy size={10} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDocResult(null)}
+                                  className="rounded p-0.5 text-tx-tertiary hover:bg-app-hover"
+                                  title={t("aiChat.closePreview")}
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="max-h-40 overflow-auto whitespace-pre-wrap p-2 text-[10px] text-tx-secondary">
+                              {docResult.slice(0, 1000)}{docResult.length > 1000 && "..."}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        {...importDropHandlers}
+                        className={cn(
+                          "rounded-xl border bg-app-surface p-3 transition-colors",
+                          importDragOver
+                            ? "border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/30"
+                            : "border-app-border",
+                        )}
+                      >
+                        <div className="mb-1.5 flex items-center gap-2">
+                          <FolderUp size={14} className="text-emerald-500" />
+                          <span className="text-xs font-medium text-tx-primary">{t("aiChat.importKnowledge")}</span>
+                        </div>
+                        <p className="mb-2 text-[10px] text-tx-tertiary">{t("aiChat.importKnowledgeDesc")}</p>
+                        <input
+                          ref={importInputRef}
+                          type="file"
+                          accept=".doc,.docx,.csv,.tsv,.txt,.md,.html,.htm,.json"
+                          multiple
+                          onChange={handleKnowledgeImport}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => importInputRef.current?.click()}
+                          disabled={importLoading}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50 dark:text-emerald-400"
+                        >
+                          {importLoading ? <Loader2 size={12} className="animate-spin" /> : <FolderUp size={12} />}
+                          {importLoading ? t("aiChat.importing") : t("aiChat.importFiles")}
+                        </button>
+                        <p className="mt-1 text-center text-[9px] text-tx-tertiary">{t("aiChat.importFilesHint")}</p>
+                        {importResult && (
+                          <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                            <Check size={10} />
+                            {importResult}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                        <div className="mb-1.5 flex items-center gap-2">
+                          <Wand2 size={14} className="text-amber-500" />
+                          <span className="text-xs font-medium text-tx-primary">{t("aiChat.batchFormat")}</span>
+                        </div>
+                        <p className="mb-2 text-[10px] text-tx-tertiary">{t("aiChat.batchFormatDesc")}</p>
+                        <button
+                          type="button"
+                          onClick={() => void handleBatchFormat()}
+                          disabled={batchLoading}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
+                        >
+                          {batchLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                          {batchLoading ? t("aiChat.formatting") : t("aiChat.batchFormat")}
+                        </button>
+                        <p className="mt-1 text-center text-[9px] text-tx-tertiary">{t("aiChat.selectNotesHint")}</p>
+                        {batchResult && (
+                          <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
+                            <Check size={10} />
+                            {batchResult}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* References */}
-                {msg.references && msg.references.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    <p className="text-[10px] text-tx-tertiary flex items-center gap-1">
-                      <FileText size={10} />
-                      {t("aiChat.references")}
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {msg.references.map((ref) => {
-                        const isAtt = ref.kind === "attachment" && ref.attachmentId;
-                        const clickable = isAtt || !!onNavigateToNote;
-                        // 附件点击：新 tab 下载；笔记点击：跳转到笔记
-                        const handleClick = () => {
-                          if (isAtt && ref.attachmentId) {
-                            window.open(
-                              `/api/attachments/${ref.attachmentId}?download=1`,
-                              "_blank",
-                            );
-                          } else if (onNavigateToNote) {
-                            onNavigateToNote(ref.id);
-                          }
-                        };
-                        return (
-                          <button
-                            key={`${ref.kind || "note"}-${ref.attachmentId || ref.id}`}
-                            onClick={handleClick}
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] transition-colors",
-                              isAtt
-                                ? clickable
-                                  ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 cursor-pointer"
-                                  : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                                : clickable
-                                  ? "bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-500/20 cursor-pointer"
-                                  : "bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                            )}
-                            title={
-                              isAtt
-                                ? (ref.attachmentFilename || ref.title)
-                                : (onNavigateToNote ? t("aiChat.openNote") : undefined)
-                            }
-                          >
-                            {isAtt ? <Paperclip size={9} /> : <FileText size={9} />}
-                            {ref.title}
-                            {clickable && <ArrowRight size={8} className="ml-0.5" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                <div className="w-full max-w-sm space-y-1.5">
+                  <p className="mb-2 flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-tx-tertiary">
+                    <MessageCircleQuestion size={10} />
+                    {t("aiChat.trySuggestions")}
+                  </p>
+                  {suggestedQuestions.map((question) => (
+                    <button
+                      key={question}
+                      type="button"
+                      onClick={() => { if (!isLoading) void handleSend(question); }}
+                      className="group flex w-full items-center justify-between rounded-lg border border-app-border bg-app-surface px-3 py-2 text-left text-xs text-tx-secondary transition-all hover:border-accent-primary/30 hover:bg-accent-primary/5 hover:text-accent-primary"
+                    >
+                      <span>{question}</span>
+                      <ArrowRight size={12} className="ml-2 shrink-0 text-tx-tertiary transition-colors group-hover:text-accent-primary" />
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </ScrollArea>
-
-
-      {/* 知识库范围选择器 */}
-      <div className="px-4 pt-2 pb-0 flex items-center gap-2 text-xs">
-        <span className="text-tx-tertiary shrink-0">{t("aiChat.knowledgeScope") || "知识库范围"}：</span>
-        <select
-          value={nbScope === "all" ? "all" : nbScopeId}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "all") { setNbScope("all"); setNbScopeId(""); }
-            else { setNbScope("notebook"); setNbScopeId(v); }
-          }}
-          className="flex-1 min-w-0 px-2 py-1 bg-app-bg border border-app-border rounded-lg text-tx-primary focus:ring-1 focus:ring-accent-primary/40 outline-none"
-        >
-          <option value="all">{t("aiChat.scopeAll") || "当前空间"}</option>
-          {appState.notebooks.map(nb => (
-            <option key={nb.id} value={nb.id}>{nb.name}</option>
-          ))}
-        </select>
-        {nbScope === "notebook" && (
-          <label className="flex items-center gap-1 shrink-0 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={nbIncludeChildren}
-              onChange={(e) => setNbIncludeChildren(e.target.checked)}
-              className="rounded accent-accent-primary"
-            />
-            <span className="text-tx-tertiary">{t("aiChat.includeChildren") || "含子笔记本"}</span>
-          </label>
-        )}
-      </div>
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-app-border bg-app-surface/30">
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t("aiChat.placeholder")}
-            rows={1}
-            className="flex-1 resize-none px-3 py-2 bg-app-bg border border-app-border rounded-xl text-sm text-tx-primary placeholder:text-tx-tertiary focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all max-h-24"
-            style={{ minHeight: "38px" }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = "auto";
-              target.style.height = Math.min(target.scrollHeight, 96) + "px";
-            }}
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
-            className={cn(
-              "shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all",
-              input.trim() && !isLoading
-                ? "bg-accent-primary hover:bg-accent-primary/90 text-white"
-                : "bg-app-hover text-tx-tertiary"
             )}
+
+            {messages.map((message) => {
+              const isUser = message.role === "user";
+              const editing = editingMessageId === message.id;
+              const time = formatMessageTime(message.createdAt);
+              return (
+                <div
+                  key={message.id}
+                  className={cn("group/message flex gap-2.5", isUser && "flex-row-reverse")}
+                >
+                  <div className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                    isUser
+                      ? "bg-accent-primary/10 text-accent-primary"
+                      : "bg-gradient-to-br from-violet-500 to-indigo-500 text-white",
+                  )}>
+                    {isUser ? <User size={13} /> : <Bot size={13} />}
+                  </div>
+
+                  <div className={cn("min-w-0 flex-1", isUser && "text-right")}>
+                    <div className={cn(
+                      "inline-block max-w-[85%] rounded-xl px-3.5 py-2.5 text-left text-sm leading-relaxed",
+                      isUser
+                        ? "rounded-tr-md bg-accent-primary text-white selection:bg-white/35 selection:text-white"
+                        : "rounded-tl-md border border-app-border bg-app-surface text-tx-primary selection:bg-accent-primary/25 selection:text-tx-primary",
+                    )}>
+                      {isUser ? (
+                        editing ? (
+                          <div className="min-w-[220px] space-y-2">
+                            <textarea
+                              autoFocus
+                              value={editDraft}
+                              onChange={(event) => setEditDraft(event.target.value)}
+                              onKeyDown={(event) => {
+                                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                                  event.preventDefault();
+                                  void handleSaveMessageEdit(message.id);
+                                } else if (event.key === "Escape") {
+                                  setEditingMessageId(null);
+                                  setEditDraft("");
+                                }
+                              }}
+                              rows={3}
+                              className="w-full resize-y rounded-lg border border-white/30 bg-white/10 px-2 py-1.5 text-sm text-white outline-none placeholder:text-white/60"
+                            />
+                            <div className="flex justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => { setEditingMessageId(null); setEditDraft(""); }}
+                                className="rounded-md px-2 py-1 text-[11px] text-white/80 hover:bg-white/10"
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSaveMessageEdit(message.id)}
+                                disabled={!editDraft.trim()}
+                                className="rounded-md bg-white px-2 py-1 text-[11px] font-medium text-accent-primary disabled:opacity-50"
+                              >
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                        )
+                      ) : (
+                        <div className="markdown-body max-w-none break-words prose prose-sm dark:prose-invert
+                          prose-p:my-1.5 prose-p:leading-relaxed
+                          prose-headings:my-2 prose-headings:font-semibold
+                          prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
+                          prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
+                          prose-code:rounded-md prose-code:bg-black/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-white/10
+                          prose-pre:my-2 prose-pre:rounded-lg prose-pre:bg-black/5 prose-pre:p-3 dark:prose-pre:bg-white/5
+                          prose-blockquote:my-2 prose-blockquote:border-violet-400 prose-blockquote:text-tx-secondary
+                          prose-hr:my-3 prose-a:text-accent-primary prose-a:no-underline hover:prose-a:underline
+                          prose-strong:text-tx-primary prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1"
+                        >
+                          {message.content && (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                          )}
+                          {message.isStreaming && !message.content && (
+                            <div className="flex items-center gap-2 py-0.5 text-xs text-tx-tertiary">
+                              <span className="flex gap-1">
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-primary/60 [animation-delay:-0.3s]" />
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-primary/60 [animation-delay:-0.15s]" />
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-primary/60" />
+                              </span>
+                              <span>{t("aiChat.thinking")}</span>
+                            </div>
+                          )}
+                          {message.isStreaming && !!message.content && (
+                            <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent-primary/60 align-middle" />
+                          )}
+                          {message.stopped && (
+                            <div className="mt-2 text-[11px] text-tx-tertiary">已停止生成</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {!!message.references?.length && (
+                      <div className={cn("mt-2 max-w-[85%]", isUser && "ml-auto")}>
+                        <p className="mb-1 flex items-center gap-1 text-[10px] text-tx-tertiary">
+                          <FileText size={10} />
+                          {t("aiChat.references")}
+                        </p>
+                        <ol className="space-y-1">
+                          {message.references.map((reference, index) => {
+                            const isAttachment = reference.kind === "attachment" && reference.attachmentId;
+                            const clickable = !!isAttachment || !!onNavigateToNote;
+                            return (
+                              <li key={`${reference.kind || "note"}-${reference.attachmentId || reference.id}-${index}`}>
+                                <button
+                                  type="button"
+                                  disabled={!clickable}
+                                  onClick={() => handleReferenceClick(reference)}
+                                  title={isAttachment ? reference.attachmentFilename || reference.title : reference.title}
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-surface px-2.5 py-1.5 text-left text-[11px] transition-colors",
+                                    clickable ? "cursor-pointer hover:border-accent-primary/40 hover:bg-accent-primary/5" : "cursor-default",
+                                  )}
+                                >
+                                  <span className="shrink-0 font-semibold text-accent-primary">[{index + 1}]</span>
+                                  {isAttachment ? <Paperclip size={10} className="shrink-0 text-amber-500" /> : <FileText size={10} className="shrink-0 text-violet-500" />}
+                                  <span className="min-w-0 flex-1 truncate text-tx-secondary">{reference.title}</span>
+                                  {clickable && <ArrowRight size={9} className="shrink-0 text-tx-tertiary" />}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    )}
+
+                    {!editing && (
+                      <div className={cn(
+                        "mt-1 flex items-center gap-1 text-[10px] text-tx-tertiary",
+                        isUser ? "justify-end" : "justify-start",
+                      )}>
+                        {time && <span className="mr-0.5 select-none">{time}</span>}
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyMessage(message)}
+                          disabled={!message.content}
+                          title="复制"
+                          className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
+                        >
+                          {copiedMessageId === message.id ? <Check size={11} /> : <Copy size={11} />}
+                        </button>
+                        {isUser && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditMessage(message)}
+                            disabled={isLoading}
+                            title="编辑"
+                            className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
+                        {!isUser && !message.isStreaming && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRegenerate(message.id)}
+                            disabled={isLoading}
+                            title="重新生成"
+                            className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteMessage(message.id)}
+                          disabled={isLoading || message.isStreaming}
+                          title="删除"
+                          className="rounded p-1 opacity-65 transition hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 disabled:opacity-30"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+        </ScrollArea>
+
+        <div className="flex items-center gap-2 px-4 pb-0 pt-2 text-xs">
+          <span className="shrink-0 text-tx-tertiary">{t("aiChat.knowledgeScope") || "知识库范围"}：</span>
+          <select
+            value={nbScope === "all" ? "all" : nbScopeId}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "all") {
+                setNbScope("all");
+                setNbScopeId("");
+              } else {
+                setNbScope("notebook");
+                setNbScopeId(value);
+              }
+            }}
+            className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1 text-tx-primary outline-none focus:ring-1 focus:ring-accent-primary/40"
           >
-            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          </button>
+            <option value="all">{t("aiChat.scopeAll") || "当前空间"}</option>
+            {appState.notebooks.map((notebook) => (
+              <option key={notebook.id} value={notebook.id}>{notebook.name}</option>
+            ))}
+          </select>
+          {nbScope === "notebook" && (
+            <label className="flex shrink-0 cursor-pointer select-none items-center gap-1">
+              <input
+                type="checkbox"
+                checked={nbIncludeChildren}
+                onChange={(event) => setNbIncludeChildren(event.target.checked)}
+                className="rounded accent-accent-primary"
+              />
+              <span className="text-tx-tertiary">{t("aiChat.includeChildren") || "含子笔记本"}</span>
+            </label>
+          )}
         </div>
-      </div>
+
+        <div className="border-t border-app-border bg-app-surface/30 px-4 py-3">
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t("aiChat.placeholder")}
+              rows={1}
+              disabled={isLoading}
+              className="max-h-24 flex-1 resize-none rounded-xl border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none transition-all placeholder:text-tx-tertiary focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/40 disabled:opacity-70"
+              style={{ minHeight: "38px" }}
+              onInput={(event) => {
+                const target = event.target as HTMLTextAreaElement;
+                target.style.height = "auto";
+                target.style.height = `${Math.min(target.scrollHeight, 96)}px`;
+              }}
+            />
+            <button
+              type="button"
+              onClick={isLoading ? handleStopGeneration : () => void handleSend()}
+              disabled={!isLoading && !input.trim()}
+              title={isLoading ? "停止生成" : "发送"}
+              className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all",
+                isLoading
+                  ? "bg-red-500 text-white hover:bg-red-600"
+                  : input.trim()
+                    ? "bg-accent-primary text-white hover:bg-accent-primary/90"
+                    : "bg-app-hover text-tx-tertiary",
+              )}
+            >
+              {isLoading ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
+            </button>
+          </div>
+          {isLoading && (
+            <p className="mt-1.5 text-right text-[10px] text-tx-tertiary">点击红色方块即可终止本次回答</p>
+          )}
+        </div>
       </div>
     </div>
   );
