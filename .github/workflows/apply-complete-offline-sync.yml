@@ -12,6 +12,7 @@ on:
       - "frontend/src/components/settings/OfflineSyncSettings.tsx"
       - "scripts/apply-complete-offline-sync-review.py"
       - "scripts/fix-complete-offline-review.py"
+      - "scripts/fix-complete-offline-string.py"
       - ".github/workflows/apply-complete-offline-sync.yml"
 
 permissions:
@@ -38,6 +39,7 @@ jobs:
         run: |
           python3 scripts/apply-complete-offline-sync-review.py
           python3 scripts/fix-complete-offline-review.py
+          python3 scripts/fix-complete-offline-string.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
