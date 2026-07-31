@@ -34,3 +34,5 @@ jobs:
           git diff --cached --stat
           git commit -m "feat(pg): support atomic subdocument structure changes"
           git push origin HEAD:pg-migration-unified
+
+# Corrected trigger run.
