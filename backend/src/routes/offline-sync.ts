@@ -211,9 +211,16 @@ function resolveNotebookAccess(
   return { rows: resolved.rows, ids: resolved.ids, accessFingerprint };
 }
 
-function noteIsInScope(note: Pick<NoteRow, "userId" | "workspaceId" | "notebookId">, userId: string, scope: SyncScope, notebookIds: Set<string>): boolean {
+function noteIsInScope(
+  note: Pick<NoteRow, "id" | "userId" | "workspaceId" | "notebookId">,
+  userId: string,
+  scope: SyncScope,
+  notebookIds: Set<string>,
+): boolean {
   if (scope.workspaceId) return note.workspaceId === scope.workspaceId;
-  return note.workspaceId === null && (note.userId === userId || notebookIds.has(note.notebookId));
+  if (note.workspaceId !== null) return false;
+  if (note.userId === userId || notebookIds.has(note.notebookId)) return true;
+  return resolveEffectiveNoteCapabilities(note.id, userId).read;
 }
 
 function noteSelectSql(): string {
@@ -352,6 +359,15 @@ app.get("/plan", (c) => {
   const scope = scopeResult.scope!;
   const access = resolveNotebookAccess(db, userId, scope);
   const notes = listAllAccessibleNotes(db, userId, scope, access.ids);
+  const accessFingerprint = createHash("sha256")
+    .update([
+      access.accessFingerprint,
+      ...notes.map((note) => {
+        const capabilities = resolveEffectiveNoteCapabilities(note.id, userId);
+        return `note:${note.id}:${note.notebookId}:${note.workspaceId || ""}:${capabilities.permission || ""}:${capabilities.download ? 1 : 0}`;
+      }),
+    ].sort().join("\n"))
+    .digest("hex");
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
   const minSequence = minAvailableSequence(db);
   const serverSequence = currentSequence(db);
@@ -360,16 +376,18 @@ app.get("/plan", (c) => {
   let attachmentBytes = 0;
   let attachmentForbiddenNotes = 0;
   for (const note of notes) {
+    const row = db.prepare(`
+      SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
+      FROM attachments WHERE noteId = ?
+    `).get(note.id) as { count: number; bytes: number };
+    const count = Number(row.count || 0);
+    if (count === 0) continue;
     const capabilities = resolveEffectiveNoteCapabilities(note.id, userId);
     if (!capabilities.read || !capabilities.download) {
       attachmentForbiddenNotes += 1;
       continue;
     }
-    const row = db.prepare(`
-      SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
-      FROM attachments WHERE noteId = ?
-    `).get(note.id) as { count: number; bytes: number };
-    attachmentCount += Number(row.count || 0);
+    attachmentCount += count;
     attachmentBytes += Number(row.bytes || 0);
   }
 
@@ -379,7 +397,7 @@ app.get("/plan", (c) => {
     serverSequence,
     minAvailableSequence: minSequence,
     resetRequired: after > 0 && minSequence > 0 && after < minSequence - 1,
-    accessFingerprint: access.accessFingerprint,
+    accessFingerprint,
     noteCount: notes.length,
     attachmentCount,
     attachmentBytes,
@@ -450,7 +468,7 @@ app.get("/changes", (c) => {
         LIMIT ?
       `).all(after, limit) as ChangeRow[];
 
-  const nextSequence = raw.length > 0 ? raw[raw.length - 1].sequence : after;
+  const nextSequence = raw.length > 0 ? raw[raw.length - 1].sequence : serverSequence;
   const latestByNote = new Map<string, ChangeRow>();
   for (const change of raw) {
     const noteId = change.noteId || (change.entityType === "note" ? change.entityId : "");

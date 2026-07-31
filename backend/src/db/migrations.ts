@@ -19,6 +19,7 @@ import { yjsSubdocumentsMigration } from "./yjsSubdocumentsMigration.js";
 import { blockAuthorityStaleGuardMigration } from "./blockAuthorityStaleGuardMigration.js";
 import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMigration.js";
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
+import { offlineSyncMigration } from "./offlineSyncMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -270,6 +271,7 @@ export const MIGRATIONS: Migration[] = [
   blockAuthorityStaleGuardMigration,
   yjsSubdocumentGenerationMigration,
   tagScopeUniquenessMigration,
+  offlineSyncMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

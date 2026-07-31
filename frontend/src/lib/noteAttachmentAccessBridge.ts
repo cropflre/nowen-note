@@ -1,10 +1,19 @@
 import { toast } from "@/lib/toast";
 import { getShareSessionId } from "@/lib/shareSession";
+import { getOfflineAttachmentsByNote, markOfflineAttachmentsAccessed } from "@/lib/localStore";
 
 const INSTALL_KEY = "__NOWEN_NOTE_ATTACHMENT_ACCESS_BRIDGE_V1__";
 const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACCESS_QUERY_KEYS = new Set(["exp", "sig", "scope"]);
 const accessUrls = new Map<string, string>();
+const offlineObjectUrls = new Map<string, string>();
+if (typeof window !== "undefined") {
+  window.addEventListener("nowen:offline-attachments-removed", (event) => {
+    const ids = (event as CustomEvent<{ ids?: string[] }>).detail?.ids || [];
+    for (const id of ids) revokeOfflineObjectUrl(id);
+    if (ids.length > 0) queueDomScan();
+  });
+}
 let attachmentApiOrigin = "";
 let scanQueued = false;
 let lastDeniedToastAt = 0;
@@ -174,9 +183,52 @@ export function registerAttachmentAccessUrls(
   return count;
 }
 
+
+function revokeOfflineObjectUrl(id: string): void {
+  const current = offlineObjectUrls.get(id);
+  if (!current) return;
+  offlineObjectUrls.delete(id);
+  try { URL.revokeObjectURL(current); } catch { /* ignore unavailable URL API */ }
+}
+
+export function registerOfflineAttachmentBlob(id: string, blob: Blob): string | null {
+  if (!ATTACHMENT_ID_RE.test(id) || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+    return null;
+  }
+  revokeOfflineObjectUrl(id);
+  const url = URL.createObjectURL(blob);
+  offlineObjectUrls.set(id, url);
+  queueDomScan();
+  return url;
+}
+
+export function unregisterOfflineAttachmentObjectUrl(id: string): void {
+  revokeOfflineObjectUrl(id);
+  queueDomScan();
+}
+
+export function clearOfflineAttachmentObjectUrls(): void {
+  for (const id of [...offlineObjectUrls.keys()]) revokeOfflineObjectUrl(id);
+  queueDomScan();
+}
+
+export async function hydrateOfflineAttachmentsForNote(noteId: string): Promise<number> {
+  const records = await getOfflineAttachmentsByNote(noteId);
+  let hydrated = 0;
+  for (const record of records) {
+    if (registerOfflineAttachmentBlob(record.id, record.blob)) hydrated += 1;
+  }
+  if (records.length > 0) {
+    await markOfflineAttachmentsAccessed(records.map((record) => record.id));
+  }
+  return hydrated;
+}
+
 export function resolveAttachmentAccessUrl(raw: string): string {
   const id = extractAttachmentId(raw);
   if (!id) return raw;
+  const offline = offlineObjectUrls.get(id);
+  if (offline) return offline;
   const signed = accessUrls.get(id);
   if (signed) return mergeSignedAttachmentUrl(raw, signed);
 
@@ -197,6 +249,7 @@ export function resolveAttachmentAccessUrl(raw: string): string {
 /** 测试隔离；生产代码无需调用。 */
 export function resetAttachmentAccessStateForTests(): void {
   accessUrls.clear();
+  clearOfflineAttachmentObjectUrls();
   attachmentApiOrigin = "";
   scanQueued = false;
   lastDeniedToastAt = 0;
@@ -209,7 +262,14 @@ function isEditableDocumentElement(element: Element): boolean {
 function rewriteElementAttribute(element: Element, attribute: string): void {
   const raw = element.getAttribute(attribute);
   if (!raw) return;
-  const resolved = resolveAttachmentAccessUrl(raw);
+  const rememberedId = element.getAttribute("data-nowen-attachment-id");
+  const rawId = extractAttachmentId(raw);
+  const attachmentId = rawId || (rememberedId && ATTACHMENT_ID_RE.test(rememberedId) ? rememberedId : null);
+  const source = attachmentId && raw.startsWith("blob:")
+    ? `/api/attachments/${attachmentId}`
+    : raw;
+  const resolved = resolveAttachmentAccessUrl(source);
+  if (attachmentId) element.setAttribute("data-nowen-attachment-id", attachmentId);
   if (resolved !== raw) element.setAttribute(attribute, resolved);
 }
 

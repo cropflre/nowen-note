@@ -218,7 +218,7 @@ function defaultSettings(): OfflineSyncSettings {
   };
 }
 
-function normalizeSettings(value: Partial<OfflineSyncSettings> | null | undefined): OfflineSyncSettings {
+export function normalizeOfflineSyncSettings(value: Partial<OfflineSyncSettings> | null | undefined): OfflineSyncSettings {
   const defaults = defaultSettings();
   const workspaceMode = value?.workspaceMode === "selected" ? "selected" : "all";
   const attachmentMode: OfflineAttachmentMode = value?.attachmentMode === "none"
@@ -269,14 +269,14 @@ export function getOfflineSyncSettings(): OfflineSyncSettings {
   if (typeof localStorage === "undefined") return defaultSettings();
   try {
     const raw = localStorage.getItem(`${SETTINGS_KEY_PREFIX}:${identitySuffix()}`);
-    return normalizeSettings(raw ? JSON.parse(raw) : null);
+    return normalizeOfflineSyncSettings(raw ? JSON.parse(raw) : null);
   } catch {
     return defaultSettings();
   }
 }
 
 export function setOfflineSyncSettings(patch: Partial<OfflineSyncSettings>): OfflineSyncSettings {
-  const next = normalizeSettings({ ...getOfflineSyncSettings(), ...patch });
+  const next = normalizeOfflineSyncSettings({ ...getOfflineSyncSettings(), ...patch });
   try {
     localStorage.setItem(`${SETTINGS_KEY_PREFIX}:${identitySuffix()}`, JSON.stringify(next));
   } catch { /* storage may be disabled */ }
@@ -357,12 +357,7 @@ function scopeQuery(workspaceId: string | null): string {
 
 async function resolveTargets(settings: OfflineSyncSettings): Promise<SyncScopeTarget[]> {
   const targets: SyncScopeTarget[] = [{ scopeKey: "personal", label: "个人空间", workspaceId: null }];
-  let workspaces: Workspace[] = [];
-  try {
-    workspaces = await api.getWorkspaces();
-  } catch (error) {
-    console.warn("[offline-sync] failed to list workspaces", error);
-  }
+  const workspaces: Workspace[] = await api.getWorkspaces();
   const selected = settings.workspaceMode === "all"
     ? workspaces
     : workspaces.filter((workspace) => settings.workspaceIds.includes(workspace.id));
@@ -387,7 +382,7 @@ function connectionAllowsLargeDownloads(settings: OfflineSyncSettings): boolean 
   return connection.saveData !== true;
 }
 
-function wantsAttachment(attachment: AttachmentManifest, settings: OfflineSyncSettings): boolean {
+export function isOfflineAttachmentWanted(attachment: AttachmentManifest, settings: OfflineSyncSettings): boolean {
   if (settings.attachmentMode === "none") return false;
   if (settings.attachmentMode === "images") return attachment.mimeType.toLowerCase().startsWith("image/");
   return true;
@@ -424,7 +419,7 @@ async function cacheAttachment(
   settings: OfflineSyncSettings,
   signal: AbortSignal,
 ): Promise<"cached" | "existing" | "skipped"> {
-  if (!wantsAttachment(attachment, settings)) return "skipped";
+  if (!isOfflineAttachmentWanted(attachment, settings)) return "skipped";
   const existing = await getOfflineAttachment(attachment.id);
   if (
     existing
@@ -474,7 +469,7 @@ async function syncBundleAttachments(
   signal: AbortSignal,
 ): Promise<void> {
   const desired = bundle.attachmentDownloadAllowed
-    ? bundle.attachments.filter((attachment) => wantsAttachment(attachment, settings))
+    ? bundle.attachments.filter((attachment) => isOfflineAttachmentWanted(attachment, settings))
     : [];
   await reconcileOfflineAttachments(bundle.note.id, new Set(desired.map((item) => item.id)));
   if (desired.length === 0) return;
@@ -555,7 +550,7 @@ async function fullSnapshot(
     snapshotSequence = page.snapshotSequence;
     for (const bundle of page.items) {
       remoteNoteIds.add(bundle.note.id);
-      if (bundle.attachments.some((attachment) => wantsAttachment(attachment, settings))) {
+      if (bundle.attachments.some((attachment) => isOfflineAttachmentWanted(attachment, settings))) {
         emit({ state: "downloading-attachments" });
       }
       await applyBundle(bundle, settings, signal, queuedNoteIds);
@@ -642,6 +637,11 @@ async function syncTarget(
   );
   await putNotebooks(plan.notebooks);
   await putTags(plan.tags);
+  await reconcileOfflineScope(target.workspaceId, {
+    notebookIds: new Set(plan.notebooks.map((notebook) => notebook.id)),
+    tagIds: new Set(plan.tags.map((tag) => tag.id)),
+    preserveNoteIds: queuedNoteIds,
+  });
 
   const snapshotComplete = Boolean(await getMeta<boolean>(`${SNAPSHOT_COMPLETE_PREFIX}${target.scopeKey}`));
   const fingerprint = await getMeta<string>(`${FINGERPRINT_PREFIX}${target.scopeKey}`);

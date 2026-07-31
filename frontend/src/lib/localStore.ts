@@ -6,6 +6,34 @@ export type CachedNote = Note & {
   __detailCached?: boolean;
 };
 
+export interface OfflineAttachmentRecord {
+  id: string;
+  noteId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  blob: Blob;
+  cachedAt: number;
+}
+
+export interface OfflineStorageStats {
+  cachedNotes: number;
+  placeholderNotes: number;
+  noteBytes: number;
+  attachmentCount: number;
+  attachmentBytes: number;
+  totalBytes: number;
+}
+
+export interface OfflineScopeReconcileOptions {
+  noteIds?: ReadonlySet<string>;
+  notebookIds?: ReadonlySet<string>;
+  tagIds?: ReadonlySet<string>;
+  deleteNoteIds?: ReadonlySet<string>;
+  preserveNoteIds?: ReadonlySet<string>;
+}
+
 interface NowenCacheSchema extends DBSchema {
   notebooks: {
     key: string;
@@ -28,6 +56,14 @@ interface NowenCacheSchema extends DBSchema {
     key: string;
     value: Tag;
   };
+  offlineAttachments: {
+    key: string;
+    value: OfflineAttachmentRecord;
+    indexes: {
+      "by-note": string;
+      "by-cached": number;
+    };
+  };
   meta: {
     key: string;
     value: {
@@ -39,7 +75,7 @@ interface NowenCacheSchema extends DBSchema {
 }
 
 const DB_NAME_PREFIX = "nowen-cache-v2-";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let currentUserId: string | null = null;
 let currentCacheIdentity: string | null = null;
@@ -117,6 +153,11 @@ function getDb(): Promise<IDBPDatabase<NowenCacheSchema>> | null {
         }
         if (!db.objectStoreNames.contains("tags")) {
           db.createObjectStore("tags", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("offlineAttachments")) {
+          const store = db.createObjectStore("offlineAttachments", { keyPath: "id" });
+          store.createIndex("by-note", "noteId");
+          store.createIndex("by-cached", "cachedAt");
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta", { keyPath: "key" });
@@ -326,15 +367,257 @@ export async function clearAll(): Promise<void> {
   if (!connection) return;
   await safe(async () => {
     const db = await connection;
-    const transaction = db.transaction(["notebooks", "notes", "tags", "meta"], "readwrite");
+    const transaction = db.transaction(["notebooks", "notes", "tags", "offlineAttachments", "meta"], "readwrite");
     await Promise.all([
       transaction.objectStore("notebooks").clear(),
       transaction.objectStore("notes").clear(),
       transaction.objectStore("tags").clear(),
+      transaction.objectStore("offlineAttachments").clear(),
       transaction.objectStore("meta").clear(),
     ]);
     await transaction.done;
   }, undefined, "clearAll");
+}
+
+
+function dispatchOfflineAttachmentRemoval(ids: readonly string[]): void {
+  if (ids.length === 0 || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("nowen:offline-attachments-removed", {
+    detail: { ids: [...ids] },
+  }));
+}
+
+export async function putOfflineAttachment(record: OfflineAttachmentRecord): Promise<void> {
+  const connection = getDb();
+  if (!connection) return;
+  await safe(async () => {
+    await (await connection).put("offlineAttachments", record);
+  }, undefined, "putOfflineAttachment");
+}
+
+export async function getOfflineAttachment(id: string): Promise<OfflineAttachmentRecord | undefined> {
+  const connection = getDb();
+  if (!connection) return undefined;
+  return safe(async () => (await connection).get("offlineAttachments", id), undefined, "getOfflineAttachment");
+}
+
+export async function getOfflineAttachmentsByNote(noteId: string): Promise<OfflineAttachmentRecord[]> {
+  const connection = getDb();
+  if (!connection) return [];
+  return safe(
+    async () => (await connection).getAllFromIndex("offlineAttachments", "by-note", noteId),
+    [],
+    "getOfflineAttachmentsByNote",
+  );
+}
+
+export async function markOfflineAttachmentsAccessed(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const connection = getDb();
+  if (!connection) return;
+  await safe(async () => {
+    const db = await connection;
+    const transaction = db.transaction("offlineAttachments", "readwrite");
+    const now = Date.now();
+    for (const id of ids) {
+      const row = await transaction.store.get(id);
+      if (row) await transaction.store.put({ ...row, cachedAt: now });
+    }
+    await transaction.done;
+  }, undefined, "markOfflineAttachmentsAccessed");
+}
+
+export async function deleteOfflineAttachment(id: string): Promise<void> {
+  const connection = getDb();
+  if (!connection) return;
+  await safe(async () => {
+    await (await connection).delete("offlineAttachments", id);
+    dispatchOfflineAttachmentRemoval([id]);
+  }, undefined, "deleteOfflineAttachment");
+}
+
+export async function deleteOfflineAttachmentsByNote(noteId: string): Promise<string[]> {
+  const records = await getOfflineAttachmentsByNote(noteId);
+  if (records.length === 0) return [];
+  const connection = getDb();
+  if (!connection) return [];
+  const ids = records.map((record) => record.id);
+  await safe(async () => {
+    const db = await connection;
+    const transaction = db.transaction("offlineAttachments", "readwrite");
+    await Promise.all(ids.map((id) => transaction.store.delete(id)));
+    await transaction.done;
+  }, undefined, "deleteOfflineAttachmentsByNote");
+  dispatchOfflineAttachmentRemoval(ids);
+  return ids;
+}
+
+export async function reconcileOfflineAttachments(
+  noteId: string,
+  keepIds: ReadonlySet<string>,
+): Promise<string[]> {
+  const current = await getOfflineAttachmentsByNote(noteId);
+  const removed = current.filter((record) => !keepIds.has(record.id)).map((record) => record.id);
+  if (removed.length === 0) return [];
+  const connection = getDb();
+  if (!connection) return [];
+  await safe(async () => {
+    const db = await connection;
+    const transaction = db.transaction("offlineAttachments", "readwrite");
+    await Promise.all(removed.map((id) => transaction.store.delete(id)));
+    await transaction.done;
+  }, undefined, "reconcileOfflineAttachments");
+  dispatchOfflineAttachmentRemoval(removed);
+  return removed;
+}
+
+export async function evictOfflineAttachmentsToFit(
+  bytesToFree: number,
+  preserveIds: ReadonlySet<string> = new Set(),
+): Promise<{ freedBytes: number; evictedIds: string[] }> {
+  if (bytesToFree <= 0) return { freedBytes: 0, evictedIds: [] };
+  const connection = getDb();
+  if (!connection) return { freedBytes: 0, evictedIds: [] };
+  return safe(async () => {
+    const db = await connection;
+    const rows = await db.getAllFromIndex("offlineAttachments", "by-cached");
+    let freedBytes = 0;
+    const evictedIds: string[] = [];
+    const transaction = db.transaction("offlineAttachments", "readwrite");
+    for (const row of rows) {
+      if (freedBytes >= bytesToFree) break;
+      if (preserveIds.has(row.id)) continue;
+      await transaction.store.delete(row.id);
+      freedBytes += Number(row.size || row.blob?.size || 0);
+      evictedIds.push(row.id);
+    }
+    await transaction.done;
+    dispatchOfflineAttachmentRemoval(evictedIds);
+    return { freedBytes, evictedIds };
+  }, { freedBytes: 0, evictedIds: [] }, "evictOfflineAttachmentsToFit");
+}
+
+function recordMatchesWorkspace(value: { workspaceId?: string | null }, workspaceId: string | null): boolean {
+  return (value.workspaceId ?? null) === workspaceId;
+}
+
+export async function reconcileOfflineScope(
+  workspaceId: string | null,
+  options: OfflineScopeReconcileOptions,
+): Promise<string[]> {
+  const preserve = options.preserveNoteIds || new Set<string>();
+  const localNotes = await getAllNotes();
+  const localNotebooks = await getAllNotebooks();
+  const localTags = await getAllTags();
+  const deleteNoteIds = new Set<string>();
+
+  if (options.deleteNoteIds) {
+    for (const id of options.deleteNoteIds) {
+      if (!preserve.has(id)) deleteNoteIds.add(id);
+    }
+  }
+  if (options.noteIds) {
+    for (const note of localNotes) {
+      if (
+        recordMatchesWorkspace(note, workspaceId)
+        && !options.noteIds.has(note.id)
+        && !preserve.has(note.id)
+      ) deleteNoteIds.add(note.id);
+    }
+  }
+
+  const removedAttachmentIds: string[] = [];
+  for (const noteId of deleteNoteIds) {
+    removedAttachmentIds.push(...await deleteOfflineAttachmentsByNote(noteId));
+    await deleteNote(noteId);
+  }
+
+  const connection = getDb();
+  if (!connection) return removedAttachmentIds;
+  await safe(async () => {
+    const db = await connection;
+    if (options.notebookIds) {
+      const transaction = db.transaction("notebooks", "readwrite");
+      for (const notebook of localNotebooks) {
+        if (recordMatchesWorkspace(notebook, workspaceId) && !options.notebookIds.has(notebook.id)) {
+          await transaction.store.delete(notebook.id);
+        }
+      }
+      await transaction.done;
+    }
+    if (options.tagIds) {
+      const transaction = db.transaction("tags", "readwrite");
+      for (const tag of localTags) {
+        if (recordMatchesWorkspace(tag, workspaceId) && !options.tagIds.has(tag.id)) {
+          await transaction.store.delete(tag.id);
+        }
+      }
+      await transaction.done;
+    }
+  }, undefined, "reconcileOfflineScope");
+  return removedAttachmentIds;
+}
+
+export async function clearOfflineScope(
+  workspaceId: string | null,
+  preserveNoteIds: ReadonlySet<string> = new Set(),
+): Promise<string[]> {
+  return reconcileOfflineScope(workspaceId, {
+    noteIds: new Set(),
+    notebookIds: new Set(),
+    tagIds: new Set(),
+    preserveNoteIds,
+  });
+}
+
+export async function getOfflineStorageStats(): Promise<OfflineStorageStats> {
+  const connection = getDb();
+  if (!connection) {
+    return {
+      cachedNotes: 0,
+      placeholderNotes: 0,
+      noteBytes: 0,
+      attachmentCount: 0,
+      attachmentBytes: 0,
+      totalBytes: 0,
+    };
+  }
+  return safe(async () => {
+    const db = await connection;
+    const [notes, attachments] = await Promise.all([
+      db.getAll("notes"),
+      db.getAll("offlineAttachments"),
+    ]);
+    let cachedNotes = 0;
+    let placeholderNotes = 0;
+    let noteBytes = 0;
+    for (const note of notes) {
+      if (isNoteDetailCached(note)) cachedNotes += 1;
+      else placeholderNotes += 1;
+      noteBytes += (note.content?.length || 0) * 2;
+      noteBytes += (note.contentText?.length || 0) * 2;
+      noteBytes += (note.title?.length || 0) * 2;
+    }
+    const attachmentBytes = attachments.reduce(
+      (sum, attachment) => sum + Number(attachment.size || attachment.blob?.size || 0),
+      0,
+    );
+    return {
+      cachedNotes,
+      placeholderNotes,
+      noteBytes,
+      attachmentCount: attachments.length,
+      attachmentBytes,
+      totalBytes: noteBytes + attachmentBytes,
+    };
+  }, {
+    cachedNotes: 0,
+    placeholderNotes: 0,
+    noteBytes: 0,
+    attachmentCount: 0,
+    attachmentBytes: 0,
+    totalBytes: 0,
+  }, "getOfflineStorageStats");
 }
 
 export function isReady(): boolean {

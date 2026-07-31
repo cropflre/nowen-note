@@ -27,6 +27,11 @@ import {
 import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
 import { resolveQueuedNoteConflicts } from "@/lib/conflictResolution";
 import type { Note, User } from "@/types";
+import {
+  setOfflineSyncUser,
+  stopOfflineWorkspaceSync,
+  syncOfflineWorkspace,
+} from "@/lib/offlineWorkspaceSync";
 
 type SyncState = "idle" | "bootstrapping" | "ready" | "error";
 let state: SyncState = "idle";
@@ -241,6 +246,7 @@ async function pullServerSnapshot(): Promise<void> {
 
 export async function bootstrap(user: User): Promise<void> {
   setCurrentUser(user.id);
+  setOfflineSyncUser(user.id);
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     setState("ready");
     return;
@@ -255,6 +261,9 @@ export async function bootstrap(user: User): Promise<void> {
     }
     if (getOfflineQueue().length > 0) await resolveConfiguredVersionConflicts();
     await pullServerSnapshot();
+    void syncOfflineWorkspace({ reason: "bootstrap" }).catch((error) => {
+      console.warn("[syncEngine] complete offline bootstrap failed", error);
+    });
     const pending = getQueueLength();
     const versionConflicts = countVersionConflicts(getFailedQueueItems());
     if (pending > versionConflicts) setState("error", describePendingQueue(pending));
@@ -289,6 +298,10 @@ export async function syncNow(): Promise<{
     if (getQueueLength() > 0) await flushQueue(offlineQueueFetch);
     if (getQueueLength() > 0) await resolveConfiguredVersionConflicts();
     await pullServerSnapshot();
+    const offlineResult = await syncOfflineWorkspace({ force: true, reason: "manual" });
+    if (offlineResult.state === "error") {
+      throw new Error(offlineResult.lastError || "离线副本同步失败");
+    }
 
     const pending = getQueueLength();
     const versionConflicts = countVersionConflicts(getFailedQueueItems());
@@ -323,6 +336,8 @@ async function getQueuedNoteIds(): Promise<Set<string>> {
 }
 
 export function teardown(): void {
+  stopOfflineWorkspaceSync();
+  setOfflineSyncUser(null);
   setCurrentUser(null);
   setState("idle");
 }
