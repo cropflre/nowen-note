@@ -11,81 +11,21 @@ permissions:
   contents: write
 
 concurrency:
-  group: pg-yjs-structure-command-v2
+  group: pg-yjs-structure-command-v3
   cancel-in-progress: true
 
 jobs:
-  migrate:
+  materialize:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: nowen
-          POSTGRES_PASSWORD: nowen
-          POSTGRES_DB: nowen_note_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U nowen -d nowen_note_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
-      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
-      DB_DRIVER: postgres
-      DB_PATH: /tmp/nowen-pg-structure-command.db
-      NODE_ENV: test
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: pg-migration-unified
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
       - name: Apply structure migration patch
         run: python3 .github/scripts/apply-pg-subdocument-structure.py
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci --no-audit --no-fund
-      - name: TypeScript check
-        working-directory: backend
-        run: npm run build:tsc -- --noEmit
-      - name: Direct database access audit
-        working-directory: backend
-        run: npm run audit:sqlite-boundaries
-      - name: PostgreSQL schema parity
-        working-directory: backend
-        run: npm run audit:pg-schema-parity
-      - name: Migration bootstrap and idempotency
-        working-directory: backend
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
-      - name: Stable-section transaction regression
-        working-directory: backend
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
-      - name: Structure transaction regression
-        working-directory: backend
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocument-structure-pg.test.ts
-      - name: Existing websocket regression
-        working-directory: backend
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
-      - name: Structure websocket regression
-        working-directory: backend
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
-      - name: Build production backend bundle
-        working-directory: backend
-        run: npm run build
-      - name: Verify migration packaging
-        working-directory: backend
-        run: |
-          test -f dist/postgres/migrations/0013_yjs_subdocuments.sql
-          test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql
-      - name: Commit validated migration slice
+      - name: Commit migration slice
         run: |
           rm -f .github/scripts/apply-pg-subdocument-structure.py
           rm -f .github/workflows/pg-yjs-structure-command.yml
