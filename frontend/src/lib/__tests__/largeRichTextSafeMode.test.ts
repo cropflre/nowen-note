@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Note } from "@/types";
 import {
+  clearEditorRuntimeDecisionCache,
   getEditorRuntimeDecisionForNote,
   getLargeDocumentOriginalFormat,
   isLargeDocumentCollaborationBlocked,
@@ -37,6 +38,10 @@ function tiptapText(length: number): string {
   return `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(length)}"}]}]}`;
 }
 
+beforeEach(() => {
+  clearEditorRuntimeDecisionCache();
+});
+
 describe("large rich-text runtime safety", () => {
   it("keeps an ordinary compact 18 KB Tiptap document editable", () => {
     const rawContent = tiptapText(18_000);
@@ -50,6 +55,30 @@ describe("large rich-text runtime safety", () => {
     expect(isLargeRichTextSafeNote(prepared)).toBe(false);
     expect(isLargeDocumentCollaborationBlocked(original.id)).toBe(false);
     expect(getEditorRuntimeDecisionForNote(prepared)?.mode).toBe("normal");
+  });
+
+  it("reuses the full-document complexity decision when reopening the same note version", () => {
+    const first = makeNote({
+      id: "note-runtime-cache",
+      content: tiptapText(120_000),
+    });
+    const prepared = prepareLargeRichTextNoteForDisplay(first);
+    const firstDecision = getEditorRuntimeDecisionForNote(prepared);
+
+    const reopened = makeNote({
+      ...first,
+      content: `${first.content}`,
+    });
+    const reopenedDecision = getEditorRuntimeDecisionForNote(reopened);
+
+    expect(reopenedDecision).toBe(firstDecision);
+
+    const changedDecision = getEditorRuntimeDecisionForNote({
+      ...reopened,
+      version: reopened.version + 1,
+      updatedAt: "2026-07-21T00:01:00.000Z",
+    });
+    expect(changedDecision).not.toBe(firstDecision);
   });
 
   it("marks medium rich text for viewport optimization without changing content format", () => {
