@@ -66,6 +66,9 @@ export const EDITOR_RUNTIME_THRESHOLDS = {
     viewport: {
       characters: 100_000,
       nodes: 2_500,
+      // A handful of high-resolution screenshots can be more expensive than thousands of text
+      // nodes. Start deferring offscreen media before the old 40-heavy-node cliff.
+      mediaNodes: 8,
       heavyNodes: 40,
     },
     lightweight: {
@@ -192,7 +195,9 @@ function resolveRichTextMode(profile: EditorComplexityProfile): {
 
   if (profile.characters >= viewport.characters) pushReason(reasons, "serialized-size");
   if (profile.approximateNodes >= viewport.nodes) pushReason(reasons, "node-count");
-  if (heavyNodeCount >= viewport.heavyNodes) pushReason(reasons, "media-count");
+  if (mediaCount >= viewport.mediaNodes || heavyNodeCount >= viewport.heavyNodes) {
+    pushReason(reasons, "media-count");
+  }
   if (profile.codeBlockCount >= Math.ceil(viewport.heavyNodes / 2)) {
     pushReason(reasons, "code-block-count");
   }

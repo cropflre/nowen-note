@@ -46,6 +46,7 @@ import EditorPaneRuntime from "../EditorPaneRuntime";
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
+  vi.useRealTimers();
   mocks.state.activeNote = null;
   mocks.editorPaneProps = null;
   document.body.innerHTML = "";
@@ -75,12 +76,15 @@ describe("EditorPaneRuntime layout", () => {
     }
   });
 
-  it("delegates an available split action through the format-aware editor", async () => {
+  it("defers split analysis until after the first render, then delegates the action", async () => {
+    vi.useFakeTimers();
     mocks.state.activeNote = {
       id: "split-note",
       title: "可拆分笔记",
       contentFormat: "markdown",
       content: "# 标题\n\n## 第一章\n\n正文\n\n## 第二章\n\n正文",
+      contentText: "标题 第一章 正文 第二章 正文",
+      updatedAt: "2026-07-31T00:00:00.000Z",
       version: 1,
       isLocked: false,
       isTrashed: false,
@@ -91,6 +95,13 @@ describe("EditorPaneRuntime layout", () => {
 
     try {
       await act(async () => root.render(<EditorPaneRuntime />));
+
+      // The optional heading scan must not block the note's initial editor render.
+      expect(mocks.editorPaneProps?.canSplitDocument).toBe(false);
+
+      await act(async () => {
+        vi.runAllTimers();
+      });
 
       expect(mocks.editorPaneProps?.canSplitDocument).toBe(true);
       expect(host.textContent).not.toContain("拆分文档");

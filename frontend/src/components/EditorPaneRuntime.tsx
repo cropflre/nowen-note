@@ -4,27 +4,19 @@ import FormatAwareEditorPane from "./FormatAwareEditorPane";
 import NoteSplitDialog from "@/components/NoteSplitDialog";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { canWriteNote } from "@/lib/notePermissions";
+import type { NoteSplitHeadingLevel } from "@/lib/noteSplit";
 import {
-  findPreferredMarkdownSplitLevel,
-  type NoteSplitHeadingLevel,
-} from "@/lib/noteSplit";
-import { findPreferredTiptapSplitLevel } from "@/lib/tiptapNoteSplit";
+  getCachedPreferredNoteSplitLevel,
+  resolvePreferredNoteSplitLevel,
+  schedulePreferredNoteSplitLevel,
+} from "@/lib/noteSplitAnalysis";
 import type { Note } from "@/types";
 
-function resolvePreferredLevel(note: Note | null | undefined): NoteSplitHeadingLevel | null {
-  if (!note) return null;
-  if (note.contentFormat === "markdown") {
-    return findPreferredMarkdownSplitLevel(note.content || "");
-  }
-  if (note.contentFormat === "tiptap-json") {
-    return findPreferredTiptapSplitLevel(note.content || "");
-  }
-  return null;
-}
-
 /**
- * 文档拆分运行时外壳：打开笔记时扫描一次可用标题层级，
- * 将拆分能力交给按 contentFormat 路由的编辑器，并持有事务化预览弹窗。
+ * 文档拆分运行时外壳。
+ *
+ * 标题扫描只服务于可选的“拆分文档”入口，不应阻塞每次笔记切换。首次打开把扫描安排
+ * 到浏览器空闲阶段；A → B → A 返回同一版本时直接复用缓存结果。
  */
 export default function EditorPaneRuntime() {
   const { state } = useApp();
@@ -35,9 +27,20 @@ export default function EditorPaneRuntime() {
 
   useEffect(() => {
     setDialogOpen(false);
-    setPreferredLevel(resolvePreferredLevel(activeNote));
-    // Deliberately scan only when a note is opened. Re-running a full heading scan after every
-    // debounced save would undermine the large-document performance work this feature builds on.
+    setPreferredLevel(null);
+
+    const note = activeNote;
+    if (!note) return;
+
+    const cached = getCachedPreferredNoteSplitLevel(note);
+    if (cached.hit) {
+      setPreferredLevel(cached.level);
+      return;
+    }
+
+    return schedulePreferredNoteSplitLevel(note, setPreferredLevel);
+    // Deliberately analyze only when a note is opened. Re-running after every debounced save would
+    // put the full-document scan back onto the editing path that this optimization removes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNote?.id]);
 
@@ -61,7 +64,9 @@ export default function EditorPaneRuntime() {
       isTrashed: updated.isTrashed,
       notebookId: updated.notebookId,
     });
-    setPreferredLevel(resolvePreferredLevel(updated));
+    // This scan follows an explicit split transaction, not a routine note switch, so resolving it
+    // synchronously keeps the command state accurate without affecting navigation latency.
+    setPreferredLevel(resolvePreferredNoteSplitLevel(updated));
     actions.refreshNotes();
     actions.refreshNotebooks();
   };
