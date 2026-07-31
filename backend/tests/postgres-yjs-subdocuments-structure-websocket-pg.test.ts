@@ -140,6 +140,7 @@ test("PostgreSQL subdocument websocket applies idempotent structure changes and 
       message.noteId === NOTE && message.reason === "structure-changed"
     ));
 
+    messages.length = 0;
     ws.send(JSON.stringify({ type: "y:subdoc:join", noteId: NOTE }));
     await waitForMessage(messages, "y:subdoc:state", (message) => (
       message.noteId === NOTE && message.manifest?.generation === 2
@@ -160,6 +161,7 @@ test("PostgreSQL subdocument websocket applies idempotent structure changes and 
       message.noteId === NOTE && message.reason === "structure-operation-replayed"
     ));
 
+    messages.length = 0;
     ws.send(JSON.stringify({ type: "y:subdoc:join", noteId: NOTE }));
     await waitForMessage(messages, "y:subdoc:state", (message) => (
       message.noteId === NOTE && message.manifest?.generation === 2
