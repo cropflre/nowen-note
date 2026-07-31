@@ -95,10 +95,6 @@ export function installKnowledgeTreeTitleSyncBridge(
 
   target.updateNote = async (...args: any[]) => {
     const noteId = typeof args[0] === "string" ? args[0] : "";
-    const payload = args[1] && typeof args[1] === "object"
-      ? args[1] as Record<string, unknown>
-      : null;
-    const requestedTitle = typeof payload?.title === "string" ? payload.title : undefined;
     const previousTitle = noteId ? confirmedTitles.get(noteId) : undefined;
 
     const result = await originalUpdateNote.apply(target, args);
@@ -106,11 +102,9 @@ export function installKnowledgeTreeTitleSyncBridge(
     if (!confirmed) return result;
 
     confirmedTitles.set(confirmed.id, confirmed.title);
-
-    const titleChanged = previousTitle !== undefined
-      ? previousTitle !== confirmed.title
-      : requestedTitle !== undefined;
-    if (titleChanged) emitKnowledgeTreeTitleChanged(confirmed);
+    if (previousTitle !== undefined && previousTitle !== confirmed.title) {
+      emitKnowledgeTreeTitleChanged(confirmed);
+    }
 
     return result;
   };
