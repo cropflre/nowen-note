@@ -7,36 +7,11 @@
   "bin": {
     "nowen-mcp": "./dist/scoped-entry.js"
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cropflre/nowen-note.git",
-    "directory": "packages/nowen-mcp"
-  },
-  "homepage": "https://github.com/cropflre/nowen-note/blob/main/docs/tutorials/mcp.md",
-  "bugs": {
-    "url": "https://github.com/cropflre/nowen-note/issues"
-  },
-  "license": "GPL-3.0",
-  "keywords": [
-    "nowen-note",
-    "mcp",
-    "model-context-protocol",
-    "notes",
-    "knowledge-base"
-  ],
   "scripts": {
     "dev": "tsx watch src/scoped-entry.ts",
     "build": "tsc",
     "start": "node dist/scoped-entry.js",
-    "test": "npm run build && node --test dist/scope-policy.test.js",
-    "prepack": "npm run build"
+    "test": "npm run build && node --test dist/scope-policy.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
