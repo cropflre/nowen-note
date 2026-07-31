@@ -35,6 +35,8 @@ jobs:
             backend/package-lock.json
       - name: Apply final hardening patches
         run: python3 scripts/apply-complete-offline-sync-review.py
+      - name: Print generated backend route
+        run: nl -ba backend/src/routes/offline-sync.ts | sed -n '215,250p'
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
