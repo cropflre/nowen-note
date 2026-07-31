@@ -25,6 +25,7 @@ jobs:
         run: python3 .github/scripts/apply-pg-subdocument-structure.py
       - name: Commit migration slice
         run: |
+          git checkout -- .github/workflows/pg-yjs-subdocuments.yml
           rm -f .github/scripts/apply-pg-subdocument-structure.py
           rm -f .github/workflows/pg-yjs-structure-command.yml
           git config user.name "github-actions[bot]"
@@ -34,4 +35,4 @@ jobs:
           git commit -m "feat(pg): support atomic subdocument structure changes"
           git push origin HEAD:pg-migration-unified
 
-# Trigger structure migration materialization.
+# Retry without modifying protected workflow files.
