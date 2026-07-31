@@ -22,6 +22,8 @@ async function bootstrap(): Promise<void> {
   await import("./runtime/notebook-permission-management.js");
   // Install schema/route hardening before the main backend module evaluates.
   await import("./runtime/task-stats-hardening.js");
+  // Replace the fragile batch Xiaomi import with an isolated, idempotent route before /api/micloud mounts.
+  await import("./runtime/micloud-import-hardening.js");
   // Recover interrupted embedding jobs before the legacy worker starts polling.
   await import("./runtime/embedding-queue-hardening.js");
   // Must load after task-stats-hardening so this wrapper registers selected-section splitting before
