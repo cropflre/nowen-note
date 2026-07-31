@@ -6,6 +6,7 @@ on:
       - pg-migration-unified
     paths:
       - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations/0014_yjs_subdocument_structure_operations.sql"
       - "backend/src/db/postgres/migrations.ts"
       - "backend/src/db/postgres/schemaLoader.ts"
       - "backend/src/index.postgres-runtime.ts"
@@ -14,12 +15,15 @@ on:
       - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocument-structure-pg.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts"
       - "backend/build.bundle.mjs"
       - ".github/workflows/pg-yjs-subdocuments.yml"
   pull_request:
     paths:
       - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations/0014_yjs_subdocument_structure_operations.sql"
       - "backend/src/db/postgres/migrations.ts"
       - "backend/src/db/postgres/schemaLoader.ts"
       - "backend/src/index.postgres-runtime.ts"
@@ -28,7 +32,9 @@ on:
       - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocument-structure-pg.test.ts"
       - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts"
       - "backend/build.bundle.mjs"
       - ".github/workflows/pg-yjs-subdocuments.yml"
   workflow_dispatch:
@@ -72,11 +78,17 @@ jobs:
         run: npm run build:tsc -- --noEmit
       - name: Migration bootstrap and idempotency
         run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
-      - name: Stable-section subdocument transaction
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
-      - name: Subdocument websocket protocol
-        run: node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+      - name: Stable-section and structure subdocument transactions
+        run: |
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocument-structure-pg.test.ts
+      - name: Subdocument websocket protocols
+        run: |
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
       - name: Build production backend bundle
         run: npm run build
-      - name: Verify subdocument migration is packaged
-        run: test -f dist/postgres/migrations/0013_yjs_subdocuments.sql
+      - name: Verify subdocument migrations are packaged
+        run: |
+          test -f dist/postgres/migrations/0013_yjs_subdocuments.sql
+          test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql
