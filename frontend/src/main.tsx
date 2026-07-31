@@ -37,6 +37,7 @@ import RoundTripPermissionMappingCenter from "./components/RoundTripPermissionMa
 import RoundTripPermissionExportCenter from "./components/RoundTripPermissionExportCenter";
 import SiyuanImportProgressBridge from "./components/SiyuanImportProgressBridge";
 import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
+import InlineCommentBridge from "./components/InlineCommentBridge";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -47,6 +48,7 @@ import "./sidebar-search-experience.css";
 import "./mobile-knowledge-tree-compact.css";
 import "./siyuan-rich-text-callout.css";
 import "./knowledge-tree-markdown-drop.css";
+import "./inline-comments.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -180,6 +182,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <RoundTripPermissionExportCenter />
           <SiyuanImportProgressBridge />
           <SiyuanRichTextCalloutBridge />
+          <InlineCommentBridge />
           <App />
         </>
       )}
