@@ -34,7 +34,55 @@ export interface RuntimeLargeRichTextSafeNote extends RuntimeEditorPolicyNote {
   __nowenOriginalContentFormat: string;
 }
 
+interface RuntimeDecisionCacheEntry {
+  fingerprint: string;
+  decision: EditorRuntimeDecision;
+}
+
 const collaborationBlockedNoteIds = new Set<string>();
+const runtimeDecisionCache = new Map<string, RuntimeDecisionCacheEntry>();
+const MAX_RUNTIME_DECISION_CACHE_ENTRIES = 32;
+
+function runtimeDecisionFingerprint(note: Note, contentFormat: string): string {
+  const content = note.content || "";
+  const contentText = note.contentText || "";
+  return [
+    note.version,
+    note.updatedAt,
+    contentFormat,
+    content.length,
+    contentText.length,
+    content.slice(0, 64),
+    content.length > 64 ? content.slice(-64) : "",
+  ].join("|");
+}
+
+function rememberRuntimeDecision(noteId: string, entry: RuntimeDecisionCacheEntry): void {
+  runtimeDecisionCache.delete(noteId);
+  runtimeDecisionCache.set(noteId, entry);
+  while (runtimeDecisionCache.size > MAX_RUNTIME_DECISION_CACHE_ENTRIES) {
+    const oldest = runtimeDecisionCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    runtimeDecisionCache.delete(oldest);
+  }
+}
+
+function resolveCachedRuntimeDecision(note: Note, contentFormat: string): EditorRuntimeDecision {
+  const fingerprint = runtimeDecisionFingerprint(note, contentFormat);
+  const cached = runtimeDecisionCache.get(note.id);
+  if (cached?.fingerprint === fingerprint) {
+    rememberRuntimeDecision(note.id, cached);
+    return cached.decision;
+  }
+
+  const decision = resolveEditorRuntimeDecision({
+    content: note.content,
+    contentText: note.contentText,
+    contentFormat,
+  });
+  rememberRuntimeDecision(note.id, { fingerprint, decision });
+  return decision;
+}
 
 export function isLargeRichTextSafeNote(
   note: Note | null | undefined,
@@ -48,11 +96,10 @@ export function getEditorRuntimeDecisionForNote(
   if (!note) return null;
   const runtime = (note as RuntimeEditorPolicyNote).__nowenEditorRuntimeDecision;
   if (runtime) return runtime;
-  return resolveEditorRuntimeDecision({
-    content: note.content,
-    contentText: note.contentText,
-    contentFormat: note.contentFormat,
-  });
+  const originalFormat = isLargeRichTextSafeNote(note)
+    ? note.__nowenOriginalContentFormat
+    : (note.contentFormat || "tiptap-json");
+  return resolveCachedRuntimeDecision(note, originalFormat);
 }
 
 export function prepareLargeRichTextNoteForDisplay(note: Note): Note {
@@ -60,11 +107,9 @@ export function prepareLargeRichTextNoteForDisplay(note: Note): Note {
     ? note.__nowenOriginalContentFormat
     : (note.contentFormat || "tiptap-json");
 
-  const decision = resolveEditorRuntimeDecision({
-    content: note.content,
-    contentText: note.contentText,
-    contentFormat: originalFormat,
-  });
+  // Complexity profiling scans the complete serialized document. Cache by note version and a
+  // lightweight content fingerprint so returning to A after A → B does not repeat the scan.
+  const decision = resolveCachedRuntimeDecision(note, originalFormat);
   setActiveEditorRuntimeDecision(note.id, decision);
 
   const shouldProtect = originalFormat !== "markdown" && decision.mode === "emergency-readonly";
@@ -110,4 +155,8 @@ export function getLargeDocumentOriginalFormat(note: Note): string | undefined {
   return isLargeRichTextSafeNote(note)
     ? note.__nowenOriginalContentFormat
     : note.contentFormat;
+}
+
+export function clearEditorRuntimeDecisionCache(): void {
+  runtimeDecisionCache.clear();
 }
