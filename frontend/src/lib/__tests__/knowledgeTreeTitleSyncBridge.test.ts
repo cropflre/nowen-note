@@ -23,17 +23,17 @@ function createApi(initialTitle = "旧标题") {
   };
 }
 
-const listeners: Array<{ listener: EventListener }> = [];
+const listeners: Array<(event: Event) => void> = [];
 
 function listenForTreeChanges() {
-  const listener = vi.fn() as unknown as EventListener;
+  const listener = vi.fn<(event: Event) => void>();
   window.addEventListener(KNOWLEDGE_TREE_CHANGED_EVENT, listener);
-  listeners.push({ listener });
-  return listener as unknown as ReturnType<typeof vi.fn>;
+  listeners.push(listener);
+  return listener;
 }
 
 afterEach(() => {
-  for (const { listener } of listeners.splice(0)) {
+  for (const listener of listeners.splice(0)) {
     window.removeEventListener(KNOWLEDGE_TREE_CHANGED_EVENT, listener);
   }
 });
@@ -66,6 +66,19 @@ describe("knowledgeTreeTitleSyncBridge", () => {
     await target.updateNote("note-1", {
       title: "旧标题",
       contentText: "更新后的正文",
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("establishes an unknown title baseline without a redundant tree reload", async () => {
+    const target = createApi();
+    const listener = listenForTreeChanges();
+    installKnowledgeTreeTitleSyncBridge(target as unknown as KnowledgeTreeTitleSyncApi);
+
+    await target.updateNote("note-1", {
+      title: "旧标题",
+      contentText: "首次自动保存",
     });
 
     expect(listener).not.toHaveBeenCalled();
