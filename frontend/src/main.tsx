@@ -72,6 +72,7 @@ import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
+import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 
 void cleanupRemovedServerProfiles();
@@ -116,6 +117,7 @@ installRoundTripImportReviewBridge();
 installRoundTripPermissionExportBridge();
 installEditorPerformanceGlobal();
 installIssue210SignoffRuntime();
+installInlineCommentTooltipMount();
 
 initCodeBlockTheme();
 
