@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
-import React from "react";
-import { act } from "react-dom/test-utils";
+import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -61,6 +60,13 @@ describe("NoteWorkspaceLayoutController", () => {
     actions.setEditorFullscreen.mockClear();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
 
+    class StaticMutationObserver {
+      observe() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    vi.stubGlobal("MutationObserver", StaticMutationObserver);
+
     const aside = document.createElement("aside");
     aside.dataset.unifiedSidebar = "";
     aside.dataset.sidebarVariant = "desktop";
@@ -75,6 +81,7 @@ describe("NoteWorkspaceLayoutController", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
   });
 
   it("switches among standard, three-column and focus modes", () => {
