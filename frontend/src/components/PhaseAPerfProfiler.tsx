@@ -1,8 +1,20 @@
-import { Profiler, type PropsWithChildren } from "react";
+import { Fragment, Profiler, type PropsWithChildren, type ReactNode } from "react";
+import OnboardingOpenBridge from "@/components/OnboardingOpenBridge";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 
+function withAppOnboarding(children: ReactNode, id: string): ReactNode {
+  if (id !== "AppLayout") return children;
+  return (
+    <Fragment>
+      <OnboardingOpenBridge />
+      {children}
+    </Fragment>
+  );
+}
+
 export function PhaseAPerfProfiler({ children, id = "TiptapEditor" }: PropsWithChildren<{ id?: string }>) {
-  if (import.meta.env.VITE_PHASE_A_PERF !== "1") return children;
+  const content = withAppOnboarding(children, id);
+  if (import.meta.env.VITE_PHASE_A_PERF !== "1") return content;
   return (
     <Profiler
       id={id}
@@ -14,7 +26,7 @@ export function PhaseAPerfProfiler({ children, id = "TiptapEditor" }: PropsWithC
         });
       }}
     >
-      {children}
+      {content}
     </Profiler>
   );
 }
