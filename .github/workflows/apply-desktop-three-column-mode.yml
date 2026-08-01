@@ -1,0 +1,49 @@
+name: Apply desktop three-column mode
+
+on:
+  push:
+    branches:
+      - feat/desktop-three-column-mode
+    paths:
+      - .github/workflows/apply-desktop-three-column-mode.yml
+      - scripts/apply-desktop-three-column-mode.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/desktop-three-column-mode
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply three-column implementation
+        run: python3 scripts/apply-desktop-three-column-mode.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run layout tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/noteWorkspaceLayout.test.ts src/components/__tests__/NoteWorkspaceLayoutMenu.test.tsx src/components/__tests__/NoteTabsBar.test.tsx
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend
+          if git diff --cached --quiet; then
+            echo "No implementation changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(ui): add desktop three-column note mode"
+          git push origin HEAD:feat/desktop-three-column-mode
