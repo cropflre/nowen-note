@@ -6,6 +6,7 @@ import {
   newUserOnboardingMigration,
   onboardingWelcomeNoteId,
 } from "../src/db/newUserOnboardingMigration.js";
+import { newUserOnboardingFirstLoginMigration } from "../src/db/newUserOnboardingFirstLoginMigration.js";
 
 function createDb(): Database.Database {
   const db = new Database(":memory:");
@@ -15,7 +16,8 @@ function createDb(): Database.Database {
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       passwordHash TEXT NOT NULL,
-      displayName TEXT
+      displayName TEXT,
+      lastLoginAt TEXT
     );
 
     CREATE TABLE notebooks (
@@ -48,13 +50,23 @@ function createDb(): Database.Database {
   return db;
 }
 
-test("seeds Chinese and English guides only for users created after v61", () => {
+function installOnboarding(db: Database.Database): void {
+  newUserOnboardingMigration.up(db);
+  newUserOnboardingFirstLoginMigration.up(db);
+}
+
+function confirmLogin(db: Database.Database, userId: string): void {
+  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+}
+
+test("seeds Chinese and English guides only on a new account's first confirmed login", () => {
   const db = createDb();
   try {
     db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
       .run("legacy-user", "legacy", "hash");
 
-    newUserOnboardingMigration.up(db);
+    installOnboarding(db);
+    confirmLogin(db, "legacy-user");
 
     const legacyNotebookCount = db.prepare(
       "SELECT COUNT(*) AS count FROM notebooks WHERE userId = ?",
@@ -64,6 +76,19 @@ test("seeds Chinese and English guides only for users created after v61", () => 
     const userId = "new-user";
     db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
       .run(userId, "new-user", "hash");
+
+    const beforeLogin = db.prepare(
+      "SELECT COUNT(*) AS count FROM notebooks WHERE userId = ?",
+    ).get(userId) as { count: number };
+    assert.equal(beforeLogin.count, 0, "raw user inserts must not pollute fixtures or maintenance flows");
+
+    confirmLogin(db, userId);
+
+    const onboardingState = db.prepare(`
+      SELECT status FROM user_onboarding_state
+      WHERE userId = ? AND version = 1
+    `).get(userId) as { status: string } | undefined;
+    assert.equal(onboardingState?.status, "seeded");
 
     const notebooks = db.prepare(`
       SELECT id, parentId, name, icon, sortOrder
@@ -132,13 +157,14 @@ test("seeds Chinese and English guides only for users created after v61", () => 
   }
 });
 
-test("deleting the guide does not recreate it on user updates or later logins", () => {
+test("deleting the guide does not recreate it on later logins", () => {
   const db = createDb();
   try {
-    newUserOnboardingMigration.up(db);
+    installOnboarding(db);
     const userId = "delete-guide-user";
     db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
       .run(userId, "delete-guide-user", "hash");
+    confirmLogin(db, userId);
 
     const root = db.prepare(`
       SELECT id FROM notebooks
@@ -146,6 +172,7 @@ test("deleting the guide does not recreate it on user updates or later logins", 
     `).get(userId) as { id: string };
     db.prepare("DELETE FROM notebooks WHERE id = ?").run(root.id);
 
+    confirmLogin(db, userId);
     db.prepare("UPDATE users SET displayName = ? WHERE id = ?")
       .run("Updated", userId);
 
@@ -155,9 +182,14 @@ test("deleting the guide does not recreate it on user updates or later logins", 
     const notes = db.prepare(
       "SELECT COUNT(*) AS count FROM notes WHERE userId = ?",
     ).get(userId) as { count: number };
+    const state = db.prepare(`
+      SELECT status FROM user_onboarding_state
+      WHERE userId = ? AND version = 1
+    `).get(userId) as { status: string } | undefined;
 
     assert.equal(notebooks.count, 0);
     assert.equal(notes.count, 0);
+    assert.equal(state?.status, "seeded");
   } finally {
     db.close();
   }
