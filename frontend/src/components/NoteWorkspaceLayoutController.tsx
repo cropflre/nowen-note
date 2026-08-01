@@ -30,6 +30,14 @@ interface LayoutChoice {
 
 const DESKTOP_SIDEBAR_HEADER_SELECTOR =
   '[data-unified-sidebar][data-sidebar-variant="desktop"] > header';
+const NON_NOTE_WORKSPACE_VIEWS = new Set([
+  "tasks",
+  "mindmaps",
+  "ai-chat",
+  "diary",
+  "files",
+  "shares",
+]);
 
 function findDesktopHeader(): HTMLElement | null {
   if (typeof document === "undefined") return null;
@@ -40,6 +48,7 @@ export default function NoteWorkspaceLayoutController() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
+  const noteWorkspaceActive = !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
   const [preferredMode, setPreferredMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
   );
@@ -54,11 +63,13 @@ export default function NoteWorkspaceLayoutController() {
   const observedCollapsedRef = useRef(state.noteListCollapsed);
   const expectedCollapsedRef = useRef<boolean | null>(null);
 
-  const automaticCollapseReason = getAutomaticCollapseReason({
-    editorFullscreen: state.editorFullscreen,
-    viewportWidth,
-    splitDirection: state.editorSplit?.direction || null,
-  });
+  const automaticCollapseReason = noteWorkspaceActive
+    ? getAutomaticCollapseReason({
+      editorFullscreen: state.editorFullscreen,
+      viewportWidth,
+      splitDirection: state.editorSplit?.direction || null,
+    })
+    : null;
   const currentMode: DisplayLayoutMode = state.editorFullscreen ? "focus" : preferredMode;
 
   const choices = useMemo<LayoutChoice[]>(() => [
@@ -106,13 +117,16 @@ export default function NoteWorkspaceLayoutController() {
   }, []);
 
   useEffect(() => {
-    if (!portalTarget) return;
+    if (!portalTarget || !noteWorkspaceActive) return;
     const previousPosition = portalTarget.style.position;
+    const previousPaddingRight = portalTarget.style.paddingRight;
     portalTarget.style.position = "relative";
+    portalTarget.style.paddingRight = "5rem";
     return () => {
       portalTarget.style.position = previousPosition;
+      portalTarget.style.paddingRight = previousPaddingRight;
     };
-  }, [portalTarget]);
+  }, [noteWorkspaceActive, portalTarget]);
 
   useEffect(() => {
     if (!open) return;
@@ -134,12 +148,8 @@ export default function NoteWorkspaceLayoutController() {
     };
   }, [open]);
 
-  /*
-   * The old noteListCollapsed flag remains the render source of truth so all
-   * existing buttons continue to work. expectedCollapsedRef distinguishes a
-   * controller-requested state transition from a manual legacy toggle.
-   */
   useEffect(() => {
+    if (!noteWorkspaceActive) return;
     const automatic = automaticCollapseReason !== null;
     const collapsedChanged = observedCollapsedRef.current !== state.noteListCollapsed;
 
@@ -170,9 +180,14 @@ export default function NoteWorkspaceLayoutController() {
   }, [
     actions,
     automaticCollapseReason,
+    noteWorkspaceActive,
     preferredMode,
     state.noteListCollapsed,
   ]);
+
+  useEffect(() => {
+    if (!noteWorkspaceActive && open) setOpen(false);
+  }, [noteWorkspaceActive, open]);
 
   const toggleMenu = () => {
     if (!open) {
@@ -200,6 +215,8 @@ export default function NoteWorkspaceLayoutController() {
     actions.setEditorFullscreen(false);
     setOpen(false);
   };
+
+  if (!noteWorkspaceActive) return null;
 
   const trigger = (
     <button
