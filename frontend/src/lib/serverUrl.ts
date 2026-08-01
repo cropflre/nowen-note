@@ -1,109 +1,14 @@
-﻿/**
+/**
  * 服务器地址工具
  *
  * 核心概念：serverBaseUrl = protocol://host[:port][/path-prefix]
  *   - 不含 /api 后缀（由 getBaseUrl() 拼接）
  *   - 不含末尾斜杠
- *   - 保留 path 前缀（用于 fnOS / 樱花穿透 / 反代路径场景）
- *
- * 示例：
- *   http://192.168.1.10:3001
- *   https://fnos.net/user:3001
- *   https://example.com
+ *   - 保留反代 path 前缀
+ *   - IPv6 字面量始终使用 URI 标准方括号格式
  */
 
 export type ServerScheme = "http" | "https";
-
-// =====================================================================
-//  新 API：normalizeServerBaseUrl
-// =====================================================================
-
-/**
- * 识别 path 末尾的 API 子路径并剥离。
- *
- * 规则：pathname 末尾匹配以下模式之一时，截断到该位置之前：
- *   /api/health
- *   /api/version
- *   /api/auth/login  （/api/auth/...）
- *   /api/settings
- *   /api             （单独的 /api）
- *
- * 但不误删：
- *   /api-gateway
- *   /my-api
- *   /user:3001
- *
- * 实现：从 pathname 末尾向前找 "/api" 段，且该段必须是独立路径段
- *       （前一个字符必须是 / 或字符串开头）。
- */
-function stripApiSuffix(pathname: string): string {
-  // 匹配末尾的 /api 或 /api/... 子路径
-  // 正则：在 /api 之前必须是 / 或字符串开头，/api 后面必须是 / 或结尾
-  const apiSuffixRe = /\/api(\/.*)?$/;
-  const match = pathname.match(apiSuffixRe);
-  if (!match) return pathname;
-  return pathname.slice(0, match.index) || "";
-}
-
-/**
- * 将用户输入的任意格式服务器地址归一化为标准 serverBaseUrl。
- *
- * 容错范围：
- *   - 补 scheme（无 scheme 默认 http://）
- *   - 去末尾 /
- *   - 剥离 API 子路径（/api/health → 去掉）
- *   - 保留反代路径前缀（/user:3001 → 保留）
- *   - 过滤非法值（null / file:// / 空串）
- *
- * 不抛异常，解析失败返回空串。
- */
-export function normalizeServerBaseUrl(input: string | null | undefined): string {
-  if (!input) return "";
-  const raw = input.trim();
-  if (!raw) return "";
-
-  // 过滤非法值
-  if (raw === "null" || raw === "undefined" || raw === "file://" || raw.startsWith("file:")) {
-    return "";
-  }
-
-  // 补 scheme
-  const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
-
-  let u: URL;
-  try {
-    u = new URL(withScheme);
-  } catch {
-    return "";
-  }
-
-  // 只接受 http/https
-  if (u.protocol !== "http:" && u.protocol !== "https:") return "";
-
-  const protocol = u.protocol === "https:" ? "https" : "http";
-  const host = u.hostname;
-  if (!host) return "";
-
-  const port = u.port;
-  // 剥离 API 子路径
-  const pathPrefix = stripApiSuffix(u.pathname).replace(/\/+$/, "");
-
-  let result = `${protocol}://${host}`;
-  if (port) result += `:${port}`;
-  if (pathPrefix) result += pathPrefix;
-  return result;
-}
-
-/**
- * 判定输入是否为合法的服务器地址（调用归一化后非空即合法）。
- */
-export function isValidServerUrl(input: string | null | undefined): boolean {
-  return normalizeServerBaseUrl(input) !== "";
-}
-
-// =====================================================================
-//  旧 API（保留向后兼容，内部使用新函数）
-// =====================================================================
 
 export interface ServerAddressParts {
   protocol: ServerScheme;
@@ -114,46 +19,158 @@ export interface ServerAddressParts {
   path: string;
 }
 
-/**
- * 把用户填写的 (protocol, host, port) 拼成后端期望的 baseUrl。
- *
- * 注意：旧版三段式模型不含 path，调用方如需 path 支持请改用
- * normalizeServerBaseUrl() 直接接收完整 URL。
- */
-export function buildServerUrl(parts: ServerAddressParts): string {
-  const host = normalizeHost(parts.host);
-  if (!host) return "";
-  const port = normalizePort(parts.port);
-  let base = `${parts.protocol}://${host}`;
-  if (port) base += `:${port}`;
-  // 保留反代路径前缀
-  const p = (parts.path || "").replace(/\/+$/, "");
-  if (p) base += p;
-  return base;
+function stripApiSuffix(pathname: string): string {
+  const apiSuffixRe = /\/api(\/.*)?$/;
+  const match = pathname.match(apiSuffixRe);
+  if (!match) return pathname;
+  return pathname.slice(0, match.index) || "";
+}
+
+function colonCount(value: string): number {
+  return (value.match(/:/g) || []).length;
+}
+
+function removeIpv6Brackets(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1)
+    : trimmed;
+}
+
+function looksLikeIpv6Authority(value: string): boolean {
+  const authority = value.trim();
+  if (!authority) return false;
+  if (authority.startsWith("[")) return authority.includes("]");
+  return colonCount(authority) >= 2;
+}
+
+/** 把 IPv6 主机格式化成 URI authority 所需的 [address] 形式。 */
+export function formatServerHost(host: string): string {
+  const trimmed = host.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) return trimmed;
+  return looksLikeIpv6Authority(trimmed) ? `[${trimmed}]` : trimmed;
+}
+
+/** URL.hostname 在不同 WebView/Node 版本中可能返回 ::1 或 [::1]。 */
+export function isLoopbackServerHostname(hostname: string): boolean {
+  const normalized = removeIpv6Brackets(hostname).toLowerCase();
+  return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
+}
+
+function authorityFromInput(value: string): string {
+  const withoutScheme = value.replace(/^https?:\/\//i, "");
+  const boundary = withoutScheme.search(/[/?#]/);
+  return boundary >= 0 ? withoutScheme.slice(0, boundary) : withoutScheme;
 }
 
 /**
- * 解析一个已经完整的 URL（或用户粘贴的半成品），返回 3 段。
- *
- * 注意：旧版三段式模型不保留 path 前缀。
- * 如需保留 path，请改用 normalizeServerBaseUrl()。
+ * 用户常从 NAS 网络页复制 `240e:...::1/128`。/128 是网段前缀长度，
+ * 不是 HTTP 路径。合法 IPv6 CIDR 会清掉；超过 128 的前缀直接判非法，
+ * 避免静默请求到错误的 `/129` 路径。
  */
+function stripIpv6CidrSuffix(value: string): { value: string; invalid: boolean } {
+  const match = value.match(/^(.*)\/(\d{1,3})\/?$/);
+  if (!match) return { value, invalid: false };
+
+  const authority = authorityFromInput(match[1]);
+  if (!looksLikeIpv6Authority(authority)) return { value, invalid: false };
+
+  const prefix = Number(match[2]);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 128) {
+    return { value: "", invalid: true };
+  }
+  return { value: match[1], invalid: false };
+}
+
+function splitAuthorityAndSuffix(value: string): { authority: string; suffix: string } {
+  const boundary = value.search(/[/?#]/);
+  if (boundary < 0) return { authority: value, suffix: "" };
+  return { authority: value.slice(0, boundary), suffix: value.slice(boundary) };
+}
+
+function normalizeAuthority(authority: string): string {
+  const trimmed = authority.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("[")) return trimmed;
+  return looksLikeIpv6Authority(trimmed) ? `[${trimmed}]` : trimmed;
+}
+
+/**
+ * 在交给 WHATWG URL 之前修正裸 IPv6：
+ *   240e:...::1       -> http://[240e:...::1]
+ *   http://240e:...::1 -> http://[240e:...::1]
+ *
+ * IPv6 + 端口必须采用标准 `[IPv6]:port`。未加方括号时无法可靠区分
+ * 最后一个 hextet 和端口，因此不会猜测端口。
+ */
+function prepareUrlInput(input: string): string {
+  const cidr = stripIpv6CidrSuffix(input);
+  if (cidr.invalid || !cidr.value) return "";
+  const cleaned = cidr.value;
+
+  const schemeMatch = cleaned.match(/^(https?):\/\/(.*)$/i);
+  if (schemeMatch) {
+    const { authority, suffix } = splitAuthorityAndSuffix(schemeMatch[2]);
+    const normalizedAuthority = normalizeAuthority(authority);
+    return normalizedAuthority
+      ? `${schemeMatch[1].toLowerCase()}://${normalizedAuthority}${suffix}`
+      : "";
+  }
+
+  const { authority, suffix } = splitAuthorityAndSuffix(cleaned);
+  const normalizedAuthority = normalizeAuthority(authority);
+  return normalizedAuthority ? `http://${normalizedAuthority}${suffix}` : "";
+}
+
+/**
+ * 将用户输入归一化为 serverBaseUrl。
+ * 支持域名、IPv4、裸/方括号 IPv6、端口和反向代理路径。
+ */
+export function normalizeServerBaseUrl(input: string | null | undefined): string {
+  if (!input) return "";
+  const raw = input.trim();
+  if (!raw) return "";
+  if (raw === "null" || raw === "undefined" || raw === "file://" || raw.startsWith("file:")) {
+    return "";
+  }
+
+  const prepared = prepareUrlInput(raw);
+  if (!prepared) return "";
+
+  let url: URL;
+  try {
+    url = new URL(prepared);
+  } catch {
+    return "";
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+  if (!url.hostname) return "";
+
+  // url.host 会保留 IPv6 方括号和显式端口，不能再用 hostname 手动拼接。
+  const protocol = url.protocol === "https:" ? "https" : "http";
+  const pathPrefix = stripApiSuffix(url.pathname).replace(/\/+$/, "");
+  return `${protocol}://${url.host}${pathPrefix}`;
+}
+
+export function isValidServerUrl(input: string | null | undefined): boolean {
+  return normalizeServerBaseUrl(input) !== "";
+}
+
 export function parseServerUrl(input: string | null | undefined): ServerAddressParts {
   const fallback: ServerAddressParts = { protocol: "http", host: "", port: "", path: "" };
-  if (!input) return fallback;
+  const normalized = normalizeServerBaseUrl(input);
+  if (!normalized) return fallback;
 
-  const raw = input.trim();
-  if (!raw) return fallback;
-
-  const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
   try {
-    const u = new URL(withScheme);
-    const protocol: ServerScheme = u.protocol === "https:" ? "https" : "http";
+    const url = new URL(normalized);
     return {
-      protocol,
-      host: u.hostname,
-      port: u.port || "",
-      path: stripApiSuffix(u.pathname).replace(/\/+$/, ""),
+      protocol: url.protocol === "https:" ? "https" : "http",
+      // Chromium/Node 对 IPv6 hostname 会保留 []；buildServerUrl 同时兼容带/不带括号。
+      host: url.hostname,
+      port: url.port || "",
+      path: stripApiSuffix(url.pathname).replace(/\/+$/, ""),
     };
   } catch {
     return fallback;
@@ -161,15 +178,45 @@ export function parseServerUrl(input: string | null | undefined): ServerAddressP
 }
 
 function normalizeHost(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .replace(/:\d+$/, "");
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  // 调用方偶尔把完整 URL 塞进 host；优先走统一解析，避免另一套 IPv6 规则。
+  if (/^https?:\/\//i.test(trimmed)) {
+    const normalized = normalizeServerBaseUrl(trimmed);
+    if (!normalized) return "";
+    try { return new URL(normalized).hostname; } catch { return ""; }
+  }
+
+  const cidr = stripIpv6CidrSuffix(trimmed);
+  if (cidr.invalid || !cidr.value) return "";
+  let value = cidr.value.replace(/^\/\//, "");
+  const boundary = value.search(/[/?#]/);
+  if (boundary >= 0) value = value.slice(0, boundary);
+
+  if (value.startsWith("[")) {
+    const close = value.indexOf("]");
+    if (close < 0) return "";
+    return value.slice(0, close + 1);
+  }
+
+  if (looksLikeIpv6Authority(value)) return formatServerHost(value);
+  return value.replace(/:\d+$/, "");
 }
 
 function normalizePort(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
   return /^\d+$/.test(trimmed) ? trimmed : "";
+}
+
+export function buildServerUrl(parts: ServerAddressParts): string {
+  const host = normalizeHost(parts.host);
+  if (!host) return "";
+  const port = normalizePort(parts.port);
+  let base = `${parts.protocol}://${host}`;
+  if (port) base += `:${port}`;
+  const path = (parts.path || "").replace(/\/+$/, "");
+  if (path) base += path.startsWith("/") ? path : `/${path}`;
+  return normalizeServerBaseUrl(base);
 }

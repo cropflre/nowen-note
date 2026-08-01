@@ -194,7 +194,7 @@ function isLoopbackServer(): boolean {
   if (!server) return false;
   try {
     const url = new URL(server);
-    return url.hostname === "localhost" || url.hostname === "::1" || url.hostname.startsWith("127.");
+    return url.hostname === "localhost" || (url.hostname === "::1" || url.hostname === "[::1]") || url.hostname.startsWith("127.");
   } catch {
     return false;
   }

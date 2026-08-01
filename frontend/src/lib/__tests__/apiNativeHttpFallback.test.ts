@@ -80,3 +80,33 @@ describe("api native HTTP fallback", () => {
     expect(capacitorHttpRequestMock).not.toHaveBeenCalled();
   });
 });
+
+
+describe("api native HTTP fallback with IPv6 server", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    capacitorHttpRequestMock.mockReset();
+    localStorage.clear();
+    delete (window as any).Capacitor;
+  });
+
+  it("passes a bracketed IPv6 API URL to CapacitorHttp", async () => {
+    localStorage.setItem("nowen-server-url", "240e:35c:41f:4c00::1d0/128");
+    localStorage.setItem("nowen-token", "token-ipv6");
+    (window as any).Capacitor = { isNativePlatform: () => true };
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }));
+    capacitorHttpRequestMock.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { id: "u-ipv6", username: "ipv6-user" },
+    });
+
+    await expect(api.getMe()).resolves.toEqual({ id: "u-ipv6", username: "ipv6-user" });
+    expect(capacitorHttpRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      url: "http://[240e:35c:41f:4c00::1d0]/api/me",
+      method: "GET",
+    }));
+  });
+});

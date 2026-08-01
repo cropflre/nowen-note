@@ -59,7 +59,7 @@ function normalizeAuthUrl(url: string): string {
 function isLoopbackAuthUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || (u.hostname === "::1" || u.hostname === "[::1]");
   } catch {
     return false;
   }

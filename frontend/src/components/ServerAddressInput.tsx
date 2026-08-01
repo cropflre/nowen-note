@@ -1,9 +1,10 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Globe, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   parseServerUrl,
   normalizeServerBaseUrl,
+  formatServerHost,
   type ServerAddressParts,
   type ServerScheme,
 } from "@/lib/serverUrl";
@@ -45,7 +46,7 @@ const ACCENT_CLASS: Record<NonNullable<ServerAddressInputProps["accent"]>, strin
  * 如果有 path，显示 host:port/path；否则显示 host。
  */
 function partsToDisplayText(parts: ServerAddressParts): string {
-  let text = parts.host;
+  let text = formatServerHost(parts.host);
   if (parts.port) text += `:${parts.port}`;
   if (parts.path) text += parts.path;
   return text;

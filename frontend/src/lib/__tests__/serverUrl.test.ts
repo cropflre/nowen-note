@@ -1,5 +1,5 @@
-﻿import { describe, it, expect } from "vitest";
-import { normalizeServerBaseUrl, isValidServerUrl, buildServerUrl, parseServerUrl } from "../serverUrl";
+import { describe, it, expect } from "vitest";
+import { normalizeServerBaseUrl, isValidServerUrl, buildServerUrl, parseServerUrl, isLoopbackServerHostname } from "../serverUrl";
 
 // =====================================================================
 //  normalizeServerBaseUrl
@@ -209,3 +209,59 @@ describe("API endpoint construction", () => {
   });
 });
 
+
+
+describe("IPv6 server URL support", () => {
+  const ipv6 = "240e:35c:41f:4c00::1d0";
+
+  it("normalizes a bare IPv6 literal with brackets", () => {
+    expect(normalizeServerBaseUrl(ipv6)).toBe(`http://[${ipv6}]`);
+  });
+
+  it("preserves bracketed IPv6 and an explicit port", () => {
+    expect(normalizeServerBaseUrl(`[${ipv6}]:3001`)).toBe(`http://[${ipv6}]:3001`);
+    expect(normalizeServerBaseUrl(`https://[${ipv6}]:3443`)).toBe(`https://[${ipv6}]:3443`);
+  });
+
+  it("repairs a full URL containing an unbracketed IPv6 literal", () => {
+    expect(normalizeServerBaseUrl(`http://${ipv6}`)).toBe(`http://[${ipv6}]`);
+  });
+
+  it("removes a copied /128 CIDR suffix instead of treating it as a path", () => {
+    expect(normalizeServerBaseUrl(`${ipv6}/128`)).toBe(`http://[${ipv6}]`);
+    expect(normalizeServerBaseUrl(`http://[${ipv6}]/128`)).toBe(`http://[${ipv6}]`);
+  });
+
+  it("rejects invalid IPv6 CIDR prefix lengths", () => {
+    expect(normalizeServerBaseUrl(`${ipv6}/129`)).toBe("");
+  });
+
+  it("round-trips IPv6 through parse and build", () => {
+    const parsed = parseServerUrl(`http://[${ipv6}]:3001/api/health`);
+    expect(parsed).toEqual({
+      protocol: "http",
+      host: `[${ipv6}]`,
+      port: "3001",
+      path: "",
+    });
+    expect(buildServerUrl(parsed)).toBe(`http://[${ipv6}]:3001`);
+  });
+
+  it("builds a standards-compliant URL from an unbracketed IPv6 host field", () => {
+    expect(buildServerUrl({ protocol: "http", host: ipv6, port: "3001", path: "" }))
+      .toBe(`http://[${ipv6}]:3001`);
+  });
+
+  it("builds API and WebSocket endpoints without losing IPv6 brackets", () => {
+    const base = normalizeServerBaseUrl(`http://[${ipv6}]:3001`);
+    expect(`${base}/api/health`).toBe(`http://[${ipv6}]:3001/api/health`);
+    expect(`${base.replace(/^http/, "ws")}/ws?token=abc`)
+      .toBe(`ws://[${ipv6}]:3001/ws?token=abc`);
+  });
+
+  it("recognizes both browser variants of IPv6 loopback hostname", () => {
+    expect(isLoopbackServerHostname("::1")).toBe(true);
+    expect(isLoopbackServerHostname("[::1]")).toBe(true);
+    expect(isLoopbackServerHostname(ipv6)).toBe(false);
+  });
+});
