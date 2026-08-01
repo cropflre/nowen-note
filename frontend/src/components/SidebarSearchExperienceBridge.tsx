@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreePanel";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
-import OnboardingOpenBridge from "@/components/OnboardingOpenBridge";
 import {
   applySidebarSearchExperience,
   KNOWLEDGE_TREE_FILTER_SELECTOR,
@@ -210,7 +209,6 @@ export default function SidebarSearchExperienceBridge() {
 
   return (
     <>
-      <OnboardingOpenBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,
         slot,
