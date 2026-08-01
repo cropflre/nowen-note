@@ -11,9 +11,11 @@ import { useTranslation } from "react-i18next";
 
 import { useApp, useAppActions } from "@/store/AppContext";
 import {
+  detectNoteWorkspaceSurface,
   getAutomaticCollapseReason,
   loadNoteWorkspaceLayoutMode,
   persistNoteWorkspaceLayoutMode,
+  supportsWideNoteWorkspaceLayout,
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
 import { cn } from "@/lib/utils";
@@ -28,7 +30,7 @@ interface LayoutChoice {
   previewColumns: number;
 }
 
-const DESKTOP_SIDEBAR_HEADER_SELECTOR =
+const WIDE_SIDEBAR_HEADER_SELECTOR =
   '[data-unified-sidebar][data-sidebar-variant="desktop"] > header';
 const NON_NOTE_WORKSPACE_VIEWS = new Set([
   "tasks",
@@ -39,23 +41,28 @@ const NON_NOTE_WORKSPACE_VIEWS = new Set([
   "shares",
 ]);
 
-function findDesktopHeader(): HTMLElement | null {
+function findWideSidebarHeader(): HTMLElement | null {
   if (typeof document === "undefined") return null;
-  return document.querySelector<HTMLElement>(DESKTOP_SIDEBAR_HEADER_SELECTOR);
+  return document.querySelector<HTMLElement>(WIDE_SIDEBAR_HEADER_SELECTOR);
 }
 
 export default function NoteWorkspaceLayoutController() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
-  const noteWorkspaceActive = !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
+  const [surface] = useState(() => detectNoteWorkspaceSurface());
+  const wideLayoutSupported = supportsWideNoteWorkspaceLayout(surface);
+  const noteWorkspaceActive = wideLayoutSupported
+    && !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
   const [preferredMode, setPreferredMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
   );
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1920 : window.innerWidth,
   );
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(() => findDesktopHeader());
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(() =>
+    wideLayoutSupported ? findWideSidebarHeader() : null,
+  );
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 44 });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -103,18 +110,20 @@ export default function NoteWorkspaceLayoutController() {
   ], [t]);
 
   useEffect(() => {
+    if (!wideLayoutSupported) return;
     const update = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, []);
+  }, [wideLayoutSupported]);
 
   useEffect(() => {
-    const updateTarget = () => setPortalTarget(findDesktopHeader());
+    if (!wideLayoutSupported) return;
+    const updateTarget = () => setPortalTarget(findWideSidebarHeader());
     updateTarget();
     const observer = new MutationObserver(updateTarget);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, []);
+  }, [wideLayoutSupported]);
 
   useEffect(() => {
     if (!portalTarget || !noteWorkspaceActive) return;
@@ -234,6 +243,7 @@ export default function NoteWorkspaceLayoutController() {
       aria-haspopup="menu"
       aria-expanded={open}
       data-testid="note-workspace-layout-trigger"
+      data-note-workspace-surface={surface}
     >
       {currentMode === "focus" ? (
         <Maximize2 size={15} />
@@ -262,6 +272,7 @@ export default function NoteWorkspaceLayoutController() {
           className="fixed z-[100] w-[304px] overflow-hidden rounded-xl border border-app-border bg-app-elevated p-1.5 shadow-2xl"
           style={menuPosition}
           data-testid="note-workspace-layout-menu"
+          data-note-workspace-surface={surface}
         >
           <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-tx-tertiary">
             {t("workspaceLayout.title", { defaultValue: "布局模式" })}
