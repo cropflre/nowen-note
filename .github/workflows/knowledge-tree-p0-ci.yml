@@ -6,15 +6,23 @@ on:
     paths:
       - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/common/CommandPalette.tsx"
+      - "frontend/src/components/FolderSyncScheduler.tsx"
+      - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
       - "frontend/src/lib/editorWorkspaceLayout.ts"
+      - "frontend/src/lib/noteWorkspaceLayout.ts"
       - "frontend/src/lib/__tests__/editorWorkspaceLayout.test.ts"
+      - "frontend/src/lib/__tests__/noteWorkspaceLayout.test.ts"
       - ".github/workflows/knowledge-tree-p0-ci.yml"
   pull_request:
     paths:
       - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/common/CommandPalette.tsx"
+      - "frontend/src/components/FolderSyncScheduler.tsx"
+      - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
       - "frontend/src/lib/editorWorkspaceLayout.ts"
+      - "frontend/src/lib/noteWorkspaceLayout.ts"
       - "frontend/src/lib/__tests__/editorWorkspaceLayout.test.ts"
+      - "frontend/src/lib/__tests__/noteWorkspaceLayout.test.ts"
       - ".github/workflows/knowledge-tree-p0-ci.yml"
 
 permissions:
@@ -36,7 +44,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Workspace layout tests
-        run: npm run test:run -- src/lib/__tests__/editorWorkspaceLayout.test.ts
+        run: npm run test:run -- src/lib/__tests__/editorWorkspaceLayout.test.ts src/lib/__tests__/noteWorkspaceLayout.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
