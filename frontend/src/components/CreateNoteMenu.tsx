@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, FileCode, FileType2 } from "lucide-react";
+import { FileCode, FileText, FileType2, FileUp, Link2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-export type NoteType = "normal" | "markdown" | "word";
+export type NoteType = "normal" | "markdown" | "markdown-file" | "word" | "wechat";
 
 export interface CreateNoteMenuProps {
   onPick: (type: NoteType) => void | Promise<void>;
@@ -10,16 +11,22 @@ export interface CreateNoteMenuProps {
   anchorRef: React.RefObject<HTMLElement | null>;
 }
 
+type CreateNoteMenuItem = {
+  id: NoteType;
+  label: string;
+  desc: string;
+  icon: React.ReactNode;
+};
+
 /**
- * 新建笔记下拉菜单
+ * 笔记列表的新建与导入菜单。
  *
- * 复用组件：顶部工具栏 "+" 和树形列表笔记本行内 "+" 共用。
- * 菜单项：
- *   - 新建笔记（富文本编辑器）
- *   - 新建 Markdown 笔记（原生 Markdown 编辑器）
- *   - 导入 Word 文档（.docx 转可编辑笔记）
+ * 创建：富文本、Markdown。
+ * 导入：Markdown 文件、Word 文档、微信公众号文章。
+ * 所有动作都交给 NoteList 统一解析当前目录和工作区，避免菜单自己猜测目标位置。
  */
 export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNoteMenuProps) {
+  const { t } = useTranslation();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
@@ -27,8 +34,10 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
       const el = anchorRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const left = Math.max(4, Math.min(window.innerWidth - 220, rect.right - 200));
-      const top = Math.min(window.innerHeight - 8, rect.bottom + 4);
+      const menuWidth = 248;
+      const estimatedHeight = 304;
+      const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
+      const top = Math.max(8, Math.min(window.innerHeight - estimatedHeight - 8, rect.bottom + 4));
       setPos({ top, left });
     };
     compute();
@@ -41,71 +50,106 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
   }, [anchorRef]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   if (!pos) return null;
 
-  const items = [
+  const createItems: CreateNoteMenuItem[] = [
     {
-      id: "normal" as NoteType,
-      label: "新建笔记",
-      desc: "富文本编辑器",
-      icon: <FileText size={14} />,
+      id: "normal",
+      label: t("sidebar.newNote", { defaultValue: "新建笔记" }),
+      desc: t("sidebar.newNoteDesc", { defaultValue: "富文本编辑器" }),
+      icon: <FileText size={15} />,
     },
     {
-      id: "markdown" as NoteType,
-      label: "新建 Markdown 笔记",
-      desc: "原生 Markdown 编辑器",
-      icon: <FileCode size={14} />,
-    },
-    {
-      id: "word" as NoteType,
-      label: "导入 Word 文档",
-      desc: "选择 .docx 转为可编辑笔记",
-      icon: <FileType2 size={14} />,
+      id: "markdown",
+      label: t("sidebar.newMarkdownNote", { defaultValue: "新建 Markdown 笔记" }),
+      desc: t("sidebar.newMarkdownNoteDesc", { defaultValue: "原生 Markdown 编辑器" }),
+      icon: <FileCode size={15} />,
     },
   ];
 
+  const importItems: CreateNoteMenuItem[] = [
+    {
+      id: "markdown-file",
+      label: t("sidebar.importMarkdownNote", { defaultValue: "导入 Markdown 文件" }),
+      desc: t("sidebar.importMarkdownNoteDesc", { defaultValue: "支持 .md / .markdown，可多选" }),
+      icon: <FileUp size={15} />,
+    },
+    {
+      id: "word",
+      label: t("sidebar.importWordNote", { defaultValue: "导入 Word 文档" }),
+      desc: t("sidebar.importWordNoteDesc", { defaultValue: "选择 .docx 转为可编辑笔记" }),
+      icon: <FileType2 size={15} />,
+    },
+    {
+      id: "wechat",
+      label: t("sidebar.importUrlNote", { defaultValue: "导入公众号文章" }),
+      desc: t("sidebar.importUrlNoteDesc", { defaultValue: "输入微信公众号文章链接" }),
+      icon: <Link2 size={15} />,
+    },
+  ];
+
+  const renderItem = (item: CreateNoteMenuItem) => (
+    <button
+      key={item.id}
+      type="button"
+      role="menuitem"
+      data-note-menu-action={item.id}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        void Promise.resolve(onPick(item.id)).catch((error) => {
+          console.error("Failed to handle create/import menu pick:", error);
+        });
+      }}
+      className="flex w-full items-start gap-2.5 px-3 py-2 text-left text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
+    >
+      <span className="mt-0.5 shrink-0 text-tx-tertiary">{item.icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium">{item.label}</span>
+        <span className="mt-0.5 block truncate text-[10px] text-tx-tertiary">{item.desc}</span>
+      </span>
+    </button>
+  );
+
   return createPortal(
     <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); onClose(); } }}
-      onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent" }}
     >
       <div
         role="menu"
-        className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
+        aria-label={t("noteList.createAndImport", { defaultValue: "新建与导入" })}
+        className="rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
         style={{
-          position: "fixed", top: pos.top, left: pos.left, width: 200, zIndex: 9999,
+          position: "fixed",
+          top: pos.top,
+          left: pos.left,
+          width: 248,
+          zIndex: 9999,
           animation: "contextMenuIn 0.12s ease-out",
         }}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
       >
-        {items.map((it) => (
-          <button
-            key={it.id}
-            type="button"
-            role="menuitem"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onClose();
-              void Promise.resolve(onPick(it.id)).catch((err) => {
-                console.error("Failed to handle create note menu pick:", err);
-              });
-            }}
-            className="w-full flex items-start gap-2 px-3 py-2 text-left text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <span className="mt-0.5 shrink-0 text-tx-tertiary">{it.icon}</span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-xs font-medium truncate">{it.label}</span>
-              <span className="block text-[10px] text-tx-tertiary truncate">{it.desc}</span>
-            </span>
-          </button>
-        ))}
+        {createItems.map(renderItem)}
+        <div className="my-1 border-t border-app-border" role="separator" />
+        {importItems.map(renderItem)}
       </div>
     </div>,
     document.body,

@@ -1345,7 +1345,7 @@ export default function NoteList() {
   const createMenuAnchorMobileRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorFabRef = useRef<HTMLButtonElement>(null);
   // picker 模式下记住即将创建的笔记类型；用户选 notebook 后据此分支。
-  const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "word">("normal");
+  const [pendingNoteType, setPendingNoteType] = useState<NoteType>("normal");
   const [dateFilter, setDateFilter] = useState<string | null>(null); // YYYY-MM-DD
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -1887,7 +1887,7 @@ export default function NoteList() {
     }
   };
 
-  const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" = "normal") => {
+  const handleCreateNote = async (noteType: NoteType | "journal" = "normal") => {
     haptic.light();
     // 回收站视图禁止新建笔记
     if (state.viewMode === "trash") {
@@ -1959,79 +1959,116 @@ export default function NoteList() {
     }
   };
 
-  // 实际执行创建笔记的逻辑，抽出供选择器回调复用
-  // noteType="word" 时：弹文件选择器，走 importDocxAsNote（解析 .docx 为富文本笔记）。
+  // 实际执行创建或导入的逻辑，供当前目录和笔记本选择器共同复用。
+  // Markdown 文件与公众号文章走统一知识树导入服务，确保中间列表和左侧目录使用同一父节点。
   const createNoteInNotebook = async (
     notebookId: string,
-    noteType: "normal" | "markdown" | "word" | "journal" = "normal",
+    noteType: NoteType = "normal",
   ) => {
     try {
-      let note: any;
+      let notes: any[] = [];
+      let treeImportReason: string | null = null;
+
       if (noteType === "word") {
         const { pickDocxFile, importDocxAsNote } = await import("@/lib/wordNoteService");
         const file = await pickDocxFile();
-        if (!file) return; // 用户取消
-        toast.info("正在导入 Word 文档…");
-        const result = await importDocxAsNote({ notebookId, file });
-        note = result.note;
-        toast.success("导入成功");
+        if (!file) return;
+        const toastId = toast.info("正在导入 Word 文档…", 0);
+        try {
+          const result = await importDocxAsNote({ notebookId, file });
+          notes = [result.note];
+          toast.dismiss(toastId);
+          toast.success("导入成功");
+        } catch (error) {
+          toast.dismiss(toastId);
+          throw error;
+        }
+      } else if (noteType === "markdown-file") {
+        const { importMarkdownFilesIntoNotebook } = await import("@/components/knowledgeTreeImport");
+        notes = await importMarkdownFilesIntoNotebook(notebookId);
+        if (notes.length === 0) return;
+        treeImportReason = "note-list-markdown-files-imported";
+      } else if (noteType === "wechat") {
+        const { importWeChatArticleIntoNotebook } = await import("@/components/knowledgeTreeImport");
+        const imported = await importWeChatArticleIntoNotebook(notebookId);
+        if (!imported) return;
+        notes = [imported];
+        treeImportReason = "note-list-wechat-article-imported";
       } else if (noteType === "markdown") {
-        // 新建原生 Markdown 笔记
-        note = await api.createNote({
+        notes = [await api.createNote({
           notebookId,
           title: "无标题 Markdown",
           contentFormat: "markdown",
           content: "# 无标题 Markdown\n\n",
           contentText: "无标题 Markdown",
-        } as any);
+        } as any)];
       } else {
-        note = await api.createNote({ notebookId, title: t('common.untitledNote') });
+        notes = [await api.createNote({ notebookId, title: t('common.untitledNote') })];
       }
 
-      // BUG-FAVORITE-CREATE-01: 收藏视图中新建笔记默认设为收藏
-      let isFavorite = note.isFavorite || 0;
-      if (state.viewMode === "favorites" && !isFavorite) {
-        try {
-          const updated = await api.updateNote(note.id, { isFavorite: 1 } as any);
-          note = updated;
-          isFavorite = 1;
-        } catch {
-          // 收藏设置失败不阻断创建流程
+      const prepared: Array<{ note: any; isFavorite: number }> = [];
+      for (const importedNote of notes) {
+        let note = importedNote;
+        let isFavorite = note.isFavorite || 0;
+        // 收藏视图中的新建与导入结果都应留在当前结果集，而不是只处理批量导入的第一篇。
+        if (state.viewMode === "favorites" && !isFavorite) {
+          try {
+            note = await api.updateNote(note.id, { isFavorite: 1 } as any);
+            isFavorite = 1;
+          } catch {
+            // 收藏设置失败不阻断创建或导入流程。
+          }
         }
+        prepared.push({ note, isFavorite });
       }
 
-      actions.setActiveNote(note);
-      actions.addNoteToList({
-        id: note.id,
-        userId: note.userId,
-        title: note.title,
-        contentText: note.contentText || "",
-        notebookId: note.notebookId,
-        workspaceId: note.workspaceId ?? null,
-        isPinned: note.isPinned || 0,
-        isFavorite,
-        isLocked: note.isLocked || 0,
-        isArchived: note.isArchived || 0,
-        isTrashed: note.isTrashed || 0,
-        version: note.version || 1,
-        sortOrder: note.sortOrder || 0,
-        updatedAt: note.updatedAt,
-        createdAt: note.createdAt,
-        contentFormat: note.contentFormat,
-      } as NoteListItem);
+      const primary = prepared[0]?.note;
+      if (!primary) return;
+      actions.setActiveNote(primary);
+      for (const { note, isFavorite } of prepared) {
+        actions.addNoteToList({
+          id: note.id,
+          userId: note.userId,
+          title: note.title,
+          contentText: note.contentText || "",
+          notebookId: note.notebookId,
+          workspaceId: note.workspaceId ?? null,
+          isPinned: note.isPinned || 0,
+          isFavorite,
+          isLocked: note.isLocked || 0,
+          isArchived: note.isArchived || 0,
+          isTrashed: note.isTrashed || 0,
+          version: note.version || 1,
+          sortOrder: note.sortOrder || 0,
+          updatedAt: note.updatedAt,
+          createdAt: note.createdAt,
+          contentFormat: note.contentFormat,
+        } as NoteListItem);
+      }
       actions.setMobileView("editor");
       actions.refreshNotebooks();
 
-      // 若新建发生在「所有笔记/收藏/标签」视图且系统自动选择了归属，提示用户
+      if (treeImportReason) {
+        actions.refreshNotes();
+        window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+          detail: {
+            reason: treeImportReason,
+            notebookId,
+            imported: prepared.length,
+          },
+        }));
+      }
+
+      // 若动作发生在「所有笔记/收藏/标签」视图且系统自动选择了归属，提示用户。
       if (!state.selectedNotebookId && state.viewMode !== "notebook") {
-        const nb = state.notebooks.find((n) => n.id === notebookId);
-        if (nb) {
-          toast.info(t('noteList.noteCreatedInNotebook', { name: nb.name }));
+        const notebook = state.notebooks.find((candidate) => candidate.id === notebookId);
+        if (notebook) {
+          toast.info(t('noteList.noteCreatedInNotebook', { name: notebook.name }));
         }
       }
-    } catch (err: any) {
-      console.error("创建笔记失败:", err);
-      toast.error(err?.message || t('noteList.createFailed'));
+    } catch (error: any) {
+      console.error("创建或导入笔记失败:", error);
+      toast.error(error?.message || t('noteList.createFailed'));
     }
   };
 
@@ -3662,7 +3699,7 @@ export default function NoteList() {
         }}
       />
 
-      {/* 新建按钮的下拉（普通笔记 / Word 文档），在 split-button 的 ▾ 旁边 portal 弹出 */}
+      {/* 新建与导入下拉：富文本、Markdown、Markdown 文件、Word、公众号文章 */}
       {createMenuOpen && createMenuSource && (
         <CreateNoteMenu
           anchorRef={

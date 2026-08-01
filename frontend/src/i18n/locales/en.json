@@ -105,9 +105,15 @@
   },
   "sidebar": {
     "newNote": "New Note",
+    "newNoteDesc": "Rich text editor",
     "newMarkdownNote": "New Markdown Note",
+    "newMarkdownNoteDesc": "Native Markdown editor",
+    "importMarkdownNote": "Import Markdown Files",
+    "importMarkdownNoteDesc": "Select one or more .md / .markdown files",
     "importWordNote": "Import Word Document",
-    "importUrlNote": "Import Article from URL",
+    "importWordNoteDesc": "Convert a .docx file into an editable note",
+    "importUrlNote": "Import WeChat Article",
+    "importUrlNoteDesc": "Paste a WeChat Official Account article URL",
     "importUrlPrompt": "Paste a WeChat article URL (https://mp.weixin.qq.com/s/...)",
     "newSubNotebook": "New Sub-Notebook",
     "railMode": {

@@ -105,9 +105,15 @@
   },
   "sidebar": {
     "newNote": "新建笔记",
+    "newNoteDesc": "富文本编辑器",
     "newMarkdownNote": "新建 Markdown 笔记",
+    "newMarkdownNoteDesc": "原生 Markdown 编辑器",
+    "importMarkdownNote": "导入 Markdown 文件",
+    "importMarkdownNoteDesc": "支持 .md / .markdown，可多选",
     "importWordNote": "导入 Word 文档",
+    "importWordNoteDesc": "选择 .docx 转为可编辑笔记",
     "importUrlNote": "导入公众号文章",
+    "importUrlNoteDesc": "输入微信公众号文章链接",
     "importUrlPrompt": "请输入微信公众号文章链接（https://mp.weixin.qq.com/s/...）",
     "newSubNotebook": "新建子笔记本",
     "railMode": {

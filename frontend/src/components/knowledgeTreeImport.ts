@@ -12,10 +12,42 @@ import { toast } from "@/lib/toast";
 
 type LoadedNote = Awaited<ReturnType<typeof api.getNote>>;
 
-interface KnowledgeTreeImportOptions {
+export interface KnowledgeTreeImportOptions {
   parent: KnowledgeTreeNode | null;
   nodes: KnowledgeTreeNode[];
   fallbackNotebookId: string | null;
+}
+
+async function loadAllKnowledgeTreeNodes(): Promise<KnowledgeTreeNode[]> {
+  const [ownedResult, sharedResult] = await Promise.allSettled([
+    knowledgeTreeApi.list(),
+    knowledgeTreeApi.listShared(),
+  ]);
+  const nodes: KnowledgeTreeNode[] = [];
+  if (ownedResult.status === "fulfilled") nodes.push(...ownedResult.value.nodes);
+  if (sharedResult.status === "fulfilled") nodes.push(...sharedResult.value.nodes);
+  if (ownedResult.status === "fulfilled" || sharedResult.status === "fulfilled") {
+    return Array.from(new Map(nodes.map((node) => [node.id, node])).values());
+  }
+  throw ownedResult.reason || sharedResult.reason || new Error("无法读取内容树");
+}
+
+/**
+ * 将三栏中间列表当前选中的 legacy notebook 映射回统一知识树节点。
+ * 导入必须使用真实 tree parent，不能只向 notes 表写 notebookId，否则知识树和列表会不同步。
+ */
+export async function resolveKnowledgeTreeImportOptionsForNotebook(
+  notebookId: string,
+): Promise<KnowledgeTreeImportOptions> {
+  const nodes = await loadAllKnowledgeTreeNodes();
+  const parent = nodes.find((node) => (
+    node.resourceType === "notebook" && node.resourceId === notebookId
+  )) || null;
+  if (!parent) throw new Error("当前目录已不存在，请刷新后重试");
+  if (!parent.access.capabilities.canCreate) {
+    throw new Error("你没有在当前目录中导入内容的权限");
+  }
+  return { parent, nodes, fallbackNotebookId: notebookId };
 }
 
 async function resolvePhysicalNotebookId({
@@ -73,11 +105,11 @@ export async function importWordIntoKnowledgeTree(
   }
 }
 
-export async function importMarkdownIntoKnowledgeTree(
+export async function importMarkdownFilesIntoKnowledgeTree(
   options: KnowledgeTreeImportOptions,
-): Promise<LoadedNote | null> {
+): Promise<LoadedNote[]> {
   const files = await pickMarkdownFiles();
-  if (files.length === 0) return null;
+  if (files.length === 0) return [];
   if (files.length > MAX_MARKDOWN_DROP_FILES) {
     throw new Error(`单次最多导入 ${MAX_MARKDOWN_DROP_FILES} 个 Markdown 文件`);
   }
@@ -116,7 +148,19 @@ export async function importMarkdownIntoKnowledgeTree(
   } else {
     toast.success(`已导入 ${imported.length} 个 Markdown 文件`);
   }
-  return imported[0];
+  return imported;
+}
+
+export async function importMarkdownIntoKnowledgeTree(
+  options: KnowledgeTreeImportOptions,
+): Promise<LoadedNote | null> {
+  return (await importMarkdownFilesIntoKnowledgeTree(options))[0] || null;
+}
+
+export async function importMarkdownFilesIntoNotebook(notebookId: string): Promise<LoadedNote[]> {
+  return importMarkdownFilesIntoKnowledgeTree(
+    await resolveKnowledgeTreeImportOptionsForNotebook(notebookId),
+  );
 }
 
 export async function importWeChatArticleIntoKnowledgeTree(
@@ -147,4 +191,10 @@ export async function importWeChatArticleIntoKnowledgeTree(
     toast.dismiss(toastId);
     throw error;
   }
+}
+
+export async function importWeChatArticleIntoNotebook(notebookId: string): Promise<LoadedNote | null> {
+  return importWeChatArticleIntoKnowledgeTree(
+    await resolveKnowledgeTreeImportOptionsForNotebook(notebookId),
+  );
 }
