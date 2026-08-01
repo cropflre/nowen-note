@@ -1,0 +1,44 @@
+name: Apply Three Column Import Menu
+
+on:
+  push:
+    branches: [feat/three-column-import-menu]
+    paths:
+      - "scripts/apply_three_column_import_menu.py"
+      - ".github/workflows/apply-three-column-import-menu.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/three-column-import-menu
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply source patch
+        run: python3 scripts/apply_three_column_import_menu.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run import and layout regression tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/editorWorkspaceLayout.test.ts src/lib/__tests__/noteWorkspaceLayout.test.ts src/lib/__tests__/unifiedTreeOnlyLayout.test.ts src/components/__tests__/NoteWorkspaceLayoutController.test.tsx src/components/__tests__/MobileDrawerUxBridge.layout.test.tsx src/components/__tests__/CreateNoteMenu.test.tsx src/components/__tests__/knowledgeTreeImportNotebook.test.ts
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend .github/workflows/knowledge-tree-p0-ci.yml
+          git commit -m "feat(import): add Markdown and WeChat imports to three-column list"
+          git push origin HEAD:feat/three-column-import-menu
