@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
+
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react-dom/test-utils";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   noteListCollapsed: false,
@@ -31,17 +34,23 @@ vi.mock("react-i18next", () => ({
 import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
 import { NOTE_WORKSPACE_LAYOUT_STORAGE_KEY } from "@/lib/noteWorkspaceLayout";
 
-function mountDesktopSidebarHeader() {
-  const aside = document.createElement("aside");
-  aside.dataset.unifiedSidebar = "";
-  aside.dataset.sidebarVariant = "desktop";
-  const header = document.createElement("header");
-  aside.appendChild(header);
-  document.body.appendChild(aside);
-  return header;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
+
+function click(element: Element | null) {
+  expect(element).not.toBeNull();
+  element?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function findMenuChoice(text: string): HTMLButtonElement | null {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))
+    .find((element) => element.textContent?.includes(text)) || null;
 }
 
 describe("NoteWorkspaceLayoutController", () => {
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
   beforeEach(() => {
     document.body.innerHTML = "";
     localStorage.clear();
@@ -51,57 +60,66 @@ describe("NoteWorkspaceLayoutController", () => {
     actions.toggleNoteListCollapsed.mockClear();
     actions.setEditorFullscreen.mockClear();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+
+    const aside = document.createElement("aside");
+    aside.dataset.unifiedSidebar = "";
+    aside.dataset.sidebarVariant = "desktop";
+    aside.appendChild(document.createElement("header"));
+    document.body.appendChild(aside);
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
   });
 
-  it("switches between standard, three-column and focus modes", async () => {
-    mountDesktopSidebarHeader();
-    const view = render(<NoteWorkspaceLayoutController />);
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "布局模式" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /标准模式/ }));
+  it("switches among standard, three-column and focus modes", () => {
+    act(() => root.render(<NoteWorkspaceLayoutController />));
 
-    await waitFor(() => expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("标准模式")));
+    expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1);
     expect(state.noteListCollapsed).toBe(true);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
 
-    view.rerender(<NoteWorkspaceLayoutController />);
-    fireEvent.click(screen.getByRole("button", { name: "布局模式" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /三栏模式/ }));
-
-    await waitFor(() => expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2));
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("三栏模式")));
+    expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
     expect(state.noteListCollapsed).toBe(false);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
 
-    view.rerender(<NoteWorkspaceLayoutController />);
-    fireEvent.click(screen.getByRole("button", { name: "布局模式" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /专注模式/ }));
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("专注模式")));
     expect(actions.setEditorFullscreen).toHaveBeenLastCalledWith(true);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
   });
 
-  it("restores the preferred three-column mode after a right split", async () => {
-    mountDesktopSidebarHeader();
+  it("restores three-column mode after right split and still accepts a manual collapse", () => {
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
-    const view = render(<NoteWorkspaceLayoutController />);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
 
     state.editorSplit = { noteId: "n2", direction: "right" };
-    view.rerender(<NoteWorkspaceLayoutController />);
-    await waitFor(() => expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1));
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1);
     expect(state.noteListCollapsed).toBe(true);
 
-    view.rerender(<NoteWorkspaceLayoutController />);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
     state.editorSplit = null;
-    view.rerender(<NoteWorkspaceLayoutController />);
-    await waitFor(() => expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2));
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
     expect(state.noteListCollapsed).toBe(false);
 
-    view.rerender(<NoteWorkspaceLayoutController />);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
     state.noteListCollapsed = true;
-    view.rerender(<NoteWorkspaceLayoutController />);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
 
-    await waitFor(() => {
-      expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
-    });
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
   });
 });
