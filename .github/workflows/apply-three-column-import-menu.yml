@@ -5,11 +5,13 @@ on:
     branches: [feat/three-column-import-menu]
     paths:
       - "scripts/apply_three_column_import_menu.py"
+      - "scripts/fix_three_column_import_empty_tree.py"
       - ".github/workflows/apply-three-column-import-menu.yml"
   pull_request:
     branches: [main]
     paths:
       - "scripts/apply_three_column_import_menu.py"
+      - "scripts/fix_three_column_import_empty_tree.py"
       - ".github/workflows/apply-three-column-import-menu.yml"
 
 permissions:
@@ -30,7 +32,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply source patch
-        run: python3 scripts/apply_three_column_import_menu.py
+        run: |
+          python3 scripts/apply_three_column_import_menu.py
+          python3 scripts/fix_three_column_import_empty_tree.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
