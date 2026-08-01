@@ -1,4 +1,5 @@
 export type NoteWorkspaceLayoutMode = "standard" | "three-column";
+export type NoteWorkspaceSurface = "web" | "desktop" | "native-mobile";
 
 export const NOTE_WORKSPACE_LAYOUT_STORAGE_KEY = "nowen-note-workspace-layout";
 export const THREE_COLUMN_MIN_VIEWPORT_WIDTH = 1120;
@@ -16,6 +17,39 @@ export interface NoteWorkspaceVisibilityInput {
 export interface NoteWorkspaceVisibility {
   showNoteList: boolean;
   autoCollapseReason: NoteWorkspaceAutoCollapseReason;
+}
+
+/**
+ * The React workspace is shared by the browser Web app and Electron.
+ * Keep the distinction explicit so future native-only checks cannot
+ * accidentally hide wide-screen layout controls from Web users.
+ */
+export function detectNoteWorkspaceSurface(
+  runtimeWindow: Window | undefined = typeof window === "undefined" ? undefined : window,
+): NoteWorkspaceSurface {
+  if (!runtimeWindow) return "web";
+
+  const runtime = runtimeWindow as Window & {
+    nowenDesktop?: { isDesktop?: boolean };
+    Capacitor?: {
+      isNativePlatform?: () => boolean;
+      platform?: string;
+      getPlatform?: () => string;
+    };
+  };
+
+  const capacitorPlatform = runtime.Capacitor?.getPlatform?.()
+    || runtime.Capacitor?.platform;
+  const nativeMobile = runtime.Capacitor?.isNativePlatform?.()
+    || (!!capacitorPlatform && capacitorPlatform !== "web");
+
+  if (nativeMobile) return "native-mobile";
+  if (runtime.nowenDesktop?.isDesktop) return "desktop";
+  return "web";
+}
+
+export function supportsWideNoteWorkspaceLayout(surface: NoteWorkspaceSurface): boolean {
+  return surface === "web" || surface === "desktop";
 }
 
 export function loadNoteWorkspaceLayoutMode(
