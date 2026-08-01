@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   noteListCollapsed: false,
   editorFullscreen: false,
   editorSplit: null as null | { noteId: string; direction: "right" | "down" },
+  viewMode: "all",
 }));
 
 const actions = vi.hoisted(() => ({
@@ -56,6 +57,7 @@ describe("NoteWorkspaceLayoutController", () => {
     state.noteListCollapsed = false;
     state.editorFullscreen = false;
     state.editorSplit = null;
+    state.viewMode = "all";
     actions.toggleNoteListCollapsed.mockClear();
     actions.setEditorFullscreen.mockClear();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
@@ -128,5 +130,12 @@ describe("NoteWorkspaceLayoutController", () => {
 
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not expose note layout controls in non-note modules", () => {
+    state.viewMode = "tasks";
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+    expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
   });
 });
