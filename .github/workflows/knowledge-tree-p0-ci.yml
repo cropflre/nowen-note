@@ -7,36 +7,31 @@ on:
       - "frontend/src/App.tsx"
       - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/common/CommandPalette.tsx"
-      - "frontend/src/components/FolderSyncScheduler.tsx"
       - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
       - "frontend/src/components/__tests__/NoteWorkspaceLayoutController.test.tsx"
       - "frontend/src/lib/editorWorkspaceLayout.ts"
       - "frontend/src/lib/noteWorkspaceLayout.ts"
       - "frontend/src/lib/__tests__/editorWorkspaceLayout.test.ts"
       - "frontend/src/lib/__tests__/noteWorkspaceLayout.test.ts"
-      - "scripts/mount-note-workspace-layout-controller.py"
       - ".github/workflows/knowledge-tree-p0-ci.yml"
   pull_request:
     paths:
       - "frontend/src/App.tsx"
       - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/common/CommandPalette.tsx"
-      - "frontend/src/components/FolderSyncScheduler.tsx"
       - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
       - "frontend/src/components/__tests__/NoteWorkspaceLayoutController.test.tsx"
       - "frontend/src/lib/editorWorkspaceLayout.ts"
       - "frontend/src/lib/noteWorkspaceLayout.ts"
       - "frontend/src/lib/__tests__/editorWorkspaceLayout.test.ts"
       - "frontend/src/lib/__tests__/noteWorkspaceLayout.test.ts"
-      - "scripts/mount-note-workspace-layout-controller.py"
       - ".github/workflows/knowledge-tree-p0-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   frontend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -44,12 +39,6 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-          fetch-depth: 0
-      - name: Mount layout controller in AppLayout
-        working-directory: .
-        run: python3 scripts/mount-note-workspace-layout-controller.py
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -59,17 +48,5 @@ jobs:
       - name: Workspace layout tests
         run: npm run test:run -- src/lib/__tests__/editorWorkspaceLayout.test.ts src/lib/__tests__/noteWorkspaceLayout.test.ts src/components/__tests__/NoteWorkspaceLayoutController.test.tsx
       - name: Frontend typecheck
+        if: always()
         run: npx tsc -b
-      - name: Commit clean AppLayout integration
-        if: github.event_name == 'pull_request'
-        working-directory: .
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add frontend/src/App.tsx frontend/src/components/FolderSyncScheduler.tsx
-          if git diff --cached --quiet; then
-            echo "AppLayout integration already applied"
-            exit 0
-          fi
-          git commit -m "refactor(ui): mount note layout controller in AppLayout"
-          git push origin HEAD:${{ github.head_ref }}
