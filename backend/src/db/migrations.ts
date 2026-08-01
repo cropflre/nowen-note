@@ -21,6 +21,7 @@ import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMig
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
 import { offlineSyncMigration } from "./offlineSyncMigration.js";
 import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
+import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -274,6 +275,7 @@ export const MIGRATIONS: Migration[] = [
   tagScopeUniquenessMigration,
   offlineSyncMigration,
   newUserOnboardingMigration,
+  newUserOnboardingFirstLoginMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
