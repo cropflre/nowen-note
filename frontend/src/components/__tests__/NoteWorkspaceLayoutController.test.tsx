@@ -60,6 +60,8 @@ describe("NoteWorkspaceLayoutController", () => {
     state.viewMode = "all";
     actions.toggleNoteListCollapsed.mockClear();
     actions.setEditorFullscreen.mockClear();
+    delete (window as any).nowenDesktop;
+    delete (window as any).Capacitor;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
 
     class StaticMutationObserver {
@@ -86,10 +88,13 @@ describe("NoteWorkspaceLayoutController", () => {
     vi.unstubAllGlobals();
   });
 
-  it("switches among standard, three-column and focus modes", () => {
+  it("exposes standard, three-column and focus modes in the Web browser", () => {
     act(() => root.render(<NoteWorkspaceLayoutController />));
 
-    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    const trigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
+    expect(trigger?.getAttribute("data-note-workspace-surface")).toBe("web");
+
+    act(() => click(trigger));
     act(() => click(findMenuChoice("标准模式")));
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1);
     expect(state.noteListCollapsed).toBe(true);
@@ -107,6 +112,25 @@ describe("NoteWorkspaceLayoutController", () => {
     act(() => click(findMenuChoice("专注模式")));
     expect(actions.setEditorFullscreen).toHaveBeenLastCalledWith(true);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+  });
+
+  it("keeps the same layout entry in Electron", () => {
+    (window as any).nowenDesktop = { isDesktop: true };
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+
+    const trigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
+    expect(trigger?.getAttribute("data-note-workspace-surface")).toBe("desktop");
+  });
+
+  it("does not replace native mobile progressive navigation with a wide layout", () => {
+    (window as any).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "android",
+    };
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+    expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
   });
 
   it("restores three-column mode after right split and still accepts a manual collapse", () => {
