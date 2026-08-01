@@ -2,14 +2,36 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   NOTE_WORKSPACE_LAYOUT_STORAGE_KEY,
   THREE_COLUMN_MIN_VIEWPORT_WIDTH,
+  detectNoteWorkspaceSurface,
   getAutomaticCollapseReason,
   loadNoteWorkspaceLayoutMode,
   persistNoteWorkspaceLayoutMode,
   resolveNoteWorkspaceVisibility,
+  supportsWideNoteWorkspaceLayout,
 } from "@/lib/noteWorkspaceLayout";
 
 describe("note workspace layout", () => {
   beforeEach(() => localStorage.clear());
+
+  it("supports wide layouts in Web and Electron but not native mobile", () => {
+    const webWindow = {} as Window;
+    const desktopWindow = {
+      nowenDesktop: { isDesktop: true },
+    } as unknown as Window;
+    const nativeWindow = {
+      Capacitor: {
+        isNativePlatform: () => true,
+        getPlatform: () => "android",
+      },
+    } as unknown as Window;
+
+    expect(detectNoteWorkspaceSurface(webWindow)).toBe("web");
+    expect(detectNoteWorkspaceSurface(desktopWindow)).toBe("desktop");
+    expect(detectNoteWorkspaceSurface(nativeWindow)).toBe("native-mobile");
+    expect(supportsWideNoteWorkspaceLayout("web")).toBe(true);
+    expect(supportsWideNoteWorkspaceLayout("desktop")).toBe(true);
+    expect(supportsWideNoteWorkspaceLayout("native-mobile")).toBe(false);
+  });
 
   it("migrates the previous note-list collapsed preference", () => {
     expect(loadNoteWorkspaceLayoutMode(true)).toBe("standard");
