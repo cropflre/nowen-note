@@ -8,13 +8,10 @@ on:
       - "scripts/fix_three_column_import_empty_tree.py"
       - "scripts/fix_three_column_import_markdown_literal.py"
       - ".github/workflows/apply-three-column-import-menu.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "scripts/apply_three_column_import_menu.py"
-      - "scripts/fix_three_column_import_empty_tree.py"
-      - "scripts/fix_three_column_import_markdown_literal.py"
-      - ".github/workflows/apply-three-column-import-menu.yml"
+
+concurrency:
+  group: apply-three-column-import-menu
+  cancel-in-progress: true
 
 permissions:
   contents: write
