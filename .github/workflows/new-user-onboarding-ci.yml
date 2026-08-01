@@ -8,19 +8,21 @@ on:
       - feat/new-user-bilingual-onboarding
     paths:
       - "backend/src/db/newUserOnboardingMigration.ts"
+      - "backend/src/db/newUserOnboardingFirstLoginMigration.ts"
       - "backend/src/db/migrations.ts"
       - "backend/tests/new-user-onboarding.test.ts"
       - "frontend/src/components/OnboardingOpenBridge.tsx"
-      - "frontend/src/components/SidebarSearchExperienceBridge.tsx"
+      - "frontend/src/components/PhaseAPerfProfiler.tsx"
       - "frontend/src/components/__tests__/OnboardingOpenBridge.test.tsx"
       - ".github/workflows/new-user-onboarding-ci.yml"
   pull_request:
     paths:
       - "backend/src/db/newUserOnboardingMigration.ts"
+      - "backend/src/db/newUserOnboardingFirstLoginMigration.ts"
       - "backend/src/db/migrations.ts"
       - "backend/tests/new-user-onboarding.test.ts"
       - "frontend/src/components/OnboardingOpenBridge.tsx"
-      - "frontend/src/components/SidebarSearchExperienceBridge.tsx"
+      - "frontend/src/components/PhaseAPerfProfiler.tsx"
       - "frontend/src/components/__tests__/OnboardingOpenBridge.test.tsx"
       - ".github/workflows/new-user-onboarding-ci.yml"
 
