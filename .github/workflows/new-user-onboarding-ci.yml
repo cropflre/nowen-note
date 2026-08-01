@@ -1,0 +1,69 @@
+name: New User Onboarding CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feat/new-user-bilingual-onboarding
+    paths:
+      - "backend/src/db/newUserOnboardingMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/tests/new-user-onboarding.test.ts"
+      - "frontend/src/components/OnboardingOpenBridge.tsx"
+      - "frontend/src/components/SidebarSearchExperienceBridge.tsx"
+      - "frontend/src/components/__tests__/OnboardingOpenBridge.test.tsx"
+      - ".github/workflows/new-user-onboarding-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/newUserOnboardingMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/tests/new-user-onboarding.test.ts"
+      - "frontend/src/components/OnboardingOpenBridge.tsx"
+      - "frontend/src/components/SidebarSearchExperienceBridge.tsx"
+      - "frontend/src/components/__tests__/OnboardingOpenBridge.test.tsx"
+      - ".github/workflows/new-user-onboarding-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Bilingual onboarding migration regression
+        run: npx tsx --test tests/new-user-onboarding.test.ts
+      - name: Backend typecheck
+        if: always()
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: First-login welcome regression
+        run: npm run test:run -- src/components/__tests__/OnboardingOpenBridge.test.tsx
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b --pretty false
