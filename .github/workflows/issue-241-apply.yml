@@ -1,0 +1,53 @@
+name: Apply issue 241 implementation
+
+on:
+  push:
+    branches:
+      - feat/issue-241-diary-ime
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/issue-241-diary-ime
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply source changes
+        run: python3 scripts/apply_issue_241.py
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Run focused tests
+        run: >-
+          npm --prefix frontend run test:run --
+          src/lib/__tests__/ime.test.ts
+          src/components/diary/__tests__/SayMarkdownToolbar.test.ts
+          src/components/diary/__tests__/DiaryAiReportDialog.test.ts
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+      - name: Commit implementation
+        run: |
+          rm -f .github/workflows/issue-241-apply.yml scripts/apply_issue_241.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(diary): implement issue 241 markdown reports and IME fixes"
+          git push origin HEAD:feat/issue-241-diary-ime
