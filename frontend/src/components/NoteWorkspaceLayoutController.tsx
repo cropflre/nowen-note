@@ -51,9 +51,8 @@ export default function NoteWorkspaceLayoutController() {
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 44 });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const requestedModeRef = useRef<NoteWorkspaceLayoutMode | null>(null);
-  const controllerToggleRef = useRef(false);
-  const autoCollapsedRef = useRef(false);
+  const observedCollapsedRef = useRef(state.noteListCollapsed);
+  const expectedCollapsedRef = useRef<boolean | null>(null);
 
   const automaticCollapseReason = getAutomaticCollapseReason({
     editorFullscreen: state.editorFullscreen,
@@ -107,6 +106,15 @@ export default function NoteWorkspaceLayoutController() {
   }, []);
 
   useEffect(() => {
+    if (!portalTarget) return;
+    const previousPosition = portalTarget.style.position;
+    portalTarget.style.position = "relative";
+    return () => {
+      portalTarget.style.position = previousPosition;
+    };
+  }, [portalTarget]);
+
+  useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
       if (triggerRef.current?.contains(event.target as Node)) return;
@@ -127,56 +135,37 @@ export default function NoteWorkspaceLayoutController() {
   }, [open]);
 
   /*
-   * Keep the existing AppContext collapse flag as the rendering source of truth,
-   * while preserving a separate preferred base layout. Automatic collapse never
-   * overwrites the preference, so widening the window or closing a right split
-   * restores the middle list.
+   * The old noteListCollapsed flag remains the render source of truth so all
+   * existing buttons continue to work. expectedCollapsedRef distinguishes a
+   * controller-requested state transition from a manual legacy toggle.
    */
   useEffect(() => {
     const automatic = automaticCollapseReason !== null;
+    const collapsedChanged = observedCollapsedRef.current !== state.noteListCollapsed;
 
-    if (requestedModeRef.current) {
-      const requested = requestedModeRef.current;
-      const desiredCollapsed = requested === "standard" || automatic;
-      if (state.noteListCollapsed !== desiredCollapsed) {
-        controllerToggleRef.current = true;
-        actions.toggleNoteListCollapsed();
+    if (collapsedChanged) {
+      observedCollapsedRef.current = state.noteListCollapsed;
+      if (expectedCollapsedRef.current === state.noteListCollapsed) {
+        expectedCollapsedRef.current = null;
+      } else if (!automatic) {
+        const inferredMode: NoteWorkspaceLayoutMode = state.noteListCollapsed
+          ? "standard"
+          : "three-column";
+        if (inferredMode !== preferredMode) {
+          setPreferredMode(inferredMode);
+          persistNoteWorkspaceLayoutMode(inferredMode);
+        }
         return;
       }
-      requestedModeRef.current = null;
-      autoCollapsedRef.current = automatic && requested === "three-column";
-      return;
     }
 
-    if (controllerToggleRef.current) {
-      controllerToggleRef.current = false;
-      return;
-    }
-
-    if (automatic) {
-      if (preferredMode === "three-column") autoCollapsedRef.current = true;
-      if (!state.noteListCollapsed) {
-        controllerToggleRef.current = true;
-        actions.toggleNoteListCollapsed();
-      }
-      return;
-    }
-
-    if (autoCollapsedRef.current) {
-      if (preferredMode === "three-column" && state.noteListCollapsed) {
-        controllerToggleRef.current = true;
-        actions.toggleNoteListCollapsed();
-        return;
-      }
-      autoCollapsedRef.current = false;
-    }
-
-    const inferredMode: NoteWorkspaceLayoutMode = state.noteListCollapsed
-      ? "standard"
-      : "three-column";
-    if (inferredMode !== preferredMode) {
-      setPreferredMode(inferredMode);
-      persistNoteWorkspaceLayoutMode(inferredMode);
+    const desiredCollapsed = automatic || preferredMode === "standard";
+    if (
+      state.noteListCollapsed !== desiredCollapsed
+      && expectedCollapsedRef.current !== desiredCollapsed
+    ) {
+      expectedCollapsedRef.current = desiredCollapsed;
+      actions.toggleNoteListCollapsed();
     }
   }, [
     actions,
@@ -206,7 +195,6 @@ export default function NoteWorkspaceLayoutController() {
       return;
     }
 
-    requestedModeRef.current = mode;
     setPreferredMode(mode);
     persistNoteWorkspaceLayoutMode(mode);
     actions.setEditorFullscreen(false);
@@ -220,7 +208,9 @@ export default function NoteWorkspaceLayoutController() {
       onClick={toggleMenu}
       className={cn(
         "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary",
-        portalTarget ? "w-8" : "gap-1 border border-app-border bg-app-elevated px-2 shadow-lg",
+        portalTarget
+          ? "absolute right-11 top-1/2 z-10 w-8 -translate-y-1/2"
+          : "gap-1 border border-app-border bg-app-elevated px-2 shadow-lg",
       )}
       title={t("workspaceLayout.title", { defaultValue: "布局模式" })}
       aria-label={t("workspaceLayout.title", { defaultValue: "布局模式" })}
