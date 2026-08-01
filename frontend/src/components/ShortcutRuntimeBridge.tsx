@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { isImeKeyEvent } from "@/lib/ime";
 import {
   SHORTCUT_COMMANDS,
   detectShortcutPlatform,
@@ -47,7 +48,7 @@ export default function ShortcutRuntimeBridge() {
     if (surface === "android") return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.defaultPrevented) return;
+      if (isImeKeyEvent(event) || event.defaultPrevented) return;
 
       for (const commandId of FORMAT_COMMAND_IDS) {
         if (!isShortcutAllowedInTarget(commandId, event.target)) continue;
