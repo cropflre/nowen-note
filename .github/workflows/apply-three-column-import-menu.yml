@@ -6,6 +6,11 @@ on:
     paths:
       - "scripts/apply_three_column_import_menu.py"
       - ".github/workflows/apply-three-column-import-menu.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/apply_three_column_import_menu.py"
+      - ".github/workflows/apply-three-column-import-menu.yml"
 
 permissions:
   contents: write
