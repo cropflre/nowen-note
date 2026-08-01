@@ -1,23 +1,25 @@
 name: Apply IPv6 native client fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/ipv6-native-client-connection
+      - main
     paths:
       - .github/workflows/apply-ipv6-native-client-fix.yml
+      - scripts/apply-ipv6-native-client-fix.py
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/ipv6-native-client-connection
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -45,4 +47,4 @@ jobs:
             exit 0
           fi
           git commit -m "fix(client): support IPv6 NAS server addresses"
-          git push origin HEAD:fix/ipv6-native-client-connection
+          git push origin HEAD:${{ github.head_ref }}
