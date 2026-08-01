@@ -9,14 +9,9 @@
  *   - 失败后 5 分钟冷却
  *   - 全局最多 1 个并发同步
  *   - 自动同步不弹 toast
- *
- * 此组件本身已经作为桌面/网页应用的全局后台控制器挂载，因此同时承载
- * NoteWorkspaceLayoutController。布局控制器只管理本地 UI 状态，不会触碰
- * 文件夹同步、笔记保存或服务端数据。
  */
 
 import { useEffect, useRef } from "react";
-import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
 import { runFolderSyncOnce } from "@/lib/folderSyncRunner";
 import type { FolderSyncConfig } from "@/lib/desktopBridge";
 
@@ -129,5 +124,5 @@ export default function FolderSyncScheduler() {
     };
   }, []);
 
-  return <NoteWorkspaceLayoutController />;
+  return null;
 }
