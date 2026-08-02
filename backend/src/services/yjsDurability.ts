@@ -17,7 +17,7 @@ export type DurableYApplyResult =
     };
 
 const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
-const CHECKPOINT_DEBOUNCE_MS = 2_000;
+const CHECKPOINT_DELAY_MS = 2_000;
 const checkpointTimers = new Map<string, NodeJS.Timeout>();
 
 /**
@@ -55,13 +55,12 @@ export function yApplyUpdateDurably(
 
 /**
  * Creates a recoverable Markdown snapshot at most once per five minutes.
- * The append-only Yjs update log remains the immediate durability boundary;
- * this checkpoint makes the existing Version History UI useful for long-form
- * Markdown editing as an additional recovery layer.
+ * The first update starts a short checkpoint timer; later keystrokes do not reset
+ * that timer. Otherwise continuous typing could postpone Version History forever.
+ * The append-only Yjs update log remains the immediate durability boundary.
  */
 export function scheduleYjsRecoveryCheckpoint(noteId: string, userId: string | null): void {
-  const existingTimer = checkpointTimers.get(noteId);
-  if (existingTimer) clearTimeout(existingTimer);
+  if (checkpointTimers.has(noteId)) return;
 
   const timer = setTimeout(() => {
     checkpointTimers.delete(noteId);
@@ -113,7 +112,7 @@ export function scheduleYjsRecoveryCheckpoint(noteId: string, userId: string | n
       // confirmed save into a false failure, but it must remain observable.
       console.warn(`[yjs-durability] checkpoint failed for ${noteId}:`, error);
     }
-  }, CHECKPOINT_DEBOUNCE_MS);
+  }, CHECKPOINT_DELAY_MS);
 
   timer.unref?.();
   checkpointTimers.set(noteId, timer);
