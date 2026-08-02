@@ -13,8 +13,12 @@ on:
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/yjsDurability.ts"
       - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/noteUpdateSerialQueue.ts"
+      - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
+      - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
   pull_request:
     paths:
@@ -27,8 +31,12 @@ on:
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/yjsDurability.ts"
       - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/noteUpdateSerialQueue.ts"
+      - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/blockPatchApi.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
+      - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
 
 permissions:
@@ -67,11 +75,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Yjs durability and draft recovery regressions
+      - name: Yjs, REST queue and draft recovery regressions
         run: >-
           npm run test:run --
           src/lib/__tests__/yjsDurability.test.ts
           src/lib/__tests__/draftStorage.conflict.test.ts
+          src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
