@@ -35,7 +35,7 @@ const deletionEffects = createNoteDeletionEffectsRuntime(adapter, {
 app.use("*", logger());
 app.use("*", cors({
   origin: (origin) => origin || "*",
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Content-Type", "Authorization", "X-Connection-Id"],
   credentials: true,
 }));
@@ -64,6 +64,7 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
         "GET /api/knowledge-tree",
+        "PATCH /api/knowledge-tree/nodes/:nodeId (title and expansion metadata)",
         "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
         "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
       ],
@@ -71,6 +72,7 @@ app.get("/api/health", async (c) => {
         "note deletion audit logs",
         "note deletion webhooks",
         "knowledge-tree scope listing with inherited permissions",
+        "knowledge-tree title and expansion metadata mutations",
         "note and workspace room subscriptions",
         "note presence, editing and cursor events",
         "connection recovery through idempotent resubscription",
@@ -88,7 +90,7 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "knowledge-tree mutations (#249)",
+        "remaining knowledge-tree mutations: create/move/reorder/delete/restore/permissions (#249)",
         "notes full-text search (#252)",
       ],
     },
