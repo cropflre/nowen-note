@@ -135,3 +135,25 @@ CREATE TRIGGER tasks_inherit_estimate_before_recurrence_insert
 BEFORE INSERT ON tasks
 FOR EACH ROW
 EXECUTE FUNCTION inherit_recurring_task_estimate();
+
+CREATE TABLE IF NOT EXISTS task_inbox_items (
+  "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "capturedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "sourceType" TEXT NOT NULL DEFAULT 'manual'
+    CHECK ("sourceType" IN ('manual', 'global', 'selection', 'note', 'diary', 'share', 'other')),
+  "sourceId" TEXT,
+  "sourceTitle" TEXT,
+  excerpt TEXT NOT NULL DEFAULT '',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("taskId", "userId")
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_inbox_user_scope_captured
+  ON task_inbox_items("userId", "workspaceId", "capturedAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_task_inbox_task
+  ON task_inbox_items("taskId", "capturedAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_task_inbox_source
+  ON task_inbox_items("userId", "sourceType", "sourceId");
