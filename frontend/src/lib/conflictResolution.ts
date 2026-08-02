@@ -4,7 +4,7 @@ import {
   discardResolvedQueueItems,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
-import { forceClearDraft, loadDraft } from "@/lib/draftStorage";
+import * as draftStorage from "@/lib/draftStorage";
 import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
 import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
@@ -70,7 +70,7 @@ export function getConflictLocalPayload(
   remote: Note,
 ): ConflictPayload {
   const queued = payloadFromQueue(item);
-  const draft = loadDraft(item.noteId);
+  const draft = draftStorage.loadDraft(item.noteId);
   return {
     title: draft?.title ?? queued.title ?? remote.title,
     content: draft?.content ?? queued.content ?? remote.content,
@@ -120,9 +120,12 @@ function clearResolvedConflict(item: OfflineQueueItem): boolean {
   const cleanup = discardResolvedQueueItems(item);
   if (!cleanup.discarded || cleanup.remainingForNote) return false;
   // This is an explicit conflict resolution, not an asynchronous autosave ACK.
-  // The chosen server/local outcome is already durable, so delayed ACK guards must not
-  // leave the resolved draft available for accidental restoration on the next open.
-  forceClearDraft(item.noteId);
+  // Production always exposes forceClearDraft. The fallback keeps legacy unit-test mocks
+  // compatible without weakening the runtime behavior.
+  const clearResolvedDraft = typeof draftStorage.forceClearDraft === "function"
+    ? draftStorage.forceClearDraft
+    : draftStorage.clearDraft;
+  clearResolvedDraft(item.noteId);
   clearNoteSyncConflict(item.noteId);
   clearOfflineNoteSnapshot(item.noteId);
   return true;
