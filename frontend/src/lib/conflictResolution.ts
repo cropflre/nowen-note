@@ -53,6 +53,11 @@ type ConflictPayload = {
   contentFormat?: Note["contentFormat"];
 };
 
+type DraftStorageCompatibility = {
+  clearDraft: (noteId: string) => unknown;
+  forceClearDraft?: (noteId: string) => void;
+};
+
 function payloadFromQueue(item: OfflineQueueItem): Partial<ConflictPayload> {
   const payload = item.localPayload || item.body || {};
   return {
@@ -120,11 +125,13 @@ function clearResolvedConflict(item: OfflineQueueItem): boolean {
   const cleanup = discardResolvedQueueItems(item);
   if (!cleanup.discarded || cleanup.remainingForNote) return false;
   // This is an explicit conflict resolution, not an asynchronous autosave ACK.
-  // Production always exposes forceClearDraft. The `in` check avoids reading a missing
-  // property from Vitest's strict module-mock proxy before falling back to the legacy mock.
-  const clearResolvedDraft = "forceClearDraft" in draftStorage
-    ? draftStorage.forceClearDraft
-    : draftStorage.clearDraft;
+  // Production always exposes forceClearDraft. The compatibility view models older
+  // Vitest mocks where only clearDraft exists, without weakening production behavior.
+  const storage = draftStorage as unknown as DraftStorageCompatibility;
+  const clearResolvedDraft = "forceClearDraft" in storage
+    && typeof storage.forceClearDraft === "function"
+    ? storage.forceClearDraft
+    : storage.clearDraft;
   clearResolvedDraft(item.noteId);
   clearNoteSyncConflict(item.noteId);
   clearOfflineNoteSnapshot(item.noteId);
