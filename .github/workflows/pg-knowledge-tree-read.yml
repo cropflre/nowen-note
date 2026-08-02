@@ -1,0 +1,86 @@
+name: PostgreSQL Knowledge Tree Read
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - "backend/src/db/postgres/**"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/knowledgeTreeReadRepository.ts"
+      - "backend/src/routes/knowledge-tree-runtime.ts"
+      - "backend/tests/knowledge-tree-runtime-pg.test.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/scripts/check-pg-schema-parity.mjs"
+      - "backend/scripts/direct-db-access-*.json"
+      - "frontend/src/lib/knowledgeTreeApi.ts"
+      - ".github/workflows/pg-knowledge-tree-read.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pg-knowledge-tree-read-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+
+      - name: SQLite direct-access guard
+        working-directory: backend
+        run: npm run audit:sqlite-boundaries
+
+      - name: PostgreSQL schema parity
+        working-directory: backend
+        run: npm run audit:pg-schema-parity
+
+      - name: Real PostgreSQL migration and read runtime
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-migrations.test.ts
+          tests/knowledge-tree-runtime-pg.test.ts
+
+      - name: Production backend bundle
+        working-directory: backend
+        run: |
+          npm run build
+          test -f dist/postgres/migrations/0015_knowledge_tree_read_runtime.sql
