@@ -166,19 +166,21 @@ export const knowledgeTreeApi = {
   },
 
   getPermissions(nodeId: string) {
-    return request<KnowledgePermissionsResponse>(`/nodes/${encodeURIComponent(nodeId)}/permissions`);
+    return request<KnowledgePermissionsResponse>(
+      `/nodes/${encodeURIComponent(nodeId)}/permissions?${workspaceQuery()}`,
+    );
   },
 
   setPermission(nodeId: string, subject: string, rolePreset: KnowledgeRolePreset) {
     return request<KnowledgePermissionRow & { effective: EffectiveKnowledgeAccess }>(
-      `/nodes/${encodeURIComponent(nodeId)}/permissions`,
+      `/nodes/${encodeURIComponent(nodeId)}/permissions?${workspaceQuery()}`,
       { method: "PUT", body: JSON.stringify({ subject, rolePreset }) },
     );
   },
 
   clearPermission(nodeId: string, userId: string) {
     return request<{ success: true; removed: boolean; effective: EffectiveKnowledgeAccess }>(
-      `/nodes/${encodeURIComponent(nodeId)}/permissions/${encodeURIComponent(userId)}`,
+      `/nodes/${encodeURIComponent(nodeId)}/permissions/${encodeURIComponent(userId)}?${workspaceQuery()}`,
       { method: "DELETE" },
     );
   },
