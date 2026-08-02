@@ -5,21 +5,23 @@
  *   1. 维护一个 Y.Doc + Awareness，供 CodeMirror 的 yCollab 扩展绑定
  *   2. 监听 Y.Doc / Awareness 的本地 update，通过 realtime 单例发出
  *   3. 监听 realtime 的 y:* 事件，applyUpdate 回本地 Doc/Awareness
- *   4. P1-#1 IndexedDB 持久化：断网/刷新不丢字；按服务器/本地实例 + 用户 + 笔记隔离，
- *      避免本地、云端 A、云端 B 之间串协作草稿。
- *   5. P1-#5 pending 队列：WS 断开期间产生的 update 缓存，重连后批量发送
- *   6. P2-#6 双向 sync：join 后发 stateVector 给服务端，换取服务端侧的 diff
- *
- * 生命周期：
- *   - new NowenYjsProvider(noteId, user) → 连通后 y:join → y:sync-step1
- *   - destroy() → 发 y:leave + 清理 listener + 关闭 IndexedDB（可选）
+ *   4. IndexedDB 持久化：断网/刷新不丢字；按服务器/用户/笔记隔离
+ *   5. 断线后根据服务端 stateVector 自动补传本地缺失 update
+ *   6. 每次 update 必须收到服务端持久化 ACK 才能进入 saved 状态
  */
 
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { realtime } from "./realtime";
-import { base64ToUint8 } from "./realtime";
+import { realtime, base64ToUint8 } from "./realtime";
+import {
+  createYjsOperationId,
+  encodeMissingYjsUpdate,
+  isYjsUploadReady,
+  YjsDurabilityTracker,
+  type YjsDurabilitySnapshot,
+  type YjsMarkSentOptions,
+} from "./yjsDurability";
 
 export interface ProviderUser {
   userId: string;
@@ -28,13 +30,13 @@ export interface ProviderUser {
 }
 
 export type ProviderStatus = "connecting" | "syncing" | "synced" | "disconnected";
+export type ProviderDurabilityState = YjsDurabilitySnapshot;
 
 type Listener = (payload: any) => void;
 
-/** P1-#10 对齐后端：前端也设一个上限，避免无意义的请求 */
 const MAX_UPDATE_BYTES = 1 * 1024 * 1024;
-/** P1-#5 pending 队列最大条数，溢出合并 */
 const MAX_PENDING_UPDATES = 500;
+const ACK_TIMEOUT_MS = 12_000;
 const YJS_IDB_PREFIX = "nowen-y-v2";
 
 function normalizeScopePart(value: string): string {
@@ -48,7 +50,10 @@ function normalizeUrl(url: string): string {
 function isLoopbackUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || (u.hostname === "::1" || u.hostname === "[::1]");
+    return u.hostname === "127.0.0.1"
+      || u.hostname === "localhost"
+      || u.hostname === "::1"
+      || u.hostname === "[::1]";
   } catch {
     return false;
   }
@@ -62,8 +67,6 @@ function getServerScope(): string {
     : "";
   const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
 
-  // 桌面 full 本地后端是 loopback + 动态端口；协作文档 IDB 名称必须稳定，
-  // 否则每次重启都会换一套 `nowen-y-*` 缓存。远端/lite 仍按 URL 隔离。
   if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
     return "local-desktop";
   }
@@ -90,33 +93,28 @@ export class NowenYjsProvider {
   private status: ProviderStatus = "connecting";
   private joined = false;
   private destroyed = false;
-  /**
-   * 幂等 synced 标记：一旦进入过 synced 状态就永久为 true。
-   * 作用：消除"订阅 synced 事件时已经 synced"的时序漏洞——
-   *   订阅者在 `on("synced", ...)` 之后，若本 flag 已为 true，立即补发一次回调。
-   * 这是比 useYDoc 那层 backfill 更彻底的保险：覆盖任何订阅时机。
-   */
   private hasEverSynced = false;
 
   private listeners = new Map<string, Set<Listener>>();
   private unsubscribers: Array<() => void> = [];
 
-  /** P1-#1 IndexedDB 持久化层 */
   private idbPersistence: IndexeddbPersistence | null = null;
   private idbSynced = false;
+  private serverSynced = false;
+  private serverStateVector: Uint8Array | null = null;
+  private serverPersistedAt: string | null = null;
 
-  /** P1-#5 WS 断开期间积累的 update（Uint8Array 原始二进制） */
+  /** Memory queue is only an optimization; IndexedDB + state-vector reconciliation is authoritative. */
   private pendingUpdates: Uint8Array[] = [];
+  private durability = new YjsDurabilityTracker();
+  private ackTimers = new Map<string, number>();
 
   constructor(noteId: string, user: ProviderUser, existingDoc?: Y.Doc) {
     this.noteId = noteId;
     this.user = user;
     this.doc = existingDoc || new Y.Doc();
-    // Y.Doc 的 clientID 默认随机（Math.floor(Math.random() * max)），无需手动设置——
-    // P0-#4：不要把 userId 哈希成 clientID，那会让多标签页的 clientID 相同。
     this.awareness = new Awareness(this.doc);
 
-    // 设置本地 awareness state（用户颜色/名字）
     this.awareness.setLocalState({
       user: {
         id: user.userId,
@@ -128,39 +126,41 @@ export class NowenYjsProvider {
     this.bindListeners();
     this.initIndexedDb();
 
-    // 若已连通立刻 join，否则会在 open 事件触发时补发
-    if (realtime.isOpen()) {
-      this.sendJoinAndSync();
-    } else {
-      realtime.connect();
-    }
+    if (realtime.isOpen()) this.sendJoinAndSync();
+    else realtime.connect();
   }
 
   getStatus(): ProviderStatus {
     return this.status;
   }
 
-  /** 是否曾经完成过一次 synced（幂等）。UI 应据此判定"能否安全读 yDoc"。 */
+  getDurabilityState(): ProviderDurabilityState {
+    return this.durability.getSnapshot();
+  }
+
   isSyncedOnce(): boolean {
     return this.hasEverSynced;
   }
 
-  /** 主动请求一次重新同步，用于前端发现远端版本已推进但本地 CRDT 仍卡住时兜底。 */
   requestResync() {
+    if (this.destroyed) return;
+    this.clearAllAckTimers();
+    this.emitDurability(this.durability.markDisconnected());
     this.sendJoinAndSync();
-    this.sendSyncStep1();
   }
 
-  on(type: "status" | "synced", listener: Listener): () => void {
+  on(type: "status" | "synced" | "durability", listener: Listener): () => void {
     let set = this.listeners.get(type);
     if (!set) {
       set = new Set();
       this.listeners.set(type, set);
     }
     set.add(listener);
-    // 幂等回放：订阅 synced 事件时若已经同步过，立即补发一次
+
     if (type === "synced" && this.hasEverSynced) {
       try { listener(true); } catch { /* ignore */ }
+    } else if (type === "durability") {
+      try { listener(this.getDurabilityState()); } catch { /* ignore */ }
     }
     return () => set!.delete(listener);
   }
@@ -168,8 +168,8 @@ export class NowenYjsProvider {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.clearAllAckTimers();
     try {
-      // 通知对端：本端退出 awareness
       const clientIds = [this.awareness.clientID];
       const update = encodeAwarenessUpdate(this.awareness, clientIds);
       realtime.yAwareness(this.noteId, update);
@@ -180,75 +180,80 @@ export class NowenYjsProvider {
     }
     this.unsubscribers = [];
     this.awareness.destroy();
-    // 关闭 IndexedDB（保留数据，只释放连接）
     if (this.idbPersistence) {
       try { this.idbPersistence.destroy(); } catch {}
       this.idbPersistence = null;
     }
-    // 注意：Y.Doc 通常由调用方创建并持有，不在这里 destroy，避免重复使用时崩溃
   }
-
-  // ------------------------------------------------------------
-  // P1-#1 IndexedDB 持久化
-  // ------------------------------------------------------------
 
   private initIndexedDb() {
     try {
-      // IndexedDB persistence name 必须包含 server-scope + userId + noteId：
-      //   - noteId 只在同一个后端内唯一；本地和云端、不同云端之间可能撞；
-      //   - 桌面本地后端端口会变，server-scope 对 loopback 统一折叠为 local-desktop；
-      //   - 用户维度可避免同后端多账号串协作草稿。
       this.idbPersistence = new IndexeddbPersistence(
         getYjsPersistenceName(this.noteId, this.user.userId),
         this.doc,
       );
       this.idbPersistence.once("synced", () => {
         this.idbSynced = true;
-        // IDB 里可能有"本地新增但尚未 push 到服务端"的 update；如果此时 WS 已通，触发一次 sync-step1
-        if (realtime.isOpen() && this.joined) {
-          this.sendSyncStep1();
-        }
+        this.maybePushLocalDiff();
+        this.maybeFinalizeSyncedStatus();
       });
     } catch (e) {
       console.warn("[yjs-provider] IndexedDB init failed:", e);
       this.idbPersistence = null;
+      this.idbSynced = true;
+      this.maybePushLocalDiff();
+      this.maybeFinalizeSyncedStatus();
     }
   }
 
-  // ------------------------------------------------------------
-  // 内部：事件绑定
-  // ------------------------------------------------------------
+  private isLocalPersistenceReady(): boolean {
+    return !this.idbPersistence || this.idbSynced;
+  }
+
+  private isUploadReady(): boolean {
+    return isYjsUploadReady({
+      socketOpen: realtime.isOpen(),
+      joined: this.joined,
+      serverSynced: this.serverSynced,
+      localPersistenceReady: this.isLocalPersistenceReady(),
+    });
+  }
+
+  private maybeFinalizeSyncedStatus() {
+    if (!this.serverSynced || !this.isLocalPersistenceReady()) return;
+    this.setStatus("synced");
+  }
 
   private bindListeners() {
-    // 本地 Y.Doc update → 发到服务端（或缓存到 pending）
     const docUpdateHandler = (update: Uint8Array, origin: any) => {
-      // origin 是 this 时表示是从服务端 apply 回来的，不回发
-      // origin 是 idbPersistence（IDB 首次加载）时也不回发——等 synced 后统一 sync-step1
       if (origin === this) return;
       if (this.idbPersistence && origin === this.idbPersistence) return;
+
       if (update.byteLength > MAX_UPDATE_BYTES) {
-        console.warn(`[yjs-provider] local update too large (${update.byteLength}), dropped`);
+        console.warn(`[yjs-provider] local update too large (${update.byteLength}), preserved locally only`);
+        this.emitDurability(this.durability.fail(null, "too_large"));
         return;
       }
-      if (!realtime.isOpen() || !this.joined) {
-        // P1-#5 积压到 pending
+
+      this.emitDurability(this.durability.markLocalChange());
+      // During join/rejoin the server baseline or IndexedDB baseline may still be
+      // incomplete. Queue edits until both are known, then upload one exact diff.
+      if (!this.isUploadReady()) {
         this.enqueuePending(update);
         return;
       }
-      realtime.yUpdate(this.noteId, update);
+      this.sendDurableUpdate(update, { localChanges: 1 });
     };
     this.doc.on("update", docUpdateHandler);
     this.unsubscribers.push(() => this.doc.off("update", docUpdateHandler));
 
-    // 本地 Awareness update → 发到服务端
     const awarenessUpdateHandler = (
       { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
       origin: any,
     ) => {
       if (origin === "remote") return;
       const changedClients = added.concat(updated, removed);
-      if (changedClients.length === 0) return;
-      if (!realtime.isOpen()) return;
+      if (changedClients.length === 0 || !realtime.isOpen()) return;
       try {
         const update = encodeAwarenessUpdate(this.awareness, changedClients);
         realtime.yAwareness(this.noteId, update);
@@ -259,46 +264,40 @@ export class NowenYjsProvider {
     this.awareness.on("update", awarenessUpdateHandler);
     this.unsubscribers.push(() => this.awareness.off("update", awarenessUpdateHandler));
 
-    // realtime 事件：y:sync（初次全量同步）
     const offSync = realtime.on("y:sync", (msg: any) => {
-      // 诊断日志：用于排查 "collabSynced 永远 false" 的死状态
-      // noteId 不匹配是正常的（同一 realtime 单例被多个 provider 共享）
-      if (msg.noteId !== this.noteId) {
-        if (typeof window !== "undefined" && (window as any).__NOWEN_DEBUG_Y__) {
-          console.debug(
-            `[yjs-provider] y:sync ignored (noteId mismatch): got=${msg.noteId}, me=${this.noteId}`,
-          );
-        }
-        return;
-      }
+      if (msg.noteId !== this.noteId) return;
       if (!msg.state) {
-        console.warn(
-          `[yjs-provider] y:sync for ${this.noteId} has no state payload, staying in syncing`,
-          msg,
-        );
+        console.warn(`[yjs-provider] y:sync for ${this.noteId} has no state payload`);
         return;
       }
-      if (this.destroyed) {
-        console.warn(
-          `[yjs-provider] y:sync arrived AFTER destroy for ${this.noteId}`,
-        );
-        return;
-      }
-      console.debug(`[yjs-provider] y:sync OK for ${this.noteId}, applying state & entering synced`);
+      if (this.destroyed) return;
+
       try {
         const state = base64ToUint8(msg.state);
+        const serverDoc = new Y.Doc();
+        try {
+          Y.applyUpdate(serverDoc, state);
+          this.serverStateVector = Y.encodeStateVector(serverDoc);
+        } finally {
+          serverDoc.destroy();
+        }
         Y.applyUpdate(this.doc, state, this);
+        this.serverSynced = true;
+        this.serverPersistedAt = typeof msg.persistedAt === "string"
+          ? msg.persistedAt
+          : new Date().toISOString();
       } catch (e) {
         console.warn("[yjs-provider] applySync failed:", e);
+        this.emitDurability(this.durability.fail(null, "sync_invalid"));
+        return;
       }
-      // 全量同步完后，若本地有服务端未见过的 update（IDB 恢复的），需要 sync-step1 让服务端主动获取
-      // 我们采用更简单的双向：本地 update listener 已经在 apply 时 echo 到服务端
-      //   → 这里只需立刻发一次 sync-step1 请求 missing diff
+
+      // Keep the original server->client diff request for compatibility, then
+      // independently send the client->server missing diff after IndexedDB is ready.
       this.sendSyncStep1();
-      // 同时 flush pending
-      this.flushPendingUpdates();
-      this.setStatus("synced");
-      // 同步完毕后发一次本端 awareness 让别人看到自己
+      this.maybePushLocalDiff();
+      this.maybeFinalizeSyncedStatus();
+
       try {
         const update = encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]);
         realtime.yAwareness(this.noteId, update);
@@ -306,7 +305,6 @@ export class NowenYjsProvider {
     });
     this.unsubscribers.push(offSync);
 
-    // P2-#6：y:sync-step2（服务端返回的增量，客户端 apply）
     const offStep2 = realtime.on("y:sync-step2", (msg: any) => {
       if (msg.noteId !== this.noteId || !msg.update) return;
       try {
@@ -318,7 +316,6 @@ export class NowenYjsProvider {
     });
     this.unsubscribers.push(offStep2);
 
-    // 远程 y:update（其它客户端的增量）
     const offUpdate = realtime.on("y:update", (msg: any) => {
       if (msg.noteId !== this.noteId || !msg.update) return;
       try {
@@ -329,6 +326,16 @@ export class NowenYjsProvider {
       }
     });
     this.unsubscribers.push(offUpdate);
+
+    const offAck = realtime.on("y:ack", (msg: any) => {
+      if (msg.noteId !== this.noteId || typeof msg.operationId !== "string") return;
+      this.clearAckTimer(msg.operationId);
+      const persistedAt = typeof msg.persistedAt === "string"
+        ? msg.persistedAt
+        : new Date().toISOString();
+      this.emitDurability(this.durability.acknowledge(msg.operationId, persistedAt));
+    });
+    this.unsubscribers.push(offAck);
 
     const offAwareness = realtime.on("y:awareness", (msg: any) => {
       if (msg.noteId !== this.noteId || !msg.update) return;
@@ -341,25 +348,36 @@ export class NowenYjsProvider {
     });
     this.unsubscribers.push(offAwareness);
 
-    // 连接恢复后重新 join（服务端会再次发 y:sync）
     const offOpen = realtime.on("open", () => {
-      if (this.destroyed) return;
-      this.sendJoinAndSync();
+      if (!this.destroyed) this.sendJoinAndSync();
     });
     this.unsubscribers.push(offOpen);
 
     const offClose = realtime.on("close", () => {
       if (this.destroyed) return;
       this.joined = false;
+      this.serverSynced = false;
+      this.serverStateVector = null;
+      this.clearAllAckTimers();
+      this.emitDurability(this.durability.markDisconnected());
       this.setStatus("disconnected");
     });
     this.unsubscribers.push(offClose);
 
-    // 服务端返回的 error 事件——如果是 too_large 给出反馈
     const offError = realtime.on("error", (msg: any) => {
       if (msg.noteId !== this.noteId) return;
-      if (msg.code === "too_large") {
-        console.warn(`[yjs-provider] server rejected oversize update for ${this.noteId}`);
+      const operationId = typeof msg.operationId === "string" ? msg.operationId : null;
+      if (operationId) this.clearAckTimer(operationId);
+      const code = typeof msg.code === "string" ? msg.code : "server_error";
+      this.emitDurability(this.durability.fail(operationId, code));
+
+      // Transient failures remain recoverable from IndexedDB. Rejoin to compare
+      // state vectors and resend only the missing diff. Oversize updates require
+      // explicit user action and must not loop forever.
+      if (code !== "too_large") {
+        window.setTimeout(() => {
+          if (!this.destroyed) this.requestResync();
+        }, 1_000);
       }
     });
     this.unsubscribers.push(offError);
@@ -367,63 +385,111 @@ export class NowenYjsProvider {
 
   private sendJoinAndSync() {
     if (this.destroyed) return;
+    this.serverSynced = false;
+    this.serverStateVector = null;
     this.setStatus("connecting");
     const ok = realtime.yJoin(this.noteId);
     this.joined = ok;
     if (ok) {
-      console.debug(`[yjs-provider] y:join sent for ${this.noteId}, waiting for y:sync`);
-      // y:sync 会由服务端自动推送；此处不需额外动作
       this.setStatus("syncing");
-      // 诊断：5 秒后仍未 synced 就告警，便于发现"死状态"
       const joinedAt = Date.now();
       window.setTimeout(() => {
-        if (this.destroyed || this.hasEverSynced) return;
+        if (this.destroyed || this.serverSynced) return;
         console.warn(
-          `[yjs-provider] ⚠️ STUCK: ${this.noteId} has been waiting for y:sync for ${Date.now() - joinedAt}ms (still in status="${this.status}"). ` +
-          `Possible causes: (1) backend never replied y:sync, (2) WS message lost, (3) realtime event dispatcher dropped the message. ` +
-          `Set window.__NOWEN_DEBUG_Y__=true and open DevTools → Network → WS → Messages to inspect frames.`,
+          `[yjs-provider] ${this.noteId} waiting for y:sync for ${Date.now() - joinedAt}ms`,
         );
-      }, 5000);
-    } else {
-      console.warn(
-        `[yjs-provider] y:join NOT sent (realtime not open) for ${this.noteId}; will retry on 'open' event`,
-      );
+      }, 5_000);
     }
   }
 
-  /** 发送本地 stateVector，请求服务端侧的 diff（双向 sync 必要步骤） */
   private sendSyncStep1() {
     if (this.destroyed || !this.joined) return;
     try {
-      const sv = Y.encodeStateVector(this.doc);
-      realtime.ySyncStep1(this.noteId, sv);
+      realtime.ySyncStep1(this.noteId, Y.encodeStateVector(this.doc));
     } catch (e) {
       console.warn("[yjs-provider] sendSyncStep1 failed:", e);
     }
   }
 
-  // ------------------------------------------------------------
-  // P1-#5 pending 队列
-  // ------------------------------------------------------------
+  /**
+   * Once both server state and IndexedDB state are loaded, compute the exact
+   * client-only diff. This is the recovery path for updates created before a
+   * refresh, while offline, or before the previous process received an ACK.
+   */
+  private maybePushLocalDiff() {
+    if (this.destroyed || !this.serverSynced || !this.serverStateVector) return;
+    if (!this.isLocalPersistenceReady()) return;
+
+    this.pendingUpdates = [];
+    let missing: Uint8Array | null = null;
+    try {
+      missing = encodeMissingYjsUpdate(this.doc, this.serverStateVector);
+    } catch (e) {
+      console.warn("[yjs-provider] encode local missing diff failed:", e);
+      this.emitDurability(this.durability.fail(null, "diff_failed"));
+      return;
+    }
+
+    if (missing) {
+      // IDB-restored changes do not emit normal local update events. Register a
+      // synthetic local unit, then declare that this state-vector diff covers
+      // every local-only change known by the tracker.
+      this.emitDurability(this.durability.markLocalChange());
+      this.sendDurableUpdate(missing, { coversAllLocalChanges: true });
+      return;
+    }
+
+    this.emitDurability(
+      this.durability.markServerBaseline(this.serverPersistedAt || new Date().toISOString()),
+    );
+  }
+
+  private sendDurableUpdate(
+    update: Uint8Array,
+    options: YjsMarkSentOptions = { localChanges: 1 },
+  ) {
+    if (update.byteLength > MAX_UPDATE_BYTES) {
+      this.emitDurability(this.durability.fail(null, "too_large"));
+      return;
+    }
+    if (!this.isUploadReady()) {
+      this.enqueuePending(update);
+      return;
+    }
+
+    const operationId = createYjsOperationId(this.noteId);
+    this.emitDurability(this.durability.markSent(operationId, options));
+    const sent = realtime.yUpdate(this.noteId, update, operationId);
+    if (!sent) {
+      this.enqueuePending(update);
+      this.emitDurability(this.durability.markDisconnected());
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (!this.ackTimers.has(operationId) || this.destroyed) return;
+      this.ackTimers.delete(operationId);
+      this.emitDurability(this.durability.fail(operationId, "ack_timeout"));
+      this.requestResync();
+    }, ACK_TIMEOUT_MS);
+    this.ackTimers.set(operationId, timer);
+  }
 
   private enqueuePending(update: Uint8Array) {
-    // 溢出保护：超过上限时把老的合并成一个（Y.js 支持 mergeUpdates）
     if (this.pendingUpdates.length >= MAX_PENDING_UPDATES) {
       try {
-        const merged = Y.mergeUpdates(this.pendingUpdates);
-        this.pendingUpdates = [merged];
+        this.pendingUpdates = [Y.mergeUpdates(this.pendingUpdates)];
       } catch {
-        // 合并失败就丢弃老的，至少保留最近的
-        this.pendingUpdates = this.pendingUpdates.slice(-MAX_PENDING_UPDATES / 2);
+        this.pendingUpdates = this.pendingUpdates.slice(-Math.floor(MAX_PENDING_UPDATES / 2));
       }
     }
     this.pendingUpdates.push(update);
   }
 
+  /** Backward-compatible fallback when a server does not provide a usable baseline. */
   private flushPendingUpdates() {
-    if (this.pendingUpdates.length === 0) return;
-    if (!realtime.isOpen() || !this.joined) return;
-    // 合并成一条发送，减少 frame 数
+    if (this.pendingUpdates.length === 0 || !this.isUploadReady()) return;
+    const representedLocalChanges = this.pendingUpdates.length;
     let payload: Uint8Array;
     try {
       payload = this.pendingUpdates.length === 1
@@ -431,25 +497,26 @@ export class NowenYjsProvider {
         : Y.mergeUpdates(this.pendingUpdates);
     } catch (e) {
       console.warn("[yjs-provider] mergeUpdates failed:", e);
-      // 降级：逐条发送
-      for (const u of this.pendingUpdates) {
-        if (u.byteLength <= MAX_UPDATE_BYTES) {
-          realtime.yUpdate(this.noteId, u);
-        }
-      }
-      this.pendingUpdates = [];
       return;
     }
-    if (payload.byteLength > MAX_UPDATE_BYTES) {
-      // 合并后仍然超限——这不应该发生，丢弃并记录
-      console.warn(
-        `[yjs-provider] merged pending payload too large (${payload.byteLength}), dropped`,
-      );
-      this.pendingUpdates = [];
-      return;
-    }
-    realtime.yUpdate(this.noteId, payload);
     this.pendingUpdates = [];
+    this.sendDurableUpdate(payload, { localChanges: representedLocalChanges });
+  }
+
+  private clearAckTimer(operationId: string) {
+    const timer = this.ackTimers.get(operationId);
+    if (timer != null) window.clearTimeout(timer);
+    this.ackTimers.delete(operationId);
+  }
+
+  private clearAllAckTimers() {
+    for (const timer of this.ackTimers.values()) window.clearTimeout(timer);
+    this.ackTimers.clear();
+  }
+
+  private emitDurability(snapshot: ProviderDurabilityState) {
+    const set = this.listeners.get("durability");
+    if (set) for (const listener of set) try { listener(snapshot); } catch {}
   }
 
   private setStatus(next: ProviderStatus) {
@@ -457,30 +524,24 @@ export class NowenYjsProvider {
     const prev = this.status;
     this.status = next;
     if (typeof window !== "undefined" && (window as any).__NOWEN_DEBUG_Y__) {
-      console.debug(
-        `[yjs-provider] status ${prev} → ${next} for ${this.noteId}`,
-      );
+      console.debug(`[yjs-provider] status ${prev} → ${next} for ${this.noteId}`);
     }
     const set = this.listeners.get("status");
-    if (set) for (const l of set) try { l(next); } catch {}
+    if (set) for (const listener of set) try { listener(next); } catch {}
     if (next === "synced") {
       this.hasEverSynced = true;
-      console.debug(`[yjs-provider] emitting 'synced' event for ${this.noteId} (listener count=${this.listeners.get("synced")?.size ?? 0})`);
       const syncedSet = this.listeners.get("synced");
-      if (syncedSet) for (const l of syncedSet) try { l(true); } catch {}
+      if (syncedSet) for (const listener of syncedSet) try { listener(true); } catch {}
     }
   }
 }
 
-// ---- P3-#15 工具：用户 id → 稳定颜色（HSL，无限不撞色） ----
 export function stringToColor(s: string): string {
-  // 32-bit FNV-1a，比简单乘加分布更均匀
   let hash = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     hash ^= s.charCodeAt(i);
     hash = (hash * 0x01000193) >>> 0;
   }
   const hue = hash % 360;
-  // 固定饱和度/明度，保证暗色/亮色背景都可读
   return `hsl(${hue}, 65%, 55%)`;
 }
