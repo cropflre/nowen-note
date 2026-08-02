@@ -119,6 +119,7 @@ import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
+import { sanitizeMarkdownClipboardText } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
@@ -594,7 +595,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     if (!view) return;
     const sel = view.state.selection.main;
     if (sel.empty) return;
-    const ok = await copyText(view.state.doc.sliceString(sel.from, sel.to));
+    const ok = await copyText(sanitizeMarkdownClipboardText(
+      view.state.doc.sliceString(sel.from, sel.to),
+    ));
     if (ok) toast.success(tr('tiptap.copySelectionText'));
     else toast.info(tr('tiptap.copySelectionFail'));
     queueMicrotask(() => view.focus());

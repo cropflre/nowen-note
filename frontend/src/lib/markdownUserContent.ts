@@ -12,6 +12,10 @@ export interface InternalMarkdownMarkerRange {
 const GENERATED_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
 const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
 const LINE_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
+const PASTED_MARKER_RE = new RegExp(
+  String.raw`(^|[ \t]+)\^(${GENERATED_BLOCK_ID})($|[ \t]+)`,
+  "ig",
+);
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 
 /**
@@ -81,4 +85,39 @@ export function projectMarkdownForUser(markdown: string): string {
     output = output.slice(0, range.from) + output.slice(range.to);
   }
   return output;
+}
+
+/**
+ * Remove reserved block identity from pasted text, including markers that were
+ * moved into the middle of a line by a previous paste. Fenced code is preserved
+ * verbatim so documentation and code samples can still contain marker-like text.
+ */
+export function sanitizeMarkdownClipboardText(markdown: string): string {
+  if (!markdown || !markdown.includes("^blk_")) return markdown;
+  const lines = markdown.split("\n");
+  let fenceChar = "";
+  let fenceLength = 0;
+
+  return lines.map((line) => {
+    if (fenceChar) {
+      const closeRe = new RegExp(`^[ \\t]{0,3}${fenceChar}{${fenceLength},}[ \\t]*$`);
+      if (closeRe.test(line)) {
+        fenceChar = "";
+        fenceLength = 0;
+      }
+      return line;
+    }
+
+    const opener = line.match(FENCE_OPEN_RE);
+    if (opener) {
+      fenceChar = opener[1][0];
+      fenceLength = opener[1].length;
+      return line;
+    }
+
+    PASTED_MARKER_RE.lastIndex = 0;
+    return line.replace(PASTED_MARKER_RE, (_match, left: string, _blockId: string, right: string) =>
+      left && right ? " " : "",
+    );
+  }).join("\n");
 }

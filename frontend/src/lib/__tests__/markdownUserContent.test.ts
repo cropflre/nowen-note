@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findInternalMarkdownMarkerRanges,
   projectMarkdownForUser,
+  sanitizeMarkdownClipboardText,
 } from "../markdownUserContent";
 
 const HEADING_ID = "blk_11111111-1111-4111-8111-111111111111";
@@ -66,5 +67,31 @@ describe("projectMarkdownForUser", () => {
       { kind: "inline", blockId: HEADING_ID },
       { kind: "line", blockId: CODE_ID },
     ]);
+  });
+});
+
+describe("sanitizeMarkdownClipboardText", () => {
+  it("removes generated block IDs even after they move into the middle of a line", () => {
+    expect(sanitizeMarkdownClipboardText(
+      `前半段 ^${PARAGRAPH_ID} 后半段`,
+    )).toBe("前半段 后半段");
+  });
+
+  it("removes copied line-end and standalone generated markers", () => {
+    expect(sanitizeMarkdownClipboardText([
+      `标题 ^${HEADING_ID}`,
+      `^${PARAGRAPH_ID}`,
+      "正文",
+    ].join("\n"))).toBe("标题\n\n正文");
+  });
+
+  it("preserves marker-like text in fenced code and ordinary user text", () => {
+    const source = [
+      "```text",
+      `literal ^${CODE_ID}`,
+      "```",
+      "普通示例 ^blk_example_text",
+    ].join("\n");
+    expect(sanitizeMarkdownClipboardText(source)).toBe(source);
   });
 });

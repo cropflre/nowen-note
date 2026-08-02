@@ -3,6 +3,7 @@ import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import {
   findInternalMarkdownMarkerRanges,
   projectMarkdownForUser,
+  sanitizeMarkdownClipboardText,
 } from "@/lib/markdownUserContent";
 
 function buildMarkerDecorations(markdown: string): DecorationSet {
@@ -47,8 +48,17 @@ const cleanClipboard = EditorView.domEventHandlers({
     const selected = view.state.selection.ranges
       .map((range) => view.state.doc.sliceString(range.from, range.to))
       .join("\n");
-    event.clipboardData.setData("text/plain", projectMarkdownForUser(selected));
+    event.clipboardData.setData("text/plain", sanitizeMarkdownClipboardText(projectMarkdownForUser(selected)));
     event.preventDefault();
+    return true;
+  },
+  paste(event, view) {
+    if (!event.clipboardData) return false;
+    const pasted = event.clipboardData.getData("text/plain");
+    const sanitized = sanitizeMarkdownClipboardText(pasted);
+    if (sanitized === pasted) return false;
+    event.preventDefault();
+    view.dispatch(view.state.replaceSelection(sanitized));
     return true;
   },
 });
