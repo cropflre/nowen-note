@@ -1,4 +1,5 @@
 import { getBaseUrl } from "@/lib/api.impl";
+import { markDraftAcknowledged } from "@/lib/draftStorage";
 import type {
   TiptapPatchJsonNode,
   TiptapPatchTextBlockNode,
@@ -208,7 +209,27 @@ async function patchBlocks(
         : undefined;
       throw error;
     }
-    return payload as unknown as BlockPatchResult;
+
+    const result = payload as unknown as BlockPatchResult;
+    if (
+      result.success === true
+      && result.noteId === noteId
+      && typeof result.title === "string"
+      && typeof result.content === "string"
+      && typeof result.version === "number"
+      && Number.isFinite(result.version)
+    ) {
+      // Tiptap block patch bypasses api.updateNote and its serial queue. Register the same
+      // authoritative body so a late block-patch response cannot clear a newer whole-note draft.
+      markDraftAcknowledged({
+        noteId,
+        title: result.title,
+        content: result.content,
+        contentText: result.contentText,
+        serverVersion: result.version,
+      });
+    }
+    return result;
   } catch (error) {
     if ((error as { name?: string })?.name === "AbortError") {
       const timeoutError = new BlockPatchRequestError("块级保存超时，请检查网络后使用同一 operationId 重试");
