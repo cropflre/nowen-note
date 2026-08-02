@@ -1,10 +1,28 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from "vitest";
-import { loadDraft, saveDraft, shouldOfferRestore } from "@/lib/draftStorage";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS,
+  clearAllDrafts,
+  clearDraft,
+  loadDraft,
+  markDraftAcknowledged,
+  saveDraft,
+  shouldOfferRestore,
+} from "@/lib/draftStorage";
 
 describe("draft conflict preservation", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T12:00:00.000Z"));
+    localStorage.clear();
+    clearAllDrafts();
+  });
+
+  afterEach(() => {
+    clearAllDrafts();
+    vi.useRealTimers();
+  });
 
   it("does not silently rebase identical stale content to a newer server revision", () => {
     const now = Date.now();
@@ -121,5 +139,93 @@ describe("draft conflict preservation", () => {
       baseVersion: 9,
     }));
     expect(loadDraft("note-1")?.conflicted).toBeUndefined();
+  });
+
+  it("keeps a matching acknowledged draft during the editor debounce grace period", () => {
+    const savedAt = Date.now();
+    saveDraft({
+      noteId: "note-ack",
+      editorMode: "tiptap",
+      title: "Title",
+      content: "persisted body",
+      contentText: "persisted body",
+      baseVersion: 4,
+      savedAt,
+    });
+    markDraftAcknowledged({
+      noteId: "note-ack",
+      title: "Title",
+      content: "persisted body",
+      contentText: "persisted body",
+      serverVersion: 5,
+    });
+
+    expect(clearDraft("note-ack")).toBe(true);
+    expect(loadDraft("note-ack")?.content).toBe("persisted body");
+
+    vi.advanceTimersByTime(ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS - 1);
+    expect(loadDraft("note-ack")?.content).toBe("persisted body");
+    vi.advanceTimersByTime(1);
+    expect(loadDraft("note-ack")).toBeNull();
+  });
+
+  it("does not let an older ACK clear a newer local draft", () => {
+    const savedAt = Date.now();
+    saveDraft({
+      noteId: "note-race",
+      editorMode: "tiptap",
+      title: "Title",
+      content: "sent body",
+      contentText: "sent body",
+      baseVersion: 10,
+      savedAt,
+    });
+    markDraftAcknowledged({
+      noteId: "note-race",
+      title: "Title",
+      content: "sent body",
+      contentText: "sent body",
+      serverVersion: 11,
+    });
+    expect(clearDraft("note-race")).toBe(true);
+
+    saveDraft({
+      noteId: "note-race",
+      editorMode: "tiptap",
+      title: "Title",
+      content: "new unsent body",
+      contentText: "new unsent body",
+      baseVersion: 11,
+      savedAt: savedAt + 1,
+    });
+    vi.advanceTimersByTime(ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS * 2);
+
+    expect(loadDraft("note-race")).toEqual(expect.objectContaining({
+      content: "new unsent body",
+      savedAt: savedAt + 1,
+    }));
+  });
+
+  it("refuses immediate cleanup when the current draft differs from the ACK body", () => {
+    saveDraft({
+      noteId: "note-mismatch",
+      editorMode: "md",
+      title: "Title",
+      content: "new local body",
+      contentText: "new local body",
+      baseVersion: 12,
+      savedAt: Date.now(),
+    });
+    markDraftAcknowledged({
+      noteId: "note-mismatch",
+      title: "Title",
+      content: "older server body",
+      contentText: "older server body",
+      serverVersion: 13,
+    });
+
+    expect(clearDraft("note-mismatch")).toBe(false);
+    vi.advanceTimersByTime(ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS * 2);
+    expect(loadDraft("note-mismatch")?.content).toBe("new local body");
   });
 });
