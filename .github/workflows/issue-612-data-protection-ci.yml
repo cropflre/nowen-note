@@ -15,9 +15,11 @@ on:
       - "frontend/src/lib/draftStorage.ts"
       - "frontend/src/lib/noteUpdateSerialQueue.ts"
       - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/conflictResolution.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
       - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
   pull_request:
     paths:
@@ -32,9 +34,11 @@ on:
       - "frontend/src/lib/draftStorage.ts"
       - "frontend/src/lib/noteUpdateSerialQueue.ts"
       - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/conflictResolution.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
       - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
 
 permissions:
@@ -79,6 +83,7 @@ jobs:
           src/lib/__tests__/yjsDurability.test.ts
           src/lib/__tests__/draftStorage.conflict.test.ts
           src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts
+          src/lib/__tests__/conflictResolution.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
