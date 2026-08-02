@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
 import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";
-import { yApplyUpdate, yFlush, type YApplyResult } from "./yjs";
+import { yApplyUpdate, yDestroyDoc, yFlush, type YApplyResult } from "./yjs";
 
 export type DurableYApplyFailureCode = Exclude<YApplyResult, "ok"> | "persist_failed";
 
@@ -40,6 +40,11 @@ export function yApplyUpdateDurably(
   const after = noteYupdatesRepository.getMaxId(noteId)?.maxId || 0;
   if (after <= before) {
     console.error(`[yjs-durability] update log did not advance for ${noteId}`);
+    // yApplyUpdate applies to the in-memory Y.Doc before attempting the INSERT.
+    // Keeping that room would let the next y:join advertise non-durable content as
+    // a trusted server baseline. Destroy it so every client must reconcile against
+    // the last durable snapshot/update log instead.
+    try { yDestroyDoc(noteId); } catch {}
     return { ok: false, code: "persist_failed" };
   }
 
@@ -61,7 +66,6 @@ export function scheduleYjsRecoveryCheckpoint(noteId: string, userId: string | n
   const timer = setTimeout(() => {
     checkpointTimers.delete(noteId);
     try {
-      // Flush the active room projection before reading the snapshot.
       yFlush(noteId);
 
       const lastEdit = noteVersionsRepository.getLastEditByNoteId(noteId);
