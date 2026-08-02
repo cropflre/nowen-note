@@ -4,7 +4,7 @@ import {
   discardResolvedQueueItems,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
-import { clearDraft, loadDraft } from "@/lib/draftStorage";
+import * as draftStorage from "@/lib/draftStorage";
 import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
 import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
@@ -53,6 +53,11 @@ type ConflictPayload = {
   contentFormat?: Note["contentFormat"];
 };
 
+type DraftStorageCompatibility = {
+  clearDraft: (noteId: string) => unknown;
+  forceClearDraft?: (noteId: string) => void;
+};
+
 function payloadFromQueue(item: OfflineQueueItem): Partial<ConflictPayload> {
   const payload = item.localPayload || item.body || {};
   return {
@@ -70,7 +75,7 @@ export function getConflictLocalPayload(
   remote: Note,
 ): ConflictPayload {
   const queued = payloadFromQueue(item);
-  const draft = loadDraft(item.noteId);
+  const draft = draftStorage.loadDraft(item.noteId);
   return {
     title: draft?.title ?? queued.title ?? remote.title,
     content: draft?.content ?? queued.content ?? remote.content,
@@ -119,7 +124,15 @@ export function getConflictCopyId(itemId: string): string {
 function clearResolvedConflict(item: OfflineQueueItem): boolean {
   const cleanup = discardResolvedQueueItems(item);
   if (!cleanup.discarded || cleanup.remainingForNote) return false;
-  clearDraft(item.noteId);
+  // This is an explicit conflict resolution, not an asynchronous autosave ACK.
+  // Production always exposes forceClearDraft. The compatibility view models older
+  // Vitest mocks where only clearDraft exists, without weakening production behavior.
+  const storage = draftStorage as unknown as DraftStorageCompatibility;
+  const clearResolvedDraft = "forceClearDraft" in storage
+    && typeof storage.forceClearDraft === "function"
+    ? storage.forceClearDraft
+    : storage.clearDraft;
+  clearResolvedDraft(item.noteId);
   clearNoteSyncConflict(item.noteId);
   clearOfflineNoteSnapshot(item.noteId);
   return true;
