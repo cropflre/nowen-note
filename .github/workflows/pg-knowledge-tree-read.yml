@@ -10,7 +10,9 @@ on:
       - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
       - "backend/src/routes/knowledge-tree-runtime.ts"
       - "backend/tests/knowledge-tree-runtime-pg.test.ts"
+      - "backend/tests/knowledge-tree-create-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
       - "backend/scripts/direct-db-access-*.json"
       - "frontend/src/lib/knowledgeTreeApi.ts"
@@ -23,7 +25,9 @@ on:
       - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
       - "backend/src/routes/knowledge-tree-runtime.ts"
       - "backend/tests/knowledge-tree-runtime-pg.test.ts"
+      - "backend/tests/knowledge-tree-create-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
+      - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
       - "backend/scripts/direct-db-access-*.json"
       - "frontend/src/lib/knowledgeTreeApi.ts"
@@ -86,12 +90,13 @@ jobs:
         working-directory: backend
         run: npm run audit:pg-schema-parity
 
-      - name: Real PostgreSQL migrations, reads and metadata writes
+      - name: Real PostgreSQL migrations, reads and mutations
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
           tests/postgres-migrations.test.ts
           tests/knowledge-tree-runtime-pg.test.ts
+          tests/knowledge-tree-create-runtime-pg.test.ts
 
       - name: Production backend bundle
         working-directory: backend
