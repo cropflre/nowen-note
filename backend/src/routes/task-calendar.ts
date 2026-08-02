@@ -49,33 +49,6 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function formatLocalDateTime(date: Date): string {
-  return [
-    date.getFullYear(),
-    pad2(date.getMonth() + 1),
-    pad2(date.getDate()),
-    "T",
-    pad2(date.getHours()),
-    pad2(date.getMinutes()),
-    pad2(date.getSeconds()),
-  ].join("");
-}
-
-function addMinutesToIcsDateTime(value: string, minutes: number): string {
-  const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
-  if (!match) return value;
-  const [, year, month, day, hour, minute, second] = match;
-  const date = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute) + minutes,
-    Number(second),
-  );
-  return formatLocalDateTime(date);
-}
-
 function addDaysToIcsDate(value: string, days: number): string {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (!match) return value;
@@ -108,13 +81,28 @@ function buildVEvent(
     lines.push(icsFold(`DESCRIPTION:${icsEscape(task.description)}`));
   }
 
-  const dt = toIcsDate(task.dueAt || task.dueDate!);
-  if (dt.isDateTime) {
-    lines.push(icsFold(`DTSTART:${dt.value}`));
-    lines.push(icsFold(`DTEND:${addMinutesToIcsDateTime(dt.value, 1)}`));
-  } else {
-    lines.push(icsFold(`DTSTART;VALUE=DATE:${dt.value}`));
-    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(dt.value, 1)}`));
+  const start = task.startDate ? toIcsDate(task.startDate) : null;
+  const endSource = task.dueAt || task.dueDate;
+  const end = endSource ? toIcsDate(endSource) : null;
+
+  if (start?.isDateTime) {
+    lines.push(icsFold(`DTSTART:${start.value}`));
+    if (end?.isDateTime) {
+      lines.push(icsFold(`DTEND:${end.value}`));
+    } else if (end) {
+      lines.push(icsFold(`DTEND:${addDaysToIcsDate(end.value, 1)}T000000`));
+    }
+  } else if (start && end?.isDateTime) {
+    lines.push(icsFold(`DTSTART:${start.value}T000000`));
+    lines.push(icsFold(`DTEND:${end.value}`));
+  } else if (start) {
+    lines.push(icsFold(`DTSTART;VALUE=DATE:${start.value}`));
+    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end?.value || start.value, 1)}`));
+  } else if (end?.isDateTime) {
+    lines.push(icsFold(`DTSTART:${end.value}`));
+  } else if (end) {
+    lines.push(icsFold(`DTSTART;VALUE=DATE:${end.value}`));
+    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end.value, 1)}`));
   }
 
   if (task.updatedAt) {
