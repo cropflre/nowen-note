@@ -1,5 +1,5 @@
 import { getBaseUrl } from "@/lib/api.impl";
-import { markDraftAcknowledged } from "@/lib/draftStorage";
+import { publishDraftAcknowledgement } from "@/lib/draftAcknowledgementEvent";
 import type {
   TiptapPatchJsonNode,
   TiptapPatchTextBlockNode,
@@ -219,9 +219,10 @@ async function patchBlocks(
       && typeof result.version === "number"
       && Number.isFinite(result.version)
     ) {
-      // Tiptap block patch bypasses api.updateNote and its serial queue. Register the same
-      // authoritative body so a late block-patch response cannot clear a newer whole-note draft.
-      markDraftAcknowledged({
+      // Tiptap block patch bypasses api.updateNote and its serial queue. Publish the same
+      // authoritative body without importing draftStorage directly; application bootstrap owns
+      // the listener, while isolated runtime tests can keep their narrow draftStorage mocks.
+      publishDraftAcknowledgement({
         noteId,
         title: result.title,
         content: result.content,
