@@ -2,8 +2,36 @@ import type { Task } from "@/types";
 
 export function getDueTimeValue(dueAt: string | null | undefined): string {
   if (!dueAt) return "";
-  const timePart = dueAt.split("T")[1] || "";
+  const timePart = dueAt.replace(" ", "T").split("T")[1] || "";
   return timePart.slice(0, 5);
+}
+
+export function getDateValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.replace(" ", "T").split("T")[0];
+}
+
+export function buildStartDateFromDateAndTime(dateValue: string | null | undefined, timeValue: string): string | null {
+  if (!dateValue) return null;
+  return timeValue ? `${dateValue}T${timeValue.slice(0, 5)}` : dateValue;
+}
+
+export function isTaskDateRangeInvalid(
+  startDate: string | null | undefined,
+  dueDate: string | null | undefined,
+  dueAt: string | null | undefined,
+): boolean {
+  if (!startDate) return false;
+  const end = dueAt || dueDate;
+  if (!end) return false;
+
+  const normalizedStart = startDate.replace(" ", "T");
+  const normalizedEnd = end.replace(" ", "T");
+  const startDay = normalizedStart.slice(0, 10);
+  const endDay = normalizedEnd.slice(0, 10);
+  if (startDay !== endDay) return startDay > endDay;
+  if (!normalizedStart.includes("T") || !normalizedEnd.includes("T")) return false;
+  return normalizedStart > normalizedEnd;
 }
 
 export function buildDueAtFromDateAndTime(dueDate: string | null | undefined, timeValue: string): string | null {

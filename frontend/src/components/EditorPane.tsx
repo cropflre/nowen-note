@@ -1788,18 +1788,47 @@ export default function EditorPane({
 
   // �ֶ�����ͬ�������±��浱ǰ�༭������
   const handleManualSync = useCallback(async () => {
-    if (!activeNote || syncStatus === "saving") return;
+    const currentNote = activeNoteRef.current;
+    if (!currentNote || syncStatus === "saving") return;
+
+    // Manual sync must submit what is visible in the editor. In CRDT mode the live
+    // Markdown resides in CodeMirror/Y.Doc and activeNote.content can still be the
+    // previous server acknowledgement, which used to overwrite the second edit.
+    const snapshot = editorHandleRef.current?.getSnapshot?.();
+    editorHandleRef.current?.discardPending?.();
+    const title = snapshot?.title ?? currentNote.title;
+    const content = snapshot?.content ?? currentNote.content;
+    const contentText = snapshot?.contentText ?? currentNote.contentText;
+
     actions.setSyncStatus("saving");
     try {
-      const updated = await api.updateNote(activeNote.id, {
-        title: activeNote.title,
-        content: activeNote.content,
-        contentText: activeNote.contentText,
-        contentFormat: activeNote.contentFormat,
-        version: activeNote.version,
-      } as any);
+      // GET flushes an active server-side Y.Doc first and gives this explicit save the
+      // current optimistic-lock version. If the Y update already arrived, avoid a
+      // redundant PUT/version bump; otherwise persist the editor snapshot and align Y.Doc.
+      const persisted = await api.getNote(currentNote.id);
+      const alreadyPersisted = persisted.title === title
+        && persisted.content === content
+        && persisted.contentText === contentText
+        && persisted.contentFormat === currentNote.contentFormat;
+      const updated = alreadyPersisted
+        ? persisted
+        : await api.updateNoteConfirmed(currentNote.id, {
+          title,
+          content,
+          contentText,
+          contentFormat: currentNote.contentFormat,
+          version: persisted.version,
+          syncToYjs: true,
+        } as any);
+      activeNoteRef.current = updated;
       actions.setActiveNote(updated);
-      actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
+      actions.updateNoteInList({
+        id: updated.id,
+        title: updated.title,
+        contentText: updated.contentText,
+        updatedAt: updated.updatedAt,
+        version: updated.version,
+      });
       actions.updateNoteTab({
         id: updated.id,
         title: updated.title,
@@ -1812,10 +1841,11 @@ export default function EditorPane({
       actions.setLastSynced(new Date().toISOString());
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
-    } catch {
+    } catch (error) {
+      console.warn("[EditorPane] manual sync failed:", error);
       actions.setSyncStatus("error");
     }
-  }, [activeNote, syncStatus, actions]);
+  }, [syncStatus, actions]);
 
   const toggleFavorite = useCallback(async () => {
     if (!activeNote || activeNote.isTrashed) return;
@@ -3381,9 +3411,8 @@ const moveToTrash = useCallback(async () => {
           {/* 原生 Markdown 笔记：contentFormat === "markdown" 时始终用 MarkdownEditor */}
           {activeNote.contentFormat === "markdown" ? (
             <MarkdownEditor
-              // Y.Doc arrives after the first render. Remount once it is available so the
-              // CodeMirror instance is actually created with yCollab; otherwise the editor
-              // stops REST-saving but has no CRDT persistence extension attached.
+              // useYDoc only exposes the document after y:sync. Remount at that point so
+              // CodeMirror gains yCollab without disabling normal saves while unsynced.
               key={collabYDoc ? `md-native-y-${activeNote.id}` : `md-native-${activeNote.id}`}
               ref={editorHandleRef}
               note={activeNote}

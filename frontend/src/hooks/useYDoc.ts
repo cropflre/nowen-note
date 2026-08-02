@@ -70,7 +70,10 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
     const provider = new NowenYjsProvider(noteId, user, doc);
     currentRef.current = { doc, provider };
 
-    setState({ doc, provider, status: provider.getStatus(), synced: false });
+    // The provider and its local doc exist before the server replies. Do not expose
+    // that doc to editors yet: binding it would disable their normal persistence path
+    // even when the WebSocket never completes the initial sync.
+    setState({ doc: null, provider, status: provider.getStatus(), synced: false });
 
     // 关键：provider 构造函数里已经同步发出了 y:join。如果 y:sync 在下面这行
     // `provider.on("synced", ...)` 之前就已经到达并 emit，我们就永远收不到。
@@ -80,7 +83,7 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
     if (currentStatus === "synced") {
       console.debug(`[useYDoc] provider already synced on subscribe time for ${noteId}, backfilling`);
       setState((prev) =>
-        prev.provider === provider ? { ...prev, synced: true, status: "synced" } : prev,
+        prev.provider === provider ? { ...prev, doc, synced: true, status: "synced" } : prev,
       );
     }
 
@@ -92,7 +95,7 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
     const offSynced = provider.on("synced", () => {
       console.debug(`[useYDoc] received 'synced' for ${noteId}`);
       setState((prev) =>
-        prev.provider === provider ? { ...prev, synced: true } : prev,
+        prev.provider === provider ? { ...prev, doc, synced: true } : prev,
       );
     });
 

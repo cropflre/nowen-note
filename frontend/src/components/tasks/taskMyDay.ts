@@ -27,7 +27,7 @@ export function isTaskOverdue(task: Task, today: string): boolean {
 }
 
 export function isTaskStartingToday(task: Task, today: string): boolean {
-  return !task.isCompleted && task.startDate === today;
+  return !task.isCompleted && task.startDate?.slice(0, 10) === today;
 }
 
 export function normalizeMyDayPlan(

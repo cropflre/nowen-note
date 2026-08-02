@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildDueAtFromDateAndTime,
   buildDueDatePatch,
+  buildStartDateFromDateAndTime,
   compareTasksByDueTime,
+  getDateValue,
   getDueTimeValue,
+  isTaskDateRangeInvalid,
 } from "../taskDateUtils";
 import type { Task } from "@/types";
 
@@ -45,6 +48,19 @@ describe("due time helpers", () => {
     expect(buildDueAtFromDateAndTime("2026-06-17", "17:00")).toBe("2026-06-17T17:00");
     expect(buildDueAtFromDateAndTime("", "17:00")).toBeNull();
     expect(buildDueAtFromDateAndTime("2026-06-17", "")).toBeNull();
+  });
+
+  it("splits and rebuilds a start date with an optional time", () => {
+    expect(getDateValue("2026-06-17T09:15")).toBe("2026-06-17");
+    expect(getDueTimeValue("2026-06-17 09:15:00")).toBe("09:15");
+    expect(buildStartDateFromDateAndTime("2026-06-17", "09:15")).toBe("2026-06-17T09:15");
+    expect(buildStartDateFromDateAndTime("2026-06-17", "")).toBe("2026-06-17");
+  });
+
+  it("validates exact start and due times on the same day", () => {
+    expect(isTaskDateRangeInvalid("2026-06-17T18:01", "2026-06-17", "2026-06-17T18:00")).toBe(true);
+    expect(isTaskDateRangeInvalid("2026-06-17T17:00", "2026-06-17", "2026-06-17T18:00")).toBe(false);
+    expect(isTaskDateRangeInvalid("2026-06-17T17:00", "2026-06-17", null)).toBe(false);
   });
 
   it("clearing dueDate also clears dueAt and disables repeat", () => {

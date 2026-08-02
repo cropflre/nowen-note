@@ -1383,6 +1383,8 @@
     },
     "descriptionMarkdownHint": "Markdown supported",
     "priority": "Priority",
+    "startDate": "Start Date",
+    "startAt": "Start Time",
     "dueDate": "Due Date",
     "dueAt": "Due Time",
     "createdAt": "Created",

@@ -1510,6 +1510,7 @@
     "calendarEmpty": "这天没有任务",
     "timelineView": "时间线",
     "startDate": "开始日期",
+    "startAt": "开始时间",
     "gantt": {
       "title": "时间线",
       "today": "今天",
@@ -1519,7 +1520,7 @@
       "month": "月",
       "unscheduled": "未排期任务",
       "noScheduledTasks": "暂无排期任务",
-      "invalidDateRange": "开始日期不能晚于截止日期",
+      "invalidDateRange": "开始时间不能晚于截止时间",
       "scheduleToday": "设为今天"
     },
     "repeat": {

@@ -47,12 +47,13 @@ describe("taskMyDay", () => {
       task({ id: "overdue", dueDate: "2026-08-01", priority: 1 }),
       task({ id: "today", dueDate: "2026-08-02", priority: 3 }),
       task({ id: "starting", startDate: "2026-08-02" }),
+      task({ id: "starting-with-time", startDate: "2026-08-02T09:30" }),
       task({ id: "future", dueDate: "2026-08-03" }),
       task({ id: "done", dueDate: "2026-08-01", isCompleted: 1, status: "done" }),
     ];
 
     expect(getMyDaySuggestions(tasks, "2026-08-02", ["planned"]).map((item) => item.id))
-      .toEqual(["overdue", "today", "starting"]);
+      .toEqual(["overdue", "today", "starting", "starting-with-time"]);
   });
 
   it("orders focus tasks first and completed tasks last within each group", () => {

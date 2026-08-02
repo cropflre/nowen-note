@@ -53,7 +53,7 @@ function createTestDb() {
       id TEXT PRIMARY KEY, userId TEXT NOT NULL, workspaceId TEXT,
       title TEXT NOT NULL, description TEXT, isCompleted INTEGER DEFAULT 0,
       status TEXT DEFAULT 'todo', priority INTEGER DEFAULT 2,
-      dueDate TEXT, dueAt TEXT,
+      startDate TEXT, dueDate TEXT, dueAt TEXT,
       noteId TEXT, parentId TEXT, sortOrder INTEGER DEFAULT 0,
       createdAt TEXT DEFAULT (datetime('now')), updatedAt TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -269,26 +269,38 @@ test("真实 ICS 输出使用兼容的 DATE-TIME、DTEND，并且公开订阅与
   `).run("feed-real", "u-real", "real-token");
 
   const insertRealTask = db.prepare(`
-    INSERT INTO tasks (id, userId, title, description, dueDate, dueAt, updatedAt, isCompleted)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+    INSERT INTO tasks (id, userId, title, description, startDate, dueDate, dueAt, updatedAt, isCompleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `);
-  insertRealTask.run("t-minute", "u-real", "分钟时间", "", null, "2026-07-02T13:29", "2026-07-02 13:29:00");
-  insertRealTask.run("t-seconds", "u-real", "秒级时间", "", null, "2026-07-02T13:29:00", "2026-07-02 13:29:00");
-  insertRealTask.run("t-space", "u-real", "空格时间", "", null, "2026-07-02 13:29", "2026-07-02 13:29:00");
-  insertRealTask.run("t-date", "u-real", "全天任务", "", "2026-11-02", null, "2026-11-02 00:00:00");
+  insertRealTask.run("t-minute", "u-real", "分钟时间", "", "2026-07-02T12:29", null, "2026-07-02T13:29", "2026-07-02 13:29:00");
+  insertRealTask.run("t-seconds", "u-real", "秒级时间", "", null, null, "2026-07-02T13:29:00", "2026-07-02 13:29:00");
+  insertRealTask.run("t-space", "u-real", "空格时间", "", null, null, "2026-07-02 13:29", "2026-07-02 13:29:00");
+  insertRealTask.run("t-date", "u-real", "全天任务", "", "2026-11-01", "2026-11-02", null, "2026-11-02 00:00:00");
+  insertRealTask.run("t-start-only", "u-real", "仅开始时间", "", "2026-07-03T09:00", null, null, "2026-07-03 09:00:00");
+  insertRealTask.run("t-due-date-range", "u-real", "dueDate 时间段", "", "2026-07-04T14:00", "2026-07-04T15:00", null, "2026-07-04 15:00:00");
 
   const result = buildIcsForToken("real-token");
   assert.ok(result);
   assert.equal(result.feedId, "feed-real");
 
   const body = result.body;
+  assert.ok(body.includes("DTSTART:20260702T122900"));
   assert.ok(body.includes("DTSTART:20260702T132900"));
-  assert.ok(body.includes("DTEND:20260702T133000"));
+  assert.ok(body.includes("DTEND:20260702T132900"));
+  assert.ok(!body.includes("DTEND:20260702T133000"));
   assert.ok(!body.includes("DTSTART:202607021329"));
   assert.ok(!body.includes("DUE:"));
 
-  assert.ok(body.includes("DTSTART;VALUE=DATE:20261102"));
+  assert.ok(body.includes("DTSTART;VALUE=DATE:20261101"));
   assert.ok(body.includes("DTEND;VALUE=DATE:20261103"));
+  const startOnlyEvent = body.split("BEGIN:VEVENT").find((event) => event.includes("UID:task-t-start-only@nowen-note"));
+  assert.ok(startOnlyEvent);
+  assert.ok(startOnlyEvent.includes("DTSTART:20260703T090000"));
+  assert.ok(!startOnlyEvent.includes("DTEND:"));
+  const dueDateRangeEvent = body.split("BEGIN:VEVENT").find((event) => event.includes("UID:task-t-due-date-range@nowen-note"));
+  assert.ok(dueDateRangeEvent);
+  assert.ok(dueDateRangeEvent.includes("DTSTART:20260704T140000"));
+  assert.ok(dueDateRangeEvent.includes("DTEND:20260704T150000"));
 
   const publicResponse = await taskCalendar.request("/feed/real-token.ics");
   assert.equal(publicResponse.status, 200);

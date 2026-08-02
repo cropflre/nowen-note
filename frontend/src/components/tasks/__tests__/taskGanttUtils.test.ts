@@ -89,6 +89,12 @@ describe("getTaskStartDate", () => {
     expect(getTaskStartDate(task)).toBe("2026-06-10");
   });
 
+  it("uses the date part when startDate contains a time", () => {
+    const task = { ...baseTask, startDate: "2026-06-10T09:15", dueDate: "2026-06-15" };
+    expect(getTaskStartDate(task)).toBe("2026-06-10");
+    expect(moveTaskDateRange(task, "2026-06-20")?.startDate).toBe("2026-06-20T09:15");
+  });
+
   it("returns null when no dates", () => {
     expect(getTaskStartDate(baseTask)).toBeNull();
   });

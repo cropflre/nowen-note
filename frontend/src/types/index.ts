@@ -413,6 +413,7 @@ export interface Task {
   dueDate: string | null;
   /** Phase 2: 精确到分钟的截止时间，ISO 8601 格式（如 2026-06-12T18:00）。兼容旧 dueDate */
   dueAt: string | null;
+  /** 开始日期或精确到分钟的开始时间（YYYY-MM-DD 或 YYYY-MM-DDTHH:mm） */
   startDate?: string | null;
   noteId: string | null;
   parentId: string | null;
