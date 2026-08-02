@@ -14,6 +14,7 @@ import {
 import { verifyLoginToken } from "./lib/auth-security";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
+import createKnowledgeTreeSurfacesRuntimeRouter from "./routes/knowledge-tree-surfaces-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
@@ -64,6 +65,7 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
         "GET /api/knowledge-tree",
+        "GET /api/knowledge-tree/shared-with-me",
         "POST /api/knowledge-tree/nodes (folder, note, markdown and word)",
         "PUT /api/knowledge-tree/nodes/:nodeId/move",
         "PUT /api/knowledge-tree/reorder",
@@ -72,6 +74,9 @@ app.get("/api/health", async (c) => {
         "GET /api/knowledge-tree/nodes/:nodeId/permissions",
         "PUT /api/knowledge-tree/nodes/:nodeId/permissions",
         "DELETE /api/knowledge-tree/nodes/:nodeId/permissions/:userId",
+        "GET /api/knowledge-tree/nodes/:nodeId/history",
+        "POST /api/knowledge-tree/nodes/:nodeId/unlock",
+        "PUT /api/knowledge-tree/nodes/:nodeId/password",
         "PATCH /api/knowledge-tree/nodes/:nodeId (title and expansion metadata)",
         "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
         "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
@@ -80,6 +85,9 @@ app.get("/api/health", async (c) => {
         "note deletion audit logs",
         "note deletion webhooks",
         "knowledge-tree scope listing with inherited permissions",
+        "knowledge-tree shared-root discovery with overlapping-root de-duplication",
+        "knowledge-tree access-controlled history listing",
+        "knowledge-tree transactional folder password versioning and unlock tokens",
         "knowledge-tree transactional folder and document creation",
         "knowledge-tree transactional move and batch reorder with stale-write rollback",
         "knowledge-tree transactional subtree deletion, child promotion and parent-first restore",
@@ -104,7 +112,6 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "remaining knowledge-tree surfaces: shared-with-me, history and folder password (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -161,7 +168,7 @@ async function authenticateApiRequest(c: Context, next: Next) {
     }
     void adapter.execute(
       `UPDATE user_sessions SET "lastSeenAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-      [payload.jti],
+      [payload.jti, payload.userId],
     ).catch((error) => {
       console.warn("[postgres-runtime] session lastSeen update failed:", error instanceof Error ? error.message : String(error));
     });
@@ -187,6 +194,10 @@ app.route(
   "/api/knowledge-tree",
   createKnowledgeTreeRuntimeRouter(adapter, "postgres"),
 );
+app.route(
+  "/api/knowledge-tree",
+  createKnowledgeTreeSurfacesRuntimeRouter(adapter, "postgres"),
+);
 
 app.all("*", (c) => c.json({
   error: "PostgreSQL runtime is connected, but this route has not been migrated yet",
@@ -195,7 +206,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes runtime includes PostgreSQL-safe rooms, Yjs read/write sync, snapshot compaction, stable-section writes and idempotent subdocument structure rebuilds; production cutover remains disabled until the remaining PostgreSQL phases complete");
+console.warn("[db] Notes and knowledge-tree runtime routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
