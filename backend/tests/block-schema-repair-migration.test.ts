@@ -8,6 +8,19 @@ import {
   runMigrations,
 } from "../src/db/migrations";
 
+const BLOCK_SCHEMA_VERSION = 48;
+const BLOCK_REPAIR_VERSION = MIGRATIONS.find(
+  (migration) => migration.name === "repair-skipped-block-schema",
+)?.version;
+
+if (!BLOCK_REPAIR_VERSION) {
+  throw new Error("repair-skipped-block-schema migration is not registered");
+}
+
+const BLOCK_MIGRATION_VERSIONS = [BLOCK_SCHEMA_VERSION, BLOCK_REPAIR_VERSION].sort(
+  (a, b) => a - b,
+);
+
 function createHistoricalBlockDatabase(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
@@ -40,6 +53,17 @@ function createHistoricalBlockDatabase(): Database.Database {
   return db;
 }
 
+function seedAllExceptBlockRepair(db: Database.Database): void {
+  const missing = new Set(BLOCK_MIGRATION_VERSIONS);
+  const insert = db.prepare(
+    "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+  );
+  for (const migration of MIGRATIONS) {
+    if (missing.has(migration.version)) continue;
+    insert.run(migration.version, migration.name);
+  }
+}
+
 function tableNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`
     SELECT name FROM sqlite_master WHERE type = 'table'
@@ -50,21 +74,21 @@ function tableNames(db: Database.Database): Set<string> {
 test("detects a missing historical migration even when MAX(version) is newer", () => {
   const db = createHistoricalBlockDatabase();
   try {
-    const insert = db.prepare(
-      "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
-    );
-    for (const migration of MIGRATIONS) {
-      if (migration.version === 48 || migration.version === 63) continue;
-      insert.run(migration.version, migration.name);
-    }
+    seedAllExceptBlockRepair(db);
 
     const latest = db.prepare(
       "SELECT MAX(version) AS version FROM schema_migrations",
     ).get() as { version: number };
-    assert.equal(latest.version, 62);
+    const expectedLatest = Math.max(
+      ...MIGRATIONS
+        .filter((migration) => !BLOCK_MIGRATION_VERSIONS.includes(migration.version))
+        .map((migration) => migration.version),
+    );
+    assert.equal(latest.version, expectedLatest);
+    assert.ok(latest.version > BLOCK_SCHEMA_VERSION);
     assert.deepEqual(
       getPendingMigrations(db).map((migration) => migration.version),
-      [48, 63],
+      BLOCK_MIGRATION_VERSIONS,
     );
   } finally {
     db.close();
@@ -74,15 +98,9 @@ test("detects a missing historical migration even when MAX(version) is newer", (
 test("repairs skipped block tables and records both migrations", () => {
   const db = createHistoricalBlockDatabase();
   try {
-    const insert = db.prepare(
-      "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
-    );
-    for (const migration of MIGRATIONS) {
-      if (migration.version === 48 || migration.version === 63) continue;
-      insert.run(migration.version, migration.name);
-    }
+    seedAllExceptBlockRepair(db);
 
-    assert.equal(runMigrations(db), 2);
+    assert.equal(runMigrations(db), BLOCK_MIGRATION_VERSIONS.length);
 
     const tables = tableNames(db);
     for (const table of [
@@ -109,9 +127,14 @@ test("repairs skipped block tables and records both migrations", () => {
     assert.equal(manifestColumns.some((column) => column.name === "structureVersion"), true);
 
     const applied = db.prepare(`
-      SELECT version FROM schema_migrations WHERE version IN (48, 63) ORDER BY version
+      SELECT version FROM schema_migrations ORDER BY version
     `).all() as Array<{ version: number }>;
-    assert.deepEqual(applied.map((row) => row.version), [48, 63]);
+    assert.deepEqual(
+      applied
+        .map((row) => row.version)
+        .filter((version) => BLOCK_MIGRATION_VERSIONS.includes(version)),
+      BLOCK_MIGRATION_VERSIONS,
+    );
     assert.deepEqual(getPendingMigrations(db), []);
   } finally {
     db.close();

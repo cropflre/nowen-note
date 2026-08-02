@@ -32,3 +32,20 @@ CREATE INDEX IF NOT EXISTS idx_task_activity_task_type
   ON task_activity_events("taskId", "eventType", "occurredAt" DESC);
 CREATE INDEX IF NOT EXISTS idx_task_activity_type_time
   ON task_activity_events("eventType", "occurredAt" DESC);
+
+CREATE TABLE IF NOT EXISTS task_day_plans (
+  id TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "scopeKey" TEXT NOT NULL,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "planDate" DATE NOT NULL,
+  "taskIdsJson" TEXT NOT NULL DEFAULT '[]',
+  "focusTaskIdsJson" TEXT NOT NULL DEFAULT '[]',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_day_plans_user_scope_date
+  ON task_day_plans("userId", "scopeKey", "planDate");
+CREATE INDEX IF NOT EXISTS idx_task_day_plans_user_date
+  ON task_day_plans("userId", "planDate");
