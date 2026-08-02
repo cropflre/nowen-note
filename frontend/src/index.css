@@ -2480,23 +2480,21 @@ body.density-compact {
 }
 
 /* ============================================================================
-/* Fullscreen: Traffic Light hidden, reclaim 72px left padding */
+ * macOS hiddenInset title bar
  * ----------------------------------------------------------------------------
- * 涓昏繘绋?createWindow() 閲屼粎 macOS 寮€鍚?titleBarStyle:"hiddenInset"銆?
- * 姝ゆ椂绐楀彛娌℃湁鐙珛鏍囬鏍忥紝鐢ㄦ埛蹇呴』閫氳繃 -webkit-app-region: drag 鐨勫尯鍩熸潵鎷栧姩锛?
-/* Sidebar header: leave space for Traffic Light (72px for red/yellow/green + 12px gap) */
- * 鐣欏嚭 ~72px 宸?padding锛岄伩鍏嶈鎸夐挳鍘嬩綇銆?
- *
- * 閫夋嫨鍣ㄧ敤 `html[data-electron="darwin"]`鈥斺€攎ain.tsx 鍦ㄦ寕杞藉墠宸插啓鍏ワ紱
- * Web 绔拰 Windows/Linux Electron 涓嬪畬鍏ㄤ笉鐢熸晥锛岄浂褰卞搷銆?
- * ========================================================================= */
+ * Traffic Lights occupy the window's upper-left corner. The rail starts below
+ * them, while the desktop sidebar header remains the draggable title area and
+ * reserves a small horizontal safety gap for the green control.
+ * ========================================================================== */
 html[data-electron="darwin"] .vibrancy-sidebar {
   -webkit-app-region: no-drag;
 }
 
-html[data-electron="darwin"] .vibrancy-sidebar > :first-child {
-  /* 鏁翠釜渚ф爮椤堕儴鍙樻垚鎷栨嫿鍖猴紝瀛愬厓绱犻噷鐨勬寜閽?閾炬帴鍗曠嫭澹版槑 no-drag 鏀捐浜や簰 */
+html[data-electron="darwin"]
+  [data-unified-sidebar][data-sidebar-variant="desktop"]
+  > header {
   -webkit-app-region: drag;
+  padding-left: 24px;
 }
 
 html[data-electron="darwin"] .vibrancy-sidebar button,
@@ -2507,19 +2505,23 @@ html[data-electron="darwin"] .vibrancy-sidebar [contenteditable="true"] {
   -webkit-app-region: no-drag;
 }
 
-/* Sidebar header: leave space for Traffic Light (72px for red/yellow/green + 12px gap) */
-html[data-electron="darwin"] .vibrancy-sidebar > :first-child {
-  padding-left: 72px;
+html[data-electron="darwin"]
+  [data-unified-sidebar][data-sidebar-variant="desktop"]
+  > header
+  button {
+  -webkit-app-region: no-drag;
 }
 
-/* 原生窗口按钮覆盖 Rail 顶部区域；仅下移 Rail，保持主侧栏与 Web 端顶对齐。 */
+/* Keep rail actions below the native window controls. */
 html[data-electron="darwin"] .nav-rail {
   padding-top: 56px !important;
 }
 
-/* 鍏ㄥ睆锛歍raffic Light 鑷姩闅愯棌锛屽洖鏀?72px 宸?padding 閬垮厤椤堕儴绌虹櫧 */
-html[data-electron="darwin"][data-fullscreen="1"] .vibrancy-sidebar > :first-child {
-  padding-left: 0;
+/* Fullscreen hides Traffic Lights, so restore the regular header inset. */
+html[data-electron="darwin"][data-fullscreen="1"]
+  [data-unified-sidebar][data-sidebar-variant="desktop"]
+  > header {
+  padding-left: 16px;
 }
 
 html[data-electron="darwin"][data-fullscreen="1"] .nav-rail {

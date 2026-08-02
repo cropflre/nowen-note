@@ -107,6 +107,22 @@ export interface DataDirInfo {
   mode?: "full" | "lite";
 }
 
+export interface OfflineStorageInfo {
+  ok: boolean;
+  path: string;
+  exists: boolean;
+  isCustom: boolean;
+}
+
+export interface OfflineStorageChooseResult {
+  ok: boolean;
+  path?: string;
+  canceled?: boolean;
+  unchanged?: boolean;
+  restarting?: boolean;
+  error?: string;
+}
+
 export interface DataDirChooseResult {
   ok: boolean;
   path?: string;
@@ -267,6 +283,9 @@ interface NowenDesktopAPI {
   getEditorPerformanceMetrics?: () => Promise<{ heapBytes: number }>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
   openDataDir?: () => Promise<{ ok: boolean; path: string }>;
+  getOfflineStorageInfo?: () => Promise<OfflineStorageInfo>;
+  openOfflineStorageDir?: () => Promise<{ ok: boolean; path: string; error?: string }>;
+  chooseOfflineStorageDir?: () => Promise<OfflineStorageChooseResult>;
   setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;
   /** 上报格式状态（同步菜单 checked）。preload 中已白名单化，仅 send，无 ack。 */
   sendFormatState?: (state: FormatStateSnapshot | null) => void;
@@ -465,6 +484,24 @@ export async function openDataDir(): Promise<{ ok: boolean; path?: string; reaso
   const bridge = getBridge();
   if (!bridge?.openDataDir) return { ok: false, reason: "not-supported" };
   return bridge.openDataDir();
+}
+
+export async function getOfflineStorageInfo(): Promise<OfflineStorageInfo | null> {
+  const bridge = getBridge();
+  if (!bridge?.getOfflineStorageInfo) return null;
+  return bridge.getOfflineStorageInfo();
+}
+
+export async function openOfflineStorageDir(): Promise<{ ok: boolean; path?: string; error?: string; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.openOfflineStorageDir) return { ok: false, reason: "not-supported" };
+  return bridge.openOfflineStorageDir();
+}
+
+export async function chooseOfflineStorageDir(): Promise<OfflineStorageChooseResult> {
+  const bridge = getBridge();
+  if (!bridge?.chooseOfflineStorageDir) return { ok: false, error: "not-supported" };
+  return bridge.chooseOfflineStorageDir();
 }
 
 export async function getDesktopDataDirInfo(): Promise<DataDirInfo | null> {

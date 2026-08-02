@@ -54,6 +54,8 @@ let backendPort = 0;
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
 let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
+let currentRendererSession = null;
+let currentOfflineCacheDir = "";
 // Phase A: 桌面零登录所用的本地账号 token / user，在 startBackend 之后由
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
@@ -95,6 +97,99 @@ function getDataDirInfo() {
     exists: fs.existsSync(currentPath),
     mode: currentMode,
   };
+}
+
+const RENDERER_STORAGE_ENTRIES = [
+  "IndexedDB",
+  "Local Storage",
+  "Session Storage",
+  "WebStorage",
+  "Service Worker",
+  "CacheStorage",
+  "blob_storage",
+  "Cookies",
+  "Cookies-journal",
+  "Network Persistent State",
+];
+
+function migrateRendererStorage(sourceDir, targetDir) {
+  if (!sourceDir || !targetDir || path.resolve(sourceDir) === path.resolve(targetDir)) return;
+  fs.mkdirSync(targetDir, { recursive: true });
+  const migratedEntries = [];
+  for (const name of RENDERER_STORAGE_ENTRIES) {
+    const source = path.join(sourceDir, name);
+    if (!fs.existsSync(source)) continue;
+    const target = path.join(targetDir, name);
+    fs.cpSync(source, target, { recursive: true, force: true });
+    if (!fs.existsSync(target)) throw new Error(`OFFLINE_CACHE_COPY_FAILED:${name}`);
+    migratedEntries.push(source);
+  }
+  fs.writeFileSync(
+    path.join(targetDir, ".nowen-offline-cache"),
+    JSON.stringify({ migratedAt: new Date().toISOString() }, null, 2),
+    "utf8"
+  );
+  for (const source of migratedEntries) {
+    fs.rmSync(source, { recursive: true, force: true });
+  }
+}
+
+function prepareRendererSession(settings) {
+  const defaultPath = app.getPath("userData");
+  let targetPath = settings.offlineCacheDir || defaultPath;
+  const migrationSource = settings.offlineCacheMigrationSource;
+
+  if (migrationSource && path.resolve(migrationSource) !== path.resolve(targetPath)) {
+    try {
+      migrateRendererStorage(migrationSource, targetPath);
+      writeSettings({ offlineCacheMigrationSource: "" });
+    } catch (error) {
+      console.error("[offline-cache] migration failed:", error?.message || error);
+      targetPath = migrationSource;
+      writeSettings({
+        offlineCacheDir: path.resolve(migrationSource) === path.resolve(defaultPath) ? "" : migrationSource,
+        offlineCacheMigrationSource: "",
+      });
+    }
+  }
+
+  currentOfflineCacheDir = targetPath;
+  currentRendererSession = path.resolve(targetPath) === path.resolve(defaultPath)
+    ? session.defaultSession
+    : session.fromPath(targetPath);
+  return currentRendererSession;
+}
+
+function configureRendererSession(rendererSession) {
+  rendererSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "notifications" || permission === "fullscreen");
+  });
+  if (typeof rendererSession.setPermissionCheckHandler === "function") {
+    rendererSession.setPermissionCheckHandler((_webContents, permission) => (
+      permission === "notifications" || permission === "fullscreen"
+    ));
+  }
+
+  rendererSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    const contentType = (responseHeaders["content-type"] || responseHeaders["Content-Type"] || [""])[0] || "";
+    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) {
+      const cspRo = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' file: blob: data: http: https:",
+        "connect-src 'self' http: https: ws: wss:",
+        "font-src 'self' blob: data:",
+        "frame-src blob: data: http: https:",
+        "object-src 'none'",
+        "worker-src 'self' blob:",
+        "media-src 'self' blob:",
+      ].join("; ");
+      responseHeaders["Content-Security-Policy-Report-Only"] = [cspRo];
+    }
+    callback({ responseHeaders });
+  });
 }
 
 // ---------- JWT 密钥：桌面版"首启自动生成并持久化" ----------
@@ -799,7 +894,7 @@ function createWindow() {
   const macWindowOpts = isMac
     ? {
         titleBarStyle: "hiddenInset",
-        trafficLightPosition: { x: 12, y: 14 },
+        trafficLightPosition: { x: 12, y: 22 },
         vibrancy: "sidebar",
         visualEffectState: "active",
         transparent: false, // 开启 vibrancy 时 backgroundColor 可设半透明或不设
@@ -822,6 +917,7 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      session: currentRendererSession || session.defaultSession,
       // sandbox 不能开：preload 使用 require("electron")，sandbox 下 require 不可用
       preload: preloadPath,
       additionalArguments: isLiteOnlyBuild() ? ["--nowen-lite-only"] : [],
@@ -1143,7 +1239,8 @@ async function clearWebStorage() {
   // 这样切到新服务器后是全新登录态。
   // 不动 partition，因为本期只支持单一服务器。
   try {
-    await session.defaultSession.clearStorageData({
+    const rendererSession = currentRendererSession || session.defaultSession;
+    await rendererSession.clearStorageData({
       storages: [
         "cookies",
         "localstorage",
@@ -1154,7 +1251,7 @@ async function clearWebStorage() {
         "cachestorage",
       ],
     });
-    await session.defaultSession.clearCache();
+    await rendererSession.clearCache();
     console.log("[mode-switch] storage cleared");
   } catch (e) {
     console.warn("[mode-switch] clearStorageData failed:", e?.message || e);
@@ -1433,6 +1530,56 @@ function registerAppIpc() {
     return { ok: true, path: dir };
   });
 
+  ipcMain.removeHandler("app:get-offline-storage-info");
+  ipcMain.handle("app:get-offline-storage-info", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const dir = currentOfflineCacheDir || app.getPath("userData");
+    return {
+      ok: true,
+      path: dir,
+      exists: fs.existsSync(dir),
+      isCustom: path.resolve(dir) !== path.resolve(app.getPath("userData")),
+    };
+  });
+
+  ipcMain.removeHandler("app:open-offline-storage-dir");
+  ipcMain.handle("app:open-offline-storage-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const dir = currentOfflineCacheDir || app.getPath("userData");
+    const error = await shell.openPath(dir);
+    return error ? { ok: false, path: dir, error } : { ok: true, path: dir };
+  });
+
+  ipcMain.removeHandler("app:choose-offline-storage-dir");
+  ipcMain.handle("app:choose-offline-storage-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const result = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: "选择离线缓存保存位置",
+      buttonLabel: "使用此位置",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+
+    const targetPath = path.join(result.filePaths[0], "Nowen Note Offline Cache");
+    const sourcePath = currentOfflineCacheDir || app.getPath("userData");
+    if (path.resolve(targetPath) === path.resolve(sourcePath)) {
+      return { ok: true, path: targetPath, unchanged: true };
+    }
+    if (path.resolve(targetPath).startsWith(`${path.resolve(sourcePath)}${path.sep}`)) {
+      return { ok: false, error: "TARGET_INSIDE_CURRENT_CACHE" };
+    }
+
+    writeSettings({
+      offlineCacheDir: targetPath,
+      offlineCacheMigrationSource: sourcePath,
+    });
+    setTimeout(() => relaunchApp(), 150);
+    return { ok: true, path: targetPath, restarting: true };
+  });
+
   ipcMain.removeHandler("app:get-data-dir-info");
   ipcMain.handle("app:get-data-dir-info", (event) => {
     const reject = assertMainWindowSender(event);
@@ -1705,49 +1852,10 @@ app.whenReady().then(async () => {
   currentRemoteUrl = settings.remoteUrl;
   currentHideMenuBar = !!settings.hideMenuBar;
 
-  // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许通知和全屏。
-  const defaultSession = session.defaultSession;
-  defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    // notifications 用于任务提醒；fullscreen 用于编辑器原生视频控件。
-    if (permission === "notifications" || permission === "fullscreen") {
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
-  // setPermissionCheckHandler: 拦截权限查询（非弹窗类的静默检查）
-  if (typeof defaultSession.setPermissionCheckHandler === "function") {
-    defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
-      // 与请求阶段保持一致，避免 Fullscreen API 在查询阶段被拒绝。
-      return permission === "notifications" || permission === "fullscreen";
-    });
-  }
-
-  // SEC-ELECTRON-01-E3.2: CSP Report-Only 注入 — 先观察，不拦截
-  // 注意：webRequest.onHeadersReceived 对 file:// 协议不生效（Chromium 限制），
-  // 生产环境主窗口通过 loadFile 加载（file://），CSP Report-Only 仅对 http/https 响应生效。
-  // 开发环境（Vite dev server）和 lite 模式远程页面会命中此拦截器。
-  defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const responseHeaders = { ...details.responseHeaders };
-    // 仅对 HTML 文档注入，跳过 JS/CSS/图片等资源
-    const contentType = (responseHeaders["content-type"] || responseHeaders["Content-Type"] || [""])[0] || "";
-    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) {
-      const cspRo = [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' file: blob: data: http: https:",
-        "connect-src 'self' http: https: ws: wss:",
-        "font-src 'self' blob: data:",
-        "frame-src blob: data: http: https:",
-        "object-src 'none'",
-        "worker-src 'self' blob:",
-        "media-src 'self' blob:",
-      ].join("; ");
-      responseHeaders["Content-Security-Policy-Report-Only"] = [cspRo];
-    }
-    callback({ responseHeaders });
-  });
+  // 主窗口可使用用户指定的持久化会话目录；离线 IndexedDB 与必要的
+  // renderer 登录态会在重启阶段一并迁移，避免更换位置后被迫重新登录。
+  const rendererSession = prepareRendererSession(settings);
+  configureRendererSession(rendererSession);
   console.log("[Electron] CSP Report-Only injected via webRequest.onHeadersReceived");
 
   // Lite-only 包强制使用 lite 模式：哪怕用户手改 settings.json 为 full 也纠正回来

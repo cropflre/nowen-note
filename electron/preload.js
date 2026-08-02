@@ -67,6 +67,19 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("app:open-data-dir");
   },
 
+  /** 查看桌面端 IndexedDB 离线缓存位置。 */
+  getOfflineStorageInfo() {
+    return ipcRenderer.invoke("app:get-offline-storage-info");
+  },
+
+  openOfflineStorageDir() {
+    return ipcRenderer.invoke("app:open-offline-storage-dir");
+  },
+
+  chooseOfflineStorageDir() {
+    return ipcRenderer.invoke("app:choose-offline-storage-dir");
+  },
+
   /** 本地数据目录：查询、选择与迁移。 */
   dataDir: {
     getInfo() {

@@ -1089,17 +1089,14 @@ export default function MobileKnowledgeTreePanel({
             <button
               type="button"
               onClick={() => void chooseSortMode()}
-              className={cn(
-                "flex shrink-0 items-center justify-center text-accent-primary",
-                variant === "mobile" ? "h-8 w-full rounded-md hover:bg-app-bg" : "h-7 w-6 rounded-md hover:bg-app-hover",
-              )}
+              className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-accent-primary hover:bg-app-hover"
               title={`排序：${SORT_LABELS[sortMode]}`}
               aria-label={`目录排序，当前为${SORT_LABELS[sortMode]}`}
             >
-              <ArrowUpDown size={variant === "mobile" ? 14 : 13} />
+              <ArrowUpDown size={13} />
             </button>
           )}
-          {variant === "desktop" && view === "browse" && (
+          {view === "browse" && (
             <button
               type="button"
               onClick={() => setAllExpanded((current) => !current)}
@@ -1113,27 +1110,21 @@ export default function MobileKnowledgeTreePanel({
             type="button"
             onClick={(event) => openCreateDropdown(event, view === "browse" ? currentFolder : null)}
             disabled={view === "browse" && !!currentFolder && !currentFolder.access.capabilities.canCreate}
-            className={cn(
-              "flex shrink-0 items-center justify-center text-tx-tertiary hover:text-tx-primary disabled:opacity-40",
-              variant === "mobile" ? "h-8 w-full rounded-md hover:bg-app-bg" : "h-7 w-6 rounded-md hover:bg-app-hover",
-            )}
+            className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-40"
             title={currentFolder ? `在“${currentFolder.title}”中新建` : "新建"}
             aria-label={currentFolder ? `在“${currentFolder.title}”中新建` : "新建"}
             aria-haspopup="menu"
           >
-            <Plus size={variant === "mobile" ? 15 : 14} />
+            <Plus size={14} />
           </button>
           <button
             type="button"
             onClick={() => void reload()}
             disabled={loading}
-            className={cn(
-              "flex shrink-0 items-center justify-center text-tx-tertiary hover:text-tx-primary disabled:opacity-50",
-              variant === "mobile" ? "h-8 w-full rounded-md hover:bg-app-bg" : "h-7 w-6 rounded-md hover:bg-app-hover",
-            )}
+            className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
             title="刷新内容"
           >
-            <RefreshCw size={variant === "mobile" ? 14 : 13} className={loading ? "animate-spin" : undefined} />
+            <RefreshCw size={13} className={loading ? "animate-spin" : undefined} />
           </button>
           </div>
         )}

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CloudDownload,
   Database,
+  FolderOpen,
   HardDrive,
   Loader2,
   Pause,
@@ -29,6 +30,11 @@ import {
   type OfflineSyncSettings,
 } from "@/lib/offlineWorkspaceSync";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
+import {
+  chooseOfflineStorageDir,
+  getOfflineStorageInfo,
+  openOfflineStorageDir,
+} from "@/lib/desktopBridge";
 import type { Workspace } from "@/types";
 
 function formatBytes(bytes: number): string {
@@ -71,7 +77,12 @@ export default function OfflineSyncSettings() {
   const [progress, setProgress] = useState<OfflineSyncProgress>(() => getOfflineSyncProgress());
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
+  const [offlineStoragePath, setOfflineStoragePath] = useState<string | null>(null);
+  const [openingStorage, setOpeningStorage] = useState(false);
+  const [changingStorage, setChangingStorage] = useState(false);
   const busy = isBusy(progress);
+  const isDesktopClient = typeof window !== "undefined" && Boolean((window as any).nowenDesktop?.isDesktop);
+  const isNativeMobile = typeof window !== "undefined" && Boolean((window as any).Capacitor?.isNativePlatform?.());
 
   useEffect(() => subscribeOfflineSyncProgress(setProgress), []);
   useEffect(() => {
@@ -83,6 +94,15 @@ export default function OfflineSyncSettings() {
     void refreshOfflineStorageStats();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!isDesktopClient) return;
+    let cancelled = false;
+    void getOfflineStorageInfo().then((info) => {
+      if (!cancelled && info?.ok) setOfflineStoragePath(info.path);
+    });
+    return () => { cancelled = true; };
+  }, [isDesktopClient]);
 
   const notePercent = progress.totalNotes > 0
     ? Math.min(100, Math.round(progress.completedNotes / progress.totalNotes * 100))
@@ -144,6 +164,25 @@ export default function OfflineSyncSettings() {
     await clearAllOfflineWorkspaceData();
   };
 
+  const handleOpenStorage = async () => {
+    setOpeningStorage(true);
+    try {
+      await openOfflineStorageDir();
+    } finally {
+      setOpeningStorage(false);
+    }
+  };
+
+  const handleChangeStorage = async () => {
+    setChangingStorage(true);
+    try {
+      const result = await chooseOfflineStorageDir();
+      if (result.ok && result.path) setOfflineStoragePath(result.path);
+    } finally {
+      setChangingStorage(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -171,8 +210,46 @@ export default function OfflineSyncSettings() {
             onClick={() => toggleEnabled(!settings.enabled)}
             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${settings.enabled ? "bg-indigo-600" : "bg-zinc-300 dark:bg-zinc-700"}`}
           >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${settings.enabled ? "translate-x-5" : "translate-x-0.5"}`} />
+            <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${settings.enabled ? "translate-x-5" : "translate-x-0"}`} />
           </button>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">客户端离线缓存位置</p>
+            <p
+              className="mt-0.5 truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400"
+              title={offlineStoragePath || undefined}
+            >
+              {isDesktopClient
+                ? offlineStoragePath || "正在读取存储位置…"
+                : isNativeMobile
+                  ? "应用内部存储（由系统管理）"
+                  : "浏览器站点存储（IndexedDB）"}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">缓存由客户端管理，请勿手动修改其中的文件。</p>
+          </div>
+          {isDesktopClient && offlineStoragePath && (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleOpenStorage()}
+                disabled={openingStorage || changingStorage}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {openingStorage ? <Loader2 size={13} className="animate-spin" /> : <FolderOpen size={13} />}
+                打开
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleChangeStorage()}
+                disabled={openingStorage || changingStorage}
+                className="inline-flex h-8 items-center rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {changingStorage && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+                更改位置
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
