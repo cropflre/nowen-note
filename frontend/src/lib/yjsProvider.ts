@@ -17,6 +17,7 @@ import { realtime, base64ToUint8 } from "./realtime";
 import {
   createYjsOperationId,
   encodeMissingYjsUpdate,
+  isYjsUploadReady,
   YjsDurabilityTracker,
   type YjsDurabilitySnapshot,
   type YjsMarkSentOptions,
@@ -203,6 +204,15 @@ export class NowenYjsProvider {
     }
   }
 
+  private isUploadReady(): boolean {
+    return isYjsUploadReady({
+      socketOpen: realtime.isOpen(),
+      joined: this.joined,
+      serverSynced: this.serverSynced,
+      localPersistenceReady: !this.idbPersistence || this.idbSynced,
+    });
+  }
+
   private bindListeners() {
     const docUpdateHandler = (update: Uint8Array, origin: any) => {
       if (origin === this) return;
@@ -215,10 +225,9 @@ export class NowenYjsProvider {
       }
 
       this.emitDurability(this.durability.markLocalChange());
-      // During join/rejoin the server baseline is not known yet. Queue edits until
-      // y:sync arrives so an ACK for a newer direct update cannot hide older
-      // offline content that still needs a full state-vector reconciliation.
-      if (!realtime.isOpen() || !this.joined || !this.serverSynced) {
+      // During join/rejoin the server baseline or IndexedDB baseline may still be
+      // incomplete. Queue edits until both are known, then upload one exact diff.
+      if (!this.isUploadReady()) {
         this.enqueuePending(update);
         return;
       }
@@ -432,7 +441,7 @@ export class NowenYjsProvider {
       this.emitDurability(this.durability.fail(null, "too_large"));
       return;
     }
-    if (!realtime.isOpen() || !this.joined || !this.serverSynced) {
+    if (!this.isUploadReady()) {
       this.enqueuePending(update);
       return;
     }
@@ -468,7 +477,7 @@ export class NowenYjsProvider {
 
   /** Backward-compatible fallback when a server does not provide a usable baseline. */
   private flushPendingUpdates() {
-    if (this.pendingUpdates.length === 0 || !realtime.isOpen() || !this.joined) return;
+    if (this.pendingUpdates.length === 0 || !this.isUploadReady()) return;
     const representedLocalChanges = this.pendingUpdates.length;
     let payload: Uint8Array;
     try {
