@@ -69,6 +69,9 @@ app.get("/api/health", async (c) => {
         "PUT /api/knowledge-tree/reorder",
         "DELETE /api/knowledge-tree/nodes/:nodeId (subtree or promote children)",
         "POST /api/knowledge-tree/nodes/:nodeId/restore",
+        "GET /api/knowledge-tree/nodes/:nodeId/permissions",
+        "PUT /api/knowledge-tree/nodes/:nodeId/permissions",
+        "DELETE /api/knowledge-tree/nodes/:nodeId/permissions/:userId",
         "PATCH /api/knowledge-tree/nodes/:nodeId (title and expansion metadata)",
         "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
         "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
@@ -81,6 +84,8 @@ app.get("/api/health", async (c) => {
         "knowledge-tree transactional move and batch reorder with stale-write rollback",
         "knowledge-tree transactional subtree deletion, child promotion and parent-first restore",
         "knowledge-tree idempotent restore and lifecycle history",
+        "knowledge-tree transactional permission set/clear with direct and inherited access",
+        "knowledge-tree permission idempotency, self-lockout prevention and stale-write rollback",
         "knowledge-tree title and expansion metadata mutations",
         "note and workspace room subscriptions",
         "note presence, editing and cursor events",
@@ -99,7 +104,7 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "remaining knowledge-tree mutations: permission set/clear (#249)",
+        "remaining knowledge-tree surfaces: shared-with-me, history and folder password (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -158,7 +163,7 @@ async function authenticateApiRequest(c: Context, next: Next) {
       `UPDATE user_sessions SET "lastSeenAt" = CURRENT_TIMESTAMP WHERE id = ?`,
       [payload.jti],
     ).catch((error) => {
-      console.warn("[postgres-runtime] session lastSeen update failed:", error instanceof Error ? error.message : error);
+      console.warn("[postgres-runtime] session lastSeen update failed:", error instanceof Error ? error.message : String(error));
     });
   }
 
