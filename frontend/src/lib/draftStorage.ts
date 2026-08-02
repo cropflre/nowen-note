@@ -230,6 +230,7 @@ export function shouldOfferRestore(
   serverVersion: number,
   serverUpdatedAt: string | undefined,
   serverContent: string | undefined,
+  serverTitle?: string,
 ): boolean {
   if (!draft) return false;
   if (draft.conflicted) return true;
@@ -239,7 +240,9 @@ export function shouldOfferRestore(
   // of clock skew, metadata-only edits, another device, or a delayed projection.
   // It must never suppress a local body that is observably different.
   if (typeof serverContent === "string") {
-    return serverContent !== draft.content;
+    const sameBody = serverContent === draft.content;
+    const sameTitle = serverTitle === undefined || serverTitle === draft.title;
+    return !(sameBody && sameTitle);
   }
 
   // Timestamp is only a fallback when the caller cannot provide server content.

@@ -112,6 +112,46 @@ describe("draft conflict preservation", () => {
     )).toBe(false);
   });
 
+  it("offers restore for a title-only draft when the server body matches", () => {
+    const draft = {
+      noteId: "note-title-only",
+      editorMode: "tiptap" as const,
+      title: "Unsaved title",
+      content: "same body",
+      contentText: "same body",
+      baseVersion: 4,
+      savedAt: Date.now(),
+    };
+
+    expect(shouldOfferRestore(
+      draft,
+      4,
+      "2099-01-01T00:00:00.000Z",
+      "same body",
+      "Persisted title",
+    )).toBe(true);
+  });
+
+  it("does not offer restore when both title and body already match", () => {
+    const draft = {
+      noteId: "note-title-persisted",
+      editorMode: "md" as const,
+      title: "Persisted title",
+      content: "same body",
+      contentText: "same body",
+      baseVersion: 4,
+      savedAt: Date.now(),
+    };
+
+    expect(shouldOfferRestore(
+      draft,
+      5,
+      "2020-01-01T00:00:00.000Z",
+      "same body",
+      "Persisted title",
+    )).toBe(false);
+  });
+
   it("allows a genuinely changed local body to start a new draft lineage", () => {
     const now = Date.now();
     saveDraft({

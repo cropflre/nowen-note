@@ -120,6 +120,7 @@ import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
+import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   applyMarkdownTaskCheckboxChange,
@@ -888,11 +889,27 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     ref,
     () => ({
       flushSave: () => {
+        const title = isTitleComposingRef.current
+          ? noteRef.current.title
+          : titleRef.current?.value || noteRef.current.title;
+        const mode = resolveEditorLifecycleSave({
+          hasPendingContent: !!debounceTimer.current,
+          title,
+          noteTitle: noteRef.current.title,
+          lastEmittedTitle: lastEmittedTitleRef.current,
+          isTitleComposing: isTitleComposingRef.current,
+        });
+        if (mode === "none") return;
         if (debounceTimer.current) {
           clearTimeout(debounceTimer.current);
           debounceTimer.current = null;
-          emitSave();
         }
+        if (mode === "content") {
+          emitSave();
+          return;
+        }
+        lastEmittedTitleRef.current = title;
+        onUpdateRef.current({ title, _noteId: noteRef.current.id });
       },
       discardPending: () => {
         // �л��༭��ʱ���÷������� PUT����� debounce �����������

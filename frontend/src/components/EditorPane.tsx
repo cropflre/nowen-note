@@ -890,11 +890,13 @@ export default function EditorPane({
       const current = activeNoteRef.current;
       if (!current || (noteId && current.id !== noteId)) return;
 
+      persistCurrentEditorSnapshotDraft();
       try {
         const snapshot = editorHandleRef.current?.getSnapshot?.();
         if (snapshot && typeof snapshot.content === "string") {
           const next = {
             ...current,
+            title: snapshot.title ?? current.title,
             content: snapshot.content,
             contentText: snapshot.contentText,
           };
@@ -915,7 +917,7 @@ export default function EditorPane({
       const snapshot = editorHandleRef.current?.getSnapshot?.();
       if (!snapshot) return;
       publishEditorSplitMirrorUpdate(noteId, {
-        title: current.title,
+        title: snapshot.title ?? current.title,
         content: snapshot.content,
         contentText: snapshot.contentText,
         _noteId: noteId,
@@ -945,6 +947,7 @@ export default function EditorPane({
         activeNote.version,
         activeNote.updatedAt,
         activeNote.content,
+        activeNote.title,
       )
     ) {
       setPendingDraft(draft);
@@ -1020,12 +1023,38 @@ export default function EditorPane({
     return () => { cancelled = true; };
   }, [selfUser]);
 
-  function getCurrentEditorSnapshot(): { content: string; contentText: string } | null {
+  function getCurrentEditorSnapshot(): { content: string; contentText: string; title?: string } | null {
     try {
       const snap = editorHandleRef.current?.getSnapshot?.();
       return snap && typeof snap.content === "string" ? snap : null;
     } catch {
       return null;
+    }
+  }
+
+  function persistCurrentEditorSnapshotDraft(): void {
+    const current = activeNoteRef.current;
+    if (!current || current.isLocked || viewLockedIdsRef.current.has(current.id)) return;
+    const snapshot = getCurrentEditorSnapshot();
+    if (!snapshot) return;
+    const title = snapshot.title ?? current.title;
+    if (
+      snapshot.content === current.content
+      && snapshot.contentText === current.contentText
+      && title === current.title
+    ) return;
+    try {
+      saveDraft({
+        noteId: current.id,
+        editorMode: editorModeRef.current,
+        content: snapshot.content,
+        contentText: snapshot.contentText,
+        title,
+        baseVersion: current.version,
+        savedAt: Date.now(),
+      });
+    } catch {
+      /* Local storage may be unavailable; flushSave still attempts the server write. */
     }
   }
 
@@ -1035,7 +1064,9 @@ export default function EditorPane({
     if (syncStatusRef.current === "saving" || !!saveInflightRef.current) return true;
     const snap = getCurrentEditorSnapshot();
     if (!snap) return false;
-    return snap.content !== cur.content || snap.contentText !== cur.contentText;
+    return snap.content !== cur.content
+      || snap.contentText !== cur.contentText
+      || (snap.title ?? cur.title) !== cur.title;
   }
 
   function getCollabMarkdownSnapshot(): string | null {
@@ -1402,11 +1433,16 @@ export default function EditorPane({
 
   // ����ж��ǰ���� flush��ˢ�¡��رձ�ǩ��
   useEffect(() => {
-    const onBeforeUnload = () => {
+    const flushLifecycleSave = () => {
+      persistCurrentEditorSnapshotDraft();
       try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
     };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("beforeunload", flushLifecycleSave);
+    window.addEventListener("pagehide", flushLifecycleSave);
+    return () => {
+      window.removeEventListener("beforeunload", flushLifecycleSave);
+      window.removeEventListener("pagehide", flushLifecycleSave);
+    };
   }, []);
 
   // NoteList/Sidebar �������л� activeNote ǰ�������¼������� Tiptap �յ��� note.id ��
@@ -1418,6 +1454,7 @@ export default function EditorPane({
         skipNextSwitchFlushForNoteIdRef.current = null;
         return;
       }
+      persistCurrentEditorSnapshotDraft();
       try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
     };
     window.addEventListener("nowen:before-note-switch", onBeforeNoteSwitch);
