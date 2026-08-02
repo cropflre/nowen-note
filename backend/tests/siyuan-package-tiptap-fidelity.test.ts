@@ -499,10 +499,11 @@ test("Markdown import keeps advanced Siyuan nodes on the markdown path", async (
   const note = getNoteByTitle("高级节点 Markdown");
   assert.ok(note);
   assert.equal(note.contentFormat, "markdown");
-  assert.match(note.content, /^# 一级标题$/m);
-  assert.match(note.content, /^#### 四级标题$/m);
-  assert.match(note.content, /^##### 五级标题$/m);
-  assert.match(note.content, /^###### 六级标题$/m);
+  const blockIdSuffix = String.raw`(?: \^blk_[A-Za-z0-9-]+)?`;
+  assert.match(note.content, new RegExp(`^# 一级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^#### 四级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^##### 五级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^###### 六级标题${blockIdSuffix}$`, "m"));
   assert.match(note.content, /\$x\+y\$/);
   assert.match(note.content, /\$\$\s*E=mc\^2\s*\$\$/s);
   assert.match(note.content, /> \[!NOTE] 备注/);
