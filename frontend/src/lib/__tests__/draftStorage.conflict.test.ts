@@ -56,6 +56,44 @@ describe("draft conflict preservation", () => {
     )).toBe(true);
   });
 
+  it("offers a divergent local body even when the server clock is ahead", () => {
+    const draft = {
+      noteId: "note-clock-skew",
+      editorMode: "md" as const,
+      title: "Title",
+      content: "two days of local writing",
+      contentText: "two days of local writing",
+      baseVersion: 7,
+      savedAt: Date.now(),
+    };
+
+    expect(shouldOfferRestore(
+      draft,
+      8,
+      "2099-01-01T00:00:00.000Z",
+      "old server body",
+    )).toBe(true);
+  });
+
+  it("does not offer a draft whose body is already on the server", () => {
+    const draft = {
+      noteId: "note-equal",
+      editorMode: "md" as const,
+      title: "Title",
+      content: "already persisted",
+      contentText: "already persisted",
+      baseVersion: 7,
+      savedAt: Date.now(),
+    };
+
+    expect(shouldOfferRestore(
+      draft,
+      8,
+      "2020-01-01T00:00:00.000Z",
+      "already persisted",
+    )).toBe(false);
+  });
+
   it("allows a genuinely changed local body to start a new draft lineage", () => {
     const now = Date.now();
     saveDraft({
