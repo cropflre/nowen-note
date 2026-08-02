@@ -37,13 +37,17 @@ jobs:
       - name: Frontend typecheck
         working-directory: frontend
         run: npx tsc -b
-      - name: Commit verified patch
+      - name: Commit verified frontend patch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/issue-612-title-lifecycle-patch.yml
-          git rm -f .github/workflows/issue-612-title-lifecycle-apply.yml
-          git rm -f .github/scripts/issue612_title_lifecycle_patch.py
-          git add -A
+          git checkout -- .github/workflows/issue-612-data-protection-ci.yml
+          git add frontend/src/components/EditorPane.tsx
+          git add frontend/src/components/TiptapEditor.tsx
+          git add frontend/src/components/MarkdownEditorImpl.tsx
+          git add frontend/src/lib/draftStorage.ts
+          git add frontend/src/lib/editorLifecycleSafety.ts
+          git add frontend/src/lib/__tests__/draftStorage.conflict.test.ts
+          git add frontend/src/lib/__tests__/editorLifecycleSafety.test.ts
           git commit -m "fix(editor): preserve title edits across lifecycle events (#612)"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
