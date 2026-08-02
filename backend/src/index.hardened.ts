@@ -4,6 +4,7 @@ import "./runtime/url-import-dns-compat.js";
 import "./runtime/knowledge-tree-migration-bootstrap.js";
 import "./runtime/task-metadata-migration-bootstrap.js";
 import "./runtime/task-time-planning-migration-bootstrap.js";
+import "./runtime/task-inbox-migration-bootstrap.js";
 // Permission routes import ACL services that may initialize database guards, so they must load
 // only after the feature migration list has been registered.
 import "./runtime/notebook-permission-management.js";
