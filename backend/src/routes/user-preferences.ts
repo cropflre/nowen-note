@@ -5,6 +5,7 @@ import reliableAIRoutes from "./ai-reliable";
 import mobileBootstrapRoutes from "./mobile-bootstrap";
 import taskDayPlansRoutes from "./task-day-plans";
 import taskMetadataRoutes from "./task-metadata";
+import taskTimeBlocksRoutes from "./task-time-blocks";
 
 /**
  * Compatibility wrapper: existing user preference/profile endpoints stay at their
@@ -21,6 +22,10 @@ app.route("/task-day-plans", taskDayPlansRoutes);
 // Labels and saved views are task organization metadata. Labels may be shared in
 // a workspace, while each saved view remains account-scoped.
 app.route("/task-metadata", taskMetadataRoutes);
+
+// Time blocks are personal calendar allocations. Even inside a shared workspace,
+// every member owns an independent schedule for the same shared task.
+app.route("/task-time-blocks", taskTimeBlocksRoutes);
 
 // Root preference GET/PUT/PATCH must be mounted before the legacy router. The new
 // implementation keeps the old flat response fields while adding account-scoped
