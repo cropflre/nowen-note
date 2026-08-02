@@ -4,6 +4,7 @@ import test from "node:test";
 import { Hono } from "hono";
 
 import { PostgresAdapter } from "../src/db/postgresAdapter";
+import { createNoteTransferOperationRepository } from "../src/repositories/noteTransferOperationRepository";
 import createNoteTransfersRuntimeRouter from "../src/routes/note-transfers-runtime";
 import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-db";
 
@@ -20,6 +21,7 @@ const ACTOR_TARGET = "pg-transfer-preview-actor-target";
 const OUTSIDER_WORKSPACE = "pg-transfer-preview-outsider-workspace";
 const OUTSIDER_TARGET = "pg-transfer-preview-outsider-target";
 const TAG = "pg-transfer-preview-tag";
+const IDEMPOTENCY_KEY = "transfer-preview-operation-001";
 
 async function responseJson<T>(response: Response, expectedStatus: number): Promise<T> {
   const text = await response.text();
@@ -90,7 +92,7 @@ async function seed(pool: import("pg").Pool): Promise<void> {
   );
 }
 
-test("PostgreSQL note-transfer preview is permission-safe and execution stays closed", { skip: !hasPg }, async () => {
+test("PostgreSQL note-transfer preview and durable preparation are permission-safe", { skip: !hasPg }, async () => {
   const pool = await getPgPool();
   assert.ok(pool);
 
@@ -98,19 +100,21 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     await initPgSchema(pool);
     await seed(pool);
 
+    const adapter = new PostgresAdapter(pool);
     const app = new Hono();
     app.route(
       "/api/note-transfers",
-      createNoteTransfersRuntimeRouter(new PostgresAdapter(pool)),
+      createNoteTransfersRuntimeRouter(adapter),
     );
 
-    const preview = async (
+    const request = async (
+      path: string,
       actorUserId: string,
       body: Record<string, unknown>,
       expectedStatus = 200,
       extraHeaders: Record<string, string> = {},
     ) => responseJson<Record<string, any>>(
-      await app.request("/api/note-transfers/preview", {
+      await app.request(`/api/note-transfers${path}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -122,7 +126,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
       expectedStatus,
     );
 
-    const success = await preview(ACTOR, {
+    const previewBody = {
       sourceNoteIds: [SOURCE_NOTE_A, SOURCE_NOTE_B, SOURCE_NOTE_A],
       targetWorkspaceId: ACTOR_WORKSPACE,
       targetNotebookId: ACTOR_TARGET,
@@ -133,7 +137,8 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
         [SOURCE_NOTE_A]: 4,
         [SOURCE_NOTE_B]: 7,
       },
-    });
+    };
+    const success = await request("/preview", ACTOR, previewBody);
     assert.equal(success.canExecute, true);
     assert.equal(success.sourceWorkspaceId, null);
     assert.equal(success.targetWorkspaceId, ACTOR_WORKSPACE);
@@ -156,7 +161,88 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     assert(success.warnings.some((warning: string) => warning.includes("附件文件缺失")));
     assert(success.omitted.includes("笔记级 ACL 与成员权限覆写"));
 
-    const stale = await preview(ACTOR, {
+    const prepared = await request("/prepare", ACTOR, {
+      ...previewBody,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    }, 201);
+    assert.equal(prepared.status, "prepared");
+    assert.equal(prepared.reused, false);
+    assert.equal(prepared.sourceNoteCount, 2);
+    assert.equal(prepared.plan.attachmentCount, 1);
+    assert.equal(prepared.plan.attachmentBytes, 24);
+    assert.deepEqual(prepared.plan.sourceNoteIds, [SOURCE_NOTE_A, SOURCE_NOTE_B]);
+    assert.equal(prepared.items.length, 2);
+    assert.equal(new Set(prepared.items.map((item: { targetNoteId: string }) => item.targetNoteId)).size, 2);
+    assert.deepEqual(
+      prepared.items.map((item: { sourceNoteId: string; sourceVersion: number; itemOrder: number }) => [
+        item.sourceNoteId,
+        item.sourceVersion,
+        item.itemOrder,
+      ]),
+      [[SOURCE_NOTE_A, 4, 0], [SOURCE_NOTE_B, 7, 1]],
+    );
+
+    const reused = await request("/prepare", ACTOR, {
+      ...previewBody,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    }, 200);
+    assert.equal(reused.id, prepared.id);
+    assert.equal(reused.reused, true);
+    assert.deepEqual(reused.plan.targetNoteIds, prepared.plan.targetNoteIds);
+
+    const loaded = await responseJson<Record<string, any>>(
+      await app.request(`/api/note-transfers/operations/${encodeURIComponent(IDEMPOTENCY_KEY)}`, {
+        headers: { "X-User-Id": ACTOR },
+      }),
+      200,
+    );
+    assert.equal(loaded.id, prepared.id);
+    assert.equal(loaded.reused, false);
+
+    const idempotencyConflict = await request("/prepare", ACTOR, {
+      ...previewBody,
+      sourceNoteIds: [SOURCE_NOTE_A],
+      expectedVersions: { [SOURCE_NOTE_A]: 4 },
+      idempotencyKey: IDEMPOTENCY_KEY,
+    }, 409);
+    assert.equal(idempotencyConflict.code, "NOTE_TRANSFER_IDEMPOTENCY_CONFLICT");
+
+    const invalidKey = await request("/prepare", ACTOR, {
+      ...previewBody,
+      idempotencyKey: "short",
+    }, 400);
+    assert.equal(invalidKey.code, "NOTE_TRANSFER_IDEMPOTENCY_KEY_INVALID");
+
+    const operations = createNoteTransferOperationRepository(adapter);
+    await assert.rejects(
+      operations.prepare({
+        actorUserId: ACTOR,
+        idempotencyKey: "transfer-preview-stale-rollback",
+        mode: "copy",
+        sourceWorkspaceId: null,
+        targetWorkspaceId: ACTOR_WORKSPACE,
+        targetNotebookId: ACTOR_TARGET,
+        includeAttachments: true,
+        includeTags: true,
+        sourceNoteIds: [SOURCE_NOTE_A, SOURCE_NOTE_B],
+        sourceVersions: { [SOURCE_NOTE_A]: 4, [SOURCE_NOTE_B]: 6 },
+        attachmentCount: 1,
+        attachmentBytes: 24,
+        tagCount: 1,
+        internalNoteLinkCount: 1,
+        externalNoteLinkCount: 1,
+      }),
+      (error: any) => error?.code === "NOTE_TRANSFER_PLAN_STALE",
+    );
+    const rolledBack = await pool.query(
+      `SELECT COUNT(*)::int AS count
+         FROM note_transfer_operations
+        WHERE "userId" = $1 AND "idempotencyKey" = $2`,
+      [ACTOR, "transfer-preview-stale-rollback"],
+    );
+    assert.equal(rolledBack.rows[0].count, 0);
+
+    const stale = await request("/preview", ACTOR, {
       sourceNoteIds: [SOURCE_NOTE_A],
       targetWorkspaceId: ACTOR_WORKSPACE,
       targetNotebookId: ACTOR_TARGET,
@@ -167,7 +253,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     assert(stale.blockers.some((blocker: { code: string }) => blocker.code === "SOURCE_VERSION_CONFLICT"));
 
     await pool.query(`UPDATE notes SET "isLocked" = true WHERE id = $1`, [SOURCE_NOTE_A]);
-    const lockedMove = await preview(ACTOR, {
+    const lockedMove = await request("/preview", ACTOR, {
       sourceNoteIds: [SOURCE_NOTE_A],
       targetWorkspaceId: ACTOR_WORKSPACE,
       targetNotebookId: ACTOR_TARGET,
@@ -179,7 +265,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     assert(lockedMove.blockers.some((blocker: { code: string }) => blocker.code === "ATTACHMENT_FILE_MISSING"));
     await pool.query(`UPDATE notes SET "isLocked" = false WHERE id = $1`, [SOURCE_NOTE_A]);
 
-    const outsider = await preview(OUTSIDER, {
+    const outsider = await request("/preview", OUTSIDER, {
       sourceNoteIds: [SOURCE_NOTE_A],
       targetWorkspaceId: OUTSIDER_WORKSPACE,
       targetNotebookId: OUTSIDER_TARGET,
@@ -189,7 +275,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     assert(outsider.blockers.some((blocker: { code: string }) => blocker.code === "SOURCE_NOTE_FORBIDDEN"));
     assert(outsider.blockers.some((blocker: { code: string }) => blocker.code === "SOURCE_PERSONAL_FORBIDDEN"));
 
-    const sameWorkspace = await preview(ACTOR, {
+    const sameWorkspace = await request("/preview", ACTOR, {
       sourceNoteIds: [SOURCE_NOTE_A],
       targetWorkspaceId: null,
       targetNotebookId: PERSONAL_TARGET,
@@ -197,7 +283,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     }, 400);
     assert.equal(sameWorkspace.code, "SAME_WORKSPACE_TRANSFER_FORBIDDEN");
 
-    const apiToken = await preview(ACTOR, {
+    const apiToken = await request("/preview", ACTOR, {
       sourceNoteIds: [SOURCE_NOTE_A],
       targetWorkspaceId: ACTOR_WORKSPACE,
       targetNotebookId: ACTOR_TARGET,
@@ -205,19 +291,12 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     }, 403, { "X-Auth-Mode": "api-token" });
     assert.equal(apiToken.code, "INTERACTIVE_LOGIN_REQUIRED");
 
-    const execution = await responseJson<{ code: string; issue: number }>(
-      await app.request("/api/note-transfers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-User-Id": ACTOR },
-        body: JSON.stringify({
-          sourceNoteIds: [SOURCE_NOTE_A],
-          targetWorkspaceId: ACTOR_WORKSPACE,
-          targetNotebookId: ACTOR_TARGET,
-          mode: "copy",
-        }),
-      }),
-      503,
-    );
+    const execution = await request("", ACTOR, {
+      sourceNoteIds: [SOURCE_NOTE_A],
+      targetWorkspaceId: ACTOR_WORKSPACE,
+      targetNotebookId: ACTOR_TARGET,
+      mode: "copy",
+    }, 503);
     assert.equal(execution.code, "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING");
     assert.equal(execution.issue, 249);
   } finally {
