@@ -636,14 +636,18 @@ export default function InlineCommentBridge() {
 
   useEffect(() => {
     let frame = 0;
+    let suppressedByExternalInteraction = false;
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setSelectionDraft(readSelectionDraft()));
+      frame = requestAnimationFrame(() => {
+        setSelectionDraft(suppressedByExternalInteraction ? null : readSelectionDraft());
+      });
     };
     const hideOnPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (target?.closest("[data-inline-comment-ui]")) return;
-      if (!findEditorRoot(event.target as Node | null)) setSelectionDraft(null);
+      suppressedByExternalInteraction = !findEditorRoot(event.target as Node | null);
+      if (suppressedByExternalInteraction) setSelectionDraft(null);
     };
     document.addEventListener("selectionchange", update);
     document.addEventListener("mouseup", update);

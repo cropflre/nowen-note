@@ -22,6 +22,10 @@ export function isMarkdownDropFile(file: Pick<File, "name">): boolean {
   return /\.(?:md|markdown)$/i.test(String(file.name || "").trim());
 }
 
+export function isWordDropFile(file: Pick<File, "name">): boolean {
+  return /\.docx$/i.test(String(file.name || "").trim());
+}
+
 export function markdownDropTitle(fileName: string): string {
   const normalized = String(fileName || "")
     .replace(/\\/g, "/")
@@ -39,6 +43,12 @@ export function hasExternalFilePayload(dataTransfer: Pick<DataTransfer, "types" 
 
 export function markdownFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "files">): File[] {
   return Array.from(dataTransfer.files || []).filter(isMarkdownDropFile);
+}
+
+export function knowledgeTreeFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "files">): File[] {
+  return Array.from(dataTransfer.files || []).filter((file) => (
+    isMarkdownDropFile(file) || isWordDropFile(file)
+  ));
 }
 
 /** 打开系统文件选择器，支持一次选择多个 Markdown 文件。 */
@@ -95,7 +105,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "未知错误");
 }
 
-async function resolveTargetNode(nodeId: string): Promise<KnowledgeTreeNode | null> {
+interface KnowledgeTreeDropTarget {
+  node: KnowledgeTreeNode;
+  nodes: KnowledgeTreeNode[];
+}
+
+async function resolveTargetNode(nodeId: string): Promise<KnowledgeTreeDropTarget | null> {
   const [ownedResult, sharedResult] = await Promise.allSettled([
     knowledgeTreeApi.list(),
     knowledgeTreeApi.listShared(),
@@ -111,7 +126,8 @@ async function resolveTargetNode(nodeId: string): Promise<KnowledgeTreeNode | nu
         : new Error("无法读取内容树");
     throw reason;
   }
-  return nodes.find((node) => node.id === nodeId) || null;
+  const node = nodes.find((candidate) => candidate.id === nodeId);
+  return node ? { node, nodes } : null;
 }
 
 async function readMarkdownFile(file: File): Promise<string> {
@@ -204,10 +220,40 @@ export async function importMarkdownFileIntoKnowledgeTree(
   }
 }
 
+async function importWordFileIntoKnowledgeTree(
+  file: File,
+  target: KnowledgeTreeNode,
+  nodes: KnowledgeTreeNode[],
+): Promise<void> {
+  const byId = new Map(nodes.map((candidate) => [candidate.id, candidate]));
+  const visited = new Set<string>();
+  let cursor: KnowledgeTreeNode | undefined = target;
+  let notebookId: string | null = null;
+
+  while (cursor && !visited.has(cursor.id)) {
+    visited.add(cursor.id);
+    if (cursor.resourceType === "notebook") {
+      notebookId = cursor.resourceId;
+      break;
+    }
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+  }
+  if (!notebookId && target.resourceType === "note") {
+    notebookId = (await api.getNote(target.resourceId)).notebookId;
+  }
+  if (!notebookId) throw new Error("无法确定 Word 文档的目标目录");
+
+  const { importDocxAsNote } = await import("@/lib/wordNoteService");
+  const { note } = await importDocxAsNote({ notebookId, file });
+  if (target.id !== `notebook:${notebookId}`) {
+    await knowledgeTreeApi.move(`note:${note.id}`, { parentId: target.id });
+  }
+}
+
 function emitTreeChanged(targetNodeId: string, imported: number): void {
   window.dispatchEvent(new CustomEvent(TREE_CHANGED_EVENT, {
     detail: {
-      reason: "markdown-files-dropped",
+      reason: "knowledge-tree-files-dropped",
       targetNodeId,
       imported,
     },
@@ -230,47 +276,52 @@ function expandTargetAfterRefresh(targetNodeId: string, attempt = 0): void {
   }, attempt === 0 ? 120 : 180);
 }
 
-async function handleMarkdownDrop(row: HTMLElement, dataTransfer: DataTransfer): Promise<void> {
+async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataTransfer): Promise<void> {
   const nodeId = row.dataset.knowledgeTreeNodeId || "";
   const allFiles = Array.from(dataTransfer.files || []);
-  const markdownFiles = markdownFilesFromDataTransfer(dataTransfer);
-  const skippedCount = allFiles.length - markdownFiles.length;
+  const supportedFiles = knowledgeTreeFilesFromDataTransfer(dataTransfer);
+  const skippedCount = allFiles.length - supportedFiles.length;
 
   if (!nodeId) return;
-  if (markdownFiles.length === 0) {
-    toast.warning("这里只支持拖入 .md 或 .markdown 文件");
+  if (supportedFiles.length === 0) {
+    toast.warning("这里只支持拖入 .md、.markdown 或 .docx 文件");
     return;
   }
-  if (markdownFiles.length > MAX_MARKDOWN_DROP_FILES) {
-    toast.error(`单次最多拖入 ${MAX_MARKDOWN_DROP_FILES} 个 Markdown 文件`);
+  if (supportedFiles.length > MAX_MARKDOWN_DROP_FILES) {
+    toast.error(`单次最多拖入 ${MAX_MARKDOWN_DROP_FILES} 个文档`);
     return;
   }
-  const totalSize = markdownFiles.reduce((sum, file) => sum + file.size, 0);
+  const totalSize = supportedFiles.reduce((sum, file) => sum + file.size, 0);
   if (totalSize > MAX_MARKDOWN_DROP_TOTAL_SIZE) {
     toast.error(`本次文件总大小超过 ${formatBytes(MAX_MARKDOWN_DROP_TOTAL_SIZE)} 限制`);
     return;
   }
   if (importing) {
-    toast.warning("已有 Markdown 文件正在导入，请稍后再试");
+    toast.warning("已有文档正在导入，请稍后再试");
     return;
   }
 
   importing = true;
-  const progressToast = toast.info(`正在导入 ${markdownFiles.length} 个 Markdown 文件…`, 0);
+  const progressToast = toast.info(`正在导入 ${supportedFiles.length} 个文档…`, 0);
   let target: KnowledgeTreeNode | null = null;
   let successCount = 0;
   const failures: Array<{ file: string; reason: string }> = [];
 
   try {
-    target = await resolveTargetNode(nodeId);
-    if (!target) throw new Error("目标目录已不存在，请刷新后重试");
+    const resolvedTarget = await resolveTargetNode(nodeId);
+    if (!resolvedTarget) throw new Error("目标目录已不存在，请刷新后重试");
+    target = resolvedTarget.node;
     if (!target.access.capabilities.canCreate) {
       throw new Error("你没有在该目录下创建文档的权限");
     }
 
-    for (const file of markdownFiles) {
+    for (const file of supportedFiles) {
       try {
-        await importMarkdownFileIntoKnowledgeTree(file, target.id);
+        if (isMarkdownDropFile(file)) {
+          await importMarkdownFileIntoKnowledgeTree(file, target.id);
+        } else {
+          await importWordFileIntoKnowledgeTree(file, target, resolvedTarget.nodes);
+        }
         successCount += 1;
       } catch (error) {
         failures.push({ file: file.name, reason: errorMessage(error) });
@@ -288,9 +339,9 @@ async function handleMarkdownDrop(row: HTMLElement, dataTransfer: DataTransfer):
     toast.dismiss(progressToast);
   }
 
-  if (successCount === markdownFiles.length) {
-    const skippedHint = skippedCount > 0 ? `，已忽略 ${skippedCount} 个非 Markdown 文件` : "";
-    toast.success(`已将 ${successCount} 个 Markdown 文件导入“${target?.title || "目标目录"}”${skippedHint}`);
+  if (successCount === supportedFiles.length) {
+    const skippedHint = skippedCount > 0 ? `，已忽略 ${skippedCount} 个不支持的文件` : "";
+    toast.success(`已将 ${successCount} 个文档导入“${target?.title || "目标目录"}”${skippedHint}`);
     return;
   }
 
@@ -303,7 +354,7 @@ async function handleMarkdownDrop(row: HTMLElement, dataTransfer: DataTransfer):
     return;
   }
 
-  toast.error(firstFailure?.reason || "Markdown 文件导入失败", 6000);
+  toast.error(firstFailure?.reason || "文档导入失败", 6000);
 }
 
 export function installKnowledgeTreeMarkdownDrop(): () => void {
@@ -329,7 +380,7 @@ export function installKnowledgeTreeMarkdownDrop(): () => void {
     if (!row) return;
     event.preventDefault();
     event.stopPropagation();
-    void handleMarkdownDrop(row, dataTransfer);
+    void handleKnowledgeTreeFileDrop(row, dataTransfer);
   };
 
   const onDragLeave = (event: DragEvent) => {

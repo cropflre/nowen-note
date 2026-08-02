@@ -3381,7 +3381,10 @@ const moveToTrash = useCallback(async () => {
           {/* 原生 Markdown 笔记：contentFormat === "markdown" 时始终用 MarkdownEditor */}
           {activeNote.contentFormat === "markdown" ? (
             <MarkdownEditor
-              key={`md-native-${activeNote.id}`}
+              // Y.Doc arrives after the first render. Remount once it is available so the
+              // CodeMirror instance is actually created with yCollab; otherwise the editor
+              // stops REST-saving but has no CRDT persistence extension attached.
+              key={collabYDoc ? `md-native-y-${activeNote.id}` : `md-native-${activeNote.id}`}
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}

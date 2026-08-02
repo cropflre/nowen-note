@@ -23,6 +23,24 @@ function isAllowedExternalUrl(rawUrl) {
 }
 
 /**
+ * 只允许绿联远程访问的 HTTPS 主机进入桌面端内置登录窗口。
+ * 不接受 http、相似域名或携带伪造后缀的地址。
+ */
+function isAllowedUgreenRemoteUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    return parsed.protocol === "https:" && (
+      hostname === "ug.link"
+      || hostname.endsWith(".ug.link")
+      || hostname.endsWith(".ugdocker.link")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 判断 event.senderFrame 是否来自主窗口的可信 renderer。
  * 允许：file:// 本地 frontend/dist、开发环境 localhost
  */
@@ -118,6 +136,7 @@ function isAllowedMainWindowNavigation(targetUrl, currentUrl) {
 
 module.exports = {
   isAllowedExternalUrl,
+  isAllowedUgreenRemoteUrl,
   isAllowedMainWindowNavigation,
   isTrustedMainWindowSender,
   isTrustedSetupWindowSender,

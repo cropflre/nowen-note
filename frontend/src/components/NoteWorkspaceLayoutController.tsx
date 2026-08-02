@@ -55,6 +55,7 @@ export default function NoteWorkspaceLayoutController() {
   const wideLayoutSupported = supportsWideNoteWorkspaceLayout(surface);
   const noteWorkspaceActive = wideLayoutSupported
     && !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
+  const showLayoutControl = noteWorkspaceActive && !state.editorFullscreen;
   const functionalListView = usesFunctionalNoteList(state.viewMode);
   const [preferredMode, setPreferredMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
@@ -131,7 +132,7 @@ export default function NoteWorkspaceLayoutController() {
   }, [wideLayoutSupported]);
 
   useEffect(() => {
-    if (!portalTarget || !noteWorkspaceActive) return;
+    if (!portalTarget || !showLayoutControl) return;
     const previousPosition = portalTarget.style.position;
     const previousPaddingRight = portalTarget.style.paddingRight;
     portalTarget.style.position = "relative";
@@ -140,7 +141,7 @@ export default function NoteWorkspaceLayoutController() {
       portalTarget.style.position = previousPosition;
       portalTarget.style.paddingRight = previousPaddingRight;
     };
-  }, [noteWorkspaceActive, portalTarget]);
+  }, [portalTarget, showLayoutControl]);
 
   useEffect(() => {
     if (!open) return;
@@ -206,8 +207,8 @@ export default function NoteWorkspaceLayoutController() {
   ]);
 
   useEffect(() => {
-    if (!noteWorkspaceActive && open) setOpen(false);
-  }, [noteWorkspaceActive, open]);
+    if (!showLayoutControl && open) setOpen(false);
+  }, [open, showLayoutControl]);
 
   const toggleMenu = () => {
     if (!open) {
@@ -236,7 +237,7 @@ export default function NoteWorkspaceLayoutController() {
     setOpen(false);
   };
 
-  if (!noteWorkspaceActive) return null;
+  if (!showLayoutControl) return null;
 
   const trigger = (
     <button

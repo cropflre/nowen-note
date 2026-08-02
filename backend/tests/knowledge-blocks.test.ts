@@ -94,6 +94,7 @@ test("universal block indexing adds stable IDs to supported Tiptap nodes", () =>
   assert.ok(first.blocks.some((block) => block.blockType === "paragraph"));
   assert.ok(first.blocks.some((block) => block.blockType === "blockquote"));
   assert.ok(first.blocks.every((block) => block.blockId.startsWith("blk_")));
+  assert.equal(first.contentText, "Heading\n\nParagraph\n\nQuote");
   const second = syncNoteBlocks(db, "33333333-3333-4333-8333-333333333333", first.content, "tiptap-json");
   assert.deepEqual(second.blocks.map((block) => block.blockId), first.blocks.map((block) => block.blockId));
 });

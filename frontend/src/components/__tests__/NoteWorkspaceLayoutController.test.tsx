@@ -112,6 +112,13 @@ describe("NoteWorkspaceLayoutController", () => {
     act(() => click(findMenuChoice("专注模式")));
     expect(actions.setEditorFullscreen).toHaveBeenLastCalledWith(true);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+
+    state.editorFullscreen = false;
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).not.toBeNull();
   });
 
   it("keeps the same layout entry in Electron", () => {

@@ -427,6 +427,14 @@ function materializeRows(candidates: BlockCandidate[]): NoteBlockIndexRow[] {
   }));
 }
 
+function contentTextFromCandidates(candidates: BlockCandidate[]): string {
+  return candidates
+    .filter((candidate) => candidate.parentBlockId === null)
+    .map((candidate) => candidate.plainText)
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function syncNoteBlocks(
   db: Database.Database,
   noteId: string,
@@ -465,7 +473,9 @@ export function syncNoteBlocks(
   }
 
   const rows = materializeRows(candidates);
-  const contentText = rows.map((row) => row.plainText).filter(Boolean).join("\n\n");
+  // Parent blocks already contain all descendant text. Including child rows here would
+  // duplicate tables, lists and blockquotes in contentText and break DOCX save verification.
+  const contentText = contentTextFromCandidates(candidates);
   const insert = db.prepare(`
     INSERT INTO note_blocks_index (
       noteId, blockId, blockType, parentBlockId, blockOrder, plainText,
@@ -570,5 +580,5 @@ export function plainTextFromNoteContent(content: string, contentFormat: string)
   const parsed = contentFormat === "tiptap-json"
     ? parseTiptap("", content).candidates
     : parseMarkdown("", content).candidates;
-  return parsed.map((block) => block.plainText).filter(Boolean).join("\n\n");
+  return contentTextFromCandidates(parsed);
 }

@@ -22,6 +22,7 @@ const {
 const folderSync = require("./folder-sync");
 const {
   isAllowedExternalUrl,
+  isAllowedUgreenRemoteUrl,
   isAllowedMainWindowNavigation,
   isTrustedMainWindowSender,
   isTrustedSetupWindowSender,
@@ -56,6 +57,7 @@ let currentRemoteUrl = "";  // lite 模式下的远端 URL
 let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
 let currentRendererSession = null;
 let currentOfflineCacheDir = "";
+let ugreenWorkspaceWindow = null;
 // Phase A: 桌面零登录所用的本地账号 token / user，在 startBackend 之后由
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
@@ -1471,6 +1473,132 @@ async function changeRemoteServer() {
 
 // ---------- IPC：app 信息 ----------
 function registerAppIpc() {
+  ipcMain.removeHandler("app:open-ugreen-remote-workspace");
+  ipcMain.handle("app:open-ugreen-remote-workspace", async (event, payload = {}) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+
+    const url = typeof payload.url === "string" ? payload.url.slice(0, 4096) : "";
+    if (!isAllowedUgreenRemoteUrl(url)) {
+      return { ok: false, error: "INVALID_UGREEN_URL" };
+    }
+    const target = new URL(url);
+    const healthUrl = `${target.origin}${target.pathname.replace(/\/+$/, "")}/api/health`;
+
+    if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+      if (ugreenWorkspaceWindow.webContents.getURL() !== healthUrl) {
+        await ugreenWorkspaceWindow.loadURL(healthUrl);
+      }
+      if (ugreenWorkspaceWindow.isMinimized()) ugreenWorkspaceWindow.restore();
+      ugreenWorkspaceWindow.show();
+      ugreenWorkspaceWindow.focus();
+      return { ok: true };
+    }
+
+    ugreenWorkspaceWindow = new BrowserWindow({
+      width: 1120,
+      height: 780,
+      minWidth: 760,
+      minHeight: 560,
+      parent: mainWindow || undefined,
+      title: "绿联认证",
+      show: false,
+      autoHideMenuBar: true,
+      backgroundColor: "#ffffff",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        session: currentRendererSession || session.defaultSession,
+      },
+    });
+    ugreenWorkspaceWindow.setMenuBarVisibility(false);
+    ugreenWorkspaceWindow.once("ready-to-show", () => {
+      if (!ugreenWorkspaceWindow || ugreenWorkspaceWindow.isDestroyed()) return;
+      ugreenWorkspaceWindow.show();
+      ugreenWorkspaceWindow.focus();
+    });
+    let gatewayReady = false;
+    ugreenWorkspaceWindow.on("closed", () => {
+      if (!gatewayReady && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("ugreen:auth-cancelled", { serverUrl: url });
+      }
+      ugreenWorkspaceWindow = null;
+    });
+    ugreenWorkspaceWindow.webContents.setWindowOpenHandler(({ url: popupUrl }) => {
+      try {
+        if (new URL(popupUrl).protocol === "https:") {
+          return {
+            action: "allow",
+            overrideBrowserWindowOptions: {
+              parent: ugreenWorkspaceWindow || undefined,
+              autoHideMenuBar: true,
+              webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true,
+                webSecurity: true,
+                allowRunningInsecureContent: false,
+                session: currentRendererSession || session.defaultSession,
+              },
+            },
+          };
+        }
+      } catch {}
+      return { action: "deny" };
+    });
+
+    const remoteSession = currentRendererSession || session.defaultSession;
+    let healthCheckRunning = false;
+    const authPollTimer = setInterval(async () => {
+      if (gatewayReady || healthCheckRunning || !ugreenWorkspaceWindow || ugreenWorkspaceWindow.isDestroyed()) return;
+      healthCheckRunning = true;
+      try {
+        const response = await remoteSession.fetch(healthUrl, {
+          method: "GET",
+          redirect: "manual",
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        if (response.status !== 200) return;
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.toLowerCase().includes("application/json")) return;
+        const body = await response.json().catch(() => null);
+        if (!body || body.status !== "ok") return;
+
+        gatewayReady = true;
+        clearInterval(authPollTimer);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("ugreen:gateway-ready", { serverUrl: url });
+          mainWindow.show();
+          mainWindow.focus();
+        }
+        if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+          ugreenWorkspaceWindow.close();
+        }
+      } catch {
+        // 绿联尚未完成认证；下一轮继续检查。
+      } finally {
+        healthCheckRunning = false;
+      }
+    }, 800);
+    authPollTimer.unref?.();
+    ugreenWorkspaceWindow.once("closed", () => clearInterval(authPollTimer));
+
+    try {
+      await ugreenWorkspaceWindow.loadURL(healthUrl);
+      return { ok: true };
+    } catch (error) {
+      if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+        ugreenWorkspaceWindow.destroy();
+      }
+      ugreenWorkspaceWindow = null;
+      return { ok: false, error: error?.message || "LOAD_FAILED" };
+    }
+  });
+
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
   ipcMain.removeHandler("app:info");
   ipcMain.handle("app:info", (event) => {

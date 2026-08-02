@@ -34,6 +34,36 @@ test("extractSearchableText handles Markdown, Tiptap JSON and HTML on the server
   );
 });
 
+test("extractSearchableText does not duplicate nested table and list text", () => {
+  const tiptap = JSON.stringify({
+    type: "doc",
+    content: [
+      {
+        type: "table",
+        content: [{
+          type: "tableRow",
+          content: [{
+            type: "tableCell",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "租赁合同" }] }],
+          }],
+        }],
+      },
+      {
+        type: "bulletList",
+        content: [{
+          type: "listItem",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "合同期限" }] }],
+        }],
+      },
+    ],
+  });
+
+  assert.equal(
+    extractSearchableText(tiptap, "tiptap-json"),
+    "租赁合同\n\n合同期限",
+  );
+});
+
 test("repairSearchContentText fixes empty and stale historical rows without touching valid rows", () => {
   const db = new Database(":memory:");
   db.exec(`

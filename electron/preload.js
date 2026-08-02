@@ -24,6 +24,8 @@ const allowedChannels = new Set([
   "updater:status",
   // 局域网服务发现：主进程发现/丢失 mDNS 服务后向 renderer 推送最新列表
   "discovery:update",
+  "ugreen:gateway-ready",
+  "ugreen:auth-cancelled",
 ]);
 
 contextBridge.exposeInMainWorld("nowenDesktop", {
@@ -74,6 +76,14 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
 
   openOfflineStorageDir() {
     return ipcRenderer.invoke("app:open-offline-storage-dir");
+  },
+
+  /** 在无 Node/IPC 注入的 Electron 安全窗口中完成绿联认证并访问远程工作台。 */
+  openUgreenRemoteWorkspace(url) {
+    if (typeof url !== "string") {
+      return Promise.resolve({ ok: false, error: "INVALID_URL" });
+    }
+    return ipcRenderer.invoke("app:open-ugreen-remote-workspace", { url: url.slice(0, 4096) });
   },
 
   chooseOfflineStorageDir() {

@@ -4,6 +4,8 @@ import {
   findKnowledgeTreeDropRow,
   hasExternalFilePayload,
   isMarkdownDropFile,
+  isWordDropFile,
+  knowledgeTreeFilesFromDataTransfer,
   markdownDropTitle,
   markdownFilesFromDataTransfer,
   pickMarkdownFiles,
@@ -19,6 +21,13 @@ describe("knowledgeTreeMarkdownDrop", () => {
     expect(isMarkdownDropFile({ name: "说明.MARKDOWN" })).toBe(true);
     expect(isMarkdownDropFile({ name: "notes.md.txt" })).toBe(false);
     expect(isMarkdownDropFile({ name: "archive.zip" })).toBe(false);
+  });
+
+  it("accepts docx files but rejects legacy doc files", () => {
+    expect(isWordDropFile({ name: "租赁合同.docx" })).toBe(true);
+    expect(isWordDropFile({ name: "REPORT.DOCX" })).toBe(true);
+    expect(isWordDropFile({ name: "legacy.doc" })).toBe(false);
+    expect(isWordDropFile({ name: "document.docx.zip" })).toBe(false);
   });
 
   it("derives the note title from the file name", () => {
@@ -48,6 +57,21 @@ describe("knowledgeTreeMarkdownDrop", () => {
       files: files as unknown as FileList,
     });
     expect(selected.map((file) => file.name)).toEqual(["a.md", "c.markdown"]);
+  });
+
+  it("keeps Markdown and DOCX files for knowledge-tree drops", () => {
+    const files = [
+      new File(["# A"], "a.md", { type: "text/markdown" }),
+      new File(["word"], "contract.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      new File(["legacy"], "legacy.doc", { type: "application/msword" }),
+      new File(["hello"], "b.txt", { type: "text/plain" }),
+    ];
+
+    expect(knowledgeTreeFilesFromDataTransfer({
+      files: files as unknown as FileList,
+    }).map((file) => file.name)).toEqual(["a.md", "contract.docx"]);
   });
 
   it("opens a multi-file Markdown picker", async () => {

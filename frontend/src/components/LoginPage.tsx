@@ -24,6 +24,7 @@ import {
   saveRememberedCredentials,
 } from "@/lib/rememberLogin";
 import type { User as AuthUser } from "@/types";
+import { isUgreenRemoteAccessUrl, openUgreenRemoteWorkspace } from "@/lib/ugreenRemoteAccess";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -85,13 +86,46 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [canSavePassword, setCanSavePassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(isClientMode);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
   const [error, setError] = useState("");
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
+  const pendingUgreenLoginRef = useRef(false);
 
   const icpBeianText = siteConfig.icpBeian?.trim() || "";
   const showIcpBeian = !!icpBeianText && !isMobileNativeClientRuntime();
   const isRegister = mode === "register";
   const isTwoFactorStep = loginStep === "twoFactor";
+  const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
+
+  useEffect(() => {
+    const desktop = (window as any).nowenDesktop;
+    if (!desktop?.isDesktop || typeof desktop.on !== "function") return;
+
+    const stopReady = desktop.on("ugreen:gateway-ready", (payload: unknown) => {
+      const ready = payload as { serverUrl?: unknown };
+      if (!pendingUgreenLoginRef.current) return;
+      if (typeof ready.serverUrl !== "string" || !isUgreenRemoteAccessUrl(ready.serverUrl)) return;
+
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("ok");
+      setServerUrl(ready.serverUrl);
+      localStorage.setItem("nowen-server-url-last", ready.serverUrl);
+      setError("");
+      window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+    });
+    const stopCancelled = desktop.on("ugreen:auth-cancelled", () => {
+      if (!pendingUgreenLoginRef.current) return;
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("fail");
+      setError(t("auth.ugreenAccess.cancelled"));
+    });
+    return () => {
+      stopReady?.();
+      stopCancelled?.();
+    };
+  }, [t]);
 
   const handleHistoryReauth = (account: AccountLoginHistoryItem, message?: string) => {
     pendingReauthRef.current = { serverUrl: account.serverUrl, username: account.username };
@@ -218,13 +252,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   }, []);
 
   const submitDisabled = useMemo(() => {
-    if (isLoading) return true;
+    if (isLoading || isAuthorizingUgreen) return true;
     if (isTwoFactorStep) return false;
     if (!username.trim() || !password) return true;
     if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isClientMode, isLoading, isRegister, isTwoFactorStep, password, serverParts.host, username]);
+  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isRegister, isTwoFactorStep, password, serverParts.host, username]);
 
   const serverStatusIcon = () => {
     if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
@@ -247,6 +281,22 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     }
   };
 
+  const beginUgreenAuthorization = async (url: string) => {
+    if (pendingUgreenLoginRef.current) return;
+    pendingUgreenLoginRef.current = true;
+    setIsAuthorizingUgreen(true);
+    setError("");
+    try {
+      await openUgreenRemoteWorkspace(url);
+    } catch (openError) {
+      console.error("[login] failed to open UGREEN authentication", openError);
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("fail");
+      setError(t("auth.ugreenAccess.openFailed"));
+    }
+  };
+
   const resolveBaseUrl = async (): Promise<string | null> => {
     if (!isClientMode) return "";
     const url = buildServerUrl(serverParts);
@@ -257,6 +307,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setServerStatus("checking");
     const result = await testServerConnection(url);
     if (!result.ok) {
+      if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
+        await beginUgreenAuthorization(url);
+        return null;
+      }
       setServerStatus("fail");
       setError(result.error || t("server.connectFailed"));
       return null;
@@ -585,7 +639,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.serverAddress")}</label>
                   <ServerAddressInput
                     value={serverParts}
-                    onChange={(next) => { setServerParts(next); if (serverStatus !== "idle") setServerStatus("idle"); }}
+                    onChange={(next) => {
+                      setServerParts(next);
+                      if (serverStatus !== "idle") setServerStatus("idle");
+                    }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
                     accent="indigo"
@@ -594,7 +651,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
                   <LanDiscoveryPanel
                     currentHostIsEmpty={!serverParts.host.trim()}
-                    onSelect={(next) => { setServerParts(next); setServerStatus("idle"); }}
+                    onSelect={(next) => {
+                      setServerParts(next);
+                      setServerStatus("idle");
+                    }}
                   />
                 </motion.div>
               )}
@@ -710,12 +770,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               )}
             </AnimatePresence>
 
+            {isAuthorizingUgreen && (
+              <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                <span>{t("auth.ugreenAccess.waiting")}</span>
+              </div>
+            )}
             <button
               type="submit"
               disabled={submitDisabled}
               className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : isRegister ? t("auth.registerButton") : t("auth.loginButton")}
+              {isLoading || isAuthorizingUgreen
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : isRegister ? t("auth.registerButton") : t("auth.loginButton")}
+              {isAuthorizingUgreen && <span className="ml-2">{t("auth.ugreenAccess.authorizing")}</span>}
             </button>
             </>
             )}

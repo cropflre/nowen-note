@@ -30,7 +30,9 @@ export type DesktopMenuChannel =
   | "menu:zoom-reset"
   | "menu:format"
   | "dock:new-note"
-  | "dock:search";
+  | "dock:search"
+  | "ugreen:gateway-ready"
+  | "ugreen:auth-cancelled";
 
 /** 格式菜单事件负载（menu:format） */
 export interface FormatMenuPayload {
@@ -283,6 +285,7 @@ interface NowenDesktopAPI {
   getEditorPerformanceMetrics?: () => Promise<{ heapBytes: number }>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
   openDataDir?: () => Promise<{ ok: boolean; path: string }>;
+  openUgreenRemoteWorkspace?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   getOfflineStorageInfo?: () => Promise<OfflineStorageInfo>;
   openOfflineStorageDir?: () => Promise<{ ok: boolean; path: string; error?: string }>;
   chooseOfflineStorageDir?: () => Promise<OfflineStorageChooseResult>;

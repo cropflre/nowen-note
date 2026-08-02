@@ -77,8 +77,10 @@ import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSub
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
 import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
+import { installUgreenCredentialedFetch } from "./lib/ugreenRemoteAccess";
 
 void cleanupRemovedServerProfiles();
+installUgreenCredentialedFetch();
 
 function removeBootSplash() {
   try {
