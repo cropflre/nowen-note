@@ -193,7 +193,7 @@ test("allows each workspace member to keep an independent Inbox membership", asy
   assert.equal(afterB.json.count, 1);
 });
 
-test("hides completed tasks and cascades Inbox rows when a task is deleted", async () => {
+test("clears Inbox rows on completion and cascades rows when a task is deleted", async () => {
   const first = await requestJson(USER_A, "POST", "/task-inbox/capture", {
     workspaceId: "personal",
     title: "Complete captured task",
@@ -206,7 +206,7 @@ test("hides completed tasks and cascades Inbox rows when a task is deleted", asy
   assert.equal(hidden.json.count, 0);
   assert.equal(
     (getDb().prepare("SELECT COUNT(*) AS count FROM task_inbox_items").get() as { count: number }).count,
-    1,
+    0,
   );
 
   const second = await requestJson(USER_A, "POST", "/task-inbox/capture", {
