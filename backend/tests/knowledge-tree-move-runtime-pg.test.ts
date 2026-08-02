@@ -234,8 +234,10 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
     const sharedRoot = await createNode(ownerId, null, "folder", "Shared Move Root");
     await createNode(ownerId, sharedRoot.id, "note", "Shared Move Child");
     await pool.query(
-      `INSERT INTO knowledge_tree_acl ("nodeId", "userId", "rolePreset")
-       VALUES ($1, $2, 'maintainer')`,
+      `INSERT INTO knowledge_tree_acl (
+         "nodeId", "userId", "rolePreset",
+         "canView", "canComment", "canCreate", "canEdit", "canDelete", "canMove", "canDownload"
+       ) VALUES ($1, $2, 'maintainer', true, true, true, true, true, true, true)`,
       [sharedRoot.id, outsiderId],
     );
     const sharedRootPayload = await responseJson<{ code: string }>(
@@ -300,7 +302,7 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
         if (!staleInjected) {
           staleInjected = true;
           await baseAdapter.execute(
-            "UPDATE knowledge_tree_nodes SET sortOrder = sortOrder + 100 WHERE id = ?",
+            `UPDATE knowledge_tree_nodes SET "sortOrder" = "sortOrder" + 100 WHERE id = ?`,
             [markdown.id],
           );
         }
