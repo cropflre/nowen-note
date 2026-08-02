@@ -141,11 +141,19 @@ export function shouldOfferRestore(
   if (!draft) return false;
   if (draft.conflicted) return true;
   if (draft.baseVersion > serverVersion) return false;
+
+  // Content equality is authoritative. A server timestamp can be newer because
+  // of clock skew, metadata-only edits, another device, or a delayed projection.
+  // It must never suppress a local body that is observably different.
+  if (typeof serverContent === "string") {
+    return serverContent !== draft.content;
+  }
+
+  // Timestamp is only a fallback when the caller cannot provide server content.
   if (serverUpdatedAt) {
     const serverTs = new Date(serverUpdatedAt).getTime();
     if (!Number.isNaN(serverTs) && serverTs >= draft.savedAt) return false;
   }
-  if (typeof serverContent === "string" && serverContent === draft.content) return false;
   return true;
 }
 
