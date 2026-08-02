@@ -3,6 +3,10 @@
 -- This migration only introduces the operation state machine. Target note rows and
 -- attachment objects are created by later staged-copy phases; keeping planning
 -- separate prevents partially copied resources from becoming visible.
+--
+-- Resource IDs are intentionally stored as immutable snapshots rather than foreign
+-- keys. A completed move must be able to delete its source note, and an abandoned
+-- plan must never prevent normal notebook deletion.
 
 CREATE TABLE IF NOT EXISTS note_transfer_operations (
     id TEXT PRIMARY KEY,
@@ -12,7 +16,7 @@ CREATE TABLE IF NOT EXISTS note_transfer_operations (
     mode TEXT NOT NULL CHECK (mode IN ('copy', 'move')),
     "sourceWorkspaceId" TEXT,
     "targetWorkspaceId" TEXT,
-    "targetNotebookId" TEXT NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
+    "targetNotebookId" TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN (
         'prepared', 'staging', 'committing', 'completed', 'failed', 'cancelled'
     )),
@@ -32,7 +36,7 @@ CREATE TABLE IF NOT EXISTS note_transfer_operations (
 
 CREATE TABLE IF NOT EXISTS note_transfer_operation_items (
     "operationId" TEXT NOT NULL REFERENCES note_transfer_operations(id) ON DELETE CASCADE,
-    "sourceNoteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE RESTRICT,
+    "sourceNoteId" TEXT NOT NULL,
     "targetNoteId" TEXT NOT NULL,
     "sourceVersion" INTEGER NOT NULL,
     "itemOrder" INTEGER NOT NULL DEFAULT 0,
