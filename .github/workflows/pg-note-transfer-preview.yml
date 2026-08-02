@@ -9,11 +9,13 @@ on:
       - "backend/src/repositories/knowledgeTreeNodeAccessRepository.ts"
       - "backend/src/repositories/knowledgeTreePermissionMutationRepository.ts"
       - "backend/src/repositories/noteTransferPreviewRepository.ts"
+      - "backend/src/repositories/noteTransferOperationRepository.ts"
       - "backend/src/routes/note-transfers-runtime.ts"
       - "backend/src/services/attachment-storage-runtime.ts"
       - "backend/src/services/note-transfer-preview-runtime.ts"
       - "backend/tests/knowledge-tree-surfaces-runtime-pg.test.ts"
       - "backend/tests/note-transfer-preview-runtime-pg.test.ts"
+      - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/helpers/pg-test-db.ts"
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
@@ -26,11 +28,13 @@ on:
       - "backend/src/repositories/knowledgeTreeNodeAccessRepository.ts"
       - "backend/src/repositories/knowledgeTreePermissionMutationRepository.ts"
       - "backend/src/repositories/noteTransferPreviewRepository.ts"
+      - "backend/src/repositories/noteTransferOperationRepository.ts"
       - "backend/src/routes/note-transfers-runtime.ts"
       - "backend/src/services/attachment-storage-runtime.ts"
       - "backend/src/services/note-transfer-preview-runtime.ts"
       - "backend/tests/knowledge-tree-surfaces-runtime-pg.test.ts"
       - "backend/tests/note-transfer-preview-runtime-pg.test.ts"
+      - "backend/tests/postgres-migrations.test.ts"
       - "backend/tests/helpers/pg-test-db.ts"
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
@@ -94,7 +98,7 @@ jobs:
         working-directory: backend
         run: npm run audit:pg-schema-parity
 
-      - name: Real PostgreSQL knowledge-tree and note-transfer preview
+      - name: Real PostgreSQL knowledge-tree and note-transfer planning
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
@@ -107,3 +111,4 @@ jobs:
         run: |
           npm run build
           test -f dist/postgres/migrations/0015_knowledge_tree_read_runtime.sql
+          test -f dist/postgres/migrations/0016_note_transfer_operations.sql
