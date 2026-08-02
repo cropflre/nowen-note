@@ -66,7 +66,7 @@ function extractStringLiterals(source) {
 
 function extractCreatedTables(source, { code = false } = {}) {
   const tables = new Set();
-  const pattern = /\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?)/gi;
+  const pattern = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:VIRTUAL\s+)?TABLE|(?:MATERIALIZED\s+)?VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?(["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?)/gi;
   const inputs = code ? extractStringLiterals(source) : [source];
 
   for (const input of inputs) {
