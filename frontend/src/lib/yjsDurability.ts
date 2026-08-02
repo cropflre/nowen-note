@@ -17,6 +17,25 @@ export interface YjsMarkSentOptions {
   localChanges?: number;
 }
 
+export interface YjsUploadReadiness {
+  socketOpen: boolean;
+  joined: boolean;
+  serverSynced: boolean;
+  localPersistenceReady: boolean;
+}
+
+/**
+ * Direct Yjs updates may only leave the client after both baselines are known.
+ * Sending while IndexedDB is still replaying can let a newer ACK mask older
+ * local-only content that has not been included in any operation yet.
+ */
+export function isYjsUploadReady(input: YjsUploadReadiness): boolean {
+  return input.socketOpen
+    && input.joined
+    && input.serverSynced
+    && input.localPersistenceReady;
+}
+
 /**
  * Tracks the difference between "the editor has local content" and
  * "the server confirmed that content is durably stored".
