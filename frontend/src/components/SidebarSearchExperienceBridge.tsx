@@ -179,12 +179,12 @@ function mutationContainsRelevantSurface(node: Node): boolean {
 }
 
 /**
- * 统一内容树上线后的全局体验桥。
+ * 统一内容树上线后的侧栏入口兼容桥。
  *
  * - 退休与树筛选语义冲突的旧全文搜索框；
  * - 在统一树工具栏恢复排序入口；
  * - 应用设置中持久化的移动端目录浏览模式；
- * - 挂载唯一的任务快速捕获入口，避免桌面/移动导航重复渲染。
+ * - 同时兼容桌面与移动 Sidebar 的挂载和工作区切换。
  */
 export default function SidebarSearchExperienceBridge() {
   const [sortSlots, setSortSlots] = useState<HTMLElement[]>([]);
