@@ -4,7 +4,7 @@ import {
   discardResolvedQueueItems,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
-import { clearDraft, loadDraft } from "@/lib/draftStorage";
+import { forceClearDraft, loadDraft } from "@/lib/draftStorage";
 import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
 import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
@@ -119,7 +119,10 @@ export function getConflictCopyId(itemId: string): string {
 function clearResolvedConflict(item: OfflineQueueItem): boolean {
   const cleanup = discardResolvedQueueItems(item);
   if (!cleanup.discarded || cleanup.remainingForNote) return false;
-  clearDraft(item.noteId);
+  // This is an explicit conflict resolution, not an asynchronous autosave ACK.
+  // The chosen server/local outcome is already durable, so delayed ACK guards must not
+  // leave the resolved draft available for accidental restoration on the next open.
+  forceClearDraft(item.noteId);
   clearNoteSyncConflict(item.noteId);
   clearOfflineNoteSnapshot(item.noteId);
   return true;
