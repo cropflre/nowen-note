@@ -7,6 +7,7 @@ import {
   isReady as localStoreReady,
 } from "@/lib/localStore";
 import type { Note, NoteListItem, Notebook, Tag } from "@/types";
+import { hydrateOfflineAttachmentsForNote } from "@/lib/noteAttachmentAccessBridge";
 
 export interface OfflineNoteSnapshot {
   noteId: string;
@@ -123,8 +124,21 @@ async function withFallback<T>(
   }
 }
 
+function activeWorkspaceId(): string | null {
+  try {
+    const workspace = localStorage.getItem("nowen-current-workspace") || "personal";
+    return workspace === "personal" ? null : workspace;
+  } catch {
+    return null;
+  }
+}
+
+function matchesActiveWorkspace(value: { workspaceId?: string | null }): boolean {
+  return (value.workspaceId ?? null) === activeWorkspaceId();
+}
+
 export function readNotebooks(online: () => Promise<Notebook[]>): Promise<Notebook[]> {
-  return withFallback(online, () => getAllNotebooks());
+  return withFallback(online, async () => (await getAllNotebooks()).filter(matchesActiveWorkspace));
 }
 
 export function readNotesList(
@@ -140,7 +154,7 @@ export function readNotesList(
 }
 
 export function readTags(online: () => Promise<Tag[]>): Promise<Tag[]> {
-  return withFallback(online, () => getAllTags());
+  return withFallback(online, async () => (await getAllTags()).filter(matchesActiveWorkspace));
 }
 
 export function readNote(id: string, online: () => Promise<Note>): Promise<Note> {
@@ -150,7 +164,7 @@ export function readNote(id: string, online: () => Promise<Note>): Promise<Note>
       const note = await localGetNote(id);
       if (!note) throw new Error("笔记不在本地缓存中");
       if (!isNoteDetailCached(note)) {
-        throw new Error("该笔记只有列表摘要，正文尚未缓存，离线时无法打开");
+        throw new Error("该笔记尚未完成离线下载，恢复网络后会自动继续同步");
       }
       return note;
     },
@@ -158,5 +172,10 @@ export function readNote(id: string, online: () => Promise<Note>): Promise<Note>
       onOnline: (note) => clearOfflineNoteSnapshot(note.id),
       onFallback: (note) => markOfflineNoteSnapshot(note),
     },
-  );
+  ).then(async (note) => {
+    await hydrateOfflineAttachmentsForNote(note.id).catch((error) => {
+      console.warn("[offlineRead] hydrate cached attachments failed", error);
+    });
+    return note;
+  });
 }

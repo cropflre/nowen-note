@@ -11,6 +11,7 @@
     <a href="http://note.nowen.cn/">在线体验</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
+    <a href="./docs/tutorials/mcp.md">MCP 安装</a> ·
     <a href="./CHANGELOG.md">更新日志</a>
   </p>
 </div>
@@ -26,6 +27,16 @@
 </div>
 
 > Nowen Note 不只是一个编辑器。它希望成为一套由你掌控数据、可长期运行在 NAS / 服务器上，并能通过 Web、桌面端和移动端随时访问的个人与团队知识基础设施。
+
+## 让 AI 连接 Nowen Note
+
+Nowen Note 仍然完整支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客户端在授权范围内搜索、读取、创建和更新笔记。
+
+- [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
+- [MCP Server English guide](./docs/tutorials/mcp.en.md)
+- [nowen-mcp 独立包说明](./packages/nowen-mcp/README.md)
+
+当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `dist/scoped-entry.js` 的绝对路径配置到客户端。教程已覆盖 Windows、macOS、Linux / WSL、NAS 地址、Claude Code、Cursor、VS Code、连接验证、升级和排障。
 
 ## 为什么选择 Nowen Note
 
@@ -53,7 +64,7 @@
 | **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号文章、SingleFile HTML、思源 ZIP 与 Callout 等导入路径；支持 Markdown、PDF、Word、图片和完整 ZIP 导出，并提供权限映射、冲突预检、报告与受控撤销。导出内容会记录 `contentFormat`，重新导入时可恢复原编辑格式。 |
 | **附件与存储** | 本地附件按 `YYYY/MM` 归档；编辑器可从文件管理器搜索并复用已有附件，插入可迁移的相对链接；支持缩略图、笔记归属、引用检查、孤儿重新扫描 / 清理，可使用本地磁盘或 S3 / R2 / MinIO。 |
 | **账号与安全** | 多账号登录历史、记住账号 / 自动登录、远程服务连接、会话有效性校验与撤销、2FA、Personal API Token 权限范围、审计日志与安全化附件访问。 |
-| **备份、自动化与开放能力** | 本地自动备份、完整 ZIP、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级与回滚检查、Webhook、插件系统、OpenAPI、TypeScript SDK、CLI、MCP Server 与浏览器剪藏扩展。 |
+| **备份、自动化与开放能力** | 本地自动备份、完整 ZIP、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级与回滚检查、Webhook、插件系统、OpenAPI、TypeScript SDK、CLI、[MCP Server](./docs/tutorials/mcp.md) 与浏览器剪藏扩展。 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；移动端支持 Markdown 导入、最近优先、逐层目录、树形目录和可切换紧凑模式。 |
 
 ## 近期重点增强
@@ -295,6 +306,8 @@ nowen-note/
 
 ## 文档导航
 
+- [MCP Server 安装与使用](./docs/tutorials/mcp.md)
+- [MCP Server installation guide](./docs/tutorials/mcp.en.md)
 - [教程与帮助中心](./docs/tutorials/README.md)
 - [官网功能帮助中心](http://nowen.cn/docs/nowen-note-features)
 - [官网安装与问题解答](http://nowen.cn/docs/nowen-note-help)

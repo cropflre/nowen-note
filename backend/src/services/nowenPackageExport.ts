@@ -7,6 +7,7 @@ import { verifyFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess";
 import { getUserWorkspaceRole, isSystemAdmin } from "../middleware/acl";
 import { readAttachmentObject } from "./attachment-storage";
 import { resolveResourceKnowledgeAccess } from "./knowledgeCapabilities";
+import { formatSqlUtcAsIso } from "../lib/utc-time";
 
 /**
  * Nowen v2 round-trip package.
@@ -691,8 +692,8 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
         `contentFormat: ${JSON.stringify("markdown")}`,
         `sourceContentFormat: ${JSON.stringify(sourceFormat)}`,
         `sourceId: ${JSON.stringify(note.id)}`,
-        `created: ${note.createdAt}`,
-        `updated: ${note.updatedAt}`,
+        `created: ${formatSqlUtcAsIso(note.createdAt)}`,
+        `updated: ${formatSqlUtcAsIso(note.updatedAt)}`,
         "---",
         "",
       ].join("\n");

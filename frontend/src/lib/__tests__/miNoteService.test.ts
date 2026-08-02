@@ -9,124 +9,170 @@ vi.mock("../api", () => ({
 }));
 
 import {
+  cancelMiCloudImport,
   importMiNotes,
-  MI_CLOUD_IMPORT_BATCH_SIZE,
-  MI_CLOUD_IMPORT_BATCH_TIMEOUT_MS,
+  resumeActiveMiCloudImport,
+  type MiCloudImportJob,
 } from "../miNoteService";
 
-function response(payload: unknown, status = 201): Response {
+function job(overrides: Partial<MiCloudImportJob> = {}): MiCloudImportJob {
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: vi.fn().mockResolvedValue(payload),
-  } as unknown as Response;
+    id: "job-1",
+    notebookId: "notebook-1",
+    status: "queued",
+    total: 4,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+    currentExternalId: null,
+    error: null,
+    retryOfJobId: null,
+    createdAt: "2026-07-31T00:00:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+    updatedAt: "2026-07-31T00:00:00.000Z",
+    errors: [],
+    ...overrides,
+  };
 }
 
-describe("importMiNotes", () => {
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function sseResponse(events: Array<{ event: string; data: unknown }>): Response {
+  const encoder = new TextEncoder();
+  const body = events
+    .map(({ event, data }) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join("");
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(body));
+      controller.close();
+    },
+  }), {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+describe("MiCloud background import jobs", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", {
       getItem: vi.fn().mockReturnValue("test-token"),
     });
+    vi.stubGlobal("sessionStorage", {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
-  it("splits a large import into bounded batches and reuses the created notebook", async () => {
-    const requestBodies: Array<{ noteIds: string[]; notebookId?: string }> = [];
-    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body || "{}")) as {
-        noteIds: string[];
-        notebookId?: string;
-      };
-      requestBodies.push(body);
-      return response({
-        success: true,
-        count: body.noteIds.length,
-        notebookId: body.notebookId || "created-notebook",
-        errors: [],
-      });
+  it("creates one job, opens one SSE stream, and preserves repeated Xiaomi rows", async () => {
+    const noteIds = ["note-1", "note-1", "note-2", "note-1"];
+    const queued = job();
+    const completed = job({
+      status: "completed",
+      processed: 4,
+      succeeded: 4,
+      finishedAt: "2026-07-31T00:01:00.000Z",
+      updatedAt: "2026-07-31T00:01:00.000Z",
+    });
+    const progress: MiCloudImportJob[] = [];
+
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/micloud/import-jobs" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { noteIds: string[] };
+        expect(body.noteIds).toEqual(noteIds);
+        return jsonResponse({ job: queued }, 202);
+      }
+      if (url === "/api/micloud/import-jobs/job-1/events") {
+        return sseResponse([
+          { event: "progress", data: job({ status: "running", processed: 2, succeeded: 2 }) },
+          { event: "done", data: completed },
+        ]);
+      }
+      throw new Error(`unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const noteIds = Array.from(
-      { length: MI_CLOUD_IMPORT_BATCH_SIZE * 2 + 2 },
-      (_, index) => `note-${index}`,
-    );
-    const result = await importMiNotes("cookie", noteIds);
+    const result = await importMiNotes("cookie", noteIds, undefined, (value) => progress.push(value));
 
-    expect(result).toEqual({ success: true, count: noteIds.length, errors: [] });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(requestBodies.map((body) => body.noteIds.length)).toEqual([
-      MI_CLOUD_IMPORT_BATCH_SIZE,
-      MI_CLOUD_IMPORT_BATCH_SIZE,
-      2,
-    ]);
-    expect(requestBodies[0].notebookId).toBeUndefined();
-    expect(requestBodies[1].notebookId).toBe("created-notebook");
-    expect(requestBodies[2].notebookId).toBe("created-notebook");
+    expect(result).toEqual({
+      success: true,
+      count: 4,
+      failedCount: 0,
+      errors: [],
+      jobId: "job-1",
+      cancelled: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(progress.at(-1)?.status).toBe("completed");
 
-    const firstRequest = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(firstRequest.headers).toMatchObject({
+    const createInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(createInit.headers).toMatchObject({
       Authorization: "Bearer test-token",
       "Content-Type": "application/json",
     });
   });
 
-  it("reports how many notes were imported before a later batch fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response({
-        success: true,
-        count: MI_CLOUD_IMPORT_BATCH_SIZE,
-        notebookId: "created-notebook",
-        errors: [],
-      }))
-      .mockRejectedValueOnce(new Error("network down"));
+  it("resumes the active server-side job after the page is reopened", async () => {
+    const active = job({ status: "running", processed: 1, succeeded: 1 });
+    const completed = job({
+      status: "completed",
+      processed: 4,
+      succeeded: 4,
+      finishedAt: "2026-07-31T00:01:00.000Z",
+    });
+
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/micloud/import-jobs/active") {
+        return jsonResponse({ job: active });
+      }
+      if (url === "/api/micloud/import-jobs/job-1/events") {
+        return sseResponse([{ event: "done", data: completed }]);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    const noteIds = Array.from(
-      { length: MI_CLOUD_IMPORT_BATCH_SIZE * 2 },
-      (_, index) => `note-${index}`,
-    );
+    await expect(resumeActiveMiCloudImport()).resolves.toMatchObject({
+      success: true,
+      count: 4,
+      jobId: "job-1",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 
-    await expect(importMiNotes("cookie", noteIds)).rejects.toThrow(
-      `已成功导入 ${MI_CLOUD_IMPORT_BATCH_SIZE} 条，剩余 ${MI_CLOUD_IMPORT_BATCH_SIZE} 条未完成。network down`,
+  it("sends a single cancellation request", async () => {
+    const cancelling = job({ status: "cancelling", processed: 2, succeeded: 2 });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ job: cancelling }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(cancelMiCloudImport("job-1")).resolves.toEqual(cancelling);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/micloud/import-jobs/job-1/cancel",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
-  it("turns a batch abort into an actionable import timeout message", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn().mockImplementation(
-      (_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => {
-          const error = new Error("aborted");
-          error.name = "AbortError";
-          reject(error);
-        }, { once: true });
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const pending = importMiNotes("cookie", ["note-1"]);
-    const assertion = expect(pending).rejects.toThrow(
-      "当前批次导入超时。服务端可能仍在处理，请稍后刷新目标笔记本确认结果，避免重复导入。",
-    );
-
-    await vi.advanceTimersByTimeAsync(MI_CLOUD_IMPORT_BATCH_TIMEOUT_MS);
-    await assertion;
-  });
-
-  it("does not call the backend when no valid note IDs are selected", async () => {
+  it("does not create a job when no valid rows are selected", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(importMiNotes("cookie", ["", ""])).resolves.toEqual({
       success: false,
       count: 0,
+      failedCount: 0,
       errors: ["请选择要导入的笔记"],
     });
     expect(fetchMock).not.toHaveBeenCalled();

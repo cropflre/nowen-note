@@ -14,10 +14,10 @@ describe("MobileKnowledgeTreePanel product contract", () => {
     expect(sidebarSource).toContain('desktopKnowledgeTreeMode === "quick"');
   });
 
-  it("defaults to recent and offers a one-level browse mode", () => {
+  it("defaults to all directories and still offers the recent view", () => {
     expect(mobileSource).toContain('type MobileView = "recent" | "browse"');
-    expect(mobileSource).toContain('useState<MobileView>("recent")');
-    expect(mobileSource).toContain('getMobileKnowledgeTreeChildren(nodes, parentId, sortMode)');
+    expect(mobileSource).toContain('useState<MobileView>("browse")');
+    expect(mobileSource).toContain('getMobileKnowledgeTreeChildren(visibleNodes, parentId, sortMode)');
     expect(mobileSource).toContain('data-nowen-mobile-knowledge-tree={variant === "mobile" ? "flat-navigation" : undefined}');
     expect(mobileSource).toContain('data-mobile-knowledge-tree-breadcrumb');
     expect(mobileSource).not.toContain("setExpanded(");
@@ -31,7 +31,7 @@ describe("MobileKnowledgeTreePanel product contract", () => {
   });
 
   it("keeps global search, mobile sorting, creation and the full node menu", () => {
-    expect(mobileSource).toContain("filterMobileKnowledgeTreeNodes(nodes, query, sortMode)");
+    expect(mobileSource).toContain("filterMobileKnowledgeTreeNodes(visibleNodes, query, sortMode)");
     expect(mobileSource).toContain("saveMobileKnowledgeTreeSortMode(next)");
     expect(mobileSource).toContain("openCreateDropdown");
     expect(mobileSource).toContain("<KnowledgeTreeCreateDropdown");

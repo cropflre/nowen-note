@@ -11,7 +11,6 @@ import {
   NotebookPen,
   PanelLeft,
   PanelLeftClose,
-  Search,
   Settings,
   Sparkles,
   Star,
@@ -36,7 +35,6 @@ import {
   type AppInfo,
 } from "@/lib/desktopBridge";
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
-import { openMobileNoteSearch } from "@/lib/mobileNoteSearch";
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
 
@@ -149,10 +147,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     if (isMobile) actions.setMobileSidebar(false);
   }, [actions, isMobile]);
 
-  const handleMobileSearch = useCallback(() => {
-    openMobileNoteSearch(() => actions.setMobileSidebar(false));
-  }, [actions]);
-
   const handleDesktopCloudButton = useCallback(async () => {
     if (!canSwitchBackToLocal) return;
 
@@ -231,8 +225,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const groups: NavGroup[] = ["workspace", "modules", "tools"];
   const mobileNextMode: RailMode = effectiveMode === "label" ? "icon" : "label";
   const MobileSwitchIcon = effectiveMode === "label" ? Columns2 : Columns3;
-  const mobileSearchLabel = t("sidebar.searchPlaceholder", "搜索笔记").replace(/[.…]+$/, "");
-
   return (
     <div
       className={cn(
@@ -278,24 +270,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
-        {isMobile && (
-          <>
-            <button
-              type="button"
-              data-mobile-drawer-rail-item=""
-              onClick={handleMobileSearch}
-              title={showLabel ? undefined : mobileSearchLabel}
-              aria-label={mobileSearchLabel}
-              className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
-              data-mobile-note-search=""
-            >
-              <Search size={RAIL_ICON_SIZE} />
-              {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{mobileSearchLabel}</span>}
-            </button>
-            <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
-          </>
-        )}
-
         {groups.map((group, index) => {
           const groupItems = items.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;

@@ -1,6 +1,7 @@
 export type ReadingDensity = "cozy" | "compact";
 export type MarkdownViewMode = "source" | "preview" | "split";
 export type EditorMode = "md" | "tiptap";
+export type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 export type CodeBlockThemeId =
   | "github-dark"
   | "github-light"
@@ -14,6 +15,8 @@ export interface UserPreferences {
   noteTitleAsAppTitle: boolean;
   outlineDefaultOpen: boolean;
   lockOnOpen: boolean;
+  folderAutoLockMinutes: FolderAutoLockMinutes;
+  folderLockOnBackground: boolean;
   readingDensity: ReadingDensity;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
@@ -43,6 +46,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   noteTitleAsAppTitle: false,
   outlineDefaultOpen: false,
   lockOnOpen: false,
+  folderAutoLockMinutes: 15,
+  folderLockOnBackground: true,
   readingDensity: "cozy",
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
@@ -91,6 +96,17 @@ export function normalizeUserPreferences(
     lockOnOpen: typeof raw.lockOnOpen === "boolean"
       ? raw.lockOnOpen
       : fallback.lockOnOpen,
+    folderAutoLockMinutes:
+      raw.folderAutoLockMinutes === 0 ||
+      raw.folderAutoLockMinutes === 5 ||
+      raw.folderAutoLockMinutes === 15 ||
+      raw.folderAutoLockMinutes === 30 ||
+      raw.folderAutoLockMinutes === 60
+        ? raw.folderAutoLockMinutes
+        : fallback.folderAutoLockMinutes,
+    folderLockOnBackground: typeof raw.folderLockOnBackground === "boolean"
+      ? raw.folderLockOnBackground
+      : fallback.folderLockOnBackground,
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy"
       ? raw.readingDensity
       : fallback.readingDensity,

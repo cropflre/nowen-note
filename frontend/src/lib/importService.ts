@@ -7,6 +7,7 @@ import type {
   ImportFileInfo,
   ImportOptions,
   ImportProgress,
+  ImportTargetContentFormat,
   ZipImportMeta,
 } from "./importService.base";
 import {
@@ -32,6 +33,7 @@ export type {
   ImportFileInfo,
   ImportOptions,
   ImportProgress,
+  ImportTargetContentFormat,
   ZipImportMeta,
   ImportMarkdownAsNoteResult,
 } from "./importService.base";

@@ -19,6 +19,10 @@ import { yjsSubdocumentsMigration } from "./yjsSubdocumentsMigration.js";
 import { blockAuthorityStaleGuardMigration } from "./blockAuthorityStaleGuardMigration.js";
 import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMigration.js";
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
+import { offlineSyncMigration } from "./offlineSyncMigration.js";
+import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
+import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
+import { blockSchemaRepairMigration } from "./blockSchemaRepairMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -270,6 +274,10 @@ export const MIGRATIONS: Migration[] = [
   blockAuthorityStaleGuardMigration,
   yjsSubdocumentGenerationMigration,
   tagScopeUniquenessMigration,
+  offlineSyncMigration,
+  newUserOnboardingMigration,
+  newUserOnboardingFirstLoginMigration,
+  blockSchemaRepairMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
@@ -287,6 +295,33 @@ function ensureMigrationsTable(db: Database.Database): void {
   `);
 }
 
+function validateMigrationRegistry(): void {
+  const seen = new Map<number, string>();
+  for (const migration of MIGRATIONS) {
+    const existing = seen.get(migration.version);
+    if (existing) {
+      throw new Error(
+        `[migrations] 重复版本号 v${migration.version}: ${existing}, ${migration.name}`,
+      );
+    }
+    seen.set(migration.version, migration.name);
+  }
+}
+
+function getAppliedMigrationVersions(db: Database.Database): Set<number> {
+  ensureMigrationsTable(db);
+  const rows = db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>;
+  return new Set(rows.map((row) => row.version));
+}
+
+export function getPendingMigrations(db: Database.Database): Migration[] {
+  validateMigrationRegistry();
+  const applied = getAppliedMigrationVersions(db);
+  return MIGRATIONS
+    .filter((migration) => !applied.has(migration.version))
+    .sort((a, b) => a.version - b.version);
+}
+
 export function getCurrentSchemaVersion(db: Database.Database): number {
   ensureMigrationsTable(db);
   const row = db
@@ -297,6 +332,8 @@ export function getCurrentSchemaVersion(db: Database.Database): number {
 
 export function runMigrations(db: Database.Database): number {
   ensureMigrationsTable(db);
+  validateMigrationRegistry();
+
   const current = getCurrentSchemaVersion(db);
   if (current > CURRENT_SCHEMA_VERSION) {
     throw new Error(
@@ -305,20 +342,11 @@ export function runMigrations(db: Database.Database): number {
     );
   }
 
-  const pending = MIGRATIONS
-    .filter((migration) => migration.version > current)
-    .sort((a, b) => a.version - b.version);
+  // schema_migrations is an applied-migration ledger, not a single cursor.
+  // Looking only at MAX(version) permanently skips a migration added later with
+  // a lower historical version (the v48 block schema was affected by this).
+  const pending = getPendingMigrations(db);
   if (pending.length === 0) return 0;
-
-  let previous = current;
-  for (const migration of pending) {
-    if (migration.version <= previous) {
-      throw new Error(
-        `[migrations] 版本号必须严格递增：v${previous} 之后是 v${migration.version}（${migration.name}）`,
-      );
-    }
-    previous = migration.version;
-  }
 
   const insert = db.prepare(
     "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",

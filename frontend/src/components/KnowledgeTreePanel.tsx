@@ -25,6 +25,9 @@ import {
 } from "lucide-react";
 
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
+import KnowledgeTreeDropdownMenu from "@/components/KnowledgeTreeDropdownMenu";
+import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMenuButton";
+import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
 import {
@@ -60,10 +63,16 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotebooks,
+  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import { toast } from "@/lib/toast";
-import { compareKnowledgeTreePinnedPriority } from "@/lib/knowledgeTreeSort";
+import {
+  compareKnowledgeTreePinnedPriority,
+  KNOWLEDGE_TREE_SORT_OPTIONS,
+  loadKnowledgeTreeSortMode,
+  saveKnowledgeTreeSortMode,
+} from "@/lib/knowledgeTreeSort";
+import { detectNoteWorkspaceSurface } from "@/lib/noteWorkspaceLayout";
 import { cn } from "@/lib/utils";
 import {
   canMoveWithinSharedRoot,
@@ -74,6 +83,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 
 export const FOCUS_KNOWLEDGE_TREE_EVENT = "nowen:focus-knowledge-tree";
 export const KNOWLEDGE_TREE_CHANGED_EVENT = "nowen:knowledge-tree-changed";
+const DESKTOP_COMPACT_TOOLBAR_WIDTH = 280;
 
 function buildChildren(nodes: KnowledgeTreeNode[]) {
   const result = new Map<string | null, KnowledgeTreeNode[]>();
@@ -220,6 +230,7 @@ export interface KnowledgeTreePanelProps {
   className?: string;
   createRequest?: KnowledgeTreeInlineCreateRequest;
   importRequest?: KnowledgeTreeImportRequest;
+  showAllNotesToolbar?: boolean;
 }
 
 export interface KnowledgeTreeInlineCreateRequest {
@@ -239,15 +250,18 @@ export function KnowledgeTreePanel({
   className,
   createRequest,
   importRequest,
+  showAllNotesToolbar = true,
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const surfaceActive = useActiveSidebarSurface(variant);
   const rootRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
   const handledCreateRequestRef = useRef<number | null>(null);
   const handledImportRequestRef = useRef<number | null>(null);
+  const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
   const [nodes, setNodes] = useState<KnowledgeTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +274,8 @@ export function KnowledgeTreePanel({
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
   const [pendingFolderOpenId, setPendingFolderOpenId] = useState<string | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [compactDesktopToolbar, setCompactDesktopToolbar] = useState(false);
   const { menu, menuRef, openMenu, openMenuAt, closeMenu } = useContextMenu();
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const menuNode = menu.targetId ? nodes.find((candidate) => candidate.id === menu.targetId) || null : null;
@@ -302,6 +318,25 @@ export function KnowledgeTreePanel({
   }, [reload, surfaceActive]);
 
   useEffect(() => {
+    if (variant !== "desktop" || workspaceSurface === "web") {
+      setCompactDesktopToolbar(false);
+      return;
+    }
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const update = (width: number) => {
+      if (width > 0) setCompactDesktopToolbar(width < DESKTOP_COMPACT_TOOLBAR_WIDTH);
+    };
+    update(root.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) update(entry.contentRect.width);
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [variant, workspaceSurface]);
+
+  useEffect(() => {
     if (!surfaceActive) return;
     const refresh = () => void reload();
     window.addEventListener("nowen:workspace-changed", refresh);
@@ -320,7 +355,11 @@ export function KnowledgeTreePanel({
 
   useEffect(() => {
     if (!surfaceActive) return;
-    const focus = () => requestAnimationFrame(() => searchRef.current?.focus());
+    const focus = (event: Event) => {
+      const nextQuery = (event as CustomEvent<{ query?: string }>).detail?.query;
+      if (typeof nextQuery === "string") setQuery(nextQuery);
+      requestAnimationFrame(() => searchRef.current?.focus());
+    };
     window.addEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
     return () => window.removeEventListener(FOCUS_KNOWLEDGE_TREE_EVENT, focus);
   }, [surfaceActive]);
@@ -435,6 +474,19 @@ export function KnowledgeTreePanel({
       changedOwnedFolders.map((node) => knowledgeTreeApi.update(node.id, { isExpanded: expanding })),
     );
   }, [expandableFolderIds, hasExpandedFolders, nodes]);
+
+  const runMobileTreeAction = useCallback((value: string) => {
+    setMobileActionsOpen(false);
+    if (value.startsWith("sort:")) {
+      const mode = value.slice("sort:".length);
+      const option = KNOWLEDGE_TREE_SORT_OPTIONS.find((candidate) => candidate.value === mode);
+      if (option) saveKnowledgeTreeSortMode(option.value);
+    } else if (value === "toggle") {
+      toggleAll();
+    } else if (value === "refresh") {
+      void reload();
+    }
+  }, [reload, toggleAll]);
 
   const openDocument = async (node: KnowledgeTreeNode) => {
     closeMenu();
@@ -904,40 +956,190 @@ export function KnowledgeTreePanel({
   const rootNodes = children.get(null) || [];
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
-  const ownedNotebookCount = countOwnedNotebooks(nodes);
+  const ownedNoteCount = countOwnedNotes(nodes);
+  const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;
+  const compactToolbar = variant === "mobile"
+    || workspaceSurface === "web"
+    || compactDesktopToolbar;
+
+  useEffect(() => {
+    if (!compactToolbar) setMobileActionsOpen(false);
+  }, [compactToolbar]);
+
+  const openFullTextSearch = useCallback(() => {
+    actions.setSearchQuery(query.trim());
+    actions.setViewMode("search");
+    actions.setMobileSidebar(false);
+    actions.setMobileView("list");
+  }, [actions, query]);
+
+  const changeSearchScope = useCallback((scope: "tree" | "content") => {
+    if (scope === "content") {
+      openFullTextSearch();
+      return;
+    }
+    actions.setSearchQuery("");
+    actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+  }, [actions, openFullTextSearch, state.selectedNotebookId]);
+
+  const compactActionButtons = (
+    <>
+      <button
+        type="button"
+        onClick={() => startInlineCreate(null, "folder")}
+        className={cn(
+          "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-bg hover:text-tx-primary",
+          variant === "mobile" ? "w-8" : showAllNotesToolbar ? "w-7" : "w-6",
+        )}
+        title="新建根文件夹"
+      >
+        <Plus size={variant === "mobile" ? 15 : 14} />
+      </button>
+      <button
+        ref={mobileActionsButtonRef}
+        type="button"
+        onClick={() => setMobileActionsOpen((current) => !current)}
+        className={cn(
+          "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-bg hover:text-tx-primary",
+          variant === "mobile" ? "w-8" : showAllNotesToolbar ? "w-7" : "w-6",
+        )}
+        title="更多目录操作"
+        aria-label="更多目录操作"
+        aria-haspopup="menu"
+        aria-expanded={mobileActionsOpen}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+    </>
+  );
 
   return (
-    <section ref={rootRef} className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)} data-nowen-knowledge-tree="embedded" data-sidebar-surface-active={surfaceActive ? "true" : "false"}>
-      <div className="flex items-center gap-0.5 px-2 pb-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-app-border bg-app-bg px-2 py-1.5">
-          <Search size={13} className="shrink-0 text-tx-tertiary" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="筛选内容树…"
-            className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
-            data-knowledge-tree-search=""
-          />
-          {query && <button type="button" onClick={() => setQuery("")} className="text-tx-tertiary hover:text-tx-primary" aria-label="清空筛选"><X size={12} /></button>}
+    <section
+      ref={rootRef}
+      className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}
+      data-nowen-knowledge-tree="embedded"
+      data-knowledge-tree-variant={variant}
+      data-knowledge-tree-compact-toolbar={compactToolbar ? "true" : "false"}
+      data-sidebar-surface-active={surfaceActive ? "true" : "false"}
+    >
+      <div className={cn(
+        "flex",
+        variant === "mobile"
+          ? "flex-col items-stretch gap-0.5 px-3 pb-1.5 pt-2"
+          : compactToolbar
+            ? "flex-col items-stretch gap-0.5 px-2 pb-1.5"
+          : "items-center gap-0.5 px-2 pb-1.5",
+      )}>
+        <div className={compactToolbar
+          ? cn("flex w-full items-center", showAllNotesToolbar ? "gap-2" : "gap-0")
+          : "contents"}
+        >
+          <div className={cn(
+            "flex min-w-0 items-center border border-app-border bg-app-bg",
+            variant === "mobile"
+              ? "w-full gap-1.5 rounded-lg px-2 py-1.5 shadow-sm"
+              : compactToolbar
+                ? "flex-1 gap-1.5 rounded-md px-1.5 py-1 shadow-sm"
+              : "flex-1 gap-1.5 rounded-md px-1.5 py-1",
+          )}>
+            {!compactToolbar && (
+              <KnowledgeSearchScopeSwitch
+                scope={state.viewMode === "search" ? "content" : "tree"}
+                compact
+                onChange={changeSearchScope}
+              />
+            )}
+            <Search size={variant === "mobile" ? 14 : 13} className="shrink-0 text-tx-tertiary" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={variant === "mobile" ? "搜索…" : compactToolbar ? "筛选…" : "筛选目录与文档…"}
+              className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+              data-knowledge-tree-search=""
+              data-search-scope="tree"
+            />
+            {query && <button type="button" onClick={() => setQuery("")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" aria-label="清空筛选"><X size={variant === "mobile" ? 15 : 12} /></button>}
+            {compactToolbar && (
+              <KnowledgeSearchScopeMenuButton
+                scope={state.viewMode === "search" ? "content" : "tree"}
+                onChange={changeSearchScope}
+              />
+            )}
+          </div>
+          {compactToolbar && !showAllNotesToolbar && compactActionButtons}
         </div>
-        <button
-          type="button"
-          onClick={toggleAll}
-          disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
-          className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-tx-tertiary"
-          title={query.trim() ? "清除筛选后可批量展开或收起" : toggleAllLabel}
-          aria-label={toggleAllLabel}
-        >{hasExpandedFolders ? <ChevronsUp size={14} /> : <ChevronsDown size={14} />}</button>
-        <button
-          type="button"
-          onClick={() => startInlineCreate(null, "folder")}
-          className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-          title="新建根文件夹"
-        ><Plus size={14} /></button>
-        <button type="button" onClick={() => void reload()} disabled={loading} className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50" title="刷新内容树"><RefreshCw size={13} className={loading ? "animate-spin" : undefined} /></button>
+        {compactToolbar && showAllNotesToolbar ? (
+          <div className={cn(
+            "grid w-full rounded-lg border border-app-border/70 bg-app-hover/40 px-0.5",
+            variant === "mobile"
+              ? "grid-cols-[minmax(0,1fr)_2rem_2rem]"
+              : "grid-cols-[minmax(0,1fr)_1.75rem_1.75rem]",
+          )}>
+            <span
+              className="min-w-0 border-r border-app-border/70 pr-0.5"
+              data-knowledge-tree-all-notes-host="mobile-toolbar"
+            />
+            {compactActionButtons}
+          </div>
+        ) : !compactToolbar ? (
+          <div className="contents">
+            <button
+              type="button"
+              onClick={toggleAll}
+              disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
+              className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-tx-tertiary"
+              title={query.trim() ? "清除筛选后可批量展开或收起" : toggleAllLabel}
+              aria-label={toggleAllLabel}
+            >
+              {hasExpandedFolders ? <ChevronsUp size={14} /> : <ChevronsDown size={14} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => startInlineCreate(null, "folder")}
+              className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+              title="新建根文件夹"
+            >
+              <Plus size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => void reload()}
+              disabled={loading}
+              className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
+              title="刷新内容树"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : undefined} />
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      {compactToolbar && (
+        <KnowledgeTreeDropdownMenu
+          open={mobileActionsOpen}
+          anchor={mobileActionsButtonRef.current}
+          ariaLabel="目录操作"
+          items={[
+            ...KNOWLEDGE_TREE_SORT_OPTIONS.map((option, index) => ({
+              value: `sort:${option.value}`,
+              label: option.label,
+              checked: currentSortMode === option.value,
+              sectionLabel: index === 0 ? "排序方式" : undefined,
+            })),
+            {
+              value: "toggle",
+              label: toggleAllLabel,
+              disabled: Boolean(query.trim()) || expandableFolderIds.length === 0,
+              separatorBefore: true,
+            },
+            { value: "refresh", label: "刷新目录" },
+          ]}
+          onSelect={runMobileTreeAction}
+          onClose={() => setMobileActionsOpen(false)}
+        />
+      )}
 
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3" data-swipe-blocker="knowledge-tree-scroll">
         {loading && nodes.length === 0 ? (
@@ -976,13 +1178,15 @@ export function KnowledgeTreePanel({
               <div data-knowledge-tree-section="owned">
                 <div className="flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
                   <span>当前空间</span>
-                  <span
-                    className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
-                    aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}
-                    data-knowledge-tree-notebook-count=""
-                  >
-                    {ownedNotebookCount}
-                  </span>
+                  {variant !== "mobile" && (
+                    <span
+                      className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
+                      aria-label={`当前空间共 ${ownedNoteCount} 条笔记`}
+                      data-knowledge-tree-notebook-count=""
+                    >
+                      {ownedNoteCount}
+                    </span>
+                  )}
                 </div>
                 {ownedRoots.map((node) => renderNode(node, 0))}
                 {hasRootDraft && renderDraft(0)}

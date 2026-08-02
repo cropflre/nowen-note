@@ -6,6 +6,7 @@ import {
     SiyuanZipBudgetError,
     type SiyuanPackageImportResult,
 } from "./siyuanPackageImportLegacyCore";
+import { localizeSiyuanImportedMarkdownImages } from "./siyuanImportedRemoteImages";
 
 interface ImportParams {
     userId: string;
@@ -30,6 +31,7 @@ interface ImportedRichTextRow {
 
 const NOTE_BATCH_SIZE = 400;
 const MAX_TAG_NAME_LENGTH = 30;
+const REMOTE_ASSET_MISSING_WARNING_RE = /^Siyuan asset not found:\s*(?:https?:|\/\/|data:)/i;
 
 export { SiyuanZipBudgetError };
 export type { SiyuanPackageImportResult };
@@ -44,6 +46,22 @@ function chunks<T>(values: T[], size: number): T[][] {
     const out: T[][] = [];
     for (let index = 0; index < values.length; index += size) out.push(values.slice(index, index + size));
     return out;
+}
+
+function readImportedNoteVersions(noteIds: string[]): Map<string, number> {
+    const versions = new Map<string, number>();
+    if (noteIds.length === 0) return versions;
+    const db = getDb();
+    for (const batch of chunks(noteIds, NOTE_BATCH_SIZE)) {
+        const placeholders = batch.map(() => "?").join(", ");
+        const rows = db.prepare(`
+            SELECT id, version
+            FROM notes
+            WHERE id IN (${placeholders})
+        `).all(...batch) as Array<{ id: string; version: number }>;
+        for (const row of rows) versions.set(row.id, Number(row.version) || 1);
+    }
+    return versions;
 }
 
 function tagsSupportWorkspaceId(): boolean {
@@ -190,8 +208,33 @@ export async function importSiyuanPackageFromZipFile(
         console.error("[siyuan-import] rich-text post-processing failed", error);
         richTextWarnings = ["思源富文本后处理失败，已保留基础转换结果；请查看服务端日志并重新导入。"];
     }
+
+    let remoteImageWarnings: string[] = [];
+    try {
+        const localized = await localizeSiyuanImportedMarkdownImages({
+            userId: params.userId,
+            notes: result.notes,
+        });
+        remoteImageWarnings = localized.warnings;
+    } catch (error) {
+        console.error("[siyuan-import] Markdown remote image localization failed", error);
+        remoteImageWarnings = ["思源 Markdown 网络图片本地化失败，已保留原图床地址；请查看服务端日志后重试。"];
+    }
+
+    const currentVersions = readImportedNoteVersions(noteIds);
+    const coreWarnings = result.warnings.filter((warning) => !REMOTE_ASSET_MISSING_WARNING_RE.test(warning));
+
     return {
         ...result,
-        warnings: uniqueSorted([...result.warnings, ...cleanupWarnings, ...richTextWarnings]),
+        notes: result.notes.map((note) => ({
+            ...note,
+            version: currentVersions.get(note.id) ?? note.version,
+        })),
+        warnings: uniqueSorted([
+            ...coreWarnings,
+            ...cleanupWarnings,
+            ...richTextWarnings,
+            ...remoteImageWarnings,
+        ]),
     };
 }

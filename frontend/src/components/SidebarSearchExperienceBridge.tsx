@@ -44,13 +44,25 @@ function collectSortSlots(): HTMLElement[] {
     const toolbar = filterSurface?.parentElement;
     if (!(filterSurface instanceof HTMLElement) || !(toolbar instanceof HTMLElement)) continue;
 
-    let slot = directChildWithAttribute(toolbar, SORT_SLOT_ATTRIBUTE);
+    const mobile = Boolean(input.closest<HTMLElement>('[data-knowledge-tree-variant="mobile"]'));
+    const treePanel = input.closest<HTMLElement>('[data-nowen-knowledge-tree="embedded"]');
+    const compactToolbar = treePanel?.dataset.knowledgeTreeCompactToolbar === "true";
+    if (compactToolbar) {
+      toolbar.querySelector<HTMLElement>(`[${SORT_SLOT_ATTRIBUTE}]`)?.remove();
+      continue;
+    }
+    let slot = treePanel?.querySelector<HTMLElement>(
+      `[${SORT_SLOT_ATTRIBUTE}="mobile-toolbar"]`,
+    ) || toolbar.querySelector<HTMLElement>(`[${SORT_SLOT_ATTRIBUTE}]`);
+    if (!slot && mobile) continue;
     if (!slot) {
       slot = document.createElement("span");
       slot.setAttribute(SORT_SLOT_ATTRIBUTE, "");
-      slot.dataset.knowledgeTreeSortSlotId = `sort-slot-${++sortSlotSequence}`;
       slot.className = "contents";
       toolbar.insertBefore(slot, filterSurface.nextSibling);
+    }
+    if (!slot.dataset.knowledgeTreeSortSlotId) {
+      slot.dataset.knowledgeTreeSortSlotId = `sort-slot-${++sortSlotSequence}`;
     }
     slots.push(slot);
   }
@@ -192,12 +204,18 @@ export default function SidebarSearchExperienceBridge() {
 
     const observer = new MutationObserver((records) => {
       const relevant = records.some((record) => (
-        Array.from(record.addedNodes).some(mutationContainsRelevantSurface)
+        record.type === "attributes"
+        || Array.from(record.addedNodes).some(mutationContainsRelevantSurface)
         || Array.from(record.removedNodes).some(mutationContainsRelevantSurface)
       ));
       if (relevant) applyDocument();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-knowledge-tree-compact-toolbar"],
+      childList: true,
+      subtree: true,
+    });
 
     window.addEventListener("nowen:workspace-changed", applyDocument);
 

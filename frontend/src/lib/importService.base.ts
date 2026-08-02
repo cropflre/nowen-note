@@ -114,6 +114,8 @@ export interface ImportFileInfo {
   updatedAt?: string;
 }
 
+export type ImportTargetContentFormat = "tiptap-json" | "markdown";
+
 // 导入选项
 export interface ImportOptions {
   /**
@@ -139,6 +141,11 @@ export interface ImportOptions {
    * Tab 后，每个 Tab 各自传 scope，避免依赖侧边栏当前选中的 workspace。
    */
   workspaceId?: string;
+  /**
+   * Markdown-capable sources can either stay native Markdown or be converted
+   * to the rich-text TipTap JSON format. Non-Markdown sources ignore this.
+   */
+  targetContentFormat?: ImportTargetContentFormat;
 }
 
 export type ImportProgress = {
@@ -1190,9 +1197,13 @@ function replaceMarkdownLocalAssets(md: string, imageMap?: Record<string, string
   return replaceLocalAssetSources(withMarkdownImages, imageMap);
 }
 
-function convertSiyuanImportToMarkdown(fileInfo: ImportFileInfo): string {
+function convertImportToMarkdown(fileInfo: ImportFileInfo): string {
   let md = fileInfo.content || "";
-  md = md.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+  // 思源导出的 frontmatter 属于迁移元数据；普通 Markdown 则保持原文，
+  // 避免用户选择“Markdown”后仍被静默改写源文件结构。
+  if (isSiyuanSource(fileInfo.source)) {
+    md = md.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+  }
   md = replaceMarkdownLocalAssets(md, fileInfo.imageMap);
   return md.trim();
 }
@@ -1364,10 +1375,22 @@ export async function importNotes(
     onProgress?.({ phase: "uploading", current: 0, total: selected.length, message: i18n.t('dataManager.uploadingProgress') });
 
     const notes = selected.map((f) => {
-      const importAsMarkdown = isSiyuanSource(f.source);
+      const normalizedSource = String(f.source || "").toLowerCase();
+      const markdownCapable =
+        !normalizedSource ||
+        normalizedSource === "md" ||
+        normalizedSource === "markdown" ||
+        isSiyuanSource(normalizedSource);
+      // Backward compatibility: without an explicit choice, keep the historical
+      // behavior (Siyuan Markdown stays Markdown; ordinary .md becomes rich text).
+      const importAsMarkdown = markdownCapable && (
+        options?.targetContentFormat
+          ? options.targetContentFormat === "markdown"
+          : isSiyuanSource(normalizedSource)
+      );
       const note: { title: string; content: string; contentText: string; contentFormat?: "tiptap-json" | "markdown" | "html"; createdAt?: string; updatedAt?: string; notebookName?: string; notebookPath?: string[] } = {
         title: f.title,
-        content: importAsMarkdown ? convertSiyuanImportToMarkdown(f) : convertToTiptapJson(f),
+        content: importAsMarkdown ? convertImportToMarkdown(f) : convertToTiptapJson(f),
         contentText: extractPlainText(f),
         contentFormat: importAsMarkdown ? "markdown" : "tiptap-json",
       };

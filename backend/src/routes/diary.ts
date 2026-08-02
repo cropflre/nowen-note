@@ -41,6 +41,7 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { diaryAttachmentsRepository } from "../repositories";
+import { normalizeUtcDateBound, normalizeUtcInputToSql } from "../lib/utc-time";
 
 const diary = new Hono();
 
@@ -341,7 +342,7 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
   //
   // 语义注意：createdAt 当前作为用户可编辑的时间线展示时间使用（非真实创建时间）。
   // 短期可接受，长期建议新增 publishedAt/displayDate 字段。
-  const customCreatedAt = normalizeCustomDate(body.createdAt);
+  const customCreatedAt = normalizeUtcInputToSql(body.createdAt);
 
   const id = crypto.randomUUID();
   const orderedValidMedia = getValidDiaryMedia(
@@ -414,77 +415,8 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// 时间筛选：把前端传入的 from/to 规整成"可与 createdAt 字符串比较"的形式。
-//   - createdAt 入库形如 "YYYY-MM-DD HH:MM:SS"（UTC，由 SQLite datetime('now')）
-//   - 前端可以传：
-//       * "YYYY-MM-DD"  → from 视为 00:00:00、to 视为 23:59:59（同 UTC 字符串语义）
-//       * "YYYY-MM-DD HH:MM:SS" / "YYYY-MM-DDTHH:MM:SS[Z]" → 全部归一到空格分隔的形式
-//   - 非法值直接忽略（返回 null），不报错，避免前端日期组件偶尔出脏值阻塞列表
+// 时间筛选与自定义发布时间统一使用 UTC 数据契约。
 // ---------------------------------------------------------------------------
-function normalizeDateBound(raw: string | undefined, kind: "from" | "to"): string | null {
-  if (!raw) return null;
-  const s = raw.trim();
-  if (!s) return null;
-  // 纯日期：补时分秒
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return kind === "from" ? `${s} 00:00:00` : `${s} 23:59:59`;
-  }
-  // 完整时间：把 T/Z 去掉，统一成 SQLite 习惯的空格分隔
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/);
-  if (m) return `${m[1]} ${m[2]}`;
-  return null; // 形态不认识就当没传
-}
-
-/**
- * 规范化用户自定义的发布时间。
- *
- * 设计决策：
- *   createdAt 当前作为用户可编辑的时间线展示时间使用（非真实创建时间）。
- *   短期可接受，长期建议新增 publishedAt/displayDate 字段。
- *
- * 支持格式：
- *   - "YYYY-MM-DD" → 当天 00:00:00（本地时间）
- *   - "YYYY-MM-DDTHH:MM" / "YYYY-MM-DDTHH:MM:SS" → 保留本地时间，不转 UTC
- *   - "YYYY-MM-DD HH:MM:SS" → 直接使用
- *   - ISO 8601 带 Z 时区后缀 → 转为 UTC
- * 返回 SQLite 格式的时间字符串，或 null（使用默认当前时间）。
- */
-function normalizeCustomDate(raw: unknown): string | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  const s = raw.trim();
-
-  // 纯日期：补 00:00:00
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return `${s} 00:00:00`;
-  }
-
-  // "YYYY-MM-DD HH:MM:SS" 格式
-  const spaceMatch = s.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/);
-  if (spaceMatch) return `${spaceMatch[1]} ${spaceMatch[2]}`;
-
-  // "YYYY-MM-DDTHH:MM" 格式（datetime-local 输入框的默认格式）
-  // 注意：这是本地时间，直接保留，不转 UTC
-  const localMatch = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
-  if (localMatch) return `${localMatch[1]} ${localMatch[2]}:00`;
-
-  // "YYYY-MM-DDTHH:MM:SS" 格式（无时区后缀，视为本地时间）
-  const localMatch2 = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})$/);
-  if (localMatch2) return `${localMatch2[1]} ${localMatch2[2]}`;
-
-  // ISO 8601 带 Z 时区后缀 → 转为 UTC
-  if (s.endsWith("Z") || s.match(/[+-]\d{2}:\d{2}$/)) {
-    try {
-      const date = new Date(s);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().slice(0, 19).replace("T", " ");
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return null;
-}
 
 // 公用：把 scope + 可选 from/to 拼成 WHERE 子句 + 参数数组（cursor 由调用方追加）
 // Y2:
@@ -577,8 +509,8 @@ diary.get("/timeline", requireWorkspaceFeature("diaries"), (c) => {
   const userId = c.req.header("X-User-Id")!;
   const cursor = c.req.query("cursor"); // 上次最后一条的 createdAt
   const limit = Math.min(parseInt(c.req.query("limit") || "20"), 50);
-  const from = normalizeDateBound(c.req.query("from"), "from");
-  const to = normalizeDateBound(c.req.query("to"), "to");
+  const from = normalizeUtcDateBound(c.req.query("from"), "from");
+  const to = normalizeUtcDateBound(c.req.query("to"), "to");
 
   const scope = resolveDiaryScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
@@ -667,7 +599,7 @@ diary.put("/:id", (c) => {
     const newMood: string | undefined =
       typeof body.mood === "string" ? body.mood : undefined;
     const newCreatedAt: string | null | undefined =
-      body.createdAt !== undefined ? normalizeCustomDate(body.createdAt) : undefined;
+      body.createdAt !== undefined ? normalizeUtcInputToSql(body.createdAt) : undefined;
     const mediaProvided = Array.isArray(body.media) || Array.isArray(body.images);
     const requested = mediaProvided ? normalizeRequestedMedia(body) : null;
     if (requested?.error) return c.json({ error: requested.error }, requested.status || 400);
@@ -826,8 +758,8 @@ diary.delete("/:id", async (c) => {
 diary.get("/stats", requireWorkspaceFeature("diaries"), (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
-  const from = normalizeDateBound(c.req.query("from"), "from");
-  const to = normalizeDateBound(c.req.query("to"), "to");
+  const from = normalizeUtcDateBound(c.req.query("from"), "from");
+  const to = normalizeUtcDateBound(c.req.query("to"), "to");
 
   const scope = resolveDiaryScope(c, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);

@@ -20,6 +20,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import QRCode from "@/components/ui/QRCode";
+import FolderAutoLockSettings from "@/components/FolderAutoLockSettings";
 import { useTranslation } from "react-i18next";
 import { api, broadcastAuthChanged, withSudo } from "@/lib/api";
 import {
@@ -119,6 +120,7 @@ export default function SecuritySettings() {
       {/* 用 key={currentUserId} 强制子组件在用户切换时完全 remount，清除所有旧状态 */}
       {!isDemo && <PasswordSection key={`pwd-${currentUserId}`} />}
       {!isDemo && <TwoFactorSection key={`2fa-${currentUserId}`} />}
+      <FolderAutoLockSettings key={`folder-lock-${currentUserId}`} />
       <SessionsSection key={`sess-${currentUserId}`} />
     </div>
   );

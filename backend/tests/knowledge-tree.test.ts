@@ -15,7 +15,7 @@ test.after(() => {
   delete process.env.DB_PATH;
 });
 
-test("latest knowledge-tree migrations build a mixed tree and enforce inherited capabilities", async () => {
+test("latest migration builds a mixed tree and enforces inherited capabilities", async () => {
   phase("bootstrap");
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");

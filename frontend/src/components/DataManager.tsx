@@ -15,6 +15,7 @@ import { exportAllNotes, ExportProgress } from "@/lib/exportService";
 import {
   readMarkdownFiles, readMarkdownFromZipWithMeta, importNotes,
   ImportFileInfo, ImportProgress,
+  type ImportTargetContentFormat,
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -71,6 +72,34 @@ import type { Workspace } from "@/types";
 type Scope = "personal" | "workspace" | "system";
 type SubTab = "export" | "import" | "database" | "backup" | "danger";
 type MobileMemoMethod = "xiaomi" | "oppo" | "iphone";
+
+const IMPORT_FORMAT_STORAGE = {
+  siyuan: "nowen-import-format:siyuan",
+  generic: "nowen-import-format:generic-markdown",
+} as const;
+
+function readImportFormat(
+  key: string,
+  fallback: ImportTargetContentFormat,
+): ImportTargetContentFormat {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "markdown" || value === "tiptap-json" ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistImportFormat(key: string, value: ImportTargetContentFormat): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(key, value); } catch { /* storage may be disabled */ }
+}
+
+function isMarkdownImportSource(source?: string): boolean {
+  const value = String(source || "").toLowerCase();
+  return !value || value === "md" || value === "markdown" || value === "siyuan";
+}
 
 /** 各 scope 下允许的二级 Tab 集合（顺序即展示顺序） */
 const SUBTABS_BY_SCOPE: Record<Scope, ReadonlyArray<SubTab>> = {
@@ -394,10 +423,23 @@ export default function DataManager() {
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [serverSiyuanFile, setServerSiyuanFile] = useState<File | null>(null);
-  const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<"tiptap-json" | "markdown">("tiptap-json");
+  const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<ImportTargetContentFormat>(
+    () => readImportFormat(IMPORT_FORMAT_STORAGE.siyuan, "tiptap-json"),
+  );
+  const [genericImportContentFormat, setGenericImportContentFormat] = useState<ImportTargetContentFormat>(
+    () => readImportFormat(IMPORT_FORMAT_STORAGE.generic, "markdown"),
+  );
   const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>(() => readImportMethod());
   const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
   useEffect(() => persistImportMethod(activeImportMethod), [activeImportMethod]);
+  useEffect(
+    () => persistImportFormat(IMPORT_FORMAT_STORAGE.siyuan, siyuanImportContentFormat),
+    [siyuanImportContentFormat],
+  );
+  useEffect(
+    () => persistImportFormat(IMPORT_FORMAT_STORAGE.generic, genericImportContentFormat),
+    [genericImportContentFormat],
+  );
   // 记录"上一次导入实际落到的 workspaceId"和导入数量。
   //   - 当目标 ≠ 当前侧边栏 workspace 时，用于渲染"切到该工作区查看"的提示，
   //     避免出现"点完导入说成功、但侧边栏里看不到笔记"的体感（实际写入了别的空间）。
@@ -572,6 +614,8 @@ export default function DataManager() {
         const lowerZipName = zipFile.name.toLowerCase();
         const isSiyuanSyZip = lowerZipName.endsWith(".sy.zip");
         if (activeImportMethod === "siyuan" && isSiyuanSyZip) {
+          // .sy 是结构化块数据，富文本能保留更多结构，按来源切换推荐默认值。
+          setSiyuanImportContentFormat("tiptap-json");
           setServerSiyuanFile(zipFile);
           result = [{
             name: zipFile.name,
@@ -597,6 +641,10 @@ export default function DataManager() {
         let r: Awaited<ReturnType<typeof readMarkdownFromZipWithMeta>>;
         r = await readMarkdownFromZipWithMeta(zipFile);
         result = r.files;
+        if (activeImportMethod === "siyuan") {
+          // 思源 Markdown ZIP 的来源已经是 Markdown，默认原样保留。
+          setSiyuanImportContentFormat("markdown");
+        }
         setHasZip(true);
         // zip 由其内部目录/zip 文件名派生笔记本，关闭 per-file
         setPerFileNotebook(false);
@@ -619,6 +667,9 @@ export default function DataManager() {
         }
       } else {
         result = await readMarkdownFiles(files);
+        if (activeImportMethod === "siyuan") {
+          setSiyuanImportContentFormat("markdown");
+        }
         setHasZip(false);
         setZipMetaHint(null);
         setNotesImportNotice(null);
@@ -678,6 +729,9 @@ export default function DataManager() {
     const safeNotebookId = scopeMatchesGlobal ? selectedNotebookId : "";
     // perFileNotebook 与 selectedNotebookId 互斥：只要选了具体笔记本，就不启用 per-file
     const usePerFile = !safeNotebookId && perFileNotebook;
+    const selectedFiles = importFiles.filter((file) => file.selected);
+    const genericMarkdownOnly =
+      selectedFiles.length > 0 && selectedFiles.every((file) => isMarkdownImportSource(file.source));
     let result: { success: boolean; count: number };
     try {
       result = serverSiyuanFile
@@ -721,6 +775,12 @@ export default function DataManager() {
             perFileNotebook: usePerFile,
             duplicateStrategy,
             workspaceId: effectiveWorkspaceId,
+            targetContentFormat:
+              activeImportMethod === "siyuan"
+                ? siyuanImportContentFormat
+                : activeImportMethod === "generic" && genericMarkdownOnly
+                  ? genericImportContentFormat
+                  : "tiptap-json",
           }
         );
     } catch (err: any) {
@@ -803,6 +863,9 @@ export default function DataManager() {
   };
 
   const selectedCount = importFiles.filter((f) => f.selected).length;
+  const selectedFilesAreMarkdownOnly =
+    selectedCount > 0 &&
+    importFiles.filter((file) => file.selected).every((file) => isMarkdownImportSource(file.source));
 
   // Danger Zone state
   const [showResetModal, setShowResetModal] = useState(false);
@@ -1363,6 +1426,40 @@ export default function DataManager() {
                             {siyuanImportContentFormat === "tiptap-json"
                               ? t('dataManager.siyuanImportFormatRichTextHint')
                               : t('dataManager.siyuanImportFormatMarkdownHint')}
+                          </p>
+                        </div>
+                      )}
+                      {activeImportMethod === "generic" && selectedFilesAreMarkdownOnly && (
+                        <div className="mt-3">
+                          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1.5">
+                            {t('dataManager.siyuanImportFormatLabel')}
+                          </p>
+                          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setGenericImportContentFormat("markdown")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors ${genericImportContentFormat === "markdown"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatMarkdown')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGenericImportContentFormat("tiptap-json")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 ${genericImportContentFormat === "tiptap-json"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatRichText')}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1.5">
+                            {genericImportContentFormat === "markdown"
+                              ? t('dataManager.siyuanImportFormatMarkdownHint')
+                              : t('dataManager.siyuanImportFormatRichTextHint')}
                           </p>
                         </div>
                       )}

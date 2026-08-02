@@ -8,6 +8,14 @@ export function countOwnedNotebooks(nodes: KnowledgeTreeNode[]): number {
   )).length;
 }
 
+export function countOwnedNotes(nodes: KnowledgeTreeNode[]): number {
+  return nodes.filter((node) => (
+    node.resourceType === "note"
+    && !node.sharedRootId
+    && node.isDeleted !== 1
+  )).length;
+}
+
 export function buildFirstLevelNoteCounts(
   nodes: KnowledgeTreeNode[],
 ): Map<string, number> {

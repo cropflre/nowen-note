@@ -153,19 +153,30 @@ test("ignores a deleted Xiaomi notebook and creates a new active personal target
   assert.equal(note.workspaceId, null);
 });
 
-test("retries are idempotent and do not duplicate already imported Xiaomi notes", async () => {
+test("creates one Nowen note for every returned row even when Xiaomi note IDs repeat", async () => {
   const app = createApp();
-  const first = await importNotes(app, ["note-1", "note-2"]);
-  assert.equal(first.response.status, 201);
+  const first = await importNotes(app, ["note-1", "note-1", "note-2"]);
 
-  const second = await importNotes(app, ["note-1", "note-2"]);
+  assert.equal(first.response.status, 201);
+  assert.equal(first.payload.count, 3);
+  assert.equal(first.payload.createdCount, 3);
+  assert.equal(first.payload.skippedCount, 0);
+
+  const firstRows = getDb().prepare(`
+    SELECT title FROM notes ORDER BY createdAt, id
+  `).all() as Array<{ title: string }>;
+  assert.equal(firstRows.length, 3);
+  assert.equal(firstRows.filter((row) => row.title === "Title note-1").length, 2);
+  assert.equal(firstRows.filter((row) => row.title === "Title note-2").length, 1);
+
+  const second = await importNotes(app, ["note-1"]);
   assert.equal(second.response.status, 201);
-  assert.equal(second.payload.count, 2);
-  assert.equal(second.payload.createdCount, 0);
-  assert.equal(second.payload.skippedCount, 2);
+  assert.equal(second.payload.count, 1);
+  assert.equal(second.payload.createdCount, 1);
+  assert.equal(second.payload.skippedCount, 0);
 
   const row = getDb().prepare("SELECT COUNT(*) AS count FROM notes").get() as { count: number };
-  assert.equal(row.count, 2);
+  assert.equal(row.count, 4);
 });
 
 test("one database failure no longer rolls back the other notes or returns a plain batch 500", async () => {

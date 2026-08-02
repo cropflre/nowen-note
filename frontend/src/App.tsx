@@ -46,6 +46,7 @@ import CommandPalette from "@/components/common/CommandPalette";
 import OfflineIndicator from "@/components/common/OfflineIndicator";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
+import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
@@ -59,7 +60,7 @@ function normalizeAuthUrl(url: string): string {
 function isLoopbackAuthUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || (u.hostname === "::1" || u.hostname === "[::1]");
   } catch {
     return false;
   }
@@ -817,6 +818,9 @@ function AppLayout() {
 
       {/* 服务端版本升级提示（前端 bundle 与服务端不一致时） */}
       <UpdateNotifier />
+
+      {/* 桌面宽屏笔记布局：标准 / 三栏 / 专注，移动端保持逐级导航。 */}
+      <NoteWorkspaceLayoutController />
 
       {/* 桌面端文件夹自动同步调度器（仅 Electron，无 UI） */}
       <FolderSyncScheduler />

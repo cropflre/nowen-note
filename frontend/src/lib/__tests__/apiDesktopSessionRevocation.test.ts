@@ -48,4 +48,24 @@ describe("桌面端会话失效处理", () => {
     expect(result.error).toHaveProperty("message", "Token 无效或已过期");
     expect(localStorage.getItem("nowen-token")).toBeNull();
   });
+
+  it("匿名请求收到 401 时不触发会话清理和页面刷新链路", async () => {
+    const clearLocalAuth = vi.fn(async () => ({ ok: true }));
+    (window as any).nowenDesktop = {
+      isDesktop: true,
+      clearLocalAuth,
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: "未授权", code: "UNAUTHENTICATED" }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    )));
+
+    await expect(api.getMe()).rejects.toThrow("未授权");
+
+    expect(clearLocalAuth).not.toHaveBeenCalled();
+    expect(localStorage.getItem("nowen-token")).toBeNull();
+  });
 });

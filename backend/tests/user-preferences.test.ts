@@ -85,19 +85,33 @@ test.after(async () => {
 test("stores user preferences per user", async () => {
   const put = await requestJson("PUT", "/user-preferences", {
     noteTitleAsAppTitle: true,
+    folderAutoLockMinutes: 30,
+    folderLockOnBackground: false,
     showNotesInNotebookTree: true,
     markdownDefaultViewMode: "split",
   });
   assert.equal(put.status, 200);
   assert.equal(put.json.noteTitleAsAppTitle, true);
+  assert.equal(put.json.folderAutoLockMinutes, 30);
+  assert.equal(put.json.folderLockOnBackground, false);
   assert.equal(put.json.showNotesInNotebookTree, true);
   assert.equal(put.json.markdownDefaultViewMode, "split");
 
   const get = await requestJson("GET", "/user-preferences");
   assert.equal(get.status, 200);
   assert.equal(get.json.noteTitleAsAppTitle, true);
+  assert.equal(get.json.folderAutoLockMinutes, 30);
+  assert.equal(get.json.folderLockOnBackground, false);
   assert.equal(get.json.showNotesInNotebookTree, true);
   assert.equal(get.json.markdownDefaultViewMode, "split");
+});
+
+test("rejects unsupported folder auto-lock intervals", async () => {
+  const result = await requestJson("PATCH", "/user-preferences", {
+    folderAutoLockMinutes: 10,
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.json.code, "INVALID_USER_PREFERENCE");
 });
 
 test("does not leak preferences across users", async () => {

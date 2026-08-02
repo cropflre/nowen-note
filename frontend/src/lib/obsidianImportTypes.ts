@@ -1,4 +1,4 @@
-import type { ImportProgress } from "./importService";
+import type { ImportProgress, ImportTargetContentFormat } from "./importService";
 
 export type ObsidianEntryKind = "note" | "image" | "video" | "audio" | "pdf" | "attachment" | "skipped";
 
@@ -33,6 +33,7 @@ export interface ObsidianScanResult {
 
 export interface ObsidianImportOptions {
   rootName: string;
+  contentFormat: ImportTargetContentFormat;
   onProgress?: (progress: ImportProgress) => void;
 }
 

@@ -4,6 +4,7 @@ import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from ".
 import { invalidateNotebooks } from "./notebookInvalidation";
 import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
 import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
+import { installTaskOfflineApi } from "./taskOfflineApi";
 import {
   fetchJsonWithUploadDeadline,
   isElectronFullLocalRuntime,
@@ -364,5 +365,10 @@ api.getHabitCheckinLog = ((params?: {
     to: params?.to || `${year}-12-31`,
   });
 }) as typeof baseApi.getHabitCheckinLog;
+
+installTaskOfflineApi(api, {
+  getServerUrl,
+  getWorkspaceId: getCurrentWorkspace,
+});
 
 export { api };

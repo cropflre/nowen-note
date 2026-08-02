@@ -38,6 +38,7 @@ import RoundTripPermissionMappingCenter from "./components/RoundTripPermissionMa
 import RoundTripPermissionExportCenter from "./components/RoundTripPermissionExportCenter";
 import SiyuanImportProgressBridge from "./components/SiyuanImportProgressBridge";
 import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
+import InlineCommentBridge from "./components/InlineCommentBridge";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -48,6 +49,7 @@ import "./sidebar-search-experience.css";
 import "./mobile-knowledge-tree-compact.css";
 import "./siyuan-rich-text-callout.css";
 import "./knowledge-tree-markdown-drop.css";
+import "./inline-comments.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -59,6 +61,7 @@ import { installMobileImageFocusGuard } from "./lib/mobileImageFocusGuard";
 import { installNoteSyncSafety } from "./lib/noteSyncSafety";
 import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
 import { installNoteUpdateSerialQueue } from "./lib/noteUpdateSerialQueue";
+import { installKnowledgeTreeTitleSyncBridge } from "./lib/knowledgeTreeTitleSyncBridge";
 import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportFallback";
 import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
 import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
@@ -72,6 +75,7 @@ import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup"
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
 import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
+import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 
 void cleanupRemovedServerProfiles();
@@ -108,6 +112,7 @@ installTwoFactorLoginChallengeBridge();
 installNoteSyncSafety();
 installNoteUpdateResponseGuard();
 installNoteUpdateSerialQueue();
+installKnowledgeTreeTitleSyncBridge();
 installShareLightboxRotationGuard();
 installMobileImageFocusGuard();
 installTaskAttachmentExportFallback();
@@ -117,6 +122,7 @@ installRoundTripImportReviewBridge();
 installRoundTripPermissionExportBridge();
 installEditorPerformanceGlobal();
 installIssue210SignoffRuntime();
+installInlineCommentTooltipMount();
 
 initCodeBlockTheme();
 
@@ -184,6 +190,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <RoundTripPermissionExportCenter />
           <SiyuanImportProgressBridge />
           <SiyuanRichTextCalloutBridge />
+          <InlineCommentBridge />
           <App />
         </>
       )}

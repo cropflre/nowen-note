@@ -248,9 +248,11 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       </div>
 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
-        <div className="shrink-0 px-4 pb-1 pt-2 text-[11px] font-medium text-tx-tertiary">
-          内容
-        </div>
+        {variant === "desktop" && (
+          <div className="shrink-0 px-4 pb-1 pt-2 text-[11px] font-medium text-tx-tertiary">
+            内容
+          </div>
+        )}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {variant === "mobile" ? (
             <MobileKnowledgeTreePanel />

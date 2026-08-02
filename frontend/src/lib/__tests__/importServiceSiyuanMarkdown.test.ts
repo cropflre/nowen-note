@@ -68,4 +68,47 @@ describe("importService Siyuan Markdown import", () => {
     expect(notes[1].contentFormat).toBe("tiptap-json");
     expect(notes[1].content).toMatch(/^\s*\{"type":"doc"/);
   });
+
+  it("honors explicit Markdown and rich-text choices for ordinary Markdown files", async () => {
+    importNotesMock.mockResolvedValue({ success: true, count: 1 });
+    const { importNotes } = await import("@/lib/importService");
+    const file = {
+      name: "plain.md",
+      title: "Plain",
+      content: "---\ncreated: 2026-07-31\n---\n# Plain\n\nbody",
+      size: 42,
+      selected: true,
+      source: "md",
+    } as const;
+
+    await importNotes([file], undefined, undefined, { targetContentFormat: "markdown" });
+    let [[notes]] = importNotesMock.mock.calls;
+    expect(notes[0].contentFormat).toBe("markdown");
+    expect(notes[0].content).toContain("created: 2026-07-31");
+    expect(notes[0].content).toContain("# Plain");
+
+    importNotesMock.mockClear();
+    await importNotes([file], undefined, undefined, { targetContentFormat: "tiptap-json" });
+    [[notes]] = importNotesMock.mock.calls;
+    expect(notes[0].contentFormat).toBe("tiptap-json");
+    expect(notes[0].content).toMatch(/^\s*\{"type":"doc"/);
+  });
+
+  it("lets a Siyuan Markdown source be explicitly converted to rich text", async () => {
+    importNotesMock.mockResolvedValue({ success: true, count: 1 });
+    const { importNotes } = await import("@/lib/importService");
+
+    await importNotes([{
+      name: "Notebook/Doc.md",
+      title: "Doc",
+      content: "# Doc\n\nbody",
+      size: 12,
+      selected: true,
+      source: "siyuan",
+    }], undefined, undefined, { targetContentFormat: "tiptap-json" });
+
+    const [[notes]] = importNotesMock.mock.calls;
+    expect(notes[0].contentFormat).toBe("tiptap-json");
+    expect(notes[0].content).toMatch(/^\s*\{"type":"doc"/);
+  });
 });

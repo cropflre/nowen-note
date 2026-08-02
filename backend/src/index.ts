@@ -13,6 +13,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import offlineSyncRouter from "./routes/offline-sync";
 import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
@@ -473,6 +474,7 @@ app.use("/api/*", enforceApiTokenAccess);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/offline-sync", offlineSyncRouter);
 app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);

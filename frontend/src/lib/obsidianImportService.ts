@@ -1,5 +1,10 @@
 import { api } from "./api";
-import { convertToTiptapJson, extractPlainText, type ImportFileInfo } from "./importService";
+import {
+  convertToTiptapJson,
+  extractPlainText,
+  type ImportFileInfo,
+  type ImportTargetContentFormat,
+} from "./importService";
 import type { ObsidianEntry, ObsidianImportOptions, ObsidianImportResult, ObsidianScanResult } from "./obsidianImportTypes";
 import { obsidianMime, sanitizeNotebookSegment } from "./obsidianPath";
 import { buildObsidianAssetIndex, collectObsidianReferences, rewriteObsidianMarkdown } from "./obsidianReferences";
@@ -15,9 +20,16 @@ function titleFrom(markdown: string, fallback: string): string {
   return title.trim().replace(/^['"]|['"]$/g, "").slice(0, 120) || "未命名笔记";
 }
 
-function tiptap(markdown: string, entry: ObsidianEntry): { content: string; text: string } {
+function formatNote(
+  markdown: string,
+  entry: ObsidianEntry,
+  contentFormat: ImportTargetContentFormat,
+): { content: string; text: string } {
   const info: ImportFileInfo = { name: entry.vaultPath, title: entry.fileName.replace(/\.(?:md|markdown)$/i, ""), content: markdown, size: entry.size, selected: true, source: "md" };
-  return { content: convertToTiptapJson(info), text: extractPlainText(info).slice(0, 20_000) };
+  return {
+    content: contentFormat === "markdown" ? markdown : convertToTiptapJson(info),
+    text: extractPlainText(info).slice(0, 20_000),
+  };
 }
 
 function uploadName(name: string): string {
@@ -42,8 +54,8 @@ export async function runObsidianImport(scan: ObsidianScanResult, options: Obsid
       const source = await entry.file.text();
       const title = titleFrom(source, entry.fileName.replace(/\.(?:md|markdown)$/i, ""));
       const notebookPath = [root, ...entry.notebookPath.map(sanitizeNotebookSegment)].filter(Boolean);
-      const placeholder = tiptap(`# ${title}\n\n正在导入 Obsidian 笔记及附件…`, entry);
-      const createdResult = await api.importNotes([{ title, content: placeholder.content, contentText: title, contentFormat: "tiptap-json", notebookPath, notebookName: notebookPath.at(-1), updatedAt: entry.lastModified ? new Date(entry.lastModified).toISOString() : undefined }]);
+      const placeholder = formatNote(`# ${title}\n\n正在导入 Obsidian 笔记及附件…`, entry, options.contentFormat);
+      const createdResult = await api.importNotes([{ title, content: placeholder.content, contentText: title, contentFormat: options.contentFormat, notebookPath, notebookName: notebookPath.at(-1), updatedAt: entry.lastModified ? new Date(entry.lastModified).toISOString() : undefined }]);
       const created = createdResult.notes?.[0];
       if (!createdResult.success || !created?.id) throw new Error("创建笔记占位记录失败");
       noteId = created.id;
@@ -73,8 +85,12 @@ export async function runObsidianImport(scan: ObsidianScanResult, options: Obsid
         }
       }
 
-      const final = tiptap(rewriteObsidianMarkdown(source, entry.vaultPath, index, urls), entry);
-      await api.updateNote(noteId, { content: final.content, contentText: final.text, contentFormat: "tiptap-json", version: typeof created.version === "number" ? created.version : 1 });
+      const final = formatNote(
+        rewriteObsidianMarkdown(source, entry.vaultPath, index, urls),
+        entry,
+        options.contentFormat,
+      );
+      await api.updateNote(noteId, { content: final.content, contentText: final.text, contentFormat: options.contentFormat, version: typeof created.version === "number" ? created.version : 1 });
       noteCount++;
     } catch (error) {
       const message = `${entry.vaultPath}: ${(error as Error).message}`;
@@ -82,8 +98,8 @@ export async function runObsidianImport(scan: ObsidianScanResult, options: Obsid
       if (noteId) {
         try {
           const latest = await api.getNote(noteId);
-          const failed = tiptap(`# 导入未完成\n\n${message}`, entry);
-          await api.updateNote(noteId, { content: failed.content, contentText: message, version: latest.version });
+          const failed = formatNote(`# 导入未完成\n\n${message}`, entry, options.contentFormat);
+          await api.updateNote(noteId, { content: failed.content, contentText: message, contentFormat: options.contentFormat, version: latest.version });
         } catch { /* keep primary error */ }
       }
     }

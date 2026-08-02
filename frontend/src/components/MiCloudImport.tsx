@@ -1,13 +1,23 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Smartphone, Loader2, CheckCircle, AlertCircle, CloudDownload,
-  KeyRound, FileText, Trash2, ExternalLink, RefreshCw
+  KeyRound, FileText, Trash2, ExternalLink, RefreshCw, XCircle, RotateCcw
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  MiNoteEntry, verifyMiCookie, fetchMiNotes, importMiNotes,
-  saveMiCookie, getMiCookie, clearMiCookie
+  type MiCloudImportJob,
+  type MiCloudImportResult,
+  type MiNoteEntry,
+  verifyMiCookie,
+  fetchMiNotes,
+  importMiNotes,
+  resumeActiveMiCloudImport,
+  cancelMiCloudImport,
+  retryFailedMiCloudImport,
+  saveMiCookie,
+  getMiCookie,
+  clearMiCookie,
 } from "@/lib/miNoteService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
@@ -18,19 +28,74 @@ export default function MiCloudImport() {
   const actions = useAppActions();
 
   const [cookie, setCookie] = useState(getMiCookie());
-  const [phase, setPhase] = useState<"idle" | "verifying" | "loading" | "ready" | "importing" | "done" | "error">(
-    getMiCookie() ? "idle" : "idle"
-  );
+  const [phase, setPhase] = useState<"idle" | "verifying" | "loading" | "ready" | "importing" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const [notes, setNotes] = useState<MiNoteEntry[]>([]);
   const [folders, setFolders] = useState<Record<string, string>>({});
   const [importedCount, setImportedCount] = useState(0);
   const [selectedNotebookId, setSelectedNotebookId] = useState("");
   const [showCookieHelp, setShowCookieHelp] = useState(false);
+  const [importJob, setImportJob] = useState<MiCloudImportJob | null>(null);
 
-  const selectedCount = notes.filter((n) => n.selected).length;
+  const selectedCount = notes.filter((note) => note.selected).length;
+  const progressPercent = importJob && importJob.total > 0
+    ? Math.min(100, Math.round((importJob.processed / importJob.total) * 100))
+    : 0;
 
-  // 步骤1: 验证 Cookie 并获取笔记列表
+  const applyProgress = useCallback((job: MiCloudImportJob) => {
+    setImportJob(job);
+    setImportedCount(job.succeeded);
+    if (job.status === "queued" || job.status === "running" || job.status === "cancelling") {
+      setPhase("importing");
+      setMessage(
+        job.status === "cancelling"
+          ? `正在取消导入，已处理 ${job.processed} / ${job.total}`
+          : `正在导入 ${job.processed} / ${job.total}，成功 ${job.succeeded}，失败 ${job.failed}`,
+      );
+    }
+  }, []);
+
+  const finishImport = useCallback((result: MiCloudImportResult) => {
+    setImportedCount(result.count);
+    if (result.cancelled) {
+      setPhase(notes.length > 0 ? "ready" : "idle");
+      setMessage(`导入已取消，已成功导入 ${result.count} 条`);
+      return;
+    }
+
+    if (result.success) {
+      setPhase("done");
+      setMessage(
+        result.failedCount > 0
+          ? t("miCloud.importPartial", { count: result.count, errors: result.failedCount })
+          : t("miCloud.importSuccess", { count: result.count }),
+      );
+      api.getNotebooks().then(actions.setNotebooks).catch(console.error);
+      return;
+    }
+
+    setPhase("error");
+    setMessage(result.errors[0] || t("miCloud.importFailed"));
+  }, [actions, notes.length, t]);
+
+  useEffect(() => {
+    let disposed = false;
+    void resumeActiveMiCloudImport((job) => {
+      if (!disposed) applyProgress(job);
+    })
+      .then((result) => {
+        if (!disposed && result) finishImport(result);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setPhase("error");
+        setMessage(error instanceof Error ? error.message : t("miCloud.importFailed"));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [applyProgress, finishImport, t]);
+
   const handleConnect = useCallback(async () => {
     if (!cookie.trim()) {
       setMessage(t("miCloud.cookieRequired"));
@@ -58,14 +123,14 @@ export default function MiCloudImport() {
       setFolders(data.folders);
       setPhase("ready");
       setMessage(t("miCloud.notesLoaded", { count: data.notes.length }));
-    } catch (err: any) {
+    } catch (error: any) {
       setPhase("error");
-      setMessage(err.message || t("miCloud.connectFailed"));
+      setMessage(error.message || t("miCloud.connectFailed"));
     }
   }, [cookie, t]);
 
-  // 断开连接
   const handleDisconnect = useCallback(() => {
+    if (phase === "importing") return;
     clearMiCookie();
     setCookie("");
     setNotes([]);
@@ -73,9 +138,9 @@ export default function MiCloudImport() {
     setPhase("idle");
     setMessage("");
     setImportedCount(0);
-  }, []);
+    setImportJob(null);
+  }, [phase]);
 
-  // 刷新列表
   const handleRefresh = useCallback(async () => {
     const savedCookie = getMiCookie();
     if (!savedCookie) return;
@@ -89,17 +154,17 @@ export default function MiCloudImport() {
       setFolders(data.folders);
       setPhase("ready");
       setMessage(t("miCloud.notesLoaded", { count: data.notes.length }));
-    } catch (err: any) {
+    } catch (error: any) {
       setPhase("error");
-      setMessage(err.message || t("miCloud.loadFailed"));
+      setMessage(error.message || t("miCloud.loadFailed"));
     }
   }, [t]);
 
-  // 步骤2: 导入选中笔记
   const handleImport = useCallback(async () => {
-    const selectedIds = notes.filter((n) => n.selected).map((n) => n.id);
+    const selectedIds = notes.filter((note) => note.selected).map((note) => note.id);
     if (selectedIds.length === 0) return;
 
+    setImportJob(null);
     setPhase("importing");
     setMessage(t("miCloud.importing", { count: selectedIds.length }));
 
@@ -107,52 +172,107 @@ export default function MiCloudImport() {
       const result = await importMiNotes(
         getMiCookie(),
         selectedIds,
-        selectedNotebookId || undefined
+        selectedNotebookId || undefined,
+        applyProgress,
       );
-
-      if (result.success) {
-        setImportedCount(result.count);
-        setPhase("done");
-        setMessage(t("miCloud.importSuccess", { count: result.count }));
-        api.getNotebooks().then(actions.setNotebooks).catch(console.error);
-
-        if (result.errors && result.errors.length > 0) {
-          setMessage(
-            t("miCloud.importPartial", {
-              count: result.count,
-              errors: result.errors.length,
-            })
-          );
-        }
-      } else {
-        setPhase("error");
-        setMessage(t("miCloud.importFailed"));
-      }
-    } catch (err: any) {
+      finishImport(result);
+    } catch (error: any) {
       setPhase("error");
-      setMessage(err.message || t("miCloud.importFailed"));
+      setMessage(error.message || t("miCloud.importFailed"));
     }
-  }, [notes, selectedNotebookId, t, actions]);
+  }, [notes, selectedNotebookId, t, applyProgress, finishImport]);
 
-  const toggleNote = (id: string) => {
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, selected: !n.selected } : n))
+  const handleCancel = useCallback(async () => {
+    if (!importJob) return;
+    try {
+      const job = await cancelMiCloudImport(importJob.id);
+      applyProgress(job);
+      setMessage(`正在取消导入，已处理 ${job.processed} / ${job.total}`);
+    } catch (error: any) {
+      setMessage(error.message || "取消导入失败");
+    }
+  }, [importJob, applyProgress]);
+
+  const handleRetryFailed = useCallback(async () => {
+    if (!importJob || importJob.failed === 0) return;
+    setPhase("importing");
+    setMessage(`正在重试 ${importJob.failed} 条失败项...`);
+    try {
+      const result = await retryFailedMiCloudImport(importJob.id, getMiCookie(), applyProgress);
+      finishImport(result);
+    } catch (error: any) {
+      setPhase("error");
+      setMessage(error.message || "重试失败项失败");
+    }
+  }, [importJob, applyProgress, finishImport]);
+
+  const toggleNote = (rowKey: string) => {
+    setNotes((previous) =>
+      previous.map((note) =>
+        note.rowKey === rowKey ? { ...note, selected: !note.selected } : note
+      )
     );
   };
 
   const toggleAll = () => {
-    const allSelected = notes.every((n) => n.selected);
-    setNotes((prev) => prev.map((n) => ({ ...n, selected: !allSelected })));
+    const allSelected = notes.every((note) => note.selected);
+    setNotes((previous) => previous.map((note) => ({ ...note, selected: !allSelected })));
   };
 
-  const formatDate = (ts: number) => {
-    if (!ts) return "";
-    return new Date(ts).toLocaleDateString("zh-CN", {
+  const formatDate = (timestamp: number) => {
+    if (!timestamp) return "";
+    return new Date(timestamp).toLocaleDateString("zh-CN", {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
   };
+
+  const progressCard = importJob ? (
+    <div className="rounded-lg border border-orange-200 dark:border-orange-800/40 bg-orange-50/60 dark:bg-orange-950/20 p-3 space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+          {importJob.status === "cancelling" ? "正在取消" : "后台导入任务"}
+        </span>
+        <span className="text-zinc-500 dark:text-zinc-400">
+          {importJob.processed} / {importJob.total}（{progressPercent}%）
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+        <div
+          className="h-full rounded-full bg-orange-500 transition-[width] duration-300"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <span>
+          成功 {importJob.succeeded} · 失败 {importJob.failed}
+          {importJob.currentExternalId ? ` · 当前 ${importJob.currentExternalId}` : ""}
+        </span>
+        {(importJob.status === "queued" || importJob.status === "running" || importJob.status === "cancelling") && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={importJob.status === "cancelling"}
+            className="inline-flex items-center gap-1 text-red-500 hover:text-red-600 disabled:opacity-50"
+          >
+            <XCircle size={13} />
+            {importJob.status === "cancelling" ? "取消中" : "取消导入"}
+          </button>
+        )}
+      </div>
+      {phase === "done" && importJob.failed > 0 && (
+        <button
+          type="button"
+          onClick={handleRetryFailed}
+          className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 hover:text-orange-700"
+        >
+          <RotateCcw size={13} />
+          重试 {importJob.failed} 条失败项
+        </button>
+      )}
+    </div>
+  ) : null;
 
   return (
     <section>
@@ -168,8 +288,7 @@ export default function MiCloudImport() {
           {t("miCloud.description")}
         </p>
 
-        {/* Cookie 输入区 */}
-        {phase === "idle" || phase === "error" || phase === "verifying" ? (
+        {(phase === "idle" || phase === "error" || phase === "verifying") && notes.length === 0 ? (
           <div className="space-y-3">
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -187,8 +306,8 @@ export default function MiCloudImport() {
 
               <textarea
                 value={cookie}
-                onChange={(e) => {
-                  setCookie(e.target.value);
+                onChange={(event) => {
+                  setCookie(event.target.value);
                   if (phase === "error") setPhase("idle");
                 }}
                 rows={3}
@@ -197,7 +316,6 @@ export default function MiCloudImport() {
               />
             </div>
 
-            {/* Cookie 获取教程 */}
             <AnimatePresence>
               {showCookieHelp && (
                 <motion.div
@@ -233,7 +351,6 @@ export default function MiCloudImport() {
               )}
             </AnimatePresence>
 
-            {/* 错误提示 */}
             {phase === "error" && message && (
               <div className="flex items-center gap-2 text-sm text-red-500">
                 <AlertCircle size={14} />
@@ -241,7 +358,6 @@ export default function MiCloudImport() {
               </div>
             )}
 
-            {/* 连接按钮 */}
             <button
               onClick={handleConnect}
               disabled={phase === "verifying" || !cookie.trim()}
@@ -266,7 +382,6 @@ export default function MiCloudImport() {
           </div>
         ) : null}
 
-        {/* 加载中 */}
         {phase === "loading" && (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500 dark:text-zinc-400">
             <Loader2 size={16} className="animate-spin text-orange-500" />
@@ -274,17 +389,23 @@ export default function MiCloudImport() {
           </div>
         )}
 
-        {/* 笔记列表 */}
+        {notes.length === 0 && importJob && (
+          <div className="space-y-3">
+            {progressCard}
+            {message && <p className="text-sm text-zinc-600 dark:text-zinc-400">{message}</p>}
+          </div>
+        )}
+
         {(phase === "ready" || phase === "importing" || phase === "done" || phase === "error") && notes.length > 0 && (
           <div className="space-y-3">
-            {/* 操作栏 */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={toggleAll}
-                  className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium"
+                  disabled={phase === "importing"}
+                  className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium disabled:opacity-50"
                 >
-                  {notes.every((n) => n.selected) ? t("dataManager.deselectAll") : t("dataManager.selectAll")}
+                  {notes.every((note) => note.selected) ? t("dataManager.deselectAll") : t("dataManager.selectAll")}
                 </button>
                 <span className="text-xs text-zinc-400 dark:text-zinc-600">
                   {t("dataManager.selectedCount", { selected: selectedCount, total: notes.length })}
@@ -301,7 +422,8 @@ export default function MiCloudImport() {
                 </button>
                 <button
                   onClick={handleDisconnect}
-                  className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  disabled={phase === "importing"}
+                  className="p-1 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40"
                   title={t("miCloud.disconnect")}
                 >
                   <Trash2 size={14} />
@@ -309,31 +431,32 @@ export default function MiCloudImport() {
               </div>
             </div>
 
-            {/* 目标笔记本选择 */}
             <div>
               <label className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 block">
                 {t("dataManager.importToNotebook")}
               </label>
               <select
                 value={selectedNotebookId}
-                onChange={(e) => setSelectedNotebookId(e.target.value)}
-                className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500"
+                onChange={(event) => setSelectedNotebookId(event.target.value)}
+                disabled={phase === "importing"}
+                className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 disabled:opacity-60"
               >
                 <option value="">{t("miCloud.autoCreateNotebook")}</option>
-                {state.notebooks.map((nb) => (
-                  <option key={nb.id} value={nb.id}>
-                    {nb.icon} {nb.name}
+                {state.notebooks.map((notebook) => (
+                  <option key={notebook.id} value={notebook.id}>
+                    {notebook.icon} {notebook.name}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* 笔记列表 */}
             <div className="max-h-64 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
               {notes.map((note) => (
                 <label
-                  key={note.id}
-                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                  key={note.rowKey}
+                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors ${
+                    phase === "importing" ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+                  } ${
                     note.selected
                       ? "bg-orange-50/50 dark:bg-orange-500/5"
                       : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
@@ -342,7 +465,8 @@ export default function MiCloudImport() {
                   <input
                     type="checkbox"
                     checked={note.selected}
-                    onChange={() => toggleNote(note.id)}
+                    disabled={phase === "importing"}
+                    onChange={() => toggleNote(note.rowKey)}
                     className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-orange-500 focus:ring-orange-500/30"
                   />
                   <FileText size={14} className="text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
@@ -363,7 +487,8 @@ export default function MiCloudImport() {
               ))}
             </div>
 
-            {/* 状态信息 */}
+            {progressCard}
+
             {message && (
               <div className="flex items-center gap-2">
                 {phase === "error" ? (
@@ -379,7 +504,6 @@ export default function MiCloudImport() {
               </div>
             )}
 
-            {/* 导入按钮 */}
             <button
               onClick={handleImport}
               disabled={phase === "importing" || selectedCount === 0}
@@ -394,7 +518,9 @@ export default function MiCloudImport() {
               {phase === "importing" ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {t("miCloud.importing", { count: selectedCount })}
+                  {importJob
+                    ? `正在导入 ${importJob.processed} / ${importJob.total}`
+                    : t("miCloud.importing", { count: selectedCount })}
                 </>
               ) : phase === "done" ? (
                 <>

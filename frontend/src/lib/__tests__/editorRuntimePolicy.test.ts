@@ -13,6 +13,16 @@ function tiptapWithText(length: number): string {
   return `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${"x".repeat(length)}"}]}]}`;
 }
 
+function tiptapWithImages(count: number): string {
+  return JSON.stringify({
+    type: "doc",
+    content: Array.from({ length: count }, (_, index) => ({
+      type: "image",
+      attrs: { src: `/api/attachments/image-${index}` },
+    })),
+  });
+}
+
 describe("editor complexity profile", () => {
   it("reports UTF-8 bytes separately from JavaScript characters", () => {
     expect(utf8ByteLength("A中😀")).toBe(8);
@@ -46,6 +56,22 @@ describe("progressive editor runtime policy", () => {
     });
     expect(decision.mode).toBe("normal");
     expect(decision.capabilities.editable).toBe(true);
+  });
+
+  it("starts offscreen media deferral at eight image nodes", () => {
+    const belowThreshold = resolveEditorRuntimeDecision({
+      content: tiptapWithImages(7),
+      contentFormat: "tiptap-json",
+    });
+    const imageDense = resolveEditorRuntimeDecision({
+      content: tiptapWithImages(8),
+      contentFormat: "tiptap-json",
+    });
+
+    expect(belowThreshold.mode).toBe("normal");
+    expect(imageDense.mode).toBe("viewport-optimized");
+    expect(imageDense.reasons).toContain("media-count");
+    expect(imageDense.capabilities.eagerHeavyNodes).toBe(false);
   });
 
   it("uses viewport optimization before removing editing features", () => {

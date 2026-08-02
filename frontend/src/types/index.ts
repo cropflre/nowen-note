@@ -228,6 +228,7 @@ export interface NoteListItem {
 export interface Tag {
   id: string;
   userId: string;
+  workspaceId?: string | null;
   name: string;
   color: string;
   createdAt: string;
