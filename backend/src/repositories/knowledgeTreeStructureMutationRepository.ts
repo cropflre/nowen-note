@@ -39,9 +39,8 @@ type WorkspaceAccessRow = {
   role: string | null;
 };
 
-type FoundRow = {
-  found: boolean | number | string;
-};
+type FoundRow = { found: boolean | number | string };
+type SortRow = { nextSortOrder: number | string | null };
 
 function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
   return adapter ?? getDatabaseAdapter();
@@ -66,7 +65,7 @@ function mapStatementError(error: unknown): never {
     throw new KnowledgeTreeMutationError(
       "KNOWLEDGE_NODE_STALE",
       409,
-      "内容已发生变化，请刷新后重试",
+      "内容结构已发生变化，请刷新后重试",
     );
   }
   throw error;
@@ -154,6 +153,26 @@ async function isDescendant(
   return Boolean(row?.found);
 }
 
+async function nextSortOrder(
+  adapter: DatabaseAdapter,
+  dialect: DatabaseDialect,
+  scopeKey: string,
+  parentId: string | null,
+): Promise<number> {
+  const row = await adapter.queryOne<SortRow>(
+    convertSql(
+      `SELECT COALESCE(MAX(sortOrder), -1) + 1 AS nextSortOrder
+         FROM knowledge_tree_nodes
+        WHERE scopeKey = ?
+          AND COALESCE(parentId, '') = COALESCE(?, '')
+          AND isDeleted = 0`,
+      dialect,
+    ),
+    [scopeKey, parentId],
+  );
+  return normalizeSortOrder(row?.nextSortOrder, 0);
+}
+
 async function nearestNotebookContainer(
   adapter: DatabaseAdapter,
   dialect: DatabaseDialect,
@@ -203,12 +222,16 @@ async function nearestNotebookContainer(
   return null;
 }
 
-function optimisticGuard(node: KnowledgeTreeReadNode): DbStatement {
+function structureGuard(node: KnowledgeTreeReadNode): DbStatement {
   return {
     sql: `UPDATE knowledge_tree_nodes
              SET updatedAt = updatedAt
-           WHERE id = ? AND scopeKey = ? AND updatedAt = ? AND isDeleted = 0`,
-    params: [node.id, node.scopeKey, node.updatedAt],
+           WHERE id = ?
+             AND scopeKey = ?
+             AND COALESCE(parentId, '') = COALESCE(?, '')
+             AND sortOrder = ?
+             AND isDeleted = 0`,
+    params: [node.id, node.scopeKey, node.parentId, node.sortOrder],
     requireChanges: 1,
   };
 }
@@ -261,6 +284,16 @@ function businessSortStatement(node: KnowledgeTreeReadNode, sortOrder: number): 
     };
   }
   return null;
+}
+
+function convertedStatements(
+  statements: DbStatement[],
+  dialect: DatabaseDialect,
+): DbStatement[] {
+  return statements.map((statement) => ({
+    ...statement,
+    sql: convertSql(statement.sql, dialect),
+  }));
 }
 
 export function createKnowledgeTreeStructureMutationRepository(
@@ -379,9 +412,15 @@ export function createKnowledgeTreeStructureMutationRepository(
         activeDialect,
         parent,
       );
-      const sortOrder = normalizeSortOrder(input.sortOrder, parent ? parent.childCount : 0);
+      const fallbackSortOrder = await nextSortOrder(
+        activeAdapter,
+        activeDialect,
+        current.scopeKey,
+        input.parentId,
+      );
+      const sortOrder = normalizeSortOrder(input.sortOrder, fallbackSortOrder);
       const statements: DbStatement[] = [
-        optimisticGuard(current),
+        structureGuard(current),
         ...businessParentStatements(current, notebookContainerId),
         {
           sql: `UPDATE knowledge_tree_nodes
@@ -408,10 +447,7 @@ export function createKnowledgeTreeStructureMutationRepository(
 
       try {
         await activeAdapter.executeStatements(
-          statements.map((statement) => ({
-            ...statement,
-            sql: convertSql(statement.sql, activeDialect),
-          })),
+          convertedStatements(statements, activeDialect),
         );
       } catch (error) {
         mapStatementError(error);
@@ -485,12 +521,14 @@ export function createKnowledgeTreeStructureMutationRepository(
             { nodeId: item.id, required: "canMove" },
           );
         }
+
         const sortOrder = normalizeSortOrder(item.sortOrder, 0);
+        statements.push(structureGuard(node));
         statements.push({
           sql: `UPDATE knowledge_tree_nodes
                    SET sortOrder = ?, updatedAt = datetime('now')
-                 WHERE id = ? AND scopeKey = ? AND updatedAt = ? AND isDeleted = 0`,
-          params: [sortOrder, node.id, node.scopeKey, node.updatedAt],
+                 WHERE id = ? AND scopeKey = ? AND isDeleted = 0`,
+          params: [sortOrder, node.id, node.scopeKey],
           requireChanges: 1,
         });
         const resourceStatement = businessSortStatement(node, sortOrder);
@@ -514,10 +552,7 @@ export function createKnowledgeTreeStructureMutationRepository(
       if (statements.length > 0) {
         try {
           await activeAdapter.executeStatements(
-            statements.map((statement) => ({
-              ...statement,
-              sql: convertSql(statement.sql, activeDialect),
-            })),
+            convertedStatements(statements, activeDialect),
           );
         } catch (error) {
           mapStatementError(error);
