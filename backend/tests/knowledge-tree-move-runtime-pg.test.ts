@@ -17,6 +17,12 @@ type RuntimeNode = {
   sortOrder: number;
 };
 
+async function responseJson<T>(response: Response, expectedStatus: number): Promise<T> {
+  const text = await response.text();
+  assert.equal(response.status, expectedStatus, text);
+  return JSON.parse(text) as T;
+}
+
 test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permission-safe", { skip }, async () => {
   const { Pool } = await import("pg");
   const pool = new Pool({ connectionString: databaseUrl });
@@ -77,31 +83,31 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
       parentId: string | null,
       nodeType: "folder" | "note" | "markdown" | "word",
       title: string,
-    ): Promise<RuntimeNode> => {
-      const response = await app.request(`/api/knowledge-tree/nodes?${workspaceQuery}`, {
+    ): Promise<RuntimeNode> => responseJson<RuntimeNode>(
+      await app.request(`/api/knowledge-tree/nodes?${workspaceQuery}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-User-Id": actorUserId },
         body: JSON.stringify({ parentId, nodeType, title }),
-      });
-      assert.equal(response.status, 201, await response.text());
-      return await response.json() as RuntimeNode;
-    };
+      }),
+      201,
+    );
 
     const folderA = await createNode(ownerId, null, "folder", "Move Folder A");
     const folderB = await createNode(ownerId, null, "folder", "Move Folder B");
     const childFolder = await createNode(ownerId, folderA.id, "folder", "Move Child Folder");
     const markdown = await createNode(ownerId, folderA.id, "markdown", "Movable Markdown");
 
-    const moveNoteResponse = await app.request(
-      `/api/knowledge-tree/nodes/${encodeURIComponent(markdown.id)}/move?${workspaceQuery}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
-        body: JSON.stringify({ parentId: folderB.id, sortOrder: 7 }),
-      },
+    const movedNote = await responseJson<RuntimeNode>(
+      await app.request(
+        `/api/knowledge-tree/nodes/${encodeURIComponent(markdown.id)}/move?${workspaceQuery}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+          body: JSON.stringify({ parentId: folderB.id, sortOrder: 7 }),
+        },
+      ),
+      200,
     );
-    assert.equal(moveNoteResponse.status, 200, await moveNoteResponse.text());
-    const movedNote = await moveNoteResponse.json() as RuntimeNode;
     assert.equal(movedNote.parentId, folderB.id);
     assert.equal(movedNote.sortOrder, 7);
 
@@ -123,16 +129,17 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
     assert.equal(storedNote.rows[0]?.treeParentId, folderB.id);
     assert.equal(storedNote.rows[0]?.treeSortOrder, 7);
 
-    const moveFolderResponse = await app.request(
-      `/api/knowledge-tree/nodes/${encodeURIComponent(childFolder.id)}/move?${workspaceQuery}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
-        body: JSON.stringify({ parentId: folderB.id, sortOrder: 3 }),
-      },
+    const movedFolder = await responseJson<RuntimeNode>(
+      await app.request(
+        `/api/knowledge-tree/nodes/${encodeURIComponent(childFolder.id)}/move?${workspaceQuery}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+          body: JSON.stringify({ parentId: folderB.id, sortOrder: 3 }),
+        },
+      ),
+      200,
     );
-    assert.equal(moveFolderResponse.status, 200, await moveFolderResponse.text());
-    const movedFolder = await moveFolderResponse.json() as RuntimeNode;
     assert.equal(movedFolder.parentId, folderB.id);
 
     const storedFolder = await pool.query<{ parentId: string; treeParentId: string }>(
@@ -146,29 +153,35 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
     assert.equal(storedFolder.rows[0]?.parentId, folderB.resourceId);
     assert.equal(storedFolder.rows[0]?.treeParentId, folderB.id);
 
-    const cycleResponse = await app.request(
-      `/api/knowledge-tree/nodes/${encodeURIComponent(folderB.id)}/move?${workspaceQuery}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
-        body: JSON.stringify({ parentId: childFolder.id }),
-      },
+    const cyclePayload = await responseJson<{ code: string }>(
+      await app.request(
+        `/api/knowledge-tree/nodes/${encodeURIComponent(folderB.id)}/move?${workspaceQuery}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+          body: JSON.stringify({ parentId: childFolder.id }),
+        },
+      ),
+      400,
     );
-    assert.equal(cycleResponse.status, 400);
-    assert.equal((await cycleResponse.json() as { code: string }).code, "KNOWLEDGE_TREE_CYCLE");
+    assert.equal(cyclePayload.code, "KNOWLEDGE_TREE_CYCLE");
 
-    const reorderResponse = await app.request(`/api/knowledge-tree/reorder?${workspaceQuery}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
-      body: JSON.stringify({
-        items: [
-          { id: folderA.id, sortOrder: 12 },
-          { id: folderB.id, sortOrder: 4 },
-        ],
-      }),
-    });
-    assert.equal(reorderResponse.status, 200, await reorderResponse.text());
-    assert.deepEqual(await reorderResponse.json(), { success: true, updated: 2 });
+    assert.deepEqual(
+      await responseJson<{ success: true; updated: number }>(
+        await app.request(`/api/knowledge-tree/reorder?${workspaceQuery}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+          body: JSON.stringify({
+            items: [
+              { id: folderA.id, sortOrder: 12 },
+              { id: folderB.id, sortOrder: 4 },
+            ],
+          }),
+        }),
+        200,
+      ),
+      { success: true, updated: 2 },
+    );
 
     const sortedFolders = await pool.query<{
       id: string;
@@ -190,35 +203,33 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
     assert.equal(folderBSort?.treeSortOrder, 4);
     assert.equal(folderBSort?.notebookSortOrder, 4);
 
-    const viewerReorderResponse = await app.request(`/api/knowledge-tree/reorder?${workspaceQuery}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-User-Id": viewerId },
-      body: JSON.stringify({ items: [{ id: folderA.id, sortOrder: 1 }] }),
-    });
-    assert.equal(viewerReorderResponse.status, 403);
-    assert.equal(
-      (await viewerReorderResponse.json() as { code: string }).code,
-      "KNOWLEDGE_CAPABILITY_FORBIDDEN",
+    const viewerPayload = await responseJson<{ code: string }>(
+      await app.request(`/api/knowledge-tree/reorder?${workspaceQuery}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-User-Id": viewerId },
+        body: JSON.stringify({ items: [{ id: folderA.id, sortOrder: 1 }] }),
+      }),
+      403,
     );
+    assert.equal(viewerPayload.code, "KNOWLEDGE_CAPABILITY_FORBIDDEN");
 
     await pool.query(
       `INSERT INTO knowledge_tree_acl ("nodeId", "userId", "rolePreset")
        VALUES ($1, $2, 'readonly')`,
       [folderB.id, editorId],
     );
-    const readonlyMoveResponse = await app.request(
-      `/api/knowledge-tree/nodes/${encodeURIComponent(markdown.id)}/move?${workspaceQuery}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Id": editorId },
-        body: JSON.stringify({ parentId: folderA.id }),
-      },
+    const readonlyPayload = await responseJson<{ code: string }>(
+      await app.request(
+        `/api/knowledge-tree/nodes/${encodeURIComponent(markdown.id)}/move?${workspaceQuery}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": editorId },
+          body: JSON.stringify({ parentId: folderA.id }),
+        },
+      ),
+      403,
     );
-    assert.equal(readonlyMoveResponse.status, 403);
-    assert.equal(
-      (await readonlyMoveResponse.json() as { code: string }).code,
-      "KNOWLEDGE_CAPABILITY_FORBIDDEN",
-    );
+    assert.equal(readonlyPayload.code, "KNOWLEDGE_CAPABILITY_FORBIDDEN");
 
     const sharedRoot = await createNode(ownerId, null, "folder", "Shared Move Root");
     await createNode(ownerId, sharedRoot.id, "note", "Shared Move Child");
@@ -227,19 +238,18 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
        VALUES ($1, $2, 'maintainer')`,
       [sharedRoot.id, outsiderId],
     );
-    const sharedRootMoveResponse = await app.request(
-      `/api/knowledge-tree/nodes/${encodeURIComponent(sharedRoot.id)}/move?${workspaceQuery}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Id": outsiderId },
-        body: JSON.stringify({ parentId: null }),
-      },
+    const sharedRootPayload = await responseJson<{ code: string }>(
+      await app.request(
+        `/api/knowledge-tree/nodes/${encodeURIComponent(sharedRoot.id)}/move?${workspaceQuery}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-User-Id": outsiderId },
+          body: JSON.stringify({ parentId: null }),
+        },
+      ),
+      403,
     );
-    assert.equal(sharedRootMoveResponse.status, 403);
-    assert.equal(
-      (await sharedRootMoveResponse.json() as { code: string }).code,
-      "KNOWLEDGE_SHARED_ROOT_MOVE_FORBIDDEN",
-    );
+    assert.equal(sharedRootPayload.code, "KNOWLEDGE_SHARED_ROOT_MOVE_FORBIDDEN");
 
     const baseAdapter = runtime.getDatabaseAdapter();
     const failingAdapter: DatabaseAdapter = {
@@ -259,6 +269,7 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
       failingAdapter,
       "postgres",
     );
+
     await assert.rejects(
       failingRepository.moveNode({
         actorUserId: ownerId,
@@ -268,7 +279,6 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
         sortOrder: 2,
       }),
     );
-
     const afterRollback = await pool.query<{ notebookId: string; treeParentId: string }>(
       `SELECT note."notebookId" AS "notebookId", node."parentId" AS "treeParentId"
          FROM notes note
