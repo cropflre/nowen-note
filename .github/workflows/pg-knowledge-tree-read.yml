@@ -9,10 +9,12 @@ on:
       - "backend/src/repositories/knowledgeTreeReadRepository.ts"
       - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
       - "backend/src/repositories/knowledgeTreeStructureMutationRepository.ts"
+      - "backend/src/repositories/knowledgeTreeLifecycleMutationRepository.ts"
       - "backend/src/routes/knowledge-tree-runtime.ts"
       - "backend/tests/knowledge-tree-runtime-pg.test.ts"
       - "backend/tests/knowledge-tree-create-runtime-pg.test.ts"
       - "backend/tests/knowledge-tree-move-runtime-pg.test.ts"
+      - "backend/tests/knowledge-tree-lifecycle-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
@@ -26,10 +28,12 @@ on:
       - "backend/src/repositories/knowledgeTreeReadRepository.ts"
       - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
       - "backend/src/repositories/knowledgeTreeStructureMutationRepository.ts"
+      - "backend/src/repositories/knowledgeTreeLifecycleMutationRepository.ts"
       - "backend/src/routes/knowledge-tree-runtime.ts"
       - "backend/tests/knowledge-tree-runtime-pg.test.ts"
       - "backend/tests/knowledge-tree-create-runtime-pg.test.ts"
       - "backend/tests/knowledge-tree-move-runtime-pg.test.ts"
+      - "backend/tests/knowledge-tree-lifecycle-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/scripts/check-direct-db-access-baseline.mjs"
       - "backend/scripts/check-pg-schema-parity.mjs"
@@ -102,6 +106,7 @@ jobs:
           tests/knowledge-tree-runtime-pg.test.ts
           tests/knowledge-tree-create-runtime-pg.test.ts
           tests/knowledge-tree-move-runtime-pg.test.ts
+          tests/knowledge-tree-lifecycle-runtime-pg.test.ts
 
       - name: Production backend bundle
         working-directory: backend
