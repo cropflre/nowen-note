@@ -89,7 +89,7 @@ export function createKnowledgeTreeMutationRepository(
         );
       }
 
-      const statements: DbStatement[] = [];
+      let titleMutation: DbStatement | null = null;
       if (input.title !== undefined) {
         if (!current.access.capabilities.canEdit) {
           throw new KnowledgeTreeMutationError(
@@ -107,10 +107,10 @@ export function createKnowledgeTreeMutationRepository(
             "名称不能为空",
           );
         }
-        const statement = titleStatement(current, title);
-        if (statement) statements.push(statement);
+        titleMutation = titleStatement(current, title);
       }
 
+      const statements: DbStatement[] = [];
       if (input.isExpanded !== undefined) {
         if (!current.access.capabilities.canView) {
           throw new KnowledgeTreeMutationError(
@@ -134,6 +134,7 @@ export function createKnowledgeTreeMutationRepository(
           });
         }
       }
+      if (titleMutation) statements.push(titleMutation);
 
       if (statements.length > 0) {
         const activeDialect = getDialect();
