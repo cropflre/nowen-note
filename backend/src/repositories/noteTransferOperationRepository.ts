@@ -128,7 +128,7 @@ function canonicalJson(value: unknown): string {
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? "null";
 }
 
 function requestHash(value: unknown): string {
@@ -152,8 +152,60 @@ function normalizeIdempotencyKey(value: string): string {
   return normalized;
 }
 
+function isExpiredPrepared(operation: PreparedNoteTransferOperation): boolean {
+  return operation.status === "prepared"
+    && new Date(operation.expiresAt).getTime() <= Date.now();
+}
+
+function assertNotExpired(operation: PreparedNoteTransferOperation): void {
+  if (!isExpiredPrepared(operation)) return;
+  throw new NoteTransferOperationError(
+    "NOTE_TRANSFER_PLAN_EXPIRED",
+    "转移计划已过期，请使用新的幂等键重新预检",
+    410,
+    { operationId: operation.id },
+  );
+}
+
+function validateSourceSnapshot(
+  sourceNoteIds: string[],
+  sourceVersions: Record<string, number>,
+): void {
+  if (sourceNoteIds.length === 0) {
+    throw new NoteTransferOperationError("SOURCE_NOTES_REQUIRED", "请至少选择一篇笔记");
+  }
+  if (sourceNoteIds.length > 100) {
+    throw new NoteTransferOperationError(
+      "TRANSFER_BATCH_TOO_LARGE",
+      "单次最多转移 100 篇笔记",
+    );
+  }
+  if (new Set(sourceNoteIds).size !== sourceNoteIds.length) {
+    throw new NoteTransferOperationError(
+      "NOTE_TRANSFER_SOURCE_DUPLICATE",
+      "转移计划中的源笔记不能重复",
+    );
+  }
+  for (const sourceNoteId of sourceNoteIds) {
+    const version = sourceVersions[sourceNoteId];
+    if (!Number.isInteger(version) || version < 0) {
+      throw new NoteTransferOperationError(
+        "NOTE_TRANSFER_SOURCE_VERSION_REQUIRED",
+        "每篇源笔记都必须包含有效的版本快照",
+        400,
+        { sourceNoteId },
+      );
+    }
+  }
+}
+
+/**
+ * Revalidates the exact permission precedence used by resolveNotePermission:
+ * resource owner -> notebook membership override -> note ACL -> workspace role.
+ */
 function sourceGuard(input: {
   actorUserId: string;
+  sourceWorkspaceId: string | null;
   sourceNoteId: string;
   sourceVersion: number;
 }): DbStatement {
@@ -175,12 +227,18 @@ function sourceGuard(input: {
            WHERE note.id = ?
              AND note.version = ?
              AND note.isTrashed = false
+             AND COALESCE(note.workspaceId, '') = COALESCE(?, '')
              AND (
                note.userId = ?
-               OR workspace.ownerId = ?
-               OR workspace_member.role IN ('owner', 'admin')
-               OR notebook_member.role IN ('owner', 'admin', 'manage')
-               OR note_permission.permission = 'manage'
+               OR CASE
+                 WHEN notebook_member.role IS NOT NULL THEN
+                   notebook_member.role IN ('owner', 'admin', 'manage')
+                 WHEN note.workspaceId IS NULL THEN false
+                 WHEN note_permission.permission IS NOT NULL THEN
+                   note_permission.permission = 'manage'
+                 WHEN workspace.ownerId = ? THEN true
+                 ELSE workspace_member.role IN ('owner', 'admin')
+               END
              )`,
     params: [
       input.actorUserId,
@@ -188,6 +246,7 @@ function sourceGuard(input: {
       input.actorUserId,
       input.sourceNoteId,
       input.sourceVersion,
+      input.sourceWorkspaceId,
       input.actorUserId,
       input.actorUserId,
     ],
@@ -195,6 +254,9 @@ function sourceGuard(input: {
   };
 }
 
+/**
+ * Revalidates resolveNotebookPermission precedence and requires write or manage.
+ */
 function targetGuard(input: {
   actorUserId: string;
   targetNotebookId: string;
@@ -216,10 +278,14 @@ function targetGuard(input: {
              AND notebook.isDeleted = false
              AND COALESCE(notebook.workspaceId, '') = COALESCE(?, '')
              AND (
-               (notebook.workspaceId IS NULL AND notebook.userId = ?)
-               OR workspace.ownerId = ?
-               OR workspace_member.role IN ('owner', 'admin', 'editor')
-               OR notebook_member.role IN ('owner', 'admin', 'manage', 'editor', 'write')
+               notebook.userId = ?
+               OR CASE
+                 WHEN notebook_member.role IS NOT NULL THEN
+                   notebook_member.role IN ('owner', 'admin', 'manage', 'editor', 'write')
+                 WHEN notebook.workspaceId IS NULL THEN false
+                 WHEN workspace.ownerId = ? THEN true
+                 ELSE workspace_member.role IN ('owner', 'admin', 'editor')
+               END
              )`,
     params: [
       input.actorUserId,
@@ -237,7 +303,7 @@ function mapTransactionError(error: unknown): never {
   if (error instanceof DbStatementChangeError) {
     throw new NoteTransferOperationError(
       "NOTE_TRANSFER_PLAN_STALE",
-      "源笔记版本或权限已变化，请重新预检",
+      "源笔记版本、空间或权限已变化，请重新预检",
       409,
     );
   }
@@ -248,13 +314,6 @@ function mapTransactionError(error: unknown): never {
     throw new NoteTransferOperationError(
       "NOTE_TRANSFER_IDEMPOTENCY_CONFLICT",
       "该幂等键已被其他请求占用",
-      409,
-    );
-  }
-  if (code === "23503") {
-    throw new NoteTransferOperationError(
-      "NOTE_TRANSFER_PLAN_STALE",
-      "源笔记或目标笔记本已变化，请重新预检",
       409,
     );
   }
@@ -329,14 +388,7 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
     }): Promise<PreparedNoteTransferOperation | null> {
       const key = normalizeIdempotencyKey(input.idempotencyKey);
       const operation = await loadOperation(input.actorUserId, key);
-      if (!operation) return null;
-      if (new Date(operation.expiresAt).getTime() <= Date.now() && operation.status === "prepared") {
-        throw new NoteTransferOperationError(
-          "NOTE_TRANSFER_PLAN_EXPIRED",
-          "转移计划已过期，请重新预检",
-          410,
-        );
-      }
+      if (operation) assertNotExpired(operation);
       return operation;
     },
 
@@ -358,12 +410,11 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
       externalNoteLinkCount: number;
     }): Promise<PreparedNoteTransferOperation> {
       const key = normalizeIdempotencyKey(input.idempotencyKey);
-      if (input.sourceNoteIds.length === 0) {
-        throw new NoteTransferOperationError(
-          "SOURCE_NOTES_REQUIRED",
-          "请至少选择一篇笔记",
-        );
+      validateSourceSnapshot(input.sourceNoteIds, input.sourceVersions);
+      if (input.mode !== "copy" && input.mode !== "move") {
+        throw new NoteTransferOperationError("INVALID_TRANSFER_MODE", "mode 必须是 copy 或 move");
       }
+
       const canonicalRequest = {
         mode: input.mode,
         sourceWorkspaceId: input.sourceWorkspaceId,
@@ -377,6 +428,7 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
       const hash = requestHash(canonicalRequest);
       const existing = await loadOperation(input.actorUserId, key);
       if (existing) {
+        assertNotExpired(existing);
         if (existing.requestHash !== hash) {
           throw new NoteTransferOperationError(
             "NOTE_TRANSFER_IDEMPOTENCY_CONFLICT",
@@ -410,6 +462,7 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         }),
         ...input.sourceNoteIds.map((sourceNoteId) => sourceGuard({
           actorUserId: input.actorUserId,
+          sourceWorkspaceId: input.sourceWorkspaceId,
           sourceNoteId,
           sourceVersion: input.sourceVersions[sourceNoteId],
         })),
@@ -460,7 +513,10 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         await db.executeStatements(statements);
       } catch (error) {
         const raced = await loadOperation(input.actorUserId, key).catch(() => null);
-        if (raced?.requestHash === hash) return { ...raced, reused: true };
+        if (raced?.requestHash === hash) {
+          assertNotExpired(raced);
+          return { ...raced, reused: true };
+        }
         mapTransactionError(error);
       }
 
