@@ -1,4 +1,8 @@
-import type { DatabaseAdapter, DbStatement } from "../db/adapters/types";
+import {
+  DbStatementChangeError,
+  type DatabaseAdapter,
+  type DbStatement,
+} from "../db/adapters/types";
 import { booleanValue, convertSql, type DatabaseDialect } from "../db/dialect";
 import { getDatabaseAdapter, getDatabaseDialect } from "../db/runtime";
 import {
@@ -138,12 +142,23 @@ export function createKnowledgeTreeMutationRepository(
 
       if (statements.length > 0) {
         const activeDialect = getDialect();
-        await getAdapter().executeStatements(
-          statements.map((statement) => ({
-            ...statement,
-            sql: convertSql(statement.sql, activeDialect),
-          })),
-        );
+        try {
+          await getAdapter().executeStatements(
+            statements.map((statement) => ({
+              ...statement,
+              sql: convertSql(statement.sql, activeDialect),
+            })),
+          );
+        } catch (error) {
+          if (error instanceof DbStatementChangeError) {
+            throw new KnowledgeTreeMutationError(
+              "KNOWLEDGE_NODE_STALE",
+              409,
+              "内容已发生变化，请刷新后重试",
+            );
+          }
+          throw error;
+        }
       }
 
       const refreshedNodes = await readRepository.list({
