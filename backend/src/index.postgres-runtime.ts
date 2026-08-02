@@ -167,7 +167,9 @@ async function authenticateApiRequest(c: Context, next: Next) {
       return c.json({ error: "会话已过期，请重新登录", code: "SESSION_EXPIRED" }, 401);
     }
     void adapter.execute(
-      `UPDATE user_sessions SET "lastSeenAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE user_sessions
+          SET "lastSeenAt" = CURRENT_TIMESTAMP
+        WHERE id = ? AND "userId" = ?`,
       [payload.jti, payload.userId],
     ).catch((error) => {
       console.warn("[postgres-runtime] session lastSeen update failed:", error instanceof Error ? error.message : String(error));
