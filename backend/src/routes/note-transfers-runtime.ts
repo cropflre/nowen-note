@@ -2,6 +2,10 @@ import { Hono, type Context } from "hono";
 
 import type { DatabaseAdapter } from "../db/adapters/types";
 import {
+  createNoteTransferOperationRepository,
+  NoteTransferOperationError,
+} from "../repositories/noteTransferOperationRepository";
+import {
   createNoteTransferPreviewRuntime,
   NoteTransferPreviewRuntimeError,
   type NoteTransferPreviewRuntimeRequest,
@@ -50,8 +54,12 @@ function parseRequest(c: Context, body: Record<string, unknown>): NoteTransferPr
   };
 }
 
+function operationKey(c: Context, body: Record<string, unknown>): string {
+  return String(c.req.header("Idempotency-Key") || body.idempotencyKey || "").trim();
+}
+
 function errorResponse(c: Context, error: unknown): Response {
-  if (error instanceof NoteTransferPreviewRuntimeError) {
+  if (error instanceof NoteTransferPreviewRuntimeError || error instanceof NoteTransferOperationError) {
     return c.json(
       {
         error: error.message,
@@ -66,7 +74,7 @@ function errorResponse(c: Context, error: unknown): Response {
     error instanceof Error ? error.message : error,
   );
   return c.json(
-    { error: "笔记转移预检失败", code: "NOTE_TRANSFER_PREVIEW_FAILED" },
+    { error: "笔记转移操作失败", code: "NOTE_TRANSFER_RUNTIME_FAILED" },
     500,
   );
 }
@@ -74,6 +82,7 @@ function errorResponse(c: Context, error: unknown): Response {
 export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapter) {
   const app = new Hono();
   const runtime = createNoteTransferPreviewRuntime(adapter);
+  const operations = createNoteTransferOperationRepository(adapter);
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -88,13 +97,79 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     }
   });
 
+  app.post("/prepare", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+      const request = parseRequest(c, body);
+      const preview = await runtime.preview(request);
+      if (!preview.canExecute) {
+        return c.json(
+          {
+            error: "转移预检未通过",
+            code: "NOTE_TRANSFER_PREVIEW_BLOCKED",
+            blockers: preview.blockers,
+            warnings: preview.warnings,
+          },
+          409,
+        );
+      }
+
+      const operation = await operations.prepare({
+        actorUserId: request.actorUserId,
+        idempotencyKey: operationKey(c, body),
+        mode: request.mode,
+        sourceWorkspaceId: preview.sourceWorkspaceId,
+        targetWorkspaceId: preview.targetWorkspaceId,
+        targetNotebookId: preview.targetNotebookId,
+        includeAttachments: request.includeAttachments !== false,
+        includeTags: request.includeTags !== false,
+        sourceNoteIds: preview.notes.map((note) => note.id),
+        sourceVersions: preview.sourceVersions,
+        attachmentCount: preview.attachmentCount,
+        attachmentBytes: preview.attachmentBytes,
+        tagCount: preview.tagCount,
+        internalNoteLinkCount: preview.internalNoteLinkCount,
+        externalNoteLinkCount: preview.externalNoteLinkCount,
+      });
+      return c.json(operation, operation.reused ? 200 : 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.get("/operations/:idempotencyKey", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const operation = await operations.getPrepared({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      if (!operation) {
+        return c.json(
+          { error: "转移计划不存在", code: "NOTE_TRANSFER_PLAN_NOT_FOUND" },
+          404,
+        );
+      }
+      return c.json(operation);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.post("/", (c) => {
     c.header("Cache-Control", "private, no-store");
     const credentialError = rejectNonInteractiveCredential(c);
     if (credentialError) return credentialError;
     return c.json(
       {
-        error: "PostgreSQL 笔记转移执行事务尚未迁移，请先使用预检接口",
+        error: "PostgreSQL 笔记转移执行事务尚未迁移，请先使用预检和 prepare 接口",
         code: "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING",
         issue: 249,
       },
