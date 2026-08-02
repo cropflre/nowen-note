@@ -13,6 +13,7 @@ import {
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
+import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
 import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
 import createKnowledgeTreeSurfacesRuntimeRouter from "./routes/knowledge-tree-surfaces-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
@@ -64,6 +65,7 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
+        "POST /api/note-transfers/preview",
         "GET /api/knowledge-tree",
         "GET /api/knowledge-tree/shared-with-me",
         "POST /api/knowledge-tree/nodes (folder, note, markdown and word)",
@@ -84,6 +86,7 @@ app.get("/api/health", async (c) => {
       migratedCapabilities: [
         "note deletion audit logs",
         "note deletion webhooks",
+        "note-transfer cross-driver preview and permission analysis",
         "knowledge-tree scope listing with inherited permissions",
         "knowledge-tree shared-root discovery with overlapping-root de-duplication",
         "knowledge-tree access-controlled history listing",
@@ -112,6 +115,7 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
+        "note-transfer copy/move transaction and staged attachment commit (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -190,6 +194,10 @@ app.route("/api/notes", createNotesRuntimeRouter(
   { publishMutation: hub.publishMutation },
 ));
 
+app.use("/api/note-transfers", authenticateApiRequest);
+app.use("/api/note-transfers/*", authenticateApiRequest);
+app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter));
+
 app.use("/api/knowledge-tree", authenticateApiRequest);
 app.use("/api/knowledge-tree/*", authenticateApiRequest);
 app.route(
@@ -208,7 +216,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes and knowledge-tree runtime routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
+console.warn("[db] Notes, note-transfer preview and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
