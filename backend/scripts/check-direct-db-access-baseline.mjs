@@ -11,6 +11,10 @@ const deferredExceptionsPath = path.join(
   __dirname,
   "direct-db-access-deferred-exceptions.json",
 );
+const syncExceptionsPath = path.join(
+  __dirname,
+  "direct-db-access-sync-exceptions.json",
+);
 const reportPath = process.argv[2];
 
 if (!reportPath) {
@@ -18,16 +22,21 @@ if (!reportPath) {
   process.exit(2);
 }
 
-const [baseline, deferred, report] = await Promise.all([
+const [baseline, deferred, synchronized, report] = await Promise.all([
   fs.readFile(baselinePath, "utf8").then(JSON.parse),
   fs.readFile(deferredExceptionsPath, "utf8").then(JSON.parse),
+  fs.readFile(syncExceptionsPath, "utf8").then(JSON.parse),
   fs.readFile(path.resolve(reportPath), "utf8").then(JSON.parse),
 ]);
 
+const deferredFiles = {
+  ...(deferred.files || {}),
+  ...(synchronized.files || {}),
+};
 const violations = [];
 const currentFiles = new Map(report.files.map((entry) => [entry.file, entry]));
 
-for (const [file, exception] of Object.entries(deferred.files || {})) {
+for (const [file, exception] of Object.entries(deferredFiles)) {
   if (!/^#\d+$/.test(exception.owner || "")) {
     violations.push(`${file}: deferred exception must name an owning issue`);
   }
@@ -47,7 +56,7 @@ for (const [file, exception] of Object.entries(deferred.files || {})) {
 
 for (const entry of report.files) {
   const baselineKinds = baseline.files[entry.file] || {};
-  const exception = deferred.files?.[entry.file];
+  const exception = deferredFiles[entry.file];
   const deferredKinds = exception?.counts || {};
 
   if (!baseline.files[entry.file] && !exception) {
@@ -75,7 +84,7 @@ for (const [file, allowedKinds] of Object.entries(baseline.files)) {
   }
 }
 
-for (const [file, exception] of Object.entries(deferred.files || {})) {
+for (const [file, exception] of Object.entries(deferredFiles)) {
   const current = currentFiles.get(file);
   if (!current) continue;
   for (const kind of Object.keys(exception.counts || {})) {
