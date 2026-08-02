@@ -4,6 +4,7 @@ import legacyRoutes from "./user-preferences-legacy";
 import reliableAIRoutes from "./ai-reliable";
 import mobileBootstrapRoutes from "./mobile-bootstrap";
 import taskDayPlansRoutes from "./task-day-plans";
+import taskMetadataRoutes from "./task-metadata";
 
 /**
  * Compatibility wrapper: existing user preference/profile endpoints stay at their
@@ -16,6 +17,10 @@ const app = new Hono();
 // under user-preferences so the feature can sync across devices without changing
 // the core tasks table or the semantics of the existing "Today" due-date filter.
 app.route("/task-day-plans", taskDayPlansRoutes);
+
+// Labels and saved views are task organization metadata. Labels may be shared in
+// a workspace, while each saved view remains account-scoped.
+app.route("/task-metadata", taskMetadataRoutes);
 
 // Root preference GET/PUT/PATCH must be mounted before the legacy router. The new
 // implementation keeps the old flat response fields while adding account-scoped
