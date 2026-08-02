@@ -1,0 +1,112 @@
+name: PostgreSQL Main Semantic Sync
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/pg-main-sync-once-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge latest main with semantic task calendar resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          conflicts=$(git diff --name-only --diff-filter=U | sort)
+          if [ "$merge_status" -ne 1 ] || [ "$conflicts" != "backend/src/routes/task-calendar.ts" ]; then
+            echo "Unexpected merge result: status=$merge_status conflicts=$conflicts" >&2
+            exit 1
+          fi
+
+          git checkout --ours backend/src/routes/task-calendar.ts
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("backend/src/routes/task-calendar.ts")
+          source = path.read_text()
+
+          source, count = re.subn(
+              r"function formatLocalDateTime\(date: Date\): string \{.*?\n\}\n\nfunction addMinutesToIcsDateTime\(value: string, minutes: number\): string \{.*?\n\}\n\n(?=function addDaysToIcsDate)",
+              "",
+              source,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit("task calendar legacy duration helpers not found")
+
+          old = '''  const dt = toIcsDate(task.dueAt || task.dueDate!);
+          if (dt.isDateTime) {
+            lines.push(icsFold(`DTSTART:${dt.value}`));
+            lines.push(icsFold(`DTEND:${addMinutesToIcsDateTime(dt.value, 1)}`));
+          } else {
+            lines.push(icsFold(`DTSTART;VALUE=DATE:${dt.value}`));
+            lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(dt.value, 1)}`));
+          }
+          '''
+          new = '''  const start = task.startDate ? toIcsDate(task.startDate) : null;
+          const endSource = task.dueAt || task.dueDate;
+          const end = endSource ? toIcsDate(endSource) : null;
+
+          if (start?.isDateTime) {
+            lines.push(icsFold(`DTSTART:${start.value}`));
+            if (end?.isDateTime) {
+              lines.push(icsFold(`DTEND:${end.value}`));
+            } else if (end) {
+              lines.push(icsFold(`DTEND:${addDaysToIcsDate(end.value, 1)}T000000`));
+            }
+          } else if (start && end?.isDateTime) {
+            lines.push(icsFold(`DTSTART:${start.value}T000000`));
+            lines.push(icsFold(`DTEND:${end.value}`));
+          } else if (start) {
+            lines.push(icsFold(`DTSTART;VALUE=DATE:${start.value}`));
+            lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end?.value || start.value, 1)}`));
+          } else if (end?.isDateTime) {
+            lines.push(icsFold(`DTSTART:${end.value}`));
+          } else if (end) {
+            lines.push(icsFold(`DTSTART;VALUE=DATE:${end.value}`));
+            lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end.value, 1)}`));
+          }
+          '''
+          if old not in source:
+              raise SystemExit("task calendar VEVENT block not found")
+          source = source.replace(old, new, 1)
+          path.write_text(source)
+          PY
+
+          git add backend/src/routes/task-calendar.ts backend/src/repositories/taskCalendarOperationsRepository.ts
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            echo "Unresolved conflicts remain" >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+
+          rm -f \
+            .github/workflows/pg-main-conflict-audit.yml \
+            .github/pg-main-conflict-audit-trigger \
+            .github/pg-main-conflict-audit-report.txt \
+            .github/workflows/pg-main-sync-once.yml \
+            .github/pg-main-sync-once-trigger
+          git add -A
+          git commit -m "chore(sync): merge latest main into pg-migration-unified"
+          git push origin HEAD:pg-migration-unified
