@@ -19,6 +19,13 @@
         "prepare-call": 2,
         "transaction-call": 1
       }
+    },
+    "routes/task-time-blocks.ts": {
+      "owner": "#249",
+      "reason": "Main introduced task estimates and personal time blocks after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its task estimate and time-block lifecycle through shared repositories under #249.",
+      "counts": {
+        "getDb-call": 10
+      }
     }
   }
 }
