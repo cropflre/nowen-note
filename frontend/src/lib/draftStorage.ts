@@ -146,6 +146,8 @@ export function saveDraft(draft: NoteDraft): void {
 /** Record the exact body that the server has durably acknowledged. */
 export function markDraftAcknowledged(input: DraftAcknowledgement): void {
   if (!input.noteId || !Number.isFinite(input.serverVersion)) return;
+  // A later authoritative response supersedes the previous delayed cleanup guard.
+  cancelPendingClear(input.noteId);
   acknowledgements.set(input.noteId, {
     ...input,
     contentText: input.contentText || "",
