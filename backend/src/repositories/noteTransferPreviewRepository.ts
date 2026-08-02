@@ -195,5 +195,3 @@ export function createNoteTransferPreviewRepository(adapter?: DatabaseAdapter) {
     },
   };
 }
-
-export const noteTransferPreviewRepository = createNoteTransferPreviewRepository();
