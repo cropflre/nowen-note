@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_task_inbox_source
 CREATE OR REPLACE FUNCTION clear_task_inbox_after_completion()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF OLD."isCompleted" = 0 AND NEW."isCompleted" = 1 THEN
+  IF OLD."isCompleted" IS FALSE AND NEW."isCompleted" IS TRUE THEN
     DELETE FROM task_inbox_items WHERE "taskId" = NEW.id;
   END IF;
   RETURN NEW;
