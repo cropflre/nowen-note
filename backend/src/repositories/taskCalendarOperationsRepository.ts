@@ -7,6 +7,7 @@ export interface TaskCalendarTaskRecord {
   id: string;
   title: string;
   description: string | null;
+  startDate: string | null;
   dueDate: string | null;
   dueAt: string | null;
   updatedAt: string | null;
@@ -29,10 +30,10 @@ function buildTaskQuery(
   dialect: DatabaseDialect,
 ): { sql: string; params: unknown[] } {
   let sql = `
-    SELECT t.id, t.title, t.description, t."dueDate", t."dueAt", t."updatedAt", t."isCompleted"
+    SELECT t.id, t.title, t.description, t."startDate", t."dueDate", t."dueAt", t."updatedAt", t."isCompleted"
     FROM tasks t
     WHERE t."userId" = ?
-      AND (t."dueAt" IS NOT NULL OR t."dueDate" IS NOT NULL)
+      AND (t."startDate" IS NOT NULL OR t."dueAt" IS NOT NULL OR t."dueDate" IS NOT NULL)
   `;
   const params: unknown[] = [feed.userId];
 
@@ -44,7 +45,7 @@ function buildTaskQuery(
     sql += ' AND t."workspaceId" = ?';
     params.push(feed.workspaceId);
   }
-  sql += ' ORDER BY COALESCE(t."dueAt", t."dueDate") ASC';
+  sql += ' ORDER BY COALESCE(t."startDate", t."dueAt", t."dueDate") ASC';
 
   return { sql, params };
 }
