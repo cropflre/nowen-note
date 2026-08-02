@@ -105,6 +105,15 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     try {
       const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
       const request = parseRequest(c, body);
+      const idempotencyKey = operationKey(c, body);
+
+      // Validate the key and reject expired prepared operations before repeating
+      // object checks or generating a new target mapping.
+      await operations.getPrepared({
+        actorUserId: request.actorUserId,
+        idempotencyKey,
+      });
+
       const preview = await runtime.preview(request);
       if (!preview.canExecute) {
         return c.json(
@@ -120,7 +129,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
 
       const operation = await operations.prepare({
         actorUserId: request.actorUserId,
-        idempotencyKey: operationKey(c, body),
+        idempotencyKey,
         mode: request.mode,
         sourceWorkspaceId: preview.sourceWorkspaceId,
         targetWorkspaceId: preview.targetWorkspaceId,
