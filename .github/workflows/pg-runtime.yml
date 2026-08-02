@@ -202,7 +202,8 @@ jobs:
           test -f dist/postgres/migrations/0012_tag_scope_unique_names.sql &&
           test -f dist/postgres/migrations/0013_yjs_subdocuments.sql &&
           test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql &&
-          test -f dist/postgres/migrations/0015_knowledge_tree_read_runtime.sql
+          test -f dist/postgres/migrations/0015_knowledge_tree_read_runtime.sql &&
+          test -f dist/postgres/migrations/0016_note_transfer_operations.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
@@ -242,6 +243,8 @@ jobs:
               "DELETE /api/notes/:id",
               "DELETE /api/notes/trash/empty",
               "POST /api/note-transfers/preview",
+              "POST /api/note-transfers/prepare",
+              "GET /api/note-transfers/operations/:idempotencyKey",
               "GET /api/knowledge-tree/shared-with-me",
               "GET /api/knowledge-tree/nodes/:nodeId/history",
               "POST /api/knowledge-tree/nodes/:nodeId/unlock",
@@ -257,6 +260,7 @@ jobs:
               "note deletion audit logs",
               "note deletion webhooks",
               "note-transfer cross-driver preview and permission analysis",
+              "note-transfer durable idempotency, source-version snapshots and transactional preparation",
               "knowledge-tree shared-root discovery with overlapping-root de-duplication",
               "knowledge-tree access-controlled history listing",
               "knowledge-tree transactional folder password versioning and unlock tokens",
@@ -280,9 +284,10 @@ jobs:
             for (const stalePending of [
               "Yjs subdocument write protocol",
               "Yjs subdocument structure-changing writes",
+              "note-transfer copy/move transaction and staged attachment commit (#249)",
             ]) {
               if (health.runtime?.pendingCapabilities?.includes(stalePending)) {
-                throw new Error(`stale subdocument pending capability ${stalePending}: ${JSON.stringify(health.runtime)}`);
+                throw new Error(`stale pending capability ${stalePending}: ${JSON.stringify(health.runtime)}`);
               }
             }
             const realtime = health.runtime?.realtime;
@@ -309,10 +314,12 @@ jobs:
             }
           '
 
-          status=$(curl --silent --output /tmp/transfer-unauthenticated.json --write-out "%{http_code}" \
-            -X POST -H "Content-Type: application/json" -d '{}' \
-            http://127.0.0.1:3101/api/note-transfers/preview)
-          test "$status" = "401"
+          for endpoint in preview prepare; do
+            status=$(curl --silent --output "/tmp/transfer-${endpoint}-unauthenticated.json" --write-out "%{http_code}" \
+              -X POST -H "Content-Type: application/json" -d '{}' \
+              "http://127.0.0.1:3101/api/note-transfers/${endpoint}")
+            test "$status" = "401"
+          done
 
           test ! -e "$DB_PATH"
           test ! -e "$DB_PATH-wal"
