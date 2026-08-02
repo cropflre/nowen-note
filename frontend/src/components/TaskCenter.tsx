@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
 import { MyDayPanel } from "./tasks/MyDayPanel";
+import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
@@ -15,9 +16,7 @@ export default function TaskCenter() {
 
   useEffect(() => {
     const handleWorkspaceChange = () => {
-      // Remount the full task center. This immediately drops the previous
-      // workspace state, and late promises from the unmounted instance cannot
-      // overwrite the newly selected workspace.
+      // Remount planning state, smart views and the legacy task center together.
       remountTaskWorkspace();
     };
     window.addEventListener("nowen:workspace-changed", handleWorkspaceChange);
@@ -26,7 +25,7 @@ export default function TaskCenter() {
 
   useEffect(() => {
     // Keep a long-running desktop/web session aligned with the local calendar day.
-    // Changing this key remounts only My Day; task deadlines and the task center stay untouched.
+    // Changing this key remounts only My Day; labels and saved views remain intact.
     const timer = window.setInterval(() => {
       const nextDayKey = new Date().toDateString();
       setLocalDayKey((current) => current === nextDayKey ? current : nextDayKey);
@@ -53,14 +52,16 @@ export default function TaskCenter() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <MyDayPanel
-        key={`my-day-${workspaceGeneration}-${localDayKey}`}
-        onTaskMutated={remountTaskWorkspace}
-      />
-      <div className="min-h-0 flex-1">
-        <TaskCenterImpl key={workspaceGeneration} />
+    <TaskMetadataWorkspace key={workspaceGeneration}>
+      <div className="flex h-full min-h-0 flex-col">
+        <MyDayPanel
+          key={`my-day-${workspaceGeneration}-${localDayKey}`}
+          onTaskMutated={remountTaskWorkspace}
+        />
+        <div className="min-h-0 flex-1">
+          <TaskCenterImpl />
+        </div>
       </div>
-    </div>
+    </TaskMetadataWorkspace>
   );
 }

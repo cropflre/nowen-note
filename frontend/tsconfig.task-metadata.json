@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.task-metadata.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.d.ts",
+    "src/components/TaskCenter.tsx",
+    "src/components/tasks/TaskMetadataWorkspace.tsx",
+    "src/components/tasks/taskSavedViewFilter.ts",
+    "src/lib/taskMetadataApi.ts"
+  ]
+}
