@@ -7,6 +7,10 @@ import {
   createKnowledgeTreeMutationRepository,
   KnowledgeTreeMutationError,
 } from "../repositories/knowledgeTreeMutationRepository";
+import {
+  createKnowledgeTreePermissionMutationRepository,
+  isKnowledgeRolePreset,
+} from "../repositories/knowledgeTreePermissionMutationRepository";
 import { createKnowledgeTreeReadRepository } from "../repositories/knowledgeTreeReadRepository";
 import { createKnowledgeTreeStructureMutationRepository } from "../repositories/knowledgeTreeStructureMutationRepository";
 
@@ -88,6 +92,7 @@ export default function createKnowledgeTreeRuntimeRouter(
   const mutationRepository = createKnowledgeTreeMutationRepository(adapter, dialect);
   const structureRepository = createKnowledgeTreeStructureMutationRepository(adapter, dialect);
   const lifecycleRepository = createKnowledgeTreeLifecycleMutationRepository(adapter, dialect);
+  const permissionRepository = createKnowledgeTreePermissionMutationRepository(adapter, dialect);
 
   app.get("/roles", (c) => c.json({ roles: ROLE_DEFINITIONS }));
 
@@ -248,6 +253,69 @@ export default function createKnowledgeTreeRuntimeRouter(
         workspaceId: workspaceIdOf(c),
         nodeId: c.req.param("nodeId"),
         includeSubtree: body.includeSubtree !== false,
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.get("/nodes/:nodeId/permissions", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      return c.json(await permissionRepository.listPermissions({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.put("/nodes/:nodeId/permissions", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (!isKnowledgeRolePreset(body.rolePreset)) {
+        return c.json(
+          { error: "无效角色预设", code: "KNOWLEDGE_ROLE_INVALID" },
+          400,
+        );
+      }
+      const subject = String(body.subject || body.userId || "").trim();
+      if (!subject) {
+        return c.json(
+          { error: "用户不存在", code: "KNOWLEDGE_PERMISSION_USER_NOT_FOUND" },
+          404,
+        );
+      }
+
+      return c.json(await permissionRepository.setPermission({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        subject,
+        rolePreset: body.rolePreset,
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.delete("/nodes/:nodeId/permissions/:userId", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      return c.json(await permissionRepository.clearPermission({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        targetUserId: c.req.param("userId"),
       }));
     } catch (error) {
       return mutationError(c, error);
