@@ -171,6 +171,8 @@ jobs:
           tests/note-deletion-effects-runtime-pg.test.ts
           tests/note-deletion-realtime-runtime-pg.test.ts
           tests/note-realtime-route-pg.test.ts
+          tests/knowledge-tree-surfaces-runtime-pg.test.ts
+          tests/note-transfer-preview-runtime-pg.test.ts
           tests/postgres-yjs-read-runtime-pg.test.ts
           tests/postgres-realtime-yjs-pg.test.ts
           tests/postgres-yjs-compaction-runtime-pg.test.ts
@@ -199,7 +201,8 @@ jobs:
           test -f dist/postgres/migrations/0011_note_block_runtime.sql &&
           test -f dist/postgres/migrations/0012_tag_scope_unique_names.sql &&
           test -f dist/postgres/migrations/0013_yjs_subdocuments.sql &&
-          test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql
+          test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql &&
+          test -f dist/postgres/migrations/0015_knowledge_tree_read_runtime.sql
 
       - name: PostgreSQL runtime-only smoke test
         shell: bash
@@ -238,6 +241,11 @@ jobs:
               "PUT /api/notes/reorder/batch",
               "DELETE /api/notes/:id",
               "DELETE /api/notes/trash/empty",
+              "POST /api/note-transfers/preview",
+              "GET /api/knowledge-tree/shared-with-me",
+              "GET /api/knowledge-tree/nodes/:nodeId/history",
+              "POST /api/knowledge-tree/nodes/:nodeId/unlock",
+              "PUT /api/knowledge-tree/nodes/:nodeId/password",
               "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
               "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
             ]) {
@@ -248,6 +256,10 @@ jobs:
             for (const capability of [
               "note deletion audit logs",
               "note deletion webhooks",
+              "note-transfer cross-driver preview and permission analysis",
+              "knowledge-tree shared-root discovery with overlapping-root de-duplication",
+              "knowledge-tree access-controlled history listing",
+              "knowledge-tree transactional folder password versioning and unlock tokens",
               "note and workspace room subscriptions",
               "note presence, editing and cursor events",
               "connection recovery through idempotent resubscription",
@@ -296,6 +308,11 @@ jobs:
               throw new Error(`unexpected unauthenticated response: ${JSON.stringify(body)}`);
             }
           '
+
+          status=$(curl --silent --output /tmp/transfer-unauthenticated.json --write-out "%{http_code}" \
+            -X POST -H "Content-Type: application/json" -d '{}' \
+            http://127.0.0.1:3101/api/note-transfers/preview)
+          test "$status" = "401"
 
           test ! -e "$DB_PATH"
           test ! -e "$DB_PATH-wal"
