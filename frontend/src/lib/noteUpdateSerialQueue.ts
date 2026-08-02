@@ -1,6 +1,10 @@
 import type { Note } from "@/types";
 import { api } from "@/lib/api";
-import { markDraftAcknowledged } from "@/lib/draftStorage";
+import {
+  markDraftAcknowledged,
+  type DraftAcknowledgement,
+} from "@/lib/draftStorage";
+import { DRAFT_ACKNOWLEDGED_EVENT } from "@/lib/draftAcknowledgementEvent";
 import { hasPendingNoteSyncConflict } from "@/lib/noteSyncSafety";
 import { LatestOnlyVersionedSaveQueue } from "@/lib/latestOnlyVersionedSaveQueue";
 
@@ -46,6 +50,13 @@ export function installNoteUpdateSerialQueue(): void {
     mergeDefinedNoteUpdates,
   );
 
+  const onDraftAcknowledged = (event: Event) => {
+    const detail = (event as CustomEvent<DraftAcknowledgement>).detail;
+    if (!detail || typeof detail.noteId !== "string") return;
+    markDraftAcknowledged(detail);
+  };
+  window.addEventListener(DRAFT_ACKNOWLEDGED_EVENT, onDraftAcknowledged);
+
   (api as any).updateNote = async (noteId: string, data: Partial<Note>): Promise<Note> => {
     const mutation = data as NoteUpdateMutation;
     if (!isVersionedNoteUpdate(mutation) || hasPendingNoteSyncConflict(noteId)) {
@@ -81,6 +92,7 @@ export function installNoteUpdateSerialQueue(): void {
   };
 
   guardedWindow[INSTALL_KEY] = () => {
+    window.removeEventListener(DRAFT_ACKNOWLEDGED_EVENT, onDraftAcknowledged);
     (api as any).updateNote = originalUpdateNote;
     delete guardedWindow[INSTALL_KEY];
   };
