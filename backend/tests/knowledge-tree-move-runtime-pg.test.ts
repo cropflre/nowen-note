@@ -300,8 +300,8 @@ test("PostgreSQL knowledge-tree move and reorder runtime is atomic and permissio
         if (!staleInjected) {
           staleInjected = true;
           await baseAdapter.execute(
-            "UPDATE knowledge_tree_nodes SET updatedAt = ? WHERE id = ?",
-            ["2099-01-01T00:00:00.000Z", markdown.id],
+            "UPDATE knowledge_tree_nodes SET sortOrder = sortOrder + 100 WHERE id = ?",
+            [markdown.id],
           );
         }
         return baseAdapter.executeStatements(statements);
