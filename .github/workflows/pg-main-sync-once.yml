@@ -20,25 +20,29 @@ jobs:
       - name: Merge latest main with semantic task calendar resolution
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
 
-          set +e
-          git merge --no-commit --no-ff origin/main
-          merge_status=$?
-          set -e
+          sync_status=0
+          (
+            set -euo pipefail
+            git fetch origin main
 
-          conflicts=$(git diff --name-only --diff-filter=U | sort)
-          if [ "$merge_status" -ne 1 ] || [ "$conflicts" != "backend/src/routes/task-calendar.ts" ]; then
-            echo "Unexpected merge result: status=$merge_status conflicts=$conflicts" >&2
-            exit 1
-          fi
+            set +e
+            git merge --no-commit --no-ff origin/main
+            merge_status=$?
+            set -e
 
-          git checkout --ours backend/src/routes/task-calendar.ts
+            conflicts=$(git diff --name-only --diff-filter=U | sort)
+            if [ "$merge_status" -ne 1 ] || [ "$conflicts" != "backend/src/routes/task-calendar.ts" ]; then
+              echo "Unexpected merge result: status=$merge_status conflicts=$conflicts" >&2
+              exit 1
+            fi
 
-          python3 - <<'PY'
+            git checkout --ours backend/src/routes/task-calendar.ts
+
+            python3 - <<'PY'
           from pathlib import Path
           import re
 
@@ -94,12 +98,33 @@ jobs:
           path.write_text(source)
           PY
 
-          git add backend/src/routes/task-calendar.ts backend/src/repositories/taskCalendarOperationsRepository.ts
-          unresolved=$(git diff --name-only --diff-filter=U)
-          if [ -n "$unresolved" ]; then
-            echo "Unresolved conflicts remain: $unresolved" >&2
-            exit 1
+            git add backend/src/routes/task-calendar.ts backend/src/repositories/taskCalendarOperationsRepository.ts
+            unresolved=$(git diff --name-only --diff-filter=U)
+            if [ -n "$unresolved" ]; then
+              echo "Unresolved conflicts remain: $unresolved" >&2
+              exit 1
+            fi
+
+            git commit -m "chore(sync): merge latest main into pg-migration-unified"
+            git push origin HEAD:pg-migration-unified
+          ) > /tmp/pg-main-sync.log 2>&1 || sync_status=$?
+
+          cat /tmp/pg-main-sync.log
+          if [ "$sync_status" -eq 0 ]; then
+            exit 0
           fi
 
-          git commit -m "chore(sync): merge latest main into pg-migration-unified"
+          if [ -f .git/MERGE_HEAD ]; then
+            git merge --abort
+          fi
+          {
+            echo "status=$sync_status"
+            echo "head=$(git rev-parse HEAD)"
+            echo "main=$(git rev-parse origin/main 2>/dev/null || true)"
+            echo "log:"
+            tail -n 200 /tmp/pg-main-sync.log
+          } > .github/pg-main-sync-result.txt
+          git add .github/pg-main-sync-result.txt
+          git commit -m "chore(sync): record semantic merge failure"
           git push origin HEAD:pg-migration-unified
+          exit "$sync_status"
