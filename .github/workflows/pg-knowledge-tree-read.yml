@@ -1,4 +1,4 @@
-name: PostgreSQL Knowledge Tree Read
+name: PostgreSQL Knowledge Tree Runtime
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - "backend/src/db/postgres/**"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/src/repositories/knowledgeTreeReadRepository.ts"
+      - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
       - "backend/src/routes/knowledge-tree-runtime.ts"
       - "backend/tests/knowledge-tree-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
@@ -20,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pg-knowledge-tree-read-${{ github.ref }}
+  group: pg-knowledge-tree-runtime-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -72,7 +73,7 @@ jobs:
         working-directory: backend
         run: npm run audit:pg-schema-parity
 
-      - name: Real PostgreSQL migration and read runtime
+      - name: Real PostgreSQL migrations, reads and metadata writes
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
