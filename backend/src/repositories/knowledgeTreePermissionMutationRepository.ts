@@ -17,8 +17,11 @@ import type {
   KnowledgeCapabilities,
   KnowledgeRolePreset,
 } from "../services/knowledgeCapabilitiesCore";
+import {
+  createKnowledgeTreeNodeAccessRepository,
+  type KnowledgeTreeAccessNode,
+} from "./knowledgeTreeNodeAccessRepository";
 import { KnowledgeTreeMutationError } from "./knowledgeTreeMutationRepository";
-import { createKnowledgeTreeReadRepository } from "./knowledgeTreeReadRepository";
 
 export type KnowledgePermissionUser = {
   id: string;
@@ -44,17 +47,7 @@ export type KnowledgePermissionsResult = {
   currentUserAccess: EffectiveKnowledgeAccess;
 };
 
-type PermissionNodeRow = {
-  id: string;
-  userId: string;
-  workspaceId: string | null;
-  scopeKey: string;
-  parentId: string | null;
-  resourceType: "notebook" | "note" | "mindmap" | "file";
-  resourceId: string;
-  sortOrder: number | string;
-  isDeleted: boolean | number | string;
-};
+type PermissionNodeRow = KnowledgeTreeAccessNode;
 
 type AclRow = {
   nodeId: string;
@@ -151,17 +144,8 @@ function resolveDialect(dialect?: DatabaseDialect): DatabaseDialect {
   }
 }
 
-function scopeKey(userId: string, workspaceId: string | null): string {
-  return workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`;
-}
-
 function toBoolean(value: boolean | number | string): boolean {
   return value === true || value === 1 || value === "1" || value === "t" || value === "true";
-}
-
-function toNumber(value: number | string): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function toTimestamp(value: string | Date): string {
@@ -228,17 +212,25 @@ function mapTransactionError(error: unknown): never {
   throw error;
 }
 
+function nodeSnapshotWhere(): string {
+  return `id = ?
+    AND scopeKey = ?
+    AND COALESCE(parentId, '') = COALESCE(?, '')
+    AND sortOrder = ?
+    AND isDeleted = 0`;
+}
+
+function nodeSnapshotParams(node: PermissionNodeRow): unknown[] {
+  return [node.id, node.scopeKey, node.parentId, node.sortOrder];
+}
+
 function actorAuthorizationGuard(
   node: PermissionNodeRow,
   actorUserId: string,
   access: EffectiveKnowledgeAccess,
 ): DbStatement {
-  const structure = `id = ?
-    AND scopeKey = ?
-    AND COALESCE(parentId, '') = COALESCE(?, '')
-    AND sortOrder = ?
-    AND isDeleted = 0`;
-  const params: unknown[] = [node.id, node.scopeKey, node.parentId, toNumber(node.sortOrder)];
+  const structure = nodeSnapshotWhere();
+  const structureParams = nodeSnapshotParams(node);
 
   if (access.source === "owner") {
     return {
@@ -250,13 +242,14 @@ function actorAuthorizationGuard(
                  OR (
                    workspaceId IS NOT NULL
                    AND EXISTS (
-                     SELECT 1 FROM workspaces workspace
+                     SELECT 1
+                       FROM workspaces workspace
                       WHERE workspace.id = knowledge_tree_nodes.workspaceId
                         AND workspace.ownerId = ?
                    )
                  )
                )`,
-      params: [...params, actorUserId, actorUserId],
+      params: [...structureParams, actorUserId, actorUserId],
       requireChanges: 1,
     };
   }
@@ -275,7 +268,8 @@ function actorAuthorizationGuard(
               SELECT acl.nodeId, acl.canManageMembers
                 FROM ancestors
                 JOIN knowledge_tree_acl acl
-                  ON acl.nodeId = ancestors.id AND acl.userId = ?
+                  ON acl.nodeId = ancestors.id
+                 AND acl.userId = ?
                ORDER BY ancestors.depth ASC
                LIMIT 1
             )
@@ -283,10 +277,12 @@ function actorAuthorizationGuard(
                SET updatedAt = updatedAt
              WHERE ${structure}
                AND EXISTS (
-                 SELECT 1 FROM nearest_acl
-                  WHERE nodeId = ? AND canManageMembers = 1
+                 SELECT 1
+                   FROM nearest_acl
+                  WHERE nodeId = ?
+                    AND canManageMembers = 1
                )`,
-      params: [node.id, actorUserId, ...params, access.sourceNodeId],
+      params: [node.id, actorUserId, ...structureParams, access.sourceNodeId],
       requireChanges: 1,
     };
   }
@@ -314,7 +310,8 @@ function actorAuthorizationGuard(
                  WHEN resourceType = 'note' THEN COALESCE((
                    SELECT member.role
                      FROM notes note
-                     JOIN notebook_members member ON member.notebookId = note.notebookId
+                     JOIN notebook_members member
+                       ON member.notebookId = note.notebookId
                     WHERE note.id = resourceId
                       AND member.userId = ?
                       AND member.status != 'removed'
@@ -342,7 +339,7 @@ function actorAuthorizationGuard(
                END
              ) IN ('manage', 'admin', 'owner')`,
     params: [
-      ...params,
+      ...structureParams,
       actorUserId,
       actorUserId,
       actorUserId,
@@ -365,7 +362,8 @@ function targetNotOwnerGuard(node: PermissionNodeRow, targetUserId: string): DbS
                OR (
                  workspaceId IS NOT NULL
                  AND NOT EXISTS (
-                   SELECT 1 FROM workspaces workspace
+                   SELECT 1
+                     FROM workspaces workspace
                     WHERE workspace.id = knowledge_tree_nodes.workspaceId
                       AND workspace.ownerId = ?
                  )
@@ -408,7 +406,10 @@ function metadataExpression(dialect: DatabaseDialect): string {
 }
 
 export function isKnowledgeRolePreset(value: unknown): value is KnowledgeRolePreset {
-  return value === "readonly" || value === "editor" || value === "maintainer" || value === "admin";
+  return value === "readonly"
+    || value === "editor"
+    || value === "maintainer"
+    || value === "admin";
 }
 
 export function createKnowledgeTreePermissionMutationRepository(
@@ -417,48 +418,43 @@ export function createKnowledgeTreePermissionMutationRepository(
 ) {
   const getAdapter = () => resolveAdapter(adapter);
   const getDialect = () => resolveDialect(dialect);
-  const readRepository = createKnowledgeTreeReadRepository(adapter, dialect);
+  const accessRepository = createKnowledgeTreeNodeAccessRepository(adapter, dialect);
+
+  async function resolveNodeAccess(
+    nodeId: string,
+    userId: string,
+  ): Promise<{ node: PermissionNodeRow; access: EffectiveKnowledgeAccess } | null> {
+    return await accessRepository.resolveOne({ nodeId, userId });
+  }
 
   async function readNode(
     actorUserId: string,
     workspaceId: string | null,
     nodeId: string,
   ): Promise<PermissionNodeRow> {
-    const node = await getAdapter().queryOne<PermissionNodeRow>(
-      convertSql(
-        `SELECT id, userId, workspaceId, scopeKey, parentId, resourceType,
-                resourceId, sortOrder, isDeleted
-           FROM knowledge_tree_nodes
-          WHERE id = ?`,
-        getDialect(),
-      ),
-      [nodeId],
-    );
-    if (!node || toBoolean(node.isDeleted)) {
+    const resolved = await resolveNodeAccess(nodeId, actorUserId);
+    if (!resolved || resolved.node.isDeleted) {
       throw new KnowledgeTreeMutationError(
         "KNOWLEDGE_NODE_NOT_FOUND",
         404,
         "内容节点不存在",
       );
     }
-    if (node.scopeKey !== scopeKey(actorUserId, workspaceId)) {
+    if ((resolved.node.workspaceId || null) !== workspaceId) {
       throw new KnowledgeTreeMutationError(
         "KNOWLEDGE_TREE_SCOPE_MISMATCH",
         409,
         "内容节点不属于当前空间",
       );
     }
-    return node;
+    return resolved.node;
   }
 
   async function effectiveAccess(
     nodeId: string,
     userId: string,
-    workspaceId: string | null,
   ): Promise<EffectiveKnowledgeAccess> {
-    const node = (await readRepository.list({ userId, workspaceId }))
-      .find((entry) => entry.id === nodeId);
-    return node?.access || noneAccess(nodeId);
+    return (await resolveNodeAccess(nodeId, userId))?.access || noneAccess(nodeId);
   }
 
   async function requireManager(
@@ -466,9 +462,22 @@ export function createKnowledgeTreePermissionMutationRepository(
     workspaceId: string | null,
     nodeId: string,
   ): Promise<{ node: PermissionNodeRow; access: EffectiveKnowledgeAccess }> {
-    const node = await readNode(actorUserId, workspaceId, nodeId);
-    const access = await effectiveAccess(nodeId, actorUserId, workspaceId);
-    if (!access.capabilities.canManageMembers) {
+    const resolved = await resolveNodeAccess(nodeId, actorUserId);
+    if (!resolved || resolved.node.isDeleted) {
+      throw new KnowledgeTreeMutationError(
+        "KNOWLEDGE_NODE_NOT_FOUND",
+        404,
+        "内容节点不存在",
+      );
+    }
+    if ((resolved.node.workspaceId || null) !== workspaceId) {
+      throw new KnowledgeTreeMutationError(
+        "KNOWLEDGE_TREE_SCOPE_MISMATCH",
+        409,
+        "内容节点不属于当前空间",
+      );
+    }
+    if (!resolved.access.capabilities.canManageMembers) {
       throw new KnowledgeTreeMutationError(
         "KNOWLEDGE_CAPABILITY_FORBIDDEN",
         403,
@@ -476,7 +485,7 @@ export function createKnowledgeTreePermissionMutationRepository(
         { required: "canManageMembers" },
       );
     }
-    return { node, access };
+    return { node: resolved.node, access: resolved.access };
   }
 
   async function resolveSubject(subject: string): Promise<KnowledgePermissionUser> {
@@ -615,7 +624,7 @@ export function createKnowledgeTreePermissionMutationRepository(
         const row = permissionRow(await directAclWithUser(input.nodeId, target.id));
         return {
           ...row,
-          effective: await effectiveAccess(input.nodeId, target.id, input.workspaceId),
+          effective: await effectiveAccess(input.nodeId, target.id),
         };
       }
 
@@ -685,7 +694,7 @@ export function createKnowledgeTreePermissionMutationRepository(
       const row = permissionRow(await directAclWithUser(input.nodeId, target.id));
       return {
         ...row,
-        effective: await effectiveAccess(input.nodeId, target.id, input.workspaceId),
+        effective: await effectiveAccess(input.nodeId, target.id),
       };
     },
 
@@ -713,11 +722,7 @@ export function createKnowledgeTreePermissionMutationRepository(
         return {
           success: true,
           removed: false,
-          effective: await effectiveAccess(
-            input.nodeId,
-            input.targetUserId,
-            input.workspaceId,
-          ),
+          effective: await effectiveAccess(input.nodeId, input.targetUserId),
         };
       }
 
@@ -756,11 +761,7 @@ export function createKnowledgeTreePermissionMutationRepository(
       return {
         success: true,
         removed: true,
-        effective: await effectiveAccess(
-          input.nodeId,
-          input.targetUserId,
-          input.workspaceId,
-        ),
+        effective: await effectiveAccess(input.nodeId, input.targetUserId),
       };
     },
   };
