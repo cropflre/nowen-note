@@ -17,6 +17,7 @@ async function bootstrap(): Promise<void> {
   await import("./runtime/url-import-dns-compat.js");
   // Register feature migrations before any runtime imports can initialize the database.
   await import("./runtime/knowledge-tree-migration-bootstrap.js");
+  await import("./runtime/task-metadata-migration-bootstrap.js");
   // Permission routes import ACL services that may initialize database guards, so they must load
   // only after the feature migration list has been registered.
   await import("./runtime/notebook-permission-management.js");
