@@ -1,5 +1,4 @@
 import { getBaseUrl } from "@/lib/api.impl";
-import { publishDraftAcknowledgement } from "@/lib/draftAcknowledgementEvent";
 import type {
   TiptapPatchJsonNode,
   TiptapPatchTextBlockNode,
@@ -209,28 +208,7 @@ async function patchBlocks(
         : undefined;
       throw error;
     }
-
-    const result = payload as unknown as BlockPatchResult;
-    if (
-      result.success === true
-      && result.noteId === noteId
-      && typeof result.title === "string"
-      && typeof result.content === "string"
-      && typeof result.version === "number"
-      && Number.isFinite(result.version)
-    ) {
-      // Tiptap block patch bypasses api.updateNote and its serial queue. Publish the same
-      // authoritative body without importing draftStorage directly; application bootstrap owns
-      // the listener, while isolated runtime tests can keep their narrow draftStorage mocks.
-      publishDraftAcknowledgement({
-        noteId,
-        title: result.title,
-        content: result.content,
-        contentText: result.contentText,
-        serverVersion: result.version,
-      });
-    }
-    return result;
+    return payload as unknown as BlockPatchResult;
   } catch (error) {
     if ((error as { name?: string })?.name === "AbortError") {
       const timeoutError = new BlockPatchRequestError("块级保存超时，请检查网络后使用同一 operationId 重试");
