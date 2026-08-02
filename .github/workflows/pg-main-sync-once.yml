@@ -95,18 +95,11 @@ jobs:
           PY
 
           git add backend/src/routes/task-calendar.ts backend/src/repositories/taskCalendarOperationsRepository.ts
-          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
-            echo "Unresolved conflicts remain" >&2
-            git diff --name-only --diff-filter=U >&2
+          unresolved=$(git diff --name-only --diff-filter=U)
+          if [ -n "$unresolved" ]; then
+            echo "Unresolved conflicts remain: $unresolved" >&2
             exit 1
           fi
 
-          rm -f \
-            .github/workflows/pg-main-conflict-audit.yml \
-            .github/pg-main-conflict-audit-trigger \
-            .github/pg-main-conflict-audit-report.txt \
-            .github/workflows/pg-main-sync-once.yml \
-            .github/pg-main-sync-once-trigger
-          git add -A
           git commit -m "chore(sync): merge latest main into pg-migration-unified"
           git push origin HEAD:pg-migration-unified
