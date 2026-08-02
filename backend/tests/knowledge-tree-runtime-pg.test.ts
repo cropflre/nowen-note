@@ -5,7 +5,7 @@ import { Hono } from "hono";
 const databaseUrl = process.env.TEST_PG_DATABASE_URL;
 const skip = !databaseUrl;
 
-test("PostgreSQL knowledge-tree read runtime preserves access and response shapes", { skip }, async () => {
+test("PostgreSQL knowledge-tree runtime preserves access, metadata writes and response shapes", { skip }, async () => {
   const { Pool } = await import("pg");
   const pool = new Pool({ connectionString: databaseUrl });
   const runtime = await import("../src/db/runtime");
@@ -34,6 +34,8 @@ test("PostgreSQL knowledge-tree read runtime preserves access and response shape
   const workspaceId = `pg-tree-ws-${suffix}`;
   const notebookId = `pg-tree-nb-${suffix}`;
   const noteId = `pg-tree-note-${suffix}`;
+  const orphanNodeId = `notebook:pg-tree-orphan-${suffix}`;
+  const orphanResourceId = `pg-tree-orphan-${suffix}`;
 
   for (const userId of [ownerId, editorId, outsiderId]) {
     await pool.query(
@@ -68,6 +70,13 @@ test("PostgreSQL knowledge-tree read runtime preserves access and response shape
     `INSERT INTO notebook_passwords ("notebookId", "passwordHash") VALUES ($1, $2)`,
     [notebookId, "password-hash"],
   );
+  await pool.query(
+    `INSERT INTO knowledge_tree_nodes (
+       id, "userId", "workspaceId", "scopeKey", "parentId", "nodeType", "resourceType",
+       "resourceId", "sortOrder", "isExpanded", "isDeleted"
+     ) VALUES ($1, $2, $3, $4, NULL, 'folder', 'notebook', $5, 999, true, false)`,
+    [orphanNodeId, ownerId, workspaceId, `workspace:${workspaceId}`, orphanResourceId],
+  );
 
   try {
     const { createKnowledgeTreeReadRepository } = await import(
@@ -79,7 +88,7 @@ test("PostgreSQL knowledge-tree read runtime preserves access and response shape
     );
 
     const ownerNodes = await repository.list({ userId: ownerId, workspaceId });
-    assert.equal(ownerNodes.length, 2);
+    assert.equal(ownerNodes.length, 3);
     assert(ownerNodes.every((node) => node.access.rolePreset === "admin"));
     assert(ownerNodes.every((node) => node.access.source === "owner"));
 
@@ -98,7 +107,7 @@ test("PostgreSQL knowledge-tree read runtime preserves access and response shape
     assert.equal(typeof ownerNote?.updatedAt, "string");
 
     const legacyEditorNodes = await repository.list({ userId: editorId, workspaceId });
-    assert.equal(legacyEditorNodes.length, 2);
+    assert.equal(legacyEditorNodes.length, 3);
     assert(
       legacyEditorNodes.every(
         (node) => node.access.rolePreset === "editor" && node.access.source === "legacy",
@@ -144,9 +153,104 @@ test("PostgreSQL knowledge-tree read runtime preserves access and response shape
     const payload = await response.json() as { nodes: Array<{ resourceId: string }> };
     assert.deepEqual(
       payload.nodes.map((node) => node.resourceId).sort(),
-      [notebookId, noteId].sort(),
+      [notebookId, noteId, orphanResourceId].sort(),
     );
+
+    const folderPatch = await app.request(
+      `/api/knowledge-tree/nodes/notebook:${notebookId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+        body: JSON.stringify({ title: "Renamed Runtime Folder", isExpanded: false }),
+      },
+    );
+    assert.equal(folderPatch.status, 200);
+    const folderPatchPayload = await folderPatch.json() as { title: string; isExpanded: number };
+    assert.equal(folderPatchPayload.title, "Renamed Runtime Folder");
+    assert.equal(folderPatchPayload.isExpanded, 0);
+
+    const storedFolder = await pool.query<{
+      name: string;
+      isExpanded: boolean;
+      treeExpanded: boolean;
+    }>(
+      `SELECT nb.name, nb."isExpanded" AS "isExpanded", node."isExpanded" AS "treeExpanded"
+         FROM notebooks nb
+         JOIN knowledge_tree_nodes node
+           ON node."resourceType" = 'notebook' AND node."resourceId" = nb.id
+        WHERE nb.id = $1`,
+      [notebookId],
+    );
+    assert.equal(storedFolder.rows[0]?.name, "Renamed Runtime Folder");
+    assert.equal(storedFolder.rows[0]?.isExpanded, false);
+    assert.equal(storedFolder.rows[0]?.treeExpanded, false);
+
+    const invalidPatch = await app.request(
+      `/api/knowledge-tree/nodes/notebook:${notebookId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+        body: JSON.stringify({ title: "   ", isExpanded: true }),
+      },
+    );
+    assert.equal(invalidPatch.status, 400);
+    const invalidPayload = await invalidPatch.json() as { code: string };
+    assert.equal(invalidPayload.code, "KNOWLEDGE_TITLE_REQUIRED");
+    const unchangedExpansion = await pool.query<{ isExpanded: boolean }>(
+      `SELECT "isExpanded" AS "isExpanded" FROM knowledge_tree_nodes WHERE id = $1`,
+      [`notebook:${notebookId}`],
+    );
+    assert.equal(unchangedExpansion.rows[0]?.isExpanded, false);
+
+    const notePatch = await app.request(
+      `/api/knowledge-tree/nodes/note:${noteId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+        body: JSON.stringify({ title: "Renamed Runtime Note" }),
+      },
+    );
+    assert.equal(notePatch.status, 200);
+    const notePatchPayload = await notePatch.json() as { title: string };
+    assert.equal(notePatchPayload.title, "Renamed Runtime Note");
+    const storedNote = await pool.query<{ title: string; version: number }>(
+      `SELECT title, version FROM notes WHERE id = $1`,
+      [noteId],
+    );
+    assert.equal(storedNote.rows[0]?.title, "Renamed Runtime Note");
+    assert((storedNote.rows[0]?.version || 0) > 0);
+
+    const forbiddenPatch = await app.request(
+      `/api/knowledge-tree/nodes/note:${noteId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-User-Id": editorId },
+        body: JSON.stringify({ title: "Forbidden Rename" }),
+      },
+    );
+    assert.equal(forbiddenPatch.status, 403);
+    const forbiddenPayload = await forbiddenPatch.json() as { code: string; required: string };
+    assert.equal(forbiddenPayload.code, "KNOWLEDGE_CAPABILITY_FORBIDDEN");
+    assert.equal(forbiddenPayload.required, "canEdit");
+
+    const stalePatch = await app.request(
+      `/api/knowledge-tree/nodes/${orphanNodeId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-User-Id": ownerId },
+        body: JSON.stringify({ title: "Must Roll Back", isExpanded: false }),
+      },
+    );
+    assert.equal(stalePatch.status, 409);
+    const stalePayload = await stalePatch.json() as { code: string };
+    assert.equal(stalePayload.code, "KNOWLEDGE_NODE_STALE");
+    const orphanAfterFailure = await pool.query<{ isExpanded: boolean }>(
+      `SELECT "isExpanded" AS "isExpanded" FROM knowledge_tree_nodes WHERE id = $1`,
+      [orphanNodeId],
+    );
+    assert.equal(orphanAfterFailure.rows[0]?.isExpanded, true);
   } finally {
+    await pool.query(`DELETE FROM knowledge_tree_nodes WHERE id = $1`, [orphanNodeId]);
     await pool.query(`DELETE FROM knowledge_tree_acl WHERE "userId" = $1`, [editorId]);
     await pool.query(`DELETE FROM favorites WHERE "noteId" = $1`, [noteId]);
     await pool.query(`DELETE FROM notebook_passwords WHERE "notebookId" = $1`, [notebookId]);
