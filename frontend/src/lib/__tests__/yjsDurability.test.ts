@@ -13,11 +13,12 @@ describe("YjsDurabilityTracker", () => {
       status: "local",
       dirty: true,
     }));
-    expect(tracker.markSent("op-a")).toEqual(expect.objectContaining({
+    expect(tracker.markSent("op-a", { localChanges: 1 })).toEqual(expect.objectContaining({
       status: "saving",
       pendingCount: 1,
     }));
-    tracker.markSent("op-b");
+    tracker.markLocalChange();
+    tracker.markSent("op-b", { localChanges: 1 });
 
     expect(tracker.acknowledge("op-a", "2026-08-02T00:00:00.000Z")).toEqual(
       expect.objectContaining({ status: "saving", pendingCount: 1, dirty: true }),
@@ -35,7 +36,7 @@ describe("YjsDurabilityTracker", () => {
   it("keeps content local-only after disconnect and ignores late unknown ACKs", () => {
     const tracker = new YjsDurabilityTracker();
     tracker.markLocalChange();
-    tracker.markSent("op-a");
+    tracker.markSent("op-a", { localChanges: 1 });
 
     expect(tracker.markDisconnected()).toEqual(expect.objectContaining({
       status: "local",
@@ -50,7 +51,7 @@ describe("YjsDurabilityTracker", () => {
   it("keeps failed operations dirty and visible", () => {
     const tracker = new YjsDurabilityTracker();
     tracker.markLocalChange();
-    tracker.markSent("op-a");
+    tracker.markSent("op-a", { localChanges: 1 });
 
     expect(tracker.fail("op-a", "persist_failed")).toEqual(expect.objectContaining({
       status: "error",
@@ -58,6 +59,40 @@ describe("YjsDurabilityTracker", () => {
       dirty: true,
       errorCode: "persist_failed",
     }));
+  });
+
+  it("does not let an older ACK clear newer content that was never sent", () => {
+    const tracker = new YjsDurabilityTracker();
+    tracker.markLocalChange();
+    tracker.markSent("old-operation", { localChanges: 1 });
+
+    // A later local update could not be represented by an operation, for example
+    // because it exceeded the frame limit. The older request may still ACK later.
+    tracker.fail(null, "too_large");
+
+    expect(tracker.acknowledge("old-operation", "2026-08-02T00:00:01.000Z")).toEqual(
+      expect.objectContaining({
+        status: "error",
+        pendingCount: 0,
+        dirty: true,
+        errorCode: "too_large",
+      }),
+    );
+  });
+
+  it("only clears all local-only changes for a full state-vector reconciliation", () => {
+    const tracker = new YjsDurabilityTracker();
+    tracker.markLocalChange(2);
+
+    tracker.markSent("direct-update", { localChanges: 1 });
+    expect(tracker.acknowledge("direct-update", "2026-08-02T00:00:00.000Z")).toEqual(
+      expect.objectContaining({ status: "local", dirty: true, pendingCount: 0 }),
+    );
+
+    tracker.markSent("full-diff", { coversAllLocalChanges: true });
+    expect(tracker.acknowledge("full-diff", "2026-08-02T00:00:01.000Z")).toEqual(
+      expect.objectContaining({ status: "saved", dirty: false, pendingCount: 0 }),
+    );
   });
 });
 
