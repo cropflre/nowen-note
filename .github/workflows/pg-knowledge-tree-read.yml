@@ -15,6 +15,19 @@ on:
       - "backend/scripts/direct-db-access-*.json"
       - "frontend/src/lib/knowledgeTreeApi.ts"
       - ".github/workflows/pg-knowledge-tree-read.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/postgres/**"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/knowledgeTreeReadRepository.ts"
+      - "backend/src/repositories/knowledgeTreeMutationRepository.ts"
+      - "backend/src/routes/knowledge-tree-runtime.ts"
+      - "backend/tests/knowledge-tree-runtime-pg.test.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/scripts/check-pg-schema-parity.mjs"
+      - "backend/scripts/direct-db-access-*.json"
+      - "frontend/src/lib/knowledgeTreeApi.ts"
+      - ".github/workflows/pg-knowledge-tree-read.yml"
   workflow_dispatch:
 
 permissions:
