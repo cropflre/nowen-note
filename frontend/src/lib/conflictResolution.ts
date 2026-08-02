@@ -120,9 +120,9 @@ function clearResolvedConflict(item: OfflineQueueItem): boolean {
   const cleanup = discardResolvedQueueItems(item);
   if (!cleanup.discarded || cleanup.remainingForNote) return false;
   // This is an explicit conflict resolution, not an asynchronous autosave ACK.
-  // Production always exposes forceClearDraft. The fallback keeps legacy unit-test mocks
-  // compatible without weakening the runtime behavior.
-  const clearResolvedDraft = typeof draftStorage.forceClearDraft === "function"
+  // Production always exposes forceClearDraft. The `in` check avoids reading a missing
+  // property from Vitest's strict module-mock proxy before falling back to the legacy mock.
+  const clearResolvedDraft = "forceClearDraft" in draftStorage
     ? draftStorage.forceClearDraft
     : draftStorage.clearDraft;
   clearResolvedDraft(item.noteId);
