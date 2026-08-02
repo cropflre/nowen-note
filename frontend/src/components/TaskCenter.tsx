@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
 import { MyDayPanel } from "./tasks/MyDayPanel";
 import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
+import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
@@ -25,7 +26,7 @@ export default function TaskCenter() {
 
   useEffect(() => {
     // Keep a long-running desktop/web session aligned with the local calendar day.
-    // Changing this key remounts only My Day; labels and saved views remain intact.
+    // Changing this key remounts only daily planning surfaces.
     const timer = window.setInterval(() => {
       const nextDayKey = new Date().toDateString();
       setLocalDayKey((current) => current === nextDayKey ? current : nextDayKey);
@@ -58,6 +59,7 @@ export default function TaskCenter() {
           key={`my-day-${workspaceGeneration}-${localDayKey}`}
           onTaskMutated={remountTaskWorkspace}
         />
+        <TaskTimePlanner key={`time-planner-${workspaceGeneration}-${localDayKey}`} />
         <div className="min-h-0 flex-1">
           <TaskCenterImpl />
         </div>
