@@ -176,7 +176,14 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           {hasEnabledReminder(task) && <span title={t("tasks.reminder.title")}><Bell size={12} className="text-accent-primary/70" /></span>}
           {isRepeatingTask(task) && <span title={t(`tasks.repeat.${task.repeatRule}`)}><Repeat size={12} className="text-accent-primary/60" /></span>}
           {blockedByDependency && !task.isCompleted && <span title={t("tasks.dependencies.blockedByIncomplete")}><Link2 size={12} className="text-amber-500" /></span>}
-          <Flag size={14} className={pri.flagClass} />
+          <Flag
+            size={14}
+            className={cn(
+              pri.flagClass,
+              task.priority < 3 && "md:opacity-0 md:group-hover:opacity-100",
+              "transition-opacity",
+            )}
+          />
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
             className="hidden md:inline-flex md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all"

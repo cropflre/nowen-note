@@ -28,6 +28,8 @@ import {
 
 interface TaskInboxPanelProps {
   onTaskMutated?: () => void;
+  initiallyExpanded?: boolean;
+  standalone?: boolean;
 }
 
 function dateText(task: TaskInboxItem, chinese: boolean): string | null {
@@ -57,10 +59,11 @@ function SourceIcon({ type }: { type: TaskCaptureSourceType }) {
   return <Inbox size={11} />;
 }
 
-export function TaskInboxPanel({ onTaskMutated }: TaskInboxPanelProps) {
+export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, standalone = false }: TaskInboxPanelProps) {
   const { i18n } = useTranslation();
   const chinese = i18n.language.toLowerCase().startsWith("zh");
   const [expanded, setExpanded] = useState(() => {
+    if (initiallyExpanded || standalone) return true;
     try {
       return localStorage.getItem("nowen-task-inbox-expanded") !== "false";
     } catch {
@@ -179,7 +182,7 @@ export function TaskInboxPanel({ onTaskMutated }: TaskInboxPanelProps) {
       <div className="flex items-center gap-3 px-4 py-2.5 md:px-5">
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => { if (!standalone) setExpanded((value) => !value); }}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
@@ -217,13 +220,15 @@ export function TaskInboxPanel({ onTaskMutated }: TaskInboxPanelProps) {
         >
           <RefreshCw size={14} />
         </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-        >
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
+        {!standalone && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        )}
       </div>
 
       {expanded && (
@@ -243,7 +248,7 @@ export function TaskInboxPanel({ onTaskMutated }: TaskInboxPanelProps) {
               <span className="max-w-xl text-xs leading-5 text-tx-tertiary">{labels.emptyHint}</span>
             </button>
           ) : (
-            <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+            <div className={cn("space-y-2 overflow-y-auto pr-1", initiallyExpanded || standalone ? "max-h-none" : "max-h-[300px]")}>
               {items.map((item) => {
                 const due = dateText(item, chinese);
                 const sourceTitle = item.captureSourceTitle

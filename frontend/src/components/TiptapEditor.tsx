@@ -82,7 +82,7 @@ import {
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch,
+  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -96,6 +96,7 @@ import {
 import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
+import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { choose as chooseDialog, prompt as promptDialog } from "@/components/ui/confirm";
@@ -4726,6 +4727,22 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setShowAI(true);
   }, [editor]);
 
+  const openTaskCapture = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const text = from < to
+      ? editor.state.doc.textBetween(from, to, " ").trim().slice(0, 8_000)
+      : "";
+    openTaskQuickCapture({
+      text,
+      sourceType: text ? "selection" : "note",
+      sourceId: note.id,
+      sourceTitle: note.title,
+      noteId: note.id,
+    });
+    setBubble((current) => ({ ...current, open: false }));
+  }, [editor, note.id, note.title]);
+
   /**
    * 把一段可能是 Markdown 的文本注入到编辑器的 [from, to] 范围。
    * - 若检测到 Markdown 语法：直接转换为富文本 HTML 后插入，并弹 success toast 告知用户。
@@ -5327,6 +5344,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         {!isGuest && (
           <>
             <ToolbarDivider />
+            <ToolbarButton
+              onClick={openTaskCapture}
+              title={t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+            >
+              <ClipboardPlus size={iconSize} className="text-blue-500" />
+            </ToolbarButton>
             <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
               <Sparkles size={iconSize} className="text-violet-500" />
             </ToolbarButton>
@@ -5521,6 +5544,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           {!isGuest && (
             <>
               <div className="w-px h-4 bg-app-border mx-0.5" />
+              <ToolbarButton
+                onClick={openTaskCapture}
+                title={t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={14} className="text-blue-500" />
+              </ToolbarButton>
               <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>

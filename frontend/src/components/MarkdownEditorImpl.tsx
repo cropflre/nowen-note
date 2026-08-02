@@ -103,6 +103,7 @@ import {
   ChevronDown,
   Film,
   FolderSearch,
+  ClipboardPlus,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -113,6 +114,7 @@ import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
+import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
@@ -570,6 +572,22 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     if (!view) return;
     replaceSelection(view, text);
   }, []);
+
+  const openTaskCapture = useCallback(() => {
+    const view = viewRef.current;
+    const selection = view?.state.selection.main;
+    const text = view && selection && !selection.empty
+      ? view.state.doc.sliceString(selection.from, selection.to).trim().slice(0, 8_000)
+      : "";
+    openTaskQuickCapture({
+      text,
+      sourceType: text ? "selection" : "note",
+      sourceId: note.id,
+      sourceTitle: note.title,
+      noteId: note.id,
+    });
+    setBubble((current) => ({ ...current, open: false }));
+  }, [note.id, note.title]);
 
   const copySelectionText = useCallback(async () => {
     const view = viewRef.current;
@@ -1866,9 +1884,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
           {!isGuest && <ToolbarDivider />}
           {!isGuest && (
-            <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
+            <>
+              <ToolbarButton
+                onClick={openTaskCapture}
+                title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={iconSize} className="text-blue-500" />
+              </ToolbarButton>
+              <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
+                <Sparkles size={iconSize} className="text-violet-500" />
+              </ToolbarButton>
+            </>
           )}
 
           {/* MARKDOWN-PREVIEW-MODE-01: 视图模式切换 */}
@@ -2099,6 +2125,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           {!isGuest && (
             <>
               <div className="w-px h-4 bg-app-border mx-0.5" />
+              <ToolbarButton
+                onClick={openTaskCapture}
+                title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={14} className="text-blue-500" />
+              </ToolbarButton>
               <ToolbarButton
                 onClick={openAIAssistant}
                 title={tr("tiptap.aiAssistant") || "AI ����"}

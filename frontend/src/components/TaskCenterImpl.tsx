@@ -6,7 +6,7 @@ import {
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight, Bell, Maximize2, Minimize2,
-  MoreHorizontal, Trash2 as TrashIcon, FileText,
+  MoreHorizontal, Trash2 as TrashIcon, FileText, ClipboardPlus, Sun, CalendarClock,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -24,7 +24,6 @@ import {
 import { useTaskTree } from "./tasks/useTaskTree";
 import { buildTaskTree } from "./tasks/taskProgress";
 import type { TaskTreeNode } from "./tasks/taskProgress";
-import { TaskOverview } from "./tasks/TaskOverview";
 import { TaskTreeRow } from "./tasks/TaskTreeRow";
 import { TaskQuickAdd } from "./tasks/TaskQuickAdd";
 import { TaskEmptyState } from "./tasks/TaskEmptyState";
@@ -47,6 +46,10 @@ import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSma
 import { HabitStatsOverview } from "./tasks/HabitStatsOverview";
 import { HabitRow } from "./tasks/HabitRow";
 import { StatsCenter } from "./tasks/StatsCenter";
+import { TaskInboxPanel } from "./tasks/TaskInboxPanel";
+import { MyDayPanel } from "./tasks/MyDayPanel";
+import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
+import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -78,7 +81,7 @@ function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> 
 export default function TaskCenter() {
   const { t } = useTranslation();
 
-  type CenterMode = "tasks" | "habits" | "stats";
+  type CenterMode = "inbox" | "tasks" | "my-day" | "planner" | "habits" | "stats";
   type HabitListMode = "active" | "archived" | "all";
 
   const FILTERS: { key: TaskFilter; label: string; icon: React.ReactNode }[] = [
@@ -775,6 +778,19 @@ export default function TaskCenter() {
       {/* Left: Sidebar Filters + Projects (desktop) */}
       <div className="hidden md:flex w-56 shrink-0 flex-col border-r border-app-border bg-app-surface overflow-y-auto" style={{ paddingTop: "var(--safe-area-top)" }}>
         <nav className="flex-1 px-2 py-1.5 space-y-0.5">
+          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+            {t("tasks.title")}
+          </div>
+          <button
+            onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+              centerMode === "inbox" ? "bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400" : "text-tx-secondary hover:bg-app-hover",
+            )}
+          >
+            <Inbox size={16} />
+            <span className="flex-1 text-left">{t("tasks.inbox", { defaultValue: "收集箱" })}</span>
+          </button>
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -794,6 +810,30 @@ export default function TaskCenter() {
               </span>
             </button>
           ))}
+
+          <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+            {t("tasks.planning", { defaultValue: "计划" })}
+          </div>
+          <button
+            onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+              centerMode === "my-day" ? "bg-accent-primary/10 font-medium text-accent-primary" : "text-tx-secondary hover:bg-app-hover",
+            )}
+          >
+            <Sun size={16} />
+            <span className="flex-1 text-left">{t("tasks.myDay", { defaultValue: "我的一天" })}</span>
+          </button>
+          <button
+            onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+              centerMode === "planner" ? "bg-accent-primary/10 font-medium text-accent-primary" : "text-tx-secondary hover:bg-app-hover",
+            )}
+          >
+            <CalendarClock size={16} />
+            <span className="flex-1 text-left">{t("tasks.timePlanning", { defaultValue: "时间规划" })}</span>
+          </button>
 
           <button
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
@@ -894,6 +934,15 @@ export default function TaskCenter() {
       <div className={TASK_CENTER_MAIN_CLASS}>
         {/* Mobile: horizontal filter bar */}
         <div className={TASK_MOBILE_FILTER_BAR_CLASS}>
+          <button
+            onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+              centerMode === "inbox" ? "bg-amber-500/15 text-amber-600" : "bg-app-hover/50 text-tx-secondary active:bg-app-active",
+            )}
+          >
+            <Inbox size={14} /> {t("tasks.inbox", { defaultValue: "收集箱" })}
+          </button>
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -915,6 +964,24 @@ export default function TaskCenter() {
               </span>
             </button>
           ))}
+          <button
+            onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+              centerMode === "my-day" ? "bg-accent-primary/15 text-accent-primary" : "bg-app-hover/50 text-tx-secondary active:bg-app-active",
+            )}
+          >
+            <Sun size={14} /> {t("tasks.myDay", { defaultValue: "我的一天" })}
+          </button>
+          <button
+            onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+              centerMode === "planner" ? "bg-accent-primary/15 text-accent-primary" : "bg-app-hover/50 text-tx-secondary active:bg-app-active",
+            )}
+          >
+            <CalendarClock size={14} /> {t("tasks.timePlanning", { defaultValue: "时间规划" })}
+          </button>
           <button
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
@@ -962,73 +1029,22 @@ export default function TaskCenter() {
           )}
         </div>
 
-        {/* Overview cards only in all filter */}
-        {centerMode === "tasks" && filter === "all" && !isLoading && (
-          <TaskOverview tasks={tasks} stats={stats} />
-        )}
         {centerMode === "habits" && !isLoading && (
           <HabitStatsOverview stats={habitStats} />
         )}
 
         {/* Header desktop with batch controls */}
         {centerMode === "tasks" ? (
-          <div className="hidden md:flex items-center justify-between px-5 py-3 border-b border-app-border">
-            <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-3 border-b border-app-border px-5 py-3 md:flex">
+            <div className="min-w-0 flex-1">
               <h1 className="text-lg font-bold text-tx-primary">
                 {selectedProjectId
                   ? projects.find((p) => p.id === selectedProjectId)?.name || t("tasks.allTasks")
                   : FILTERS.find((f) => f.key === filter)?.label || t("tasks.allTasks")}
               </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* View mode toggle */}
-              <div className="flex items-center rounded-md border border-app-border overflow-hidden">
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={cn("p-1.5 transition-colors", viewMode === "list" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                  title={t("tasks.listView")}
-                >
-                  <LayoutList size={14} />
-                </button>
-                <button
-                  onClick={() => setViewMode("board")}
-                  className={cn("p-1.5 transition-colors", viewMode === "board" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                  title={t("tasks.boardView")}
-                >
-                  <LayoutGrid size={14} />
-                </button>
-                <button
-                  onClick={() => setViewMode("calendar")}
-                  className={cn("p-1.5 transition-colors", viewMode === "calendar" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                  title={t("tasks.calendarView")}
-                >
-                  <CalendarIcon size={14} />
-                </button>
-                <button
-                  onClick={() => setViewMode("timeline")}
-                  className={cn("p-1.5 transition-colors", viewMode === "timeline" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
-                  title={t("tasks.timelineView")}
-                >
-                  <BarChart3 size={14} />
-                </button>
-              </div>
-              <button
-                onClick={() => setSortByDueTime((v) => !v)}
-                className={cn(
-                  "p-1.5 rounded-md transition-colors",
-                  sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
-                )}
-                title={t("tasks.sortByDueTime")}
-              >
-                <CalendarDays size={14} />
-              </button>
-              <button
-                onClick={() => setTaskFullscreen((v) => !v)}
-                className="p-1.5 rounded-md transition-colors text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
-                title={taskFullscreen ? t("tasks.exitFullscreen") : t("tasks.enterFullscreen")}
-              >
-                {taskFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              </button>
+              <p className="mt-0.5 text-[11px] text-tx-tertiary">
+                {t("tasks.visibleTaskCount", { count: displayTasks.length, defaultValue: `${displayTasks.length} 条任务` })}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {selectMode ? (
@@ -1063,13 +1079,53 @@ export default function TaskCenter() {
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => setSelectMode(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-tx-secondary rounded-md hover:bg-app-hover transition-colors"
-                  title={t("tasks.selectMode")}
-                >
-                  <CheckSquare size={14} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openTaskQuickCapture({ sourceType: "manual" })}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                  >
+                    <ClipboardPlus size={14} />
+                    {t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获" })}
+                  </button>
+                  <label className="flex items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2 py-1 text-xs text-tx-secondary">
+                    <span className="text-tx-tertiary">{t("tasks.view", { defaultValue: "视图" })}</span>
+                    <select
+                      value={viewMode}
+                      onChange={(event) => setViewMode(event.target.value as ViewMode)}
+                      className="bg-transparent text-xs text-tx-primary outline-none"
+                    >
+                      <option value="list">{t("tasks.listView")}</option>
+                      <option value="board">{t("tasks.boardView")}</option>
+                      <option value="calendar">{t("tasks.calendarView")}</option>
+                      <option value="timeline">{t("tasks.timelineView")}</option>
+                    </select>
+                  </label>
+                  <button
+                    onClick={() => setSortByDueTime((v) => !v)}
+                    className={cn(
+                      "rounded-md p-1.5 transition-colors",
+                      sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
+                    )}
+                    title={t("tasks.sortByDueTime")}
+                  >
+                    <CalendarDays size={14} />
+                  </button>
+                  <button
+                    onClick={() => setSelectMode(true)}
+                    className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
+                    title={t("tasks.selectMode")}
+                  >
+                    <CheckSquare size={14} />
+                  </button>
+                  <button
+                    onClick={() => setTaskFullscreen((v) => !v)}
+                    className="rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
+                    title={taskFullscreen ? t("tasks.exitFullscreen") : t("tasks.enterFullscreen")}
+                  >
+                    {taskFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1080,14 +1136,14 @@ export default function TaskCenter() {
             </div>
             <div className="text-xs text-tx-tertiary">{t("habits.summary")}</div>
           </div>
-        ) : (
+        ) : centerMode === "stats" ? (
           <div className="hidden md:flex items-center justify-between px-5 py-3 border-b border-app-border">
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold text-tx-primary">{t("stats.title")}</h1>
             </div>
             <div className="text-xs text-tx-tertiary">{t("stats.subtitle")}</div>
           </div>
-        )}
+        ) : null}
 
         {/* Search bar */}
         {centerMode === "tasks" ? (
@@ -1140,11 +1196,11 @@ export default function TaskCenter() {
               ))}
             </div>
           </div>
-        ) : (
+        ) : centerMode === "stats" ? (
           <div className="border-b border-app-border px-4 md:px-5 py-2 text-xs text-tx-tertiary">
             {t("stats.summaryHint")}
           </div>
-        )}
+        ) : null}
 
         {/* Quick Add */}
         {centerMode === "tasks" && (
@@ -1155,36 +1211,68 @@ export default function TaskCenter() {
               onSubmit={handleCreate}
               inputRef={inputRef}
             />
-            <div className="flex items-center gap-1 mt-2">
-              <button
-                type="button"
-                onClick={() => setShowTemplatePicker(true)}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors"
-              >
-                <FileText size={13} />
-                {t("tasks.templates.button")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowReminderCenter(true)}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors relative"
-              >
-                <Bell size={13} />
-                {t("tasks.reminderCenter.open")}
-                {reminderBadgeCount > 0 && (
-                  <span className="absolute -top-1 -right-1 text-[9px] min-w-[14px] h-[14px] px-0.5 rounded-full bg-amber-500 text-white flex items-center justify-center">
-                    {reminderBadgeCount}
-                  </span>
-                )}
-              </button>
-              <TaskCalendarFeedSettings />
-              <CalendarExportTargetSettings />
+            <div className="mt-2 flex justify-end">
+              <details className="group relative">
+                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 text-xs text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary">
+                  <MoreHorizontal size={13} />
+                  {t("tasks.moreTools", { defaultValue: "更多工具" })}
+                  {reminderBadgeCount > 0 && (
+                    <span className="min-w-[16px] rounded-full bg-amber-500 px-1 text-center text-[9px] leading-4 text-white">
+                      {reminderBadgeCount}
+                    </span>
+                  )}
+                </summary>
+                <div className="absolute right-0 top-full z-30 mt-1 flex w-52 flex-col gap-1 rounded-xl border border-app-border bg-app-elevated p-2 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplatePicker(true)}
+                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-tx-secondary hover:bg-app-hover"
+                  >
+                    <FileText size={14} /> {t("tasks.templates.button")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReminderCenter(true)}
+                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-tx-secondary hover:bg-app-hover"
+                  >
+                    <Bell size={14} /> {t("tasks.reminderCenter.open")}
+                  </button>
+                  <div className="border-t border-app-border pt-1">
+                    <TaskCalendarFeedSettings />
+                    <CalendarExportTargetSettings />
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         )}
 
         {/* Task List / Board / Calendar View */}
-        {centerMode === "stats" ? (
+        {centerMode === "inbox" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-app-bg">
+            <TaskInboxPanel
+              initiallyExpanded
+              standalone
+              onTaskMutated={() => setWorkspaceVersion((value) => value + 1)}
+            />
+          </div>
+        ) : centerMode === "my-day" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-app-bg">
+            <MyDayPanel
+              initiallyExpanded
+              standalone
+              onTaskMutated={() => setWorkspaceVersion((value) => value + 1)}
+            />
+          </div>
+        ) : centerMode === "planner" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-app-bg">
+            <TaskTimePlanner
+              initiallyExpanded
+              standalone
+              onTaskMutated={() => setWorkspaceVersion((value) => value + 1)}
+            />
+          </div>
+        ) : centerMode === "stats" ? (
           <StatsCenter
             tasks={statsTasks}
             projects={projects}

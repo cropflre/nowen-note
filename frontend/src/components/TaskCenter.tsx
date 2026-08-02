@@ -1,16 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
-import { MyDayPanel } from "./tasks/MyDayPanel";
-import { TaskInboxPanel } from "./tasks/TaskInboxPanel";
 import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
-import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
 
 export default function TaskCenter() {
   const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
-  const [localDayKey, setLocalDayKey] = useState(() => new Date().toDateString());
 
   const remountTaskWorkspace = useCallback(() => {
     setWorkspaceGeneration((value) => value + 1);
@@ -24,16 +20,6 @@ export default function TaskCenter() {
     window.addEventListener("nowen:workspace-changed", handleWorkspaceChange);
     return () => window.removeEventListener("nowen:workspace-changed", handleWorkspaceChange);
   }, [remountTaskWorkspace]);
-
-  useEffect(() => {
-    // Keep a long-running desktop/web session aligned with the local calendar day.
-    // Changing this key remounts only daily planning surfaces.
-    const timer = window.setInterval(() => {
-      const nextDayKey = new Date().toDateString();
-      setLocalDayKey((current) => current === nextDayKey ? current : nextDayKey);
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const handleDeleteCapture = (event: MouseEvent) => {
@@ -55,20 +41,7 @@ export default function TaskCenter() {
 
   return (
     <TaskMetadataWorkspace key={workspaceGeneration}>
-      <div className="flex h-full min-h-0 flex-col">
-        <TaskInboxPanel
-          key={`task-inbox-${workspaceGeneration}`}
-          onTaskMutated={remountTaskWorkspace}
-        />
-        <MyDayPanel
-          key={`my-day-${workspaceGeneration}-${localDayKey}`}
-          onTaskMutated={remountTaskWorkspace}
-        />
-        <TaskTimePlanner key={`time-planner-${workspaceGeneration}-${localDayKey}`} />
-        <div className="min-h-0 flex-1">
-          <TaskCenterImpl />
-        </div>
-      </div>
+      <TaskCenterImpl />
     </TaskMetadataWorkspace>
   );
 }

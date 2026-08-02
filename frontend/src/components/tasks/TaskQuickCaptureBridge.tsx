@@ -70,14 +70,6 @@ function titleFromText(text: string): string {
   ).slice(0, 180);
 }
 
-function shouldShowGlobalButton(): boolean {
-  const path = window.location.pathname;
-  if (!localStorage.getItem("nowen-token")) return false;
-  return !path.startsWith("/login")
-    && !path.startsWith("/share/")
-    && !path.startsWith("/public");
-}
-
 export default function TaskQuickCaptureBridge() {
   const { i18n } = useTranslation();
   const chinese = i18n.language.toLowerCase().startsWith("zh");
@@ -90,7 +82,6 @@ export default function TaskQuickCaptureBridge() {
   });
   const titleRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [showButton, setShowButton] = useState(() => shouldShowGlobalButton());
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState(2);
@@ -186,16 +177,11 @@ export default function TaskQuickCaptureBridge() {
         setOpen(false);
       }
     };
-    const refreshVisibility = () => setShowButton(shouldShowGlobalButton());
     window.addEventListener("nowen:open-task-capture", handleOpen);
     window.addEventListener("keydown", handleShortcut);
-    window.addEventListener("nowen:token-changed", refreshVisibility);
-    window.addEventListener("storage", refreshVisibility);
     return () => {
       window.removeEventListener("nowen:open-task-capture", handleOpen);
       window.removeEventListener("keydown", handleShortcut);
-      window.removeEventListener("nowen:token-changed", refreshVisibility);
-      window.removeEventListener("storage", refreshVisibility);
     };
   }, [open, openDialog]);
 
@@ -395,20 +381,5 @@ export default function TaskQuickCaptureBridge() {
     document.body,
   ) : null;
 
-  return (
-    <>
-      {showButton && !open && (
-        <button
-          type="button"
-          onClick={() => openDialog()}
-          title={`${labels.title} · ${labels.shortcut}`}
-          aria-label={labels.title}
-          className="fixed bottom-[max(18px,var(--safe-area-bottom))] right-5 z-[120] flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-accent-primary text-white shadow-lg shadow-black/20 transition-transform hover:scale-105 active:scale-95"
-        >
-          <ClipboardPlus size={19} />
-        </button>
-      )}
-      {dialog}
-    </>
-  );
+  return dialog;
 }

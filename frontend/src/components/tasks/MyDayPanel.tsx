@@ -33,6 +33,8 @@ import {
 
 interface MyDayPanelProps {
   onTaskMutated?: () => void;
+  initiallyExpanded?: boolean;
+  standalone?: boolean;
 }
 
 function emptyPlan(date: string): TaskDayPlan {
@@ -45,11 +47,12 @@ function emptyPlan(date: string): TaskDayPlan {
   };
 }
 
-export function MyDayPanel({ onTaskMutated }: MyDayPanelProps) {
+export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalone = false }: MyDayPanelProps) {
   const { i18n } = useTranslation();
   const chinese = i18n.language.toLowerCase().startsWith("zh");
   const today = useMemo(() => formatMyDayDate(), []);
   const [expanded, setExpanded] = useState(() => {
+    if (initiallyExpanded || standalone) return true;
     try {
       return localStorage.getItem("nowen-my-day-expanded") !== "false";
     } catch {
@@ -249,7 +252,7 @@ export function MyDayPanel({ onTaskMutated }: MyDayPanelProps) {
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => { if (!standalone) setExpanded((value) => !value); }}
           aria-expanded={expanded}
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
@@ -272,7 +275,7 @@ export function MyDayPanel({ onTaskMutated }: MyDayPanelProps) {
               </span>
             </span>
           </span>
-          {expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+          {!standalone && (expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />)}
         </button>
 
         <button

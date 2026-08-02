@@ -447,13 +447,10 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-app-bg">
       <div className="shrink-0 border-b border-app-border bg-app-surface">
-        <div className="flex min-h-11 items-center gap-2 px-3 md:px-4">
-          <Bookmark size={15} className="shrink-0 text-accent-primary" />
-          <span className="hidden shrink-0 text-sm font-semibold text-tx-primary sm:inline">{copy.smart}</span>
+        <div className="flex min-h-10 items-center gap-2 px-3 md:px-4">
+          {snapshot.views.length > 0 && <Bookmark size={14} className="shrink-0 text-accent-primary" />}
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
-            {snapshot.views.length === 0 ? (
-              <span className="hidden text-xs text-tx-tertiary md:inline">{copy.noSaved}</span>
-            ) : snapshot.views.map((view) => (
+            {snapshot.views.map((view) => (
               <div key={view.id} className="group flex shrink-0 items-center rounded-full border border-app-border bg-app-bg">
                 <button
                   onClick={() => applyView(view.id)}
@@ -486,8 +483,12 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
           <button onClick={() => setLabelDialog(true)} className="rounded-md p-1.5 text-tx-secondary hover:bg-app-hover hover:text-accent-primary" title={copy.manageLabels}>
             <Tag size={14} />
           </button>
-          <button onClick={() => void openAssignments()} className="hidden items-center gap-1 rounded-md px-2 py-1.5 text-xs text-tx-secondary hover:bg-app-hover hover:text-accent-primary md:flex">
-            <Pencil size={13} /> {copy.assignLabels}
+          <button
+            onClick={() => void openAssignments()}
+            className="hidden rounded-md p-1.5 text-tx-secondary hover:bg-app-hover hover:text-accent-primary md:block"
+            title={copy.assignLabels}
+          >
+            <Pencil size={14} />
           </button>
           {smartActive && (
             <>

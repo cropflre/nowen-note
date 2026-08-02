@@ -47,6 +47,8 @@ const DAY_CAPACITY_MINUTES = 8 * 60;
 
 interface TaskTimePlannerProps {
   onTaskMutated?: () => void;
+  initiallyExpanded?: boolean;
+  standalone?: boolean;
 }
 
 function dateInputValue(date: Date): string {
@@ -73,10 +75,11 @@ function dateLabel(dateKey: string, chinese: boolean): string {
   }).format(date);
 }
 
-export function TaskTimePlanner({ onTaskMutated }: TaskTimePlannerProps) {
+export function TaskTimePlanner({ onTaskMutated, initiallyExpanded = false, standalone = false }: TaskTimePlannerProps) {
   const { i18n } = useTranslation();
   const chinese = i18n.language.toLowerCase().startsWith("zh");
   const [expanded, setExpanded] = useState(() => {
+    if (initiallyExpanded || standalone) return true;
     try {
       return localStorage.getItem("nowen-task-time-planner-expanded") === "true";
     } catch {
@@ -291,7 +294,7 @@ export function TaskTimePlanner({ onTaskMutated }: TaskTimePlannerProps) {
       <div className="flex items-center gap-3 px-4 md:px-5 py-2.5">
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => { if (!standalone) setExpanded((value) => !value); }}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500">
@@ -321,13 +324,15 @@ export function TaskTimePlanner({ onTaskMutated }: TaskTimePlannerProps) {
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-        >
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
+        {!standalone && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        )}
       </div>
 
       {expanded && (
