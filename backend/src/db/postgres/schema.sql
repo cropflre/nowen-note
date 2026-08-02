@@ -136,3 +136,41 @@ CREATE TRIGGER tasks_inherit_estimate_before_recurrence_insert
 BEFORE INSERT ON tasks
 FOR EACH ROW
 EXECUTE FUNCTION inherit_recurring_task_estimate();
+
+CREATE TABLE IF NOT EXISTS task_inbox_items (
+  "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "capturedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "sourceType" TEXT NOT NULL DEFAULT 'manual'
+    CHECK ("sourceType" IN ('manual', 'global', 'selection', 'note', 'diary', 'share', 'other')),
+  "sourceId" TEXT,
+  "sourceTitle" TEXT,
+  excerpt TEXT NOT NULL DEFAULT '',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("taskId", "userId")
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_inbox_user_scope_captured
+  ON task_inbox_items("userId", "workspaceId", "capturedAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_task_inbox_task
+  ON task_inbox_items("taskId", "capturedAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_task_inbox_source
+  ON task_inbox_items("userId", "sourceType", "sourceId");
+
+CREATE OR REPLACE FUNCTION clear_task_inbox_after_completion()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD."isCompleted" = 0 AND NEW."isCompleted" = 1 THEN
+    DELETE FROM task_inbox_items WHERE "taskId" = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS task_inbox_remove_after_task_complete ON tasks;
+CREATE TRIGGER task_inbox_remove_after_task_complete
+AFTER UPDATE OF "isCompleted" ON tasks
+FOR EACH ROW
+EXECUTE FUNCTION clear_task_inbox_after_completion();

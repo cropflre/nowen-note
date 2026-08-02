@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.task-inbox.tsbuildinfo"
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/lunar-javascript.d.ts",
+    "src/components/TaskCenter.tsx",
+    "src/components/SidebarSearchExperienceBridge.tsx",
+    "src/components/tasks/TaskInboxPanel.tsx",
+    "src/components/tasks/TaskQuickCaptureBridge.tsx",
+    "src/components/tasks/taskInboxCapture.ts",
+    "src/lib/taskInboxApi.ts"
+  ]
+}

@@ -797,23 +797,6 @@ export default function InlineCommentBridge() {
         </button>
       )}
 
-      {!panelOpen && currentNote && (canComment || unresolvedCount > 0) && (
-        <button
-          type="button"
-          data-inline-comment-ui
-          onClick={() => {
-            setPendingAnchor(null);
-            setReplyTo(null);
-            setPanelOpen(true);
-          }}
-          className="nowen-inline-comment-rail fixed right-3 top-1/2 z-[58] hidden -translate-y-1/2 items-center gap-1.5 rounded-full border border-app-border bg-app-elevated px-2.5 py-2 text-xs text-tx-secondary shadow-md hover:bg-app-hover md:flex"
-          title={t("comments.openPanel", { defaultValue: "评论与批注" })}
-        >
-          <MessageCircle size={16} className="text-accent-primary" />
-          {unresolvedCount > 0 && <span className="tabular-nums">{unresolvedCount}</span>}
-        </button>
-      )}
-
       {panelOpen && (
         <div className="fixed inset-0 z-[89] pointer-events-none" data-inline-comment-ui>
           <button

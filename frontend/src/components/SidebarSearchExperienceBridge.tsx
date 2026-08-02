@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreePanel";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
+import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {
   applySidebarSearchExperience,
   KNOWLEDGE_TREE_FILTER_SELECTOR,
@@ -227,6 +228,7 @@ export default function SidebarSearchExperienceBridge() {
 
   return (
     <>
+      <TaskQuickCaptureBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,
         slot,

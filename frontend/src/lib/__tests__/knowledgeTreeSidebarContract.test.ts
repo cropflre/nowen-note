@@ -78,8 +78,7 @@ describe("knowledge tree sidebar contract", () => {
     expect(runtime).toContain("actions.toggleNoteListCollapsed()");
     expect(runtime).toContain('layoutMode === "three-column"');
     expect(runtime).toContain('variant === "mobile"');
-    expect(runtime).toContain('ALL_NOTES_HOST_ATTR) !== "mobile-toolbar"');
-    expect(runtime).toContain("host.remove()");
+    expect(runtime).toContain("existingHost?.remove()");
   });
 
   it("applies an unmistakably compact mobile density with a safe fallback", () => {
@@ -112,7 +111,7 @@ describe("knowledge tree sidebar contract", () => {
     expect(compactCss).not.toContain("@media (max-width: 767px)");
 
     // Existing interaction and title/status behavior must remain intact.
-    expect(panel).toContain("onClick={() => hasChildren && void openDocument(node)}");
+    expect(panel).toContain("onClick={() => hasChildren && void toggleDisclosure(node)}");
     expect(panel).toContain('className="min-w-0 flex-1 truncate"');
     expect(panel).toContain('aria-label={`在“${node.title}”下新建文档`}');
     expect(panel).toContain('title="更多"');

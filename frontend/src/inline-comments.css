@@ -19,10 +19,6 @@
   padding-top: env(safe-area-inset-top);
 }
 
-.nowen-inline-comment-rail {
-  backdrop-filter: blur(14px);
-}
-
 @keyframes nowen-inline-comment-panel-in {
   from {
     opacity: 0;

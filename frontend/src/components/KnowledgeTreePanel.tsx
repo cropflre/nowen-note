@@ -508,6 +508,16 @@ export function KnowledgeTreePanel({
     }
   };
 
+  const toggleDisclosure = async (node: KnowledgeTreeNode) => {
+    closeMenu();
+    if (node.nodeType === "folder" && !isFolderUnlocked(node, unlockedFolderIds)) {
+      setPendingFolderOpenId(node.id);
+      setPasswordDialog({ node, mode: "unlock" });
+      return;
+    }
+    await toggle(node);
+  };
+
   const openSplit = (node: KnowledgeTreeNode, direction: "right" | "down") => {
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
@@ -862,7 +872,7 @@ export function KnowledgeTreePanel({
         >
           <button
             type="button"
-            onClick={() => hasChildren && void openDocument(node)}
+            onClick={() => hasChildren && void toggleDisclosure(node)}
             className={cn(
               "flex shrink-0 items-center justify-center text-tx-tertiary",
               variant === "mobile" ? "h-6 w-4" : "h-7 w-5",

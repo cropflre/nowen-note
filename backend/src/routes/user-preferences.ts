@@ -6,6 +6,7 @@ import mobileBootstrapRoutes from "./mobile-bootstrap";
 import taskDayPlansRoutes from "./task-day-plans";
 import taskMetadataRoutes from "./task-metadata";
 import taskTimeBlocksRoutes from "./task-time-blocks";
+import taskInboxRoutes from "./task-inbox";
 
 /**
  * Compatibility wrapper: existing user preference/profile endpoints stay at their
@@ -26,6 +27,10 @@ app.route("/task-metadata", taskMetadataRoutes);
 // Time blocks are personal calendar allocations. Even inside a shared workspace,
 // every member owns an independent schedule for the same shared task.
 app.route("/task-time-blocks", taskTimeBlocksRoutes);
+
+// Inbox membership is personal processing state. A shared task can therefore be
+// captured by multiple members without changing the shared task record itself.
+app.route("/task-inbox", taskInboxRoutes);
 
 // Root preference GET/PUT/PATCH must be mounted before the legacy router. The new
 // implementation keeps the old flat response fields while adding account-scoped

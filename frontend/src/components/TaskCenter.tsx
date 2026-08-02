@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
 import { MyDayPanel } from "./tasks/MyDayPanel";
+import { TaskInboxPanel } from "./tasks/TaskInboxPanel";
 import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
 import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
@@ -17,7 +18,7 @@ export default function TaskCenter() {
 
   useEffect(() => {
     const handleWorkspaceChange = () => {
-      // Remount planning state, smart views and the legacy task center together.
+      // Remount capture, planning state, smart views and the legacy task center together.
       remountTaskWorkspace();
     };
     window.addEventListener("nowen:workspace-changed", handleWorkspaceChange);
@@ -55,6 +56,10 @@ export default function TaskCenter() {
   return (
     <TaskMetadataWorkspace key={workspaceGeneration}>
       <div className="flex h-full min-h-0 flex-col">
+        <TaskInboxPanel
+          key={`task-inbox-${workspaceGeneration}`}
+          onTaskMutated={remountTaskWorkspace}
+        />
         <MyDayPanel
           key={`my-day-${workspaceGeneration}-${localDayKey}`}
           onTaskMutated={remountTaskWorkspace}

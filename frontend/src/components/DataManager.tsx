@@ -9,6 +9,7 @@ import {
   Mail, Send, Settings as SettingsIcon, ChevronDown, ChevronRight,
   BookOpen, ExternalLink,
   User as UserIcon, Users, ServerCog, Package, Smartphone, FolderOpen, Heart,
+  ListTodo,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
@@ -53,6 +54,7 @@ import {
   type ImportMethod,
 } from "@/lib/importHub";
 import type { Workspace } from "@/types";
+import { openTaskDataTransfer } from "@/lib/taskDataTransferBridge";
 
 // ============================================================================
 // 一级 Tab：scope —— 个人空间 / 工作区 / 系统
@@ -1030,6 +1032,28 @@ export default function DataManager() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
           {t('dataManager.description')}
         </p>
+
+        <section className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <ListTodo size={19} />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">任务数据</h4>
+              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                导入或导出当前空间的待办、项目、层级、提醒和任务图片。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openTaskDataTransfer}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700 dark:hover:text-indigo-400"
+          >
+            管理导入与导出
+            <ChevronRight size={14} />
+          </button>
+        </section>
 
         <div className="space-y-3 mb-4">
           <SyncCenterCard />
