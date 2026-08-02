@@ -157,3 +157,19 @@ CREATE INDEX IF NOT EXISTS idx_task_inbox_task
   ON task_inbox_items("taskId", "capturedAt" DESC);
 CREATE INDEX IF NOT EXISTS idx_task_inbox_source
   ON task_inbox_items("userId", "sourceType", "sourceId");
+
+CREATE OR REPLACE FUNCTION clear_task_inbox_after_completion()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD."isCompleted" = 0 AND NEW."isCompleted" = 1 THEN
+    DELETE FROM task_inbox_items WHERE "taskId" = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS task_inbox_remove_after_task_complete ON tasks;
+CREATE TRIGGER task_inbox_remove_after_task_complete
+AFTER UPDATE OF "isCompleted" ON tasks
+FOR EACH ROW
+EXECUTE FUNCTION clear_task_inbox_after_completion();
