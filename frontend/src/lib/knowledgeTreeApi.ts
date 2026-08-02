@@ -116,7 +116,7 @@ function withDisplaySort(result: { nodes: KnowledgeTreeNode[] }): { nodes: Knowl
 
 export const knowledgeTreeApi = {
   list(includeDeleted = false) {
-    return request<{ nodes: KnowledgeTreeNode[] }>(`/?${workspaceQuery(includeDeleted)}`).then(withDisplaySort);
+    return request<{ nodes: KnowledgeTreeNode[] }>(`?${workspaceQuery(includeDeleted)}`).then(withDisplaySort);
   },
 
   listShared() {

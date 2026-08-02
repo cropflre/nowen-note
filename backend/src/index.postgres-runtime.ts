@@ -13,6 +13,7 @@ import {
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
+import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
@@ -62,12 +63,14 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
+        "GET /api/knowledge-tree",
         "WS /ws (subscriptions, presence, note/workspace events and Yjs read/write sync)",
         "WS /ws/subdocuments (Tiptap manifest/state, stable-section and structure-changing Yjs writes)",
       ],
       migratedCapabilities: [
         "note deletion audit logs",
         "note deletion webhooks",
+        "knowledge-tree scope listing with inherited permissions",
         "note and workspace room subscriptions",
         "note presence, editing and cursor events",
         "connection recovery through idempotent resubscription",
@@ -85,13 +88,14 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
+        "knowledge-tree mutations (#249)",
         "notes full-text search (#252)",
       ],
     },
   }, status);
 });
 
-async function authenticateNoteRequest(c: Context, next: Next) {
+async function authenticateApiRequest(c: Context, next: Next) {
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return c.json({ error: "未授权，请先登录", code: "UNAUTHENTICATED" }, 401);
@@ -152,14 +156,21 @@ async function authenticateNoteRequest(c: Context, next: Next) {
   await next();
 }
 
-app.use("/api/notes", authenticateNoteRequest);
-app.use("/api/notes/*", authenticateNoteRequest);
+app.use("/api/notes", authenticateApiRequest);
+app.use("/api/notes/*", authenticateApiRequest);
 app.route("/api/notes", createNotesRuntimeRouter(
   adapter,
   "postgres",
   { dispatchEffects: deletionEffects.dispatch },
   { publishMutation: hub.publishMutation },
 ));
+
+app.use("/api/knowledge-tree", authenticateApiRequest);
+app.use("/api/knowledge-tree/*", authenticateApiRequest);
+app.route(
+  "/api/knowledge-tree",
+  createKnowledgeTreeRuntimeRouter(adapter, "postgres"),
+);
 
 app.all("*", (c) => c.json({
   error: "PostgreSQL runtime is connected, but this route has not been migrated yet",
