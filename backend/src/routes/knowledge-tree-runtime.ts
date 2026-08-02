@@ -2,6 +2,10 @@ import { Hono, type Context } from "hono";
 
 import type { DatabaseAdapter } from "../db/adapters/types";
 import type { DatabaseDialect } from "../db/dialect";
+import {
+  createKnowledgeTreeMutationRepository,
+  KnowledgeTreeMutationError,
+} from "../repositories/knowledgeTreeMutationRepository";
 import { createKnowledgeTreeReadRepository } from "../repositories/knowledgeTreeReadRepository";
 
 const ROLE_DEFINITIONS = [
@@ -50,12 +54,30 @@ function workspaceIdOf(c: Context): string | null {
   return !value || value === "personal" ? null : value;
 }
 
+function mutationError(c: Context, error: unknown): Response {
+  if (error instanceof KnowledgeTreeMutationError) {
+    return c.json(
+      { error: error.message, code: error.code, ...error.details },
+      error.status,
+    );
+  }
+  console.error(
+    "[knowledge-tree-runtime] mutation failed:",
+    error instanceof Error ? error.message : error,
+  );
+  return c.json(
+    { error: "知识树操作失败", code: "KNOWLEDGE_TREE_MUTATION_FAILED" },
+    500,
+  );
+}
+
 export default function createKnowledgeTreeRuntimeRouter(
   adapter: DatabaseAdapter,
   dialect: DatabaseDialect,
 ) {
   const app = new Hono();
-  const repository = createKnowledgeTreeReadRepository(adapter, dialect);
+  const readRepository = createKnowledgeTreeReadRepository(adapter, dialect);
+  const mutationRepository = createKnowledgeTreeMutationRepository(adapter, dialect);
 
   app.get("/roles", (c) => c.json({ roles: ROLE_DEFINITIONS }));
 
@@ -66,7 +88,7 @@ export default function createKnowledgeTreeRuntimeRouter(
         return c.json({ error: "未授权，请先登录", code: "UNAUTHENTICATED" }, 401);
       }
 
-      const nodes = await repository.list({
+      const nodes = await readRepository.list({
         userId,
         workspaceId: workspaceIdOf(c),
         includeDeleted: c.req.query("includeDeleted") === "1",
@@ -86,6 +108,29 @@ export default function createKnowledgeTreeRuntimeRouter(
 
   app.get("", listKnowledgeTree);
   app.get("/", listKnowledgeTree);
+
+  app.patch("/nodes/:nodeId", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const title = typeof body.title === "string" ? body.title : undefined;
+      const isExpanded = typeof body.isExpanded === "boolean"
+        || body.isExpanded === 0
+        || body.isExpanded === 1
+        ? Boolean(body.isExpanded)
+        : undefined;
+
+      const node = await mutationRepository.patchNode({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        title,
+        isExpanded,
+      });
+      return c.json(node);
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
 
   return app;
 }
