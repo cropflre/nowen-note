@@ -10,6 +10,15 @@
         "getDb-call": 6,
         "prepare-call": 6
       }
+    },
+    "routes/task-metadata.ts": {
+      "owner": "#249",
+      "reason": "Main introduced task labels and saved views after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its label, assignment and saved-view transactions through shared repositories under #249.",
+      "counts": {
+        "getDb-call": 27,
+        "prepare-call": 2,
+        "transaction-call": 1
+      }
     }
   }
 }
