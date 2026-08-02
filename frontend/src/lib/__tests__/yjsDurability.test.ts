@@ -2,8 +2,27 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import {
   encodeMissingYjsUpdate,
+  isYjsUploadReady,
   YjsDurabilityTracker,
 } from "@/lib/yjsDurability";
+
+describe("Yjs upload readiness", () => {
+  it("requires both server and IndexedDB baselines before direct upload", () => {
+    expect(isYjsUploadReady({
+      socketOpen: true,
+      joined: true,
+      serverSynced: true,
+      localPersistenceReady: false,
+    })).toBe(false);
+
+    expect(isYjsUploadReady({
+      socketOpen: true,
+      joined: true,
+      serverSynced: true,
+      localPersistenceReady: true,
+    })).toBe(true);
+  });
+});
 
 describe("YjsDurabilityTracker", () => {
   it("does not report saved until every sent operation is acknowledged", () => {
