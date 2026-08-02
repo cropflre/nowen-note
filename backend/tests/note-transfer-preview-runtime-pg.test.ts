@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { Hono } from "hono";
-import { v4 as uuid } from "uuid";
 
 import { PostgresAdapter } from "../src/db/postgresAdapter";
 import createNoteTransfersRuntimeRouter from "../src/routes/note-transfers-runtime";
@@ -13,6 +12,7 @@ const OUTSIDER = "pg-transfer-preview-outsider";
 const SOURCE_NOTE_A = "11111111-1111-4111-8111-111111111111";
 const SOURCE_NOTE_B = "22222222-2222-4222-8222-222222222222";
 const EXTERNAL_NOTE = "33333333-3333-4333-8333-333333333333";
+const ATTACHMENT = "44444444-4444-4444-8444-444444444444";
 const SOURCE_NOTEBOOK = "pg-transfer-preview-source-notebook";
 const PERSONAL_TARGET = "pg-transfer-preview-personal-target";
 const ACTOR_WORKSPACE = "pg-transfer-preview-actor-workspace";
@@ -73,6 +73,13 @@ async function seed(pool: import("pg").Pool): Promise<void> {
     ],
   );
   await pool.query(
+    `INSERT INTO attachments (
+       id, "noteId", "userId", filename, "mimeType", size, path, hash
+     ) VALUES ($1, $2, $3, 'missing.bin', 'application/octet-stream', 24,
+               'pg-transfer-preview/missing.bin', 'missing-hash')`,
+    [ATTACHMENT, SOURCE_NOTE_A, ACTOR],
+  );
+  await pool.query(
     `INSERT INTO tags (id, "userId", name, color)
      VALUES ($1, $2, 'transfer-tag', '#58a6ff')`,
     [TAG, ACTOR],
@@ -131,9 +138,9 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     assert.equal(success.sourceWorkspaceId, null);
     assert.equal(success.targetWorkspaceId, ACTOR_WORKSPACE);
     assert.equal(success.noteCount, 2);
-    assert.equal(success.attachmentCount, 0);
-    assert.equal(success.attachmentBytes, 0);
-    assert.equal(success.missingAttachmentCount, 0);
+    assert.equal(success.attachmentCount, 1);
+    assert.equal(success.attachmentBytes, 24);
+    assert.equal(success.missingAttachmentCount, 1);
     assert.equal(success.tagCount, 1);
     assert.equal(success.internalNoteLinkCount, 1);
     assert.equal(success.externalNoteLinkCount, 1);
@@ -146,6 +153,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
       [[SOURCE_NOTE_A, 4], [SOURCE_NOTE_B, 7]],
     );
     assert(success.warnings.some((warning: string) => warning.includes("批次外笔记")));
+    assert(success.warnings.some((warning: string) => warning.includes("附件文件缺失")));
     assert(success.omitted.includes("笔记级 ACL 与成员权限覆写"));
 
     const stale = await preview(ACTOR, {
@@ -168,6 +176,7 @@ test("PostgreSQL note-transfer preview is permission-safe and execution stays cl
     });
     assert.equal(lockedMove.canExecute, false);
     assert(lockedMove.blockers.some((blocker: { code: string }) => blocker.code === "SOURCE_NOTE_LOCKED"));
+    assert(lockedMove.blockers.some((blocker: { code: string }) => blocker.code === "ATTACHMENT_FILE_MISSING"));
     await pool.query(`UPDATE notes SET "isLocked" = false WHERE id = $1`, [SOURCE_NOTE_A]);
 
     const outsider = await preview(OUTSIDER, {
