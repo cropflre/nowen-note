@@ -1,5 +1,6 @@
 import type { Note } from "@/types";
 import { api } from "@/lib/api";
+import { markDraftAcknowledged } from "@/lib/draftStorage";
 import { hasPendingNoteSyncConflict } from "@/lib/noteSyncSafety";
 import { LatestOnlyVersionedSaveQueue } from "@/lib/latestOnlyVersionedSaveQueue";
 
@@ -63,6 +64,18 @@ export function installNoteUpdateSerialQueue(): void {
       key: noteId,
       baseVersion,
       payload,
+    });
+
+    // EditorPane and other callers historically clear drafts by noteId after their Promise
+    // resolves. All coalesced callers receive this same latest result, so record the exact
+    // authoritative body first. draftStorage will refuse a late caller's cleanup if a newer
+    // local snapshot has already replaced it.
+    markDraftAcknowledged({
+      noteId,
+      title: saved.result.title,
+      content: saved.result.content,
+      contentText: saved.result.contentText,
+      serverVersion: saved.result.version,
     });
     return saved.result;
   };
