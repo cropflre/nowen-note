@@ -49,3 +49,51 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_task_day_plans_user_scope_date
   ON task_day_plans("userId", "scopeKey", "planDate");
 CREATE INDEX IF NOT EXISTS idx_task_day_plans_user_date
   ON task_day_plans("userId", "planDate");
+
+CREATE TABLE IF NOT EXISTS task_labels (
+  id TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "scopeKey" TEXT NOT NULL,
+  name TEXT NOT NULL,
+  "normalizedName" TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#6366f1',
+  "sortOrder" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_labels_scope_name
+  ON task_labels("scopeKey", "normalizedName");
+CREATE INDEX IF NOT EXISTS idx_task_labels_workspace_sort
+  ON task_labels("workspaceId", "sortOrder", "createdAt");
+CREATE INDEX IF NOT EXISTS idx_task_labels_user_sort
+  ON task_labels("userId", "sortOrder", "createdAt");
+
+CREATE TABLE IF NOT EXISTS task_label_links (
+  "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  "labelId" TEXT NOT NULL REFERENCES task_labels(id) ON DELETE CASCADE,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("taskId", "labelId")
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_label_links_label
+  ON task_label_links("labelId", "taskId");
+
+CREATE TABLE IF NOT EXISTS task_saved_views (
+  id TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "scopeKey" TEXT NOT NULL,
+  name TEXT NOT NULL,
+  "normalizedName" TEXT NOT NULL,
+  "filtersJson" TEXT NOT NULL DEFAULT '{}',
+  "sortOrder" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_saved_views_user_scope_name
+  ON task_saved_views("userId", "scopeKey", "normalizedName");
+CREATE INDEX IF NOT EXISTS idx_task_saved_views_user_scope_sort
+  ON task_saved_views("userId", "scopeKey", "sortOrder", "createdAt");
