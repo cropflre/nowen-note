@@ -195,13 +195,19 @@ export class NowenYjsProvider {
       this.idbPersistence.once("synced", () => {
         this.idbSynced = true;
         this.maybePushLocalDiff();
+        this.maybeFinalizeSyncedStatus();
       });
     } catch (e) {
       console.warn("[yjs-provider] IndexedDB init failed:", e);
       this.idbPersistence = null;
       this.idbSynced = true;
       this.maybePushLocalDiff();
+      this.maybeFinalizeSyncedStatus();
     }
+  }
+
+  private isLocalPersistenceReady(): boolean {
+    return !this.idbPersistence || this.idbSynced;
   }
 
   private isUploadReady(): boolean {
@@ -209,8 +215,13 @@ export class NowenYjsProvider {
       socketOpen: realtime.isOpen(),
       joined: this.joined,
       serverSynced: this.serverSynced,
-      localPersistenceReady: !this.idbPersistence || this.idbSynced,
+      localPersistenceReady: this.isLocalPersistenceReady(),
     });
+  }
+
+  private maybeFinalizeSyncedStatus() {
+    if (!this.serverSynced || !this.isLocalPersistenceReady()) return;
+    this.setStatus("synced");
   }
 
   private bindListeners() {
@@ -284,8 +295,8 @@ export class NowenYjsProvider {
       // Keep the original server->client diff request for compatibility, then
       // independently send the client->server missing diff after IndexedDB is ready.
       this.sendSyncStep1();
-      this.setStatus("synced");
       this.maybePushLocalDiff();
+      this.maybeFinalizeSyncedStatus();
 
       try {
         const update = encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]);
@@ -407,7 +418,7 @@ export class NowenYjsProvider {
    */
   private maybePushLocalDiff() {
     if (this.destroyed || !this.serverSynced || !this.serverStateVector) return;
-    if (this.idbPersistence && !this.idbSynced) return;
+    if (!this.isLocalPersistenceReady()) return;
 
     this.pendingUpdates = [];
     let missing: Uint8Array | null = null;
