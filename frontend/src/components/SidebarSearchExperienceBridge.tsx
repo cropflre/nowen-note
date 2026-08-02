@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreePanel";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
+import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {
   applySidebarSearchExperience,
   KNOWLEDGE_TREE_FILTER_SELECTOR,
@@ -178,12 +179,12 @@ function mutationContainsRelevantSurface(node: Node): boolean {
 }
 
 /**
- * 统一内容树上线后的侧栏入口兼容桥。
+ * 统一内容树上线后的全局体验桥。
  *
  * - 退休与树筛选语义冲突的旧全文搜索框；
  * - 在统一树工具栏恢复排序入口；
  * - 应用设置中持久化的移动端目录浏览模式；
- * - 同时兼容桌面与移动 Sidebar 的挂载和工作区切换。
+ * - 挂载唯一的任务快速捕获入口，避免桌面/移动导航重复渲染。
  */
 export default function SidebarSearchExperienceBridge() {
   const [sortSlots, setSortSlots] = useState<HTMLElement[]>([]);
@@ -227,6 +228,7 @@ export default function SidebarSearchExperienceBridge() {
 
   return (
     <>
+      <TaskQuickCaptureBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,
         slot,
