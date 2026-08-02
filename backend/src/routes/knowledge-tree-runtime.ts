@@ -109,6 +109,32 @@ export default function createKnowledgeTreeRuntimeRouter(
   app.get("", listKnowledgeTree);
   app.get("/", listKnowledgeTree);
 
+  app.post("/nodes", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const nodeType = body.nodeType;
+      if (!["folder", "note", "markdown", "word"].includes(nodeType)) {
+        return c.json(
+          { error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" },
+          400,
+        );
+      }
+
+      const node = await mutationRepository.createNode({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        parentId: typeof body.parentId === "string" && body.parentId
+          ? body.parentId
+          : null,
+        nodeType,
+        title: typeof body.title === "string" ? body.title : "",
+      });
+      return c.json(node, 201);
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
   app.patch("/nodes/:nodeId", async (c) => {
     try {
       const body = await c.req.json().catch(() => ({}));
