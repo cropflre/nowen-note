@@ -488,7 +488,7 @@ export function createKnowledgeTreePermissionMutationRepository(
         "用户不存在",
       );
     }
-    const user = await getAdapter().queryOne<KnowledgePermissionUser>(
+    const account = await getAdapter().queryOne<KnowledgePermissionUser>(
       convertSql(
         `SELECT id, username, displayName, email
            FROM users
@@ -500,14 +500,14 @@ export function createKnowledgeTreePermissionMutationRepository(
       ),
       [normalized, normalized, normalized],
     );
-    if (!user) {
+    if (!account) {
       throw new KnowledgeTreeMutationError(
         "KNOWLEDGE_PERMISSION_USER_NOT_FOUND",
         404,
         "用户不存在",
       );
     }
-    return user;
+    return account;
   }
 
   async function directAcl(nodeId: string, userId: string): Promise<AclRow | null> {
@@ -532,9 +532,9 @@ export function createKnowledgeTreePermissionMutationRepository(
                 acl.canView, acl.canComment, acl.canCreate, acl.canEdit,
                 acl.canDelete, acl.canMove, acl.canDownload, acl.canReshare,
                 acl.canManageMembers, acl.grantedBy, acl.createdAt, acl.updatedAt,
-                user.username, user.displayName, user.email
+                account.username, account.displayName, account.email
            FROM knowledge_tree_acl acl
-           JOIN users user ON user.id = acl.userId
+           JOIN users account ON account.id = acl.userId
           WHERE acl.nodeId = ? AND acl.userId = ?`,
         getDialect(),
       ),
@@ -567,11 +567,11 @@ export function createKnowledgeTreePermissionMutationRepository(
                   acl.canView, acl.canComment, acl.canCreate, acl.canEdit,
                   acl.canDelete, acl.canMove, acl.canDownload, acl.canReshare,
                   acl.canManageMembers, acl.grantedBy, acl.createdAt, acl.updatedAt,
-                  user.username, user.displayName, user.email
+                  account.username, account.displayName, account.email
              FROM knowledge_tree_acl acl
-             JOIN users user ON user.id = acl.userId
+             JOIN users account ON account.id = acl.userId
             WHERE acl.nodeId = ?
-            ORDER BY lower(COALESCE(user.displayName, user.username)), user.id`,
+            ORDER BY lower(COALESCE(account.displayName, account.username)), account.id`,
           getDialect(),
         ),
         [input.nodeId],
