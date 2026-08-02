@@ -19,6 +19,7 @@ import {
   encodeMissingYjsUpdate,
   YjsDurabilityTracker,
   type YjsDurabilitySnapshot,
+  type YjsMarkSentOptions,
 } from "./yjsDurability";
 
 export interface ProviderUser {
@@ -214,11 +215,14 @@ export class NowenYjsProvider {
       }
 
       this.emitDurability(this.durability.markLocalChange());
-      if (!realtime.isOpen() || !this.joined) {
+      // During join/rejoin the server baseline is not known yet. Queue edits until
+      // y:sync arrives so an ACK for a newer direct update cannot hide older
+      // offline content that still needs a full state-vector reconciliation.
+      if (!realtime.isOpen() || !this.joined || !this.serverSynced) {
         this.enqueuePending(update);
         return;
       }
-      this.sendDurableUpdate(update);
+      this.sendDurableUpdate(update, { localChanges: 1 });
     };
     this.doc.on("update", docUpdateHandler);
     this.unsubscribers.push(() => this.doc.off("update", docUpdateHandler));
@@ -407,8 +411,11 @@ export class NowenYjsProvider {
     }
 
     if (missing) {
+      // IDB-restored changes do not emit normal local update events. Register a
+      // synthetic local unit, then declare that this state-vector diff covers
+      // every local-only change known by the tracker.
       this.emitDurability(this.durability.markLocalChange());
-      this.sendDurableUpdate(missing);
+      this.sendDurableUpdate(missing, { coversAllLocalChanges: true });
       return;
     }
 
@@ -417,19 +424,21 @@ export class NowenYjsProvider {
     );
   }
 
-  private sendDurableUpdate(update: Uint8Array) {
+  private sendDurableUpdate(
+    update: Uint8Array,
+    options: YjsMarkSentOptions = { localChanges: 1 },
+  ) {
     if (update.byteLength > MAX_UPDATE_BYTES) {
       this.emitDurability(this.durability.fail(null, "too_large"));
       return;
     }
-    if (!realtime.isOpen() || !this.joined) {
+    if (!realtime.isOpen() || !this.joined || !this.serverSynced) {
       this.enqueuePending(update);
-      this.emitDurability(this.durability.markLocalChange());
       return;
     }
 
     const operationId = createYjsOperationId(this.noteId);
-    this.emitDurability(this.durability.markSent(operationId));
+    this.emitDurability(this.durability.markSent(operationId, options));
     const sent = realtime.yUpdate(this.noteId, update, operationId);
     if (!sent) {
       this.enqueuePending(update);
@@ -460,6 +469,7 @@ export class NowenYjsProvider {
   /** Backward-compatible fallback when a server does not provide a usable baseline. */
   private flushPendingUpdates() {
     if (this.pendingUpdates.length === 0 || !realtime.isOpen() || !this.joined) return;
+    const representedLocalChanges = this.pendingUpdates.length;
     let payload: Uint8Array;
     try {
       payload = this.pendingUpdates.length === 1
@@ -470,7 +480,7 @@ export class NowenYjsProvider {
       return;
     }
     this.pendingUpdates = [];
-    this.sendDurableUpdate(payload);
+    this.sendDurableUpdate(payload, { localChanges: representedLocalChanges });
   }
 
   private clearAckTimer(operationId: string) {
