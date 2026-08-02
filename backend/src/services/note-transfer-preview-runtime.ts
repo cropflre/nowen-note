@@ -6,7 +6,7 @@ import {
   type NoteTransferPreviewAttachmentRow,
   type NoteTransferPreviewNoteRow,
 } from "../repositories/noteTransferPreviewRepository";
-import { checkAttachmentObjectExists } from "./attachment-storage";
+import { createAttachmentStorageRuntime } from "./attachment-storage-runtime";
 
 export type NoteTransferRuntimeMode = "copy" | "move";
 
@@ -170,7 +170,9 @@ function sourceWorkspaceIdOf(notes: NoteTransferPreviewNoteRow[]): string | null
 }
 
 export function createNoteTransferPreviewRuntime(adapter?: DatabaseAdapter) {
-  const repository = createNoteTransferPreviewRepository(resolveAdapter(adapter));
+  const db = resolveAdapter(adapter);
+  const repository = createNoteTransferPreviewRepository(db);
+  const attachmentStorage = createAttachmentStorageRuntime(db);
 
   return {
     async preview(input: NoteTransferPreviewRuntimeRequest): Promise<NoteTransferPreviewRuntimeResult> {
@@ -312,7 +314,7 @@ export function createNoteTransferPreviewRuntime(adapter?: DatabaseAdapter) {
         const checks = await Promise.all(
           attachments.map(async (attachment) => ({
             attachment,
-            exists: (await checkAttachmentObjectExists(attachment.path)).exists,
+            exists: (await attachmentStorage.checkExists(attachment.path)).exists,
           })),
         );
         missingAttachmentCount = checks.filter((check) => !check.exists).length;
@@ -363,5 +365,3 @@ export function createNoteTransferPreviewRuntime(adapter?: DatabaseAdapter) {
     },
   };
 }
-
-export const noteTransferPreviewRuntime = createNoteTransferPreviewRuntime();
