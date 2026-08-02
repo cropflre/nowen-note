@@ -37,6 +37,14 @@ export function ensureTaskInboxSchema(db: Database.Database): void {
       ON task_inbox_items(taskId, capturedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_task_inbox_source
       ON task_inbox_items(userId, sourceType, sourceId);
+
+    DROP TRIGGER IF EXISTS task_inbox_remove_after_task_complete;
+    CREATE TRIGGER task_inbox_remove_after_task_complete
+    AFTER UPDATE OF isCompleted ON tasks
+    WHEN OLD.isCompleted = 0 AND NEW.isCompleted = 1
+    BEGIN
+      DELETE FROM task_inbox_items WHERE taskId = NEW.id;
+    END;
   `);
 }
 
