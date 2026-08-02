@@ -14,6 +14,8 @@ $$;
 \ir schema.base.sql
 \ir migrations/0011_note_block_runtime.sql
 
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "estimatedMinutes" INTEGER;
+
 CREATE TABLE IF NOT EXISTS task_activity_events (
   id TEXT PRIMARY KEY,
   "taskId" TEXT,
@@ -97,3 +99,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_task_saved_views_user_scope_name
   ON task_saved_views("userId", "scopeKey", "normalizedName");
 CREATE INDEX IF NOT EXISTS idx_task_saved_views_user_scope_sort
   ON task_saved_views("userId", "scopeKey", "sortOrder", "createdAt");
+
+CREATE TABLE IF NOT EXISTS task_time_blocks (
+  id TEXT PRIMARY KEY,
+  "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "workspaceId" TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  "startAt" TIMESTAMPTZ NOT NULL,
+  "endAt" TIMESTAMPTZ NOT NULL,
+  "timeZone" TEXT NOT NULL DEFAULT 'UTC',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK ("endAt" > "startAt")
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_time_blocks_user_scope_start
+  ON task_time_blocks("userId", "workspaceId", "startAt", "endAt");
+CREATE INDEX IF NOT EXISTS idx_task_time_blocks_task_user
+  ON task_time_blocks("taskId", "userId", "startAt");
+
+CREATE OR REPLACE FUNCTION inherit_recurring_task_estimate()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."repeatGeneratedFromId" IS NOT NULL AND NEW."estimatedMinutes" IS NULL THEN
+    SELECT "estimatedMinutes"
+      INTO NEW."estimatedMinutes"
+      FROM tasks
+      WHERE id = NEW."repeatGeneratedFromId";
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tasks_inherit_estimate_before_recurrence_insert ON tasks;
+CREATE TRIGGER tasks_inherit_estimate_before_recurrence_insert
+BEFORE INSERT ON tasks
+FOR EACH ROW
+EXECUTE FUNCTION inherit_recurring_task_estimate();
