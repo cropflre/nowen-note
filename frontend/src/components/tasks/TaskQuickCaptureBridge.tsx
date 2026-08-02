@@ -1,14 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  Check,
-  ClipboardPlus,
-  Inbox,
-  Loader2,
-  Plus,
-  X,
-} from "lucide-react";
+import { Check, ClipboardPlus, Inbox, Loader2, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { parseTaskQuickAdd } from "./taskSmartRecognition";
@@ -52,8 +46,8 @@ function inferSource(target: EventTarget | null, text: string): CaptureSnapshot 
   const noteId = sourceRoot?.dataset.noteId || null;
   const diaryId = sourceRoot?.dataset.diaryId || null;
   const route = window.location.pathname;
-
   let sourceType: TaskCaptureSourceType = explicitType || "global";
+
   if (!explicitType) {
     if (noteId || sourceRoot?.matches(".tiptap, .cm-editor, [contenteditable='true']")) sourceType = "note";
     else if (diaryId) sourceType = "diary";
@@ -71,11 +65,9 @@ function inferSource(target: EventTarget | null, text: string): CaptureSnapshot 
 }
 
 function titleFromText(text: string): string {
-  const firstLine = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean) || "";
-  return firstLine.slice(0, 180);
+  return (
+    text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || ""
+  ).slice(0, 180);
 }
 
 function shouldShowGlobalButton(): boolean {
@@ -110,7 +102,7 @@ export default function TaskQuickCaptureBridge() {
     title: "快速捕获到收集箱",
     subtitle: "先记下来，稍后再整理项目、日期和执行计划",
     taskTitle: "任务",
-    taskPlaceholder: "输入待办，支持“明天”“高优先级”等智能语法",
+    taskPlaceholder: "输入待办，支持“明天晚上8点”等智能日期语法",
     description: "补充说明",
     descriptionPlaceholder: "可选：上下文、下一步或原文摘录",
     source: "来源",
@@ -128,7 +120,7 @@ export default function TaskQuickCaptureBridge() {
     title: "Quick capture to Inbox",
     subtitle: "Capture now, organize projects and dates later",
     taskTitle: "Task",
-    taskPlaceholder: "Type a task; smart date and priority phrases are supported",
+    taskPlaceholder: "Type a task; smart date phrases such as tomorrow 8pm are supported",
     description: "Details",
     descriptionPlaceholder: "Optional context, next action or source excerpt",
     source: "Source",
@@ -182,15 +174,14 @@ export default function TaskQuickCaptureBridge() {
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
-      const custom = event as CustomEvent<OpenCaptureDetail | undefined>;
-      openDialog(custom.detail);
+      openDialog((event as CustomEvent<OpenCaptureDetail | undefined>).detail);
     };
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "a") {
+        if (!localStorage.getItem("nowen-token")) return;
         event.preventDefault();
         openDialog();
-      }
-      if (open && event.key === "Escape") {
+      } else if (open && event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
       }
@@ -209,6 +200,9 @@ export default function TaskQuickCaptureBridge() {
   }, [open, openDialog]);
 
   const recognition = useMemo(() => parseTaskQuickAdd(title), [title]);
+  const recognizedLabels = useMemo(() => recognition.recognizedRanges
+    .map((range) => title.slice(range.start, range.end).trim())
+    .filter(Boolean), [recognition.recognizedRanges, title]);
 
   const save = async () => {
     const rawTitle = title.trim();
@@ -219,11 +213,13 @@ export default function TaskQuickCaptureBridge() {
       dueDate?: string | null;
       dueAt?: string | null;
       startDate?: string | null;
+      repeatRule?: string;
     };
+    const supportsCleanTitle = !patch.repeatRule || patch.repeatRule === "none";
     setSaving(true);
     try {
       const result = await captureTaskToInbox({
-        title: parsed.cleanTitle || rawTitle,
+        title: supportsCleanTitle ? (parsed.cleanTitle || rawTitle) : rawTitle,
         description,
         priority: patch.priority || priority,
         dueDate: patch.dueDate,
@@ -235,6 +231,11 @@ export default function TaskQuickCaptureBridge() {
         sourceTitle: source.sourceTitle,
         excerpt: source.text,
       });
+      if (supportsCleanTitle && parsed.reminderOffsets.length) {
+        await Promise.all(parsed.reminderOffsets.map((offset) =>
+          api.createTaskReminder(result.task.id, offset).catch(() => null),
+        ));
+      }
       publishTaskInboxChanged({ taskId: result.task.id, count: result.count });
       toast.success(labels.saved);
       if (keepOpen) {
@@ -302,14 +303,14 @@ export default function TaskQuickCaptureBridge() {
             />
           </label>
 
-          {(recognition.recognizedTokens.length > 0 || source.text) && (
+          {(recognizedLabels.length > 0 || source.text) && (
             <div className="flex flex-wrap gap-1.5">
               {source.text && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-600 dark:text-emerald-400">
                   <ClipboardPlus size={11} /> {labels.selected}
                 </span>
               )}
-              {recognition.recognizedTokens.map((token, index) => (
+              {recognizedLabels.map((token, index) => (
                 <span key={`${token}-${index}`} className="rounded-full bg-accent-primary/10 px-2 py-1 text-[11px] text-accent-primary">
                   {token}
                 </span>
