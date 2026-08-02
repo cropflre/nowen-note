@@ -7,6 +7,7 @@ import {
   KnowledgeTreeMutationError,
 } from "../repositories/knowledgeTreeMutationRepository";
 import { createKnowledgeTreeReadRepository } from "../repositories/knowledgeTreeReadRepository";
+import { createKnowledgeTreeStructureMutationRepository } from "../repositories/knowledgeTreeStructureMutationRepository";
 
 const ROLE_DEFINITIONS = [
   { id: "readonly", label: "只读成员", capabilities: ["canView", "canDownload"] },
@@ -71,6 +72,12 @@ function mutationError(c: Context, error: unknown): Response {
   );
 }
 
+function unauthenticated(c: Context): Response | null {
+  return userIdOf(c)
+    ? null
+    : c.json({ error: "未授权，请先登录", code: "UNAUTHENTICATED" }, 401);
+}
+
 export default function createKnowledgeTreeRuntimeRouter(
   adapter: DatabaseAdapter,
   dialect: DatabaseDialect,
@@ -78,6 +85,7 @@ export default function createKnowledgeTreeRuntimeRouter(
   const app = new Hono();
   const readRepository = createKnowledgeTreeReadRepository(adapter, dialect);
   const mutationRepository = createKnowledgeTreeMutationRepository(adapter, dialect);
+  const structureRepository = createKnowledgeTreeStructureMutationRepository(adapter, dialect);
 
   app.get("/roles", (c) => c.json({ roles: ROLE_DEFINITIONS }));
 
@@ -110,6 +118,9 @@ export default function createKnowledgeTreeRuntimeRouter(
   app.get("/", listKnowledgeTree);
 
   app.post("/nodes", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
     try {
       const body = await c.req.json().catch(() => ({}));
       const nodeType = body.nodeType;
@@ -135,7 +146,82 @@ export default function createKnowledgeTreeRuntimeRouter(
     }
   });
 
+  app.put("/nodes/:nodeId/move", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (body.parentId !== null && typeof body.parentId !== "string") {
+        return c.json(
+          { error: "目标父级格式错误", code: "KNOWLEDGE_PARENT_INVALID" },
+          400,
+        );
+      }
+      if (body.sortOrder !== undefined && !Number.isFinite(Number(body.sortOrder))) {
+        return c.json(
+          { error: "排序值格式错误", code: "KNOWLEDGE_SORT_ORDER_INVALID" },
+          400,
+        );
+      }
+
+      const node = await structureRepository.moveNode({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        parentId: typeof body.parentId === "string" && body.parentId.trim()
+          ? body.parentId.trim()
+          : null,
+        sortOrder: body.sortOrder === undefined ? undefined : Number(body.sortOrder),
+      });
+      return c.json(node);
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.put("/reorder", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (!Array.isArray(body.items)) {
+        return c.json(
+          { error: "排序列表格式错误", code: "KNOWLEDGE_REORDER_INVALID" },
+          400,
+        );
+      }
+      const items: Array<{ id: string; sortOrder: number }> = [];
+      for (const item of body.items) {
+        if (
+          !item
+          || typeof item.id !== "string"
+          || !item.id.trim()
+          || !Number.isFinite(Number(item.sortOrder))
+        ) {
+          return c.json(
+            { error: "排序节点格式错误", code: "KNOWLEDGE_REORDER_INVALID" },
+            400,
+          );
+        }
+        items.push({ id: item.id.trim(), sortOrder: Number(item.sortOrder) });
+      }
+
+      return c.json(await structureRepository.reorderNodes({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        items,
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
   app.patch("/nodes/:nodeId", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
     try {
       const body = await c.req.json().catch(() => ({}));
       const title = typeof body.title === "string" ? body.title : undefined;
