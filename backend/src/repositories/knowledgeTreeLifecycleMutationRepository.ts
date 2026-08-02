@@ -776,7 +776,9 @@ export function createKnowledgeTreeLifecycleMutationRepository(
       const statements: DbStatement[] = [
         subtreeCardinalityGuard(root, allRows.length, false),
       ];
-      for (const node of selected) statements.push(structureGuard(node, true));
+      for (const node of allRows) {
+        statements.push(structureGuard(node, toBoolean(node.isDeleted)));
+      }
 
       const ascending = [...selected].sort((left, right) => (
         toNumber(left.depth) - toNumber(right.depth)
