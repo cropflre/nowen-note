@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 
 import type { DatabaseAdapter } from "../db/adapters/types";
 import type { DatabaseDialect } from "../db/dialect";
+import { createKnowledgeTreeLifecycleMutationRepository } from "../repositories/knowledgeTreeLifecycleMutationRepository";
 import {
   createKnowledgeTreeMutationRepository,
   KnowledgeTreeMutationError,
@@ -86,6 +87,7 @@ export default function createKnowledgeTreeRuntimeRouter(
   const readRepository = createKnowledgeTreeReadRepository(adapter, dialect);
   const mutationRepository = createKnowledgeTreeMutationRepository(adapter, dialect);
   const structureRepository = createKnowledgeTreeStructureMutationRepository(adapter, dialect);
+  const lifecycleRepository = createKnowledgeTreeLifecycleMutationRepository(adapter, dialect);
 
   app.get("/roles", (c) => c.json({ roles: ROLE_DEFINITIONS }));
 
@@ -212,6 +214,40 @@ export default function createKnowledgeTreeRuntimeRouter(
         actorUserId: userIdOf(c),
         workspaceId: workspaceIdOf(c),
         items,
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.delete("/nodes/:nodeId", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      const mode = c.req.query("mode") === "promote" ? "promote" : "subtree";
+      return c.json(await lifecycleRepository.deleteNode({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        mode,
+      }));
+    } catch (error) {
+      return mutationError(c, error);
+    }
+  });
+
+  app.post("/nodes/:nodeId/restore", async (c) => {
+    const unauthorized = unauthenticated(c);
+    if (unauthorized) return unauthorized;
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      return c.json(await lifecycleRepository.restoreNode({
+        actorUserId: userIdOf(c),
+        workspaceId: workspaceIdOf(c),
+        nodeId: c.req.param("nodeId"),
+        includeSubtree: body.includeSubtree !== false,
       }));
     } catch (error) {
       return mutationError(c, error);
