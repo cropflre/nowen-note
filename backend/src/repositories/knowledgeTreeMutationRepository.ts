@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   DbStatementChangeError,
   type DatabaseAdapter,
@@ -24,12 +26,36 @@ export class KnowledgeTreeMutationError extends Error {
   }
 }
 
+export type CreateKnowledgeTreeNodeInput = {
+  actorUserId: string;
+  workspaceId: string | null;
+  parentId: string | null;
+  nodeType: "folder" | "note" | "markdown" | "word";
+  title: string;
+};
+
 export type PatchKnowledgeTreeNodeInput = {
   actorUserId: string;
   workspaceId: string | null;
   nodeId: string;
   title?: string;
   isExpanded?: boolean;
+};
+
+type TreeContainerRow = {
+  id: string;
+  parentId: string | null;
+  resourceType: KnowledgeTreeReadNode["resourceType"];
+  resourceId: string;
+};
+
+type WorkspaceAccessRow = {
+  ownerId: string;
+  role: string | null;
+};
+
+type SortOrderRow = {
+  value: number | string | null;
 };
 
 function resolveAdapter(adapter?: DatabaseAdapter): DatabaseAdapter {
@@ -43,6 +69,10 @@ function resolveDialect(dialect?: DatabaseDialect): DatabaseDialect {
   } catch {
     return "sqlite";
   }
+}
+
+function scopeKey(userId: string, workspaceId: string | null): string {
+  return workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`;
 }
 
 function titleStatement(node: KnowledgeTreeReadNode, title: string): DbStatement | null {
@@ -70,6 +100,119 @@ function titleStatement(node: KnowledgeTreeReadNode, title: string): DbStatement
   return null;
 }
 
+function mapStatementError(error: unknown): never {
+  if (error instanceof DbStatementChangeError) {
+    throw new KnowledgeTreeMutationError(
+      "KNOWLEDGE_NODE_STALE",
+      409,
+      "内容已发生变化，请刷新后重试",
+    );
+  }
+  throw error;
+}
+
+async function canCreateAtWorkspaceRoot(
+  adapter: DatabaseAdapter,
+  dialect: DatabaseDialect,
+  actorUserId: string,
+  workspaceId: string | null,
+): Promise<boolean> {
+  if (!workspaceId) return true;
+
+  const row = await adapter.queryOne<WorkspaceAccessRow>(
+    convertSql(
+      `SELECT workspace.ownerId AS ownerId, member.role AS role
+         FROM workspaces workspace
+         LEFT JOIN workspace_members member
+           ON member.workspaceId = workspace.id AND member.userId = ?
+        WHERE workspace.id = ?`,
+      dialect,
+    ),
+    [actorUserId, workspaceId],
+  );
+  if (!row) return false;
+  if (row.ownerId === actorUserId) return true;
+  return ["owner", "admin", "manage", "editor", "write"].includes(row.role || "");
+}
+
+async function nearestNotebookContainer(
+  adapter: DatabaseAdapter,
+  dialect: DatabaseDialect,
+  parent: KnowledgeTreeReadNode | null,
+): Promise<string | null> {
+  let cursor: TreeContainerRow | null = parent
+    ? {
+        id: parent.id,
+        parentId: parent.parentId,
+        resourceType: parent.resourceType,
+        resourceId: parent.resourceId,
+      }
+    : null;
+  const visited = new Set<string>();
+
+  while (cursor) {
+    if (visited.has(cursor.id)) {
+      throw new KnowledgeTreeMutationError(
+        "KNOWLEDGE_TREE_CYCLE",
+        409,
+        "目录结构存在循环",
+      );
+    }
+    visited.add(cursor.id);
+
+    if (cursor.resourceType === "notebook") return cursor.resourceId;
+    if (cursor.resourceType === "note") {
+      const note = await adapter.queryOne<{ notebookId: string }>(
+        convertSql("SELECT notebookId FROM notes WHERE id = ?", dialect),
+        [cursor.resourceId],
+      );
+      if (note?.notebookId) return note.notebookId;
+    }
+    if (!cursor.parentId) return null;
+
+    cursor = await adapter.queryOne<TreeContainerRow>(
+      convertSql(
+        `SELECT id, parentId, resourceType, resourceId
+           FROM knowledge_tree_nodes
+          WHERE id = ? AND isDeleted = 0`,
+        dialect,
+      ),
+      [cursor.parentId],
+    ) ?? null;
+  }
+
+  return null;
+}
+
+async function nextSortOrder(
+  adapter: DatabaseAdapter,
+  dialect: DatabaseDialect,
+  key: string,
+  parentId: string | null,
+): Promise<number> {
+  const row = parentId
+    ? await adapter.queryOne<SortOrderRow>(
+        convertSql(
+          `SELECT COALESCE(MAX(sortOrder), -1) AS value
+             FROM knowledge_tree_nodes
+            WHERE scopeKey = ? AND parentId = ? AND isDeleted = 0`,
+          dialect,
+        ),
+        [key, parentId],
+      )
+    : await adapter.queryOne<SortOrderRow>(
+        convertSql(
+          `SELECT COALESCE(MAX(sortOrder), -1) AS value
+             FROM knowledge_tree_nodes
+            WHERE scopeKey = ? AND parentId IS NULL AND isDeleted = 0`,
+          dialect,
+        ),
+        [key],
+      );
+  const current = Number(row?.value ?? -1);
+  return (Number.isFinite(current) ? current : -1) + 1;
+}
+
 export function createKnowledgeTreeMutationRepository(
   adapter?: DatabaseAdapter,
   dialect?: DatabaseDialect,
@@ -79,6 +222,165 @@ export function createKnowledgeTreeMutationRepository(
   const readRepository = createKnowledgeTreeReadRepository(adapter, dialect);
 
   return {
+    async createNode(input: CreateKnowledgeTreeNodeInput): Promise<KnowledgeTreeReadNode> {
+      const activeAdapter = getAdapter();
+      const activeDialect = getDialect();
+      const visibleNodes = await readRepository.list({
+        userId: input.actorUserId,
+        workspaceId: input.workspaceId,
+      });
+      const parent = input.parentId
+        ? visibleNodes.find((node) => node.id === input.parentId) || null
+        : null;
+
+      if (input.parentId && !parent) {
+        throw new KnowledgeTreeMutationError(
+          "KNOWLEDGE_NODE_NOT_FOUND",
+          404,
+          "父级内容节点不存在",
+        );
+      }
+      if (parent && !parent.access.capabilities.canCreate) {
+        throw new KnowledgeTreeMutationError(
+          "KNOWLEDGE_CAPABILITY_FORBIDDEN",
+          403,
+          "没有在此处新建内容的权限",
+          { required: "canCreate" },
+        );
+      }
+      if (!parent && !(await canCreateAtWorkspaceRoot(
+        activeAdapter,
+        activeDialect,
+        input.actorUserId,
+        input.workspaceId,
+      ))) {
+        throw new KnowledgeTreeMutationError(
+          "KNOWLEDGE_CAPABILITY_FORBIDDEN",
+          403,
+          "没有在此处新建内容的权限",
+          { required: "canCreate" },
+        );
+      }
+
+      const normalizedWorkspaceId = parent ? parent.workspaceId : input.workspaceId;
+      const resourceOwnerUserId = parent && !parent.workspaceId
+        ? parent.userId
+        : input.actorUserId;
+      const key = parent?.scopeKey || scopeKey(resourceOwnerUserId, normalizedWorkspaceId);
+      const title = input.title.trim()
+        || (input.nodeType === "folder" ? "新建文件夹" : "无标题笔记");
+      const sortOrder = await nextSortOrder(
+        activeAdapter,
+        activeDialect,
+        key,
+        input.parentId,
+      );
+      const notebookContainerId = await nearestNotebookContainer(
+        activeAdapter,
+        activeDialect,
+        parent,
+      );
+
+      if (input.nodeType !== "folder" && !notebookContainerId) {
+        throw new KnowledgeTreeMutationError(
+          "KNOWLEDGE_TREE_NOTE_CONTAINER_REQUIRED",
+          400,
+          "根级文档需要先创建文件夹",
+        );
+      }
+
+      const resourceId = randomUUID();
+      const nodeId = `${input.nodeType === "folder" ? "notebook" : "note"}:${resourceId}`;
+      const statements: DbStatement[] = [];
+
+      if (input.nodeType === "folder") {
+        statements.push({
+          sql: `INSERT INTO notebooks (
+                  id, userId, workspaceId, parentId, name, icon, sortOrder
+                ) VALUES (?, ?, ?, ?, ?, '📁', ?)`,
+          params: [
+            resourceId,
+            resourceOwnerUserId,
+            normalizedWorkspaceId,
+            notebookContainerId,
+            title,
+            sortOrder,
+          ],
+          requireChanges: 1,
+        });
+      } else {
+        const contentFormat = input.nodeType === "markdown" ? "markdown" : "tiptap-json";
+        const noteType = input.nodeType === "word" ? "word" : "normal";
+        const content = contentFormat === "markdown" ? `# ${title}\n\n` : "{}";
+        statements.push({
+          sql: `INSERT INTO notes (
+                  id, userId, workspaceId, notebookId, title, content, contentText,
+                  contentFormat, note_type, sortOrder
+                ) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
+          params: [
+            resourceId,
+            resourceOwnerUserId,
+            normalizedWorkspaceId,
+            notebookContainerId,
+            title,
+            content,
+            contentFormat,
+            noteType,
+            sortOrder,
+          ],
+          requireChanges: 1,
+        });
+      }
+
+      statements.push(
+        {
+          sql: `UPDATE knowledge_tree_nodes
+                   SET parentId = ?, sortOrder = ?, updatedAt = datetime('now')
+                 WHERE id = ? AND scopeKey = ? AND isDeleted = 0`,
+          params: [input.parentId, sortOrder, nodeId, key],
+          requireChanges: 1,
+        },
+        {
+          sql: `INSERT INTO knowledge_tree_history (
+                  id, nodeId, action, actorUserId, fromParentId, toParentId, metadata
+                ) VALUES (?, ?, 'create', ?, NULL, ?, ?)`,
+          params: [
+            randomUUID(),
+            nodeId,
+            input.actorUserId,
+            input.parentId,
+            JSON.stringify({ nodeType: input.nodeType, title }),
+          ],
+          requireChanges: 1,
+        },
+      );
+
+      try {
+        await activeAdapter.executeStatements(
+          statements.map((statement) => ({
+            ...statement,
+            sql: convertSql(statement.sql, activeDialect),
+          })),
+        );
+      } catch (error) {
+        mapStatementError(error);
+      }
+
+      const refreshedNodes = await readRepository.list({
+        userId: input.actorUserId,
+        workspaceId: normalizedWorkspaceId,
+      });
+      const created = refreshedNodes.find((node) => node.id === nodeId);
+      if (!created) {
+        throw new KnowledgeTreeMutationError(
+          "KNOWLEDGE_NODE_SYNC_FAILED",
+          409,
+          "内容节点同步失败",
+        );
+      }
+      return created;
+    },
+
     async patchNode(input: PatchKnowledgeTreeNodeInput): Promise<KnowledgeTreeReadNode> {
       const currentNodes = await readRepository.list({
         userId: input.actorUserId,
@@ -150,14 +452,7 @@ export function createKnowledgeTreeMutationRepository(
             })),
           );
         } catch (error) {
-          if (error instanceof DbStatementChangeError) {
-            throw new KnowledgeTreeMutationError(
-              "KNOWLEDGE_NODE_STALE",
-              409,
-              "内容已发生变化，请刷新后重试",
-            );
-          }
-          throw error;
+          mapStatementError(error);
         }
       }
 
