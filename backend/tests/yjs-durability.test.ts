@@ -73,14 +73,21 @@ test("durable apply advances recovery log before success", async () => {
   assert.equal(rows.length, 1);
   assert.equal(readServerText(), "two days of recovered writing");
 
-  // The debounced recovery checkpoint makes Version History useful for Markdown.
-  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  // Continue writing before the checkpoint deadline. The second update must not
+  // reset the timer, and the checkpoint must still contain the newest body.
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const laterUpdate = buildClientUpdate("two days of recovered writing + final paragraph");
+  const laterResult = yApplyUpdateDurably(NOTE_ID, laterUpdate, USER_ID);
+  assert.equal(laterResult.ok, true);
+  assert.equal(noteYupdatesRepository.listAfterId(NOTE_ID, 0).length, 2);
+
+  await new Promise((resolve) => setTimeout(resolve, 1_300));
   const checkpoint = getDb().prepare(
     `SELECT content, changeSummary FROM note_versions
      WHERE "noteId" = ? ORDER BY "createdAt" DESC LIMIT 1`,
   ).get(NOTE_ID) as { content: string; changeSummary: string } | undefined;
   assert.ok(checkpoint);
-  assert.equal(checkpoint?.content, "two days of recovered writing");
+  assert.equal(checkpoint?.content, "two days of recovered writing + final paragraph");
   assert.equal(checkpoint?.changeSummary, "Markdown collaborative autosave checkpoint");
 
   yDestroyDoc(NOTE_ID);
