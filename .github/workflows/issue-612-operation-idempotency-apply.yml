@@ -41,7 +41,7 @@ jobs:
               r'\s+ytext\.insert\(0, seed\);\n)'
               r'(\s+\})'
           )
-          initial_insert = '''\1        // The first client diff is causally based on these exact Yjs structs.
+          initial_body = '''        // The first client diff is causally based on these exact Yjs structs.
                   // Persist them before any client can edit; otherwise a restart can replay
                   // the incremental update without its seed and fall back to stale notes.content.
                   noteYsnapshotsRepository.upsert(
@@ -49,8 +49,12 @@ jobs:
                     Buffer.from(Y.encodeStateAsUpdate(doc)),
                     0,
                   );
-          \2'''
-          text, initial_count = initial_pattern.subn(initial_insert, text, count=1)
+          '''
+          text, initial_count = initial_pattern.subn(
+              lambda match: match.group(1) + initial_body + match.group(2),
+              text,
+              count=1,
+          )
           if initial_count != 1:
               raise SystemExit(f"initial seed block matches: {initial_count}")
 
@@ -60,14 +64,18 @@ jobs:
               r'\s+ytext\.insert\(0, seed\);\n)'
               r'(\s+console\.log\(`\[yjs\] fallback-seeded empty yText)'
           )
-          fallback_insert = '''\1          // Freeze the repaired baseline so later updates replay after eviction or restart.
+          fallback_body = '''          // Freeze the repaired baseline so later updates replay after eviction or restart.
                     noteYsnapshotsRepository.upsert(
                       noteId,
                       Buffer.from(Y.encodeStateAsUpdate(doc)),
                       snap?.updatesMergedTo || 0,
                     );
-          \2'''
-          text, fallback_count = fallback_pattern.subn(fallback_insert, text, count=1)
+          '''
+          text, fallback_count = fallback_pattern.subn(
+              lambda match: match.group(1) + fallback_body + match.group(2),
+              text,
+              count=1,
+          )
           if fallback_count != 1:
               raise SystemExit(f"fallback seed block matches: {fallback_count}")
 
