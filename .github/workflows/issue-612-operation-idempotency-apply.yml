@@ -1,0 +1,105 @@
+name: Apply Issue 612 operation idempotency
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/issue-612-operation-idempotency-apply.yml"
+      - ".github/scripts/issue612_operation_idempotency_patch.py"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.pull_request.head.ref == 'fix/issue-612-data-protection' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Apply operation idempotency patch
+        run: python .github/scripts/issue612_operation_idempotency_patch.py
+      - name: Keep async repository methods adapter-compatible
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/repositories/noteYupdatesRepository.ts")
+          text = path.read_text(encoding="utf-8")
+          old = '''  async deleteByNoteIdAsync(noteId: string): Promise<void> {
+            await getAdapter().transaction(async (tx) => {
+              await tx.execute("DELETE FROM note_yupdates WHERE noteId = ?", [noteId]);
+              await tx.execute("DELETE FROM yjs_operation_receipts WHERE noteId = ?", [noteId]);
+            });
+          },
+
+          async transferOwnershipAsync(fromUserId: string, toUserId: string): Promise<number> {
+            return getAdapter().transaction(async (tx) => {
+              const result = await tx.execute(
+                "UPDATE note_yupdates SET userId = ? WHERE userId = ?",
+                [toUserId, fromUserId],
+              );
+              await tx.execute(
+                "UPDATE yjs_operation_receipts SET userId = ? WHERE userId = ?",
+                [toUserId, fromUserId],
+              );
+              return result.changes;
+            });
+          },
+          '''
+          new = '''  async deleteByNoteIdAsync(noteId: string): Promise<void> {
+            await getAdapter().executeStatements([
+              { sql: "DELETE FROM note_yupdates WHERE noteId = ?", params: [noteId] },
+              { sql: "DELETE FROM yjs_operation_receipts WHERE noteId = ?", params: [noteId] },
+            ]);
+          },
+
+          async transferOwnershipAsync(fromUserId: string, toUserId: string): Promise<number> {
+            const adapter = getAdapter();
+            const result = await adapter.execute(
+              "UPDATE note_yupdates SET userId = ? WHERE userId = ?",
+              [toUserId, fromUserId],
+            );
+            await adapter.execute(
+              "UPDATE yjs_operation_receipts SET userId = ? WHERE userId = ?",
+              [toUserId, fromUserId],
+            );
+            return result.changes;
+          },
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("generated repository async block did not match")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Run Yjs durability and repository regressions
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-yupdates-repository-async.test.ts
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run build:tsc
+      - name: Commit verified backend patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            backend/src/db/migrations.ts \
+            backend/src/db/schema.ts \
+            backend/src/db/postgres/schema.base.sql \
+            backend/src/db/yjsOperationReceiptsMigration.ts \
+            backend/src/repositories/noteYupdatesRepository.ts \
+            backend/src/services/yjs.ts \
+            backend/src/services/yjsDurability.ts \
+            backend/src/services/realtime.ts \
+            backend/tests/yjs-durability.test.ts
+          git commit -m "fix(sync): make Yjs operation ACKs persistently idempotent (#612)"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
