@@ -29,52 +29,49 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("backend/src/services/yjs.ts")
           text = path.read_text(encoding="utf-8")
 
-          initial_old = '''      if (seed) {
-                const ytext = doc.getText("content");
-                ytext.insert(0, seed);
-              }
-          '''
-          initial_new = '''      if (seed) {
-                const ytext = doc.getText("content");
-                ytext.insert(0, seed);
-                // The first client diff is causally based on these exact Yjs structs.
-                // Persist them before any client can edit; otherwise a restart can replay
-                // the incremental update without its seed and fall back to stale notes.content.
-                noteYsnapshotsRepository.upsert(
-                  noteId,
-                  Buffer.from(Y.encodeStateAsUpdate(doc)),
-                  0,
-                );
-              }
-          '''
-          if text.count(initial_old) != 1:
-              raise SystemExit(f"initial seed block matches: {text.count(initial_old)}")
-          text = text.replace(initial_old, initial_new, 1)
+          initial_pattern = re.compile(
+              r'(const seed = inferMarkdownSeed\(note\.content, note\.contentText\);\n'
+              r'\s+if \(seed\) \{\n'
+              r'\s+const ytext = doc\.getText\("content"\);\n'
+              r'\s+ytext\.insert\(0, seed\);\n)'
+              r'(\s+\})'
+          )
+          initial_insert = '''\1        // The first client diff is causally based on these exact Yjs structs.
+                  // Persist them before any client can edit; otherwise a restart can replay
+                  // the incremental update without its seed and fall back to stale notes.content.
+                  noteYsnapshotsRepository.upsert(
+                    noteId,
+                    Buffer.from(Y.encodeStateAsUpdate(doc)),
+                    0,
+                  );
+          \2'''
+          text, initial_count = initial_pattern.subn(initial_insert, text, count=1)
+          if initial_count != 1:
+              raise SystemExit(f"initial seed block matches: {initial_count}")
 
-          fallback_old = '''        if (seed) {
-                    ytext.insert(0, seed);
-                    console.log(`[yjs] fallback-seeded empty yText for note ${noteId} (len=${seed.length})`);
-                  }
-          '''
-          fallback_new = '''        if (seed) {
-                    ytext.insert(0, seed);
-                    // Freeze the repaired baseline so every later update can replay after
-                    // room eviction or process restart. Preserve the existing snapshot watermark.
+          fallback_pattern = re.compile(
+              r'(const seed = inferMarkdownSeed\(note\.content, note\.contentText\);\n'
+              r'\s+if \(seed\) \{\n'
+              r'\s+ytext\.insert\(0, seed\);\n)'
+              r'(\s+console\.log\(`\[yjs\] fallback-seeded empty yText)'
+          )
+          fallback_insert = '''\1          // Freeze the repaired baseline so later updates replay after eviction or restart.
                     noteYsnapshotsRepository.upsert(
                       noteId,
                       Buffer.from(Y.encodeStateAsUpdate(doc)),
                       snap?.updatesMergedTo || 0,
                     );
-                    console.log(`[yjs] fallback-seeded empty yText for note ${noteId} (len=${seed.length})`);
-                  }
-          '''
-          if text.count(fallback_old) != 1:
-              raise SystemExit(f"fallback seed block matches: {text.count(fallback_old)}")
-          path.write_text(text.replace(fallback_old, fallback_new, 1), encoding="utf-8")
+          \2'''
+          text, fallback_count = fallback_pattern.subn(fallback_insert, text, count=1)
+          if fallback_count != 1:
+              raise SystemExit(f"fallback seed block matches: {fallback_count}")
+
+          path.write_text(text, encoding="utf-8")
           PY
       - name: Keep async repository methods adapter-compatible
         run: |
