@@ -1,15 +1,21 @@
+import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
 import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";
 import { yApplyUpdate, yDestroyDoc, yFlush, type YApplyResult } from "./yjs";
 
-export type DurableYApplyFailureCode = Exclude<YApplyResult, "ok"> | "persist_failed";
+export type DurableYApplyFailureCode =
+  | Exclude<YApplyResult, "ok">
+  | "persist_failed"
+  | "invalid_operation"
+  | "operation_conflict";
 
 export type DurableYApplyResult =
   | {
       ok: true;
       updateId: number;
       persistedAt: string;
+      duplicate: boolean;
     }
   | {
       ok: false;
@@ -18,39 +24,107 @@ export type DurableYApplyResult =
 
 const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
 const CHECKPOINT_DELAY_MS = 2_000;
+const OPERATION_RECEIPT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const OPERATION_RECEIPT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const MAX_OPERATION_ID_LENGTH = 128;
 const checkpointTimers = new Map<string, NodeJS.Timeout>();
+let lastReceiptPruneAt = 0;
+
+function hashUpdateBase64(updateBase64: string): string {
+  return createHash("sha256").update(Buffer.from(updateBase64, "base64")).digest("hex");
+}
+
+function maybePruneOperationReceipts(now = Date.now()): void {
+  if (now - lastReceiptPruneAt < OPERATION_RECEIPT_PRUNE_INTERVAL_MS) return;
+  lastReceiptPruneAt = now;
+  try {
+    noteYupdatesRepository.deleteOperationReceiptsBefore(
+      new Date(now - OPERATION_RECEIPT_RETENTION_MS).toISOString(),
+    );
+  } catch (error) {
+    console.warn("[yjs-durability] operation receipt prune failed:", error);
+  }
+}
+
+function failClosed(noteId: string, code: DurableYApplyFailureCode): DurableYApplyResult {
+  try { yDestroyDoc(noteId); } catch {}
+  return { ok: false, code };
+}
 
 /**
- * yApplyUpdate historically returned "ok" even when note_yupdates INSERT failed.
- * This wrapper verifies that the append-only recovery log actually advanced before
- * the realtime layer is allowed to send y:ack or broadcast the update.
- *
- * The three DB reads/writes are synchronous, so no other update can interleave
- * between max-id-before, yApplyUpdate and max-id-after in this Node process.
+ * Applies an update and proves that both the append-only recovery log and the
+ * operation receipt are durable before ACK. A repeated operationId returns the
+ * original receipt without appending another update. Reusing an operationId for
+ * different bytes is rejected fail-closed so content can never be silently dropped.
  */
 export function yApplyUpdateDurably(
   noteId: string,
   updateBase64: string,
   userId: string | null,
+  operationId: string | null = null,
 ): DurableYApplyResult {
+  const normalizedOperationId = operationId?.trim() || null;
+  if (normalizedOperationId && normalizedOperationId.length > MAX_OPERATION_ID_LENGTH) {
+    return { ok: false, code: "invalid_operation" };
+  }
+
+  const incomingHash = normalizedOperationId ? hashUpdateBase64(updateBase64) : null;
+  if (normalizedOperationId && incomingHash) {
+    const existing = noteYupdatesRepository.findOperationReceipt(noteId, normalizedOperationId);
+    if (existing) {
+      if (existing.updateHash !== incomingHash) {
+        return { ok: false, code: "operation_conflict" };
+      }
+      scheduleYjsRecoveryCheckpoint(noteId, userId);
+      maybePruneOperationReceipts();
+      return {
+        ok: true,
+        updateId: existing.updateId,
+        persistedAt: existing.persistedAt,
+        duplicate: true,
+      };
+    }
+  }
+
   const before = noteYupdatesRepository.getMaxId(noteId)?.maxId || 0;
-  const result = yApplyUpdate(noteId, updateBase64, userId);
+  const result = yApplyUpdate(noteId, updateBase64, userId, normalizedOperationId);
   if (result !== "ok") return { ok: false, code: result };
 
   const after = noteYupdatesRepository.getMaxId(noteId)?.maxId || 0;
-  if (after <= before) {
-    console.error(`[yjs-durability] update log did not advance for ${noteId}`);
-    // yApplyUpdate applies to the in-memory Y.Doc before attempting the INSERT.
-    // Keeping that room would let the next y:join advertise non-durable content as
-    // a trusted server baseline. Destroy it so every client must reconcile against
-    // the last durable snapshot/update log instead.
-    try { yDestroyDoc(noteId); } catch {}
-    return { ok: false, code: "persist_failed" };
+  if (normalizedOperationId && incomingHash) {
+    const receipt = noteYupdatesRepository.findOperationReceipt(noteId, normalizedOperationId);
+    if (!receipt) {
+      console.error(`[yjs-durability] operation receipt missing for ${noteId}/${normalizedOperationId}`);
+      return failClosed(noteId, "persist_failed");
+    }
+    if (receipt.updateHash !== incomingHash) {
+      console.error(`[yjs-durability] operation hash conflict for ${noteId}/${normalizedOperationId}`);
+      return failClosed(noteId, "operation_conflict");
+    }
+
+    scheduleYjsRecoveryCheckpoint(noteId, userId);
+    maybePruneOperationReceipts();
+    return {
+      ok: true,
+      updateId: receipt.updateId,
+      persistedAt: receipt.persistedAt,
+      duplicate: receipt.updateId <= before,
+    };
   }
 
-  const persistedAt = new Date().toISOString();
+  if (after <= before) {
+    console.error(`[yjs-durability] update log did not advance for ${noteId}`);
+    return failClosed(noteId, "persist_failed");
+  }
+
   scheduleYjsRecoveryCheckpoint(noteId, userId);
-  return { ok: true, updateId: after, persistedAt };
+  maybePruneOperationReceipts();
+  return {
+    ok: true,
+    updateId: after,
+    persistedAt: new Date().toISOString(),
+    duplicate: false,
+  };
 }
 
 /**

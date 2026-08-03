@@ -128,6 +128,14 @@ function loadDocFromDb(noteId: string): Y.Doc {
       if (seed) {
         const ytext = doc.getText("content");
         ytext.insert(0, seed);
+        // The first client diff is causally based on these exact Yjs structs.
+        // Persist them before any client can edit; otherwise a restart can replay
+        // the incremental update without its seed and fall back to stale notes.content.
+        noteYsnapshotsRepository.upsert(
+          noteId,
+          Buffer.from(Y.encodeStateAsUpdate(doc)),
+          0,
+        );
       }
     }
   } else {
@@ -148,6 +156,12 @@ function loadDocFromDb(noteId: string): Y.Doc {
         const seed = inferMarkdownSeed(note.content, note.contentText);
         if (seed) {
           ytext.insert(0, seed);
+          // Freeze the repaired baseline so later updates replay after eviction or restart.
+          noteYsnapshotsRepository.upsert(
+            noteId,
+            Buffer.from(Y.encodeStateAsUpdate(doc)),
+            snap?.updatesMergedTo || 0,
+          );
           console.log(`[yjs] fallback-seeded empty yText for note ${noteId} (len=${seed.length})`);
         }
       }
@@ -170,9 +184,18 @@ function inferMarkdownSeed(content: string | null | undefined, contentText: stri
   return content;
 }
 
-/** 追加持久化一条 update */
-function persistUpdate(noteId: string, update: Uint8Array, userId: string | null): number {
-  return noteYupdatesRepository.create(noteId, userId || "", Buffer.from(update));
+/** 追加持久化一条 update；新协议同时原子写入 operation receipt。 */
+function persistUpdate(
+  noteId: string,
+  update: Uint8Array,
+  userId: string | null,
+  operationId: string | null = null,
+): number {
+  const buffer = Buffer.from(update);
+  if (operationId) {
+    return noteYupdatesRepository.createWithOperation(noteId, userId || "", buffer, operationId);
+  }
+  return noteYupdatesRepository.create(noteId, userId || "", buffer);
 }
 
 /** 把当前 Y.Doc 合并成一次 snapshot。
@@ -364,6 +387,7 @@ export function yApplyUpdate(
   noteId: string,
   updateBase64: string,
   userId: string | null,
+  operationId: string | null = null,
 ): YApplyResult {
   const room = rooms.get(noteId);
   if (!room) return "no_room";
@@ -387,7 +411,7 @@ export function yApplyUpdate(
     return "invalid";
   }
   try {
-    persistUpdate(noteId, update, userId);
+    persistUpdate(noteId, update, userId, operationId);
   } catch (e) {
     console.warn(`[yjs] persistUpdate failed for ${noteId}:`, e);
   }

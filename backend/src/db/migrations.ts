@@ -24,6 +24,7 @@ import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
 import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
 import { blockSchemaRepairMigration } from "./blockSchemaRepairMigration.js";
 import { taskDayPlansMigration } from "./taskDayPlansMigration.js";
+import { yjsOperationReceiptsMigration } from "./yjsOperationReceiptsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -280,6 +281,7 @@ export const MIGRATIONS: Migration[] = [
   newUserOnboardingFirstLoginMigration,
   blockSchemaRepairMigration,
   taskDayPlansMigration,
+  yjsOperationReceiptsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

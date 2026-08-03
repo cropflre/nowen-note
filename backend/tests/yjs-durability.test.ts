@@ -21,6 +21,7 @@ function resetDb(content = "base") {
   try { yDestroyDoc(NOTE_ID); } catch {}
   const db = getDb();
   db.prepare("DELETE FROM note_versions").run();
+  db.prepare("DELETE FROM yjs_operation_receipts").run();
   db.prepare("DELETE FROM note_yupdates").run();
   db.prepare("DELETE FROM note_ysnapshots").run();
   db.prepare("DELETE FROM notes").run();
@@ -112,6 +113,83 @@ test("failed recovery-log insert never becomes a trusted server baseline", () =>
   // yApplyUpdate had already mutated memory, so the wrapper must destroy that room.
   // Rejoin must reconstruct only the last durable database state.
   assert.equal(readServerText(), "durable old body");
+
+  yDestroyDoc(NOTE_ID);
+});
+
+
+test("operationId retry is idempotent across room reload", () => {
+  resetDb();
+  const update = buildClientUpdate("durable operation receipt body");
+  const operationId = "op-idempotent-retry-1";
+
+  const first = yApplyUpdateDurably(NOTE_ID, update, USER_ID, operationId);
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  assert.equal(first.duplicate, false);
+  assert.equal(noteYupdatesRepository.listAfterId(NOTE_ID, 0).length, 1);
+
+  yDestroyDoc(NOTE_ID);
+  yJoin(NOTE_ID, USER_ID);
+  const retry = yApplyUpdateDurably(NOTE_ID, update, USER_ID, operationId);
+  assert.equal(retry.ok, true);
+  if (!retry.ok) return;
+  assert.equal(retry.duplicate, true);
+  assert.equal(retry.updateId, first.updateId);
+  assert.equal(retry.persistedAt, first.persistedAt);
+  assert.equal(noteYupdatesRepository.listAfterId(NOTE_ID, 0).length, 1);
+
+  const receipt = getDb().prepare(
+    `SELECT updateId, updateHash, persistedAt
+     FROM yjs_operation_receipts WHERE noteId = ? AND operationId = ?`,
+  ).get(NOTE_ID, operationId) as
+    | { updateId: number; updateHash: string; persistedAt: string }
+    | undefined;
+  assert.ok(receipt);
+  assert.equal(receipt?.updateId, first.updateId);
+  assert.match(receipt?.updateHash || "", /^[a-f0-9]{64}$/);
+  assert.equal(readServerText(), "durable operation receipt body");
+
+  yDestroyDoc(NOTE_ID);
+});
+
+test("reusing an operationId for different content is rejected fail-closed", () => {
+  resetDb();
+  const operationId = "op-conflict-1";
+  const firstUpdate = buildClientUpdate("first durable body");
+  const first = yApplyUpdateDurably(NOTE_ID, firstUpdate, USER_ID, operationId);
+  assert.equal(first.ok, true);
+
+  const conflictingUpdate = buildClientUpdate("different body must not be dropped");
+  const conflict = yApplyUpdateDurably(NOTE_ID, conflictingUpdate, USER_ID, operationId);
+  assert.deepEqual(conflict, { ok: false, code: "operation_conflict" });
+  assert.equal(noteYupdatesRepository.listAfterId(NOTE_ID, 0).length, 1);
+  assert.equal(readServerText(), "first durable body");
+
+  yDestroyDoc(NOTE_ID);
+});
+
+test("operation receipt failure rolls back the update and destroys dirty memory", () => {
+  resetDb("durable receipt baseline");
+  const update = buildClientUpdate("must not survive without receipt");
+  const originalCreateWithOperation = noteYupdatesRepository.createWithOperation;
+  (noteYupdatesRepository as any).createWithOperation = () => {
+    throw new Error("simulated receipt disk failure");
+  };
+
+  try {
+    const result = yApplyUpdateDurably(NOTE_ID, update, USER_ID, "op-receipt-failure-1");
+    assert.deepEqual(result, { ok: false, code: "persist_failed" });
+  } finally {
+    (noteYupdatesRepository as any).createWithOperation = originalCreateWithOperation;
+  }
+
+  assert.equal(noteYupdatesRepository.listAfterId(NOTE_ID, 0).length, 0);
+  const receipts = getDb().prepare(
+    "SELECT COUNT(*) AS count FROM yjs_operation_receipts WHERE noteId = ?",
+  ).get(NOTE_ID) as { count: number };
+  assert.equal(receipts.count, 0);
+  assert.equal(readServerText(), "durable receipt baseline");
 
   yDestroyDoc(NOTE_ID);
 });

@@ -293,6 +293,19 @@ CREATE TABLE IF NOT EXISTS note_yupdates (
 
 CREATE INDEX IF NOT EXISTS idx_note_yupdates_note ON note_yupdates("noteId", id);
 
+CREATE TABLE IF NOT EXISTS yjs_operation_receipts (
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "operationId" TEXT NOT NULL,
+    "updateId" BIGINT NOT NULL,
+    "userId" TEXT,
+    "updateHash" TEXT NOT NULL,
+    "persistedAt" TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY ("noteId", "operationId")
+);
+
+CREATE INDEX IF NOT EXISTS idx_yjs_operation_receipts_persisted
+    ON yjs_operation_receipts("persistedAt");
+
 -- ============================================================
 -- Embeddings
 -- ============================================================

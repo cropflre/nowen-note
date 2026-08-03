@@ -440,13 +440,15 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
         return;
       }
 
-      const result = yApplyUpdateDurably(noteId, msg.update, info.userId);
+      const result = yApplyUpdateDurably(noteId, msg.update, info.userId, operationId);
       if (!result.ok) {
         const errMap: Record<string, string> = {
           too_large: "Update too large",
           invalid: "Bad update",
           no_room: "Not joined",
           persist_failed: "Update persistence failed",
+          invalid_operation: "Invalid operation id",
+          operation_conflict: "Operation id was reused for different content",
         };
         send(ws, {
           type: "error",
@@ -466,6 +468,7 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
           operationId,
           updateId: result.updateId,
           persistedAt: result.persistedAt,
+          duplicate: result.duplicate,
         });
       }
 
