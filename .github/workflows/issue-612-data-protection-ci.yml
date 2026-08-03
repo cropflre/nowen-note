@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
     paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/repositories/noteYupdatesRepository.ts"
       - "backend/src/services/realtime.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/yjsDurability.ts"
       - "backend/tests/yjs-durability.test.ts"
+      - "backend/tests/note-yupdates-repository-async.test.ts"
       - "frontend/src/hooks/useYDoc.ts"
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
@@ -28,10 +34,16 @@ on:
       - ".github/workflows/issue-612-data-protection-ci.yml"
   pull_request:
     paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/repositories/noteYupdatesRepository.ts"
       - "backend/src/services/realtime.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/yjsDurability.ts"
       - "backend/tests/yjs-durability.test.ts"
+      - "backend/tests/note-yupdates-repository-async.test.ts"
       - "frontend/src/hooks/useYDoc.ts"
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
@@ -68,8 +80,10 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Yjs durability regression tests
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
+      - name: Yjs durability and repository regressions
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-yupdates-repository-async.test.ts
       - name: Backend typecheck
         if: always()
         run: npm run build:tsc
