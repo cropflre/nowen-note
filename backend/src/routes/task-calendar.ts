@@ -53,11 +53,18 @@ function addDaysToIcsDate(value: string, days: number): string {
 }
 
 function toIcsDate(dateStr: string): { value: string; isDateTime: boolean } {
-  const normalized = dateStr.trim().replace(" ", "T").replace(/Z$/, "");
+  // Normalize spaces→T, strip trailing Z, strip milliseconds
+  const normalized = dateStr.trim().replace(" ", "T").replace(/Z$/i, "").replace(/\.\d+$/, "");
   const dateTime = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (dateTime) {
     const [, year, month, day, hour, minute, second = "00"] = dateTime;
     return { value: `${year}${month}${day}T${hour}${minute}${second}`, isDateTime: true };
+  }
+  // Pure date (no time component at all)
+  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return { value: `${year}${month}${day}`, isDateTime: false };
   }
   return { value: normalized.replace(/-/g, ""), isDateTime: false };
 }
@@ -72,26 +79,33 @@ function buildVEvent(task: any, feed: any, reminders: any[]): string {
     lines.push(icsFold(`DESCRIPTION:${icsEscape(task.description)}`));
   }
 
-  const start = task.startDate ? toIcsDate(task.startDate) : null;
-  const endSource = task.dueAt || task.dueDate;
-  const end = endSource ? toIcsDate(endSource) : null;
+  // startDate 优先，回退到 dueAt / dueDate，确保开始时间不丢失
+  const startRaw = task.startDate || task.dueAt || task.dueDate;
+  const start = startRaw ? toIcsDate(startRaw) : null;
+  // dueAt 优先（含时间），回退到 dueDate（纯日期）
+  const endRaw = task.dueAt || task.dueDate;
+  const end = endRaw ? toIcsDate(endRaw) : null;
 
   if (start?.isDateTime) {
     lines.push(icsFold(`DTSTART:${start.value}`));
-    if (end?.isDateTime) {
+    if (end?.isDateTime && end.value !== start.value) {
+      // 有明确的结束时间且不同于开始时间
       lines.push(icsFold(`DTEND:${end.value}`));
-    } else if (end) {
-      lines.push(icsFold(`DTEND:${addDaysToIcsDate(end.value, 1)}T000000`));
+    } else if (end && !end.isDateTime) {
+      // 开始有具体时间，结束是纯日期 → 全天事件
+      lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end.value, 1)}`));
     }
+    // 结束时间等于开始时间或无结束 → 省略 DTEND (RFC 5545 允许)
   } else if (start && end?.isDateTime) {
-    lines.push(icsFold(`DTSTART:${start.value}T000000`));
+    // 全天开始 + 具体结束时间
+    lines.push(icsFold(`DTSTART;VALUE=DATE:${start.value}`));
     lines.push(icsFold(`DTEND:${end.value}`));
   } else if (start) {
+    // 纯日期（全天事件）
     lines.push(icsFold(`DTSTART;VALUE=DATE:${start.value}`));
     lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end?.value || start.value, 1)}`));
   } else if (end?.isDateTime) {
-    // A task with only a due time is an instant event. Do not invent a
-    // one-minute duration: RFC 5545 allows VEVENT without DTEND.
+    // 仅截止时间 → 即时事件
     lines.push(icsFold(`DTSTART:${end.value}`));
   } else if (end) {
     lines.push(icsFold(`DTSTART;VALUE=DATE:${end.value}`));
