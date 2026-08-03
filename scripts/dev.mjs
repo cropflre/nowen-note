@@ -64,11 +64,13 @@ const electronCli = path.join(rootDir, "node_modules", "electron", "cli.js")
 const tsxCli = path.join(backendDir, "node_modules", "tsx", "dist", "cli.mjs")
 const backendEntry = path.join(backendDir, "src", "index.hardened.ts")
 const viteCli = path.join(frontendDir, "node_modules", "vite", "bin", "vite.js")
+const viteDevConfig = path.join(frontendDir, "vite.dev.config.ts")
 
 assertFile(electronCli, "npm install")
 assertFile(tsxCli, "npm run install:all")
 assertFile(viteCli, "npm run install:all")
 assertFile(backendEntry, "确认 backend/src/index.hardened.ts 是否存在")
+assertFile(viteDevConfig, "确认 frontend/vite.dev.config.ts 是否存在")
 
 console.log("\n🚀 Nowen Note 开发环境")
 console.log(`   前端: ${frontendUrl}${frontendPort !== preferredFrontendPort ? `（${preferredFrontendPort} 已占用，已自动切换）` : ""}`)
@@ -159,7 +161,16 @@ startProcess(
 startProcess(
   "前端",
   process.execPath,
-  [viteCli, "--host", "0.0.0.0", "--port", String(frontendPort), "--strictPort"],
+  [
+    viteCli,
+    "--config",
+    viteDevConfig,
+    "--host",
+    "0.0.0.0",
+    "--port",
+    String(frontendPort),
+    "--strictPort",
+  ],
   {
     cwd: frontendDir,
     env: {
