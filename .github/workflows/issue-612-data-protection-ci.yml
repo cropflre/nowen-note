@@ -7,11 +7,14 @@ on:
       - "backend/src/db/migrations.ts"
       - "backend/src/db/schema.ts"
       - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/knowledgeTree*.ts"
       - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
       - "backend/src/repositories/noteYupdatesRepository.ts"
       - "backend/src/services/realtime.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/yjsDurability.ts"
+      - "backend/tests/knowledge-tree-migration-registry.test.ts"
       - "backend/tests/yjs-durability.test.ts"
       - "backend/tests/note-yupdates-repository-async.test.ts"
       - "frontend/src/hooks/useYDoc.ts"
@@ -37,11 +40,14 @@ on:
       - "backend/src/db/migrations.ts"
       - "backend/src/db/schema.ts"
       - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/knowledgeTree*.ts"
       - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
       - "backend/src/repositories/noteYupdatesRepository.ts"
       - "backend/src/services/realtime.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/yjsDurability.ts"
+      - "backend/tests/knowledge-tree-migration-registry.test.ts"
       - "backend/tests/yjs-durability.test.ts"
       - "backend/tests/note-yupdates-repository-async.test.ts"
       - "frontend/src/hooks/useYDoc.ts"
@@ -80,10 +86,11 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Yjs durability and repository regressions
+      - name: Yjs durability, repository and migration registry regressions
         run: |
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-yupdates-repository-async.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree-migration-registry.test.ts
       - name: Backend typecheck
         if: always()
         run: npm run build:tsc
