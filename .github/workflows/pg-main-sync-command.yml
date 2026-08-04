@@ -36,3 +36,5 @@ jobs:
           if [ "${merge_status}" -ne 0 ]; then
             exit 1
           fi
+
+# one-shot trigger: 2026-08-04
