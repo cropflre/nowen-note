@@ -99,11 +99,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rm -f \
+          git checkout HEAD -- \
             .github/workflows/pg-note-transfer-staging-command.yml \
-            backend/scripts/implement-note-transfer-staging-20260804.py
+            .github/workflows/pg-runtime.yml
+          git rm -f backend/scripts/implement-note-transfer-staging-20260804.py
           git add -A
           git commit -m "feat(pg): add recoverable note-transfer staging manifest"
           git push origin HEAD:pg-migration-unified
 
-# synchronized trigger definition: 2026-08-04
+# synchronized push-safe trigger: 2026-08-04
