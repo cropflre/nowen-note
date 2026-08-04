@@ -46,33 +46,38 @@ jobs:
 
           realtime = Path("backend/src/services/realtime.ts")
           source = realtime.read_text(encoding="utf-8")
-          source = source.replace(
-              'import { getDb } from "../db/schema";\n',
-              'import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";\n',
-              1,
-          )
-          old_auth = '''    const db = getDb();
-              const user = db
-                .prepare("SELECT id, username, isDisabled, tokenVersion FROM users WHERE id = ?")
-                .get(payload.userId) as
-                | { id: string; username: string; isDisabled: number; tokenVersion: number }
-                | undefined;'''
-          new_auth = '''    const user = realtimeAuthRepository.findById(payload.userId);'''
-          if old_auth not in source:
-              raise SystemExit("realtime auth block changed")
-          source = source.replace(old_auth, new_auth, 1)
+          sqlite_import = 'import { getDb } from "../db/schema";\n'
+          repository_import = 'import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";\n'
+          if sqlite_import in source:
+              source = source.replace(sqlite_import, repository_import, 1)
+          elif repository_import not in source:
+              raise SystemExit("realtime database import changed")
 
-          start_marker = "  const members = getDb().prepare("
-          end_marker = "  const userIds = new Set(members.map((member) => member.userId));"
-          replacement = '''  const userIds = new Set(
-              realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
-            );'''
-          start = source.find(start_marker)
-          end = source.find(end_marker, start)
-          if start < 0 or end < 0:
+          auth_start = source.find("    const db = getDb();\n    const user = db")
+          auth_end_marker = "    if (!user || user.isDisabled || (payload.tver ?? 0) !== (user.tokenVersion ?? 0)) {"
+          auth_end = source.find(auth_end_marker, auth_start)
+          if auth_start < 0 or auth_end < 0:
+              raise SystemExit("realtime auth query block changed")
+          source = (
+              source[:auth_start]
+              + "    const user = realtimeAuthRepository.findById(payload.userId);\n"
+              + source[auth_end:]
+          )
+
+          members_start_marker = "  const members = getDb().prepare("
+          members_end_marker = "  const userIds = new Set(members.map((member) => member.userId));"
+          members_start = source.find(members_start_marker)
+          members_end = source.find(members_end_marker, members_start)
+          if members_start < 0 or members_end < 0:
               raise SystemExit("realtime workspace recipient query changed")
-          end += len(end_marker)
-          source = source[:start] + replacement + source[end:]
+          members_end += len(members_end_marker)
+          source = (
+              source[:members_start]
+              + "  const userIds = new Set(\n"
+              + "    realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),\n"
+              + "  );"
+              + source[members_end:]
+          )
           if "getDb(" in source:
               raise SystemExit("direct realtime database access remains")
           realtime.write_text(source, encoding="utf-8")
@@ -85,17 +90,19 @@ jobs:
               if import_anchor not in source:
                   raise SystemExit("knowledge-tree schema import anchor changed")
               source = source.replace(import_anchor, import_anchor + migration_import, 1)
-          source = source.replace(
-              "  assert.equal(getDbSchemaVersion(), 65);",
-              "  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);",
-              1,
-          )
+          if "assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);" not in source:
+              if "assert.equal(getDbSchemaVersion(), 65);" not in source:
+                  raise SystemExit("knowledge-tree schema assertion changed")
+              source = source.replace(
+                  "  assert.equal(getDbSchemaVersion(), 65);",
+                  "  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);",
+                  1,
+              )
           knowledge_test.write_text(source, encoding="utf-8")
 
           persistence = Path("backend/src/repositories/yjsPersistenceRepository.ts")
           source = persistence.read_text(encoding="utf-8")
-          record = '''
-          export interface YjsCheckpointNoteRecord {
+          checkpoint_type = """export interface YjsCheckpointNoteRecord {
             id: string;
             userId: string;
             title: string;
@@ -104,58 +111,63 @@ jobs:
             contentFormat: string;
             version: number;
           }
-          '''
+
+          """
           if "export interface YjsCheckpointNoteRecord" not in source:
-              anchor = "export interface YjsNoteVersionRecord {\n"
-              pos = source.find(anchor)
-              if pos < 0:
+              type_anchor = "export interface YjsNoteVersionRecord {\n"
+              position = source.find(type_anchor)
+              if position < 0:
                   raise SystemExit("yjs persistence type anchor changed")
-              source = source[:pos] + record + "\n" + source[pos:]
-          methods = '''
-            getCheckpointNote(noteId: string): YjsCheckpointNoteRecord | undefined {
-              return getDb()
-                .prepare(
-                  `SELECT id, userId, title, content, contentText, contentFormat, version
-                     FROM notes WHERE id = ?`,
-                )
-                .get(noteId) as YjsCheckpointNoteRecord | undefined;
-            },
+              source = source[:position] + checkpoint_type + source[position:]
+
+          checkpoint_methods = """  getCheckpointNote(noteId: string): YjsCheckpointNoteRecord | undefined {
+            return getDb()
+              .prepare(
+                `SELECT id, userId, title, content, contentText, contentFormat, version
+                   FROM notes WHERE id = ?`,
+              )
+              .get(noteId) as YjsCheckpointNoteRecord | undefined;
+          },
 
             hasVersionCheckpoint(noteId: string, version: number): boolean {
-              return Boolean(
-                getDb()
-                  .prepare(`SELECT id FROM note_versions WHERE "noteId" = ? AND version = ? LIMIT 1`)
-                  .get(noteId, version),
-              );
-            },
-          '''
+            return Boolean(
+              getDb()
+                .prepare(`SELECT id FROM note_versions WHERE \"noteId\" = ? AND version = ? LIMIT 1`)
+                .get(noteId, version),
+            );
+          },
+
+          """
           if "getCheckpointNote(noteId: string)" not in source:
-              anchor = "export const yjsPersistenceRepository = {\n"
-              if anchor not in source:
+              repository_anchor = "export const yjsPersistenceRepository = {\n"
+              if repository_anchor not in source:
                   raise SystemExit("yjs persistence repository anchor changed")
-              source = source.replace(anchor, anchor + methods, 1)
+              source = source.replace(repository_anchor, repository_anchor + checkpoint_methods, 1)
           persistence.write_text(source, encoding="utf-8")
 
           durability = Path("backend/src/services/yjsDurability.ts")
           source = durability.read_text(encoding="utf-8")
           source = source.replace('import { getDb } from "../db/schema";\n', "", 1)
-          repo_import = 'import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository";\n'
+          repository_import = 'import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository";\n'
           import_anchor = 'import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";\n'
-          if repo_import not in source:
+          if repository_import not in source:
               if import_anchor not in source:
                   raise SystemExit("yjs durability repository import anchor changed")
-              source = source.replace(import_anchor, import_anchor + repo_import, 1)
-          start_marker = "      const db = getDb();\n      const note = db.prepare("
-          end_marker = "      if (duplicate) return;"
-          start = source.find(start_marker)
-          end = source.find(end_marker, start)
-          if start < 0 or end < 0:
+              source = source.replace(import_anchor, import_anchor + repository_import, 1)
+
+          query_start = source.find("      const db = getDb();\n      const note = db.prepare(")
+          query_end_marker = "      if (duplicate) return;"
+          query_end = source.find(query_end_marker, query_start)
+          if query_start < 0 or query_end < 0:
               raise SystemExit("yjs durability checkpoint query block changed")
-          end += len(end_marker)
-          replacement = '''      const note = yjsPersistenceRepository.getCheckpointNote(noteId);
-                if (!note) return;
-                if (yjsPersistenceRepository.hasVersionCheckpoint(noteId, note.version)) return;'''
-          source = source[:start] + replacement + source[end:]
+          query_end += len(query_end_marker)
+          source = (
+              source[:query_start]
+              + "      const note = yjsPersistenceRepository.getCheckpointNote(noteId);\n"
+              + "      if (!note) return;\n"
+              + "      if (yjsPersistenceRepository.hasVersionCheckpoint(noteId, note.version)) return;"
+              + source[query_end:]
+          )
           if "getDb(" in source or ".prepare(" in source:
               raise SystemExit("direct yjs durability database access remains")
           durability.write_text(source, encoding="utf-8")
