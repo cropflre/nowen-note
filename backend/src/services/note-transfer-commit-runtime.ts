@@ -52,13 +52,18 @@ function rewriteInternalNoteLinks(
 ): { content: string; externalNoteLinkCount: number } {
   if (!content) return { content, externalNoteLinkCount: 0 };
   const external = new Set<string>();
+  const targetIds = new Set(
+    Array.from(noteIdMap.values(), (id) => id.toLowerCase()),
+  );
   const rewrite = (prefix: string, id: string, suffix = "") => {
-    const next = noteIdMap.get(id.toLowerCase());
-    if (!next) {
-      external.add(id.toLowerCase());
-      return `${prefix}${id}${suffix}`;
-    }
-    return `${prefix}${next}${suffix}`;
+    const normalizedId = id.toLowerCase();
+    const next = noteIdMap.get(normalizedId);
+    if (next) return `${prefix}${next}${suffix}`;
+    // A target ID may be encountered again by an overlapping regex after its
+    // source ID was already rewritten. It is internal, not a preserved external link.
+    if (targetIds.has(normalizedId)) return `${prefix}${id}${suffix}`;
+    external.add(normalizedId);
+    return `${prefix}${id}${suffix}`;
   };
 
   let output = content.replace(NOTE_SCHEME_RE, (_match, id: string) =>
