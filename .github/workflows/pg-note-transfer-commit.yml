@@ -1,5 +1,6 @@
 name: PostgreSQL Note Transfer Commit
 
+# One-shot PR validation trigger; this branch is not merged.
 on:
   push:
     branches:
