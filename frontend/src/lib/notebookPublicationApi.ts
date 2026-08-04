@@ -1,4 +1,5 @@
 import { getServerUrl } from "@/lib/api";
+import { normalizeShareCommentTimestamp } from "@/lib/shareCommentTime";
 
 export type NotebookPublicationAccessMode = "public" | "link" | "code" | "password";
 export type NotebookPublicationPermission = "read" | "comment" | "write";
@@ -193,12 +194,13 @@ export const notebookPublicationApi = {
     );
   },
 
-  getManagedComments(notebookId: string) {
-    return request<ManagedPublicationComment[]>(
+  async getManagedComments(notebookId: string) {
+    const comments = await request<ManagedPublicationComment[]>(
       `/notebooks/${encodeURIComponent(notebookId)}/publication/comments`,
       {},
       { authenticated: true },
     );
+    return comments.map(normalizeShareCommentTimestamp);
   },
 
   moderateComment(notebookId: string, commentId: string, input: { isResolved?: boolean; isHidden?: boolean }) {
@@ -281,20 +283,22 @@ export const notebookPublicationApi = {
     return { ...note, contentFormat: normalizeContentFormat(note.contentFormat) };
   },
 
-  getComments(token: string, noteId: string, accessToken?: string) {
-    return request<PublicComment[]>(
+  async getComments(token: string, noteId: string, accessToken?: string) {
+    const comments = await request<PublicComment[]>(
       `/shared/notebook-public/${encodeURIComponent(token)}/notes/${encodeURIComponent(noteId)}/comments`,
       {},
       { accessToken },
     );
+    return comments.map(normalizeShareCommentTimestamp);
   },
 
-  addComment(token: string, noteId: string, input: { nickname: string; content: string; _hp?: string }, accessToken?: string) {
-    return request<PublicComment>(
+  async addComment(token: string, noteId: string, input: { nickname: string; content: string; _hp?: string }, accessToken?: string) {
+    const comment = await request<PublicComment>(
       `/shared/notebook-public/${encodeURIComponent(token)}/notes/${encodeURIComponent(noteId)}/comments`,
       { method: "POST", body: JSON.stringify(input) },
       { accessToken },
     );
+    return normalizeShareCommentTimestamp(comment);
   },
 
   joinPublication(token: string, accessToken?: string) {
