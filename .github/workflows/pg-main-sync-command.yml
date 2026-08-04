@@ -1,0 +1,38 @@
+name: PostgreSQL Main Sync Command
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/pg-main-sync-command.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose-main-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - name: Diagnose latest main merge
+        shell: bash
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+          echo "MERGE_STATUS=${merge_status}"
+          echo "CONFLICTS_BEGIN"
+          git diff --name-only --diff-filter=U | sort
+          echo "CONFLICTS_END"
+          git merge --abort || true
+          if [ "${merge_status}" -ne 0 ]; then
+            exit 1
+          fi
