@@ -101,6 +101,7 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     await seed(pool);
 
     const adapter = new PostgresAdapter(pool);
+    const operations = createNoteTransferOperationRepository(adapter);
     const app = new Hono();
     app.route(
       "/api/note-transfers",
@@ -199,6 +200,119 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     assert.equal(loaded.id, prepared.id);
     assert.equal(loaded.reused, false);
 
+
+    const staged = await request(
+      `/operations/${encodeURIComponent(IDEMPOTENCY_KEY)}/staging`,
+      ACTOR,
+      {},
+      202,
+    );
+    assert.equal(staged.id, prepared.id);
+    assert.equal(staged.status, "staging");
+    assert.equal(staged.reused, false);
+    assert.equal(staged.stagedAttachments.length, 1);
+    assert.equal(staged.stagedAttachments[0].sourceAttachmentId, ATTACHMENT);
+    assert.equal(staged.stagedAttachments[0].sourceNoteId, SOURCE_NOTE_A);
+    assert.equal(
+      staged.stagedAttachments[0].targetNoteId,
+      prepared.plan.targetNoteIds[SOURCE_NOTE_A],
+    );
+    assert.equal(staged.stagedAttachments[0].status, "planned");
+    assert.equal(staged.stagedAttachments[0].size, 24);
+    assert.match(
+      staged.stagedAttachments[0].stagedPath,
+      new RegExp(`^note-transfer-staging/${prepared.id}/`),
+    );
+
+    const stagedRetry = await request(
+      `/operations/${encodeURIComponent(IDEMPOTENCY_KEY)}/staging`,
+      ACTOR,
+      {},
+      200,
+    );
+    assert.equal(stagedRetry.reused, true);
+    assert.equal(
+      stagedRetry.stagedAttachments[0].targetAttachmentId,
+      staged.stagedAttachments[0].targetAttachmentId,
+    );
+    assert.equal(
+      stagedRetry.stagedAttachments[0].stagedPath,
+      staged.stagedAttachments[0].stagedPath,
+    );
+
+    const raceKey = "transfer-preview-staging-race";
+    await operations.prepareOperation({
+      actorUserId: ACTOR,
+      idempotencyKey: raceKey,
+      mode: "copy",
+      sourceWorkspaceId: null,
+      targetWorkspaceId: ACTOR_WORKSPACE,
+      targetNotebookId: ACTOR_TARGET,
+      includeAttachments: true,
+      includeTags: false,
+      sourceNoteIds: [SOURCE_NOTE_A],
+      sourceVersions: { [SOURCE_NOTE_A]: 4 },
+      attachmentCount: 1,
+      attachmentBytes: 24,
+      tagCount: 0,
+      internalNoteLinkCount: 0,
+      externalNoteLinkCount: 0,
+    });
+    const raceResults = await Promise.all([
+      operations.beginStaging({ actorUserId: ACTOR, idempotencyKey: raceKey }),
+      operations.beginStaging({ actorUserId: ACTOR, idempotencyKey: raceKey }),
+    ]);
+    assert.deepEqual(raceResults.map((result) => result.status), ["staging", "staging"]);
+    assert.equal(raceResults.filter((result) => result.reused === false).length, 1);
+    assert.equal(raceResults.filter((result) => result.reused === true).length, 1);
+    assert.equal(
+      raceResults[0].stagedAttachments[0].targetAttachmentId,
+      raceResults[1].stagedAttachments[0].targetAttachmentId,
+    );
+    const raceManifestCount = await pool.query(
+      `SELECT COUNT(*)::int AS count
+         FROM note_transfer_staged_attachments
+        WHERE "operationId" = $1`,
+      [raceResults[0].id],
+    );
+    assert.equal(raceManifestCount.rows[0].count, 1);
+
+    const staleStageKey = "transfer-preview-staging-stale";
+    const staleStagePrepared = await operations.prepareOperation({
+      actorUserId: ACTOR,
+      idempotencyKey: staleStageKey,
+      mode: "copy",
+      sourceWorkspaceId: null,
+      targetWorkspaceId: ACTOR_WORKSPACE,
+      targetNotebookId: ACTOR_TARGET,
+      includeAttachments: false,
+      includeTags: false,
+      sourceNoteIds: [SOURCE_NOTE_B],
+      sourceVersions: { [SOURCE_NOTE_B]: 7 },
+      attachmentCount: 0,
+      attachmentBytes: 0,
+      tagCount: 0,
+      internalNoteLinkCount: 0,
+      externalNoteLinkCount: 0,
+    });
+    await pool.query(`UPDATE notes SET version = 8 WHERE id = $1`, [SOURCE_NOTE_B]);
+    await assert.rejects(
+      operations.beginStaging({ actorUserId: ACTOR, idempotencyKey: staleStageKey }),
+      (error: any) => error?.code === "NOTE_TRANSFER_PLAN_STALE",
+    );
+    const staleStageState = await pool.query(
+      `SELECT operation.status, COUNT(manifest."sourceAttachmentId")::int AS manifest_count
+         FROM note_transfer_operations operation
+         LEFT JOIN note_transfer_staged_attachments manifest
+           ON manifest."operationId" = operation.id
+        WHERE operation.id = $1
+        GROUP BY operation.status`,
+      [staleStagePrepared.id],
+    );
+    assert.equal(staleStageState.rows[0].status, "prepared");
+    assert.equal(staleStageState.rows[0].manifest_count, 0);
+    await pool.query(`UPDATE notes SET version = 7 WHERE id = $1`, [SOURCE_NOTE_B]);
+
     const idempotencyConflict = await request("/prepare", ACTOR, {
       ...previewBody,
       sourceNoteIds: [SOURCE_NOTE_A],
@@ -213,7 +327,6 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     }, 400);
     assert.equal(invalidKey.code, "NOTE_TRANSFER_IDEMPOTENCY_KEY_INVALID");
 
-    const operations = createNoteTransferOperationRepository(adapter);
     await assert.rejects(
       operations.prepareOperation({
         actorUserId: ACTOR,
@@ -301,6 +414,6 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     assert.equal(execution.issue, 249);
   } finally {
     await pool.query(`DELETE FROM users WHERE id IN ($1, $2)`, [ACTOR, OUTSIDER]).catch(() => undefined);
-    await closePgPool();
+    await closePgPool(pool);
   }
 });

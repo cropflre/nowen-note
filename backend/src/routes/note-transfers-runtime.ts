@@ -150,6 +150,23 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     }
   });
 
+
+  app.post("/operations/:idempotencyKey/staging", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const operation = await operations.beginStaging({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(operation, operation.reused ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.get("/operations/:idempotencyKey", async (c) => {
     c.header("Cache-Control", "private, no-store");
     const credentialError = rejectNonInteractiveCredential(c);
@@ -178,7 +195,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     if (credentialError) return credentialError;
     return c.json(
       {
-        error: "PostgreSQL 笔记转移执行事务尚未迁移，请先使用预检和 prepare 接口",
+        error: "PostgreSQL 笔记转移最终提交尚未迁移，请先使用预检、prepare 和 staging 接口",
         code: "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING",
         issue: 249,
       },

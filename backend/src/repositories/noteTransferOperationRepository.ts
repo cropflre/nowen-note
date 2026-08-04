@@ -24,6 +24,24 @@ export type NoteTransferOperationItem = {
   status: "planned" | "staged" | "committed" | "failed" | "cancelled";
 };
 
+export type NoteTransferStagedAttachment = {
+  sourceAttachmentId: string;
+  sourceNoteId: string;
+  targetAttachmentId: string;
+  targetNoteId: string;
+  sourcePath: string;
+  stagedPath: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  hash: string | null;
+  status: "planned" | "copying" | "staged" | "committed" | "failed" | "cleaned";
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PreparedNoteTransferOperation = {
   id: string;
   userId: string;
@@ -51,6 +69,7 @@ export type PreparedNoteTransferOperation = {
   updatedAt: string;
   expiresAt: string;
   items: NoteTransferOperationItem[];
+  stagedAttachments: NoteTransferStagedAttachment[];
   reused: boolean;
 };
 
@@ -80,6 +99,23 @@ type ItemRow = {
   sourceVersion: number | string;
   itemOrder: number | string;
   status: NoteTransferOperationItem["status"];
+};
+
+type StagedAttachmentRow = Omit<NoteTransferStagedAttachment, "size" | "attempts" | "createdAt" | "updatedAt"> & {
+  size: number | string;
+  attempts: number | string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+type SourceAttachmentRow = {
+  id: string;
+  noteId: string;
+  path: string;
+  filename: string;
+  mimeType: string | null;
+  size: number | string;
+  hash: string | null;
 };
 
 export class NoteTransferOperationError extends Error {
@@ -118,6 +154,10 @@ function parseJson<T>(value: T | string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
 }
 
 function canonicalJson(value: unknown): string {
@@ -344,6 +384,15 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         ORDER BY itemOrder, sourceNoteId`,
       [row.id],
     );
+    const stagedAttachments = await db.queryMany<StagedAttachmentRow>(
+      `SELECT sourceAttachmentId, sourceNoteId, targetAttachmentId, targetNoteId,
+              sourcePath, stagedPath, filename, mimeType, size, hash,
+              status, attempts, lastError, createdAt, updatedAt
+         FROM note_transfer_staged_attachments
+        WHERE operationId = ?
+        ORDER BY sourceNoteId, sourceAttachmentId`,
+      [row.id],
+    );
     return {
       id: row.id,
       userId: row.userId,
@@ -377,8 +426,39 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         itemOrder: toNumber(item.itemOrder),
         status: item.status,
       })),
+      stagedAttachments: stagedAttachments.map((attachment) => ({
+        sourceAttachmentId: attachment.sourceAttachmentId,
+        sourceNoteId: attachment.sourceNoteId,
+        targetAttachmentId: attachment.targetAttachmentId,
+        targetNoteId: attachment.targetNoteId,
+        sourcePath: attachment.sourcePath,
+        stagedPath: attachment.stagedPath,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: toNumber(attachment.size),
+        hash: attachment.hash,
+        status: attachment.status,
+        attempts: toNumber(attachment.attempts),
+        lastError: attachment.lastError,
+        createdAt: toTimestamp(attachment.createdAt),
+        updatedAt: toTimestamp(attachment.updatedAt),
+      })),
       reused: false,
     };
+  }
+
+
+  async function loadSourceAttachments(
+    operation: PreparedNoteTransferOperation,
+  ): Promise<SourceAttachmentRow[]> {
+    if (!operation.includeAttachments || operation.plan.sourceNoteIds.length === 0) return [];
+    return db.queryMany<SourceAttachmentRow>(
+      `SELECT id, noteId, path, filename, mimeType, size, hash
+         FROM attachments
+        WHERE noteId IN (${placeholders(operation.plan.sourceNoteIds.length)})
+        ORDER BY createdAt, id`,
+      operation.plan.sourceNoteIds,
+    );
   }
 
   return {
@@ -390,6 +470,165 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
       const operation = await loadOperation(input.actorUserId, key);
       if (operation) assertNotExpired(operation);
       return operation;
+    },
+
+    async beginStaging(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+    }): Promise<PreparedNoteTransferOperation> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const operation = await loadOperation(input.actorUserId, key);
+      if (!operation) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_PLAN_NOT_FOUND",
+          "转移计划不存在",
+          404,
+        );
+      }
+      assertNotExpired(operation);
+      if (operation.status === "staging") return { ...operation, reused: true };
+      if (operation.status !== "prepared") {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_STATE_CONFLICT",
+          `当前状态 ${operation.status} 无法进入 staging`,
+          409,
+          { operationId: operation.id, status: operation.status },
+        );
+      }
+
+      const sourceAttachments = await loadSourceAttachments(operation);
+      const attachmentBytes = sourceAttachments.reduce(
+        (total, attachment) => total + toNumber(attachment.size),
+        0,
+      );
+      if (
+        sourceAttachments.length !== operation.plan.attachmentCount
+        || attachmentBytes !== operation.plan.attachmentBytes
+      ) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_ATTACHMENT_SNAPSHOT_STALE",
+          "附件数量或大小已变化，请重新预检",
+          409,
+          {
+            operationId: operation.id,
+            expectedCount: operation.plan.attachmentCount,
+            actualCount: sourceAttachments.length,
+            expectedBytes: operation.plan.attachmentBytes,
+            actualBytes: attachmentBytes,
+          },
+        );
+      }
+
+      const stagedAttachments = sourceAttachments.map((attachment) => {
+        const targetNoteId = operation.plan.targetNoteIds[attachment.noteId];
+        if (!targetNoteId) {
+          throw new NoteTransferOperationError(
+            "NOTE_TRANSFER_PLAN_STALE",
+            "附件对应的目标笔记映射不存在，请重新预检",
+            409,
+            { sourceAttachmentId: attachment.id, sourceNoteId: attachment.noteId },
+          );
+        }
+        const targetAttachmentId = randomUUID();
+        return {
+          source: attachment,
+          targetAttachmentId,
+          targetNoteId,
+          stagedPath: `note-transfer-staging/${operation.id}/${targetAttachmentId}`,
+          mimeType: attachment.mimeType || "application/octet-stream",
+        };
+      });
+
+      const statements: DbStatement[] = [
+        targetGuard({
+          actorUserId: input.actorUserId,
+          targetNotebookId: operation.targetNotebookId,
+          targetWorkspaceId: operation.targetWorkspaceId,
+        }),
+        ...operation.plan.sourceNoteIds.map((sourceNoteId) => sourceGuard({
+          actorUserId: input.actorUserId,
+          sourceWorkspaceId: operation.sourceWorkspaceId,
+          sourceNoteId,
+          sourceVersion: operation.sourceVersions[sourceNoteId],
+        })),
+      ];
+
+      if (operation.includeAttachments) {
+        const notePlaceholders = placeholders(operation.plan.sourceNoteIds.length);
+        statements.push({
+          sql: `SELECT 1
+                  WHERE (SELECT COUNT(*) FROM attachments WHERE noteId IN (${notePlaceholders})) = ?
+                    AND (SELECT COALESCE(SUM(size), 0) FROM attachments WHERE noteId IN (${notePlaceholders})) = ?`,
+          params: [
+            ...operation.plan.sourceNoteIds,
+            operation.plan.attachmentCount,
+            ...operation.plan.sourceNoteIds,
+            operation.plan.attachmentBytes,
+          ],
+          requireChanges: 1,
+        });
+      }
+
+      statements.push({
+        sql: `UPDATE note_transfer_operations
+                 SET status = 'staging', updatedAt = CURRENT_TIMESTAMP
+               WHERE id = ? AND userId = ? AND idempotencyKey = ?
+                 AND status = 'prepared' AND expiresAt > CURRENT_TIMESTAMP`,
+        params: [operation.id, input.actorUserId, key],
+        requireChanges: 1,
+      });
+
+      for (const attachment of stagedAttachments) {
+        statements.push({
+          sql: `INSERT INTO note_transfer_staged_attachments (
+                  operationId, sourceAttachmentId, sourceNoteId,
+                  targetAttachmentId, targetNoteId, sourcePath, stagedPath,
+                  filename, mimeType, size, hash, status
+                )
+                SELECT ?, source.id, source.noteId, ?, ?, source.path, ?,
+                       source.filename, COALESCE(source.mimeType, 'application/octet-stream'),
+                       source.size, source.hash, 'planned'
+                  FROM attachments source
+                 WHERE source.id = ? AND source.noteId = ? AND source.path = ?
+                   AND source.filename = ?
+                   AND COALESCE(source.mimeType, 'application/octet-stream') = ?
+                   AND source.size = ?
+                   AND COALESCE(source.hash, '') = COALESCE(?, '')`,
+          params: [
+            operation.id,
+            attachment.targetAttachmentId,
+            attachment.targetNoteId,
+            attachment.stagedPath,
+            attachment.source.id,
+            attachment.source.noteId,
+            attachment.source.path,
+            attachment.source.filename,
+            attachment.mimeType,
+            toNumber(attachment.source.size),
+            attachment.source.hash,
+          ],
+          requireChanges: 1,
+        });
+      }
+
+      try {
+        await db.executeStatements(statements);
+      } catch (error) {
+        const raced = await loadOperation(input.actorUserId, key).catch(() => null);
+        if (raced?.status === "staging") return { ...raced, reused: true };
+        if (error instanceof DbStatementChangeError) mapTransactionError(error);
+        throw error;
+      }
+
+      const staged = await loadOperation(input.actorUserId, key);
+      if (!staged || staged.status !== "staging") {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_STAGING_PERSIST_FAILED",
+          "转移 staging 状态保存失败",
+          409,
+        );
+      }
+      return staged;
     },
 
     async prepareOperation(input: {

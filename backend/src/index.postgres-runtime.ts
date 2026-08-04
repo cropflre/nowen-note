@@ -67,6 +67,7 @@ app.get("/api/health", async (c) => {
         "DELETE /api/notes/:id",
         "POST /api/note-transfers/preview",
         "POST /api/note-transfers/prepare",
+        "POST /api/note-transfers/operations/:idempotencyKey/staging",
         "GET /api/note-transfers/operations/:idempotencyKey",
         "GET /api/knowledge-tree",
         "GET /api/knowledge-tree/shared-with-me",
@@ -90,6 +91,7 @@ app.get("/api/health", async (c) => {
         "note deletion webhooks",
         "note-transfer cross-driver preview and permission analysis",
         "note-transfer durable idempotency, source-version snapshots and transactional preparation",
+        "note-transfer prepared-to-staging CAS and recoverable attachment manifests",
         "knowledge-tree scope listing with inherited permissions",
         "knowledge-tree shared-root discovery with overlapping-root de-duplication",
         "knowledge-tree access-controlled history listing",
@@ -118,7 +120,7 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "note-transfer staged attachment copy, atomic target commit and move deletion (#249)",
+        "note-transfer physical attachment copy, atomic target commit and move deletion (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -219,7 +221,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, durable note-transfer planning and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
+console.warn("[db] Notes, durable note-transfer planning/staging and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);

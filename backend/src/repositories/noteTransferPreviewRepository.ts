@@ -189,7 +189,7 @@ export function createNoteTransferPreviewRepository(adapter?: DatabaseAdapter) {
            FROM tags tag
            JOIN note_tags note_tag ON note_tag.tagId = tag.id
           WHERE note_tag.noteId IN (${placeholders(noteIds.length)})
-          ORDER BY lower(tag.name), tag.id`,
+          ORDER BY tag.name, tag.id`,
         noteIds,
       );
     },

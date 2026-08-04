@@ -32,6 +32,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0014_yjs_subdocument_structure_operations",
     "0015_knowledge_tree_read_runtime",
     "0016_note_transfer_operations",
+    "0017_note_transfer_staging_manifest",
   ]);
 
   const stateTable = await pool.query(
@@ -66,6 +67,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "note_split_operations",
     "note_transfer_operation_items",
     "note_transfer_operations",
+    "note_transfer_staged_attachments",
     "note_y_subdocument_manifests",
     "note_y_subdocument_structure_operations",
     "note_y_subdocument_updates",
@@ -199,7 +201,9 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   const transferIndexes = await pool.query(
     `SELECT to_regclass('public.idx_note_transfer_operations_user_time') AS user_time,
             to_regclass('public.idx_note_transfer_operations_status_expiry') AS status_expiry,
-            to_regclass('public.idx_note_transfer_items_source') AS item_source`,
+            to_regclass('public.idx_note_transfer_items_source') AS item_source,
+            to_regclass('public.idx_note_transfer_staged_attachments_operation_status') AS staged_status,
+            to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source`,
   );
   assert.equal(
     transferIndexes.rows[0].user_time,
@@ -212,6 +216,14 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.equal(
     transferIndexes.rows[0].item_source,
     "idx_note_transfer_items_source",
+  );
+  assert.equal(
+    transferIndexes.rows[0].staged_status,
+    "idx_note_transfer_staged_attachments_operation_status",
+  );
+  assert.equal(
+    transferIndexes.rows[0].staged_source,
+    "idx_note_transfer_staged_attachments_source_note",
   );
 
   const second = await runPostgresMigrations(adapter);
