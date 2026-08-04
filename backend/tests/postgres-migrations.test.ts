@@ -35,6 +35,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0017_note_transfer_staging_manifest",
     "0018_note_transfer_attachment_staging_runtime",
     "0019_note_transfer_cleanup_runtime",
+    "0020_note_transfer_effect_outbox",
   ]);
 
   const stateTable = await pool.query(
@@ -67,6 +68,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "note_split_attachment_copies",
     "note_split_items",
     "note_split_operations",
+    "note_transfer_effect_outbox",
     "note_transfer_operation_items",
     "note_transfer_operations",
     "note_transfer_staged_attachments",
@@ -207,7 +209,9 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
             to_regclass('public.idx_note_transfer_staged_attachments_operation_status') AS staged_status,
             to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source,
             to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,
-            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease`,
+            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease,
+            to_regclass('public.idx_note_transfer_effect_outbox_claim') AS effect_claim,
+            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation`,
   );
   assert.equal(
     transferIndexes.rows[0].user_time,
@@ -236,6 +240,14 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.equal(
     transferIndexes.rows[0].cleanup_lease,
     "idx_note_transfer_staged_attachments_cleanup_lease",
+  );
+  assert.equal(
+    transferIndexes.rows[0].effect_claim,
+    "idx_note_transfer_effect_outbox_claim",
+  );
+  assert.equal(
+    transferIndexes.rows[0].effect_operation,
+    "idx_note_transfer_effect_outbox_operation",
   );
 
   const stagingColumns = await pool.query(`

@@ -17,6 +17,7 @@ import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
 import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
 import createKnowledgeTreeSurfacesRuntimeRouter from "./routes/knowledge-tree-surfaces-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
+import { createNoteTransferEffectsRuntime } from "./services/note-transfer-effects-runtime";
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
 import { createPostgresYjsSubdocumentWebsocketRuntime } from "./services/postgres-yjs-subdocuments-websocket-runtime";
@@ -33,6 +34,23 @@ yjsCompaction.start();
 const deletionEffects = createNoteDeletionEffectsRuntime(adapter, {
   publishRealtime: hub.publish,
 });
+const transferEffects = createNoteTransferEffectsRuntime(adapter, {
+  publishRealtime: async (event) => {
+    hub.publishToUser(event.actorUserId, {
+      type: "note:transfer-completed",
+      eventId: event.eventId,
+      operationId: event.operationId,
+      mode: event.mode,
+      sourceWorkspaceId: event.sourceWorkspaceId,
+      targetWorkspaceId: event.targetWorkspaceId,
+      targetNotebookId: event.targetNotebookId,
+      sourceNoteIds: event.sourceNoteIds,
+      targetNoteIds: event.targetNoteIds,
+      actorUserId: event.actorUserId,
+    });
+  },
+});
+transferEffects.start();
 
 app.use("*", logger());
 app.use("*", cors({
@@ -72,6 +90,7 @@ app.get("/api/health", async (c) => {
         "POST /api/note-transfers/operations/:idempotencyKey/commit",
         "POST /api/note-transfers/operations/:idempotencyKey/cancel",
         "POST /api/note-transfers/operations/:idempotencyKey/cleanup/resume",
+        "POST /api/note-transfers/operations/:idempotencyKey/effects/resume",
         "GET /api/note-transfers/operations/:idempotencyKey",
         "GET /api/knowledge-tree",
         "GET /api/knowledge-tree/shared-with-me",
@@ -99,6 +118,7 @@ app.get("/api/health", async (c) => {
         "note-transfer local/S3 physical staging copy with leases, SHA-256 verification and crash recovery",
         "note-transfer atomic copy commit for notes, tags, links, attachments, references and block indexes",
         "note-transfer cancellable staging and recoverable local/S3 staged-object cleanup leases",
+        "note-transfer transactional effects outbox with audit/webhook/realtime leases and stable event keys",
         "knowledge-tree scope listing with inherited permissions",
         "knowledge-tree shared-root discovery with overlapping-root de-duplication",
         "knowledge-tree access-controlled history listing",
@@ -124,10 +144,11 @@ app.get("/api/health", async (c) => {
         "Yjs subdocument idempotent structure changes and root manifest rebuild",
       ],
       realtime: hub.getStats(),
+      noteTransferEffects: await transferEffects.getStats(),
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "note-transfer post-commit effects and move deletion (#249)",
+        "note-transfer move source deletion and recovery (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -208,7 +229,9 @@ app.route("/api/notes", createNotesRuntimeRouter(
 
 app.use("/api/note-transfers", authenticateApiRequest);
 app.use("/api/note-transfers/*", authenticateApiRequest);
-app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter));
+app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter, {
+  effects: transferEffects,
+}));
 
 app.use("/api/knowledge-tree", authenticateApiRequest);
 app.use("/api/knowledge-tree/*", authenticateApiRequest);
@@ -228,7 +251,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, durable note-transfer planning/physical staging/atomic copy commit/recoverable cleanup and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
+console.warn("[db] Notes, durable note-transfer planning/staging/atomic copy commit/cleanup/effects outbox and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until move deletion and remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
@@ -247,6 +270,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExit.unref();
 
   try {
+    await transferEffects.shutdown();
     await yjsCompaction.close();
     await subdocumentWs.close();
     await hub.close();

@@ -9,6 +9,10 @@ import { createNoteTransferAttachmentStagingRuntime } from "../services/note-tra
 import { createNoteTransferCommitRuntime } from "../services/note-transfer-commit-runtime";
 import { createNoteTransferCleanupRuntime } from "../services/note-transfer-cleanup-runtime";
 import {
+  createNoteTransferEffectsRuntime,
+  type NoteTransferEffectsRuntime,
+} from "../services/note-transfer-effects-runtime";
+import {
   createNoteTransferPreviewRuntime,
   NoteTransferPreviewRuntimeError,
   type NoteTransferPreviewRuntimeRequest,
@@ -82,13 +86,17 @@ function errorResponse(c: Context, error: unknown): Response {
   );
 }
 
-export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapter) {
+export default function createNoteTransfersRuntimeRouter(
+  adapter?: DatabaseAdapter,
+  options: { effects?: NoteTransferEffectsRuntime } = {},
+) {
   const app = new Hono();
   const runtime = createNoteTransferPreviewRuntime(adapter);
   const operations = createNoteTransferOperationRepository(adapter);
   const attachmentStaging = createNoteTransferAttachmentStagingRuntime(adapter, { operations });
   const commitRuntime = createNoteTransferCommitRuntime(adapter, { operations });
   const cleanupRuntime = createNoteTransferCleanupRuntime(adapter, { operations });
+  const effectsRuntime = options.effects || createNoteTransferEffectsRuntime(adapter);
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -230,7 +238,24 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
+      effectsRuntime.wake();
       return c.json(result, result.reused ? 200 : 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/operations/:idempotencyKey/effects/resume", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const result = await effectsRuntime.resume({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(result, result.summary.complete ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
     }
