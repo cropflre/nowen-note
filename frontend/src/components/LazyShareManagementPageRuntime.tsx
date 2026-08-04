@@ -2,12 +2,11 @@ import React, { Suspense } from "react";
 import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
 
 const LazyShareManagementPage = React.lazy(() => import("./ShareManagementPage"));
-type Props = React.ComponentProps<(typeof import("./ShareManagementPage"))["default"]>;
 
-export default function LazyShareManagementPageRuntime(props: Props) {
+export default function LazyShareManagementPageRuntime() {
   return (
     <Suspense fallback={<LazyWorkspaceFallback label="正在加载分享管理…" />}>
-      <LazyShareManagementPage {...props} />
+      <LazyShareManagementPage />
     </Suspense>
   );
 }
