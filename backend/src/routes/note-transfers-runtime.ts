@@ -5,6 +5,7 @@ import {
   createNoteTransferOperationRepository,
   NoteTransferOperationError,
 } from "../repositories/noteTransferOperationRepository";
+import { createNoteTransferAttachmentStagingRuntime } from "../services/note-transfer-attachment-staging-runtime";
 import {
   createNoteTransferPreviewRuntime,
   NoteTransferPreviewRuntimeError,
@@ -83,6 +84,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
   const app = new Hono();
   const runtime = createNoteTransferPreviewRuntime(adapter);
   const operations = createNoteTransferOperationRepository(adapter);
+  const attachmentStaging = createNoteTransferAttachmentStagingRuntime(adapter, { operations });
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -167,6 +169,23 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     }
   });
 
+
+  app.post("/operations/:idempotencyKey/staging/resume", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const result = await attachmentStaging.resume({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(result, result.summary.complete ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   app.get("/operations/:idempotencyKey", async (c) => {
     c.header("Cache-Control", "private, no-store");
     const credentialError = rejectNonInteractiveCredential(c);
@@ -195,7 +214,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
     if (credentialError) return credentialError;
     return c.json(
       {
-        error: "PostgreSQL 笔记转移最终提交尚未迁移，请先使用预检、prepare 和 staging 接口",
+        error: "PostgreSQL 笔记转移最终提交尚未迁移，请先完成预检、prepare、staging 和附件复制",
         code: "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING",
         issue: 249,
       },

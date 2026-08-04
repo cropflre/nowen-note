@@ -38,8 +38,28 @@ export type NoteTransferStagedAttachment = {
   status: "planned" | "copying" | "staged" | "committed" | "failed" | "cleaned";
   attempts: number;
   lastError: string | null;
+  verifiedSize: number | null;
+  verifiedHash: string | null;
+  stagedAt: string | null;
+  leaseExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type NoteTransferStagingClaim = {
+  operationId: string;
+  sourceAttachmentId: string;
+  sourceNoteId: string;
+  targetAttachmentId: string;
+  targetNoteId: string;
+  sourcePath: string;
+  stagedPath: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  hash: string | null;
+  attempts: number;
+  leaseToken: string;
 };
 
 export type PreparedNoteTransferOperation = {
@@ -101,11 +121,22 @@ type ItemRow = {
   status: NoteTransferOperationItem["status"];
 };
 
-type StagedAttachmentRow = Omit<NoteTransferStagedAttachment, "size" | "attempts" | "createdAt" | "updatedAt"> & {
+type StagedAttachmentRow = Omit<
+  NoteTransferStagedAttachment,
+  "size" | "attempts" | "verifiedSize" | "stagedAt" | "leaseExpiresAt" | "createdAt" | "updatedAt"
+> & {
   size: number | string;
   attempts: number | string;
+  verifiedSize: number | string | null;
+  stagedAt: string | Date | null;
+  leaseExpiresAt: string | Date | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+};
+
+type StagingClaimRow = Omit<NoteTransferStagingClaim, "size" | "attempts" | "leaseToken"> & {
+  size: number | string;
+  attempts: number | string;
 };
 
 type SourceAttachmentRow = {
@@ -387,7 +418,8 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
     const stagedAttachments = await db.queryMany<StagedAttachmentRow>(
       `SELECT sourceAttachmentId, sourceNoteId, targetAttachmentId, targetNoteId,
               sourcePath, stagedPath, filename, mimeType, size, hash,
-              status, attempts, lastError, createdAt, updatedAt
+              status, attempts, lastError, verifiedSize, verifiedHash,
+              stagedAt, leaseExpiresAt, createdAt, updatedAt
          FROM note_transfer_staged_attachments
         WHERE operationId = ?
         ORDER BY sourceNoteId, sourceAttachmentId`,
@@ -440,6 +472,12 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         status: attachment.status,
         attempts: toNumber(attachment.attempts),
         lastError: attachment.lastError,
+        verifiedSize: attachment.verifiedSize == null ? null : toNumber(attachment.verifiedSize),
+        verifiedHash: attachment.verifiedHash,
+        stagedAt: attachment.stagedAt == null ? null : toTimestamp(attachment.stagedAt),
+        leaseExpiresAt: attachment.leaseExpiresAt == null
+          ? null
+          : toTimestamp(attachment.leaseExpiresAt),
         createdAt: toTimestamp(attachment.createdAt),
         updatedAt: toTimestamp(attachment.updatedAt),
       })),
@@ -629,6 +667,155 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         );
       }
       return staged;
+    },
+
+    async requeueFailedStagedAttachments(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+      maxAttempts: number;
+    }): Promise<number> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments manifest
+            SET status = 'planned', leaseToken = NULL, leaseExpiresAt = NULL,
+                updatedAt = CURRENT_TIMESTAMP
+           FROM note_transfer_operations operation
+          WHERE manifest.operationId = operation.id
+            AND operation.userId = ? AND operation.idempotencyKey = ?
+            AND operation.status = 'staging'
+            AND manifest.status = 'failed' AND manifest.attempts < ?`,
+        [input.actorUserId, key, input.maxAttempts],
+      );
+      return result.changes;
+    },
+
+    async claimNextStagedAttachment(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+      maxAttempts: number;
+      leaseSeconds: number;
+    }): Promise<NoteTransferStagingClaim | null> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const leaseToken = randomUUID();
+      const row = await db.queryOne<StagingClaimRow>(
+        `WITH candidate AS (
+           SELECT manifest.operationId, manifest.sourceAttachmentId
+             FROM note_transfer_staged_attachments manifest
+             JOIN note_transfer_operations operation
+               ON operation.id = manifest.operationId
+            WHERE operation.userId = ? AND operation.idempotencyKey = ?
+              AND operation.status = 'staging'
+              AND manifest.attempts < ?
+              AND (
+                manifest.status = 'planned'
+                OR (
+                  manifest.status = 'copying'
+                  AND (manifest.leaseExpiresAt IS NULL OR manifest.leaseExpiresAt <= CURRENT_TIMESTAMP)
+                )
+              )
+            ORDER BY manifest.sourceNoteId, manifest.sourceAttachmentId
+            FOR UPDATE OF manifest SKIP LOCKED
+            LIMIT 1
+         )
+         UPDATE note_transfer_staged_attachments manifest
+            SET status = 'copying', attempts = manifest.attempts + 1,
+                leaseToken = ?,
+                leaseExpiresAt = CURRENT_TIMESTAMP + (? * INTERVAL '1 second'),
+                lastError = NULL, updatedAt = CURRENT_TIMESTAMP
+           FROM candidate
+          WHERE manifest.operationId = candidate.operationId
+            AND manifest.sourceAttachmentId = candidate.sourceAttachmentId
+         RETURNING manifest.operationId, manifest.sourceAttachmentId,
+                   manifest.sourceNoteId, manifest.targetAttachmentId,
+                   manifest.targetNoteId, manifest.sourcePath, manifest.stagedPath,
+                   manifest.filename, manifest.mimeType, manifest.size, manifest.hash,
+                   manifest.attempts`,
+        [
+          input.actorUserId,
+          key,
+          input.maxAttempts,
+          leaseToken,
+          Math.max(30, input.leaseSeconds),
+        ],
+      );
+      if (!row) return null;
+      return {
+        operationId: row.operationId,
+        sourceAttachmentId: row.sourceAttachmentId,
+        sourceNoteId: row.sourceNoteId,
+        targetAttachmentId: row.targetAttachmentId,
+        targetNoteId: row.targetNoteId,
+        sourcePath: row.sourcePath,
+        stagedPath: row.stagedPath,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        size: toNumber(row.size),
+        hash: row.hash,
+        attempts: toNumber(row.attempts),
+        leaseToken,
+      };
+    },
+
+    async markStagedAttachmentComplete(input: {
+      operationId: string;
+      sourceAttachmentId: string;
+      leaseToken: string;
+      verifiedSize: number;
+      verifiedHash: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments
+            SET status = 'staged', verifiedSize = ?, verifiedHash = ?,
+                stagedAt = CURRENT_TIMESTAMP, leaseToken = NULL, leaseExpiresAt = NULL,
+                lastError = NULL, updatedAt = CURRENT_TIMESTAMP
+          WHERE operationId = ? AND sourceAttachmentId = ?
+            AND status = 'copying' AND leaseToken = ?`,
+        [
+          input.verifiedSize,
+          input.verifiedHash,
+          input.operationId,
+          input.sourceAttachmentId,
+          input.leaseToken,
+        ],
+      );
+      if (result.changes !== 1) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_STAGING_LEASE_LOST",
+          "附件 staging 租约已失效，请重新恢复操作",
+          409,
+          { operationId: input.operationId, sourceAttachmentId: input.sourceAttachmentId },
+        );
+      }
+    },
+
+    async markStagedAttachmentFailed(input: {
+      operationId: string;
+      sourceAttachmentId: string;
+      leaseToken: string;
+      error: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments
+            SET status = 'failed', lastError = ?,
+                leaseToken = NULL, leaseExpiresAt = NULL,
+                updatedAt = CURRENT_TIMESTAMP
+          WHERE operationId = ? AND sourceAttachmentId = ?
+            AND status = 'copying' AND leaseToken = ?`,
+        [
+          input.error.slice(0, 2000),
+          input.operationId,
+          input.sourceAttachmentId,
+          input.leaseToken,
+        ],
+      );
+      if (result.changes !== 1) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_STAGING_LEASE_LOST",
+          "附件 staging 租约已失效，请重新恢复操作",
+          409,
+          { operationId: input.operationId, sourceAttachmentId: input.sourceAttachmentId },
+        );
+      }
     },
 
     async prepareOperation(input: {

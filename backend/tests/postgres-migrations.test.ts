@@ -33,6 +33,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0015_knowledge_tree_read_runtime",
     "0016_note_transfer_operations",
     "0017_note_transfer_staging_manifest",
+    "0018_note_transfer_attachment_staging_runtime",
   ]);
 
   const stateTable = await pool.query(
@@ -203,7 +204,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
             to_regclass('public.idx_note_transfer_operations_status_expiry') AS status_expiry,
             to_regclass('public.idx_note_transfer_items_source') AS item_source,
             to_regclass('public.idx_note_transfer_staged_attachments_operation_status') AS staged_status,
-            to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source`,
+            to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source,
+            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease`,
   );
   assert.equal(
     transferIndexes.rows[0].user_time,
@@ -224,6 +226,23 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   assert.equal(
     transferIndexes.rows[0].staged_source,
     "idx_note_transfer_staged_attachments_source_note",
+  );
+  assert.equal(
+    transferIndexes.rows[0].staged_lease,
+    "idx_note_transfer_staged_attachments_lease",
+  );
+
+  const stagingColumns = await pool.query(`
+    SELECT column_name
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'note_transfer_staged_attachments'
+       AND column_name IN ('leaseToken', 'leaseExpiresAt', 'verifiedSize', 'verifiedHash', 'stagedAt')
+     ORDER BY column_name
+  `);
+  assert.deepEqual(
+    stagingColumns.rows.map((row) => row.column_name),
+    ["leaseExpiresAt", "leaseToken", "stagedAt", "verifiedHash", "verifiedSize"],
   );
 
   const second = await runPostgresMigrations(adapter);
