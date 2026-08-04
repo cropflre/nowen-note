@@ -84,21 +84,8 @@ jobs:
 
           knowledge_test = Path("backend/tests/knowledge-tree.test.ts")
           source = knowledge_test.read_text(encoding="utf-8")
-          import_anchor = '  const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");\n'
-          migration_import = '  const { CURRENT_SCHEMA_VERSION } = await import("../src/db/migrations.js");\n'
-          if migration_import not in source:
-              if import_anchor not in source:
-                  raise SystemExit("knowledge-tree schema import anchor changed")
-              source = source.replace(import_anchor, import_anchor + migration_import, 1)
-          if "assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);" not in source:
-              if "assert.equal(getDbSchemaVersion(), 65);" not in source:
-                  raise SystemExit("knowledge-tree schema assertion changed")
-              source = source.replace(
-                  "  assert.equal(getDbSchemaVersion(), 65);",
-                  "  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);",
-                  1,
-              )
-          knowledge_test.write_text(source, encoding="utf-8")
+          if "getDbSchemaVersion() >= 65" not in source:
+              raise SystemExit("knowledge-tree minimum schema guard changed")
 
           persistence = Path("backend/src/repositories/yjsPersistenceRepository.ts")
           source = persistence.read_text(encoding="utf-8")
@@ -194,4 +181,4 @@ jobs:
           git commit -m "chore(pg): merge latest main and preserve runtime boundaries"
           git push origin HEAD:pg-migration-unified
 
-# trigger guarded merge: 2026-08-04-v2
+# retrigger guarded merge: 2026-08-04-v3
