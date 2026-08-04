@@ -2,6 +2,7 @@ import React from "react";
 
 import SharedNoteCommentIdentityRuntime from "./SharedNoteCommentIdentityRuntime";
 import { api } from "@/lib/api";
+import { normalizeShareCommentTimestamp } from "@/lib/shareCommentTime";
 import type { ShareComment } from "@/types";
 
 const COMMENT_DISPLAY_STATE_KEY = "__nowenSharedCommentDisplayRuntime__" as const;
@@ -34,15 +35,28 @@ function getCommentDisplayRuntimeState(): CommentDisplayRuntimeState {
  * returns anonymous visitor identity through `displayName` / `guestName`. Project the public
  * identity into the legacy field at the runtime boundary so both existing and newly-added
  * comments render the nickname without changing the management-side comment contract.
+ *
+ * The same boundary also canonicalizes SQLite's timezone-less UTC `createdAt` value to an
+ * explicit ISO timestamp, so all existing SharedNoteView date rendering uses the viewer's
+ * local timezone correctly.
  */
 export function normalizeSharedCommentDisplayName(comment: ShareComment): ShareComment {
-  const displayName = [comment.displayName, comment.guestName, comment.username]
+  const normalizedComment = normalizeShareCommentTimestamp(comment);
+  const displayName = [
+    normalizedComment.displayName,
+    normalizedComment.guestName,
+    normalizedComment.username,
+  ]
     .find((value) => typeof value === "string" && value.trim())
     ?.trim() || "匿名";
 
-  if (comment.username === displayName && comment.displayName === displayName) return comment;
+  if (
+    normalizedComment.username === displayName &&
+    normalizedComment.displayName === displayName
+  ) return normalizedComment;
+
   return {
-    ...comment,
+    ...normalizedComment,
     username: displayName,
     displayName,
   };
