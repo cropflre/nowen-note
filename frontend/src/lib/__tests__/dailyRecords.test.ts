@@ -60,7 +60,13 @@ describe("daily journal preview", () => {
     expect(extractJournalPreview(content)).toBe("今日复盘\n修复了日期导航。");
   });
 
+  it("compacts repeated paragraph gaps from contentText", () => {
+    expect(extractJournalPreview("", "第一段\n\n\n第二段\n \n第三段")).toBe(
+      "第一段\n第二段\n第三段",
+    );
+  });
+
   it("normalizes markdown and truncates long content", () => {
-    expect(extractJournalPreview("# 标题\n\n**正文**", "", 5)).toBe("标题\n\n正…");
+    expect(extractJournalPreview("# 标题\n\n**正文**", "", 4)).toBe("标题\n正…");
   });
 });
