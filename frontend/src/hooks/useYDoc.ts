@@ -81,12 +81,17 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
     const provider = new NowenYjsProvider(noteId, user, doc);
     currentRef.current = { doc, provider };
 
+    const currentStatus = provider.getStatus();
+    const initialSynced = currentStatus === "synced";
     const initialDurability = provider.getDurabilityState();
+    // Imported Markdown already has a reliable REST payload. Do not expose a half-initialized
+    // Y.Doc to CodeMirror: an empty Y.Text bound before server + IndexedDB recovery completes can
+    // replace the visible note with an empty collaborative update.
     setState({
-      doc,
+      doc: initialSynced ? doc : null,
       provider,
-      status: provider.getStatus(),
-      synced: provider.getStatus() === "synced",
+      status: currentStatus,
+      synced: initialSynced,
       durability: initialDurability,
     });
 
@@ -127,7 +132,9 @@ export function useYDoc({ noteId, user, enabled }: UseYDocOptions): UseYDocResul
     });
     const offSynced = provider.on("synced", () => {
       setState((prev) =>
-        prev.provider === provider ? { ...prev, synced: true } : prev,
+        prev.provider === provider
+          ? { ...prev, doc, status: "synced", synced: true }
+          : prev,
       );
     });
     const offDurability = provider.on("durability", applyDurability);

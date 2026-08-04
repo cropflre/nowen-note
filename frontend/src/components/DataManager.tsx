@@ -93,6 +93,16 @@ function readImportFormat(
   }
 }
 
+function hasPersistedImportFormat(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "markdown" || value === "tiptap-json";
+  } catch {
+    return false;
+  }
+}
+
 function persistImportFormat(key: string, value: ImportTargetContentFormat): void {
   if (typeof window === "undefined") return;
   try { window.localStorage.setItem(key, value); } catch { /* storage may be disabled */ }
@@ -431,8 +441,22 @@ export default function DataManager() {
   const [genericImportContentFormat, setGenericImportContentFormat] = useState<ImportTargetContentFormat>(
     () => readImportFormat(IMPORT_FORMAT_STORAGE.generic, "markdown"),
   );
+  // A persisted choice and an explicit click are authoritative. Package inspection may only
+  // recommend a default before the user has selected a format.
+  const siyuanImportFormatUserSelectedRef = useRef(
+    hasPersistedImportFormat(IMPORT_FORMAT_STORAGE.siyuan),
+  );
   const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>(() => readImportMethod());
   const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
+  const selectSiyuanImportContentFormat = useCallback((format: ImportTargetContentFormat) => {
+    siyuanImportFormatUserSelectedRef.current = true;
+    setSiyuanImportContentFormat(format);
+  }, []);
+  const recommendSiyuanImportContentFormat = useCallback((format: ImportTargetContentFormat) => {
+    if (siyuanImportFormatUserSelectedRef.current) return;
+    setSiyuanImportContentFormat(format);
+  }, []);
+
   useEffect(() => persistImportMethod(activeImportMethod), [activeImportMethod]);
   useEffect(
     () => persistImportFormat(IMPORT_FORMAT_STORAGE.siyuan, siyuanImportContentFormat),
@@ -617,7 +641,7 @@ export default function DataManager() {
         const isSiyuanSyZip = lowerZipName.endsWith(".sy.zip");
         if (activeImportMethod === "siyuan" && isSiyuanSyZip) {
           // .sy 是结构化块数据，富文本能保留更多结构，按来源切换推荐默认值。
-          setSiyuanImportContentFormat("tiptap-json");
+          recommendSiyuanImportContentFormat("tiptap-json");
           setServerSiyuanFile(zipFile);
           result = [{
             name: zipFile.name,
@@ -645,7 +669,7 @@ export default function DataManager() {
         result = r.files;
         if (activeImportMethod === "siyuan") {
           // 思源 Markdown ZIP 的来源已经是 Markdown，默认原样保留。
-          setSiyuanImportContentFormat("markdown");
+          recommendSiyuanImportContentFormat("markdown");
         }
         setHasZip(true);
         // zip 由其内部目录/zip 文件名派生笔记本，关闭 per-file
@@ -670,7 +694,7 @@ export default function DataManager() {
       } else {
         result = await readMarkdownFiles(files);
         if (activeImportMethod === "siyuan") {
-          setSiyuanImportContentFormat("markdown");
+          recommendSiyuanImportContentFormat("markdown");
         }
         setHasZip(false);
         setZipMetaHint(null);
@@ -1427,7 +1451,7 @@ export default function DataManager() {
                           <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
                             <button
                               type="button"
-                              onClick={() => setSiyuanImportContentFormat("tiptap-json")}
+                              onClick={() => selectSiyuanImportContentFormat("tiptap-json")}
                               className={`px-3 py-1.5 text-xs font-medium transition-colors ${siyuanImportContentFormat === "tiptap-json"
                                 ? "bg-emerald-600 text-white"
                                 : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -1437,7 +1461,7 @@ export default function DataManager() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setSiyuanImportContentFormat("markdown")}
+                              onClick={() => selectSiyuanImportContentFormat("markdown")}
                               className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 ${siyuanImportContentFormat === "markdown"
                                 ? "bg-emerald-600 text-white"
                                 : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
