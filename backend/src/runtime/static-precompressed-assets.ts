@@ -10,6 +10,9 @@ import {
 } from "../lib/static-asset-response.js";
 
 const INSTALL_KEY = "__nowenStaticPrecompressedAssetsInstalled__" as const;
+const ROUTER_STORAGE = Symbol.for("nowen.staticPrecompressedAssets.router");
+const ROUTER_PATCHED = Symbol.for("nowen.staticPrecompressedAssets.routerPatched");
+const MIDDLEWARE_INSTALLED = Symbol.for("nowen.staticPrecompressedAssets.middlewareInstalled");
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css",
@@ -69,15 +72,12 @@ async function tryServePrecompressedAsset(c: any): Promise<Response | null> {
   const representationPath = encoding === "br" ? brPath : gzipPath;
   const stat = await fs.promises.stat(representationPath);
   const headers = createStaticAssetHeaders(c.req.path, sourcePath, stat);
-  // ETags must identify the selected representation, not only the source filename.
+  // ETags identify the selected representation, not only the source filename.
   headers.ETag = headers.ETag.replace(/"$/, `-${encoding}"`);
 
   for (const [name, value] of Object.entries(headers)) c.header(name, value);
   c.header("Content-Encoding", encoding);
-  c.header(
-    "Vary",
-    mergeVaryHeader(c.res?.headers?.get?.("Vary"), "Accept-Encoding"),
-  );
+  c.header("Vary", mergeVaryHeader(c.res?.headers?.get?.("Vary"), "Accept-Encoding"));
 
   if (isStaticAssetNotModified(c.req.raw.headers, headers)) {
     return c.body(null, 304);
@@ -88,6 +88,48 @@ async function tryServePrecompressedAsset(c: any): Promise<Response | null> {
   return c.body(content, 200, { "Content-Type": contentType });
 }
 
+async function precompressedAssetMiddleware(c: any, next: () => Promise<void>) {
+  if (
+    process.env.NODE_ENV === "production"
+    && !c.req.path.startsWith("/api")
+    && (c.req.method === "GET" || c.req.method === "HEAD")
+  ) {
+    const response = await tryServePrecompressedAsset(c);
+    if (response) return response;
+  }
+  await next();
+}
+
+function middlewareFromRoutePayload(payload: any): Function | null {
+  if (!Array.isArray(payload)) return null;
+  const candidate = payload[0];
+  return typeof candidate === "function" ? candidate : null;
+}
+
+function patchRouter(router: any): void {
+  if (!router || typeof router.add !== "function" || router[ROUTER_PATCHED]) return;
+  router[ROUTER_PATCHED] = true;
+
+  const originalAdd = router.add.bind(router);
+  router.add = (method: string, routePath: string, payload: any) => {
+    const handler = middlewareFromRoutePayload(payload);
+    // Hono defines get/use as instance functions, so patching Hono.prototype.get cannot intercept
+    // route registration. Insert our route at the router boundary immediately before Hono's named
+    // `compress` middleware is registered. This preserves logger/CORS before us and guarantees an
+    // already-Brotli response never enters gzip compression.
+    if (!router[MIDDLEWARE_INSTALLED] && handler?.name === "compress") {
+      router[MIDDLEWARE_INSTALLED] = true;
+      const route = {
+        path: "*",
+        method: "ALL",
+        handler: precompressedAssetMiddleware,
+      };
+      originalAdd("ALL", "*", [precompressedAssetMiddleware, route]);
+    }
+    return originalAdd(method, routePath, payload);
+  };
+}
+
 export function installStaticPrecompressedAssetRuntime(): void {
   const globalState = globalThis as typeof globalThis & {
     __nowenStaticPrecompressedAssetsInstalled__?: boolean;
@@ -95,26 +137,20 @@ export function installStaticPrecompressedAssetRuntime(): void {
   if (globalState[INSTALL_KEY]) return;
   globalState[INSTALL_KEY] = true;
 
-  const originalGet = Hono.prototype.get as any;
-  (Hono.prototype as any).get = function patchedGet(...args: any[]) {
-    const [routePath, ...handlers] = args;
-    if (routePath !== "*" || handlers.length !== 1 || typeof handlers[0] !== "function") {
-      return originalGet.apply(this, args);
-    }
-
-    const originalHandler = handlers[0];
-    return originalGet.call(this, routePath, async (c: any, next: any) => {
-      if (
-        process.env.NODE_ENV === "production"
-        && !c.req.path.startsWith("/api")
-        && (c.req.method === "GET" || c.req.method === "HEAD")
-      ) {
-        const response = await tryServePrecompressedAsset(c);
-        if (response) return response;
-      }
-      return originalHandler(c, next);
-    });
-  };
+  const prototype = Hono.prototype as any;
+  const previous = Object.getOwnPropertyDescriptor(prototype, "router");
+  Object.defineProperty(prototype, "router", {
+    configurable: true,
+    enumerable: previous?.enumerable ?? true,
+    get() {
+      return previous?.get ? previous.get.call(this) : this[ROUTER_STORAGE];
+    },
+    set(value: any) {
+      if (previous?.set) previous.set.call(this, value);
+      else this[ROUTER_STORAGE] = value;
+      patchRouter(value);
+    },
+  });
 }
 
 installStaticPrecompressedAssetRuntime();
