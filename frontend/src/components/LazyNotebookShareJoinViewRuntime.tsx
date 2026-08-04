@@ -2,12 +2,15 @@ import React, { Suspense } from "react";
 import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
 
 const LazyNotebookShareJoinView = React.lazy(() => import("./NotebookShareJoinView"));
-type Props = React.ComponentProps<(typeof import("./NotebookShareJoinView"))["default"]>;
 
-export default function LazyNotebookShareJoinViewRuntime(props: Props) {
+interface LazyNotebookShareJoinViewRuntimeProps {
+  token: string;
+}
+
+export default function LazyNotebookShareJoinViewRuntime({ token }: LazyNotebookShareJoinViewRuntimeProps) {
   return (
     <Suspense fallback={<LazyWorkspaceFallback label="正在加载共享笔记本…" />}>
-      <LazyNotebookShareJoinView {...props} />
+      <LazyNotebookShareJoinView token={token} />
     </Suspense>
   );
 }
