@@ -82,17 +82,39 @@ jobs:
       - name: Apply implementation
         run: python3 backend/scripts/implement-note-transfer-effects-20260804.py
 
-      - name: Fix generated repository optional row type
+      - name: Harden generated effects runtime
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path("backend/src/repositories/noteTransferEffectsRepository.ts")
-          content = path.read_text(encoding="utf-8")
-          old = "    return mapClaim(row, leaseToken);"
-          new = "    return mapClaim(row ?? null, leaseToken);"
-          if content.count(old) != 1:
+
+          repository_path = Path("backend/src/repositories/noteTransferEffectsRepository.ts")
+          repository = repository_path.read_text(encoding="utf-8")
+          old_mapper = "    return mapClaim(row, leaseToken);"
+          new_mapper = "    return mapClaim(row ?? null, leaseToken);"
+          if repository.count(old_mapper) != 1:
               raise RuntimeError("unexpected noteTransferEffectsRepository claim mapper")
-          path.write_text(content.replace(old, new, 1), encoding="utf-8")
+          repository_path.write_text(repository.replace(old_mapper, new_mapper, 1), encoding="utf-8")
+
+          runtime_path = Path("backend/src/services/note-transfer-effects-runtime.ts")
+          runtime = runtime_path.read_text(encoding="utf-8")
+          old_loop = '''    await repository.assertCompleted(input);
+    const counters = { attempted: 0, completedThisRun: 0, failedThisRun: 0 };
+    const worker = async () => {
+      while (true) {
+        const claim = await repository.claimNextForOperation({
+'''
+          new_loop = '''    await repository.assertCompleted(input);
+    const initial = await repository.summarize({ ...input, maxAttempts });
+    let remaining = Math.max(0, initial.total - initial.completed - initial.exhausted);
+    const counters = { attempted: 0, completedThisRun: 0, failedThisRun: 0 };
+    const worker = async () => {
+      while (remaining > 0) {
+        remaining -= 1;
+        const claim = await repository.claimNextForOperation({
+'''
+          if runtime.count(old_loop) != 1:
+              raise RuntimeError("unexpected note-transfer effects resume worker")
+          runtime_path.write_text(runtime.replace(old_loop, new_loop, 1), encoding="utf-8")
           PY
 
       - name: Install backend dependencies
