@@ -51,6 +51,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 backend/scripts/implement-note-transfer-staging-20260804.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          preview_repository = Path("backend/src/repositories/noteTransferPreviewRepository.ts")
+          source = preview_repository.read_text(encoding="utf-8")
+          old = "          ORDER BY lower(tag.name), tag.id`,"
+          new = "          ORDER BY tag.name, tag.id`,"
+          if old not in source and new not in source:
+              raise SystemExit("note-transfer tag ordering anchor changed")
+          preview_repository.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          runtime_test = Path("backend/tests/note-transfer-preview-runtime-pg.test.ts")
+          source = runtime_test.read_text(encoding="utf-8")
+          old = "    await closePgPool();"
+          new = "    await closePgPool(pool);"
+          if old not in source and new not in source:
+              raise SystemExit("note-transfer PostgreSQL pool cleanup anchor changed")
+          runtime_test.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
 
       - name: Install backend dependencies
         working-directory: backend
@@ -87,4 +106,4 @@ jobs:
           git commit -m "feat(pg): add recoverable note-transfer staging manifest"
           git push origin HEAD:pg-migration-unified
 
-# trigger: 2026-08-04
+# synchronized trigger definition: 2026-08-04
