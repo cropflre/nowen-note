@@ -6,6 +6,7 @@ import { normalizeShareCommentTimestamp } from "@/lib/shareCommentTime";
 import type { ShareComment } from "@/types";
 
 const COMMENT_DISPLAY_STATE_KEY = "__nowenSharedCommentDisplayRuntime__" as const;
+const COMMENT_DISPLAY_RUNTIME_VERSION = 2;
 
 type GetSharedComments = typeof api.getSharedComments;
 type AddSharedComment = typeof api.addSharedComment;
@@ -64,7 +65,7 @@ export function normalizeSharedCommentDisplayName(comment: ShareComment): ShareC
 
 function installCommentDisplayBridge(): void {
   const state = getCommentDisplayRuntimeState();
-  if (state.version >= 1) return;
+  if (state.version >= COMMENT_DISPLAY_RUNTIME_VERSION) return;
 
   state.nativeGetSharedComments = state.nativeGetSharedComments || api.getSharedComments.bind(api);
   state.nativeAddSharedComment = state.nativeAddSharedComment || api.addSharedComment.bind(api);
@@ -82,7 +83,7 @@ function installCommentDisplayBridge(): void {
     return normalizeSharedCommentDisplayName(comment);
   };
 
-  state.version = 1;
+  state.version = COMMENT_DISPLAY_RUNTIME_VERSION;
 }
 
 installCommentDisplayBridge();
