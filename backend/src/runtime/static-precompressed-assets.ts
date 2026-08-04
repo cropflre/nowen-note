@@ -104,10 +104,10 @@ async function precompressedAssetMiddleware(c: any, next: () => Promise<void>) {
  * has already supplied Content-Encoding, so a .br representation cannot be gzip-compressed again.
  */
 export function installPrecompressedAssetMiddleware(app: Hono<any>): void {
-  const runtimeApp = app as Hono<any> & { [APP_MIDDLEWARE_KEY]?: boolean };
+  const runtimeApp = app as any;
   if (runtimeApp[APP_MIDDLEWARE_KEY]) return;
   runtimeApp[APP_MIDDLEWARE_KEY] = true;
-  runtimeApp.use("*", precompressedAssetMiddleware as any);
+  runtimeApp.use("*", precompressedAssetMiddleware);
 }
 
 export function installStaticPrecompressedAssetRuntime(): void {
