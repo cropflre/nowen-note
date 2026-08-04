@@ -43,14 +43,18 @@ jobs:
         working-directory: frontend
         run: npx tsc -b --pretty false
 
-      - name: Commit validated fix and remove temporary files
+      - name: Commit validated source fix
         shell: bash
         run: |
+          git checkout -- .github/workflows/import-format-ci.yml
+          git checkout -- .github/workflows/issue-612-data-protection-ci.yml
           rm scripts/apply-imported-markdown-fix.py
-          rm .github/workflows/temporary-imported-markdown-fix.yml
-          rm .github/workflows/temporary-imported-markdown-pr-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add frontend/src/hooks/useYDoc.ts
+          git add frontend/src/components/DataManager.tsx
+          git add frontend/src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts
+          git add frontend/src/components/__tests__/DataManagerImportFormatSelection.test.ts
+          git add scripts/apply-imported-markdown-fix.py
           git commit -m "fix(import): preserve imported Markdown content and format choice"
           git push origin "HEAD:${GITHUB_HEAD_REF}"
