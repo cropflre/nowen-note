@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: pg-note-transfer-effects-command-20260804
+  group: pg-note-transfer-effects-command-20260804-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
