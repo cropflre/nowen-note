@@ -14,9 +14,9 @@ const useYDocSource = readFileSync(
 describe("EditorPane native Markdown collaboration", () => {
   it("keeps normal saves active until the CRDT document has synced", () => {
     expect(useYDocSource).toContain(
-      "setState({ doc: null, provider, status: provider.getStatus(), synced: false });",
+      "doc: initialSynced ? doc : null",
     );
-    expect(useYDocSource).toContain("{ ...prev, doc, synced: true }");
+    expect(useYDocSource).toContain('{ ...prev, doc, status: "synced", synced: true }');
 
     const start = editorPaneSource.indexOf('activeNote.contentFormat === "markdown"');
     const end = editorPaneSource.indexOf(") : htmlPreviewMode", start);
