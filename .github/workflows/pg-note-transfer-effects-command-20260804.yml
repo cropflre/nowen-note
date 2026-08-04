@@ -5,7 +5,7 @@ on:
     branches:
       - pg-migration-unified
     paths:
-      - "backend/scripts/.effects-command.gz.b64"
+      - "backend/scripts/.effects-command.gz.b64.part-*"
       - ".github/workflows/pg-note-transfer-effects-command-20260804.yml"
   pull_request:
     branches:
@@ -53,7 +53,9 @@ jobs:
 
       - name: Decode implementation command
         run: |
-          base64 -d backend/scripts/.effects-command.gz.b64 | gunzip > backend/scripts/implement-note-transfer-effects-20260804.py
+          cat backend/scripts/.effects-command.gz.b64.part-* | base64 -d > /tmp/note-transfer-effects-command.gz
+          gzip -t /tmp/note-transfer-effects-command.gz
+          gunzip -c /tmp/note-transfer-effects-command.gz > backend/scripts/implement-note-transfer-effects-20260804.py
           python3 -m py_compile backend/scripts/implement-note-transfer-effects-20260804.py
 
       - uses: actions/setup-node@v4
@@ -95,7 +97,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f backend/scripts/.effects-command.gz.b64 backend/scripts/.effects-command-part-00 .github/workflows/pg-note-transfer-effects-command-20260804.yml
+          git rm -f backend/scripts/.effects-command.gz.b64 backend/scripts/.effects-command.gz.b64.part-* backend/scripts/.effects-command-part-00 .github/workflows/pg-note-transfer-effects-command-20260804.yml
           git add backend/src backend/tests .github/workflows/pg-note-transfer-effects.yml
           git commit -m "feat(pg): add durable note transfer effects outbox"
           git push origin HEAD:pg-migration-unified
