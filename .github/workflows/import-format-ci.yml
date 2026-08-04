@@ -11,6 +11,7 @@ on:
       - "frontend/src/lib/obsidianImportService.ts"
       - "frontend/src/lib/__tests__/importServiceSiyuanMarkdown.test.ts"
       - "frontend/src/lib/__tests__/obsidianImportFormat.test.ts"
+      - "frontend/src/components/__tests__/DataManagerImportFormatSelection.test.ts"
       - ".github/workflows/import-format-ci.yml"
   push:
     branches: [main]
@@ -23,6 +24,7 @@ on:
       - "frontend/src/lib/obsidianImportService.ts"
       - "frontend/src/lib/__tests__/importServiceSiyuanMarkdown.test.ts"
       - "frontend/src/lib/__tests__/obsidianImportFormat.test.ts"
+      - "frontend/src/components/__tests__/DataManagerImportFormatSelection.test.ts"
       - ".github/workflows/import-format-ci.yml"
 
 permissions:
@@ -44,7 +46,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Import format regression tests
-        run: npm run test:run -- src/lib/__tests__/importServiceSiyuanMarkdown.test.ts src/lib/__tests__/obsidianImportFormat.test.ts
+        run: npm run test:run -- src/lib/__tests__/importServiceSiyuanMarkdown.test.ts src/lib/__tests__/obsidianImportFormat.test.ts src/components/__tests__/DataManagerImportFormatSelection.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
