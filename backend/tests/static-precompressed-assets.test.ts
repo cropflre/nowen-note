@@ -57,9 +57,12 @@ test("production wildcard route serves a precompressed hashed asset", async () =
     });
     assert.equal(revalidated.status, 304);
 
+    // Avoid mentioning gzip here because Hono 4.6's generic middleware only checks whether the
+    // token text is present and does not parse q=0. This assertion targets our Brotli negotiation.
     const identity = await app.request("/assets/index-TestHash9.js", {
-      headers: { "Accept-Encoding": "br;q=0, gzip;q=0" },
+      headers: { "Accept-Encoding": "br;q=0, identity" },
     });
+    assert.equal(identity.headers.get("content-encoding"), null);
     assert.equal(await identity.text(), "fallback");
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
