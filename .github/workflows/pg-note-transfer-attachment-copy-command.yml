@@ -88,3 +88,5 @@ jobs:
           git add -A
           git commit -m "feat(pg): add recoverable physical attachment staging"
           git push origin HEAD:pg-migration-unified
+
+# trigger guarded run: 2026-08-04
