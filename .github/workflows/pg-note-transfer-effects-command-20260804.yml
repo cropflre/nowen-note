@@ -82,6 +82,19 @@ jobs:
       - name: Apply implementation
         run: python3 backend/scripts/implement-note-transfer-effects-20260804.py
 
+      - name: Fix generated repository optional row type
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/repositories/noteTransferEffectsRepository.ts")
+          content = path.read_text(encoding="utf-8")
+          old = "    return mapClaim(row, leaseToken);"
+          new = "    return mapClaim(row ?? null, leaseToken);"
+          if content.count(old) != 1:
+              raise RuntimeError("unexpected noteTransferEffectsRepository claim mapper")
+          path.write_text(content.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
