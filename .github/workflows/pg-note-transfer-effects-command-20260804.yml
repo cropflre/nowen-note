@@ -56,6 +56,21 @@ jobs:
           cat backend/scripts/.effects-command.gz.b64.part-* | base64 -d > /tmp/note-transfer-effects-command.gz
           gzip -t /tmp/note-transfer-effects-command.gz
           gunzip -c /tmp/note-transfer-effects-command.gz > backend/scripts/implement-note-transfer-effects-20260804.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("backend/scripts/implement-note-transfer-effects-20260804.py")
+          content = path.read_text(encoding="utf-8")
+          old_anchor = "'''            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease`,'''"
+          current_anchor = "'''            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,\\n            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease`,'''"
+          old_output = "'''            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,\\n            to_regclass('public.idx_note_transfer_effect_outbox_claim') AS effect_claim,\\n            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation`,'''"
+          current_output = "'''            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,\\n            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease,\\n            to_regclass('public.idx_note_transfer_effect_outbox_claim') AS effect_claim,\\n            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation`,'''"
+          if content.count(old_anchor) != 1 or content.count(old_output) != 1:
+              raise RuntimeError("unexpected effects command migration-test anchor")
+          path.write_text(
+              content.replace(old_anchor, current_anchor, 1).replace(old_output, current_output, 1),
+              encoding="utf-8",
+          )
+          PY
           python3 -m py_compile backend/scripts/implement-note-transfer-effects-20260804.py
 
       - uses: actions/setup-node@v4
