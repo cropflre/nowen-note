@@ -193,3 +193,5 @@ jobs:
           git add -A
           git commit -m "chore(pg): merge latest main and preserve runtime boundaries"
           git push origin HEAD:pg-migration-unified
+
+# trigger guarded merge: 2026-08-04-v2
