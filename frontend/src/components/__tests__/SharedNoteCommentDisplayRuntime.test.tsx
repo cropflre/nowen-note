@@ -2,6 +2,7 @@
 
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeShareCommentTimestamp } from "@/lib/shareCommentTime";
 import type { ShareComment } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -51,12 +52,13 @@ describe("SharedNoteCommentDisplayRuntime", () => {
     mocks.addSharedComment.mockReset();
   });
 
-  it("projects displayName into username for existing public comments", async () => {
+  it("projects displayName into username and normalizes existing SQLite UTC timestamps", async () => {
     mocks.getSharedComments.mockResolvedValue([
       {
         ...BASE_COMMENT,
         guestName: "访客甲",
         displayName: "访客甲",
+        createdAt: "2026-08-04 05:00:00",
       },
     ]);
 
@@ -64,13 +66,15 @@ describe("SharedNoteCommentDisplayRuntime", () => {
 
     expect(comments[0].username).toBe("访客甲");
     expect(comments[0].displayName).toBe("访客甲");
+    expect(comments[0].createdAt).toBe("2026-08-04T05:00:00.000Z");
   });
 
-  it("projects the nickname immediately after an anonymous comment is added", async () => {
+  it("projects the nickname and timestamp immediately after an anonymous comment is added", async () => {
     mocks.addSharedComment.mockResolvedValue({
       ...BASE_COMMENT,
       guestName: "访客乙",
       displayName: "访客乙",
+      createdAt: "2026-08-04 05:00:00",
     });
 
     const comment = await api.addSharedComment(
@@ -80,6 +84,7 @@ describe("SharedNoteCommentDisplayRuntime", () => {
 
     expect(comment.username).toBe("访客乙");
     expect(comment.displayName).toBe("访客乙");
+    expect(comment.createdAt).toBe("2026-08-04T05:00:00.000Z");
   });
 
   it("falls back from displayName to guestName and finally 匿名", () => {
@@ -88,6 +93,16 @@ describe("SharedNoteCommentDisplayRuntime", () => {
       guestName: " 小王 ",
     }).username).toBe("小王");
     expect(normalizeSharedCommentDisplayName(BASE_COMMENT).username).toBe("匿名");
+  });
+
+  it("preserves invalid timestamps instead of replacing them with the current time", () => {
+    const comment = {
+      ...BASE_COMMENT,
+      createdAt: "invalid-time",
+    };
+
+    expect(normalizeShareCommentTimestamp(comment)).toBe(comment);
+    expect(normalizeShareCommentTimestamp(comment).createdAt).toBe("invalid-time");
   });
 
   it("keeps the identity runtime mounted", () => {
