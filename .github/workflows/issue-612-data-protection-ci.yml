@@ -21,6 +21,7 @@ on:
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/yjsDurability.ts"
@@ -54,6 +55,7 @@ on:
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/yjsDurability.ts"
@@ -112,6 +114,7 @@ jobs:
         run: >-
           npm run test:run --
           src/lib/__tests__/yjsDurability.test.ts
+          src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts
           src/lib/__tests__/draftStorage.conflict.test.ts
           src/lib/__tests__/editorLifecycleSafety.test.ts
           src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts
