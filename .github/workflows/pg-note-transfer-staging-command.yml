@@ -86,3 +86,5 @@ jobs:
           git add -A
           git commit -m "feat(pg): add recoverable note-transfer staging manifest"
           git push origin HEAD:pg-migration-unified
+
+# trigger: 2026-08-04
