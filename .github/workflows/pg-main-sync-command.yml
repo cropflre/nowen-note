@@ -9,30 +9,175 @@ permissions:
   contents: write
 
 jobs:
-  diagnose-main-merge:
+  sync-main:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           ref: pg-migration-unified
           fetch-depth: 0
-      - name: Diagnose latest main merge
+      - name: Merge latest main and preserve PostgreSQL boundaries
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
+
           set +e
           git merge --no-commit --no-ff origin/main
           merge_status=$?
           set -e
-          echo "MERGE_STATUS=${merge_status}"
-          echo "CONFLICTS_BEGIN"
-          git diff --name-only --diff-filter=U | sort
-          echo "CONFLICTS_END"
-          git merge --abort || true
-          if [ "${merge_status}" -ne 0 ]; then
+
+          conflicts="$(git diff --name-only --diff-filter=U | sort)"
+          expected=$'backend/src/services/realtime.ts\nbackend/tests/knowledge-tree.test.ts'
+          if [ "${merge_status}" -ne 0 ] && [ "${conflicts}" != "${expected}" ]; then
+            echo "Unexpected merge conflicts:"
+            printf '%s\n' "${conflicts}"
             exit 1
           fi
+
+          git checkout --theirs backend/src/services/realtime.ts
+          git checkout --ours backend/tests/knowledge-tree.test.ts
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          realtime = Path("backend/src/services/realtime.ts")
+          source = realtime.read_text(encoding="utf-8")
+          source = source.replace(
+              'import { getDb } from "../db/schema";\n',
+              'import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";\n',
+              1,
+          )
+          old_auth = '''    const db = getDb();
+              const user = db
+                .prepare("SELECT id, username, isDisabled, tokenVersion FROM users WHERE id = ?")
+                .get(payload.userId) as
+                | { id: string; username: string; isDisabled: number; tokenVersion: number }
+                | undefined;'''
+          new_auth = '''    const user = realtimeAuthRepository.findById(payload.userId);'''
+          if old_auth not in source:
+              raise SystemExit("realtime auth block changed")
+          source = source.replace(old_auth, new_auth, 1)
+
+          start_marker = "  const members = getDb().prepare("
+          end_marker = "  const userIds = new Set(members.map((member) => member.userId));"
+          replacement = '''  const userIds = new Set(
+              realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
+            );'''
+          start = source.find(start_marker)
+          end = source.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit("realtime workspace recipient query changed")
+          end += len(end_marker)
+          source = source[:start] + replacement + source[end:]
+          if "getDb(" in source:
+              raise SystemExit("direct realtime database access remains")
+          realtime.write_text(source, encoding="utf-8")
+
+          knowledge_test = Path("backend/tests/knowledge-tree.test.ts")
+          source = knowledge_test.read_text(encoding="utf-8")
+          import_anchor = '  const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");\n'
+          migration_import = '  const { CURRENT_SCHEMA_VERSION } = await import("../src/db/migrations.js");\n'
+          if migration_import not in source:
+              if import_anchor not in source:
+                  raise SystemExit("knowledge-tree schema import anchor changed")
+              source = source.replace(import_anchor, import_anchor + migration_import, 1)
+          source = source.replace(
+              "  assert.equal(getDbSchemaVersion(), 65);",
+              "  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);",
+              1,
+          )
+          knowledge_test.write_text(source, encoding="utf-8")
+
+          persistence = Path("backend/src/repositories/yjsPersistenceRepository.ts")
+          source = persistence.read_text(encoding="utf-8")
+          record = '''
+          export interface YjsCheckpointNoteRecord {
+            id: string;
+            userId: string;
+            title: string;
+            content: string;
+            contentText: string;
+            contentFormat: string;
+            version: number;
+          }
+          '''
+          if "export interface YjsCheckpointNoteRecord" not in source:
+              anchor = "export interface YjsNoteVersionRecord {\n"
+              pos = source.find(anchor)
+              if pos < 0:
+                  raise SystemExit("yjs persistence type anchor changed")
+              source = source[:pos] + record + "\n" + source[pos:]
+          methods = '''
+            getCheckpointNote(noteId: string): YjsCheckpointNoteRecord | undefined {
+              return getDb()
+                .prepare(
+                  `SELECT id, userId, title, content, contentText, contentFormat, version
+                     FROM notes WHERE id = ?`,
+                )
+                .get(noteId) as YjsCheckpointNoteRecord | undefined;
+            },
+
+            hasVersionCheckpoint(noteId: string, version: number): boolean {
+              return Boolean(
+                getDb()
+                  .prepare(`SELECT id FROM note_versions WHERE "noteId" = ? AND version = ? LIMIT 1`)
+                  .get(noteId, version),
+              );
+            },
+          '''
+          if "getCheckpointNote(noteId: string)" not in source:
+              anchor = "export const yjsPersistenceRepository = {\n"
+              if anchor not in source:
+                  raise SystemExit("yjs persistence repository anchor changed")
+              source = source.replace(anchor, anchor + methods, 1)
+          persistence.write_text(source, encoding="utf-8")
+
+          durability = Path("backend/src/services/yjsDurability.ts")
+          source = durability.read_text(encoding="utf-8")
+          source = source.replace('import { getDb } from "../db/schema";\n', "", 1)
+          repo_import = 'import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository";\n'
+          import_anchor = 'import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";\n'
+          if repo_import not in source:
+              if import_anchor not in source:
+                  raise SystemExit("yjs durability repository import anchor changed")
+              source = source.replace(import_anchor, import_anchor + repo_import, 1)
+          start_marker = "      const db = getDb();\n      const note = db.prepare("
+          end_marker = "      if (duplicate) return;"
+          start = source.find(start_marker)
+          end = source.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit("yjs durability checkpoint query block changed")
+          end += len(end_marker)
+          replacement = '''      const note = yjsPersistenceRepository.getCheckpointNote(noteId);
+                if (!note) return;
+                if (yjsPersistenceRepository.hasVersionCheckpoint(noteId, note.version)) return;'''
+          source = source[:start] + replacement + source[end:]
+          if "getDb(" in source or ".prepare(" in source:
+              raise SystemExit("direct yjs durability database access remains")
+          durability.write_text(source, encoding="utf-8")
+          PY
+
+          git add backend/src/services/realtime.ts \
+            backend/tests/knowledge-tree.test.ts \
+            backend/src/services/yjsDurability.ts \
+            backend/src/repositories/yjsPersistenceRepository.ts
+
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+          cd backend
+          npm ci
+          npm run build:tsc
+          npm run audit:sqlite-boundaries
+          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+            tests/knowledge-tree.test.ts \
+            tests/yjs-durability.test.ts
+          cd ..
+
+          git rm -f .github/workflows/pg-main-sync-command.yml
+          git add -A
+          git commit -m "chore(pg): merge latest main and preserve runtime boundaries"
+          git push origin HEAD:pg-migration-unified
