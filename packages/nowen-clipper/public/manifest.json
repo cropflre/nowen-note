@@ -57,7 +57,7 @@
     "clip-selection": {
       "suggested_key": {
         "default": "Alt+Shift+A",
-        "mac": "Alt+Shift+S"
+        "mac": "Alt+Shift+A"
       },
       "description": "剪藏选中内容"
     }
