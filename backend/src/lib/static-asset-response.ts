@@ -74,7 +74,8 @@ export function mergeVaryHeader(
   for (const value of `${currentValue || ""},${nextValue}`.split(",")) {
     const trimmed = value.trim();
     if (!trimmed) continue;
-    values.set(trimmed.toLowerCase(), trimmed);
+    const key = trimmed.toLowerCase();
+    if (!values.has(key)) values.set(key, trimmed);
   }
   return Array.from(values.values()).join(", ");
 }
