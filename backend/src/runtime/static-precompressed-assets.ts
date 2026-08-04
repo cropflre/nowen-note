@@ -10,9 +10,7 @@ import {
 } from "../lib/static-asset-response.js";
 
 const INSTALL_KEY = "__nowenStaticPrecompressedAssetsInstalled__" as const;
-const ROUTER_STORAGE = Symbol.for("nowen.staticPrecompressedAssets.router");
-const ROUTER_PATCHED = Symbol.for("nowen.staticPrecompressedAssets.routerPatched");
-const MIDDLEWARE_INSTALLED = Symbol.for("nowen.staticPrecompressedAssets.middlewareInstalled");
+const APP_MIDDLEWARE_KEY = Symbol.for("nowen.staticPrecompressedAssets.appMiddleware");
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css",
@@ -100,34 +98,16 @@ async function precompressedAssetMiddleware(c: any, next: () => Promise<void>) {
   await next();
 }
 
-function middlewareFromRoutePayload(payload: any): Function | null {
-  if (!Array.isArray(payload)) return null;
-  const candidate = payload[0];
-  return typeof candidate === "function" ? candidate : null;
-}
-
-function patchRouter(router: any): void {
-  if (!router || typeof router.add !== "function" || router[ROUTER_PATCHED]) return;
-  router[ROUTER_PATCHED] = true;
-
-  const originalAdd = router.add.bind(router);
-  router.add = (method: string, routePath: string, payload: any) => {
-    const handler = middlewareFromRoutePayload(payload);
-    // Hono defines get/use as instance functions, so patching Hono.prototype.get cannot intercept
-    // route registration. Insert our route at the router boundary immediately before Hono's named
-    // `compress` middleware is registered. This preserves logger/CORS before us and guarantees an
-    // already-Brotli response never enters gzip compression.
-    if (!router[MIDDLEWARE_INSTALLED] && handler?.name === "compress") {
-      router[MIDDLEWARE_INSTALLED] = true;
-      const route = {
-        path: "*",
-        method: "ALL",
-        handler: precompressedAssetMiddleware,
-      };
-      originalAdd("ALL", "*", [precompressedAssetMiddleware, route]);
-    }
-    return originalAdd(method, routePath, payload);
-  };
+/**
+ * Register after Hono's generic compression middleware but before the final SPA wildcard route.
+ * The generic middleware wraps downstream responses and skips transformation when this handler
+ * has already supplied Content-Encoding, so a .br representation cannot be gzip-compressed again.
+ */
+export function installPrecompressedAssetMiddleware(app: Hono<any>): void {
+  const runtimeApp = app as Hono<any> & { [APP_MIDDLEWARE_KEY]?: boolean };
+  if (runtimeApp[APP_MIDDLEWARE_KEY]) return;
+  runtimeApp[APP_MIDDLEWARE_KEY] = true;
+  runtimeApp.use("*", precompressedAssetMiddleware as any);
 }
 
 export function installStaticPrecompressedAssetRuntime(): void {
@@ -137,20 +117,15 @@ export function installStaticPrecompressedAssetRuntime(): void {
   if (globalState[INSTALL_KEY]) return;
   globalState[INSTALL_KEY] = true;
 
+  // `get` and `use` are created per Hono instance, but `route` is a prototype method. The main app
+  // mounts its first API router immediately after compression setup, which gives us a stable point
+  // to insert this middleware without changing the large legacy index module.
   const prototype = Hono.prototype as any;
-  const previous = Object.getOwnPropertyDescriptor(prototype, "router");
-  Object.defineProperty(prototype, "router", {
-    configurable: true,
-    enumerable: previous?.enumerable ?? true,
-    get() {
-      return previous?.get ? previous.get.call(this) : this[ROUTER_STORAGE];
-    },
-    set(value: any) {
-      if (previous?.set) previous.set.call(this, value);
-      else this[ROUTER_STORAGE] = value;
-      patchRouter(value);
-    },
-  });
+  const originalRoute = prototype.route;
+  prototype.route = function patchedRoute(...args: any[]) {
+    installPrecompressedAssetMiddleware(this);
+    return originalRoute.apply(this, args);
+  };
 }
 
 installStaticPrecompressedAssetRuntime();
