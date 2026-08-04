@@ -40,131 +40,8 @@ jobs:
 
           git checkout --theirs backend/src/services/realtime.ts
           git checkout --ours backend/tests/knowledge-tree.test.ts
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          realtime = Path("backend/src/services/realtime.ts")
-          source = realtime.read_text(encoding="utf-8")
-          sqlite_import = 'import { getDb } from "../db/schema";\n'
-          repository_import = 'import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";\n'
-          if sqlite_import in source:
-              source = source.replace(sqlite_import, repository_import, 1)
-          elif repository_import not in source:
-              raise SystemExit("realtime database import changed")
-
-          auth_start = source.find("    const db = getDb();\n    const user = db")
-          auth_end_marker = "    if (!user || user.isDisabled || (payload.tver ?? 0) !== (user.tokenVersion ?? 0)) {"
-          auth_end = source.find(auth_end_marker, auth_start)
-          if auth_start < 0 or auth_end < 0:
-              raise SystemExit("realtime auth query block changed")
-          source = (
-              source[:auth_start]
-              + "    const user = realtimeAuthRepository.findById(payload.userId);\n"
-              + source[auth_end:]
-          )
-
-          members_start_marker = "  const members = getDb().prepare("
-          members_end_marker = "  const userIds = new Set(members.map((member) => member.userId));"
-          members_start = source.find(members_start_marker)
-          members_end = source.find(members_end_marker, members_start)
-          if members_start < 0 or members_end < 0:
-              raise SystemExit("realtime workspace recipient query changed")
-          members_end += len(members_end_marker)
-          source = (
-              source[:members_start]
-              + "  const userIds = new Set(\n"
-              + "    realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),\n"
-              + "  );"
-              + source[members_end:]
-          )
-          if "getDb(" in source:
-              raise SystemExit("direct realtime database access remains")
-          realtime.write_text(source, encoding="utf-8")
-
-          knowledge_test = Path("backend/tests/knowledge-tree.test.ts")
-          source = knowledge_test.read_text(encoding="utf-8")
-          if "getDbSchemaVersion() >= 65" not in source:
-              raise SystemExit("knowledge-tree minimum schema guard changed")
-
-          persistence = Path("backend/src/repositories/yjsPersistenceRepository.ts")
-          source = persistence.read_text(encoding="utf-8")
-          checkpoint_type = """export interface YjsCheckpointNoteRecord {
-            id: string;
-            userId: string;
-            title: string;
-            content: string;
-            contentText: string;
-            contentFormat: string;
-            version: number;
-          }
-
-          """
-          if "export interface YjsCheckpointNoteRecord" not in source:
-              type_anchor = "export interface YjsNoteVersionRecord {\n"
-              position = source.find(type_anchor)
-              if position < 0:
-                  raise SystemExit("yjs persistence type anchor changed")
-              source = source[:position] + checkpoint_type + source[position:]
-
-          checkpoint_methods = """  getCheckpointNote(noteId: string): YjsCheckpointNoteRecord | undefined {
-            return getDb()
-              .prepare(
-                `SELECT id, userId, title, content, contentText, contentFormat, version
-                   FROM notes WHERE id = ?`,
-              )
-              .get(noteId) as YjsCheckpointNoteRecord | undefined;
-          },
-
-            hasVersionCheckpoint(noteId: string, version: number): boolean {
-            return Boolean(
-              getDb()
-                .prepare(`SELECT id FROM note_versions WHERE \"noteId\" = ? AND version = ? LIMIT 1`)
-                .get(noteId, version),
-            );
-          },
-
-          """
-          if "getCheckpointNote(noteId: string)" not in source:
-              repository_anchor = "export const yjsPersistenceRepository = {\n"
-              if repository_anchor not in source:
-                  raise SystemExit("yjs persistence repository anchor changed")
-              source = source.replace(repository_anchor, repository_anchor + checkpoint_methods, 1)
-          persistence.write_text(source, encoding="utf-8")
-
-          durability = Path("backend/src/services/yjsDurability.ts")
-          source = durability.read_text(encoding="utf-8")
-          source = source.replace('import { getDb } from "../db/schema";\n', "", 1)
-          repository_import = 'import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository";\n'
-          import_anchor = 'import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";\n'
-          if repository_import not in source:
-              if import_anchor not in source:
-                  raise SystemExit("yjs durability repository import anchor changed")
-              source = source.replace(import_anchor, import_anchor + repository_import, 1)
-
-          query_start = source.find("      const db = getDb();\n      const note = db.prepare(")
-          query_end_marker = "      if (duplicate) return;"
-          query_end = source.find(query_end_marker, query_start)
-          if query_start < 0 or query_end < 0:
-              raise SystemExit("yjs durability checkpoint query block changed")
-          query_end += len(query_end_marker)
-          source = (
-              source[:query_start]
-              + "      const note = yjsPersistenceRepository.getCheckpointNote(noteId);\n"
-              + "      if (!note) return;\n"
-              + "      if (yjsPersistenceRepository.hasVersionCheckpoint(noteId, note.version)) return;"
-              + source[query_end:]
-          )
-          if "getDb(" in source or ".prepare(" in source:
-              raise SystemExit("direct yjs durability database access remains")
-          durability.write_text(source, encoding="utf-8")
-          PY
-
-          git add backend/src/services/realtime.ts \
-            backend/tests/knowledge-tree.test.ts \
-            backend/src/services/yjsDurability.ts \
-            backend/src/repositories/yjsPersistenceRepository.ts
-
+          python3 backend/scripts/reconcile-pg-main-20260804.py
+          git add -A
           test -z "$(git diff --name-only --diff-filter=U)"
 
           cd backend
@@ -176,7 +53,9 @@ jobs:
             tests/yjs-durability.test.ts
           cd ..
 
-          git rm -f .github/workflows/pg-main-sync-command.yml
+          git rm -f \
+            .github/workflows/pg-main-sync-command.yml \
+            backend/scripts/reconcile-pg-main-20260804.py
           git add -A
           git commit -m "chore(pg): merge latest main and preserve runtime boundaries"
           git push origin HEAD:pg-migration-unified
