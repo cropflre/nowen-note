@@ -32,6 +32,14 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "exclude_matches": [
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "http://[::1]/*",
+        "https://[::1]/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": false
@@ -49,7 +57,7 @@
     "clip-selection": {
       "suggested_key": {
         "default": "Alt+Shift+A",
-        "mac": "Alt+Shift+A"
+        "mac": "Alt+Shift+S"
       },
       "description": "剪藏选中内容"
     }
