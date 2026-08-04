@@ -21,6 +21,7 @@ import TiptapEditor from "@/components/TiptapEditor";
 import type { Note } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { parseServerTime } from "@/lib/dateTime";
 import { navigateToAppPath } from "@/lib/appPathNavigation";
 import {
   notebookPublicationApi,
@@ -457,7 +458,7 @@ function PublicNotebookReader({ token }: { token: string }) {
                     <div className="mt-4 space-y-3">
                       {comments.map((comment) => (
                         <div key={comment.id} className="rounded-xl border border-app-border bg-app-surface p-3">
-                          <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium">{comment.nickname}</span><span className="text-tx-tertiary">{new Date(comment.createdAt).toLocaleString("zh-CN")}</span></div>
+                          <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium">{comment.nickname}</span><span className="text-tx-tertiary">{(parseServerTime(comment.createdAt) ?? new Date()).toLocaleString("zh-CN")}</span></div>
                           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-tx-secondary">{comment.content}</p>
                         </div>
                       ))}

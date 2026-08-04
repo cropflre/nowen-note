@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import { cn } from "@/lib/utils";
+import { parseServerTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { common, createLowlight } from "lowlight";
 import ReactMarkdown from "react-markdown";
@@ -1411,7 +1412,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       </div>
                       <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">{comment.username || "匿名"}</span>
                       <span className="text-[10px] text-zinc-400">
-                        {new Date(comment.createdAt).toLocaleDateString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        {(parseServerTime(comment.createdAt) ?? new Date()).toLocaleDateString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                     <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">{comment.content}</p>
