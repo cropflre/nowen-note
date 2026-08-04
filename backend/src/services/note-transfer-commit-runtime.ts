@@ -120,6 +120,41 @@ function ensureCommitReady(operation: PreparedNoteTransferOperation): void {
   }
 }
 
+function assertPreparedSourceSnapshot(
+  operation: PreparedNoteTransferOperation,
+  snapshot: Awaited<ReturnType<CommitRepository["loadSourceSnapshot"]>>,
+): void {
+  if (snapshot.notes.length !== operation.sourceNoteCount) {
+    throw new NoteTransferOperationError(
+      "NOTE_TRANSFER_COMMIT_STALE",
+      "源笔记数量已变化，请重新预检",
+      409,
+      { operationId: operation.id },
+    );
+  }
+  for (const note of snapshot.notes) {
+    const expectedVersion = operation.sourceVersions[note.id];
+    if (
+      note.version !== expectedVersion
+      || note.workspaceId !== operation.sourceWorkspaceId
+    ) {
+      throw new NoteTransferOperationError(
+        "NOTE_TRANSFER_COMMIT_STALE",
+        "源笔记版本或空间已变化，请重新预检",
+        409,
+        {
+          operationId: operation.id,
+          sourceNoteId: note.id,
+          expectedVersion,
+          actualVersion: note.version,
+          expectedWorkspaceId: operation.sourceWorkspaceId,
+          actualWorkspaceId: note.workspaceId,
+        },
+      );
+    }
+  }
+}
+
 function dedupeLinks<T extends { targetNoteId: string }>(links: T[]): T[] {
   // The current note_links schema has a unique source/target note index even for
   // block links. Mirror the persisted constraint so result.noteLinkCount remains
@@ -220,6 +255,7 @@ export function createNoteTransferCommitRuntime(
 
       ensureCommitReady(operation);
       const snapshot = await commits.loadSourceSnapshot(operation);
+      assertPreparedSourceSnapshot(operation, snapshot);
       const noteIdMap = new Map(
         Object.entries(operation.plan.targetNoteIds).map(([source, target]) => [
           source.toLowerCase(),
