@@ -53,13 +53,22 @@ jobs:
           python3 backend/scripts/implement-note-transfer-staging-20260804.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path("backend/src/repositories/noteTransferPreviewRepository.ts")
-          source = path.read_text(encoding="utf-8")
+
+          preview_repository = Path("backend/src/repositories/noteTransferPreviewRepository.ts")
+          source = preview_repository.read_text(encoding="utf-8")
           old = "          ORDER BY lower(tag.name), tag.id`,"
           new = "          ORDER BY tag.name, tag.id`,"
           if old not in source and new not in source:
               raise SystemExit("note-transfer tag ordering anchor changed")
-          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          preview_repository.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          runtime_test = Path("backend/tests/note-transfer-preview-runtime-pg.test.ts")
+          source = runtime_test.read_text(encoding="utf-8")
+          old = "    await closePgPool();"
+          new = "    await closePgPool(pool);"
+          if old not in source and new not in source:
+              raise SystemExit("note-transfer PostgreSQL pool cleanup anchor changed")
+          runtime_test.write_text(source.replace(old, new, 1), encoding="utf-8")
           PY
 
       - name: Install backend dependencies
