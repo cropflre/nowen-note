@@ -96,9 +96,13 @@ export function extractJournalPreview(content: string, contentText = "", maxLeng
     }
   }
 
+  // The journal card is a compact read-only overview rather than the editor canvas.
+  // Preserve real line breaks, but collapse empty paragraph separators produced by
+  // Tiptap contentText or Markdown so each paragraph does not consume a blank row.
   const normalized = text
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]*\n+/g, "\n")
     .trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength).trimEnd()}…`;
