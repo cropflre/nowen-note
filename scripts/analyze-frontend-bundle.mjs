@@ -11,6 +11,7 @@ const manifestPath = path.join(distDir, ".vite/manifest.json");
 const enforce = process.argv.includes("--enforce");
 
 const budgets = {
+  initialRequestCount: Number(process.env.NOWEN_MAX_INITIAL_JS_REQUESTS || 16),
   initialRawBytes: Number(process.env.NOWEN_MAX_INITIAL_RAW_BYTES || 4_000_000),
   initialGzipBytes: Number(process.env.NOWEN_MAX_INITIAL_GZIP_BYTES || 1_300_000),
   initialChunkRawBytes: Number(process.env.NOWEN_MAX_INITIAL_CHUNK_RAW_BYTES || 2_000_000),
@@ -63,7 +64,7 @@ function toMarkdown(report) {
   return [
     "## Frontend bundle report",
     "",
-    `Initial JavaScript: **${formatBytes(report.initialTotals.rawBytes)} raw / ${formatBytes(report.initialTotals.gzipBytes)} gzip / ${formatBytes(report.initialTotals.brotliBytes)} Brotli**`,
+    `Initial JavaScript: **${report.initialFiles.length} requests / ${formatBytes(report.initialTotals.rawBytes)} raw / ${formatBytes(report.initialTotals.gzipBytes)} gzip / ${formatBytes(report.initialTotals.brotliBytes)} Brotli**`,
     "",
     "| Initial file | Raw | Gzip | Brotli |",
     "| --- | ---: | ---: | ---: |",
@@ -105,6 +106,9 @@ async function main() {
   );
 
   const violations = [];
+  if (initialFiles.length > budgets.initialRequestCount) {
+    violations.push(`initial JS requests ${initialFiles.length} exceed ${budgets.initialRequestCount}`);
+  }
   if (initialTotals.rawBytes > budgets.initialRawBytes) {
     violations.push(`initial JS raw ${formatBytes(initialTotals.rawBytes)} exceeds ${formatBytes(budgets.initialRawBytes)}`);
   }
@@ -142,7 +146,7 @@ async function main() {
     brotli: formatBytes(item.brotliBytes),
   })));
   console.log(
-    `[frontend bundle] total: ${formatBytes(initialTotals.rawBytes)} raw / ${formatBytes(initialTotals.gzipBytes)} gzip / ${formatBytes(initialTotals.brotliBytes)} br`,
+    `[frontend bundle] total: ${initialFiles.length} requests / ${formatBytes(initialTotals.rawBytes)} raw / ${formatBytes(initialTotals.gzipBytes)} gzip / ${formatBytes(initialTotals.brotliBytes)} br`,
   );
 
   const markdown = toMarkdown(report);
