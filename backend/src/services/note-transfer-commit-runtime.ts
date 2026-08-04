@@ -33,6 +33,7 @@ const NOTE_API_RE = new RegExp(
 
 type CommitRepository = ReturnType<typeof createNoteTransferCommitRepository>;
 type OperationRepository = ReturnType<typeof createNoteTransferOperationRepository>;
+type BlockPlan = NonNullable<ReturnType<typeof buildNoteBlockIndexPlan>>;
 
 function rewriteAttachmentUrls(content: string, idMap: Map<string, string>): string {
   if (!content) return content;
@@ -114,23 +115,65 @@ function ensureCommitReady(operation: PreparedNoteTransferOperation): void {
   }
 }
 
-function dedupeLinks<T extends {
-  targetNoteId: string;
-  targetBlockId: string | null;
-  sourceBlockId: string | null;
-  linkType: string;
-}>(links: T[]): T[] {
+function dedupeLinks<T extends { targetNoteId: string }>(links: T[]): T[] {
+  // The current note_links schema has a unique source/target note index even for
+  // block links. Mirror the persisted constraint so result.noteLinkCount remains
+  // equal to the number of rows actually committed.
   const seen = new Set<string>();
   const output: T[] = [];
   for (const link of links) {
-    const key = link.targetBlockId
-      ? `block:${link.targetNoteId}:${link.targetBlockId}`
-      : `note:${link.targetNoteId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(link.targetNoteId)) continue;
+    seen.add(link.targetNoteId);
     output.push(link);
   }
   return output;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sourceMaterializesBlockId(content: string, blockId: string): boolean {
+  const escaped = escapeRegExp(blockId);
+  return new RegExp(
+    `(?:"blockId"\\s*:\\s*"${escaped}"|\\^${escaped}(?=\\s|$))`,
+    "m",
+  ).test(content);
+}
+
+function stabilizeGeneratedBlockIds(input: {
+  operationId: string;
+  sourceContent: string;
+  targetNoteId: string;
+  plan: BlockPlan;
+}): BlockPlan {
+  const replacements = new Map<string, string>();
+  for (const row of input.plan.rows) {
+    if (sourceMaterializesBlockId(input.sourceContent, row.blockId)) continue;
+    replacements.set(
+      row.blockId,
+      `blk_${deterministicTransferUuid(
+        `${input.operationId}:block:${input.targetNoteId}:${row.blockOrder}:${row.blockType}:${row.contentHash}`,
+      )}`,
+    );
+  }
+  if (replacements.size === 0) return input.plan;
+
+  let content = input.plan.content;
+  for (const [generated, stable] of replacements) {
+    content = content.split(generated).join(stable);
+  }
+  return {
+    ...input.plan,
+    content,
+    rows: input.plan.rows.map((row) => ({
+      ...row,
+      blockId: replacements.get(row.blockId) || row.blockId,
+      parentBlockId: row.parentBlockId
+        ? replacements.get(row.parentBlockId) || row.parentBlockId
+        : null,
+    })),
+  };
 }
 
 export function createNoteTransferCommitRuntime(
@@ -210,11 +253,19 @@ export function createNoteTransferCommitRuntime(
         contentText = rewrittenText.content;
         externalNoteLinkCount += rewrittenContent.externalNoteLinkCount;
 
-        const blockPlan = buildNoteBlockIndexPlan(
+        const generatedPlan = buildNoteBlockIndexPlan(
           targetNoteId,
           content,
           sourceNote.contentFormat,
         );
+        const blockPlan = generatedPlan
+          ? stabilizeGeneratedBlockIds({
+            operationId: operation.id,
+            sourceContent: sourceNote.content,
+            targetNoteId,
+            plan: generatedPlan,
+          })
+          : null;
         if (blockPlan) {
           content = blockPlan.content;
           contentText = blockPlan.contentText;
