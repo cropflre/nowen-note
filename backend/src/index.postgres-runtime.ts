@@ -69,6 +69,7 @@ app.get("/api/health", async (c) => {
         "POST /api/note-transfers/prepare",
         "POST /api/note-transfers/operations/:idempotencyKey/staging",
         "POST /api/note-transfers/operations/:idempotencyKey/staging/resume",
+        "POST /api/note-transfers/operations/:idempotencyKey/commit",
         "GET /api/note-transfers/operations/:idempotencyKey",
         "GET /api/knowledge-tree",
         "GET /api/knowledge-tree/shared-with-me",
@@ -94,6 +95,7 @@ app.get("/api/health", async (c) => {
         "note-transfer durable idempotency, source-version snapshots and transactional preparation",
         "note-transfer prepared-to-staging CAS and recoverable attachment manifests",
         "note-transfer local/S3 physical staging copy with leases, SHA-256 verification and crash recovery",
+        "note-transfer atomic copy commit for notes, tags, links, attachments, references and block indexes",
         "knowledge-tree scope listing with inherited permissions",
         "knowledge-tree shared-root discovery with overlapping-root de-duplication",
         "knowledge-tree access-controlled history listing",
@@ -122,7 +124,7 @@ app.get("/api/health", async (c) => {
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "note-transfer atomic target commit, staged-object cleanup and move deletion (#249)",
+        "note-transfer staged-object cleanup, post-commit effects and move deletion (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -223,7 +225,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, durable note-transfer planning/physical staging and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
+console.warn("[db] Notes, durable note-transfer planning/physical staging/atomic copy commit and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until the remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
