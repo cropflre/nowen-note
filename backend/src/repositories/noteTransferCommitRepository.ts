@@ -644,7 +644,9 @@ export function createNoteTransferCommitRepository(adapter?: DatabaseAdapter) {
       if (operation.plan.attachmentCount > 0) {
         statements.push({
           sql: `UPDATE note_transfer_staged_attachments
-                   SET status = 'committed', updatedAt = CURRENT_TIMESTAMP
+                   SET status = 'committed', cleanupStatus = 'retained',
+                       cleanupLeaseToken = NULL, cleanupLeaseExpiresAt = NULL,
+                       cleanupLastError = NULL, updatedAt = CURRENT_TIMESTAMP
                  WHERE operationId = ? AND status = 'staged'`,
           params: [operation.id],
           requireChanges: operation.plan.attachmentCount,

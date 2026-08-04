@@ -7,6 +7,7 @@ import {
 } from "../repositories/noteTransferOperationRepository";
 import { createNoteTransferAttachmentStagingRuntime } from "../services/note-transfer-attachment-staging-runtime";
 import { createNoteTransferCommitRuntime } from "../services/note-transfer-commit-runtime";
+import { createNoteTransferCleanupRuntime } from "../services/note-transfer-cleanup-runtime";
 import {
   createNoteTransferPreviewRuntime,
   NoteTransferPreviewRuntimeError,
@@ -87,6 +88,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
   const operations = createNoteTransferOperationRepository(adapter);
   const attachmentStaging = createNoteTransferAttachmentStagingRuntime(adapter, { operations });
   const commitRuntime = createNoteTransferCommitRuntime(adapter, { operations });
+  const cleanupRuntime = createNoteTransferCleanupRuntime(adapter, { operations });
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -177,6 +179,38 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
 
     try {
       const result = await attachmentStaging.resume({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(result, result.summary.complete ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/operations/:idempotencyKey/cancel", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const operation = await operations.cancelOperation({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(operation, operation.reused ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/operations/:idempotencyKey/cleanup/resume", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const result = await cleanupRuntime.resume({
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });

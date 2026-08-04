@@ -42,6 +42,11 @@ export type NoteTransferStagedAttachment = {
   verifiedHash: string | null;
   stagedAt: string | null;
   leaseExpiresAt: string | null;
+  cleanupStatus: "pending" | "cleaning" | "cleaned" | "failed" | "retained";
+  cleanupAttempts: number;
+  cleanupLastError: string | null;
+  cleanupLeaseExpiresAt: string | null;
+  cleanedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -60,6 +65,14 @@ export type NoteTransferStagingClaim = {
   hash: string | null;
   attempts: number;
   leaseToken: string;
+};
+
+export type NoteTransferCleanupClaim = {
+  operationId: string;
+  sourceAttachmentId: string;
+  stagedPath: string;
+  cleanupAttempts: number;
+  cleanupLeaseToken: string;
 };
 
 export type PreparedNoteTransferOperation = {
@@ -123,13 +136,25 @@ type ItemRow = {
 
 type StagedAttachmentRow = Omit<
   NoteTransferStagedAttachment,
-  "size" | "attempts" | "verifiedSize" | "stagedAt" | "leaseExpiresAt" | "createdAt" | "updatedAt"
+  | "size"
+  | "attempts"
+  | "verifiedSize"
+  | "stagedAt"
+  | "leaseExpiresAt"
+  | "cleanupAttempts"
+  | "cleanupLeaseExpiresAt"
+  | "cleanedAt"
+  | "createdAt"
+  | "updatedAt"
 > & {
   size: number | string;
   attempts: number | string;
   verifiedSize: number | string | null;
   stagedAt: string | Date | null;
   leaseExpiresAt: string | Date | null;
+  cleanupAttempts: number | string;
+  cleanupLeaseExpiresAt: string | Date | null;
+  cleanedAt: string | Date | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 };
@@ -137,6 +162,13 @@ type StagedAttachmentRow = Omit<
 type StagingClaimRow = Omit<NoteTransferStagingClaim, "size" | "attempts" | "leaseToken"> & {
   size: number | string;
   attempts: number | string;
+};
+
+type CleanupClaimRow = Omit<
+  NoteTransferCleanupClaim,
+  "cleanupAttempts" | "cleanupLeaseToken"
+> & {
+  cleanupAttempts: number | string;
 };
 
 type SourceAttachmentRow = {
@@ -419,7 +451,9 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
       `SELECT sourceAttachmentId, sourceNoteId, targetAttachmentId, targetNoteId,
               sourcePath, stagedPath, filename, mimeType, size, hash,
               status, attempts, lastError, verifiedSize, verifiedHash,
-              stagedAt, leaseExpiresAt, createdAt, updatedAt
+              stagedAt, leaseExpiresAt, cleanupStatus, cleanupAttempts,
+              cleanupLastError, cleanupLeaseExpiresAt, cleanedAt,
+              createdAt, updatedAt
          FROM note_transfer_staged_attachments
         WHERE operationId = ?
         ORDER BY sourceNoteId, sourceAttachmentId`,
@@ -478,6 +512,13 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         leaseExpiresAt: attachment.leaseExpiresAt == null
           ? null
           : toTimestamp(attachment.leaseExpiresAt),
+        cleanupStatus: attachment.cleanupStatus,
+        cleanupAttempts: toNumber(attachment.cleanupAttempts),
+        cleanupLastError: attachment.cleanupLastError,
+        cleanupLeaseExpiresAt: attachment.cleanupLeaseExpiresAt == null
+          ? null
+          : toTimestamp(attachment.cleanupLeaseExpiresAt),
+        cleanedAt: attachment.cleanedAt == null ? null : toTimestamp(attachment.cleanedAt),
         createdAt: toTimestamp(attachment.createdAt),
         updatedAt: toTimestamp(attachment.updatedAt),
       })),
@@ -812,6 +853,220 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
         throw new NoteTransferOperationError(
           "NOTE_TRANSFER_STAGING_LEASE_LOST",
           "附件 staging 租约已失效，请重新恢复操作",
+          409,
+          { operationId: input.operationId, sourceAttachmentId: input.sourceAttachmentId },
+        );
+      }
+    },
+
+    async cancelOperation(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+    }): Promise<PreparedNoteTransferOperation> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const operation = await loadOperation(input.actorUserId, key);
+      if (!operation) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_PLAN_NOT_FOUND",
+          "转移计划不存在",
+          404,
+        );
+      }
+      if (operation.status === "cancelled") return { ...operation, reused: true };
+      if (operation.status === "completed" || operation.status === "committing") {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_CANCEL_CONFLICT",
+          `当前状态 ${operation.status} 无法取消`,
+          409,
+          { operationId: operation.id, status: operation.status },
+        );
+      }
+
+      try {
+        await db.executeStatements([
+          {
+            sql: `UPDATE note_transfer_operations
+                     SET status = 'cancelled', errorCode = 'NOTE_TRANSFER_CANCELLED',
+                         errorMessage = 'Operation cancelled before completion',
+                         updatedAt = CURRENT_TIMESTAMP
+                   WHERE id = ? AND userId = ? AND idempotencyKey = ?
+                     AND status IN ('prepared', 'staging', 'failed')`,
+            params: [operation.id, input.actorUserId, key],
+            requireChanges: 1,
+          },
+          {
+            sql: `UPDATE note_transfer_operation_items
+                     SET status = 'cancelled', updatedAt = CURRENT_TIMESTAMP
+                   WHERE operationId = ? AND status <> 'committed'`,
+            params: [operation.id],
+          },
+        ]);
+      } catch (error) {
+        const raced = await loadOperation(input.actorUserId, key).catch(() => null);
+        if (raced?.status === "cancelled") return { ...raced, reused: true };
+        if (error instanceof DbStatementChangeError) {
+          throw new NoteTransferOperationError(
+            "NOTE_TRANSFER_CANCEL_CONFLICT",
+            "转移操作已进入不可取消状态",
+            409,
+            { operationId: operation.id },
+          );
+        }
+        throw error;
+      }
+
+      const cancelled = await loadOperation(input.actorUserId, key);
+      if (!cancelled || cancelled.status !== "cancelled") {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_CANCEL_PERSIST_FAILED",
+          "取消状态保存失败",
+          409,
+          { operationId: operation.id },
+        );
+      }
+      return cancelled;
+    },
+
+    async requeueFailedCleanup(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+      maxAttempts: number;
+    }): Promise<number> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments manifest
+            SET cleanupStatus = 'pending', cleanupLeaseToken = NULL,
+                cleanupLeaseExpiresAt = NULL, updatedAt = CURRENT_TIMESTAMP
+           FROM note_transfer_operations operation
+          WHERE manifest.operationId = operation.id
+            AND operation.userId = ? AND operation.idempotencyKey = ?
+            AND operation.status IN ('cancelled', 'failed')
+            AND manifest.cleanupStatus = 'failed'
+            AND manifest.cleanupAttempts < ?`,
+        [input.actorUserId, key, input.maxAttempts],
+      );
+      return result.changes;
+    },
+
+    async claimNextCleanupAttachment(input: {
+      actorUserId: string;
+      idempotencyKey: string;
+      maxAttempts: number;
+      leaseSeconds: number;
+    }): Promise<NoteTransferCleanupClaim | null> {
+      const key = normalizeIdempotencyKey(input.idempotencyKey);
+      const cleanupLeaseToken = randomUUID();
+      const row = await db.queryOne<CleanupClaimRow>(
+        `WITH candidate AS (
+           SELECT manifest.operationId, manifest.sourceAttachmentId
+             FROM note_transfer_staged_attachments manifest
+             JOIN note_transfer_operations operation
+               ON operation.id = manifest.operationId
+            WHERE operation.userId = ? AND operation.idempotencyKey = ?
+              AND operation.status IN ('cancelled', 'failed')
+              AND manifest.status <> 'committed'
+              AND manifest.cleanupStatus <> 'retained'
+              AND manifest.cleanupAttempts < ?
+              AND (
+                manifest.cleanupStatus = 'pending'
+                OR (
+                  manifest.cleanupStatus = 'cleaning'
+                  AND (
+                    manifest.cleanupLeaseExpiresAt IS NULL
+                    OR manifest.cleanupLeaseExpiresAt <= CURRENT_TIMESTAMP
+                  )
+                )
+              )
+              AND (
+                manifest.status <> 'copying'
+                OR manifest.leaseExpiresAt IS NULL
+                OR manifest.leaseExpiresAt <= CURRENT_TIMESTAMP
+              )
+            ORDER BY manifest.sourceNoteId, manifest.sourceAttachmentId
+            FOR UPDATE OF manifest SKIP LOCKED
+            LIMIT 1
+         )
+         UPDATE note_transfer_staged_attachments manifest
+            SET cleanupStatus = 'cleaning',
+                cleanupAttempts = manifest.cleanupAttempts + 1,
+                cleanupLeaseToken = ?,
+                cleanupLeaseExpiresAt = CURRENT_TIMESTAMP + (? * INTERVAL '1 second'),
+                cleanupLastError = NULL,
+                leaseToken = NULL, leaseExpiresAt = NULL,
+                updatedAt = CURRENT_TIMESTAMP
+           FROM candidate
+          WHERE manifest.operationId = candidate.operationId
+            AND manifest.sourceAttachmentId = candidate.sourceAttachmentId
+         RETURNING manifest.operationId, manifest.sourceAttachmentId,
+                   manifest.stagedPath, manifest.cleanupAttempts`,
+        [
+          input.actorUserId,
+          key,
+          input.maxAttempts,
+          cleanupLeaseToken,
+          Math.max(30, input.leaseSeconds),
+        ],
+      );
+      if (!row) return null;
+      return {
+        operationId: row.operationId,
+        sourceAttachmentId: row.sourceAttachmentId,
+        stagedPath: row.stagedPath,
+        cleanupAttempts: toNumber(row.cleanupAttempts),
+        cleanupLeaseToken,
+      };
+    },
+
+    async markCleanupComplete(input: {
+      operationId: string;
+      sourceAttachmentId: string;
+      cleanupLeaseToken: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments
+            SET status = 'cleaned', cleanupStatus = 'cleaned',
+                cleanedAt = CURRENT_TIMESTAMP, cleanupLeaseToken = NULL,
+                cleanupLeaseExpiresAt = NULL, cleanupLastError = NULL,
+                leaseToken = NULL, leaseExpiresAt = NULL,
+                updatedAt = CURRENT_TIMESTAMP
+          WHERE operationId = ? AND sourceAttachmentId = ?
+            AND cleanupStatus = 'cleaning' AND cleanupLeaseToken = ?`,
+        [input.operationId, input.sourceAttachmentId, input.cleanupLeaseToken],
+      );
+      if (result.changes !== 1) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_CLEANUP_LEASE_LOST",
+          "附件清理租约已失效，请重新恢复操作",
+          409,
+          { operationId: input.operationId, sourceAttachmentId: input.sourceAttachmentId },
+        );
+      }
+    },
+
+    async markCleanupFailed(input: {
+      operationId: string;
+      sourceAttachmentId: string;
+      cleanupLeaseToken: string;
+      error: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE note_transfer_staged_attachments
+            SET cleanupStatus = 'failed', cleanupLastError = ?,
+                cleanupLeaseToken = NULL, cleanupLeaseExpiresAt = NULL,
+                updatedAt = CURRENT_TIMESTAMP
+          WHERE operationId = ? AND sourceAttachmentId = ?
+            AND cleanupStatus = 'cleaning' AND cleanupLeaseToken = ?`,
+        [
+          input.error.slice(0, 2000),
+          input.operationId,
+          input.sourceAttachmentId,
+          input.cleanupLeaseToken,
+        ],
+      );
+      if (result.changes !== 1) {
+        throw new NoteTransferOperationError(
+          "NOTE_TRANSFER_CLEANUP_LEASE_LOST",
+          "附件清理租约已失效，请重新恢复操作",
           409,
           { operationId: input.operationId, sourceAttachmentId: input.sourceAttachmentId },
         );

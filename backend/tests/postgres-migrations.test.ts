@@ -34,6 +34,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0016_note_transfer_operations",
     "0017_note_transfer_staging_manifest",
     "0018_note_transfer_attachment_staging_runtime",
+    "0019_note_transfer_cleanup_runtime",
   ]);
 
   const stateTable = await pool.query(
@@ -205,7 +206,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
             to_regclass('public.idx_note_transfer_items_source') AS item_source,
             to_regclass('public.idx_note_transfer_staged_attachments_operation_status') AS staged_status,
             to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source,
-            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease`,
+            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,
+            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease`,
   );
   assert.equal(
     transferIndexes.rows[0].user_time,
@@ -231,18 +233,38 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     transferIndexes.rows[0].staged_lease,
     "idx_note_transfer_staged_attachments_lease",
   );
+  assert.equal(
+    transferIndexes.rows[0].cleanup_lease,
+    "idx_note_transfer_staged_attachments_cleanup_lease",
+  );
 
   const stagingColumns = await pool.query(`
     SELECT column_name
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'note_transfer_staged_attachments'
-       AND column_name IN ('leaseToken', 'leaseExpiresAt', 'verifiedSize', 'verifiedHash', 'stagedAt')
+       AND column_name IN (
+         'leaseToken', 'leaseExpiresAt', 'verifiedSize', 'verifiedHash', 'stagedAt',
+         'cleanupStatus', 'cleanupAttempts', 'cleanupLeaseToken',
+         'cleanupLeaseExpiresAt', 'cleanupLastError', 'cleanedAt'
+       )
      ORDER BY column_name
   `);
   assert.deepEqual(
     stagingColumns.rows.map((row) => row.column_name),
-    ["leaseExpiresAt", "leaseToken", "stagedAt", "verifiedHash", "verifiedSize"],
+    [
+      "cleanedAt",
+      "cleanupAttempts",
+      "cleanupLastError",
+      "cleanupLeaseExpiresAt",
+      "cleanupLeaseToken",
+      "cleanupStatus",
+      "leaseExpiresAt",
+      "leaseToken",
+      "stagedAt",
+      "verifiedHash",
+      "verifiedSize",
+    ],
   );
 
   const second = await runPostgresMigrations(adapter);
