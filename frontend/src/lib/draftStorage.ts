@@ -1,6 +1,11 @@
 const DRAFT_KEY_PREFIX = "nowen-draft-";
 const DRAFT_INDEX_KEY = "nowen-draft-index";
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * A successful request may resolve while the editor already contains a newer debounce generation.
+ * Keep the acknowledged draft briefly and delete it only if no newer local snapshot replaces it.
+ */
+export const ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS = 10_000;
 
 export interface NoteDraft {
   noteId: string;
@@ -15,6 +20,18 @@ export interface NoteDraft {
   conflicted?: boolean;
   serverVersion?: number;
 }
+
+export interface DraftAcknowledgement {
+  noteId: string;
+  title: string;
+  content: string;
+  contentText?: string;
+  serverVersion: number;
+  acknowledgedAt?: number;
+}
+
+const acknowledgements = new Map<string, Required<DraftAcknowledgement>>();
+const pendingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function getIndex(): string[] {
   try {
@@ -80,8 +97,37 @@ function mergeDraft(previous: NoteDraft | null, incoming: NoteDraft): NoteDraft 
   };
 }
 
+function matchesAcknowledgement(
+  draft: NoteDraft,
+  acknowledgement: Required<DraftAcknowledgement>,
+): boolean {
+  // content + title are the authoritative user-authored body. contentText may be normalized by
+  // the server/search projection and must not keep an otherwise confirmed draft forever.
+  return draft.content === acknowledgement.content
+    && draft.title === acknowledgement.title;
+}
+
+function cancelPendingClear(noteId: string): void {
+  const timer = pendingClearTimers.get(noteId);
+  if (timer !== undefined) clearTimeout(timer);
+  pendingClearTimers.delete(noteId);
+}
+
+function removeDraftNow(noteId: string): void {
+  cancelPendingClear(noteId);
+  acknowledgements.delete(noteId);
+  try {
+    localStorage.removeItem(keyOf(noteId));
+    removeFromIndex(noteId);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function saveDraft(draft: NoteDraft): void {
   if (!draft.noteId || draft.noteId.startsWith("local-")) return;
+  // A new editor snapshot invalidates any delayed cleanup created by an older ACK.
+  cancelPendingClear(draft.noteId);
   const merged = mergeDraft(readRawDraft(draft.noteId), draft);
   try {
     localStorage.setItem(keyOf(draft.noteId), JSON.stringify(merged));
@@ -97,24 +143,71 @@ export function saveDraft(draft: NoteDraft): void {
   }
 }
 
+/** Record the exact body that the server has durably acknowledged. */
+export function markDraftAcknowledged(input: DraftAcknowledgement): void {
+  if (!input.noteId || !Number.isFinite(input.serverVersion)) return;
+  cancelPendingClear(input.noteId);
+  acknowledgements.set(input.noteId, {
+    ...input,
+    contentText: input.contentText || "",
+    acknowledgedAt: input.acknowledgedAt || Date.now(),
+  });
+}
+
 export function loadDraft(noteId: string): NoteDraft | null {
   if (!noteId) return null;
   const draft = readRawDraft(noteId);
   if (!draft) return null;
   if (Date.now() - draft.savedAt > MAX_AGE_MS) {
-    clearDraft(noteId);
+    forceClearDraft(noteId);
     return null;
   }
   return draft;
 }
 
-export function clearDraft(noteId: string): void {
-  try {
-    localStorage.removeItem(keyOf(noteId));
-    removeFromIndex(noteId);
-  } catch {
-    /* ignore */
+/**
+ * Clear a draft after save success without allowing an older response to delete newer local text.
+ *
+ * - No ACK marker: preserve historical/manual cleanup behavior and delete immediately.
+ * - ACK body differs from current draft: refuse cleanup; the draft is newer than the response.
+ * - ACK body matches: delay deletion and re-check savedAt/body after the editor debounce window.
+ */
+export function clearDraft(noteId: string): boolean {
+  const draft = readRawDraft(noteId);
+  if (!draft) {
+    removeDraftNow(noteId);
+    return true;
   }
+
+  const acknowledgement = acknowledgements.get(noteId);
+  if (!acknowledgement) {
+    removeDraftNow(noteId);
+    return true;
+  }
+  if (!matchesAcknowledgement(draft, acknowledgement)) {
+    return false;
+  }
+  if (pendingClearTimers.has(noteId)) return true;
+
+  const expectedSavedAt = draft.savedAt;
+  const expectedVersion = acknowledgement.serverVersion;
+  const timer = setTimeout(() => {
+    pendingClearTimers.delete(noteId);
+    const current = readRawDraft(noteId);
+    const currentAcknowledgement = acknowledgements.get(noteId);
+    if (!current || !currentAcknowledgement) return;
+    if (current.savedAt !== expectedSavedAt) return;
+    if (currentAcknowledgement.serverVersion !== expectedVersion) return;
+    if (!matchesAcknowledgement(current, currentAcknowledgement)) return;
+    removeDraftNow(noteId);
+  }, ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS);
+  pendingClearTimers.set(noteId, timer);
+  return true;
+}
+
+/** Explicit user/system discard path. Never use this for an asynchronous save response. */
+export function forceClearDraft(noteId: string): void {
+  removeDraftNow(noteId);
 }
 
 function pruneOldest(): void {
@@ -129,7 +222,7 @@ function pruneOldest(): void {
       oldestId = id;
     }
   }
-  clearDraft(oldestId);
+  forceClearDraft(oldestId);
 }
 
 export function shouldOfferRestore(
@@ -137,15 +230,26 @@ export function shouldOfferRestore(
   serverVersion: number,
   serverUpdatedAt: string | undefined,
   serverContent: string | undefined,
+  serverTitle?: string,
 ): boolean {
   if (!draft) return false;
   if (draft.conflicted) return true;
   if (draft.baseVersion > serverVersion) return false;
+
+  // Content equality is authoritative. A server timestamp can be newer because
+  // of clock skew, metadata-only edits, another device, or a delayed projection.
+  // It must never suppress a local body that is observably different.
+  if (typeof serverContent === "string") {
+    const sameBody = serverContent === draft.content;
+    const sameTitle = serverTitle === undefined || serverTitle === draft.title;
+    return !(sameBody && sameTitle);
+  }
+
+  // Timestamp is only a fallback when the caller cannot provide server content.
   if (serverUpdatedAt) {
     const serverTs = new Date(serverUpdatedAt).getTime();
     if (!Number.isNaN(serverTs) && serverTs >= draft.savedAt) return false;
   }
-  if (typeof serverContent === "string" && serverContent === draft.content) return false;
   return true;
 }
 
@@ -159,8 +263,9 @@ export function listDrafts(): NoteDraft[] {
 }
 
 export function clearAllDrafts(): void {
-  for (const id of getIndex()) {
-    try { localStorage.removeItem(keyOf(id)); } catch { /* ignore */ }
-  }
+  for (const id of getIndex()) forceClearDraft(id);
+  for (const timer of pendingClearTimers.values()) clearTimeout(timer);
+  pendingClearTimers.clear();
+  acknowledgements.clear();
   setIndex([]);
 }

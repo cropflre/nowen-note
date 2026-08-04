@@ -2583,16 +2583,110 @@ export const api = {
   // 今日日记
   journals: {
     /** 获取或创建今日日记（POST 语义，避免 GET 副作用） */
-    getOrCreateToday: (localDate?: string) =>
-      request<{ id: string; title: string; existed: boolean;[key: string]: any }>("/journals/today", {
+    getOrCreateToday: async (localDate?: string) => {
+      const result = await request<{ id: string; title: string; existed: boolean;[key: string]: any }>("/journals/today", {
         method: "POST",
         body: JSON.stringify({ localDate }),
-      }),
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+          detail: { reason: result.existed ? "journal-archive-repaired" : "journal-created" },
+        }));
+      }
+      return result;
+    },
     /** 检查今日日记是否存在（只读，不创建） */
     checkToday: (date?: string) => {
       const qs = date ? `?date=${encodeURIComponent(date)}` : "";
       return request<{ exists: boolean; noteId: string | null; title: string | null }>(`/journals/check${qs}`);
     },
+    /** 获取或创建当前工作区的共享日期日记 */
+    getOrCreateWorkspace: async (workspaceId: string, localDate: string) => {
+      const result = await request<{
+        id: string;
+        title: string;
+        existed: boolean;
+        canWrite: boolean;
+        role: string;
+        workspaceId: string;
+        scope: "workspace";
+        [key: string]: any;
+      }>(`/journals/workspace/${encodeURIComponent(workspaceId)}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ localDate }),
+      });
+      if (typeof window !== "undefined" && result.canWrite) {
+        window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+          detail: {
+            reason: result.existed ? "workspace-journal-repaired" : "workspace-journal-created",
+            workspaceId,
+          },
+        }));
+      }
+      return result;
+    },
+    /** 检查工作区共享日记是否存在；只读成员也可调用 */
+    checkWorkspace: (workspaceId: string, date?: string) => {
+      const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+      return request<{
+        exists: boolean;
+        noteId: string | null;
+        title: string | null;
+        canWrite: boolean;
+        role: string;
+        scope: "workspace";
+        workspaceId: string;
+      }>(`/journals/workspace/${encodeURIComponent(workspaceId)}/check${qs}`);
+    },
+    /** 将已有日记迁移到真实的个人日记 / 年 / 月目录 */
+    organizeArchive: () => request<{
+      success: boolean;
+      total: number;
+      organized: number;
+      moved: number;
+      alreadyOrganized: number;
+      skippedInvalidDate: number;
+      skippedWorkspaceJournal: number;
+      foldersCreated: number;
+      foldersAdopted: number;
+      foldersReused: number;
+      rootNotebookId: string | null;
+    }>("/journals/organize", { method: "POST" }),
+    /** 预览迁移后可安全清理的旧空目录 */
+    previewArchiveCleanup: () => request<{
+      previewToken: string;
+      candidateCount: number;
+      blockedCount: number;
+      candidates: Array<{
+        id: string;
+        name: string;
+        parentId: string | null;
+        updatedAt: string;
+        evidenceCount: number;
+      }>;
+      blocked: Array<{
+        id: string;
+        name: string;
+        reasons: string[];
+      }>;
+    }>("/journals/cleanup-preview"),
+    /** 按预览令牌软删除已确认的空旧目录 */
+    cleanupArchive: (data: { previewToken: string; candidateIds?: string[] }) => request<{
+      success: boolean;
+      cleanupId: string;
+      cleaned: number;
+      alreadyDeleted: number;
+      cleanedNotebooks: Array<{ id: string; name: string }>;
+    }>("/journals/cleanup", { method: "POST", body: JSON.stringify(data) }),
+    /** 撤销一次旧目录清理 */
+    restoreArchiveCleanup: (cleanupId: string) => request<{
+      success: boolean;
+      cleanupId: string;
+      restored: number;
+      alreadyActive: number;
+      missing: number;
+      restoredNotebooks: Array<{ id: string; name: string }>;
+    }>("/journals/cleanup/restore", { method: "POST", body: JSON.stringify({ cleanupId }) }),
     /** 获取日记列表 */
     list: (cursor?: string, limit?: number) => {
       const params = new URLSearchParams();

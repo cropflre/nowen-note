@@ -1,0 +1,60 @@
+name: Markdown Daily Record CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/MarkdownSlashMenu.tsx'
+      - 'frontend/src/components/daily-records/dailyRecordSlashCommands.tsx'
+      - 'frontend/src/components/daily-records/markdownDailyRecordSlashCommands.tsx'
+      - 'frontend/src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx'
+      - 'frontend/src/components/daily-records/__tests__/markdownDailyRecordSlashCommands.test.tsx'
+      - 'frontend/src/lib/dailyRecordCommandDefinitions.ts'
+      - 'frontend/src/lib/__tests__/dailyRecordCommandDefinitions.test.ts'
+      - 'frontend/src/lib/dailyRecords.ts'
+      - 'frontend/src/lib/noteLinkSyntax.ts'
+      - '.github/workflows/markdown-daily-record-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q source
+          cd source
+          git remote add origin https://github.com/${{ github.repository }}.git
+          if [ -n "${PR_NUMBER}" ]; then
+            git fetch -q --depth 1 origin pull/${PR_NUMBER}/merge
+          else
+            git fetch -q --depth 1 origin "${{ github.ref_name }}"
+          fi
+          git checkout -q FETCH_HEAD
+
+      - name: Install frontend dependencies
+        working-directory: source/frontend
+        run: npm ci --silent
+
+      - name: Daily record command regressions
+        working-directory: source/frontend
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/dailyRecordCommandDefinitions.test.ts
+          src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx
+          src/components/daily-records/__tests__/markdownDailyRecordSlashCommands.test.tsx
+          src/components/__tests__/SlashCommandExtension.test.ts
+
+      - name: Frontend typecheck
+        working-directory: source/frontend
+        run: npx tsc -b
+
+      - name: Vite production bundle
+        working-directory: source/frontend
+        run: npx vite build

@@ -392,7 +392,7 @@ export function createNoteTransferOperationRepository(adapter?: DatabaseAdapter)
       return operation;
     },
 
-    async prepare(input: {
+    async prepareOperation(input: {
       actorUserId: string;
       idempotencyKey: string;
       mode: NoteTransferOperationMode;

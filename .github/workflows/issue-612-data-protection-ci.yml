@@ -1,0 +1,121 @@
+name: Issue 612 Data Protection CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/knowledgeTree*.ts"
+      - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
+      - "backend/src/repositories/noteYupdatesRepository.ts"
+      - "backend/src/services/realtime.ts"
+      - "backend/src/services/yjs.ts"
+      - "backend/src/services/yjsDurability.ts"
+      - "backend/tests/knowledge-tree-migration-registry.test.ts"
+      - "backend/tests/yjs-durability.test.ts"
+      - "backend/tests/note-yupdates-repository-async.test.ts"
+      - "frontend/src/hooks/useYDoc.ts"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/yjsDurability.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/editorLifecycleSafety.ts"
+      - "frontend/src/lib/noteUpdateSerialQueue.ts"
+      - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/conflictResolution.ts"
+      - "frontend/src/lib/__tests__/yjsDurability.test.ts"
+      - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
+      - "frontend/src/lib/__tests__/editorLifecycleSafety.test.ts"
+      - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
+      - ".github/workflows/issue-612-data-protection-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/postgres/schema.base.sql"
+      - "backend/src/db/knowledgeTree*.ts"
+      - "backend/src/db/yjsOperationReceiptsMigration.ts"
+      - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
+      - "backend/src/repositories/noteYupdatesRepository.ts"
+      - "backend/src/services/realtime.ts"
+      - "backend/src/services/yjs.ts"
+      - "backend/src/services/yjsDurability.ts"
+      - "backend/tests/knowledge-tree-migration-registry.test.ts"
+      - "backend/tests/yjs-durability.test.ts"
+      - "backend/tests/note-yupdates-repository-async.test.ts"
+      - "frontend/src/hooks/useYDoc.ts"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/yjsDurability.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/editorLifecycleSafety.ts"
+      - "frontend/src/lib/noteUpdateSerialQueue.ts"
+      - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
+      - "frontend/src/lib/conflictResolution.ts"
+      - "frontend/src/lib/__tests__/yjsDurability.test.ts"
+      - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
+      - "frontend/src/lib/__tests__/editorLifecycleSafety.test.ts"
+      - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
+      - ".github/workflows/issue-612-data-protection-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Yjs durability, repository and migration registry regressions
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-yupdates-repository-async.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree-migration-registry.test.ts
+      - name: Backend typecheck
+        if: always()
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Yjs, REST queue, draft and lifecycle regressions
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/yjsDurability.test.ts
+          src/lib/__tests__/draftStorage.conflict.test.ts
+          src/lib/__tests__/editorLifecycleSafety.test.ts
+          src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts
+          src/lib/__tests__/conflictResolution.test.ts
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b

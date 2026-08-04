@@ -1264,14 +1264,16 @@ export default function MobileKnowledgeTreePanel({
                 setQuery("");
               }
             }}
-            onChanged={(nodeId) => {
+            onChanged={(nodeId, isPasswordProtected) => {
               setUnlockedFolderIds(forgetUnlockedFolder(nodeId));
-              if (parentId === nodeId) {
+              if (isPasswordProtected && parentId === nodeId) {
                 const changedNode = nodes.find((node) => node.id === nodeId);
                 setParentId(changedNode?.parentId || null);
               }
               setNodes((current) => current.map((node) => (
-                node.id === nodeId ? { ...node, isPasswordProtected: 1, isExpanded: 0 } : node
+                node.id === nodeId
+                  ? { ...node, isPasswordProtected: isPasswordProtected ? 1 : 0, ...(isPasswordProtected ? { isExpanded: 0 } : {}) }
+                  : node
               )));
               emitTreeChanged("folder-password-changed");
             }}

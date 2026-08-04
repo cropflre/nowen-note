@@ -1385,6 +1385,8 @@
     "priority": "Priority",
     "startDate": "Start Date",
     "startAt": "Start Time",
+    "allDay": "All Day",
+    "allDayRequiresDate": "Choose a start or due date before enabling all-day",
     "dueDate": "Due Date",
     "dueAt": "Due Time",
     "createdAt": "Created",

@@ -215,7 +215,7 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
 
     const operations = createNoteTransferOperationRepository(adapter);
     await assert.rejects(
-      operations.prepare({
+      operations.prepareOperation({
         actorUserId: ACTOR,
         idempotencyKey: "transfer-preview-stale-rollback",
         mode: "copy",

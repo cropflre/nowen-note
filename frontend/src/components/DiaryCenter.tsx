@@ -1,17 +1,12 @@
-import React, { useRef } from "react";
-import DiaryCenterImpl from "./DiaryCenterImpl";
-import DiaryExperienceBridge from "./diary/DiaryExperienceBridge";
+import React from "react";
+import DailyRecordsHub from "@/components/daily-records/DailyRecordsHub";
 
 /**
- * Compatibility shell around the existing diary center. The bridge adds the
- * lightweight Markdown/report interaction without duplicating diary data state.
+ * Unified entry for moments, calendar and daily journals.
+ *
+ * The existing diary timeline stays intact inside the "moments" tab, while the
+ * hub adds a date-oriented journal workspace without duplicating diary data.
  */
 export default function DiaryCenter() {
-  const rootRef = useRef<HTMLDivElement>(null);
-  return (
-    <div ref={rootRef} className="contents">
-      <DiaryCenterImpl />
-      <DiaryExperienceBridge rootRef={rootRef} />
-    </div>
-  );
+  return <DailyRecordsHub />;
 }

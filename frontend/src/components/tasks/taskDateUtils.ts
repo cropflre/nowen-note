@@ -11,6 +11,27 @@ export function getDateValue(value: string | null | undefined): string {
   return value.replace(" ", "T").split("T")[0];
 }
 
+function hasExplicitTaskTime(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /(?:T|\s)\d{2}:\d{2}/.test(value);
+}
+
+export type TaskScheduleMode = "unscheduled" | "all-day" | "timed";
+
+export function getTaskScheduleMode(
+  task: Pick<Task, "startDate" | "dueDate" | "dueAt">,
+): TaskScheduleMode {
+  const hasDate = Boolean(getDateValue(task.startDate) || getDateValue(task.dueDate) || getDateValue(task.dueAt));
+  if (!hasDate) return "unscheduled";
+  return hasExplicitTaskTime(task.startDate) || hasExplicitTaskTime(task.dueDate) || hasExplicitTaskTime(task.dueAt)
+    ? "timed"
+    : "all-day";
+}
+
+export function isTaskAllDay(task: Pick<Task, "startDate" | "dueDate" | "dueAt">): boolean {
+  return getTaskScheduleMode(task) === "all-day";
+}
+
 export function buildStartDateFromDateAndTime(dateValue: string | null | undefined, timeValue: string): string | null {
   if (!dateValue) return null;
   return timeValue ? `${dateValue}T${timeValue.slice(0, 5)}` : dateValue;

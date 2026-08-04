@@ -54,6 +54,7 @@ import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
+import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
 import {
@@ -3078,14 +3079,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     () => ({
       flushSave: () => {
         if (!editor) return;
-        if (!debounceTimer.current) return;
-        clearTimeout(debounceTimer.current);
-        debounceTimer.current = null;
-        const json = JSON.stringify(editor.getJSON());
-        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         const title = isTitleComposingRef.current
           ? noteRef.current.title
           : titleRef.current?.value || noteRef.current.title;
+        const mode = resolveEditorLifecycleSave({
+          hasPendingContent: !!debounceTimer.current,
+          title,
+          noteTitle: noteRef.current.title,
+          lastEmittedTitle: lastEmittedTitleRef.current,
+          isTitleComposing: isTitleComposingRef.current,
+        });
+        if (mode === "none") return;
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+        if (mode === "title") {
+          lastEmittedTitleRef.current = title;
+          onUpdateRef.current({ title, _noteId: noteRef.current.id });
+          return;
+        }
+        const json = JSON.stringify(editor.getJSON());
+        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         lastEmittedTitleRef.current = title;
         onUpdateRef.current({
           content: json,

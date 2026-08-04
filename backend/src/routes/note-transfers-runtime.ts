@@ -127,7 +127,7 @@ export default function createNoteTransfersRuntimeRouter(adapter?: DatabaseAdapt
         );
       }
 
-      const operation = await operations.prepare({
+      const operation = await operations.prepareOperation({
         actorUserId: request.actorUserId,
         idempotencyKey,
         mode: request.mode,

@@ -1,7 +1,5 @@
-import { MIGRATIONS as BASE_MIGRATIONS } from "../db/migrations.impl.js";
-import { taskInboxMigration } from "../db/taskInboxMigration.js";
+import { MIGRATIONS } from "../db/migrations.js";
 
-if (!BASE_MIGRATIONS.some((migration) => migration.version === taskInboxMigration.version)) {
-  BASE_MIGRATIONS.push(taskInboxMigration);
-  BASE_MIGRATIONS.sort((a, b) => a.version - b.version);
+if (!MIGRATIONS.some((migration) => migration.version === 77)) {
+  throw new Error("[task-inbox-bootstrap] missing canonical migration v77");
 }

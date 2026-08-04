@@ -630,6 +630,21 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE
     );
 
+    -- 客户端持久化操作回执。与 note_yupdates 分表，避免 update GC 后失去重试幂等性。
+    CREATE TABLE IF NOT EXISTS yjs_operation_receipts (
+      noteId TEXT NOT NULL,
+      operationId TEXT NOT NULL,
+      updateId INTEGER NOT NULL,
+      userId TEXT,
+      updateHash TEXT NOT NULL,
+      persistedAt TEXT NOT NULL,
+      PRIMARY KEY (noteId, operationId),
+      FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_yjs_operation_receipts_persisted
+      ON yjs_operation_receipts(persistedAt);
+
     -- Y 文档快照（每 N 条 update 或定时生成一次；合并后可清理旧 updates）
     CREATE TABLE IF NOT EXISTS note_ysnapshots (
       noteId TEXT PRIMARY KEY,

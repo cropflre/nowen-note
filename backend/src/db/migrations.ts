@@ -19,11 +19,22 @@ import { yjsSubdocumentsMigration } from "./yjsSubdocumentsMigration.js";
 import { blockAuthorityStaleGuardMigration } from "./blockAuthorityStaleGuardMigration.js";
 import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMigration.js";
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
+import { knowledgeTreeMigration } from "./knowledgeTreeMigration.js";
+import { knowledgeTreeResourceMigration } from "./knowledgeTreeResourceMigration.js";
+import { knowledgeTreeParentPreservationMigration } from "./knowledgeTreeParentPreservationMigration.js";
+import { knowledgeTreeLegacySyncMigration } from "./knowledgeTreeLegacySyncMigration.js";
+import { knowledgeTreeStructuralGuardMigration } from "./knowledgeTreeStructuralGuardMigration.js";
+import { knowledgeTreePasswordMigration } from "./knowledgeTreePasswordMigration.js";
 import { offlineSyncMigration } from "./offlineSyncMigration.js";
 import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
 import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
 import { blockSchemaRepairMigration } from "./blockSchemaRepairMigration.js";
 import { taskDayPlansMigration } from "./taskDayPlansMigration.js";
+import { yjsOperationReceiptsMigration } from "./yjsOperationReceiptsMigration.js";
+import { taskMetadataMigration } from "./taskMetadataMigration.js";
+import { taskTimePlanningMigration } from "./taskTimePlanningMigration.js";
+import { taskInboxMigration } from "./taskInboxMigration.js";
+import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -260,6 +271,29 @@ const repairSearchContentTextMigration: Migration = {
   },
 };
 
+// 任务功能曾在独立 bootstrap 中占用 v71-v73，导致 v71 与 Yjs 回执迁移冲突。
+// 保留历史版本含义，并用新版本把所有 schema 纳入同一条正式迁移链。
+const yjsOperationReceiptsRepairMigration: Migration = {
+  ...yjsOperationReceiptsMigration,
+  version: 74,
+  name: "yjs-operation-receipts-version-collision-repair",
+};
+const taskMetadataCanonicalMigration: Migration = {
+  ...taskMetadataMigration,
+  version: 75,
+  name: "task-labels-and-saved-views-canonical",
+};
+const taskTimePlanningCanonicalMigration: Migration = {
+  ...taskTimePlanningMigration,
+  version: 76,
+  name: "task-estimates-and-time-blocks-canonical",
+};
+const taskInboxCanonicalMigration: Migration = {
+  ...taskInboxMigration,
+  version: 77,
+  name: "personal-task-inbox-and-capture-source-canonical",
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
@@ -275,11 +309,23 @@ export const MIGRATIONS: Migration[] = [
   blockAuthorityStaleGuardMigration,
   yjsSubdocumentGenerationMigration,
   tagScopeUniquenessMigration,
+  knowledgeTreeMigration,
+  knowledgeTreeResourceMigration,
+  knowledgeTreeParentPreservationMigration,
+  knowledgeTreeLegacySyncMigration,
+  knowledgeTreeStructuralGuardMigration,
+  knowledgeTreePasswordMigration,
   offlineSyncMigration,
   newUserOnboardingMigration,
   newUserOnboardingFirstLoginMigration,
   blockSchemaRepairMigration,
   taskDayPlansMigration,
+  yjsOperationReceiptsMigration,
+  yjsOperationReceiptsRepairMigration,
+  taskMetadataCanonicalMigration,
+  taskTimePlanningCanonicalMigration,
+  taskInboxCanonicalMigration,
+  workspaceJournalsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

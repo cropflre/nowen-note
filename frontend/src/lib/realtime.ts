@@ -30,7 +30,7 @@ class RealtimeClient {
    * 服务端在 "connected" 首帧里告知的当前用户 userId。
    * 给 useRealtimeNote 之类的消费方提供"零等待"的 selfUserId——避免走 /api/me
    * 异步拉取的窗口期内把自己的 presence / note:updated 也当成别人处理，
-   * 导致"我在编辑时出现 XX 正在编辑 / XX 更新了笔记" 的误提示。
+   * 导致"我在编辑时出现 XX 正在编辑 / XX 更新了笔记"的误提示。
    */
   private selfUserId: string | null = null;
   private reconnectTimer: number | null = null;
@@ -199,11 +199,18 @@ class RealtimeClient {
     }
   }
 
-  private sendRaw(msg: any) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  /**
+   * Returns true only when the frame was handed to an OPEN WebSocket.
+   * Callers that need durability must still wait for a server ACK.
+   */
+  private sendRaw(msg: any): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     try {
       this.ws.send(JSON.stringify(msg));
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** 是否已连接（注意：断线期间也返回 false） */
@@ -279,8 +286,7 @@ class RealtimeClient {
       this.connect();
       return false;
     }
-    this.sendRaw({ type: "y:join", noteId });
-    return true;
+    return this.sendRaw({ type: "y:join", noteId });
   }
 
   yLeave(noteId: string): void {
@@ -288,10 +294,18 @@ class RealtimeClient {
     this.sendRaw({ type: "y:leave", noteId });
   }
 
-  /** 发送 Y update（二进制 → base64） */
-  yUpdate(noteId: string, update: Uint8Array): void {
-    if (!this.isOpen()) return;
-    this.sendRaw({ type: "y:update", noteId, update: uint8ToBase64(update) });
+  /**
+   * 发送 Y update（二进制 → base64）。返回 true 只表示帧已发出；
+   * 内容是否安全落盘必须等待同 operationId 的 y:ack。
+   */
+  yUpdate(noteId: string, update: Uint8Array, operationId: string): boolean {
+    if (!this.isOpen()) return false;
+    return this.sendRaw({
+      type: "y:update",
+      noteId,
+      operationId,
+      update: uint8ToBase64(update),
+    });
   }
 
   /** 发送 awareness update */
@@ -300,7 +314,7 @@ class RealtimeClient {
     this.sendRaw({ type: "y:awareness", noteId, update: uint8ToBase64(update) });
   }
 
-  /** P2-#6：双向 sync 第一步——发送本地 stateVector，服务端返回 diff */
+  /** P2-#6：发送本地 stateVector，请求服务端侧的 diff */
   ySyncStep1(noteId: string, stateVector: Uint8Array): void {
     if (!this.isOpen()) return;
     this.sendRaw({

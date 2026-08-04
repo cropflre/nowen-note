@@ -3,6 +3,13 @@ import test from "node:test";
 import Database from "better-sqlite3";
 import { tagScopeUniquenessMigration } from "../src/db/tagScopeUniquenessMigration";
 
+type ForeignKeyViolation = {
+  table: string;
+  rowid: number;
+  parent: string;
+  fkid: number;
+};
+
 function createLegacyDb(): Database.Database {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
@@ -29,6 +36,11 @@ function createLegacyDb(): Database.Database {
       PRIMARY KEY (noteId, tagId),
       FOREIGN KEY (noteId) REFERENCES notes(id) ON DELETE CASCADE,
       FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE
+    );
+    CREATE TABLE user_sessions (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
   db.prepare("INSERT INTO users (id) VALUES (?), (?)").run("u1", "u2");
@@ -111,6 +123,53 @@ test("v59 enforces personal and workspace scoped names", () => {
       .run("personal-other", "u2", null, "React");
 
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM tags").get() as { count: number }).count, 4);
+  } finally {
+    db.close();
+  }
+});
+
+test("v59 repairs orphaned user sessions left by a 1.2.x database", () => {
+  const db = createLegacyDb();
+  try {
+    db.pragma("foreign_keys = OFF");
+    db.prepare("INSERT INTO user_sessions (id, userId) VALUES (?, ?)")
+      .run("legacy-session", "deleted-user");
+    db.pragma("foreign_keys = ON");
+
+    const before = db.prepare("PRAGMA foreign_key_check").all() as ForeignKeyViolation[];
+    assert.equal(before.filter((error) => error.table === "user_sessions").length, 1);
+
+    assert.doesNotThrow(() => tagScopeUniquenessMigration.up(db));
+    assert.equal(
+      (db.prepare("SELECT COUNT(*) AS count FROM user_sessions").get() as { count: number }).count,
+      0,
+    );
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    db.close();
+  }
+});
+
+test("v59 does not report unrelated legacy foreign key errors as tag migration failures", () => {
+  const db = createLegacyDb();
+  try {
+    db.exec(`
+      CREATE TABLE legacy_refs (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    db.pragma("foreign_keys = OFF");
+    db.prepare("INSERT INTO legacy_refs (id, userId) VALUES (?, ?)")
+      .run("legacy-ref", "deleted-user");
+    db.pragma("foreign_keys = ON");
+
+    assert.doesNotThrow(() => tagScopeUniquenessMigration.up(db));
+
+    const remaining = db.prepare("PRAGMA foreign_key_check").all() as ForeignKeyViolation[];
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].table, "legacy_refs");
   } finally {
     db.close();
   }

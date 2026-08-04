@@ -201,7 +201,9 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
   const renderItem = (item: NavConfigItem) => {
     const active = state.viewMode === item.mode;
-    const label = t(item.labelKey);
+    const label = item.mode === "diary"
+      ? t("sidebar.dailyRecords", { defaultValue: "每日记录" })
+      : t(item.labelKey);
     return (
       <button
         key={item.mode}

@@ -296,6 +296,38 @@ app.put("/nodes/:nodeId/password", async (c) => {
   }
 });
 
+app.delete("/nodes/:nodeId/password", async (c) => {
+  try {
+    const target = notebookPasswordTarget(c.req.param("nodeId"), userIdOf(c));
+    if (!target.access.capabilities.canManageMembers) {
+      return c.json({ error: "没有密码管理权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const current = target.db.prepare("SELECT passwordHash FROM notebook_passwords WHERE notebookId = ?")
+      .get(target.notebookId) as { passwordHash: string } | undefined;
+    if (!current) {
+      return c.json({ success: true, isPasswordProtected: false });
+    }
+    if (!currentPassword || !(await bcrypt.compare(passwordDigest(currentPassword), current.passwordHash))) {
+      return c.json({ error: "当前密码错误", code: "FOLDER_PASSWORD_CURRENT_INVALID" }, 403);
+    }
+    const removed = target.db.prepare(`
+      DELETE FROM notebook_passwords
+      WHERE notebookId = ? AND passwordHash = ?
+    `).run(target.notebookId, current.passwordHash);
+    if (removed.changes === 0) {
+      return c.json({
+        error: "文件夹密码已变更，请重新输入当前密码",
+        code: "FOLDER_PASSWORD_CHANGED",
+      }, 409);
+    }
+    return c.json({ success: true, isPasswordProtected: false });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
 app.get("/nodes/:nodeId/permissions", (c) => {
   try {
     const nodeId = c.req.param("nodeId");

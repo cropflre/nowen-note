@@ -103,8 +103,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
-function workspaceQuery(includeDeleted = false): string {
-  const workspaceId = getCurrentWorkspace();
+function workspaceQuery(includeDeleted = false, workspaceIdOverride?: string): string {
+  const workspaceId = workspaceIdOverride || getCurrentWorkspace();
   const params = new URLSearchParams({ workspaceId });
   if (includeDeleted) params.set("includeDeleted", "1");
   return params.toString();
@@ -119,12 +119,28 @@ export const knowledgeTreeApi = {
     return request<{ nodes: KnowledgeTreeNode[] }>(`?${workspaceQuery(includeDeleted)}`).then(withDisplaySort);
   },
 
+  listForWorkspace(workspaceId: string, includeDeleted = false) {
+    return request<{ nodes: KnowledgeTreeNode[] }>(
+      `/?${workspaceQuery(includeDeleted, workspaceId)}`,
+    ).then(withDisplaySort);
+  },
+
   listShared() {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
   create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string }) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery()}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  createForWorkspace(
+    workspaceId: string,
+    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string },
+  ) {
+    return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery(false, workspaceId)}`, {
       method: "POST",
       body: JSON.stringify(input),
     });
@@ -200,6 +216,13 @@ export const knowledgeTreeApi = {
     return request<{ success: true; isPasswordProtected: true }>(
       `/nodes/${encodeURIComponent(nodeId)}/password`,
       { method: "PUT", body: JSON.stringify(input) },
+    );
+  },
+
+  removeFolderPassword(nodeId: string, currentPassword: string) {
+    return request<{ success: true; isPasswordProtected: false }>(
+      `/nodes/${encodeURIComponent(nodeId)}/password`,
+      { method: "DELETE", body: JSON.stringify({ currentPassword }) },
     );
   },
 };

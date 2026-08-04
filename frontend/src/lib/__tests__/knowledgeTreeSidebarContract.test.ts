@@ -78,7 +78,8 @@ describe("knowledge tree sidebar contract", () => {
     expect(runtime).toContain("actions.toggleNoteListCollapsed()");
     expect(runtime).toContain('layoutMode === "three-column"');
     expect(runtime).toContain('variant === "mobile"');
-    expect(runtime).toContain("existingHost?.remove()");
+    expect(runtime).toContain("for (const host of root.querySelectorAll<HTMLElement>");
+    expect(runtime).toContain('if (host.getAttribute(ALL_NOTES_HOST_ATTR) !== "mobile-toolbar") host.remove();');
   });
 
   it("applies an unmistakably compact mobile density with a safe fallback", () => {

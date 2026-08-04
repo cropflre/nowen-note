@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
+import { getDailyRecordSlashCommands } from "@/components/daily-records/dailyRecordSlashCommands";
 
 export interface SlashCommandItem {
   id: string;
@@ -189,6 +190,7 @@ export function getDefaultSlashCommands(
   onAttachmentLibrary?: () => void,
 ): SlashCommandItem[] {
   return [
+    ...getDailyRecordSlashCommands(),
     // 标题
     {
       id: "heading1",

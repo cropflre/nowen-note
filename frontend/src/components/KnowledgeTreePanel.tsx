@@ -1241,15 +1241,19 @@ export function KnowledgeTreePanel({
                 }
               }
             }}
-            onChanged={(nodeId) => {
+            onChanged={(nodeId, isPasswordProtected) => {
               setUnlockedFolderIds(forgetUnlockedFolder(nodeId));
-              setExpanded((current) => {
-                const next = new Set(current);
-                next.delete(nodeId);
-                return next;
-              });
+              if (isPasswordProtected) {
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  next.delete(nodeId);
+                  return next;
+                });
+              }
               setNodes((current) => current.map((node) => (
-                node.id === nodeId ? { ...node, isPasswordProtected: 1, isExpanded: 0 } : node
+                node.id === nodeId
+                  ? { ...node, isPasswordProtected: isPasswordProtected ? 1 : 0, ...(isPasswordProtected ? { isExpanded: 0 } : {}) }
+                  : node
               )));
               emitTreeChanged("folder-password-changed");
             }}

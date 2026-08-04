@@ -1511,6 +1511,8 @@
     "timelineView": "时间线",
     "startDate": "开始日期",
     "startAt": "开始时间",
+    "allDay": "全天",
+    "allDayRequiresDate": "请先选择开始日期或截止日期",
     "gantt": {
       "title": "时间线",
       "today": "今天",

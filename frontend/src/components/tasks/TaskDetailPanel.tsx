@@ -26,6 +26,7 @@ import {
   buildStartDateFromDateAndTime,
   getDateValue,
   getDueTimeValue,
+  isTaskAllDay,
   isTaskDateRangeInvalid,
 } from "./taskDateUtils";
 import { buildCustomReminderOffset, sortRemindersByOffset } from "./taskReminderUtils";
@@ -186,6 +187,11 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [dueAt, setDueAt] = useState(getDueTimeValue(task.dueAt || task.dueDate));
   const [startDate, setStartDate] = useState(getDateValue(task.startDate));
   const [startAt, setStartAt] = useState(getDueTimeValue(task.startDate));
+  const [allDay, setAllDay] = useState(isTaskAllDay(task));
+  const timedValuesRef = useRef({
+    startAt: getDueTimeValue(task.startDate),
+    dueAt: getDueTimeValue(task.dueAt || task.dueDate),
+  });
   const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly" | "custom">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
   const [repeatEndDate, setRepeatEndDate] = useState(task.repeatEndDate || "");
@@ -253,6 +259,21 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     task.repeatRuleJson,
   ]);
 
+  useEffect(() => {
+    const nextDueDate = getDateValue(task.dueDate || task.dueAt);
+    const nextDueAt = getDueTimeValue(task.dueAt || task.dueDate);
+    const nextStartDate = getDateValue(task.startDate);
+    const nextStartAt = getDueTimeValue(task.startDate);
+    setDueDate(nextDueDate);
+    setDueAt(nextDueAt);
+    setStartDate(nextStartDate);
+    setStartAt(nextStartAt);
+    setAllDay(isTaskAllDay(task));
+    if (nextStartAt || nextDueAt) {
+      timedValuesRef.current = { startAt: nextStartAt, dueAt: nextDueAt };
+    }
+  }, [task.id, task.startDate, task.dueDate, task.dueAt]);
+
   // load reminders for this task
   const loadReminders = useCallback(async () => {
     setRemindersLoading(true);
@@ -269,13 +290,51 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
   useEffect(() => { loadReminders(); }, [loadReminders]);
 
+  const hasScheduledDate = Boolean(startDate || dueDate);
+
+  const handleAllDayToggle = () => {
+    const nextAllDay = !allDay;
+    if (nextAllDay && !hasScheduledDate) return;
+
+    if (nextAllDay) {
+      if (startAt || dueAt) {
+        timedValuesRef.current = { startAt, dueAt };
+      }
+      setAllDay(true);
+      setStartAt("");
+      setDueAt("");
+      setDateError(isTaskDateRangeInvalid(startDate || null, dueDate || null, null)
+        ? t("tasks.gantt.invalidDateRange")
+        : null);
+      onUpdate(task.id, {
+        startDate: startDate || null,
+        dueDate: dueDate || null,
+        dueAt: null,
+      });
+      return;
+    }
+
+    setAllDay(false);
+    const previous = timedValuesRef.current;
+    if (!previous.startAt && !previous.dueAt) return;
+
+    setStartAt(previous.startAt);
+    setDueAt(previous.dueAt);
+    const nextStart = buildStartDateFromDateAndTime(startDate, previous.startAt);
+    const nextDueAt = buildDueAtFromDateAndTime(dueDate, previous.dueAt);
+    setDateError(isTaskDateRangeInvalid(nextStart, dueDate, nextDueAt)
+      ? t("tasks.gantt.invalidDateRange")
+      : null);
+    onUpdate(task.id, { startDate: nextStart, dueAt: nextDueAt });
+  };
+
   const handleSave = () => {
     onUpdate(task.id, {
       title: title.trim() || task.title,
       priority,
       dueDate: dueDate || null,
-      dueAt: buildDueAtFromDateAndTime(dueDate, dueAt),
-      startDate: buildStartDateFromDateAndTime(startDate, startAt),
+      dueAt: allDay ? null : buildDueAtFromDateAndTime(dueDate, dueAt),
+      startDate: allDay ? (startDate || null) : buildStartDateFromDateAndTime(startDate, startAt),
     });
   };
 
@@ -529,6 +588,33 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           </div>
         </div>
 
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={allDay}
+            aria-label={t("tasks.allDay")}
+            disabled={!hasScheduledDate}
+            title={!hasScheduledDate ? t("tasks.allDayRequiresDate") : undefined}
+            onClick={handleAllDayToggle}
+            className="inline-flex items-center gap-2 text-xs text-tx-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors",
+              allDay ? "bg-accent-primary" : "bg-app-border",
+            )}>
+              <span className={cn(
+                "pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                allDay ? "translate-x-[18px]" : "translate-x-0.5",
+              )} />
+            </span>
+            <span>{t("tasks.allDay")}</span>
+          </button>
+          {!hasScheduledDate && (
+            <p className="text-[10px] text-tx-tertiary">{t("tasks.allDayRequiresDate")}</p>
+          )}
+        </div>
+
         {/* Start Date */}
         <div>
           <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.startDate")}</label>
@@ -537,7 +623,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
             value={startDate}
             onChange={(e) => {
               const newVal = e.target.value;
-              const nextStart = buildStartDateFromDateAndTime(newVal, startAt);
+              const nextStart = allDay ? (newVal || null) : buildStartDateFromDateAndTime(newVal, startAt);
               setStartDate(newVal);
               if (!newVal) setStartAt("");
               if (isTaskDateRangeInvalid(nextStart, dueDate, buildDueAtFromDateAndTime(dueDate, dueAt))) {
@@ -552,26 +638,29 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         </div>
 
         {/* Start At (time) */}
-        <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.startAt")}</label>
-          <input
-            type="time"
-            value={startAt}
-            disabled={!startDate}
-            onChange={(e) => {
-              const nextTime = e.target.value;
-              const nextStart = buildStartDateFromDateAndTime(startDate, nextTime);
-              setStartAt(nextTime);
-              if (isTaskDateRangeInvalid(nextStart, dueDate, buildDueAtFromDateAndTime(dueDate, dueAt))) {
-                setDateError(t("tasks.gantt.invalidDateRange"));
-                return;
-              }
-              setDateError(null);
-              onUpdate(task.id, { startDate: nextStart });
-            }}
-            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-        </div>
+        {!allDay && (
+          <div>
+            <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.startAt")}</label>
+            <input
+              type="time"
+              value={startAt}
+              disabled={!startDate}
+              onChange={(e) => {
+                const nextTime = e.target.value;
+                const nextStart = buildStartDateFromDateAndTime(startDate, nextTime);
+                setStartAt(nextTime);
+                timedValuesRef.current = { ...timedValuesRef.current, startAt: nextTime };
+                if (isTaskDateRangeInvalid(nextStart, dueDate, buildDueAtFromDateAndTime(dueDate, dueAt))) {
+                  setDateError(t("tasks.gantt.invalidDateRange"));
+                  return;
+                }
+                setDateError(null);
+                onUpdate(task.id, { startDate: nextStart });
+              }}
+              className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          </div>
+        )}
 
         {/* Due Date */}
         <div>
@@ -600,7 +689,10 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                 return;
               }
               setDateError(null);
-              onUpdate(task.id, buildDueDatePatch({ ...task, dueAt: buildDueAtFromDateAndTime(dueDate, dueAt) }, newVal));
+              const nextDueAt = allDay ? null : buildDueAtFromDateAndTime(newVal, dueAt);
+              const patch = buildDueDatePatch({ ...task, dueAt: nextDueAt }, newVal);
+              if (allDay) patch.dueAt = null;
+              onUpdate(task.id, patch);
             }}
             className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
           />
@@ -611,26 +703,29 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         )}
 
         {/* Due At (time) */}
-        <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.dueAt")}</label>
-          <input
-            type="time"
-            value={dueAt}
-            disabled={!dueDate}
-            onChange={(e) => {
-              const nextTime = e.target.value;
-              const nextDueAt = buildDueAtFromDateAndTime(dueDate, nextTime);
-              setDueAt(nextTime);
-              if (isTaskDateRangeInvalid(buildStartDateFromDateAndTime(startDate, startAt), dueDate, nextDueAt)) {
-                setDateError(t("tasks.gantt.invalidDateRange"));
-                return;
-              }
-              setDateError(null);
-              onUpdate(task.id, { dueAt: nextDueAt });
-            }}
-            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-        </div>
+        {!allDay && (
+          <div>
+            <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.dueAt")}</label>
+            <input
+              type="time"
+              value={dueAt}
+              disabled={!dueDate}
+              onChange={(e) => {
+                const nextTime = e.target.value;
+                const nextDueAt = buildDueAtFromDateAndTime(dueDate, nextTime);
+                setDueAt(nextTime);
+                timedValuesRef.current = { ...timedValuesRef.current, dueAt: nextTime };
+                if (isTaskDateRangeInvalid(buildStartDateFromDateAndTime(startDate, startAt), dueDate, nextDueAt)) {
+                  setDateError(t("tasks.gantt.invalidDateRange"));
+                  return;
+                }
+                setDateError(null);
+                onUpdate(task.id, { dueAt: nextDueAt });
+              }}
+              className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          </div>
+        )}
 
         {/* Created At */}
         <div className="text-xs text-tx-tertiary">

@@ -57,14 +57,44 @@ function addDaysToIcsDate(value: string, days: number): string {
   return [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join("");
 }
 
+function formatUtcIcsDate(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    pad2(date.getUTCMonth() + 1),
+    pad2(date.getUTCDate()),
+    "T",
+    pad2(date.getUTCHours()),
+    pad2(date.getUTCMinutes()),
+    pad2(date.getUTCSeconds()),
+    "Z",
+  ].join("");
+}
+
 function toIcsDate(dateStr: string): { value: string; isDateTime: boolean } {
-  const normalized = dateStr.trim().replace(" ", "T").replace(/Z$/, "");
-  const dateTime = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (dateTime) {
-    const [, year, month, day, hour, minute, second = "00"] = dateTime;
-    return { value: `${year}${month}${day}T${hour}${minute}${second}`, isDateTime: true };
+  const normalized = dateStr.trim().replace(" ", "T");
+  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return { value: `${year}${month}${day}`, isDateTime: false };
   }
-  return { value: normalized.replace(/-/g, ""), isDateTime: false };
+
+  const dateTime = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$/i,
+  );
+  if (dateTime) {
+    const [, year, month, day, hour, minute, second = "00", , zone] = dateTime;
+    const base = `${year}${month}${day}T${hour}${minute}${second}`;
+    if (!zone) return { value: base, isDateTime: true };
+    if (zone.toUpperCase() === "Z") return { value: `${base}Z`, isDateTime: true };
+
+    const normalizedZone = zone.includes(":") ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+    const parsed = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${normalizedZone}`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return { value: formatUtcIcsDate(parsed), isDateTime: true };
+    }
+  }
+
+  return { value: normalized.replace(/[-:]/g, ""), isDateTime: normalized.includes("T") };
 }
 
 function buildVEvent(
@@ -87,9 +117,9 @@ function buildVEvent(
 
   if (start?.isDateTime) {
     lines.push(icsFold(`DTSTART:${start.value}`));
-    if (end?.isDateTime) {
+    if (end?.isDateTime && end.value !== start.value) {
       lines.push(icsFold(`DTEND:${end.value}`));
-    } else if (end) {
+    } else if (end && !end.isDateTime) {
       lines.push(icsFold(`DTEND:${addDaysToIcsDate(end.value, 1)}T000000`));
     }
   } else if (start && end?.isDateTime) {
@@ -106,8 +136,10 @@ function buildVEvent(
   }
 
   if (task.updatedAt) {
-    const lm = task.updatedAt.replace(/[-:]/g, "").replace(" ", "T").replace("Z", "");
-    lines.push(icsFold(`LAST-MODIFIED:${lm}`));
+    const lastModified = toIcsDate(task.updatedAt);
+    if (lastModified.isDateTime) {
+      lines.push(icsFold(`LAST-MODIFIED:${lastModified.value}`));
+    }
   }
 
   lines.push("STATUS:CONFIRMED");

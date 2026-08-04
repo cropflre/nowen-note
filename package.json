@@ -1,11 +1,12 @@
 {
   "name": "nowen-note",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Nowen Note - A modern note-taking application",
   "author": "Nowen",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "dev:backend": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./backend/node_modules/tsx/dist/cli.mjs watch ./backend/src/index.hardened.ts",
     "dev:frontend": "cd frontend && npx vite",
     "install:all": "cd backend && npm install && cd ../frontend && npm install && cd .. && npm run rebuild:native",

@@ -6,6 +6,8 @@ import {
   compareTasksByDueTime,
   getDateValue,
   getDueTimeValue,
+  getTaskScheduleMode,
+  isTaskAllDay,
   isTaskDateRangeInvalid,
 } from "../taskDateUtils";
 import type { Task } from "@/types";
@@ -84,5 +86,25 @@ describe("due time helpers", () => {
       .map((t) => t.id);
 
     expect(rootIds).toEqual(["time", "date", "none"]);
+  });
+});
+
+
+describe("task schedule mode", () => {
+  it("does not treat an unscheduled task as all-day", () => {
+    const task = makeTask({ startDate: null, dueDate: null, dueAt: null });
+    expect(getTaskScheduleMode(task)).toBe("unscheduled");
+    expect(isTaskAllDay(task)).toBe(false);
+  });
+
+  it("recognizes date-only tasks as all-day", () => {
+    const task = makeTask({ startDate: "2026-08-03", dueDate: "2026-08-03", dueAt: null });
+    expect(getTaskScheduleMode(task)).toBe("all-day");
+    expect(isTaskAllDay(task)).toBe(true);
+  });
+
+  it("recognizes ISO and legacy space timestamps as timed", () => {
+    expect(getTaskScheduleMode(makeTask({ dueDate: "2026-08-03", dueAt: "2026-08-03T09:30" }))).toBe("timed");
+    expect(getTaskScheduleMode(makeTask({ startDate: "2026-08-03 09:30:00", dueDate: "2026-08-03" }))).toBe("timed");
   });
 });

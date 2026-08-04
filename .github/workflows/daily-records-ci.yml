@@ -1,0 +1,52 @@
+name: Daily Records CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/DiaryCenter.tsx'
+      - 'frontend/src/components/DiaryCenterImpl.tsx'
+      - 'frontend/src/components/NavRail.tsx'
+      - 'frontend/src/components/SlashCommands.tsx'
+      - 'frontend/src/components/daily-records/**'
+      - 'frontend/src/components/diary/**'
+      - 'frontend/src/components/__tests__/SlashCommandExtension.test.ts'
+      - 'frontend/src/lib/dailyRecords.ts'
+      - 'frontend/src/lib/__tests__/dailyRecords.test.ts'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/lib/knowledgeTreeApi.ts'
+      - '.github/workflows/daily-records-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q source
+          cd source
+          git remote add origin https://github.com/${{ github.repository }}.git
+          git fetch -q --depth 1 origin pull/${PR_NUMBER}/merge
+          git checkout -q FETCH_HEAD
+      - name: Install frontend dependencies
+        working-directory: source/frontend
+        run: npm ci --silent
+      - name: Daily records and slash tests
+        working-directory: source/frontend
+        run: >-
+          npx vitest run --reporter=verbose
+          src/lib/__tests__/dailyRecords.test.ts
+          src/components/__tests__/SlashCommandExtension.test.ts
+          src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx
+      - name: Frontend typecheck
+        working-directory: source/frontend
+        run: npx tsc -b
+      - name: Vite production bundle
+        working-directory: source/frontend
+        run: npx vite build

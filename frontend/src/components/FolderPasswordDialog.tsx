@@ -15,7 +15,7 @@ export default function FolderPasswordDialog({
   mode: "unlock" | "manage";
   onClose: () => void;
   onUnlocked: (nodeId: string, unlockToken: string) => void;
-  onChanged: (nodeId: string) => void;
+  onChanged: (nodeId: string, isPasswordProtected: boolean) => void;
 }) {
   const protectedFolder = node.isPasswordProtected === 1;
   const [currentPassword, setCurrentPassword] = useState("");
@@ -56,11 +56,27 @@ export default function FolderPasswordDialog({
           currentPassword: protectedFolder ? currentPassword : undefined,
           newPassword,
         });
-        onChanged(node.id);
+        onChanged(node.id, true);
       }
       onClose();
     } catch (requestError: any) {
       setError(requestError?.message || (mode === "unlock" ? "解锁失败" : "保存密码失败"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removePassword = async () => {
+    if (saving || !protectedFolder || !currentPassword) return;
+    if (!window.confirm("确定取消此文件夹的密码保护吗？取消后，拥有查看权限的成员无需密码即可访问。")) return;
+    setSaving(true);
+    setError("");
+    try {
+      await knowledgeTreeApi.removeFolderPassword(node.id, currentPassword);
+      onChanged(node.id, false);
+      onClose();
+    } catch (requestError: any) {
+      setError(requestError?.message || "取消密码失败");
     } finally {
       setSaving(false);
     }
@@ -88,7 +104,9 @@ export default function FolderPasswordDialog({
           <div className="min-w-0 flex-1">
             <h2 id="folder-password-dialog-title" className="truncate text-sm font-semibold text-tx-primary">{title}</h2>
             <p className="mt-1 text-xs leading-5 text-tx-tertiary">
-              {mode === "unlock" ? "输入密码后可在本次会话中查看此文件夹。" : "密码将保护此文件夹及其全部子内容。"}
+              {mode === "unlock"
+                ? "输入密码后可在本次会话中查看此文件夹。"
+                : protectedFolder ? "可修改或取消此文件夹及其全部子内容的密码保护。" : "密码将保护此文件夹及其全部子内容。"}
             </p>
           </div>
           <button type="button" onClick={onClose} disabled={saving} className="rounded-lg p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-40" aria-label="关闭">
@@ -162,16 +180,30 @@ export default function FolderPasswordDialog({
           {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-app-border px-5 py-3">
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-lg px-3 py-2 text-xs text-tx-secondary hover:bg-app-hover disabled:opacity-40">取消</button>
-          <button
-            type="submit"
-            disabled={saving || (mode === "unlock" ? !currentPassword : !acknowledged || !newPassword || !confirmPassword || (protectedFolder && !currentPassword))}
-            className="flex min-w-20 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white hover:bg-accent-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {saving && <Loader2 size={13} className="animate-spin" />}
-            {mode === "unlock" ? "解锁" : "保存"}
-          </button>
+        <div className="flex items-center justify-between gap-2 border-t border-app-border px-5 py-3">
+          <div>
+            {mode === "manage" && protectedFolder && (
+              <button
+                type="button"
+                onClick={() => void removePassword()}
+                disabled={saving || !currentPassword}
+                className="rounded-lg px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                取消密码
+              </button>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} disabled={saving} className="rounded-lg px-3 py-2 text-xs text-tx-secondary hover:bg-app-hover disabled:opacity-40">取消</button>
+            <button
+              type="submit"
+              disabled={saving || (mode === "unlock" ? !currentPassword : !acknowledged || !newPassword || !confirmPassword || (protectedFolder && !currentPassword))}
+              className="flex min-w-20 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white hover:bg-accent-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {saving && <Loader2 size={13} className="animate-spin" />}
+              {mode === "unlock" ? "解锁" : "保存"}
+            </button>
+          </div>
         </div>
       </form>
     </div>
