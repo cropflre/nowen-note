@@ -1439,7 +1439,7 @@ export default function NoteList() {
         sortOrder: sortPref.dir,
       };
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        const params: Record<string, string> = { notebookId: state.selectedNotebookId, ...sortParams };
+        const params: Record<string, string> = { notebookId: state.selectedNotebookId, includeDescendants: "0", ...sortParams };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "favorites") {
@@ -1548,7 +1548,7 @@ export default function NoteList() {
     const sortParams: Record<string, string> = { sortBy: sortPref.by, sortOrder: sortPref.dir };
     const fetcher = async (): Promise<NoteListItem[]> => {
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        return api.getNotes({ notebookId: state.selectedNotebookId, ...sortParams });
+        return api.getNotes({ notebookId: state.selectedNotebookId, includeDescendants: "0", ...sortParams });
       }
       if (state.viewMode === "favorites") {
         return api.getNotes({ isFavorite: "1", ...sortParams });
