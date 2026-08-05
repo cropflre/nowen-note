@@ -1,0 +1,89 @@
+name: PostgreSQL Sync Latest Main Command 20260805
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - .github/workflows/pg-sync-main-command-20260805.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pg-sync-latest-main-command
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - name: Merge latest main with strict three-way resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          before="$(git rev-parse HEAD)"
+          main="$(git rev-parse origin/main)"
+          echo "branch before: $before"
+          echo "main:          $main"
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          if [ "$merge_status" -ne 0 ]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U | sort -u)
+            printf 'conflicts (%s):\n' "${#conflicts[@]}"
+            printf ' - %s\n' "${conflicts[@]}"
+
+            for path in "${conflicts[@]}"; do
+              mkdir -p "$(dirname "/tmp/pg-merge/ours/$path")" \
+                       "$(dirname "/tmp/pg-merge/base/$path")" \
+                       "$(dirname "/tmp/pg-merge/theirs/$path")" \
+                       "$(dirname "/tmp/pg-merge/result/$path")"
+
+              git show ":2:$path" > "/tmp/pg-merge/ours/$path"
+              git show ":1:$path" > "/tmp/pg-merge/base/$path"
+              git show ":3:$path" > "/tmp/pg-merge/theirs/$path"
+
+              set +e
+              git merge-file -p \
+                "/tmp/pg-merge/ours/$path" \
+                "/tmp/pg-merge/base/$path" \
+                "/tmp/pg-merge/theirs/$path" \
+                > "/tmp/pg-merge/result/$path"
+              file_status=$?
+              set -e
+
+              if [ "$file_status" -ne 0 ]; then
+                echo "Unresolved overlapping edits in $path"
+                cat "/tmp/pg-merge/result/$path"
+                exit 1
+              fi
+
+              cp "/tmp/pg-merge/result/$path" "$path"
+              git add "$path"
+            done
+          fi
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unmerged paths remain"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          rm -f .github/workflows/pg-sync-main-command-20260805.yml
+          git add -A
+          git commit -m "Merge latest main into pg-migration-unified" \
+            -m "Sync main@${main} before the Note Transfer move source-deletion migration. Preserve both main product behavior and PostgreSQL migration boundaries through strict three-way file resolution."
+          git push origin HEAD:pg-migration-unified
