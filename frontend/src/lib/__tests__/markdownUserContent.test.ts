@@ -8,6 +8,7 @@ import {
 const HEADING_ID = "blk_11111111-1111-4111-8111-111111111111";
 const PARAGRAPH_ID = "blk_22222222-2222-4222-8222-222222222222";
 const CODE_ID = "blk_33333333-3333-4333-8333-333333333333";
+const LEGACY_ID = "blk4e38ed87e6734393a537ba817a91e00f";
 
 describe("projectMarkdownForUser", () => {
   it("removes generated inline and post-fence markers while preserving code contents", () => {
@@ -33,6 +34,21 @@ describe("projectMarkdownForUser", () => {
       "const value = '^blk_inside';",
       "```",
       "",
+      "尾声",
+    ].join("\n"));
+  });
+
+  it("removes legacy compact markers from imported Markdown", () => {
+    const source = [
+      `正文 ^${LEGACY_ID}`,
+      `^${LEGACY_ID}`,
+      `^${LEGACY_ID} 前置说明`,
+      "尾声",
+    ].join("\n");
+
+    expect(projectMarkdownForUser(source)).toBe([
+      "正文",
+      "前置说明",
       "尾声",
     ].join("\n"));
   });
@@ -68,6 +84,15 @@ describe("projectMarkdownForUser", () => {
       { kind: "line", blockId: CODE_ID },
     ]);
   });
+
+  it("preserves legacy-looking text inside fenced code", () => {
+    const source = [
+      "```text",
+      `^${LEGACY_ID}`,
+      "```",
+    ].join("\n");
+    expect(projectMarkdownForUser(source)).toBe(source);
+  });
 });
 
 describe("sanitizeMarkdownClipboardText", () => {
@@ -85,10 +110,18 @@ describe("sanitizeMarkdownClipboardText", () => {
     ].join("\n"))).toBe("标题\n\n正文");
   });
 
+  it("removes legacy compact markers from pasted imports", () => {
+    expect(sanitizeMarkdownClipboardText([
+      `标题 ^${LEGACY_ID}`,
+      `^${LEGACY_ID} 前置说明`,
+    ].join("\n"))).toBe("标题\n前置说明");
+  });
+
   it("preserves marker-like text in fenced code and ordinary user text", () => {
     const source = [
       "```text",
       `literal ^${CODE_ID}`,
+      `^${LEGACY_ID}`,
       "```",
       "普通示例 ^blk_example_text",
     ].join("\n");
