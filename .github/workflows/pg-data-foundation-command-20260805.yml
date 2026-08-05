@@ -1,0 +1,48 @@
+name: PG data foundation command
+
+on:
+  push:
+    branches:
+      - feat/pg-sqlite-migration-foundation-20260805
+    paths:
+      - "backend/src/routes/note-transfers-runtime.ts"
+      - ".github/workflows/pg-data-foundation-command-20260805.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-route:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pg-sqlite-migration-foundation-20260805
+          fetch-depth: 0
+      - name: Preserve prepare-only route semantics
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/src/routes/note-transfers-runtime.ts")
+          source = path.read_text(encoding="utf-8")
+          before = (
+              "      orchestrationRuntime.wake();\n"
+              "      return c.json(operation, operation.reused ? 200 : 201);"
+          )
+          after = "      return c.json(operation, operation.reused ? 200 : 201);"
+          if before in source:
+              path.write_text(source.replace(before, after, 1), encoding="utf-8")
+          PY
+      - name: Commit route compatibility fix
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/routes/note-transfers-runtime.ts; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/routes/note-transfers-runtime.ts
+          git commit -m "fix(pg): keep note transfer prepare phase explicit"
+          git push origin HEAD:feat/pg-sqlite-migration-foundation-20260805

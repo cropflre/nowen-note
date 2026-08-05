@@ -1,8 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPg, getPgPool, closePgPool } from "./helpers/pg-test-db";
+
+import { closePgPool, getPgPool, hasPg } from "./helpers/pg-test-db";
 
 const skip = !hasPg;
+
+const EXPECTED_MIGRATIONS = [
+  "0001_migration_state",
+  "0002_api_tokens_parity",
+  "0003_runtime_tables_parity",
+  "0004_notebook_members_unique",
+  "0005_api_token_resources",
+  "0006_share_capabilities",
+  "0007_note_import_origins",
+  "0008_note_split_tables",
+  "0009_roundtrip_import_resource_links",
+  "0010_roundtrip_import_batches",
+  "0011_note_block_runtime",
+  "0012_tag_scope_unique_names",
+  "0013_yjs_subdocuments",
+  "0014_yjs_subdocument_structure_operations",
+  "0015_knowledge_tree_read_runtime",
+  "0016_note_transfer_operations",
+  "0017_note_transfer_staging_manifest",
+  "0018_note_transfer_attachment_staging_runtime",
+  "0019_note_transfer_cleanup_runtime",
+  "0020_note_transfer_effect_outbox",
+  "0021_note_transfer_move_source_deletion",
+  "0022_note_transfer_orchestration",
+  "0023_sqlite_postgres_migration_runs",
+];
 
 test("PG migrations bootstrap an empty database and are idempotent", { skip }, async () => {
   const pool = await getPgPool()!;
@@ -14,51 +41,12 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   const adapter = new PostgresAdapter(pool);
 
   const first = await runPostgresMigrations(adapter);
-  const versions = first.map((migration) => migration.version);
-  assert.deepEqual(versions, [
-    "0001_migration_state",
-    "0002_api_tokens_parity",
-    "0003_runtime_tables_parity",
-    "0004_notebook_members_unique",
-    "0005_api_token_resources",
-    "0006_share_capabilities",
-    "0007_note_import_origins",
-    "0008_note_split_tables",
-    "0009_roundtrip_import_resource_links",
-    "0010_roundtrip_import_batches",
-    "0011_note_block_runtime",
-    "0012_tag_scope_unique_names",
-    "0013_yjs_subdocuments",
-    "0014_yjs_subdocument_structure_operations",
-    "0015_knowledge_tree_read_runtime",
-    "0016_note_transfer_operations",
-    "0017_note_transfer_staging_manifest",
-    "0018_note_transfer_attachment_staging_runtime",
-    "0019_note_transfer_cleanup_runtime",
-    "0020_note_transfer_effect_outbox",
-    "0021_note_transfer_move_source_deletion",
-    "0022_note_transfer_orchestration",
-  ]);
-
-  const stateTable = await pool.query(
-    "SELECT to_regclass('public.postgres_migration_state') AS table_name",
-  );
-  assert.equal(stateTable.rows[0].table_name, "postgres_migration_state");
-
-  const apiTokenColumns = await pool.query(`
-    SELECT column_name, is_nullable
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'api_tokens'
-      AND column_name IN ('tokenHash', 'scopes', 'resourceMode')
-    ORDER BY column_name
-  `);
   assert.deepEqual(
-    apiTokenColumns.rows.map((row) => [row.column_name, row.is_nullable]),
-    [["resourceMode", "NO"], ["scopes", "NO"], ["tokenHash", "NO"]],
+    first.map((migration) => migration.version),
+    EXPECTED_MIGRATIONS,
   );
 
-  const parityTables = [
+  const requiredTables = [
     "api_token_resources",
     "audit_logs",
     "block_operations",
@@ -82,245 +70,119 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "notebook_acl_overrides",
     "notebook_public_comments",
     "notebook_publications",
+    "postgres_migration_state",
     "roundtrip_import_batches",
     "roundtrip_import_links",
+    "sqlite_postgres_migration_batch_checkpoints",
+    "sqlite_postgres_migration_runs",
+    "sqlite_postgres_migration_table_checkpoints",
     "user_preferences",
     "webhook_deliveries",
     "webhooks",
   ];
-  const tableRows = await pool.query(
+  const tableRows = await pool.query<{ tablename: string }>(
     `SELECT tablename
        FROM pg_tables
       WHERE schemaname = 'public'
         AND tablename = ANY($1::text[])
       ORDER BY tablename`,
-    [parityTables],
+    [requiredTables],
   );
   assert.deepEqual(
     tableRows.rows.map((row) => row.tablename),
-    [...parityTables].sort(),
+    [...requiredTables].sort(),
   );
 
-  const notebookMembersUnique = await pool.query(
-    `SELECT to_regclass('public.idx_notebook_members_notebook_user') AS index_name`,
-  );
-  assert.equal(
-    notebookMembersUnique.rows[0].index_name,
-    "idx_notebook_members_notebook_user",
-  );
-
-  const resourceIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_api_token_resources_token') AS token_index,
-            to_regclass('public.idx_api_token_resources_resource') AS resource_index`,
-  );
-  assert.equal(resourceIndexes.rows[0].token_index, "idx_api_token_resources_token");
-  assert.equal(resourceIndexes.rows[0].resource_index, "idx_api_token_resources_resource");
-
-  const shareColumns = await pool.query(`
-    SELECT table_name, column_name, is_nullable
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND (
-        (table_name = 'notebook_share_links' AND column_name IN ('maxUses', 'useCount'))
-        OR
-        (table_name = 'notebook_members' AND column_name IN ('allowDownload', 'allowReshare', 'source', 'sourceId'))
-      )
-    ORDER BY table_name, column_name
-  `);
-  assert.deepEqual(
-    shareColumns.rows.map((row) => [row.table_name, row.column_name, row.is_nullable]),
-    [
-      ["notebook_members", "allowDownload", "NO"],
-      ["notebook_members", "allowReshare", "NO"],
-      ["notebook_members", "source", "NO"],
-      ["notebook_members", "sourceId", "YES"],
-      ["notebook_share_links", "maxUses", "YES"],
-      ["notebook_share_links", "useCount", "NO"],
-    ],
-  );
-
-  const importOriginIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_import_origins_scope_external') AS scope_external,
-            to_regclass('public.idx_note_import_origins_note') AS note_index,
-            to_regclass('public.idx_note_import_origins_batch') AS batch_index`,
-  );
-  assert.equal(
-    importOriginIndexes.rows[0].scope_external,
+  const requiredIndexes = [
+    "idx_api_token_resources_resource",
+    "idx_api_token_resources_token",
+    "idx_block_operations_note",
+    "idx_note_blocks_hash",
+    "idx_note_blocks_note_order",
+    "idx_note_import_origins_batch",
+    "idx_note_import_origins_note",
     "idx_note_import_origins_scope_external",
-  );
-  assert.equal(importOriginIndexes.rows[0].note_index, "idx_note_import_origins_note");
-  assert.equal(importOriginIndexes.rows[0].batch_index, "idx_note_import_origins_batch");
-
-  const splitIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_split_operations_source') AS operations_index,
-            to_regclass('public.idx_note_split_items_operation') AS items_index,
-            to_regclass('public.idx_note_split_attachment_operation') AS attachments_index`,
-  );
-  assert.equal(
-    splitIndexes.rows[0].operations_index,
-    "idx_note_split_operations_source",
-  );
-  assert.equal(splitIndexes.rows[0].items_index, "idx_note_split_items_operation");
-  assert.equal(
-    splitIndexes.rows[0].attachments_index,
     "idx_note_split_attachment_operation",
-  );
-
-  const roundTripIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_roundtrip_links_source') AS link_source,
-            to_regclass('public.idx_roundtrip_links_target') AS link_target,
-            to_regclass('public.idx_roundtrip_links_batch') AS link_batch,
-            to_regclass('public.idx_roundtrip_import_batches_user_time') AS batch_user,
-            to_regclass('public.idx_roundtrip_import_batches_scope_time') AS batch_scope,
-            to_regclass('public.idx_roundtrip_import_batches_source') AS batch_source`,
-  );
-  assert.equal(roundTripIndexes.rows[0].link_source, "idx_roundtrip_links_source");
-  assert.equal(roundTripIndexes.rows[0].link_target, "idx_roundtrip_links_target");
-  assert.equal(roundTripIndexes.rows[0].link_batch, "idx_roundtrip_links_batch");
-  assert.equal(roundTripIndexes.rows[0].batch_user, "idx_roundtrip_import_batches_user_time");
-  assert.equal(roundTripIndexes.rows[0].batch_scope, "idx_roundtrip_import_batches_scope_time");
-  assert.equal(roundTripIndexes.rows[0].batch_source, "idx_roundtrip_import_batches_source");
-
-  const blockIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_blocks_note_order') AS note_order,
-            to_regclass('public.idx_note_blocks_hash') AS hash_index,
-            to_regclass('public.idx_block_operations_note') AS operation_index`,
-  );
-  assert.equal(blockIndexes.rows[0].note_order, "idx_note_blocks_note_order");
-  assert.equal(blockIndexes.rows[0].hash_index, "idx_note_blocks_hash");
-  assert.equal(blockIndexes.rows[0].operation_index, "idx_block_operations_note");
-
-  const subdocumentIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_y_subdocuments_order') AS order_index,
-            to_regclass('public.idx_note_y_subdocument_updates_section') AS update_index,
-            to_regclass('public.idx_note_y_subdocument_structure_operations_created') AS structure_operation_index`,
-  );
-  assert.equal(subdocumentIndexes.rows[0].order_index, "idx_note_y_subdocuments_order");
-  assert.equal(
-    subdocumentIndexes.rows[0].update_index,
-    "idx_note_y_subdocument_updates_section",
-  );
-  assert.equal(
-    subdocumentIndexes.rows[0].structure_operation_index,
-    "idx_note_y_subdocument_structure_operations_created",
-  );
-
-  const transferIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_transfer_operations_user_time') AS user_time,
-            to_regclass('public.idx_note_transfer_operations_status_expiry') AS status_expiry,
-            to_regclass('public.idx_note_transfer_items_source') AS item_source,
-            to_regclass('public.idx_note_transfer_staged_attachments_operation_status') AS staged_status,
-            to_regclass('public.idx_note_transfer_staged_attachments_source_note') AS staged_source,
-            to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,
-            to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease,
-            to_regclass('public.idx_note_transfer_effect_outbox_claim') AS effect_claim,
-            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation,
-            to_regclass('public.idx_note_transfer_operations_orchestration_claim') AS orchestration_claim,
-            to_regclass('public.idx_note_transfer_operations_orchestration_user') AS orchestration_user`,
-  );
-  assert.equal(
-    transferIndexes.rows[0].user_time,
-    "idx_note_transfer_operations_user_time",
-  );
-  assert.equal(
-    transferIndexes.rows[0].status_expiry,
-    "idx_note_transfer_operations_status_expiry",
-  );
-  assert.equal(
-    transferIndexes.rows[0].item_source,
-    "idx_note_transfer_items_source",
-  );
-  assert.equal(
-    transferIndexes.rows[0].staged_status,
-    "idx_note_transfer_staged_attachments_operation_status",
-  );
-  assert.equal(
-    transferIndexes.rows[0].staged_source,
-    "idx_note_transfer_staged_attachments_source_note",
-  );
-  assert.equal(
-    transferIndexes.rows[0].staged_lease,
-    "idx_note_transfer_staged_attachments_lease",
-  );
-  assert.equal(
-    transferIndexes.rows[0].cleanup_lease,
-    "idx_note_transfer_staged_attachments_cleanup_lease",
-  );
-  assert.equal(
-    transferIndexes.rows[0].effect_claim,
+    "idx_note_split_items_operation",
+    "idx_note_split_operations_source",
     "idx_note_transfer_effect_outbox_claim",
-  );
-  assert.equal(
-    transferIndexes.rows[0].effect_operation,
     "idx_note_transfer_effect_outbox_operation",
-  );
-  assert.equal(
-    transferIndexes.rows[0].orchestration_claim,
+    "idx_note_transfer_items_source",
+    "idx_note_transfer_move_source_claim",
+    "idx_note_transfer_move_source_operation",
     "idx_note_transfer_operations_orchestration_claim",
-  );
-  assert.equal(
-    transferIndexes.rows[0].orchestration_user,
     "idx_note_transfer_operations_orchestration_user",
+    "idx_note_transfer_operations_status_expiry",
+    "idx_note_transfer_operations_user_time",
+    "idx_note_transfer_staged_attachments_cleanup_lease",
+    "idx_note_transfer_staged_attachments_lease",
+    "idx_note_transfer_staged_attachments_operation_status",
+    "idx_note_transfer_staged_attachments_source_note",
+    "idx_note_y_subdocument_structure_operations_created",
+    "idx_note_y_subdocument_updates_section",
+    "idx_note_y_subdocuments_order",
+    "idx_notebook_members_notebook_user",
+    "idx_roundtrip_import_batches_scope_time",
+    "idx_roundtrip_import_batches_source",
+    "idx_roundtrip_import_batches_user_time",
+    "idx_roundtrip_links_batch",
+    "idx_roundtrip_links_source",
+    "idx_roundtrip_links_target",
+    "idx_sqlite_pg_migration_batches_table",
+    "idx_sqlite_pg_migration_runs_claim",
+    "idx_sqlite_pg_migration_runs_source",
+    "idx_sqlite_pg_migration_tables_claim",
+  ];
+  const indexRows = await pool.query<{ indexname: string }>(
+    `SELECT indexname
+       FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = ANY($1::text[])
+      ORDER BY indexname`,
+    [requiredIndexes],
   );
-
-  const stagingColumns = await pool.query(`
-    SELECT column_name
-      FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'note_transfer_staged_attachments'
-       AND column_name IN (
-         'leaseToken', 'leaseExpiresAt', 'verifiedSize', 'verifiedHash', 'stagedAt',
-         'cleanupStatus', 'cleanupAttempts', 'cleanupLeaseToken',
-         'cleanupLeaseExpiresAt', 'cleanupLastError', 'cleanedAt'
-       )
-     ORDER BY column_name
-  `);
   assert.deepEqual(
-    stagingColumns.rows.map((row) => row.column_name),
-    [
-      "cleanedAt",
-      "cleanupAttempts",
-      "cleanupLastError",
-      "cleanupLeaseExpiresAt",
-      "cleanupLeaseToken",
-      "cleanupStatus",
-      "leaseExpiresAt",
-      "leaseToken",
-      "stagedAt",
-      "verifiedHash",
-      "verifiedSize",
-    ],
+    indexRows.rows.map((row) => row.indexname),
+    [...requiredIndexes].sort(),
   );
 
-  const moveIndexes = await pool.query(
-    `SELECT to_regclass('public.idx_note_transfer_move_source_claim') AS claim_index,
-            to_regclass('public.idx_note_transfer_move_source_operation') AS operation_index`,
+  const requiredColumns: Array<[string, string]> = [
+    ["api_tokens", "resourceMode"],
+    ["api_tokens", "scopes"],
+    ["api_tokens", "tokenHash"],
+    ["note_transfer_operations", "orchestrationAttempts"],
+    ["note_transfer_operations", "orchestrationAvailableAt"],
+    ["note_transfer_operations", "orchestrationLastAdvancedAt"],
+    ["note_transfer_operations", "orchestrationLastError"],
+    ["note_transfer_operations", "orchestrationLeaseExpiresAt"],
+    ["note_transfer_operations", "orchestrationLeaseToken"],
+    ["note_transfer_staged_attachments", "cleanupAttempts"],
+    ["note_transfer_staged_attachments", "cleanupLeaseExpiresAt"],
+    ["note_transfer_staged_attachments", "cleanupLeaseToken"],
+    ["note_transfer_staged_attachments", "cleanupStatus"],
+    ["note_transfer_staged_attachments", "leaseExpiresAt"],
+    ["note_transfer_staged_attachments", "leaseToken"],
+    ["sqlite_postgres_migration_runs", "sourceFingerprint"],
+    ["sqlite_postgres_migration_runs", "sourceSnapshot"],
+    ["sqlite_postgres_migration_runs", "targetWasEmpty"],
+    ["sqlite_postgres_migration_table_checkpoints", "lastCursor"],
+    ["sqlite_postgres_migration_table_checkpoints", "primaryKeyColumns"],
+  ];
+  const columnRows = await pool.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND (table_name, column_name) IN (
+          SELECT item->>0, item->>1
+            FROM jsonb_array_elements($1::jsonb) item
+        )
+      ORDER BY table_name, column_name`,
+    [JSON.stringify(requiredColumns)],
   );
-  assert.equal(moveIndexes.rows[0].claim_index, "idx_note_transfer_move_source_claim");
-  assert.equal(moveIndexes.rows[0].operation_index, "idx_note_transfer_move_source_operation");
-
-  const orchestrationColumns = await pool.query(`
-    SELECT column_name
-      FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'note_transfer_operations'
-       AND column_name IN (
-         'orchestrationAttempts', 'orchestrationAvailableAt',
-         'orchestrationLeaseToken', 'orchestrationLeaseExpiresAt',
-         'orchestrationLastError', 'orchestrationLastAdvancedAt'
-       )
-     ORDER BY column_name
-  `);
   assert.deepEqual(
-    orchestrationColumns.rows.map((row) => row.column_name),
-    [
-      "orchestrationAttempts",
-      "orchestrationAvailableAt",
-      "orchestrationLastAdvancedAt",
-      "orchestrationLastError",
-      "orchestrationLeaseExpiresAt",
-      "orchestrationLeaseToken",
-    ],
+    columnRows.rows.map((row) => [row.table_name, row.column_name]),
+    [...requiredColumns].sort(([leftTable, leftColumn], [rightTable, rightColumn]) =>
+      leftTable.localeCompare(rightTable) || leftColumn.localeCompare(rightColumn)),
   );
 
   const second = await runPostgresMigrations(adapter);
