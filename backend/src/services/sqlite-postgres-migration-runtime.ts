@@ -79,6 +79,7 @@ const TARGET_METADATA_TABLES = new Set([
   "sqlite_postgres_migration_runs",
   "sqlite_postgres_migration_table_checkpoints",
   "sqlite_postgres_migration_batch_checkpoints",
+  "sqlite_postgres_migration_row_changes",
 ]);
 
 const DEFAULT_BATCH_SIZE = 200;

@@ -4,9 +4,10 @@ import { Pool } from "pg";
 
 import { PostgresAdapter } from "../src/db/postgresAdapter";
 import { createSqlitePostgresMigrationRuntime } from "../src/services/sqlite-postgres-migration-runtime";
+import { createSqlitePostgresRollbackRuntime } from "../src/services/sqlite-postgres-rollback-runtime";
 
 type CliOptions = {
-  mode: "dry-run" | "apply" | "verify";
+  mode: "dry-run" | "apply" | "verify" | "rollback";
   sourcePath?: string;
   backupPath?: string;
   idempotencyKey?: string;
@@ -22,19 +23,21 @@ function usage(): string {
     "  npm run migrate:sqlite-to-postgres -- --dry-run --source <nowen-note.db> --backup <backup.db>",
     "  npm run migrate:sqlite-to-postgres -- --apply --source <nowen-note.db> --backup <backup.db> --idempotency-key <key>",
     "  npm run migrate:sqlite-to-postgres -- --verify --backup <backup.db> --idempotency-key <key>",
+    "  npm run migrate:sqlite-to-postgres -- --rollback --idempotency-key <key>",
     "",
     "Options:",
     "  --dry-run                  Run read-only preflight; never writes target data",
     "  --apply                    Copy and verify all planned business tables",
     "  --verify                   Independently re-read the frozen backup and verify PostgreSQL",
+    "  --rollback                 Delete only rows owned by an empty-target migration run",
     "  --source <path>            Live SQLite source used only for preflight (defaults to DB_PATH)",
     "  --backup <path>            Verified frozen SQLite backup used as the execution source",
-    "  --idempotency-key <key>    Stable 8–128 character migration key for apply/verify",
+    "  --idempotency-key <key>    Stable 8–128 character migration key for apply/verify/rollback",
     "  --batch-size <1..2000>     Rows per transactional upsert/checkpoint batch (default 200)",
     "  --allow-non-empty-target   Allow planning against non-empty PostgreSQL; apply remains blocked",
     "  --help                     Show this help",
     "",
-    "Rollback remains disabled until run-owned row tracking is implemented.",
+    "Rollback currently supports only runs whose PostgreSQL target was empty at preflight.",
   ].join("\n");
 }
 
@@ -57,26 +60,30 @@ function parseArgs(args: string[]): CliOptions {
     console.log(usage());
     process.exit(0);
   }
-  const selected = ["--dry-run", "--apply", "--verify"].filter((mode) => args.includes(mode));
+  const selected = ["--dry-run", "--apply", "--verify", "--rollback"]
+    .filter((mode) => args.includes(mode));
   if (selected.length !== 1) {
-    throw new Error("Select exactly one mode: --dry-run, --apply, or --verify.");
+    throw new Error("Select exactly one mode: --dry-run, --apply, --verify, or --rollback.");
   }
   const mode = selected[0] === "--apply"
     ? "apply"
     : selected[0] === "--verify"
       ? "verify"
-      : "dry-run";
+      : selected[0] === "--rollback"
+        ? "rollback"
+        : "dry-run";
   const sourcePath = valueAfter(args, "--source") || process.env.DB_PATH;
   const backupPath = valueAfter(args, "--backup");
   const idempotencyKey = valueAfter(args, "--idempotency-key");
   if ((mode === "dry-run" || mode === "apply") && !sourcePath) {
     throw new Error("SQLite source path is required via --source or DB_PATH.");
   }
-  if (!backupPath) {
+  if (mode !== "rollback" && !backupPath) {
     throw new Error("A frozen SQLite backup is required via --backup.");
   }
-  if ((mode === "apply" || mode === "verify") && !idempotencyKey) {
-    throw new Error("--idempotency-key is required for apply and verify.");
+  if ((mode === "apply" || mode === "verify" || mode === "rollback")
+    && !idempotencyKey) {
+    throw new Error("--idempotency-key is required for apply, verify, and rollback.");
   }
   return {
     mode,
@@ -91,9 +98,7 @@ function parseArgs(args: string[]): CliOptions {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const databaseUrl = String(process.env.DATABASE_URL || "").trim();
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required.");
-  }
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -102,9 +107,9 @@ async function main(): Promise<void> {
   });
   try {
     await pool.query("SELECT 1");
-    const runtime = createSqlitePostgresMigrationRuntime(
-      new PostgresAdapter(pool),
-    );
+    const adapter = new PostgresAdapter(pool);
+    const runtime = createSqlitePostgresMigrationRuntime(adapter);
+    const rollbackRuntime = createSqlitePostgresRollbackRuntime(adapter);
     if (options.mode === "dry-run") {
       const report = await runtime.dryRun({
         sourcePath: options.sourcePath!,
@@ -126,6 +131,13 @@ async function main(): Promise<void> {
       });
       console.log(JSON.stringify(result, null, 2));
       if (result.snapshot.run.status !== "completed") process.exitCode = 3;
+      return;
+    }
+    if (options.mode === "rollback") {
+      const snapshot = await runtime.getStatusByIdempotencyKey(options.idempotencyKey!);
+      const report = await rollbackRuntime.rollback({ runId: snapshot.run.id });
+      console.log(JSON.stringify(report, null, 2));
+      if (!report.complete) process.exitCode = 5;
       return;
     }
     const report = await runtime.verify({

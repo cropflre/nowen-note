@@ -130,3 +130,16 @@ The next slice will add:
 4. final migration report persistence;
 5. larger generated datasets and failure-injection coverage;
 6. cutover readiness signal after successful verify and rollback drill.
+
+
+## Empty-target rollback
+
+Each apply batch records the migrated row primary key in `sqlite_postgres_migration_row_changes` in the same PostgreSQL transaction as the business upsert and checkpoint. For targets that were empty at preflight, rollback deletes only those run-owned rows in reverse table dependency order.
+
+```bash
+npm run migrate:sqlite-to-postgres -- \
+  --rollback \
+  --idempotency-key migration-2026-08-05
+```
+
+Rollback is resumable and idempotent. A run created before ownership tracking, or a run planned against a non-empty target, is rejected rather than guessing a deletion range. Restoring overwritten pre-existing rows remains disabled until original-row snapshots and conflict policies are complete.

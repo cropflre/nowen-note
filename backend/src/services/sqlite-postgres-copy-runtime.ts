@@ -445,6 +445,55 @@ function buildUpsertStatement(input: {
   };
 }
 
+
+function buildRowOwnershipStatement(input: {
+  runId: string;
+  tableName: string;
+  columns: TargetColumn[];
+  primaryKeyColumns: string[];
+  row: Record<string, unknown>;
+  batchSequence: number;
+}): DbStatement {
+  const byName = new Map(input.columns.map((column) => [column.name, column]));
+  const primaryKey = Object.fromEntries(input.primaryKeyColumns.map((columnName) => {
+    const column = byName.get(columnName);
+    if (!column) {
+      throw new SqlitePostgresMigrationError(
+        "SQLITE_PG_MIGRATION_PRIMARY_KEY_COLUMN_MISSING",
+        "目标表缺少 run-owned tracking 所需主键列",
+        500,
+        { tableName: input.tableName, column: columnName },
+      );
+    }
+    return [columnName, canonicalValue(column, input.row[columnName])];
+  }));
+  const canonicalRow = Object.fromEntries(input.columns.map((column) => [
+    column.name,
+    canonicalValue(column, input.row[column.name]),
+  ]));
+  return {
+    sql: `INSERT INTO sqlite_postgres_migration_row_changes (
+            "runId", "tableName", "primaryKey", "primaryKeyHash",
+            "batchSequence", "changeKind", "originalRow", "migratedChecksum"
+          ) VALUES (?, ?, ?::jsonb, ?, ?, 'inserted', NULL, ?)
+          ON CONFLICT ("runId", "tableName", "primaryKeyHash") DO UPDATE
+            SET "batchSequence" = LEAST(
+                  sqlite_postgres_migration_row_changes."batchSequence",
+                  EXCLUDED."batchSequence"
+                ),
+                "migratedChecksum" = EXCLUDED."migratedChecksum",
+                "updatedAt" = CURRENT_TIMESTAMP`,
+    params: [
+      input.runId,
+      input.tableName,
+      JSON.stringify(primaryKey),
+      sha256(stableJson(primaryKey)),
+      Math.max(0, Math.trunc(input.batchSequence)),
+      sha256(stableJson(canonicalRow)),
+    ],
+  };
+}
+
 async function repairSelfReferences(input: {
   adapter: DatabaseAdapter;
   reader: SqliteMigrationReader;
@@ -685,13 +734,23 @@ export function createSqlitePostgresCopyRuntime(
         columns.map((column) => [column.name, convertValue(column, row[column.name])]),
       ));
       const checksum = checksumRows(canonicalRows, columns);
-      const statements = batch.rows.map((row) => buildUpsertStatement({
-        tableName: sourceTable.name,
-        columns,
-        primaryKeyColumns: sourceTable.primaryKeyColumns,
-        row,
-        deferredSelfColumns: deferredNames,
-      }));
+const statements = batch.rows.flatMap((row) => [
+  buildUpsertStatement({
+    tableName: sourceTable.name,
+    columns,
+    primaryKeyColumns: sourceTable.primaryKeyColumns,
+    row,
+    deferredSelfColumns: deferredNames,
+  }),
+  buildRowOwnershipStatement({
+    runId: input.claim.runId,
+    tableName: sourceTable.name,
+    columns,
+    primaryKeyColumns: sourceTable.primaryKeyColumns,
+    row,
+    batchSequence,
+  }),
+]);
       copiedRows += batch.rows.length;
       await repository.commitBatch({
         runId: input.claim.runId,

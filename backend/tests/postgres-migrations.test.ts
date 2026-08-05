@@ -29,6 +29,7 @@ const EXPECTED_MIGRATIONS = [
   "0021_note_transfer_move_source_deletion",
   "0022_note_transfer_orchestration",
   "0023_sqlite_postgres_migration_runs",
+  "0024_sqlite_postgres_migration_rollback",
 ];
 
 test("PG migrations bootstrap an empty database and are idempotent", { skip }, async () => {
@@ -75,6 +76,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "roundtrip_import_links",
     "sqlite_postgres_migration_batch_checkpoints",
     "sqlite_postgres_migration_runs",
+    "sqlite_postgres_migration_row_changes",
     "sqlite_postgres_migration_table_checkpoints",
     "user_preferences",
     "webhook_deliveries",
