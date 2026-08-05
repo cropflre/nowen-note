@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { PostgresAdapter } from "../src/db/postgresAdapter";
 import { createNoteTransferOperationRepository } from "../src/repositories/noteTransferOperationRepository";
 import createNoteTransfersRuntimeRouter from "../src/routes/note-transfers-runtime";
+import { createNoteTransferEffectsRuntime } from "../src/services/note-transfer-effects-runtime";
 import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-db";
 
 const ACTOR = "pg-transfer-preview-actor";
@@ -103,9 +104,13 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     const adapter = new PostgresAdapter(pool);
     const operations = createNoteTransferOperationRepository(adapter);
     const app = new Hono();
+    const effects = createNoteTransferEffectsRuntime(adapter, {
+      publishRealtime: async () => {},
+      retryBaseSeconds: 0,
+    });
     app.route(
       "/api/note-transfers",
-      createNoteTransfersRuntimeRouter(adapter),
+      createNoteTransfersRuntimeRouter(adapter, { effects }),
     );
 
     const request = async (
@@ -404,14 +409,35 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     }, 403, { "X-Auth-Mode": "api-token" });
     assert.equal(apiToken.code, "INTERACTIVE_LOGIN_REQUIRED");
 
-    const execution = await request("", ACTOR, {
-      sourceNoteIds: [SOURCE_NOTE_A],
-      targetWorkspaceId: ACTOR_WORKSPACE,
-      targetNotebookId: ACTOR_TARGET,
-      mode: "copy",
-    }, 503);
-    assert.equal(execution.code, "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING");
-    assert.equal(execution.issue, 249);
+    const executionKey = "transfer-unified-execution-001";
+  const execution = await request("", ACTOR, {
+    sourceNoteIds: [SOURCE_NOTE_A],
+    targetWorkspaceId: ACTOR_WORKSPACE,
+    targetNotebookId: ACTOR_TARGET,
+    mode: "copy",
+    includeAttachments: false,
+    includeTags: true,
+    expectedVersions: { [SOURCE_NOTE_A]: 4 },
+    idempotencyKey: executionKey,
+  }, 202);
+  assert.equal(execution.accepted, true);
+  assert.equal(execution.reused, false);
+  assert.equal(execution.snapshot.phase, "staging");
+  assert.equal(execution.snapshot.terminal, false);
+
+  let executionStatus = execution.snapshot;
+  for (let attempt = 0; attempt < 100 && !executionStatus.terminal; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    executionStatus = await responseJson<Record<string, any>>(
+      await app.request(
+        `/api/note-transfers/operations/${encodeURIComponent(executionKey)}`,
+        { headers: { "X-User-Id": ACTOR } },
+      ),
+      200,
+    );
+  }
+  assert.equal(executionStatus.terminal, true);
+  assert.equal(executionStatus.phase, "completed");
   } finally {
     await pool.query(`DELETE FROM users WHERE id IN ($1, $2)`, [ACTOR, OUTSIDER]).catch(() => undefined);
     await closePgPool(pool);

@@ -19,6 +19,7 @@ import createKnowledgeTreeSurfacesRuntimeRouter from "./routes/knowledge-tree-su
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
 import { createNoteTransferEffectsRuntime } from "./services/note-transfer-effects-runtime";
 import { createNoteTransferMoveDeletionRuntime } from "./services/note-transfer-move-deletion-runtime";
+import { createNoteTransferOrchestrationRuntime } from "./services/note-transfer-orchestration-runtime";
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
 import { createPostgresYjsSubdocumentWebsocketRuntime } from "./services/postgres-yjs-subdocuments-websocket-runtime";
@@ -56,6 +57,11 @@ const transferEffects = createNoteTransferEffectsRuntime(adapter, {
 transferEffects.start();
 const transferMoveDeletion = createNoteTransferMoveDeletionRuntime(adapter);
 transferMoveDeletion.start();
+const transferOrchestration = createNoteTransferOrchestrationRuntime(adapter, {
+  effects: transferEffects,
+  moveDeletion: transferMoveDeletion,
+});
+transferOrchestration.start();
 
 app.use("*", logger());
 app.use("*", cors({
@@ -88,16 +94,18 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
+        "POST /api/note-transfers (unified asynchronous copy/move orchestration)",
         "POST /api/note-transfers/preview",
         "POST /api/note-transfers/prepare",
         "POST /api/note-transfers/operations/:idempotencyKey/staging",
         "POST /api/note-transfers/operations/:idempotencyKey/staging/resume",
         "POST /api/note-transfers/operations/:idempotencyKey/commit",
         "POST /api/note-transfers/operations/:idempotencyKey/cancel",
+        "POST /api/note-transfers/operations/:idempotencyKey/resume",
         "POST /api/note-transfers/operations/:idempotencyKey/cleanup/resume",
         "POST /api/note-transfers/operations/:idempotencyKey/effects/resume",
         "POST /api/note-transfers/operations/:idempotencyKey/source-deletion/resume",
-        "GET /api/note-transfers/operations/:idempotencyKey",
+        "GET /api/note-transfers/operations/:idempotencyKey (aggregated progress)",
         "GET /api/knowledge-tree",
         "GET /api/knowledge-tree/shared-with-me",
         "POST /api/knowledge-tree/nodes (folder, note, markdown and word)",
@@ -126,6 +134,7 @@ app.get("/api/health", async (c) => {
         "note-transfer cancellable staging and recoverable local/S3 staged-object cleanup leases",
         "note-transfer transactional effects outbox with audit/webhook/realtime leases and stable event keys",
         "note-transfer move target-commit, effects gate and recoverable source database/file deletion",
+        "note-transfer unified asynchronous orchestration, aggregated progress, retry and restart recovery",
         "knowledge-tree scope listing with inherited permissions",
         "knowledge-tree shared-root discovery with overlapping-root de-duplication",
         "knowledge-tree access-controlled history listing",
@@ -151,12 +160,12 @@ app.get("/api/health", async (c) => {
         "Yjs subdocument idempotent structure changes and root manifest rebuild",
       ],
       realtime: hub.getStats(),
+      noteTransferOrchestration: await transferOrchestration.getStats(),
       noteTransferEffects: await transferEffects.getStats(),
       noteTransferMoveDeletion: await transferMoveDeletion.getStats(),
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
       pendingCapabilities: [
-        "note-transfer unified execution orchestration (#249)",
         "notes full-text search (#252)",
       ],
     },
@@ -240,6 +249,7 @@ app.use("/api/note-transfers/*", authenticateApiRequest);
 app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter, {
   effects: transferEffects,
   moveDeletion: transferMoveDeletion,
+  orchestration: transferOrchestration,
 }));
 
 app.use("/api/knowledge-tree", authenticateApiRequest);
@@ -260,7 +270,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, durable note-transfer copy/move stages and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until unified execution orchestration and remaining PostgreSQL phases complete");
+console.warn("[db] Notes, unified durable note-transfer copy/move orchestration and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
@@ -279,6 +289,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExit.unref();
 
   try {
+    await transferOrchestration.shutdown();
     await transferMoveDeletion.shutdown();
     await transferEffects.shutdown();
     await yjsCompaction.close();

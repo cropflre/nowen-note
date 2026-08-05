@@ -17,6 +17,10 @@ import {
   type NoteTransferEffectsRuntime,
 } from "../services/note-transfer-effects-runtime";
 import {
+  createNoteTransferOrchestrationRuntime,
+  type NoteTransferOrchestrationRuntime,
+} from "../services/note-transfer-orchestration-runtime";
+import {
   createNoteTransferPreviewRuntime,
   NoteTransferPreviewRuntimeError,
   type NoteTransferPreviewRuntimeRequest,
@@ -95,6 +99,7 @@ export default function createNoteTransfersRuntimeRouter(
   options: {
     effects?: NoteTransferEffectsRuntime;
     moveDeletion?: NoteTransferMoveDeletionRuntime;
+    orchestration?: NoteTransferOrchestrationRuntime;
   } = {},
 ) {
   const app = new Hono();
@@ -106,6 +111,16 @@ export default function createNoteTransfersRuntimeRouter(
   const effectsRuntime = options.effects || createNoteTransferEffectsRuntime(adapter);
   const moveDeletionRuntime = options.moveDeletion
     || createNoteTransferMoveDeletionRuntime(adapter);
+  const orchestrationRuntime = options.orchestration
+    || createNoteTransferOrchestrationRuntime(adapter, {
+      operations,
+      preview: runtime,
+      staging: attachmentStaging,
+      commit: commitRuntime,
+      cleanup: cleanupRuntime,
+      effects: effectsRuntime,
+      moveDeletion: moveDeletionRuntime,
+    });
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -130,8 +145,6 @@ export default function createNoteTransfersRuntimeRouter(
       const request = parseRequest(c, body);
       const idempotencyKey = operationKey(c, body);
 
-      // Validate the key and reject expired prepared operations before repeating
-      // object checks or generating a new target mapping.
       await operations.getPrepared({
         actorUserId: request.actorUserId,
         idempotencyKey,
@@ -161,12 +174,13 @@ export default function createNoteTransfersRuntimeRouter(
         includeTags: request.includeTags !== false,
         sourceNoteIds: preview.notes.map((note) => note.id),
         sourceVersions: preview.sourceVersions,
-        attachmentCount: preview.attachmentCount,
-        attachmentBytes: preview.attachmentBytes,
-        tagCount: preview.tagCount,
+        attachmentCount: request.includeAttachments !== false ? preview.attachmentCount : 0,
+        attachmentBytes: request.includeAttachments !== false ? preview.attachmentBytes : 0,
+        tagCount: request.includeTags !== false ? preview.tagCount : 0,
         internalNoteLinkCount: preview.internalNoteLinkCount,
         externalNoteLinkCount: preview.externalNoteLinkCount,
       });
+      orchestrationRuntime.wake();
       return c.json(operation, operation.reused ? 200 : 201);
     } catch (error) {
       return errorResponse(c, error);
@@ -183,6 +197,7 @@ export default function createNoteTransfersRuntimeRouter(
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
+      orchestrationRuntime.wake();
       return c.json(operation, operation.reused ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
@@ -199,6 +214,7 @@ export default function createNoteTransfersRuntimeRouter(
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
+      orchestrationRuntime.wake();
       return c.json(result, result.summary.complete ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
@@ -211,11 +227,11 @@ export default function createNoteTransfersRuntimeRouter(
     if (credentialError) return credentialError;
 
     try {
-      const operation = await operations.cancelOperation({
+      const result = await orchestrationRuntime.cancel({
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
-      return c.json(operation, operation.reused ? 200 : 202);
+      return c.json(result, result.terminal ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -231,6 +247,7 @@ export default function createNoteTransfersRuntimeRouter(
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
+      orchestrationRuntime.wake();
       return c.json(result, result.summary.complete ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
@@ -249,6 +266,7 @@ export default function createNoteTransfersRuntimeRouter(
       });
       effectsRuntime.wake();
       moveDeletionRuntime.wake();
+      orchestrationRuntime.wake();
       return c.json(result, result.reused ? 200 : 201);
     } catch (error) {
       return errorResponse(c, error);
@@ -266,6 +284,7 @@ export default function createNoteTransfersRuntimeRouter(
         idempotencyKey: c.req.param("idempotencyKey"),
       });
       if (result.summary.complete) moveDeletionRuntime.wake();
+      orchestrationRuntime.wake();
       return c.json(result, result.summary.complete ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
@@ -282,7 +301,24 @@ export default function createNoteTransfersRuntimeRouter(
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
+      orchestrationRuntime.wake();
       return c.json(result, result.summary.complete ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/operations/:idempotencyKey/resume", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const result = await orchestrationRuntime.resume({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      return c.json(result, result.terminal ? 200 : 202);
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -294,34 +330,35 @@ export default function createNoteTransfersRuntimeRouter(
     if (credentialError) return credentialError;
 
     try {
-      const operation = await operations.getPrepared({
+      const snapshot = await orchestrationRuntime.getStatus({
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
-      if (!operation) {
-        return c.json(
-          { error: "转移计划不存在", code: "NOTE_TRANSFER_PLAN_NOT_FOUND" },
-          404,
-        );
-      }
-      return c.json(operation);
+      return c.json({
+        ...snapshot.operation,
+        ...snapshot,
+      });
     } catch (error) {
       return errorResponse(c, error);
     }
   });
 
-  app.post("/", (c) => {
+  app.post("/", async (c) => {
     c.header("Cache-Control", "private, no-store");
     const credentialError = rejectNonInteractiveCredential(c);
     if (credentialError) return credentialError;
-    return c.json(
-      {
-        error: "PostgreSQL 笔记复制与移动分阶段链路已完成；统一执行入口将在正式编排收口后开放",
-        code: "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING",
-        issue: 249,
-      },
-      503,
-    );
+
+    try {
+      const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+      const request = parseRequest(c, body);
+      const result = await orchestrationRuntime.submit({
+        ...request,
+        idempotencyKey: operationKey(c, body),
+      });
+      return c.json(result, result.snapshot.terminal ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
   });
 
   return app;

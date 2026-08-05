@@ -37,6 +37,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0019_note_transfer_cleanup_runtime",
     "0020_note_transfer_effect_outbox",
     "0021_note_transfer_move_source_deletion",
+    "0022_note_transfer_orchestration",
   ]);
 
   const stateTable = await pool.query(
@@ -213,7 +214,9 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
             to_regclass('public.idx_note_transfer_staged_attachments_lease') AS staged_lease,
             to_regclass('public.idx_note_transfer_staged_attachments_cleanup_lease') AS cleanup_lease,
             to_regclass('public.idx_note_transfer_effect_outbox_claim') AS effect_claim,
-            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation`,
+            to_regclass('public.idx_note_transfer_effect_outbox_operation') AS effect_operation,
+            to_regclass('public.idx_note_transfer_operations_orchestration_claim') AS orchestration_claim,
+            to_regclass('public.idx_note_transfer_operations_orchestration_user') AS orchestration_user`,
   );
   assert.equal(
     transferIndexes.rows[0].user_time,
@@ -251,6 +254,14 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     transferIndexes.rows[0].effect_operation,
     "idx_note_transfer_effect_outbox_operation",
   );
+  assert.equal(
+    transferIndexes.rows[0].orchestration_claim,
+    "idx_note_transfer_operations_orchestration_claim",
+  );
+  assert.equal(
+    transferIndexes.rows[0].orchestration_user,
+    "idx_note_transfer_operations_orchestration_user",
+  );
 
   const stagingColumns = await pool.query(`
     SELECT column_name
@@ -287,6 +298,30 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   );
   assert.equal(moveIndexes.rows[0].claim_index, "idx_note_transfer_move_source_claim");
   assert.equal(moveIndexes.rows[0].operation_index, "idx_note_transfer_move_source_operation");
+
+  const orchestrationColumns = await pool.query(`
+    SELECT column_name
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'note_transfer_operations'
+       AND column_name IN (
+         'orchestrationAttempts', 'orchestrationAvailableAt',
+         'orchestrationLeaseToken', 'orchestrationLeaseExpiresAt',
+         'orchestrationLastError', 'orchestrationLastAdvancedAt'
+       )
+     ORDER BY column_name
+  `);
+  assert.deepEqual(
+    orchestrationColumns.rows.map((row) => row.column_name),
+    [
+      "orchestrationAttempts",
+      "orchestrationAvailableAt",
+      "orchestrationLastAdvancedAt",
+      "orchestrationLastError",
+      "orchestrationLeaseExpiresAt",
+      "orchestrationLeaseToken",
+    ],
+  );
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);
