@@ -31,7 +31,7 @@ test("MCP create note defaults to markdown source content", () => {
   assert.ok(!String(payload.content).includes('"type":"doc"'));
 });
 
-test("MCP update note carries current version for content writes", () => {
+test("MCP update note carries current version and synchronizes Markdown into Yjs", () => {
   const payload = buildUpdateNotePayload({
     currentNote: { version: 12 },
     title: "新标题",
@@ -43,6 +43,29 @@ test("MCP update note carries current version for content writes", () => {
   assert.equal(payload.contentFormat, "markdown");
   assert.equal(payload.content, markdown);
   assert.equal(payload.contentText, markdown);
+  assert.equal(payload.syncToYjs, true);
+});
+
+test("MCP update does not route non-Markdown content through Markdown Yjs", () => {
+  const payload = buildUpdateNotePayload({
+    currentNote: { version: 8 },
+    content: '{"type":"doc","content":[]}',
+    contentFormat: "tiptap-json",
+  });
+
+  assert.equal(payload.contentFormat, "tiptap-json");
+  assert.equal("syncToYjs" in payload, false);
+});
+
+test("MCP title-only update does not mutate an active Yjs document", () => {
+  const payload = buildUpdateNotePayload({
+    currentNote: { version: 9 },
+    title: "仅修改标题",
+  });
+
+  assert.equal(payload.version, 9);
+  assert.equal(payload.title, "仅修改标题");
+  assert.equal("syncToYjs" in payload, false);
 });
 
 test("MCP update note reads current note version before building payload", async () => {
@@ -60,6 +83,7 @@ test("MCP update note reads current note version before building payload", async
   assert.deepEqual(calls, ["note-1"]);
   assert.equal(payload.version, 21);
   assert.equal(payload.contentFormat, "markdown");
+  assert.equal(payload.syncToYjs, true);
 });
 
 test("MCP read note result includes contentFormat", () => {

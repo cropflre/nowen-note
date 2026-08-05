@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { X, Upload, FolderOpen, Plus, Loader2, Trash2 } from "lucide-react";
+import { X, Upload, FolderOpen, Plus, Loader2, Trash2, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -107,7 +107,7 @@ export default function FileUploadDialog({
     }
     setUploading(false);
     if (ok > 0) {
-      toast.success(`上传成功 ${ok} 个文件${fail > 0 ? `，${fail} 个失败` : ""}`);
+      toast.success(`已上传并保护 ${ok} 个文件${fail > 0 ? `，${fail} 个失败` : ""}`);
       onUploaded();
       onClose();
     } else {
@@ -139,6 +139,17 @@ export default function FileUploadDialog({
         </div>
 
         <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {/* 手动上传保护说明：明确告诉用户这不是临时附件。 */}
+          <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5">
+            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">手动上传文件将自动标记为受保护</div>
+              <div className="mt-0.5 text-[11px] leading-4 text-tx-secondary">
+                即使没有插入任何笔记，也不会被“清理附件”自动删除；只有你主动点击删除时才会移除。
+              </div>
+            </div>
+          </div>
+
           {/* 目标文件夹 */}
           <div>
             <label className="block text-xs text-tx-tertiary mb-1.5">{t("fileManager.targetFolder") || "目标位置"}</label>
@@ -218,6 +229,10 @@ export default function FileUploadDialog({
                 <div key={pf.id} className="flex items-center gap-2 text-xs py-1 px-2 rounded hover:bg-app-hover group">
                   <FolderOpen size={12} className="text-tx-tertiary shrink-0" />
                   <span className="truncate flex-1 text-tx-secondary">{pf.file.name}</span>
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400 shrink-0">
+                    <ShieldCheck size={10} />
+                    受保护
+                  </span>
                   <span className="text-tx-tertiary shrink-0">{formatSize(pf.file.size)}</span>
                   <button
                     onClick={() => removeFile(pf.id)}

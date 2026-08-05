@@ -48,6 +48,21 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain("if (!surfaceActive) return");
   });
 
+  it("separates folder selection from the disclosure arrow in three-column navigation", () => {
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    const noteList = source("../../components/NoteList.tsx");
+
+    expect(panel).toContain('action: "select" | "toggle"');
+    expect(panel).toContain('setPendingFolderAction({ nodeId: node.id, action: "select" })');
+    expect(panel).toContain('setPendingFolderAction({ nodeId: node.id, action: "toggle" })');
+    expect(panel).toContain("actions.setSelectedNotebook(node.resourceId)");
+    expect(panel).toContain('actions.setViewMode("notebook")');
+    expect(panel).toContain("selectFolder(node)");
+    expect(panel).toContain("state.selectedNotebookId === node.resourceId");
+    expect(panel).toContain("onClick={() => hasChildren && void toggleDisclosure(node)}");
+    expect(noteList).toContain('includeDescendants: "0"');
+  });
+
   it("keeps pinned and favorite note states visible beside the tree title", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
     expect(panel).toContain('aria-label="已置顶"');

@@ -25,7 +25,9 @@ RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.
     fi
 
 COPY frontend/ .
-RUN npx vite build
+COPY scripts/precompress-frontend.mjs /app/scripts/precompress-frontend.mjs
+# Web/Docker 产物生成 .br/.gz；Electron 与 Capacitor 继续使用普通 build，避免安装包重复携带压缩副本。
+RUN npm run build:web
 
 # ---------- Stage 2: 后端构建（包含 updater 专用入口） ----------
 FROM node:20-alpine AS backend-build
@@ -80,9 +82,10 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-# 主应用的容器级健康检查。Compose 会显式重复声明，兼容 NAS 面板与直接 docker run。
+# 主应用的容器级健康检查。必须读取运行时 PORT：NAS 面板可能把容器内部端口
+# 配置为 53001 等非默认值，固定检查 3001 会让正常服务被误判为 unhealthy。
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
-  CMD node -e "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD node -e "const p=process.env.PORT||'3001';fetch('http://127.0.0.1:'+p+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 WORKDIR /app
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]

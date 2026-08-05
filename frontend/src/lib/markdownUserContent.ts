@@ -10,10 +10,14 @@ export interface InternalMarkdownMarkerRange {
 // 系统生成的块 ID 偶尔会在隐藏标记边界被误删尾部字符；仍按内部标记处理，
 // 但保留严格的 UUID 结构，避免隐藏用户主动输入的 ^blk_example_text。
 const GENERATED_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
-const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
-const LINE_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_BLOCK_ID})[ \t]*$`, "i");
+// v1.4.5 及更早版本、部分 Markdown 导入器使用过无下划线的 32 位块 ID。
+const LEGACY_COMPACT_BLOCK_ID = String.raw`blk[0-9a-f]{32}`;
+const INTERNAL_BLOCK_ID = String.raw`(?:${GENERATED_BLOCK_ID}|${LEGACY_COMPACT_BLOCK_ID})`;
+const INLINE_MARKER_RE = new RegExp(String.raw`[ \t]*\^(${INTERNAL_BLOCK_ID})[ \t]*$`, "i");
+const LINE_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${INTERNAL_BLOCK_ID})[ \t]*$`, "i");
+const LEGACY_PREFIX_MARKER_RE = new RegExp(String.raw`^[ \t]*\^(${LEGACY_COMPACT_BLOCK_ID})[ \t]+`, "i");
 const PASTED_MARKER_RE = new RegExp(
-  String.raw`(^|[ \t]+)\^(${GENERATED_BLOCK_ID})($|[ \t]+)`,
+  String.raw`(^|[ \t]+)\^(${INTERNAL_BLOCK_ID})($|[ \t]+)`,
   "ig",
 );
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
@@ -23,7 +27,7 @@ const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
  * The returned offsets refer to the original internal Markdown string.
  */
 export function findInternalMarkdownMarkerRanges(markdown: string): InternalMarkdownMarkerRange[] {
-  if (!markdown || !markdown.includes("^blk_")) return [];
+  if (!markdown || !markdown.includes("^blk")) return [];
   const ranges: InternalMarkdownMarkerRange[] = [];
   let offset = 0;
   let fenceChar = "";
@@ -64,6 +68,16 @@ export function findInternalMarkdownMarkerRanges(markdown: string): InternalMark
               kind: "inline",
               blockId: inline[1],
             });
+          } else {
+            const legacyPrefix = line.match(LEGACY_PREFIX_MARKER_RE);
+            if (legacyPrefix) {
+              ranges.push({
+                from: offset,
+                to: offset + legacyPrefix[0].length,
+                kind: "inline",
+                blockId: legacyPrefix[1],
+              });
+            }
           }
         }
       }
@@ -93,7 +107,7 @@ export function projectMarkdownForUser(markdown: string): string {
  * verbatim so documentation and code samples can still contain marker-like text.
  */
 export function sanitizeMarkdownClipboardText(markdown: string): string {
-  if (!markdown || !markdown.includes("^blk_")) return markdown;
+  if (!markdown || !markdown.includes("^blk")) return markdown;
   const lines = markdown.split("\n");
   let fenceChar = "";
   let fenceLength = 0;

@@ -53,6 +53,16 @@ export function supportsWideNoteWorkspaceLayout(surface: NoteWorkspaceSurface): 
   return surface === "web" || surface === "desktop";
 }
 
+export function usesThreeColumnFolderNavigation(input: {
+  mode: NoteWorkspaceLayoutMode;
+  noteListCollapsed: boolean;
+  desktopSurface: boolean;
+}): boolean {
+  return input.mode === "three-column"
+    && !input.noteListCollapsed
+    && input.desktopSurface;
+}
+
 export function loadNoteWorkspaceLayoutMode(
   legacyNoteListCollapsed = false,
 ): NoteWorkspaceLayoutMode {

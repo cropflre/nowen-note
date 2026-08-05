@@ -1,0 +1,102 @@
+/* Unified loading hierarchy
+ * L1: the HTML boot splash owns cold start/auth restoration.
+ * L2: workspace surfaces use structural skeletons.
+ * L3: note switching uses a slim progress line plus local skeleton content.
+ */
+
+/* Turn the knowledge-tree's initial placeholder into a structural tree skeleton.
+ * Refreshes with existing nodes keep the old content and only animate the toolbar icon.
+ */
+[data-nowen-knowledge-tree="embedded"]
+[data-swipe-blocker="knowledge-tree-scroll"]
+> .flex.justify-center.py-14 {
+  position: relative;
+  display: block;
+  height: 184px;
+  margin: 4px 8px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.18)) 8px 10px / 68% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.15)) 24px 36px / 58% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.15)) 24px 62px / 74% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.18)) 8px 88px / 62% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.15)) 24px 114px / 69% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.15)) 40px 140px / 50% 10px no-repeat,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.18)) 8px 166px / 72% 10px no-repeat;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  animation: nowen-tree-skeleton-pulse 1.45s ease-in-out infinite;
+}
+
+[data-nowen-knowledge-tree="embedded"]
+[data-swipe-blocker="knowledge-tree-scroll"]
+> .flex.justify-center.py-14 > svg {
+  display: none;
+}
+
+/* The note skeleton stays local to the editor. A two-pixel progress track provides immediate
+ * feedback without introducing another centered spinner or blocking the surrounding shell.
+ */
+[data-note-loading-state="loading"],
+[data-note-loading-state="slow"] {
+  position: relative;
+}
+
+[data-note-loading-state="loading"]::before,
+[data-note-loading-state="slow"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 70;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-accent-primary, #2563eb) 14%, transparent);
+  pointer-events: none;
+}
+
+[data-note-loading-state="loading"]::after,
+[data-note-loading-state="slow"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 71;
+  width: 36%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-accent-primary, #2563eb);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent-primary, #2563eb) 34%, transparent);
+  transform: translateX(-110%);
+  animation: nowen-note-progress 1.15s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes nowen-note-progress {
+  0% { transform: translateX(-110%); }
+  58% { transform: translateX(170%); }
+  100% { transform: translateX(305%); }
+}
+
+@keyframes nowen-tree-skeleton-pulse {
+  0%, 100% { opacity: 0.62; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-nowen-knowledge-tree="embedded"]
+  [data-swipe-blocker="knowledge-tree-scroll"]
+  > .flex.justify-center.py-14,
+  [data-note-loading-state="loading"]::after,
+  [data-note-loading-state="slow"]::after {
+    animation: none;
+  }
+
+  [data-note-loading-state="loading"]::after,
+  [data-note-loading-state="slow"]::after {
+    width: 100%;
+    transform: none;
+    opacity: 0.55;
+  }
+}

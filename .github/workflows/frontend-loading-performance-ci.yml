@@ -1,0 +1,148 @@
+name: Frontend Loading Performance CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, release/v1.4.6]
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.ts"
+      - "frontend/src/main.tsx"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/DeferredGlobalFeatureCenters.tsx"
+      - "frontend/src/components/DeferredGlobalFeatureCentersMount.tsx"
+      - "frontend/src/components/Lazy*Runtime.tsx"
+      - "frontend/src/components/EditorPaneRuntime.tsx"
+      - "frontend/src/lib/__tests__/startupChunkingContract.test.ts"
+      - "backend/src/index.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/lib/static-asset-response.ts"
+      - "backend/src/runtime/static-precompressed-assets.ts"
+      - "backend/tests/static-asset-response.test.ts"
+      - "backend/tests/static-precompressed-assets.test.ts"
+      - "scripts/analyze-frontend-bundle.mjs"
+      - "scripts/precompress-frontend.mjs"
+      - ".github/workflows/frontend-loading-performance-ci.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.ts"
+      - "frontend/src/main.tsx"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/DeferredGlobalFeatureCenters.tsx"
+      - "frontend/src/components/DeferredGlobalFeatureCentersMount.tsx"
+      - "frontend/src/components/Lazy*Runtime.tsx"
+      - "frontend/src/components/EditorPaneRuntime.tsx"
+      - "frontend/src/lib/__tests__/startupChunkingContract.test.ts"
+      - "backend/src/index.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/lib/static-asset-response.ts"
+      - "backend/src/runtime/static-precompressed-assets.ts"
+      - "backend/tests/static-asset-response.test.ts"
+      - "backend/tests/static-precompressed-assets.test.ts"
+      - "scripts/analyze-frontend-bundle.mjs"
+      - "scripts/precompress-frontend.mjs"
+      - ".github/workflows/frontend-loading-performance-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-loading-performance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Build and bundle budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Startup chunking contract
+        run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts
+      - name: Production web build
+        run: npm run build:web
+      - name: Enforce initial bundle budgets
+        run: npm run verify:bundle
+      - name: Verify precompressed artifacts
+        run: |
+          node --input-type=module <<'NODE'
+          import { readdir, stat } from 'node:fs/promises'
+          import path from 'node:path'
+
+          const assetsDir = path.resolve('dist/assets')
+          const names = await readdir(assetsDir)
+          const candidates = names.filter((name) => /\.js$/.test(name))
+          if (candidates.length === 0) throw new Error('No JavaScript assets were built')
+
+          let verified = 0
+          let skipped = 0
+          for (const name of candidates) {
+            const sourcePath = path.join(assetsDir, name)
+            const source = await stat(sourcePath)
+            if (source.size < 1024) {
+              skipped += 1
+              continue
+            }
+
+            const [brotli, gzip] = await Promise.all([
+              stat(`${sourcePath}.br`).catch(() => null),
+              stat(`${sourcePath}.gz`).catch(() => null),
+            ])
+            if (!brotli || !gzip) throw new Error(`Missing precompressed variants for ${name}`)
+            if (brotli.size >= source.size || gzip.size >= source.size) {
+              throw new Error(`Precompressed asset is not smaller than ${name}`)
+            }
+            verified += 1
+          }
+          console.log(`Verified ${verified} JavaScript assets; skipped ${skipped} assets below 1 KiB`)
+          NODE
+      - name: Upload bundle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-loading-report-${{ github.sha }}
+          path: |
+            frontend/dist/.vite/manifest.json
+            frontend/dist/bundle-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  backend:
+    name: Static delivery regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Static delivery tests
+        run: node --import tsx --test tests/static-asset-response.test.ts tests/static-precompressed-assets.test.ts
+      - name: Backend typecheck
+        run: npx tsc --noEmit
+      - name: Backend production bundle
+        run: npm run build

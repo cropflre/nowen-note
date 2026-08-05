@@ -1,0 +1,116 @@
+name: Linux Desktop Native CI
+
+on:
+  push:
+    branches:
+      - release/v1.4.6
+    paths:
+      - ".github/workflows/linux-desktop-native-ci.yml"
+      - ".github/workflows/release.yml"
+      - "electron/**"
+      - "scripts/rebuild-native.mjs"
+      - "scripts/check-linux-native-compat.cjs"
+      - "scripts/smoke-better-sqlite3.cjs"
+      - "scripts/lib/linux-native-compat.cjs"
+      - "scripts/tests/linux-native-compat.test.cjs"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "package.json"
+      - "package-lock.json"
+  pull_request:
+    paths:
+      - ".github/workflows/linux-desktop-native-ci.yml"
+      - ".github/workflows/release.yml"
+      - "electron/**"
+      - "scripts/rebuild-native.mjs"
+      - "scripts/check-linux-native-compat.cjs"
+      - "scripts/smoke-better-sqlite3.cjs"
+      - "scripts/lib/linux-native-compat.cjs"
+      - "scripts/tests/linux-native-compat.test.cjs"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "package.json"
+      - "package-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  linux-native-portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Native compatibility policy tests
+        run: npm run test:linux-native
+
+      - name: Rebuild better-sqlite3 on the glibc 2.31 baseline
+        shell: bash
+        run: |
+          docker run --rm \
+            -e HOME=/tmp/nowen-home \
+            -e npm_config_cache=/tmp/nowen-npm-cache \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            node:20-bullseye \
+            bash -lc 'npm run rebuild:native -- --target-platform=linux --target-arch=x64'
+          sudo chown -R "$(id -u):$(id -g)" backend/node_modules/better-sqlite3
+
+      - name: Enforce Linux ABI and runtime baseline
+        env:
+          TARGET_ARCH: x64
+          NOWEN_LINUX_MAX_GLIBC: "2.31"
+          NOWEN_LINUX_MAX_GLIBCXX: "3.4.28"
+          NOWEN_LINUX_MAX_CXXABI: "1.3.12"
+        run: npm run check:linux-native
+
+      - name: Smoke test with the packaged Electron Node runtime
+        run: npm run smoke:linux-native
+
+      - name: Build backend and frontend
+        run: npm run build:all
+
+      - name: Build unpacked Linux desktop application
+        env:
+          TARGET_ARCH: x64
+          npm_config_target_arch: x64
+        run: npx electron-builder --config electron/builder.config.js --linux --dir --publish never
+
+      - name: Verify the copied native module in the final application
+        shell: bash
+        env:
+          TARGET_ARCH: x64
+          NOWEN_LINUX_MAX_GLIBC: "2.31"
+          NOWEN_LINUX_MAX_GLIBCXX: "3.4.28"
+          NOWEN_LINUX_MAX_CXXABI: "1.3.12"
+        run: |
+          MODULE_ROOT="$(find dist-electron -type d -path '*/resources/backend/node_modules/better-sqlite3' -print -quit)"
+          NODE_FILE="${MODULE_ROOT}/build/Release/better_sqlite3.node"
+          APP_BIN="$(find dist-electron -maxdepth 3 -type f -perm -111 \( -name 'nowen-note' -o -name 'Nowen Note' \) -print -quit)"
+
+          test -n "$MODULE_ROOT"
+          test -f "$NODE_FILE"
+          test -n "$APP_BIN"
+
+          node scripts/check-linux-native-compat.cjs "$NODE_FILE"
+          ELECTRON_RUN_AS_NODE=1 "$APP_BIN" scripts/smoke-better-sqlite3.cjs "$MODULE_ROOT"

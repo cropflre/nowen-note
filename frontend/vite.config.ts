@@ -28,11 +28,11 @@ export default defineConfig({
         find: /^@\/components\/KnowledgeTreePanel$/,
         replacement: path.resolve(__dirname, "./src/components/KnowledgeTreeCreateMenuRuntime.tsx"),
       },
-      // Issue #218：只替换 App / SettingsModal 使用的绝对导入。
-      // 壳组件内部通过相对路径导入原组件，因此不会发生递归别名。
+      // Issue #218：AI 可靠性壳与原聊天面板整体延迟到用户真正打开 AI 侧栏时加载。
+      // Lazy 壳和可靠性壳都使用相对路径进入下一层，避免精确别名递归。
       {
         find: /^@\/components\/AIChatPanel$/,
-        replacement: path.resolve(__dirname, "./src/components/AIChatReliabilityShell.tsx"),
+        replacement: path.resolve(__dirname, "./src/components/LazyAIChatPanelRuntime.tsx"),
       },
       {
         find: /^@\/components\/AISettingsPanel$/,
@@ -81,16 +81,62 @@ export default defineConfig({
         find: /^@\/lib\/largeMarkdownSafety$/,
         replacement: path.resolve(__dirname, "./src/lib/largeMarkdownSafetyRuntime.ts"),
       },
-      // 公开分享评论：先收集匿名访客昵称，再把后端 displayName/guestName 投影到旧 username 展示字段。
-      // 壳组件通过相对路径串联身份与展示运行时，避免精确别名递归。
+      // 公开分享查看器包含 Markdown 渲染、评论和访客身份逻辑，只在分享路由命中时加载。
       {
         find: /^@\/components\/SharedNoteView$/,
-        replacement: path.resolve(__dirname, "./src/components/SharedNoteCommentDisplayRuntime.tsx"),
+        replacement: path.resolve(__dirname, "./src/components/LazySharedNoteViewRuntime.tsx"),
       },
       // Issue #369 P2：在不侵入 EditorPane 主体的前提下增加事务化文档拆分入口。
       {
         find: /^@\/components\/EditorPane$/,
         replacement: path.resolve(__dirname, "./src/components/EditorPaneRuntime.tsx"),
+      },
+      // 命令面板包含全文搜索中心；关闭状态只保留轻量壳，首次按 Cmd/Ctrl+K 时再下载。
+      {
+        find: /^@\/components\/common\/CommandPalette$/,
+        replacement: path.resolve(__dirname, "./src/components/common/LazyCommandPaletteRuntime.tsx"),
+      },
+      // 登录页不应同步下载整个工作台。以下壳只保留轻量 Suspense 边界，
+      // 真正的业务模块在用户进入对应页面时再加载。
+      {
+        find: /^@\/components\/Sidebar$/,
+        replacement: path.resolve(__dirname, "./src/components/LazySidebarRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/NavRail$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyNavRailRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/NoteList$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyNoteListRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/EditorSplitView$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyEditorSplitViewRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/TaskCenter$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyTaskCenterRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/MindMapEditor$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyMindMapEditorRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/DiaryCenter$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyDiaryCenterRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/FileManager$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyFileManagerRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/ShareManagementPage$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyShareManagementPageRuntime.tsx"),
+      },
+      {
+        find: /^@\/components\/NotebookShareJoinView$/,
+        replacement: path.resolve(__dirname, "./src/components/LazyNotebookShareJoinViewRuntime.tsx"),
       },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
@@ -108,6 +154,7 @@ export default defineConfig({
     target: "chrome64",
     cssTarget: "chrome64",
     sourcemap: false,
+    manifest: true,
     // 禁用 modulePreload polyfill 注入，避免某些 rollup 版本将
     // "vite/modulepreload-polyfill" 误识别为 source phase import 而报错。
     // 现代浏览器（Chrome 64+、Firefox 115+、Safari 17.5+）已原生支持 modulepreload，
@@ -117,7 +164,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        // 手动分包，降低构建内存峰值
+        // 把首屏必需依赖与低频导出/Markdown 依赖分开。此前 vendor-lib 同时包含
+        // framer-motion 和 JSZip/Turndown，登录页只要使用动画就会把低频工具一起下载。
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
           'vendor-tiptap': [
@@ -131,18 +179,22 @@ export default defineConfig({
             '@tiptap/extension-task-list',
             '@tiptap/extension-underline',
           ],
-          'vendor-lib': [
+          'vendor-ui': [
             'framer-motion',
             'lucide-react',
             'react-icons',
-            'jszip',
-            'react-markdown',
-            'remark-gfm',
-            'turndown',
-            'date-fns',
+          ],
+          'vendor-i18n': [
             'i18next',
             'react-i18next',
           ],
+          'vendor-markdown': [
+            'react-markdown',
+            'remark-gfm',
+            'turndown',
+          ],
+          'vendor-archive': ['jszip'],
+          'vendor-date': ['date-fns'],
         },
       },
     },

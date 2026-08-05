@@ -48,6 +48,8 @@ async function bootstrap(): Promise<void> {
   await import("./runtime/notebook-publication.js");
   // Mount the unified content tree and capability guard around the legacy note/notebook routers.
   await import("./runtime/knowledge-tree.js");
+  // Install before the main Hono app registers its production wildcard static route.
+  await import("./runtime/static-precompressed-assets.js");
   await import("./index.js");
 }
 

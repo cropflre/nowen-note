@@ -73,6 +73,10 @@ import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
 import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
+import {
+  createStaticAssetHeaders,
+  isStaticAssetNotModified,
+} from "./lib/static-asset-response";
 
 const app = new Hono();
 
@@ -101,12 +105,10 @@ if (isProd) {
 }
 
 // HTTP 响应压缩（gzip/deflate）。
-//   - 针对 /api/* 的 JSON 响应启用；大多数"图片以 base64 内联在 notes.content"的
-//     笔记返回体能压到原大小的 20~30%，显著降低 GET /api/notes/:id 的网络耗时。
-//   - threshold 默认 1KB，小响应不压缩（避免无谓 CPU）。
-//   - 静态资源（字体、前端 dist）已有自己的 Cache-Control，这里不覆盖它们；
-//     仅包裹 /api/* 足够。
-app.use("/api/*", compress());
+//   - API JSON 和前端 JS/CSS 等可压缩响应统一处理；
+//   - threshold 默认 1KB，小响应不压缩，图片等不可压缩类型会由中间件自动跳过；
+//   - 静态资源同时设置长期缓存和条件请求，刷新时优先命中浏览器缓存或返回 304。
+app.use("*", compress());
 
 // 初始化数据库
 getDb();
@@ -705,7 +707,7 @@ if (process.env.NODE_ENV === "production") {
   };
 
   // 静态资源 + SPA fallback（排除 /api 路径）
-  app.get("*", (c) => {
+  app.get("*", async (c) => {
     if (c.req.path.startsWith("/api")) {
       return c.json({ error: "Not Found" }, 404);
     }
@@ -718,7 +720,13 @@ if (process.env.NODE_ENV === "production") {
     if (filePath) {
       const ext = path.extname(filePath).toLowerCase();
       const contentType = mimeTypes[ext] || "application/octet-stream";
-      const content = fs.readFileSync(filePath);
+      const stat = await fs.promises.stat(filePath);
+      const assetHeaders = createStaticAssetHeaders(c.req.path, filePath, stat);
+      for (const [name, value] of Object.entries(assetHeaders)) c.header(name, value);
+      if (isStaticAssetNotModified(c.req.raw.headers, assetHeaders)) {
+        return c.body(null, 304);
+      }
+      const content = await fs.promises.readFile(filePath);
       return c.body(content, 200, { "Content-Type": contentType });
     }
     if (path.extname(c.req.path) !== "") {
@@ -727,6 +735,12 @@ if (process.env.NODE_ENV === "production") {
     // SPA fallback：返回 index.html
     const indexPath = path.join(frontendDist, "index.html");
     if (fs.existsSync(indexPath)) {
+      const stat = await fs.promises.stat(indexPath);
+      const assetHeaders = createStaticAssetHeaders(c.req.path, indexPath, stat);
+      for (const [name, value] of Object.entries(assetHeaders)) c.header(name, value);
+      if (isStaticAssetNotModified(c.req.raw.headers, assetHeaders)) {
+        return c.body(null, 304);
+      }
       // SEC-XSS-01-C-RV1: CSP 必须加在 HTML document 响应上才对浏览器生效
       c.header(
         "Content-Security-Policy",
@@ -744,7 +758,7 @@ if (process.env.NODE_ENV === "production") {
           "frame-ancestors 'none'",
         ].join("; "),
       );
-      return c.html(fs.readFileSync(indexPath, "utf-8"));
+      return c.html(await fs.promises.readFile(indexPath, "utf-8"));
     }
     return c.json({ error: "Not Found" }, 404);
   });

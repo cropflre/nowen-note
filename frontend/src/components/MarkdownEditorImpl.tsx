@@ -131,6 +131,7 @@ import {
 import { clampMarkdownSplitPercent } from "@/lib/markdownSplitPane";
 import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { buildExistingAttachmentMarkdownSnippet } from "@/lib/existingAttachmentInsert";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
@@ -2205,10 +2206,6 @@ function formatBytesMd(bytes: number): string {
 }
 
 function buildMarkdownAttachmentSnippet(item: FileItem): string {
-  const label = (item.filename || "attachment")
-    .replace(/\\/g, "\\\\")
-    .replace(/\]/g, "\\]");
-  const sizeLabel = formatBytesMd(item.size);
-  return `[📎 ${label}${sizeLabel ? ` (${sizeLabel})` : ""}](${encodeMarkdownUrl(item.url)})`;
+  return buildExistingAttachmentMarkdownSnippet(item);
 }
 void StateEffect;
