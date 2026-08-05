@@ -7,6 +7,7 @@ on:
       - "backend/src/db/migration/sqliteMigrationReader.ts"
       - "backend/src/db/postgres/migrations/0023_sqlite_postgres_migration_runs.sql"
       - "backend/src/db/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql"
+      - "backend/src/db/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
       - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
@@ -14,6 +15,7 @@ on:
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-rollback-runtime-pg.test.ts"
+      - "backend/tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/package.json"
       - "backend/docs/sqlite-to-postgres-migration.md"
@@ -25,6 +27,7 @@ on:
       - "backend/src/db/migration/sqliteMigrationReader.ts"
       - "backend/src/db/postgres/migrations/0023_sqlite_postgres_migration_runs.sql"
       - "backend/src/db/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql"
+      - "backend/src/db/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
       - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
@@ -32,6 +35,7 @@ on:
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-rollback-runtime-pg.test.ts"
+      - "backend/tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/package.json"
       - "backend/docs/sqlite-to-postgres-migration.md"
@@ -76,13 +80,14 @@ jobs:
           npm run build:tsc -- --noEmit
           npm run audit:sqlite-boundaries
           npm run audit:pg-schema-parity
-      - name: Migration executor and rollback regressions
+      - name: Migration executor and recovery regressions
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
           tests/postgres-migrations.test.ts
           tests/sqlite-postgres-migration-runtime-pg.test.ts
           tests/sqlite-postgres-rollback-runtime-pg.test.ts
+          tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts
       - name: CLI help contract
         working-directory: backend
         run: npm run migrate:sqlite-to-postgres -- --help
@@ -92,3 +97,4 @@ jobs:
           npm run build
           test -f dist/postgres/migrations/0023_sqlite_postgres_migration_runs.sql
           test -f dist/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql
+          test -f dist/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql
