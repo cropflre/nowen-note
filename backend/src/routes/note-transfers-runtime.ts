@@ -174,9 +174,9 @@ export default function createNoteTransfersRuntimeRouter(
         includeTags: request.includeTags !== false,
         sourceNoteIds: preview.notes.map((note) => note.id),
         sourceVersions: preview.sourceVersions,
-        attachmentCount: preview.attachmentCount,
-        attachmentBytes: preview.attachmentBytes,
-        tagCount: preview.tagCount,
+        attachmentCount: request.includeAttachments !== false ? preview.attachmentCount : 0,
+        attachmentBytes: request.includeAttachments !== false ? preview.attachmentBytes : 0,
+        tagCount: request.includeTags !== false ? preview.tagCount : 0,
         internalNoteLinkCount: preview.internalNoteLinkCount,
         externalNoteLinkCount: preview.externalNoteLinkCount,
       });

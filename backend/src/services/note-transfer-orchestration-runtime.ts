@@ -205,9 +205,9 @@ export function createNoteTransferOrchestrationRuntime(
       includeTags: input.includeTags !== false,
       sourceNoteIds: result.notes.map((note) => note.id),
       sourceVersions: result.sourceVersions,
-      attachmentCount: result.attachmentCount,
-      attachmentBytes: result.attachmentBytes,
-      tagCount: result.tagCount,
+      attachmentCount: input.includeAttachments !== false ? result.attachmentCount : 0,
+      attachmentBytes: input.includeAttachments !== false ? result.attachmentBytes : 0,
+      tagCount: input.includeTags !== false ? result.tagCount : 0,
       internalNoteLinkCount: result.internalNoteLinkCount,
       externalNoteLinkCount: result.externalNoteLinkCount,
     });
