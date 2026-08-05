@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Apply Tiptap implementation patch
         shell: bash
@@ -38,24 +38,16 @@ jobs:
               raise SystemExit(f"Tiptap import target count: {source.count(old_import)}")
           source = source.replace(old_import, new_import, 1)
 
-          old_block = '''    const inlineImage = isInlineImageAttachment(item);
-            const chain = editor.chain().focus();
-            if (inlineImage) {
-              chain.setImage({
-                src: item.url,
-                alt: item.filename,
-                title: item.filename,
-              }).run();
-            } else {
-              chain
-                .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
-                .run();
-            }
+          start_marker = "    const inlineImage = isInlineImageAttachment(item);"
+          end_marker = '      : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));'
+          start = source.find(start_marker)
+          if start < 0:
+              raise SystemExit("Tiptap insert block start not found")
+          end_start = source.find(end_marker, start)
+          if end_start < 0:
+              raise SystemExit("Tiptap insert block end not found")
+          end = end_start + len(end_marker)
 
-            closeAttachmentLibrary();
-            toast.success(inlineImage
-              ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
-              : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));'''
           new_block = '''    const inlineImage = isInlineImageAttachment(item);
             const inlineVideo = !inlineImage && isInlineVideoAttachment(item);
             const chain = editor.chain().focus();
@@ -86,9 +78,7 @@ jobs:
               : inlineVideo
                 ? t("tiptap.videoInsertedFromFileManager", { defaultValue: "视频已插入" })
                 : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));'''
-          if source.count(old_block) != 1:
-              raise SystemExit(f"Tiptap insert block target count: {source.count(old_block)}")
-          source = source.replace(old_block, new_block, 1)
+          source = source[:start] + new_block + source[end:]
           path.write_text(source)
           PY
 
