@@ -77,6 +77,10 @@ import {
   usesThreeColumnFolderNavigation,
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
+import {
+  KNOWLEDGE_TREE_OPEN_FOLDER_EVENT,
+  type KnowledgeTreeOpenFolderDetail,
+} from "@/lib/threeColumnFolderContents";
 import { cn } from "@/lib/utils";
 import {
   canMoveWithinSharedRoot,
@@ -536,6 +540,19 @@ export function KnowledgeTreePanel({
       toast.error(requestError?.message || "打开文档失败");
     }
   };
+
+  useEffect(() => {
+    if (!surfaceActive || !threeColumnFolderNavigation) return;
+    const openRequestedFolder = (event: Event) => {
+      const detail = (event as CustomEvent<KnowledgeTreeOpenFolderDetail>).detail;
+      const requestedNode = detail?.node
+        || nodes.find((node) => node.id === (detail as any)?.nodeId);
+      if (!requestedNode || requestedNode.nodeType !== "folder") return;
+      void openDocument(requestedNode);
+    };
+    window.addEventListener(KNOWLEDGE_TREE_OPEN_FOLDER_EVENT, openRequestedFolder);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_OPEN_FOLDER_EVENT, openRequestedFolder);
+  }, [nodes, surfaceActive, threeColumnFolderNavigation, openDocument]);
 
   const toggleDisclosure = async (node: KnowledgeTreeNode) => {
     closeMenu();
