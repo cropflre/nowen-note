@@ -8,12 +8,7 @@ import {
   isOfflineNoteSnapshot,
   markOfflineNoteSnapshot,
 } from "@/lib/offlineRead";
-import {
-  enqueue,
-  getQueue,
-  removeItem,
-  updateItem,
-} from "@/lib/offlineQueue";
+import { dequeue, enqueue, getQueue, updateItem } from "@/lib/offlineQueue";
 import { saveDraft } from "@/lib/draftStorage";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__" as const;
@@ -40,17 +35,12 @@ export interface NoteSyncConflictRecord {
   reason: "STALE_OFFLINE_BASE" | "VERSION_CONFLICT" | "REMOTE_BASE_UNVERIFIED";
 }
 
-type GuardedWindow = Window & typeof globalThis & {
-  [INSTALL_KEY]?: () => void;
-};
-
+type GuardedWindow = Window & typeof globalThis & { [INSTALL_KEY]?: () => void };
 type NoteMutation = Partial<Note> & Record<string, unknown>;
 type PendingNote = Note & { __syncPending: true };
 
 export function isVersionedNoteMutation(data: NoteMutation): boolean {
-  return ["title", "content", "contentText", "contentFormat"].some(
-    (field) => data[field] !== undefined,
-  );
+  return ["title", "content", "contentText", "contentFormat"].some((field) => data[field] !== undefined);
 }
 
 export function isServerConfirmedNoteWrite(baseVersion: number, responseVersion: unknown): boolean {
@@ -59,17 +49,17 @@ export function isServerConfirmedNoteWrite(baseVersion: number, responseVersion:
 
 function isCompleteNote(value: unknown, noteId?: string): value is Note {
   const note = value as Partial<Note> | null;
-  return !!note &&
-    typeof note.id === "string" && note.id.length > 0 &&
-    (!noteId || note.id === noteId) &&
-    typeof note.userId === "string" && note.userId.length > 0 &&
-    typeof note.notebookId === "string" && note.notebookId.length > 0 &&
-    typeof note.title === "string" &&
-    typeof note.content === "string" &&
-    typeof note.contentText === "string" &&
-    typeof note.version === "number" && Number.isFinite(note.version) &&
-    typeof note.createdAt === "string" && note.createdAt.length > 0 &&
-    typeof note.updatedAt === "string" && note.updatedAt.length > 0;
+  return !!note
+    && typeof note.id === "string" && note.id.length > 0
+    && (!noteId || note.id === noteId)
+    && typeof note.userId === "string" && note.userId.length > 0
+    && typeof note.notebookId === "string" && note.notebookId.length > 0
+    && typeof note.title === "string"
+    && typeof note.content === "string"
+    && typeof note.contentText === "string"
+    && typeof note.version === "number" && Number.isFinite(note.version)
+    && typeof note.createdAt === "string" && note.createdAt.length > 0
+    && typeof note.updatedAt === "string" && note.updatedAt.length > 0;
 }
 
 function rememberConfirmedNote(note: unknown, noteId?: string): note is Note {
@@ -79,10 +69,10 @@ function rememberConfirmedNote(note: unknown, noteId?: string): note is Note {
 }
 
 function noteBodiesEqual(left: Partial<Note>, right: Partial<Note>): boolean {
-  return left.title === right.title &&
-    left.content === right.content &&
-    left.contentText === right.contentText &&
-    left.contentFormat === right.contentFormat;
+  return left.title === right.title
+    && left.content === right.content
+    && left.contentText === right.contentText
+    && left.contentFormat === right.contentFormat;
 }
 
 function mutationMatchesNote(note: Partial<Note>, data: NoteMutation): boolean {
@@ -90,7 +80,7 @@ function mutationMatchesNote(note: Partial<Note>, data: NoteMutation): boolean {
   return fields.every((field) => data[field] === undefined || note[field] === data[field]);
 }
 
-function pendingNote(server: Note, data: NoteMutation): PendingNote {
+function makePendingNote(server: Note, data: NoteMutation): PendingNote {
   return {
     ...server,
     ...(typeof data.title === "string" ? { title: data.title } : {}),
@@ -145,14 +135,10 @@ export function clearNoteSyncConflict(noteId: string): void {
     if (next.length === 0) localStorage.removeItem(CONFLICT_STORAGE_KEY);
     else localStorage.setItem(CONFLICT_STORAGE_KEY, JSON.stringify(next));
   } catch {
-    /* keep queue/draft as the durable fallback */
+    // Queue and draft remain the durable fallback.
   }
 }
 
-/**
- * Persist one current record per note. Returning false means the exact same conflict was
- * already known, allowing callers to suppress duplicate toasts without losing the payload.
- */
 export function recordNoteSyncConflict(record: NoteSyncConflictRecord): boolean {
   const previous = getNoteSyncConflict(record.noteId);
   const changed = !previous || conflictSignature(previous) !== conflictSignature(record);
@@ -161,7 +147,7 @@ export function recordNoteSyncConflict(record: NoteSyncConflictRecord): boolean 
     records.unshift(record);
     localStorage.setItem(CONFLICT_STORAGE_KEY, JSON.stringify(records.slice(0, MAX_CONFLICTS)));
   } catch {
-    // The complete local edit remains in draftStorage and offlineQueue even if metadata hits quota.
+    // Queue and draft still contain the complete local edit.
   }
   return changed;
 }
@@ -225,15 +211,9 @@ function isConflictQueueItem(item: { conflict?: boolean; errorCode?: string }): 
   return item.conflict === true || item.errorCode === "VERSION_CONFLICT";
 }
 
-function upsertConflictQueueItem(
-  noteId: string,
-  data: NoteMutation,
-  serverVersion?: number,
-): void {
+function upsertConflictQueueItem(noteId: string, data: NoteMutation, serverVersion?: number): void {
   const body = { ...data } as Record<string, unknown>;
-  const candidates = getQueue().filter(
-    (item) => item.noteId === noteId && item.type === "updateNote",
-  );
+  const candidates = getQueue().filter((item) => item.noteId === noteId && item.type === "updateNote");
   const existing = candidates.find(isConflictQueueItem) || candidates[0];
   const patch = {
     body,
@@ -250,11 +230,10 @@ function upsertConflictQueueItem(
   } as const;
 
   if (existing) {
-    // Preserve the original queue id. conflictResolution derives one deterministic copy id
-    // from it, so later edits update the same conflict generation instead of creating copies.
+    // Keep the queue id stable so all later edits target the same deterministic copy.
     updateItem(existing.id, patch);
     for (const duplicate of candidates) {
-      if (duplicate.id !== existing.id) removeItem(duplicate.id);
+      if (duplicate.id !== existing.id) dequeue(duplicate.id);
     }
     return;
   }
@@ -272,22 +251,18 @@ function clearResolvedConflictArtifacts(noteId: string): void {
   clearNoteSyncConflict(noteId);
   for (const item of getQueue()) {
     if (item.noteId === noteId && item.type === "updateNote" && isConflictQueueItem(item)) {
-      removeItem(item.id);
+      dequeue(item.id);
     }
   }
 }
 
 export function hasPendingNoteSyncConflict(noteId: string): boolean {
-  if (getNoteSyncConflict(noteId)) return true;
-  return getQueue().some(
+  return !!getNoteSyncConflict(noteId) || getQueue().some(
     (item) => item.noteId === noteId && item.type === "updateNote" && isConflictQueueItem(item),
   );
 }
 
-export async function runWithNoteConflictResolution<T>(
-  noteId: string,
-  task: () => Promise<T>,
-): Promise<T> {
+export async function runWithNoteConflictResolution<T>(noteId: string, task: () => Promise<T>): Promise<T> {
   resolvingNoteIds.add(noteId);
   try {
     return await task();
@@ -310,7 +285,6 @@ function preserveConflict(
   return record;
 }
 
-/** 把编辑器尚未提交的最新快照直接存为冲突，不向服务器发起写请求。 */
 export function preserveNoteSyncConflictSnapshot(
   noteId: string,
   data: NoteMutation,
@@ -330,12 +304,16 @@ function restorePendingDraft(
   noteId: string,
   data: NoteMutation,
   baseVersion: number,
+  conflict: boolean,
   serverVersion?: number,
 ): void {
-  // EditorPane clears drafts after every resolved update. Restore the unresolved snapshot after
-  // that bookkeeping finishes, while deliberately avoiding another network request.
   window.setTimeout(() => {
-    persistLocalDraft(noteId, data, baseVersion, { serverVersion });
+    persistLocalDraft(
+      noteId,
+      data,
+      baseVersion,
+      conflict ? { serverVersion } : undefined,
+    );
   }, 0);
 }
 
@@ -364,26 +342,16 @@ export function installNoteSyncSafety(): void {
     server: Note,
     conflict: boolean,
   ): PendingNote {
-    persistLocalDraft(
-      noteId,
-      data,
-      baseVersion,
-      conflict ? { serverVersion: server.version } : undefined,
-    );
-    restorePendingDraft(noteId, data, baseVersion, conflict ? server.version : undefined);
+    persistLocalDraft(noteId, data, baseVersion, conflict ? { serverVersion: server.version } : undefined);
+    restorePendingDraft(noteId, data, baseVersion, conflict, server.version);
     dispatchPending(noteId, baseVersion, { conflict, serverVersion: server.version });
-    return pendingNote(server, data);
+    return makePendingNote(server, data);
   }
 
-  async function retryOnFreshVersion(
-    noteId: string,
-    data: NoteMutation,
-    fresh: Note,
-  ): Promise<Note | null> {
+  async function retryOnFreshVersion(noteId: string, data: NoteMutation, fresh: Note): Promise<Note | null> {
     try {
-      const rebased = { ...data, version: fresh.version } as Partial<Note>;
-      const updated = await originalUpdateNote(noteId, rebased);
-      if (!isServerConfirmedNoteWrite(fresh.version, updated?.version) || !isCompleteNote(updated, noteId)) {
+      const updated = await originalUpdateNote(noteId, { ...data, version: fresh.version } as Partial<Note>);
+      if (!isCompleteNote(updated, noteId) || !isServerConfirmedNoteWrite(fresh.version, updated.version)) {
         return null;
       }
       clearOfflineNoteSnapshot(noteId);
@@ -420,7 +388,7 @@ export function installNoteSyncSafety(): void {
         server = await fetchCurrentServerNote(noteId);
         if (server) confirmedNotes.set(noteId, server);
       }
-      const record = preserveConflict(
+      preserveConflict(
         noteId,
         data,
         baseVersion,
@@ -428,10 +396,7 @@ export function installNoteSyncSafety(): void {
         getNoteSyncConflict(noteId)?.reason || "VERSION_CONFLICT",
       );
       if (!server) {
-        throw syncError(
-          "REMOTE_BASE_UNVERIFIED",
-          "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。",
-        );
+        throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
       }
       return completePendingResponse(noteId, data, baseVersion, server, true);
     }
@@ -444,13 +409,8 @@ export function installNoteSyncSafety(): void {
       const fresh = await fetchCurrentServerNote(noteId);
       if (!fresh) {
         preserveConflict(noteId, data, baseVersion, previousConfirmed, "REMOTE_BASE_UNVERIFIED");
-        if (previousConfirmed) {
-          return completePendingResponse(noteId, data, baseVersion, previousConfirmed, true);
-        }
-        throw syncError(
-          "REMOTE_BASE_UNVERIFIED",
-          "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。",
-        );
+        if (previousConfirmed) return completePendingResponse(noteId, data, baseVersion, previousConfirmed, true);
+        throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
       }
 
       if (isCurrentlyOffline()) {
@@ -460,25 +420,19 @@ export function installNoteSyncSafety(): void {
 
       clearOfflineNoteSnapshot(noteId);
       const baseContentMismatch = !!(
-        offlineBase?.contentFingerprint &&
-        fingerprintNoteContent(fresh.content) !== offlineBase.contentFingerprint
+        offlineBase?.contentFingerprint
+        && fingerprintNoteContent(fresh.content) !== offlineBase.contentFingerprint
       );
       if (fresh.version !== baseVersion || baseContentMismatch) {
-        // A timeout can happen after the server committed the exact body. Treat the fetched
-        // note as the missing acknowledgement rather than manufacturing a conflict copy.
         if (mutationMatchesNote(fresh, data)) {
           clearResolvedConflictArtifacts(noteId);
           rememberConfirmedNote(fresh, noteId);
           return fresh;
         }
-
-        // A version-only advance with an unchanged body is not a real editing conflict. Rebase
-        // the latest local snapshot once onto the server revision and continue silently.
         if (previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
           const retried = await retryOnFreshVersion(noteId, data, fresh);
           if (retried) return retried;
         }
-
         preserveConflict(noteId, data, baseVersion, fresh, "STALE_OFFLINE_BASE");
         confirmedNotes.set(noteId, fresh);
         return completePendingResponse(noteId, data, baseVersion, fresh, true);
@@ -488,23 +442,13 @@ export function installNoteSyncSafety(): void {
     const previousConfirmed = confirmedNotes.get(noteId) || null;
     try {
       const updated = await originalUpdateNote(noteId, data as Partial<Note>);
-
       if (versioned && !isServerConfirmedNoteWrite(baseVersion, updated?.version)) {
         persistLocalDraft(noteId, data, baseVersion);
-        markOfflineNoteSnapshot({
-          id: noteId,
-          version: baseVersion,
-          updatedAt: updated?.updatedAt,
-        });
+        markOfflineNoteSnapshot({ id: noteId, version: baseVersion, updatedAt: updated?.updatedAt });
         const server = previousConfirmed || (isCompleteNote(updated, noteId) ? updated : null);
-        if (server) {
-          return completePendingResponse(noteId, data, baseVersion, server, false);
-        }
+        if (server) return completePendingResponse(noteId, data, baseVersion, server, false);
         dispatchPending(noteId, baseVersion, { responseIncomplete: true });
-        const error = syncError(
-          "OFFLINE_WRITE_QUEUED",
-          "修改已保存在本地并等待上传，尚未得到服务端确认。",
-        ) as any;
+        const error = syncError("OFFLINE_WRITE_QUEUED", "修改已保存在本地并等待上传，尚未得到服务端确认。") as any;
         error.queued = true;
         throw error;
       }
@@ -518,42 +462,30 @@ export function installNoteSyncSafety(): void {
 
       const fresh = await fetchCurrentServerNote(noteId);
       if (fresh && mutationMatchesNote(fresh, data)) {
-        // Lost ACK: the server already contains the exact local mutation.
         clearOfflineNoteSnapshot(noteId);
         clearResolvedConflictArtifacts(noteId);
         rememberConfirmedNote(fresh, noteId);
         return fresh;
       }
-
       if (fresh && previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
         const retried = await retryOnFreshVersion(noteId, data, fresh);
         if (retried) return retried;
       }
 
-      const currentVersion = typeof error.currentVersion === "number"
-        ? error.currentVersion
-        : undefined;
+      const currentVersion = typeof error.currentVersion === "number" ? error.currentVersion : undefined;
       const fallbackServer = previousConfirmed
-        ? ({
-            ...previousConfirmed,
-            version: currentVersion ?? previousConfirmed.version,
-          } as Note)
+        ? ({ ...previousConfirmed, version: currentVersion ?? previousConfirmed.version } as Note)
         : null;
       const server = fresh || fallbackServer;
       const record = preserveConflict(noteId, data, baseVersion, server, "VERSION_CONFLICT");
       if (typeof error.currentVersion !== "number" && typeof record.serverVersion === "number") {
         error.currentVersion = record.serverVersion;
       }
-
       if (server) {
         if (fresh) confirmedNotes.set(noteId, fresh);
         return completePendingResponse(noteId, data, baseVersion, server, true);
       }
-
-      throw syncError(
-        "REMOTE_BASE_UNVERIFIED",
-        "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。",
-      );
+      throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
     }
   };
 
