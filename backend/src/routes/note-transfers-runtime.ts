@@ -330,10 +330,14 @@ export default function createNoteTransfersRuntimeRouter(
     if (credentialError) return credentialError;
 
     try {
-      return c.json(await orchestrationRuntime.getStatus({
+      const snapshot = await orchestrationRuntime.getStatus({
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
-      }));
+      });
+      return c.json({
+        ...snapshot.operation,
+        ...snapshot,
+      });
     } catch (error) {
       return errorResponse(c, error);
     }
