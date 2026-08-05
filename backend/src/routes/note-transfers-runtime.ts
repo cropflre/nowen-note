@@ -180,7 +180,6 @@ export default function createNoteTransfersRuntimeRouter(
         internalNoteLinkCount: preview.internalNoteLinkCount,
         externalNoteLinkCount: preview.externalNoteLinkCount,
       });
-      orchestrationRuntime.wake();
       return c.json(operation, operation.reused ? 200 : 201);
     } catch (error) {
       return errorResponse(c, error);
