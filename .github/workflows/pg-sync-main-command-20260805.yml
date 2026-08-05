@@ -63,7 +63,6 @@ jobs:
 
           path = Path("backend/src/middleware/acl.ts")
           text = path.read_text()
-
           permission_import = '''import {
             resolveNoteNotebookMemberPermission,
             resolveNotebookMemberPermission,
@@ -112,6 +111,27 @@ jobs:
               raise SystemExit("ACL notebook anchor mismatch")
           text = text.replace(notebook_anchor, notebook_anchor + notebook_access, 1)
           path.write_text(text)
+          PY
+                git add "$path"
+                continue
+              fi
+
+              if [ "$path" = "backend/src/routes/attachments.ts" ]; then
+                cp "/tmp/pg-merge/ours/$path" "$path"
+                python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/src/routes/attachments.ts")
+          text = path.read_text()
+          old = '''  return hasCompleteSignature || verifiedUserId
+            ? hardenScopedResponse(response)
+            : response;
+          '''
+          new = '''  return hardenScopedResponse(response);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("attachment response hardening anchor mismatch")
+          path.write_text(text.replace(old, new, 1))
           PY
                 git add "$path"
                 continue
