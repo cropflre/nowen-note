@@ -48,10 +48,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat backend/scripts/.move-command.gz.b64.part-* \
+          cat backend/scripts/.move-command-v2.gz.b64.part-* \
             | base64 --decode \
             | gzip --decompress \
             > /tmp/implement-note-transfer-move.py
+          echo "74cca103ac5bb334b54c332819b246327a535e4db660d3b1b018ccee88b6dd43  /tmp/implement-note-transfer-move.py" | sha256sum --check
           python3 -m py_compile /tmp/implement-note-transfer-move.py
           python3 /tmp/implement-note-transfer-move.py
           test -f backend/src/db/postgres/migrations/0021_note_transfer_move_source_deletion.sql
@@ -86,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f .github/workflows/pg-note-transfer-move-command-20260805.yml
-          rm -f backend/scripts/.move-command.gz.b64.part-*
+          rm -f backend/scripts/.move-command*.gz.b64.part-*
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
