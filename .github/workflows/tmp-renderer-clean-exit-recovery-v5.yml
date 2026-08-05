@@ -1,0 +1,87 @@
+name: Finalize renderer recovery shutdown guard
+
+on:
+  push:
+    branches:
+      - fix/v1.4.6-renderer-clean-exit-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.4.6-renderer-clean-exit-recovery
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply shutdown guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one target in {path}, found {count}: {old!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "electron/main.js",
+              '\n'.join([
+                  '    const currentURL = mainWindow?.webContents?.getURL?.() || "";',
+                  '    console.error("[main-window] render-process-gone:", details);',
+                  '    const recovery = loadingErrorPage',
+              ]),
+              '\n'.join([
+                  '    const currentURL = mainWindow?.webContents?.getURL?.() || "";',
+                  '    console.error("[main-window] render-process-gone:", details);',
+                  '    if (recoveringRenderer || getIsQuitting()) {',
+                  '      console.warn(',
+                  '        `[main-window] ignore render-process-gone during ` +',
+                  '          `${getIsQuitting() ? "shutdown" : "active-recovery"}`',
+                  '      );',
+                  '      return;',
+                  '    }',
+                  '    const recovery = loadingErrorPage',
+              ]),
+          )
+
+          replace_once(
+              "scripts/tests/renderer-recovery.test.cjs",
+              '  assert.match(mainSource, /rendererRecoveryGate\\.consume\\(details\\)/);',
+              '  assert.match(mainSource, /rendererRecoveryGate\\.consume\\(details\\)/);\n'
+              '  assert.match(mainSource, /recoveringRenderer \\|\\| getIsQuitting\\(\\)/);',
+          )
+          PY
+
+      - name: Verify renderer recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check electron/main.js
+          node --check electron/renderer-recovery.js
+          node --test scripts/tests/renderer-recovery.test.cjs scripts/tests/unified-loading-experience.test.mjs
+          git diff --check
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/tmp-renderer-clean-exit-recovery-v4.yml
+          git rm .github/workflows/tmp-renderer-clean-exit-recovery-v5.yml
+          git config user.name "Drug"
+          git config user.email "cropflre2333@gmail.com"
+          git add electron/main.js scripts/tests/renderer-recovery.test.cjs
+          git commit -m "fix: skip renderer recovery during app shutdown"
+          git push origin HEAD:fix/v1.4.6-renderer-clean-exit-recovery
