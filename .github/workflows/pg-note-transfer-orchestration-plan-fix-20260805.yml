@@ -23,30 +23,47 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           runtime = Path("backend/src/services/note-transfer-orchestration-runtime.ts")
           runtime_text = runtime.read_text()
-          old_runtime = '''      attachmentCount: result.attachmentCount,
-                attachmentBytes: result.attachmentBytes,
-                tagCount: result.tagCount,'''
-          new_runtime = '''      attachmentCount: input.includeAttachments !== false ? result.attachmentCount : 0,
-                attachmentBytes: input.includeAttachments !== false ? result.attachmentBytes : 0,
-                tagCount: input.includeTags !== false ? result.tagCount : 0,'''
-          if runtime_text.count(old_runtime) != 1:
-            raise SystemExit("orchestration plan count anchor mismatch")
-          runtime.write_text(runtime_text.replace(old_runtime, new_runtime, 1))
+          runtime_pattern = re.compile(
+            r'(?P<indent>^[ \t]*)attachmentCount: result\.attachmentCount,\s*'
+            r'attachmentBytes: result\.attachmentBytes,\s*'
+            r'tagCount: result\.tagCount,',
+            re.M,
+          )
+          def runtime_replacement(match):
+            indent = match.group("indent")
+            return (
+              f"{indent}attachmentCount: input.includeAttachments !== false ? result.attachmentCount : 0,\n"
+              f"{indent}attachmentBytes: input.includeAttachments !== false ? result.attachmentBytes : 0,\n"
+              f"{indent}tagCount: input.includeTags !== false ? result.tagCount : 0,"
+            )
+          runtime_text, runtime_count = runtime_pattern.subn(runtime_replacement, runtime_text, count=1)
+          if runtime_count != 1:
+            raise SystemExit("orchestration plan count pattern mismatch")
+          runtime.write_text(runtime_text)
 
           route = Path("backend/src/routes/note-transfers-runtime.ts")
           route_text = route.read_text()
-          old_route = '''        attachmentCount: preview.attachmentCount,
-                attachmentBytes: preview.attachmentBytes,
-                tagCount: preview.tagCount,'''
-          new_route = '''        attachmentCount: request.includeAttachments !== false ? preview.attachmentCount : 0,
-                attachmentBytes: request.includeAttachments !== false ? preview.attachmentBytes : 0,
-                tagCount: request.includeTags !== false ? preview.tagCount : 0,'''
-          if route_text.count(old_route) != 1:
-            raise SystemExit("prepare route plan count anchor mismatch")
-          route.write_text(route_text.replace(old_route, new_route, 1))
+          route_pattern = re.compile(
+            r'(?P<indent>^[ \t]*)attachmentCount: preview\.attachmentCount,\s*'
+            r'attachmentBytes: preview\.attachmentBytes,\s*'
+            r'tagCount: preview\.tagCount,',
+            re.M,
+          )
+          def route_replacement(match):
+            indent = match.group("indent")
+            return (
+              f"{indent}attachmentCount: request.includeAttachments !== false ? preview.attachmentCount : 0,\n"
+              f"{indent}attachmentBytes: request.includeAttachments !== false ? preview.attachmentBytes : 0,\n"
+              f"{indent}tagCount: request.includeTags !== false ? preview.tagCount : 0,"
+            )
+          route_text, route_count = route_pattern.subn(route_replacement, route_text, count=1)
+          if route_count != 1:
+            raise SystemExit("prepare route plan count pattern mismatch")
+          route.write_text(route_text)
           PY
           git diff --check
       - name: Commit plan count fix
