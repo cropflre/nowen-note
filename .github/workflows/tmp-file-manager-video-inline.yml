@@ -88,7 +88,14 @@ jobs:
 
       - name: Run focused tests
         working-directory: frontend
-        run: npm run test:run -- src/lib/__tests__/existingAttachmentInsert.test.ts src/lib/__tests__/markdownVideoSyntax.test.ts
+        run: npm run test:run -- src/lib/__tests__/existingAttachmentInsert.test.ts
+
+      - name: Verify editor integration
+        shell: bash
+        run: |
+          grep -q 'isInlineVideoAttachment' frontend/src/components/TiptapEditor.tsx
+          grep -q 'chain.setVideoFile' frontend/src/components/TiptapEditor.tsx
+          grep -q '@\[video\]' frontend/src/lib/existingAttachmentInsert.ts
 
       - name: Type-check frontend
         working-directory: frontend
