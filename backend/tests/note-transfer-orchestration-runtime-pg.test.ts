@@ -112,7 +112,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
     const adapter = new PostgresAdapter(pool);
     const orchestration = createDeterministicRuntime(adapter);
 
-    const copySource = "11111111-1111-4111-8111-111111111111";
+    const copySource = "a1010101-1010-4101-8101-010101010101";
     const copyKey = "orchestration-copy-001";
     await seedSource(pool, copySource);
     const submittedCopy = await orchestration.submit(request({
@@ -160,7 +160,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
       (error: any) => error?.code === "NOTE_TRANSFER_IDEMPOTENCY_CONFLICT",
     );
 
-    const moveSource = "22222222-2222-4222-8222-222222222222";
+    const moveSource = "a2020202-2020-4202-8202-020202020202";
     const moveKey = "orchestration-move-001";
     await seedSource(pool, moveSource);
     const submittedMove = await orchestration.submit(request({
@@ -180,7 +180,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
     const moveTarget = completedMove.operation.plan.targetNoteIds[moveSource];
     assert.equal((await pool.query(`SELECT 1 FROM notes WHERE id = $1`, [moveTarget])).rowCount, 1);
 
-    const restartSource = "33333333-3333-4333-8333-333333333333";
+    const restartSource = "a3030303-3030-4303-8303-030303030303";
     const restartKey = "orchestration-restart-001";
     await seedSource(pool, restartSource);
     await orchestration.submit(request({
@@ -196,7 +196,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
     assert.equal(recovered.terminal, true);
     assert.equal(recovered.phase, "completed");
 
-    const leaseSource = "44444444-4444-4444-8444-444444444444";
+    const leaseSource = "a4040404-4040-4404-8404-040404040404";
     const leaseKey = "orchestration-lease-001";
     await seedSource(pool, leaseSource);
     const leaseSubmitted = await orchestration.submit(request({
@@ -225,7 +225,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
       1,
     );
 
-    const cancelSource = "55555555-5555-4555-8555-555555555555";
+    const cancelSource = "a5050505-5050-4505-8505-050505050505";
     const cancelKey = "orchestration-cancel-001";
     await seedSource(pool, cancelSource);
     await orchestration.submit(request({
