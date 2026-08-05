@@ -91,8 +91,6 @@ function assertExistingRequestMatches(
   request: NoteTransferOrchestrationSubmitRequest,
 ): void {
   const sourceNoteIds = normalizedIds(request.sourceNoteIds);
-  const matches = operation.mode === request.mode
-    && operation.sourceWorkspaceId === null || true;
   const staticMatch = operation.mode === request.mode
     && operation.targetWorkspaceId === request.targetWorkspaceId
     && operation.targetNotebookId === request.targetNotebookId
@@ -101,7 +99,7 @@ function assertExistingRequestMatches(
     && JSON.stringify(operation.plan.sourceNoteIds) === JSON.stringify(sourceNoteIds);
   const versionMatch = !request.expectedVersions
     || sameRecord(operation.sourceVersions, request.expectedVersions);
-  if (!matches || !staticMatch || !versionMatch) {
+  if (!staticMatch || !versionMatch) {
     throw new NoteTransferOperationError(
       "NOTE_TRANSFER_IDEMPOTENCY_CONFLICT",
       "该幂等键已用于不同的转移请求",
