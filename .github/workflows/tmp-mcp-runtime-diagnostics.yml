@@ -1,0 +1,873 @@
+name: Apply MCP runtime diagnostics implementation
+
+on:
+  push:
+    branches:
+      - fix/v1.4.6-mcp-runtime-diagnostics
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.4.6-mcp-runtime-diagnostics
+          fetch-depth: 0
+
+      - name: Apply implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path(".")
+          package_dir = root / "packages" / "nowen-mcp"
+          bin_dir = package_dir / "bin"
+          tests_dir = package_dir / "tests"
+          bin_dir.mkdir(parents=True, exist_ok=True)
+          tests_dir.mkdir(parents=True, exist_ok=True)
+
+          runtime_source = r'''import { existsSync } from "node:fs";
+          import path from "node:path";
+          import { fileURLToPath, pathToFileURL } from "node:url";
+
+          const DEFAULT_PACKAGE_ROOT = path.resolve(
+            path.dirname(fileURLToPath(import.meta.url)),
+            "..",
+          );
+
+          export const EXIT_CODES = Object.freeze({
+            CONFIG: 64,
+            ENTRY_NOT_FOUND: 66,
+            SOFTWARE: 70,
+            IO: 74,
+          });
+
+          export class StartupDiagnosticError extends Error {
+            constructor(code, message, options = {}) {
+              super(message, options.cause ? { cause: options.cause } : undefined);
+              this.name = "StartupDiagnosticError";
+              this.code = code;
+              this.exitCode = options.exitCode ?? EXIT_CODES.SOFTWARE;
+              this.suggestion = options.suggestion ?? "查看 stderr 中的错误详情和堆栈";
+            }
+          }
+
+          export function formatError(error) {
+            if (error instanceof Error) {
+              const formatted = {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+              };
+              if (typeof error.code === "string") formatted.code = error.code;
+              if (error.cause !== undefined) formatted.cause = formatError(error.cause);
+              return formatted;
+            }
+            return { name: "NonErrorThrown", message: String(error) };
+          }
+
+          export function createStructuredLogger(options = {}) {
+            const stream = options.stream ?? process.stderr;
+            const base = options.base ?? {};
+            return (level, event, details = {}) => {
+              const payload = {
+                timestamp: new Date().toISOString(),
+                level,
+                event,
+                ...base,
+                ...details,
+              };
+              for (const key of Object.keys(payload)) {
+                if (payload[key] === undefined) delete payload[key];
+              }
+              try {
+                stream.write(`[nowen-mcp] ${JSON.stringify(payload)}\n`);
+              } catch {
+                // stderr may already be closed by the parent process.
+              }
+            };
+          }
+
+          export function parseHeartbeatMs(rawValue) {
+            const value = typeof rawValue === "string" ? rawValue.trim() : "";
+            if (!value || value === "0" || value.toLowerCase() === "off") return 0;
+            if (!/^\d+$/.test(value)) {
+              throw new StartupDiagnosticError(
+                "INVALID_HEARTBEAT_INTERVAL",
+                "NOWEN_MCP_HEARTBEAT_MS 必须是整数毫秒、0 或 off",
+                {
+                  exitCode: EXIT_CODES.CONFIG,
+                  suggestion: "删除该变量以关闭心跳，或设置为不小于 10000 的整数",
+                },
+              );
+            }
+            const heartbeatMs = Number(value);
+            if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 10_000 || heartbeatMs > 86_400_000) {
+              throw new StartupDiagnosticError(
+                "INVALID_HEARTBEAT_INTERVAL",
+                "NOWEN_MCP_HEARTBEAT_MS 必须在 10000 到 86400000 毫秒之间",
+                {
+                  exitCode: EXIT_CODES.CONFIG,
+                  suggestion: "推荐调试时设置 NOWEN_MCP_HEARTBEAT_MS=300000",
+                },
+              );
+            }
+            return heartbeatMs;
+          }
+
+          export function validateRuntimeConfig(options = {}) {
+            const env = options.env ?? process.env;
+            const nodeVersion = options.nodeVersion ?? process.versions.node;
+            const nodeMajor = Number.parseInt(String(nodeVersion).split(".")[0], 10);
+            if (!Number.isInteger(nodeMajor) || nodeMajor < 20) {
+              throw new StartupDiagnosticError(
+                "UNSUPPORTED_NODE_VERSION",
+                `nowen-mcp 需要 Node.js 20 或更高版本，当前为 ${nodeVersion}`,
+                {
+                  exitCode: EXIT_CODES.CONFIG,
+                  suggestion: "安装 Node.js 20、22 或 24 后重新启动 MCP 客户端",
+                },
+              );
+            }
+
+            const rawTargetUrl = String(env.NOWEN_URL || "http://localhost:3001").trim();
+            let parsedUrl;
+            try {
+              parsedUrl = new URL(rawTargetUrl);
+            } catch (error) {
+              throw new StartupDiagnosticError(
+                "INVALID_NOWEN_URL",
+                `NOWEN_URL 不是有效 URL: ${rawTargetUrl}`,
+                {
+                  exitCode: EXIT_CODES.CONFIG,
+                  suggestion: "设置为可访问的 http:// 或 https:// Nowen Note 地址",
+                  cause: error,
+                },
+              );
+            }
+            if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+              throw new StartupDiagnosticError(
+                "INVALID_NOWEN_URL_PROTOCOL",
+                `NOWEN_URL 仅支持 http 或 https，当前为 ${parsedUrl.protocol}`,
+                {
+                  exitCode: EXIT_CODES.CONFIG,
+                  suggestion: "例如设置 NOWEN_URL=http://192.168.1.20:3001",
+                },
+              );
+            }
+
+            parsedUrl.username = "";
+            parsedUrl.password = "";
+            const targetUrl = parsedUrl.toString().replace(/\/$/, "");
+            return {
+              targetUrl,
+              heartbeatMs: parseHeartbeatMs(env.NOWEN_MCP_HEARTBEAT_MS),
+              authMode: env.NOWEN_API_TOKEN ? "api-token" : "username-password",
+            };
+          }
+
+          export function classifyStartupError(error, options = {}) {
+            if (error instanceof StartupDiagnosticError) {
+              return {
+                code: error.code,
+                message: error.message,
+                suggestion: error.suggestion,
+                exitCode: error.exitCode,
+                error: formatError(error),
+              };
+            }
+
+            const entryPath = options.entryPath ?? "";
+            const packageRoot = options.packageRoot ?? DEFAULT_PACKAGE_ROOT;
+            const formatted = formatError(error);
+            const errorCode = formatted.code ?? "";
+            const moduleMissing = errorCode === "ERR_MODULE_NOT_FOUND"
+              || errorCode === "MODULE_NOT_FOUND"
+              || /cannot find (?:package|module)/i.test(formatted.message);
+
+            if (moduleMissing) {
+              if (entryPath && !existsSync(entryPath)) {
+                return {
+                  code: "ENTRY_NOT_FOUND",
+                  message: `找不到 MCP 构建入口: ${entryPath}`,
+                  suggestion: `在 ${packageRoot} 执行 npm install && npm run build`,
+                  exitCode: EXIT_CODES.ENTRY_NOT_FOUND,
+                  error: formatted,
+                };
+              }
+              return {
+                code: "DEPENDENCY_NOT_FOUND",
+                message: "MCP 入口存在，但运行依赖或编译产物不完整",
+                suggestion: `在 ${packageRoot} 执行 npm install && npm run build，然后完全重启 MCP 客户端`,
+                exitCode: EXIT_CODES.SOFTWARE,
+                error: formatted,
+              };
+            }
+
+            return {
+              code: "STARTUP_IMPORT_FAILED",
+              message: "nowen-mcp 初始化失败",
+              suggestion: "查看 error.stack；确认依赖已安装、构建已完成且 Node.js 版本受支持",
+              exitCode: EXIT_CODES.SOFTWARE,
+              error: formatted,
+            };
+          }
+
+          export function installLifecycleObservers(options = {}) {
+            const logger = options.logger ?? createStructuredLogger();
+            const heartbeatMs = options.heartbeatMs ?? 0;
+            let terminating = false;
+            let exitReason = "running";
+            let heartbeatTimer = null;
+            let forcedExitTimer = null;
+
+            const stderrErrorHandler = () => {};
+            process.stderr.on("error", stderrErrorHandler);
+
+            const stopHeartbeat = () => {
+              if (heartbeatTimer) clearInterval(heartbeatTimer);
+              heartbeatTimer = null;
+            };
+
+            const terminate = (event, exitCode, details = {}) => {
+              if (terminating) return;
+              terminating = true;
+              exitReason = event;
+              stopHeartbeat();
+              logger(exitCode === 0 ? "info" : "error", event, {
+                exitCode,
+                uptimeMs: Math.round(process.uptime() * 1000),
+                ...details,
+              });
+              process.exitCode = exitCode;
+              forcedExitTimer = setTimeout(() => process.exit(exitCode), 25);
+            };
+
+            const onUncaughtException = (error) => terminate(
+              "uncaught_exception",
+              EXIT_CODES.SOFTWARE,
+              { error: formatError(error) },
+            );
+            const onUnhandledRejection = (reason) => terminate(
+              "unhandled_rejection",
+              EXIT_CODES.SOFTWARE,
+              { error: formatError(reason) },
+            );
+            const onSigint = () => terminate("shutdown_signal", 0, { signal: "SIGINT" });
+            const onSigterm = () => terminate("shutdown_signal", 0, { signal: "SIGTERM" });
+            const onStdinEnd = () => terminate("stdin_closed", 0, { source: "end" });
+            const onStdinClose = () => terminate("stdin_closed", 0, { source: "close" });
+            const onStdinError = (error) => terminate(
+              "stdin_error",
+              EXIT_CODES.IO,
+              { error: formatError(error) },
+            );
+            const onDisconnect = () => terminate("parent_disconnected", 0);
+            const onWarning = (warning) => logger("warn", "process_warning", {
+              warning: formatError(warning),
+            });
+            const onBeforeExit = (code) => logger("info", "before_exit", {
+              code,
+              exitReason,
+              uptimeMs: Math.round(process.uptime() * 1000),
+            });
+            const onExit = (code) => logger("info", "process_exit", {
+              code,
+              exitReason,
+              uptimeMs: Math.round(process.uptime() * 1000),
+            });
+
+            process.once("uncaughtException", onUncaughtException);
+            process.once("unhandledRejection", onUnhandledRejection);
+            process.once("SIGINT", onSigint);
+            process.once("SIGTERM", onSigterm);
+            process.stdin.once("end", onStdinEnd);
+            process.stdin.once("close", onStdinClose);
+            process.stdin.once("error", onStdinError);
+            process.once("disconnect", onDisconnect);
+            process.on("warning", onWarning);
+            process.once("beforeExit", onBeforeExit);
+            process.once("exit", onExit);
+
+            if (heartbeatMs > 0) {
+              heartbeatTimer = setInterval(() => {
+                const memory = process.memoryUsage();
+                logger("debug", "heartbeat", {
+                  uptimeMs: Math.round(process.uptime() * 1000),
+                  rssBytes: memory.rss,
+                  heapUsedBytes: memory.heapUsed,
+                });
+              }, heartbeatMs);
+              heartbeatTimer.unref();
+            }
+
+            return {
+              setExitReason(reason) {
+                exitReason = reason;
+              },
+              cleanup() {
+                stopHeartbeat();
+                if (forcedExitTimer) clearTimeout(forcedExitTimer);
+                process.stderr.off("error", stderrErrorHandler);
+                process.off("uncaughtException", onUncaughtException);
+                process.off("unhandledRejection", onUnhandledRejection);
+                process.off("SIGINT", onSigint);
+                process.off("SIGTERM", onSigterm);
+                process.stdin.off("end", onStdinEnd);
+                process.stdin.off("close", onStdinClose);
+                process.stdin.off("error", onStdinError);
+                process.off("disconnect", onDisconnect);
+                process.off("warning", onWarning);
+                process.off("beforeExit", onBeforeExit);
+                process.off("exit", onExit);
+              },
+            };
+          }
+
+          export async function runLauncher(options = {}) {
+            const packageRoot = options.packageRoot ?? DEFAULT_PACKAGE_ROOT;
+            const entryPath = options.entryPath ?? path.join(packageRoot, "dist", "scoped-entry.js");
+            const logger = options.logger ?? createStructuredLogger({
+              base: {
+                pid: process.pid,
+                ppid: process.ppid,
+                nodeVersion: process.versions.node,
+                platform: process.platform,
+                arch: process.arch,
+              },
+            });
+            let lifecycle = null;
+
+            try {
+              const config = validateRuntimeConfig(options);
+              logger("info", "startup_begin", {
+                cwd: process.cwd(),
+                packageRoot,
+                entryPath,
+                targetUrl: config.targetUrl,
+                authMode: config.authMode,
+                heartbeatMs: config.heartbeatMs,
+              });
+
+              if (!existsSync(entryPath)) {
+                throw new StartupDiagnosticError(
+                  "ENTRY_NOT_FOUND",
+                  `找不到 MCP 构建入口: ${entryPath}`,
+                  {
+                    exitCode: EXIT_CODES.ENTRY_NOT_FOUND,
+                    suggestion: `在 ${packageRoot} 执行 npm install && npm run build`,
+                  },
+                );
+              }
+
+              lifecycle = installLifecycleObservers({
+                logger,
+                heartbeatMs: config.heartbeatMs,
+              });
+              await import(pathToFileURL(entryPath).href);
+              logger("info", "startup_ready", {
+                entryPath,
+                targetUrl: config.targetUrl,
+                uptimeMs: Math.round(process.uptime() * 1000),
+              });
+              return 0;
+            } catch (error) {
+              lifecycle?.setExitReason("startup_failed");
+              const failure = classifyStartupError(error, { entryPath, packageRoot });
+              logger("error", "startup_failed", failure);
+              return failure.exitCode;
+            }
+          }
+          '''
+          # Remove the indentation introduced by the workflow heredoc.
+          runtime_source = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in runtime_source.splitlines()
+          ).strip() + "\n"
+          (bin_dir / "runtime-diagnostics.mjs").write_text(runtime_source, encoding="utf-8")
+
+          launcher_source = '''#!/usr/bin/env node
+          import { runLauncher } from "./runtime-diagnostics.mjs";
+
+          const exitCode = await runLauncher();
+          if (exitCode !== 0) process.exit(exitCode);
+          '''
+          launcher_source = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in launcher_source.splitlines()
+          ).strip() + "\n"
+          (bin_dir / "nowen-mcp.mjs").write_text(launcher_source, encoding="utf-8")
+
+          test_source = r'''import assert from "node:assert/strict";
+          import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+          import os from "node:os";
+          import path from "node:path";
+          import { fileURLToPath } from "node:url";
+          import { spawn } from "node:child_process";
+          import test from "node:test";
+
+          import {
+            EXIT_CODES,
+            parseHeartbeatMs,
+            validateRuntimeConfig,
+          } from "../bin/runtime-diagnostics.mjs";
+
+          const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+          const launcherPath = path.join(packageRoot, "bin", "nowen-mcp.mjs");
+          const runtimePath = path.join(packageRoot, "bin", "runtime-diagnostics.mjs");
+
+          function cleanEnv(overrides = {}) {
+            const env = { ...process.env, ...overrides };
+            delete env.NOWEN_API_TOKEN;
+            delete env.NOWEN_USERNAME;
+            delete env.NOWEN_PASSWORD;
+            return env;
+          }
+
+          function parseStructuredEvents(stderr) {
+            return stderr
+              .split(/\r?\n/)
+              .filter((line) => line.startsWith("[nowen-mcp] "))
+              .map((line) => JSON.parse(line.slice("[nowen-mcp] ".length)));
+          }
+
+          function runToExit(command, args, options = {}) {
+            return new Promise((resolve, reject) => {
+              const child = spawn(command, args, {
+                cwd: options.cwd,
+                env: options.env,
+                stdio: ["ignore", "pipe", "pipe"],
+              });
+              let stdout = "";
+              let stderr = "";
+              const timer = setTimeout(() => {
+                child.kill("SIGKILL");
+                reject(new Error(`process timeout: ${stderr}`));
+              }, options.timeoutMs ?? 8_000);
+              child.stdout.on("data", (chunk) => { stdout += chunk; });
+              child.stderr.on("data", (chunk) => { stderr += chunk; });
+              child.once("error", (error) => {
+                clearTimeout(timer);
+                reject(error);
+              });
+              child.once("exit", (code, signal) => {
+                clearTimeout(timer);
+                resolve({ code, signal, stdout, stderr });
+              });
+            });
+          }
+
+          async function makeIsolatedLauncher() {
+            const root = await mkdtemp(path.join(os.tmpdir(), "nowen-mcp-launcher-"));
+            const bin = path.join(root, "bin");
+            await mkdir(bin, { recursive: true });
+            await copyFile(launcherPath, path.join(bin, "nowen-mcp.mjs"));
+            await copyFile(runtimePath, path.join(bin, "runtime-diagnostics.mjs"));
+            await writeFile(path.join(root, "package.json"), '{"type":"module"}\n');
+            return root;
+          }
+
+          test("heartbeat is disabled by default and validates explicit intervals", () => {
+            assert.equal(parseHeartbeatMs(undefined), 0);
+            assert.equal(parseHeartbeatMs("off"), 0);
+            assert.equal(parseHeartbeatMs("300000"), 300000);
+            assert.throws(() => parseHeartbeatMs("5000"), /10000/);
+          });
+
+          test("runtime config rejects unsupported URL protocols before loading the entry", () => {
+            assert.throws(
+              () => validateRuntimeConfig({
+                env: { NOWEN_URL: "file:///tmp/nowen" },
+                nodeVersion: "24.15.0",
+              }),
+              (error) => error?.code === "INVALID_NOWEN_URL_PROTOCOL",
+            );
+          });
+
+          test("missing dist entry reports a friendly actionable stderr error", async () => {
+            const isolatedRoot = await makeIsolatedLauncher();
+            try {
+              const result = await runToExit(
+                process.execPath,
+                [path.join(isolatedRoot, "bin", "nowen-mcp.mjs")],
+                {
+                  cwd: os.tmpdir(),
+                  env: cleanEnv({ NOWEN_URL: "http://127.0.0.1:3001" }),
+                },
+              );
+              assert.equal(result.code, EXIT_CODES.ENTRY_NOT_FOUND);
+              assert.equal(result.stdout, "");
+              const events = parseStructuredEvents(result.stderr);
+              const failure = events.find((event) => event.event === "startup_failed");
+              assert.equal(failure?.code, "ENTRY_NOT_FOUND");
+              assert.match(failure?.suggestion ?? "", /npm install && npm run build/);
+              assert.match(failure?.message ?? "", /dist[\\/]scoped-entry\.js/);
+            } finally {
+              await rm(isolatedRoot, { recursive: true, force: true });
+            }
+          });
+
+          test("missing runtime dependency is distinguished from a missing entry", async () => {
+            const isolatedRoot = await makeIsolatedLauncher();
+            try {
+              const dist = path.join(isolatedRoot, "dist");
+              await mkdir(dist, { recursive: true });
+              await writeFile(
+                path.join(dist, "scoped-entry.js"),
+                'import "nowen-mcp-test-dependency-that-does-not-exist";\n',
+              );
+              const result = await runToExit(
+                process.execPath,
+                [path.join(isolatedRoot, "bin", "nowen-mcp.mjs")],
+                {
+                  cwd: os.tmpdir(),
+                  env: cleanEnv({ NOWEN_URL: "http://127.0.0.1:3001" }),
+                },
+              );
+              assert.equal(result.code, EXIT_CODES.SOFTWARE);
+              assert.equal(result.stdout, "");
+              const events = parseStructuredEvents(result.stderr);
+              const failure = events.find((event) => event.event === "startup_failed");
+              assert.equal(failure?.code, "DEPENDENCY_NOT_FOUND");
+              assert.ok(failure?.error?.stack);
+            } finally {
+              await rm(isolatedRoot, { recursive: true, force: true });
+            }
+          });
+
+          test("launcher starts from an arbitrary cwd, keeps stdout clean, and explains stdin shutdown", async () => {
+            const cwd = await mkdtemp(path.join(os.tmpdir(), "nowen-mcp-cwd-"));
+            const child = spawn(process.execPath, [launcherPath], {
+              cwd,
+              env: cleanEnv({
+                NOWEN_URL: "http://127.0.0.1:3001",
+                NOWEN_MCP_HEARTBEAT_MS: "0",
+              }),
+              stdio: ["pipe", "pipe", "pipe"],
+            });
+            let stdout = "";
+            let stderr = "";
+            child.stdout.on("data", (chunk) => { stdout += chunk; });
+            child.stderr.on("data", (chunk) => { stderr += chunk; });
+
+            try {
+              await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                  reject(new Error(`startup_ready timeout: ${stderr}`));
+                }, 8_000);
+                const inspect = () => {
+                  const ready = parseStructuredEvents(stderr)
+                    .some((event) => event.event === "startup_ready");
+                  if (ready) {
+                    clearTimeout(timer);
+                    child.stderr.off("data", inspect);
+                    resolve();
+                  }
+                };
+                child.stderr.on("data", inspect);
+                child.once("exit", (code, signal) => {
+                  clearTimeout(timer);
+                  reject(new Error(`process exited before ready: code=${code} signal=${signal} ${stderr}`));
+                });
+                inspect();
+              });
+
+              assert.equal(stdout, "");
+              assert.equal(child.exitCode, null);
+              child.stdin.end();
+              const exit = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                  child.kill("SIGKILL");
+                  reject(new Error(`stdin shutdown timeout: ${stderr}`));
+                }, 8_000);
+                child.once("exit", (code, signal) => {
+                  clearTimeout(timer);
+                  resolve({ code, signal });
+                });
+              });
+              assert.equal(exit.code, 0);
+              assert.equal(exit.signal, null);
+              assert.equal(stdout, "");
+              const events = parseStructuredEvents(stderr);
+              assert.ok(events.some((event) => event.event === "startup_ready"));
+              assert.ok(events.some((event) => event.event === "stdin_closed"));
+              assert.ok(events.some((event) => event.event === "process_exit"));
+            } finally {
+              if (child.exitCode === null) child.kill("SIGKILL");
+              await rm(cwd, { recursive: true, force: true });
+            }
+          });
+          '''
+          test_source = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in test_source.splitlines()
+          ).strip() + "\n"
+          (tests_dir / "runtime-diagnostics.test.mjs").write_text(test_source, encoding="utf-8")
+
+          package_path = package_dir / "package.json"
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          package["bin"] = {"nowen-mcp": "./bin/nowen-mcp.mjs"}
+          package["scripts"]["start"] = "node ./bin/nowen-mcp.mjs"
+          package["scripts"]["test"] = (
+              "npm run build && "
+              "node --test dist/scope-policy.test.js && "
+              "tsx --test tests/note-format.test.ts && "
+              "node --test tests/runtime-diagnostics.test.mjs"
+          )
+          package_path.write_text(
+              json.dumps(package, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          index_path = package_dir / "src" / "index.ts"
+          index = index_path.read_text(encoding="utf-8")
+          old_index_tail = '''async function main() {
+            const transport = new StdioServerTransport();
+            await server.connect(transport);
+            console.error(`🚀 Nowen Note MCP Server 已启动`);
+            console.error(`   连接目标: ${config.baseUrl}`);
+            console.error(`   用户: ${config.username}`);
+          }
+
+          main().catch((err) => {
+            console.error("MCP Server 启动失败:", err);
+            process.exit(1);
+          });'''
+          old_index_tail = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in old_index_tail.splitlines()
+          )
+          new_index_tail = '''export async function main() {
+            const transport = new StdioServerTransport();
+            await server.connect(transport);
+            console.error(`🚀 Nowen Note MCP Server 已启动`);
+            console.error(`   连接目标: ${config.baseUrl}`);
+            console.error(`   用户: ${config.username}`);
+          }
+
+          await main();'''
+          new_index_tail = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in new_index_tail.splitlines()
+          )
+          if old_index_tail not in index:
+              raise SystemExit("index.ts startup tail changed unexpectedly")
+          index_path.write_text(index.replace(old_index_tail, new_index_tail, 1), encoding="utf-8")
+
+          readme_path = package_dir / "README.md"
+          readme = readme_path.read_text(encoding="utf-8")
+          readme = readme.replace("dist/scoped-entry.js", "bin/nowen-mcp.mjs")
+          old_build_section = '''构建入口：
+
+          ```text
+          bin/nowen-mcp.mjs
+          ```
+
+          快速检查：'''
+          old_build_section = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in old_build_section.splitlines()
+          )
+          new_build_section = '''构建产物：
+
+          ```text
+          dist/scoped-entry.js
+          ```
+
+          稳定启动器（客户端应配置这个文件）：
+
+          ```text
+          bin/nowen-mcp.mjs
+          ```
+
+          快速检查：'''
+          new_build_section = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in new_build_section.splitlines()
+          )
+          if old_build_section not in readme:
+              raise SystemExit("README build section changed unexpectedly")
+          readme = readme.replace(old_build_section, new_build_section, 1)
+          diagnostics_cn = '''
+          ## 启动诊断与运行日志
+
+          稳定启动器会在真正加载 `dist/scoped-entry.js` 之前检查 Node.js 版本、`NOWEN_URL` 和构建入口，并把结构化日志写入 **stderr**。stdout 仅用于 MCP stdio 协议，不会被普通日志污染。
+
+          常见错误会给出稳定错误码和解决建议：
+
+          - `ENTRY_NOT_FOUND`：执行 `npm install && npm run build`；
+          - `DEPENDENCY_NOT_FOUND`：依赖或构建产物不完整，重新安装并构建；
+          - `INVALID_NOWEN_URL`：修正服务地址；
+          - `uncaught_exception` / `unhandled_rejection`：日志包含完整 stack；
+          - `stdin_closed` / `shutdown_signal`：明确记录父进程关闭或信号退出。
+
+          调试长会话时可选开启心跳，默认关闭：
+
+          ```text
+          NOWEN_MCP_HEARTBEAT_MS=300000
+          ```
+
+          心跳只写 stderr，并包含 PID、运行时长和内存使用；允许范围为 10000～86400000 毫秒。
+
+          '''
+          diagnostics_cn = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in diagnostics_cn.splitlines()
+          )
+          marker = "## 最小客户端配置\n"
+          if marker not in readme:
+              raise SystemExit("README client marker missing")
+          readme = readme.replace(marker, diagnostics_cn + marker, 1)
+          env_row = "| `MCP_INCLUDE_DESCENDANTS` | 本地白名单是否包含子笔记本 | `false` |"
+          heartbeat_row = env_row + "\n| `NOWEN_MCP_HEARTBEAT_MS` | 可选 stderr 心跳间隔（毫秒），0/off 关闭 | `0` |"
+          if env_row not in readme:
+              raise SystemExit("README env table changed unexpectedly")
+          readme = readme.replace(env_row, heartbeat_row, 1)
+          readme_path.write_text(readme, encoding="utf-8")
+
+          tutorial_path = root / "docs" / "tutorials" / "mcp.md"
+          tutorial = tutorial_path.read_text(encoding="utf-8")
+          split_marker = "### 5. 找到 MCP 脚本的绝对路径"
+          if split_marker not in tutorial:
+              raise SystemExit("Chinese tutorial path section missing")
+          before, after = tutorial.split(split_marker, 1)
+          after = after.replace("dist/scoped-entry.js", "bin/nowen-mcp.mjs")
+          tutorial = before + "### 5. 找到稳定启动器的绝对路径" + after
+          diagnostics_tutorial_cn = '''## MCP 启动诊断
+
+          客户端应运行 `bin/nowen-mcp.mjs`。该启动器与 `dist` 解耦，即使构建入口缺失，也能向 stderr 输出可操作的错误码、绝对入口路径、当前工作目录、Node.js 版本和修复建议。
+
+          所有普通诊断只写 stderr，stdout 始终保留给 MCP stdio 协议。长会话偶发退出时，可临时增加：
+
+          ```json
+          "NOWEN_MCP_HEARTBEAT_MS": "300000"
+          ```
+
+          默认不输出心跳。进程退出前会记录 `stdin_closed`、`shutdown_signal`、`uncaught_exception`、`unhandled_rejection` 或 `process_exit`，便于区分父进程关闭、系统信号和应用异常。
+
+          '''
+          diagnostics_tutorial_cn = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in diagnostics_tutorial_cn.splitlines()
+          )
+          verify_marker = "## 验证是否安装成功\n"
+          if verify_marker not in tutorial:
+              raise SystemExit("Chinese tutorial verification marker missing")
+          tutorial = tutorial.replace(verify_marker, diagnostics_tutorial_cn + verify_marker, 1)
+          tutorial_env_row = "| `MCP_INCLUDE_DESCENDANTS` | 本地白名单是否包含全部子笔记本 | `false` |"
+          if tutorial_env_row in tutorial:
+              tutorial = tutorial.replace(
+                  tutorial_env_row,
+                  tutorial_env_row + "\n| `NOWEN_MCP_HEARTBEAT_MS` | 可选 stderr 心跳间隔（毫秒），0/off 关闭 | `0` |",
+                  1,
+              )
+          else:
+              raise SystemExit("Chinese tutorial env table changed unexpectedly")
+          tutorial_path.write_text(tutorial, encoding="utf-8")
+
+          tutorial_en_path = root / "docs" / "tutorials" / "mcp.en.md"
+          tutorial_en = tutorial_en_path.read_text(encoding="utf-8")
+          split_marker_en = "### 5. Resolve the absolute script path"
+          if split_marker_en not in tutorial_en:
+              raise SystemExit("English tutorial path section missing")
+          before_en, after_en = tutorial_en.split(split_marker_en, 1)
+          after_en = after_en.replace("dist/scoped-entry.js", "bin/nowen-mcp.mjs")
+          tutorial_en = before_en + "### 5. Resolve the stable launcher path" + after_en
+          diagnostics_en = '''## MCP startup diagnostics
+
+          Configure clients to run `bin/nowen-mcp.mjs`. The stable launcher validates Node.js, `NOWEN_URL`, the compiled entry, and dependencies before loading the server. Structured diagnostics go to stderr; stdout remains reserved for the MCP stdio protocol.
+
+          For long-session debugging, enable an optional heartbeat:
+
+          ```json
+          "NOWEN_MCP_HEARTBEAT_MS": "300000"
+          ```
+
+          Heartbeats are disabled by default. Exit logs distinguish parent stdin closure, termination signals, uncaught exceptions, unhandled rejections, and normal process exit.
+
+          '''
+          diagnostics_en = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in diagnostics_en.splitlines()
+          )
+          verify_marker_en = "## Verify the installation\n"
+          if verify_marker_en not in tutorial_en:
+              raise SystemExit("English tutorial verification marker missing")
+          tutorial_en = tutorial_en.replace(verify_marker_en, diagnostics_en + verify_marker_en, 1)
+          env_row_en = "| `MCP_INCLUDE_DESCENDANTS` | Include child notebooks in the local allowlist | `false` |"
+          if env_row_en in tutorial_en:
+              tutorial_en = tutorial_en.replace(
+                  env_row_en,
+                  env_row_en + "\n| `NOWEN_MCP_HEARTBEAT_MS` | Optional stderr heartbeat interval in milliseconds; 0/off disables it | `0` |",
+                  1,
+              )
+          else:
+              raise SystemExit("English tutorial env table changed unexpectedly")
+          tutorial_en_path.write_text(tutorial_en, encoding="utf-8")
+          PY
+
+      - name: Verify launcher syntax
+        run: |
+          node --check packages/nowen-mcp/bin/nowen-mcp.mjs
+          node --check packages/nowen-mcp/bin/runtime-diagnostics.mjs
+          node --check packages/nowen-mcp/tests/runtime-diagnostics.test.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/nowen-mcp/package-lock.json
+
+      - name: Install dependencies
+        working-directory: packages/nowen-mcp
+        run: npm ci
+
+      - name: Test on Node 20
+        working-directory: packages/nowen-mcp
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test on Node 22
+        working-directory: packages/nowen-mcp
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test on Node 24
+        working-directory: packages/nowen-mcp
+        run: npm test
+
+      - name: Check patch quality
+        run: |
+          git diff --check
+          test -f packages/nowen-mcp/bin/nowen-mcp.mjs
+          test -f packages/nowen-mcp/bin/runtime-diagnostics.mjs
+          test -f packages/nowen-mcp/tests/runtime-diagnostics.test.mjs
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-mcp-runtime-diagnostics.yml
+          git config user.name "Drug"
+          git config user.email "cropflre2333@gmail.com"
+          git add \
+            packages/nowen-mcp/bin/nowen-mcp.mjs \
+            packages/nowen-mcp/bin/runtime-diagnostics.mjs \
+            packages/nowen-mcp/tests/runtime-diagnostics.test.mjs \
+            packages/nowen-mcp/package.json \
+            packages/nowen-mcp/src/index.ts \
+            packages/nowen-mcp/README.md \
+            docs/tutorials/mcp.md \
+            docs/tutorials/mcp.en.md
+          git commit -m "fix(mcp): add stable launcher and runtime diagnostics"
+          git push origin HEAD:fix/v1.4.6-mcp-runtime-diagnostics
