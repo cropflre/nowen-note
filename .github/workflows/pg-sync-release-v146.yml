@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: pg-sync-release-v146
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   merge-release:
@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Merge release/v1.4.6 and resolve the two semantic conflicts
+      - name: Merge release/v1.4.6 and resolve semantic conflicts
         shell: bash
         run: |
           set -euo pipefail
@@ -102,6 +102,29 @@ jobs:
           path.write_text(text)
           PY
           git add frontend/src/main.tsx
+
+          python <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('backend/scripts/direct-db-access-deferred-exceptions.json')
+          data = json.loads(path.read_text())
+          files = data['files']
+          files['lib/notebookNoteScope.ts'] = {
+              'owner': '#248',
+              'reason': 'release/v1.4.6 extracted notebook-scoped note visibility into a synchronous SQLite helper. PostgreSQL runtime keeps using Repository-backed note/tree queries; the legacy helper remains default-runtime-only until the complete notebook/note boundary is migrated under #248.',
+              'counts': {
+                  'better-sqlite3': 1,
+                  'prepare-call': 2,
+              },
+          }
+          search = files.get('lib/searchIndex.ts')
+          if not search or search.get('owner') != '#252':
+              raise SystemExit('searchIndex exception ownership changed')
+          search['counts']['prepare-call'] = 12
+          search['reason'] = 'release/v1.4.6 expanded SQLite search index maintenance. Search/FTS/vector redesign remains owned by #252 and PostgreSQL runtime does not partially evaluate this legacy synchronous helper.'
+          path.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n')
+          PY
+          git add backend/scripts/direct-db-access-deferred-exceptions.json
 
           if git diff --name-only --diff-filter=U | grep -q .; then
             git diff --name-only --diff-filter=U
