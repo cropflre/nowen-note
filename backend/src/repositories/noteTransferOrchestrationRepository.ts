@@ -85,7 +85,8 @@ type CountRow = {
 };
 
 const ELIGIBLE_SQL = `(
-  operation.status IN ('prepared', 'staging', 'target_committed', 'source_deleting')
+  (operation.status = 'prepared' AND operation."expiresAt" > CURRENT_TIMESTAMP)
+  OR operation.status IN ('staging', 'target_committed', 'source_deleting')
   OR (
     operation.mode = 'copy'
     AND operation.status = 'completed'
@@ -141,7 +142,7 @@ function optionalTimestamp(value: string | Date | null): string | null {
   return value == null ? null : toTimestamp(value);
 }
 
-function countSummary(row: CountRow | null, completeWhenEmpty: boolean): NoteTransferProgressSummary {
+function countSummary(row: CountRow | null | undefined, completeWhenEmpty: boolean): NoteTransferProgressSummary {
   const summary = {
     total: toNumber(row?.total),
     pending: toNumber(row?.pending),
@@ -235,7 +236,7 @@ export function createNoteTransferOrchestrationRepository(adapter?: DatabaseAdap
   const db = resolveAdapter(adapter);
   const operations = createNoteTransferOperationRepository(db);
 
-  async function loadCounts(operationId: string, table: "effects" | "sourceDeletion"): Promise<CountRow | null> {
+  async function loadCounts(operationId: string, table: "effects" | "sourceDeletion"): Promise<CountRow | undefined> {
     if (table === "effects") {
       return db.queryOne<CountRow>(
         `SELECT COUNT(*)::int AS total,
@@ -475,28 +476,38 @@ export function createNoteTransferOrchestrationRepository(adapter?: DatabaseAdap
     },
 
     async resetFailure(input: { actorUserId: string; idempotencyKey: string }): Promise<void> {
-      const key = normalizeIdempotencyKey(input.idempotencyKey);
-      const result = await db.execute(
-        `UPDATE note_transfer_operations
-            SET "orchestrationAttempts" = 0,
-                "orchestrationAvailableAt" = CURRENT_TIMESTAMP,
-                "orchestrationLastError" = NULL,
-                "orchestrationLeaseToken" = NULL,
-                "orchestrationLeaseExpiresAt" = NULL,
-                "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "userId" = ? AND "idempotencyKey" = ?`,
-        [input.actorUserId, key],
+    const key = normalizeIdempotencyKey(input.idempotencyKey);
+    const result = await db.execute(
+      `UPDATE note_transfer_operations
+          SET "orchestrationAttempts" = 0,
+              "orchestrationAvailableAt" = CURRENT_TIMESTAMP,
+              "orchestrationLastError" = NULL,
+              "orchestrationLeaseToken" = NULL,
+              "orchestrationLeaseExpiresAt" = NULL,
+              "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "userId" = ? AND "idempotencyKey" = ?
+          AND (
+            "orchestrationLeaseExpiresAt" IS NULL
+            OR "orchestrationLeaseExpiresAt" <= CURRENT_TIMESTAMP
+          )`,
+      [input.actorUserId, key],
+    );
+    if (result.changes === 1) return;
+    const existing = await db.queryOne<{ id: string }>(
+      `SELECT id FROM note_transfer_operations
+        WHERE "userId" = ? AND "idempotencyKey" = ?`,
+      [input.actorUserId, key],
+    );
+    if (!existing) {
+      throw new NoteTransferOperationError(
+        "NOTE_TRANSFER_PLAN_NOT_FOUND",
+        "转移计划不存在",
+        404,
       );
-      if (result.changes !== 1) {
-        throw new NoteTransferOperationError(
-          "NOTE_TRANSFER_PLAN_NOT_FOUND",
-          "转移计划不存在",
-          404,
-        );
-      }
-    },
+    }
+  },
 
-    async release(input: { operationId: string; leaseToken: string }): Promise<void> {
+  async release(input: { operationId: string; leaseToken: string }): Promise<void> {
       await db.execute(
         `UPDATE note_transfer_operations
             SET "orchestrationLeaseToken" = NULL,

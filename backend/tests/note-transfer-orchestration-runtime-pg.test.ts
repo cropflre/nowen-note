@@ -46,7 +46,7 @@ function createDeterministicRuntime(adapter: PostgresAdapter) {
   const repositoryBase = createNoteTransferOrchestrationRepository(adapter);
   const repository = {
     ...repositoryBase,
-    claimNextAny: async () => null,
+    claimNextAny: async (_input: { maxAttempts: number; leaseSeconds: number }) => null,
   };
   const effectsBase = createNoteTransferEffectsRuntime(adapter, {
     publishRealtime: async () => {},
@@ -100,7 +100,7 @@ function request(input: {
     includeAttachments: true,
     includeTags: true,
     expectedVersions: { [input.sourceNoteId]: input.version || 1 },
-  } as const;
+  };
 }
 
 test("PostgreSQL note-transfer orchestration unifies copy/move progress and recovery", { skip: !hasPg }, async () => {
