@@ -6,6 +6,7 @@ on:
     paths:
       - "backend/scripts/.pg-nonempty-recovery-patch.b64"
       - "backend/scripts/.fix-pg-nonempty-recovery-patch.py"
+      - "backend/scripts/.fix-pg-nonempty-cli-patch.py"
       - ".github/workflows/pg-sqlite-nonempty-recovery-command.yml"
 
 permissions:
@@ -51,10 +52,12 @@ jobs:
         run: |
           base64 -d backend/scripts/.pg-nonempty-recovery-patch.b64 | gzip -d > /tmp/apply-pg-nonempty-recovery.py
           python backend/scripts/.fix-pg-nonempty-recovery-patch.py /tmp/apply-pg-nonempty-recovery.py
+          python backend/scripts/.fix-pg-nonempty-cli-patch.py /tmp/apply-pg-nonempty-recovery.py
           python /tmp/apply-pg-nonempty-recovery.py
           git rm \
             backend/scripts/.pg-nonempty-recovery-patch.b64 \
-            backend/scripts/.fix-pg-nonempty-recovery-patch.py
+            backend/scripts/.fix-pg-nonempty-recovery-patch.py \
+            backend/scripts/.fix-pg-nonempty-cli-patch.py
       - name: Install dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
