@@ -1,0 +1,117 @@
+name: Apply file manager video inline patch
+
+on:
+  push:
+    branches:
+      - fix/v1.4.6-file-manager-video-inline
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.4.6-file-manager-video-inline
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply Tiptap implementation patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/components/TiptapEditor.tsx")
+          source = path.read_text()
+
+          old_import = 'import { isInlineImageAttachment } from "@/lib/existingAttachmentInsert";'
+          new_import = '''import {
+            isInlineImageAttachment,
+            isInlineVideoAttachment,
+          } from "@/lib/existingAttachmentInsert";'''
+          if source.count(old_import) != 1:
+              raise SystemExit(f"Tiptap import target count: {source.count(old_import)}")
+          source = source.replace(old_import, new_import, 1)
+
+          old_block = '''    const inlineImage = isInlineImageAttachment(item);
+            const chain = editor.chain().focus();
+            if (inlineImage) {
+              chain.setImage({
+                src: item.url,
+                alt: item.filename,
+                title: item.filename,
+              }).run();
+            } else {
+              chain
+                .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
+                .run();
+            }
+
+            closeAttachmentLibrary();
+            toast.success(inlineImage
+              ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
+              : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));'''
+          new_block = '''    const inlineImage = isInlineImageAttachment(item);
+            const inlineVideo = !inlineImage && isInlineVideoAttachment(item);
+            const chain = editor.chain().focus();
+            if (inlineImage) {
+              chain.setImage({
+                src: item.url,
+                alt: item.filename,
+                title: item.filename,
+              }).run();
+            } else if (inlineVideo) {
+              chain.setVideoFile({
+                previewUrl: toInlineAttachmentUrl(item.url),
+                url: item.url,
+                attachmentId: item.id,
+                filename: item.filename,
+                mimeType: item.mimeType,
+                size: item.size,
+              }).run();
+            } else {
+              chain
+                .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
+                .run();
+            }
+
+            closeAttachmentLibrary();
+            toast.success(inlineImage
+              ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
+              : inlineVideo
+                ? t("tiptap.videoInsertedFromFileManager", { defaultValue: "视频已插入" })
+                : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));'''
+          if source.count(old_block) != 1:
+              raise SystemExit(f"Tiptap insert block target count: {source.count(old_block)}")
+          source = source.replace(old_block, new_block, 1)
+          path.write_text(source)
+          PY
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run focused tests
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/existingAttachmentInsert.test.ts src/lib/__tests__/markdownVideoSyntax.test.ts
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-file-manager-video-inline.yml
+          git config user.name "Drug"
+          git config user.email "cropflre2333@gmail.com"
+          git add frontend/src/components/TiptapEditor.tsx \
+            frontend/src/lib/existingAttachmentInsert.ts \
+            frontend/src/lib/__tests__/existingAttachmentInsert.test.ts
+          git commit -m "fix(editor): render file manager videos inline"
+          git push origin HEAD:fix/v1.4.6-file-manager-video-inline
