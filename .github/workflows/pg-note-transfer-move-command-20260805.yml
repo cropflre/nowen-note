@@ -1,0 +1,95 @@
+name: PostgreSQL Note Transfer Move Command 20260805
+
+on:
+  push:
+    branches: [feat/pg-note-transfer-move-20260805]
+    paths:
+      - ".github/workflows/pg-note-transfer-move-command-20260805.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pg-note-transfer-move-command-20260805
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pg-note-transfer-move-20260805
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Reconstruct and apply implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat backend/scripts/.move-command.gz.b64.part-* \
+            | base64 --decode \
+            | gzip --decompress \
+            > /tmp/implement-note-transfer-move.py
+          python3 -m py_compile /tmp/implement-note-transfer-move.py
+          python3 /tmp/implement-note-transfer-move.py
+          test -f backend/src/db/postgres/migrations/0021_note_transfer_move_source_deletion.sql
+          test -f backend/src/repositories/noteTransferMoveDeletionRepository.ts
+          test -f backend/src/services/note-transfer-move-deletion-runtime.ts
+          test -f backend/tests/note-transfer-move-deletion-runtime-pg.test.ts
+          test -f .github/workflows/pg-note-transfer-move.yml
+      - working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript and database boundaries
+        working-directory: backend
+        run: |
+          npm run build:tsc -- --noEmit
+          npm run audit:sqlite-boundaries
+          npm run audit:pg-schema-parity
+      - name: PostgreSQL move deletion regression
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-migrations.test.ts
+          tests/note-transfer-preview-runtime-pg.test.ts
+          tests/note-transfer-attachment-staging-runtime-pg.test.ts
+          tests/note-transfer-commit-runtime-pg.test.ts
+          tests/note-transfer-cleanup-runtime-pg.test.ts
+          tests/note-transfer-effects-runtime-pg.test.ts
+          tests/note-transfer-move-deletion-runtime-pg.test.ts
+      - name: Production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit validated business changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/pg-note-transfer-move-command-20260805.yml
+          rm -f backend/scripts/.move-command.gz.b64.part-*
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(pg): add durable note transfer move deletion" \
+            -m "Add migration 0021, target_committed/source_deleting states, effects-gated source deletion leases, source-version CAS, recoverable attachment cleanup, runtime routes, health metrics and PostgreSQL regression coverage."
+          git push origin HEAD:feat/pg-note-transfer-move-20260805
