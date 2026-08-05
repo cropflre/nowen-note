@@ -391,11 +391,12 @@ export function createNoteTransferOrchestrationRuntime(
           idempotencyKey: input.idempotencyKey,
         });
       }
+      const submittedSnapshot = await snapshot(input);
       wake();
       return {
         accepted: prepared.accepted,
         reused: !prepared.accepted || operation.reused,
-        snapshot: await snapshot(input),
+        snapshot: submittedSnapshot,
       };
     },
 
