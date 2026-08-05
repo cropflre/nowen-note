@@ -26,8 +26,21 @@ function normalizeIdentifier(value) {
   return value.replace(/^["'`\[]|["'`\]]$/g, "").trim().toLowerCase();
 }
 
+const sqliteInternalTables = new Set([
+  "sqlite_master",
+  "sqlite_schema",
+  "sqlite_temp_master",
+  "sqlite_temp_schema",
+]);
+
 function isEphemeralMigrationTable(table) {
-  return table === "if" || /_(?:new|old|backup|temp|tmp)$/i.test(table);
+  return table === "if" || /_(?:new|old|backup|temp|tmp|legacy)$/i.test(table);
+}
+
+function shouldIgnoreReferencedTable(table, cteAliases = new Set()) {
+  return cteAliases.has(table)
+    || sqliteInternalTables.has(table)
+    || isEphemeralMigrationTable(table);
 }
 
 /** Extract JavaScript / TypeScript string literals without evaluating code. */
@@ -78,6 +91,14 @@ function extractCreatedTables(source, { code = false } = {}) {
   return tables;
 }
 
+function extractCteAliases(sql) {
+  return new Set(
+    [...sql.matchAll(
+      /(?:\bWITH\b|,)\s*(?:RECURSIVE\s+)?(["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s*(?:\([^)]*\))?\s+AS\s+(?:(?:NOT\s+)?MATERIALIZED\s+)?\(/gi,
+    )].map((match) => normalizeIdentifier(match[1])),
+  );
+}
+
 /**
  * Repository 文件同时包含 import 路径、注释和普通业务文字。
  * 只在 JS/TS 字符串字面量内部查 SQL，避免把 `from "uuid"` 等 import
@@ -96,21 +117,40 @@ function extractRepositoryTables(source) {
   for (const sql of extractStringLiterals(source)) {
     if (!/\b(?:SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER)\b/i.test(sql)) continue;
 
-    const cteAliases = new Set(
-      [...sql.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s+AS\s*\(\s*(?:SELECT|WITH|VALUES)\b/gi)]
-        .map((match) => normalizeIdentifier(match[1])),
-    );
-
+    const cteAliases = extractCteAliases(sql);
     for (const pattern of patterns) {
       for (const match of sql.matchAll(pattern)) {
         const table = normalizeIdentifier(match[1]);
-        if (!cteAliases.has(table)) tables.add(table);
+        if (!shouldIgnoreReferencedTable(table, cteAliases)) tables.add(table);
       }
     }
   }
 
   return tables;
 }
+
+function verifyParserSemantics() {
+  const source = String.raw`
+    const recursive = \`WITH RECURSIVE ancestors(id) AS MATERIALIZED (
+      SELECT id FROM knowledge_tree_nodes
+      UNION ALL
+      SELECT parent.id FROM knowledge_tree_nodes parent JOIN ancestors ON true
+    ) SELECT id FROM ancestors JOIN notes ON true\`;
+    const metadata = \`SELECT name FROM sqlite_master\`;
+    const compatibility = \`SELECT id FROM knowledge_tree_access_policies_legacy\`;
+  `;
+  const tables = extractRepositoryTables(source);
+  const expected = ["knowledge_tree_nodes", "notes"];
+  const unexpected = ["ancestors", "sqlite_master", "knowledge_tree_access_policies_legacy"];
+  for (const table of expected) {
+    if (!tables.has(table)) throw new Error(`[pg-schema-parity] parser self-check missed ${table}`);
+  }
+  for (const table of unexpected) {
+    if (tables.has(table)) throw new Error(`[pg-schema-parity] parser self-check retained ${table}`);
+  }
+}
+
+verifyParserSemantics();
 
 function union(...sets) {
   return new Set(sets.flatMap((set) => [...set]));
