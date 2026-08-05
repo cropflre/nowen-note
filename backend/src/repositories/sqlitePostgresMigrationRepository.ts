@@ -206,7 +206,7 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
     ];
     const progress = Object.fromEntries(
       statuses.map((status) => [status, tables.filter((table) => table.status === status).length]),
-    ) as SqlitePostgresMigrationSnapshot["progress"];
+    ) as unknown as SqlitePostgresMigrationSnapshot["progress"];
     progress.complete = tables.length > 0
       && tables.every((table) => table.status === "verified" || table.status === "skipped");
     return { run: normalizeRun(runRow), tables, progress };
