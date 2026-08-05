@@ -30,6 +30,7 @@ import Toaster from "@/components/Toaster";
 import { User } from "@/types";
 import { getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initializeServerUrlFromRuntime } from "@/lib/api";
 import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
+import { useReminderNotifier } from "@/components/tasks/useReminderNotifier";
 import { resolveEditorFocusLayout } from "@/lib/editorFocusLayout";
 import { bootstrap as syncBootstrap, teardown as syncTeardown, syncNow } from "@/lib/syncEngine";
 import { realtime } from "@/lib/realtime";
@@ -517,6 +518,12 @@ function AppLayout() {
 
   // P5: 键盘弹出布局适配
   useKeyboardLayout();
+
+  const handleOpenTaskNotification = useCallback((_taskId: string) => {
+    actions.setViewMode("tasks");
+    actions.setMobileSidebar(false);
+  }, [actions]);
+  useReminderNotifier(handleOpenTaskNotification);
 
   // P3: 侧边栏边缘滑动手势
   const handleSwipeOpen = useCallback(() => {

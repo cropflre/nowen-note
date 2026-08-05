@@ -29,7 +29,6 @@ import { TaskQuickAdd } from "./tasks/TaskQuickAdd";
 import { TaskEmptyState } from "./tasks/TaskEmptyState";
 import { TaskDetailPanel } from "./tasks/TaskDetailPanel";
 import { FlatTaskRow } from "./tasks/FlatTaskRow";
-import { useReminderNotifier } from "./tasks/useReminderNotifier";
 import { useTaskProjects } from "./tasks/useTaskProjects";
 import { TaskBoardView } from "./tasks/TaskBoardView";
 import { TaskCalendarView } from "./tasks/TaskCalendarView";
@@ -50,6 +49,8 @@ import { TaskInboxPanel } from "./tasks/TaskInboxPanel";
 import { MyDayPanel } from "./tasks/MyDayPanel";
 import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
+import { consumePendingTaskNotificationTaskId } from "@/lib/taskNotifications";
+import { TASK_NOTIFICATION_OPEN_EVENT } from "@/lib/taskNotificationSchedule";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -160,6 +161,26 @@ export default function TaskCenter() {
     reload,
   } = useTaskProjects();
 
+  const openTaskFromNotification = useCallback((taskId: string) => {
+    if (!taskId) return;
+    setCenterMode("tasks");
+    setFilter("all");
+    setSearchQuery("");
+    setSelectedProjectId(null);
+    setSelectedTaskId(taskId);
+  }, [setSelectedProjectId]);
+
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: string }>).detail?.taskId || "";
+      openTaskFromNotification(taskId);
+    };
+    window.addEventListener(TASK_NOTIFICATION_OPEN_EVENT, onOpen);
+    const pendingTaskId = consumePendingTaskNotificationTaskId();
+    if (pendingTaskId) queueMicrotask(() => openTaskFromNotification(pendingTaskId));
+    return () => window.removeEventListener(TASK_NOTIFICATION_OPEN_EVENT, onOpen);
+  }, [openTaskFromNotification]);
+
   // Phase 4: view mode (list / board)
   type ViewMode = "list" | "board" | "calendar" | "timeline";
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -203,9 +224,6 @@ export default function TaskCenter() {
     toggleExpand,
     isTreeMode,
   } = useTaskTree(treeSourceTasks, filter);
-
-  // background reminder notifier
-  useReminderNotifier();
 
   // getDescendantIds with cycle protection
   const getDescendantIds = useCallback((rootId: string, taskList: Task[], visited = new Set<string>()): string[] => {

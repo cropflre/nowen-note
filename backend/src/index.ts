@@ -517,6 +517,25 @@ app.get("/api/task-reminders/recent", (c) => {
     .map((r) => ({ reminderId: r.reminderId, taskId: r.taskId, taskTitle: r.taskTitle, triggeredAt: r._triggeredAt, type: r.type || "task_reminder" }));
   return c.json({ reminders: mine });
 });
+app.post("/api/task-reminders/recent/ack", async (c) => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const ids = new Set(
+    (Array.isArray(body?.reminderIds) ? body.reminderIds : [])
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+      .slice(0, 200),
+  );
+  let acked = 0;
+  for (let i = recentReminders.length - 1; i >= 0; i -= 1) {
+    const item = recentReminders[i];
+    if (item.userId !== userId || !ids.has(item.reminderId)) continue;
+    if (item.type === "task_reminder") markReminderNotified(item.reminderId);
+    recentReminders.splice(i, 1);
+    acked += 1;
+  }
+  return c.json({ success: true, acked });
+});
 app.route("/api/task-reminders", taskRemindersRouter);
 app.route("/api/task-projects", taskProjectsRouter);
 app.route("/api/task-templates", taskTemplatesRouter);
@@ -548,9 +567,11 @@ setInterval(() => {
     }
     const pending = scanDueReminders();
     for (const r of pending) {
+      if (recentReminders.some((item) => item.type === "task_reminder" && item.reminderId === r.reminderId && item.userId === r.userId)) {
+        continue;
+      }
       console.log(`[reminder] Task "${r.taskTitle}" (${r.taskId}) reminder due for user ${r.userId}`);
       recentReminders.push({ ...r, _triggeredAt: now, type: "task_reminder" });
-      markReminderNotified(r.reminderId);
     }
 
     // Phase 6.4: dependency-ready notifications

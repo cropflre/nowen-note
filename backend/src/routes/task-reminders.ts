@@ -9,6 +9,7 @@ import {
 import type {
   TaskReminderDueCandidate,
   TaskReminderOverviewRow,
+  TaskReminderScheduleRow,
 } from "../repositories/taskReminderOperationsRepository";
 
 const taskReminders = new Hono();
@@ -120,6 +121,34 @@ taskReminders.get("/overview", async (c) => {
 taskReminders.post("/test-now", (c) => {
   const result = scanDueReminders();
   return c.json({ count: result.length, reminders: result });
+});
+
+// GET /schedule -- all future reminders for native client scheduling.
+taskReminders.get("/schedule", async (c) => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const rows = await taskReminderOperationsRepository.listScheduleAsync(userId);
+  const now = Date.now();
+  const reminders = rows.flatMap((row: TaskReminderScheduleRow) => {
+    if (toIntegerBoolean(row.enabled) !== 1 || toIntegerBoolean(row.isCompleted) === 1) return [];
+    if (row.workspaceId && !getUserWorkspaceRole(row.workspaceId, userId)) return [];
+    const reminderAt = resolveReminderAt(row);
+    if (!reminderAt) return [];
+    const reminderMs = new Date(reminderAt).getTime();
+    if (!Number.isFinite(reminderMs) || reminderMs <= now) return [];
+    return [{
+      reminderId: row.reminderId,
+      taskId: row.taskId,
+      taskTitle: row.taskTitle,
+      reminderAt,
+      dueAt: row.dueAt,
+      dueDate: row.dueDate,
+      snoozedUntil: row.snoozedUntil,
+      offsetMinutes: Number(row.offsetMinutes || 0),
+    }];
+  }).sort((a, b) => new Date(a.reminderAt).getTime() - new Date(b.reminderAt).getTime())
+    .slice(0, 1000);
+  return c.json({ reminders });
 });
 
 // 获取某任务的所有提醒配置

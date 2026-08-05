@@ -31,6 +31,7 @@
     "@capacitor/browser": "^8.0.4",
     "@capacitor/haptics": "^8.0.1",
     "@capacitor/keyboard": "^8.0.1",
+    "@capacitor/local-notifications": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
     "@codemirror/autocomplete": "^6.18.0",
@@ -104,6 +105,7 @@
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "@capacitor/ios": "^8.3.1",
     "@eslint/js": "^9.13.0",

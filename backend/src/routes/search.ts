@@ -4,6 +4,10 @@ import type Database from "better-sqlite3";
 import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import {
+  hasKnowledgeCapability,
+  resolveResourceKnowledgeAccess,
+} from "../services/knowledgeCapabilities";
+import {
   buildFtsSearchTerm,
   hasHanText,
   normalizeSearchText,
@@ -238,29 +242,54 @@ function getFtsRowCount(db: Database.Database): number {
   }
 }
 
+const TERM_CANDIDATE_PAGE_SIZE = 500;
+
+function canViewSearchCandidate(
+  db: Database.Database,
+  noteId: string,
+  userId: string,
+): boolean {
+  const access = resolveResourceKnowledgeAccess("note", noteId, userId, db);
+  return hasKnowledgeCapability(access, "canView");
+}
+
 function fetchFtsTermCandidates(
   db: Database.Database,
   term: string,
   scope: SearchScope,
+  userId: string,
 ): { ids: Set<string>; degraded: boolean } {
   const ids = new Set<string>();
   const searchTerm = buildFtsSearchTerm(term);
   if (!searchTerm) return { ids, degraded: false };
 
   try {
-    const rows = db.prepare(`
-      SELECT n.id
-      FROM notes_search_fts
-      JOIN notes n ON notes_search_fts.rowid = n.rowid
-      JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE notes_search_fts MATCH ?
-        AND ${scope.sql}
-        AND n.isTrashed = 0
-        AND nb.isDeleted = 0
-      ORDER BY bm25(notes_search_fts, 8.0, 1.0)
-      LIMIT ${MAX_TERM_CANDIDATES}
-    `).all(searchTerm, ...scope.params) as Array<{ id: string }>;
-    for (const row of rows) ids.add(row.id);
+    let offset = 0;
+    while (ids.size < MAX_TERM_CANDIDATES) {
+      const rows = db.prepare(`
+        SELECT n.id
+        FROM notes_search_fts
+        JOIN notes n ON notes_search_fts.rowid = n.rowid
+        JOIN notebooks nb ON nb.id = n.notebookId
+        WHERE notes_search_fts MATCH ?
+AND ${scope.sql}
+AND n.isTrashed = 0
+AND nb.isDeleted = 0
+        ORDER BY bm25(notes_search_fts, 8.0, 1.0), n.id ASC
+        LIMIT ? OFFSET ?
+      `).all(
+        searchTerm,
+        ...scope.params,
+        TERM_CANDIDATE_PAGE_SIZE,
+        offset,
+      ) as Array<{ id: string }>;
+      for (const row of rows) {
+        if (canViewSearchCandidate(db, row.id, userId)) ids.add(row.id);
+        if (ids.size >= MAX_TERM_CANDIDATES) break;
+      }
+      if (rows.length < TERM_CANDIDATE_PAGE_SIZE) break;
+      offset += rows.length;
+    }
     return { ids, degraded: false };
   } catch (error) {
     console.warn("[search] FTS candidate lookup unavailable; enabling bounded literal fallback:", error);
@@ -272,65 +301,96 @@ function fetchMetadataTermCandidates(
   db: Database.Database,
   term: string,
   scope: SearchScope,
+  userId: string,
 ): Set<string> {
-  const rows = db.prepare(`
-    SELECT id FROM (
-      SELECT n.id AS id
-      FROM note_tags nt
-      JOIN tags t ON t.id = nt.tagId
-      JOIN notes n ON n.id = nt.noteId
-      JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE ${scope.sql}
-        AND n.isTrashed = 0
-        AND nb.isDeleted = 0
-        AND instr(nowen_search_normalize(COALESCE(t.name, '')), ?) > 0
+  const ids = new Set<string>();
+  let offset = 0;
+  while (ids.size < MAX_TERM_CANDIDATES) {
+    const rows = db.prepare(`
+      SELECT id FROM (
+        SELECT n.id AS id
+        FROM note_tags nt
+        JOIN tags t ON t.id = nt.tagId
+        JOIN notes n ON n.id = nt.noteId
+        JOIN notebooks nb ON nb.id = n.notebookId
+        WHERE ${scope.sql}
+AND n.isTrashed = 0
+AND nb.isDeleted = 0
+AND instr(nowen_search_normalize(COALESCE(t.name, '')), ?) > 0
 
-      UNION
+        UNION
 
-      SELECT n.id AS id
-      FROM attachments a
-      LEFT JOIN attachment_chunks ac ON ac.attachmentId = a.id
-      JOIN notes n ON n.id = a.noteId
-      JOIN notebooks nb ON nb.id = n.notebookId
-      WHERE ${scope.sql}
-        AND n.isTrashed = 0
-        AND nb.isDeleted = 0
-        AND (
-          instr(nowen_search_normalize(COALESCE(a.filename, '')), ?) > 0
-          OR instr(nowen_search_normalize(COALESCE(ac.chunkText, '')), ?) > 0
-        )
-    )
-    LIMIT ${MAX_TERM_CANDIDATES}
-  `).all(
-    ...scope.params,
-    term,
-    ...scope.params,
-    term,
-    term,
-  ) as Array<{ id: string }>;
-  return new Set(rows.map((row) => row.id));
+        SELECT n.id AS id
+        FROM attachments a
+        LEFT JOIN attachment_chunks ac ON ac.attachmentId = a.id
+        JOIN notes n ON n.id = a.noteId
+        JOIN notebooks nb ON nb.id = n.notebookId
+        WHERE ${scope.sql}
+AND n.isTrashed = 0
+AND nb.isDeleted = 0
+AND (
+  instr(nowen_search_normalize(COALESCE(a.filename, '')), ?) > 0
+  OR instr(nowen_search_normalize(COALESCE(ac.chunkText, '')), ?) > 0
+)
+      )
+      ORDER BY id ASC
+      LIMIT ? OFFSET ?
+    `).all(
+      ...scope.params,
+      term,
+      ...scope.params,
+      term,
+      term,
+      TERM_CANDIDATE_PAGE_SIZE,
+      offset,
+    ) as Array<{ id: string }>;
+    for (const row of rows) {
+      if (canViewSearchCandidate(db, row.id, userId)) ids.add(row.id);
+      if (ids.size >= MAX_TERM_CANDIDATES) break;
+    }
+    if (rows.length < TERM_CANDIDATE_PAGE_SIZE) break;
+    offset += rows.length;
+  }
+  return ids;
 }
 
 function fetchLiteralTermCandidates(
   db: Database.Database,
   term: string,
   scope: SearchScope,
+  userId: string,
 ): Set<string> {
-  const rows = db.prepare(`
-    SELECT n.id
-    FROM notes n
-    JOIN notebooks nb ON nb.id = n.notebookId
-    WHERE ${scope.sql}
-      AND n.isTrashed = 0
-      AND nb.isDeleted = 0
-      AND (
-        instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
-        OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
-      )
-    ORDER BY n.updatedAt DESC
-    LIMIT ${MAX_TERM_CANDIDATES}
-  `).all(...scope.params, term, term) as Array<{ id: string }>;
-  return new Set(rows.map((row) => row.id));
+  const ids = new Set<string>();
+  let offset = 0;
+  while (ids.size < MAX_TERM_CANDIDATES) {
+    const rows = db.prepare(`
+      SELECT n.id
+      FROM notes n
+      JOIN notebooks nb ON nb.id = n.notebookId
+      WHERE ${scope.sql}
+        AND n.isTrashed = 0
+        AND nb.isDeleted = 0
+        AND (
+instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
+OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
+        )
+      ORDER BY n.updatedAt DESC, n.id ASC
+      LIMIT ? OFFSET ?
+    `).all(
+      ...scope.params,
+      term,
+      term,
+      TERM_CANDIDATE_PAGE_SIZE,
+      offset,
+    ) as Array<{ id: string }>;
+    for (const row of rows) {
+      if (canViewSearchCandidate(db, row.id, userId)) ids.add(row.id);
+      if (ids.size >= MAX_TERM_CANDIDATES) break;
+    }
+    if (rows.length < TERM_CANDIDATE_PAGE_SIZE) break;
+    offset += rows.length;
+  }
+  return ids;
 }
 
 function shouldUseLiteralFallback(
@@ -360,6 +420,7 @@ function collectCandidates(
   db: Database.Database,
   terms: string[],
   scope: SearchScope,
+  userId: string,
 ): CandidateCollection {
   const termSets: Set<string>[] = [];
   let degraded = false;
@@ -370,19 +431,19 @@ function collectCandidates(
 
   for (const term of terms) {
     const ftsStarted = performance.now();
-    const fts = fetchFtsTermCandidates(db, term, scope);
+    const fts = fetchFtsTermCandidates(db, term, scope, userId);
     ftsDurationMs += performance.now() - ftsStarted;
     degraded ||= fts.degraded;
 
     const metadataStarted = performance.now();
-    const metadata = fetchMetadataTermCandidates(db, term, scope);
+    const metadata = fetchMetadataTermCandidates(db, term, scope, userId);
     metadataDurationMs += performance.now() - metadataStarted;
 
     const ids = new Set<string>([...fts.ids, ...metadata]);
     if (shouldUseLiteralFallback(term, fts.ids.size, fts.degraded)) {
       literalFallback = true;
       const fallbackStarted = performance.now();
-      for (const id of fetchLiteralTermCandidates(db, term, scope)) ids.add(id);
+      for (const id of fetchLiteralTermCandidates(db, term, scope, userId)) ids.add(id);
       fallbackDurationMs += performance.now() - fallbackStarted;
     }
     termSets.push(ids);
@@ -398,13 +459,29 @@ function collectCandidates(
   };
 }
 
+function filterVisibleCandidates(
+  db: Database.Database,
+  candidateIds: Set<string>,
+  userId: string,
+): Set<string> {
+  const visible = new Set<string>();
+  for (const noteId of candidateIds) {
+    const access = resolveResourceKnowledgeAccess("note", noteId, userId, db);
+    if (hasKnowledgeCapability(access, "canView")) visible.add(noteId);
+  }
+  return visible;
+}
+
 function fetchFtsScores(
   db: Database.Database,
   searchTerm: string,
   scope: SearchScope,
+  candidateIds: Set<string>,
 ): { scores: Map<string, number>; degraded: boolean } {
   const scores = new Map<string, number>();
-  if (!searchTerm) return { scores, degraded: false };
+  const ids = Array.from(candidateIds).slice(0, MAX_FETCH_CANDIDATES);
+  if (!searchTerm || ids.length === 0) return { scores, degraded: false };
+  const placeholders = ids.map(() => "?").join(",");
 
   try {
     const rows = db.prepare(`
@@ -414,11 +491,11 @@ function fetchFtsScores(
       JOIN notebooks nb ON nb.id = n.notebookId
       WHERE notes_search_fts MATCH ?
         AND ${scope.sql}
+        AND n.id IN (${placeholders})
         AND n.isTrashed = 0
         AND nb.isDeleted = 0
       ORDER BY score
-      LIMIT ${MAX_TERM_CANDIDATES}
-    `).all(searchTerm, ...scope.params) as Array<{ id: string; score: number }>;
+    `).all(searchTerm, ...scope.params, ...ids) as Array<{ id: string; score: number }>;
     for (const row of rows) scores.set(row.id, Number(row.score) || 0);
     return { scores, degraded: false };
   } catch (error) {
@@ -676,7 +753,8 @@ app.get("/", (c) => {
   const normalizedQuery = normalizeSearchText(q);
 
   const candidateStarted = performance.now();
-  const candidate = collectCandidates(db, terms, scope);
+  const candidate = collectCandidates(db, terms, scope, userId);
+  candidate.ids = filterVisibleCandidates(db, candidate.ids, userId);
   const candidateDurationMs = performance.now() - candidateStarted;
 
   if (candidate.ids.size === 0) {
@@ -696,7 +774,12 @@ app.get("/", (c) => {
   const fetchDurationMs = performance.now() - fetchStarted;
 
   const rankStarted = performance.now();
-  const fts = fetchFtsScores(db, buildFtsSearchTerm(q), scope);
+  const fts = fetchFtsScores(
+    db,
+    buildFtsSearchTerm(q),
+    scope,
+    new Set(rows.map((row) => row.id)),
+  );
   candidate.degraded ||= fts.degraded;
   const rankDurationMs = performance.now() - rankStarted;
 

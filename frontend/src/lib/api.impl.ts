@@ -1,4 +1,5 @@
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
 
@@ -49,6 +50,11 @@ import {
 // 服务器地址管理
 const SERVER_URL_KEY = "nowen-server-url";
 export const SERVER_URL_CHANGED_EVENT = "nowen:server-url-changed";
+
+function dispatchTaskReminderScheduleChanged(): void {
+  if (typeof window === "undefined") return;
+  queueMicrotask(() => window.dispatchEvent(new Event(TASK_REMINDER_SYNC_EVENT)));
+}
 
 // ========== 当前工作区（Phase 1 协作） ==========
 const WORKSPACE_KEY = "nowen-current-workspace";
@@ -1632,14 +1638,32 @@ export const api = {
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Task>(`/tasks${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
-  updateTask: (id: string, data: Partial<Task>) => request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  updateTask: async (id: string, data: Partial<Task>) => {
+    const result = await request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   reorderTasks: (items: { id: string; sortOrder: number }[]) =>
     request<{ success: boolean; affected: number }>("/tasks/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
-  toggleTask: (id: string) => request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" }),
+  toggleTask: async (id: string) => {
+    const result = await request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   aiBreakdownTask: (id: string, lang?: string) => request<{ subtasks: { title: string; priority: number; dueDate: string | null; reason: string }[] }>(`/tasks/${id}/ai-breakdown`, { method: "POST", body: JSON.stringify({ lang }) }),
-  deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
-  batchTasks: (ids: string[], action: "complete" | "delete") =>
-    request<{ success: boolean; affected: number; generatedCount?: number }>("/tasks/batch", { method: "POST", body: JSON.stringify({ ids, action }) }),
+  deleteTask: async (id: string) => {
+    const result = await request(`/tasks/${id}`, { method: "DELETE" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  batchTasks: async (ids: string[], action: "complete" | "delete") => {
+    const result = await request<{ success: boolean; affected: number; generatedCount?: number }>(
+      "/tasks/batch",
+      { method: "POST", body: JSON.stringify({ ids, action }) },
+    );
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   // Task projects
   getTaskProjects: () => {
     const ws = getCurrentWorkspace();
@@ -1689,18 +1713,40 @@ export const api = {
     return request<{ success: boolean }>(`/task-dependencies/${id}`, { method: "DELETE" });
   },
   // Task reminders
+  getTaskReminderSchedule: () =>
+    request<{ reminders: TaskReminderScheduleItem[] }>("/task-reminders/schedule"),
+  ackRecentReminders: (reminderIds: string[]) =>
+    request<{ success: boolean; acked: number }>("/task-reminders/recent/ack", {
+      method: "POST",
+      body: JSON.stringify({ reminderIds }),
+    }),
   getRecentReminders: (since: number) =>
     request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number; type?: string }> }>(
       `/task-reminders/recent?since=${since}`
     ),
   getTaskReminders: (taskId: string) =>
     request<import("@/types").TaskReminder[]>(`/task-reminders/${taskId}`),
-  createTaskReminder: (taskId: string, offsetMinutes: number) =>
-    request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, { method: "POST", body: JSON.stringify({ offsetMinutes }) }),
-  updateTaskReminder: (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean; snoozedUntil?: string | null }) =>
-    request<import("@/types").TaskReminder>(`/task-reminders/${reminderId}`, { method: "PUT", body: JSON.stringify(data) }),
-  deleteTaskReminder: (reminderId: string) =>
-    request(`/task-reminders/${reminderId}`, { method: "DELETE" }),
+  createTaskReminder: async (taskId: string, offsetMinutes: number) => {
+    const result = await request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, {
+      method: "POST",
+      body: JSON.stringify({ offsetMinutes }),
+    });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  updateTaskReminder: async (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean; snoozedUntil?: string | null }) => {
+    const result = await request<import("@/types").TaskReminder>(`/task-reminders/${reminderId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  deleteTaskReminder: async (reminderId: string) => {
+    const result = await request(`/task-reminders/${reminderId}`, { method: "DELETE" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   getReminderOverview: (days?: number) => {
     const ws = getCurrentWorkspace();
     const params: string[] = [];

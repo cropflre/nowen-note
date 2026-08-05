@@ -4,6 +4,13 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
 import { memberQueryService } from "../queries/memberQueryService.js";
+import { findNearestKnowledgeDenial } from "./knowledgeDenyPolicy.js";
+import {
+  findNearestRestrictedKnowledgePolicy,
+  getKnowledgeNodeAccessMode,
+  restrictKnowledgeNodeAccess,
+  restoreKnowledgeNodeInheritanceIfEmpty,
+} from "./knowledgeAccessPolicy.js";
 
 export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin";
 export type KnowledgeCapabilityName =
@@ -119,6 +126,16 @@ function cloneCapabilities(value: KnowledgeCapabilities): KnowledgeCapabilities 
   return { ...value };
 }
 
+function noAccess(nodeId: string): EffectiveKnowledgeAccess {
+  return {
+    nodeId,
+    rolePreset: "none",
+    capabilities: cloneCapabilities(NONE),
+    source: "none",
+    sourceNodeId: null,
+  };
+}
+
 function rowToCapabilities(row: AclRow): KnowledgeCapabilities {
   return {
     canView: row.canView !== 0,
@@ -133,7 +150,9 @@ function rowToCapabilities(row: AclRow): KnowledgeCapabilities {
   };
 }
 
-function permissionToAccess(permission: string | null | undefined): Pick<EffectiveKnowledgeAccess, "rolePreset" | "capabilities"> {
+function permissionToAccess(
+  permission: string | null | undefined,
+): Pick<EffectiveKnowledgeAccess, "rolePreset" | "capabilities"> {
   if (permission === "manage" || permission === "admin" || permission === "owner") {
     return { rolePreset: "admin", capabilities: cloneCapabilities(KNOWLEDGE_ROLE_PRESETS.admin) };
   }
@@ -152,10 +171,14 @@ function permissionToAccess(permission: string | null | undefined): Pick<Effecti
   return { rolePreset: "none", capabilities: cloneCapabilities(NONE) };
 }
 
-export function capabilitiesToLegacyPermission(capabilities: KnowledgeCapabilities): "read" | "comment" | "write" | "manage" | null {
+export function capabilitiesToLegacyPermission(
+  capabilities: KnowledgeCapabilities,
+): "read" | "comment" | "write" | "manage" | null {
   if (!capabilities.canView) return null;
   if (capabilities.canManageMembers) return "manage";
-  if (capabilities.canEdit || capabilities.canCreate || capabilities.canMove || capabilities.canDelete) return "write";
+  if (capabilities.canEdit || capabilities.canCreate || capabilities.canMove || capabilities.canDelete) {
+    return "write";
+  }
   if (capabilities.canComment) return "comment";
   return "read";
 }
@@ -205,7 +228,11 @@ function nearestExplicitAcl(db: Database.Database, nodeId: string, userId: strin
   `).get(nodeId, userId) as AclRow | undefined) || null;
 }
 
-function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string): Pick<EffectiveKnowledgeAccess, "rolePreset" | "capabilities"> {
+function legacyAccess(
+  db: Database.Database,
+  node: TreeNodeRow,
+  userId: string,
+): Pick<EffectiveKnowledgeAccess, "rolePreset" | "capabilities"> {
   if (node.resourceType === "notebook") {
     const member = memberQueryService.getNotebookMemberAccess(node.resourceId, userId);
     if (member) return permissionToAccess(member.role);
@@ -218,8 +245,9 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string):
   }
 
   if (!node.workspaceId) return permissionToAccess(null);
-  const workspaceRole = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(node.workspaceId, userId) as { role: string } | undefined;
+  const workspaceRole = db.prepare(
+    "SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?",
+  ).get(node.workspaceId, userId) as { role: string } | undefined;
   return permissionToAccess(workspaceRole?.role);
 }
 
@@ -230,11 +258,18 @@ export function resolveKnowledgeNodeAccess(
 ): EffectiveKnowledgeAccess {
   ensureKnowledgeTreeTables(db);
   const node = readNode(db, nodeId);
-  if (!node || node.isDeleted) {
-    return { nodeId, rolePreset: "none", capabilities: cloneCapabilities(NONE), source: "none", sourceNodeId: null };
-  }
+  if (!node || node.isDeleted) return noAccess(nodeId);
 
-  if (node.userId === userId) {
+  const ownsPersonalNode = !node.workspaceId && node.userId === userId;
+  const workspaceOwner = node.workspaceId
+    ? db.prepare("SELECT ownerId FROM workspaces WHERE id = ?").get(node.workspaceId) as { ownerId: string } | undefined
+    : undefined;
+  const workspaceRole = node.workspaceId
+    ? db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
+        .get(node.workspaceId, userId) as { role: string } | undefined
+    : undefined;
+  const administersWorkspace = workspaceRole?.role === "owner" || workspaceRole?.role === "admin";
+  if (ownsPersonalNode || workspaceOwner?.ownerId === userId || administersWorkspace) {
     return {
       nodeId,
       rolePreset: "admin",
@@ -245,7 +280,12 @@ export function resolveKnowledgeNodeAccess(
   }
 
   const explicit = nearestExplicitAcl(db, nodeId, userId);
-  if (explicit) {
+  const denial = findNearestKnowledgeDenial(nodeId, userId, db);
+  if (denial && (!explicit || denial.depth <= (explicit.depth || 0))) {
+    return noAccess(nodeId);
+  }
+  const restricted = findNearestRestrictedKnowledgePolicy(nodeId, db);
+  if (explicit && (!restricted || (explicit.depth || 0) <= restricted.depth)) {
     return {
       nodeId,
       rolePreset: explicit.rolePreset,
@@ -254,6 +294,7 @@ export function resolveKnowledgeNodeAccess(
       sourceNodeId: explicit.nodeId,
     };
   }
+  if (restricted) return noAccess(nodeId);
 
   const legacy = legacyAccess(db, node, userId);
   return {
@@ -271,9 +312,7 @@ export function resolveResourceKnowledgeAccess(
   db: Database.Database = getDb(),
 ): EffectiveKnowledgeAccess {
   const node = findKnowledgeNodeByResource(resourceType, resourceId, db);
-  return node
-    ? resolveKnowledgeNodeAccess(node.id, userId, db)
-    : { nodeId: "", rolePreset: "none", capabilities: cloneCapabilities(NONE), source: "none", sourceNodeId: null };
+  return node ? resolveKnowledgeNodeAccess(node.id, userId, db) : noAccess("");
 }
 
 export function hasKnowledgeCapability(
@@ -299,7 +338,11 @@ function writeHistory(
       id, nodeId, action, actorUserId, targetUserId, metadata
     ) VALUES (?, ?, ?, ?, ?, ?)
   `).run(
-    uuid(), input.nodeId, input.action, input.actorUserId, input.targetUserId,
+    uuid(),
+    input.nodeId,
+    input.action,
+    input.actorUserId,
+    input.targetUserId,
     input.metadata === undefined ? null : JSON.stringify(input.metadata),
   );
 }
@@ -349,12 +392,21 @@ export function setKnowledgeNodeRole(input: {
       Number(preset.canManageMembers),
       input.actorUserId,
     );
+    restrictKnowledgeNodeAccess({
+      nodeId: input.nodeId,
+      actorUserId: input.actorUserId,
+      db,
+    });
     writeHistory(db, {
       nodeId: input.nodeId,
       action: "permission_set",
       actorUserId: input.actorUserId,
       targetUserId: input.targetUserId,
-      metadata: { rolePreset: input.rolePreset, capabilities: preset },
+      metadata: {
+        rolePreset: input.rolePreset,
+        capabilities: preset,
+        accessMode: "restricted",
+      },
     });
   });
   transaction();
@@ -382,13 +434,17 @@ export function clearKnowledgeNodeRole(input: {
         actorUserId: input.actorUserId,
         targetUserId: input.targetUserId,
       });
+      restoreKnowledgeNodeInheritanceIfEmpty({ nodeId: input.nodeId, db });
     }
   });
   transaction();
   return removed;
 }
 
-export function listKnowledgeNodeRoles(nodeId: string, db: Database.Database = getDb()) {
+export function listKnowledgeNodeRoles(
+  nodeId: string,
+  db: Database.Database = getDb(),
+) {
   ensureKnowledgeTreeTables(db);
   const direct = db.prepare(`
     SELECT acl.*, u.username, u.displayName, u.email
@@ -396,16 +452,22 @@ export function listKnowledgeNodeRoles(nodeId: string, db: Database.Database = g
     JOIN users u ON u.id = acl.userId
     WHERE acl.nodeId = ?
     ORDER BY lower(COALESCE(u.displayName, u.username)), u.id
-  `).all(nodeId) as Array<AclRow & { username: string; displayName: string | null; email: string | null }>;
+  `).all(nodeId) as Array<
+    AclRow & { username: string; displayName: string | null; email: string | null }
+  >;
   const parent = db.prepare("SELECT parentId FROM knowledge_tree_nodes WHERE id = ?")
     .get(nodeId) as { parentId: string | null } | undefined;
   return {
     direct: direct.map((row) => ({ ...row, capabilities: rowToCapabilities(row) })),
     inheritsFromParent: parent?.parentId || null,
+    accessMode: getKnowledgeNodeAccessMode(nodeId, db),
   };
 }
 
-export function resolveKnowledgePermissionSubject(subject: string, db: Database.Database = getDb()): { id: string; username: string; displayName: string | null; email: string | null } | null {
+export function resolveKnowledgePermissionSubject(
+  subject: string,
+  db: Database.Database = getDb(),
+): { id: string; username: string; displayName: string | null; email: string | null } | null {
   const normalized = subject.trim();
   if (!normalized) return null;
   return (db.prepare(`

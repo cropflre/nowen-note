@@ -28,6 +28,8 @@
 
 > Nowen Note is more than an editor. It is designed as user-controlled knowledge infrastructure that can run long-term on a NAS or server and remain accessible from the web, desktop, and mobile clients.
 
+> **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
+
 ## Connect AI clients to Nowen Note
 
 Nowen Note still includes a supported MCP Server. Claude Code, Cursor, VS Code, and other compatible AI clients can search, read, create, and update notes within the permissions granted by your account and token.
@@ -42,7 +44,7 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 
 | | |
 | --- | --- |
-| **You own the data** | Self-host with Docker or a NAS. Databases, attachments, and backups stay under your control. Attachments can use S3, Cloudflare R2, or MinIO, while backups can be sent through email or WebDAV. |
+| **You own the data** | Self-host with Docker or deploy on NAS platforms such as UGREEN UGOS and Feiniu fnOS. Databases, attachments, and backups stay under your control. Attachments can use S3, Cloudflare R2, or MinIO, while backups can be sent through email or WebDAV. |
 | **One tree for every document** | Mix folders, rich-text notes, and Markdown notes in one hierarchy. Create documents at the root, drag and sort nodes, import files, expand or collapse the tree, inherit permissions, protect folders with passwords, and publish shared content. |
 | **Switch editing formats per note** | Convert notes between rich text and Markdown while preserving major structure, code blocks, and links. Use either format for quick notes, technical documentation, or long-form writing. |
 | **Built for individuals and teams** | Tags, tasks, AI, workspaces, notebook permissions, real-time collaboration, public sharing, and guest comments live in one system. |
@@ -65,7 +67,7 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 | **Attachments and storage** | Local attachments organized under `YYYY/MM`; reuse existing files from the attachment library and insert portable relative links; thumbnails, note ownership, reference checks, orphan rescans and cleanup; local disk or S3/R2/MinIO storage. |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, and protected attachment access. |
 | **Backups, automation, and developer APIs** | Local backups, full ZIP backups, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, [MCP Server](./docs/tutorials/mcp.en.md), and a browser clipper. |
-| **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. Mobile includes Markdown import, recent-first navigation, step-by-step browsing, tree mode, and an optional compact density setting. |
+| **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect and sign in to a NAS service through IPv4, IPv6, or a domain name. Mobile also includes Markdown import, recent-first navigation, step-by-step browsing, tree mode, and an optional compact density setting. |
 
 ## Recent highlights
 
@@ -128,6 +130,18 @@ Password: admin123
 ```
 
 > Change the default password immediately. Public deployments should also use HTTPS, backups, a correct public origin, and restricted CORS settings.
+
+### UGREEN NAS / Feiniu NAS remote connection and sign-in
+
+Nowen Note can be deployed on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. Use the corresponding `.upk` or `.fpk` package from Releases, or deploy with Docker Compose.
+
+After the service starts:
+
+- **LAN access:** Open `http://<nas-lan-ip>:3001` in a browser.
+- **Remote access:** Enter the NAS public domain, IPv4 address, or IPv6 service address in the web, desktop, or Android client, then sign in.
+- **Public deployment:** Configure an HTTPS reverse proxy. Do not expose an unencrypted HTTP service directly to the internet.
+
+See available packages in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
 Check status and logs:
 
@@ -223,11 +237,11 @@ See [`.env.example`](./.env.example) for the complete template.
 | --- | --- | --- |
 | **Web / Docker** | Docker Hub or source build | Recommended deployment; supports `amd64`, `arm64`, or multi-architecture images |
 | **Windows / macOS / Linux** | [GitHub Releases](https://github.com/cropflre/nowen-note/releases) or `npm run electron:build` | Electron client can connect to a remote service or use the local backend |
-| **Android** | Release APK or Capacitor build under `frontend/` | Actively maintained; system share import, Markdown file import, immersive editing, and mobile knowledge tree |
+| **Android** | Release APK or Capacitor build under `frontend/` | Actively maintained; system share import, Markdown file import, immersive editing, mobile knowledge tree, and remote NAS service sign-in |
 | **iOS** | Capacitor project and GitHub Actions/TestFlight flow | Requires Apple signing and a developer account; see [iOS release guide](./docs/iOS-Release.md) |
 | **HarmonyOS** | Open [`nowen-harmony/`](./nowen-harmony/) in DevEco Studio | ArkTS + ArkWeb MVP; some native capabilities are still being completed |
-| **fnOS** | `.fpk` in Releases | Current package primarily targets x86_64 |
-| **UGREEN UGOS** | `.upk` in Releases or build scripts | Depends on device architecture and application installation support |
+| **fnOS** | `.fpk` in Releases | Supports Feiniu NAS installation. The current package primarily targets x86_64; after deployment, connect and sign in using a LAN or public service address. |
+| **UGREEN UGOS** | `.upk` in Releases or build scripts | Supports UGREEN NAS installation, depending on device architecture and app installation support; after deployment, connect and sign in using a LAN or public service address. |
 | **Other NAS** | Docker Compose | Synology, QNAP, ZSpace, and similar devices can use the Docker deployment |
 
 > Available packages vary by release. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases).

@@ -2,8 +2,9 @@ import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
-export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin";
+export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin" | "deny";
 export type KnowledgeAccessSource = "owner" | "direct" | "inherited" | "legacy" | "none";
+export type KnowledgeAccessMode = "inherit" | "restricted";
 
 export interface KnowledgeCapabilities {
   canView: boolean;
@@ -66,6 +67,8 @@ export interface KnowledgePermissionRow {
 export interface KnowledgePermissionsResponse {
   direct: KnowledgePermissionRow[];
   inheritsFromParent: string | null;
+  accessMode: KnowledgeAccessMode;
+  isExplicit: boolean;
   currentUserAccess: EffectiveKnowledgeAccess;
 }
 
@@ -184,6 +187,13 @@ export const knowledgeTreeApi = {
   getPermissions(nodeId: string) {
     return request<KnowledgePermissionsResponse>(
       `/nodes/${encodeURIComponent(nodeId)}/permissions?${workspaceQuery()}`,
+    );
+  },
+
+  setAccessMode(nodeId: string, accessMode: KnowledgeAccessMode) {
+    return request<{ success: true; accessMode: KnowledgeAccessMode; isExplicit: boolean }>(
+      `/nodes/${encodeURIComponent(nodeId)}/access-mode`,
+      { method: "PUT", body: JSON.stringify({ accessMode }) },
     );
   },
 

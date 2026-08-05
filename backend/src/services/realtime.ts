@@ -15,6 +15,7 @@ import { realtimeAuthRepository } from "../repositories/realtimeAuthRepository";
 import {
   getUserAccessibleWorkspaceIds,
   resolveNotePermission,
+  resolveNotebookPermission,
 } from "../middleware/acl";
 import { yJoin, yLeave, yFlushAll, yEncodeDiffSinceStateVector } from "./yjs";
 import { yApplyUpdateDurably } from "./yjsDurability";
@@ -121,13 +122,46 @@ function leaveRoom(connectionId: string, room: string) {
   if (client) client.info.rooms.delete(room);
 }
 
+function canJoinNoteRoom(noteId: string, userId: string): boolean {
+  const { permission } = resolveNotePermission(noteId, userId);
+  return permission !== null;
+}
+
+function canJoinNotebookResource(notebookId: string, userId: string): boolean {
+  const { permission } = resolveNotebookPermission(notebookId, userId);
+  return permission !== null;
+}
+
+function canJoinWorkspaceRoom(workspaceId: string, userId: string): boolean {
+  const accessible = getUserAccessibleWorkspaceIds(userId);
+  return accessible.includes(workspaceId);
+}
+
+/**
+ * Re-check note access at send time, not only when the socket joined the room.
+ * Revoking a member must immediately stop presence, cursor and Yjs delivery even
+ * when the browser keeps an old WebSocket connection alive.
+ */
 function broadcastRoom(room: string, msg: ServerMessage, excludeConnectionId?: string) {
   const set = rooms.get(room);
   if (!set) return;
-  for (const cid of set) {
+  const noteId = room.startsWith("note:") ? room.slice(5) : null;
+  for (const cid of Array.from(set)) {
     if (cid === excludeConnectionId) continue;
     const client = clients.get(cid);
-    if (client) send(client.ws, msg);
+    if (!client) continue;
+    if (noteId && !canJoinNoteRoom(noteId, client.info.userId)) {
+      leaveRoom(cid, room);
+      if (client.info.yRooms.delete(noteId)) {
+        try { yLeave(noteId); } catch {}
+      }
+      if (client.info.activeNoteId === noteId) {
+        client.info.activeNoteId = null;
+        client.info.editing = false;
+      }
+      continue;
+    }
+    send(client.ws, msg);
   }
 }
 
@@ -141,9 +175,16 @@ function buildNotePresence(noteId: string) {
     connectionId: string;
     editing: boolean;
   }> = [];
-  for (const cid of set) {
+  for (const cid of Array.from(set)) {
     const c = clients.get(cid);
     if (!c) continue;
+    if (!canJoinNoteRoom(noteId, c.info.userId)) {
+      leaveRoom(cid, room);
+      if (c.info.yRooms.delete(noteId)) {
+        try { yLeave(noteId); } catch {}
+      }
+      continue;
+    }
     users.push({
       userId: c.info.userId,
       username: c.info.username,
@@ -161,16 +202,6 @@ function broadcastPresence(noteId: string) {
     noteId,
     users,
   });
-}
-
-function canJoinNoteRoom(noteId: string, userId: string): boolean {
-  const { permission } = resolveNotePermission(noteId, userId);
-  return permission !== null;
-}
-
-function canJoinWorkspaceRoom(workspaceId: string, userId: string): boolean {
-  const accessible = getUserAccessibleWorkspaceIds(userId);
-  return accessible.includes(workspaceId);
 }
 
 export function attachRealtimeServer(server: import("http").Server) {
@@ -324,15 +355,17 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
     case "presence": {
       const nextNoteId = msg.noteId ?? null;
       const prevNoteId = info.activeNoteId;
+      if (nextNoteId && !canJoinNoteRoom(nextNoteId, info.userId)) {
+        send(ws, { type: "error", error: "Forbidden", noteId: nextNoteId });
+        return;
+      }
       info.activeNoteId = nextNoteId;
       info.editing = !!msg.editing;
 
       if (prevNoteId && prevNoteId !== nextNoteId) broadcastPresence(prevNoteId);
       if (nextNoteId) {
         const room = `note:${nextNoteId}`;
-        if (!info.rooms.has(room) && canJoinNoteRoom(nextNoteId, info.userId)) {
-          joinRoom(connectionId, room);
-        }
+        if (!info.rooms.has(room)) joinRoom(connectionId, room);
         broadcastPresence(nextNoteId);
       }
       return;
@@ -340,7 +373,7 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
 
     case "editing": {
       const noteId = msg.noteId ?? info.activeNoteId;
-      if (!noteId) return;
+      if (!noteId || !canJoinNoteRoom(noteId, info.userId)) return;
       info.editing = !!msg.editing;
       broadcastPresence(noteId);
       return;
@@ -348,7 +381,7 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
 
     case "cursor": {
       const noteId = msg.noteId ?? info.activeNoteId;
-      if (!noteId) return;
+      if (!noteId || !canJoinNoteRoom(noteId, info.userId)) return;
       broadcastRoom(
         `note:${noteId}`,
         {
@@ -386,7 +419,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
           type: "y:sync",
           noteId,
           state: stateBase64,
-          // yJoin reconstructs the state from the durable snapshot/update log.
           persistedAt: new Date().toISOString(),
         });
       } catch (e) {
@@ -455,7 +487,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
         return;
       }
 
-      // A send is successful only after the append-only recovery log advanced.
       if (operationId) {
         send(ws, {
           type: "y:ack",
@@ -595,16 +626,17 @@ export function broadcastNotesDeleted(
     trashed: payload.trashed ?? false,
   } as const;
 
-  if (!payload.workspaceId) {
-    broadcastToUser(payload.actorUserId, message);
-    return;
+  // The actor needs exact IDs to update optimistic local state. Other workspace
+  // members receive only a generic refresh signal because deleted nodes may no
+  // longer be resolvable for an after-the-fact ACL check.
+  broadcastToUser(payload.actorUserId, message);
+  if (payload.workspaceId) {
+    broadcastRoom(`workspace:${payload.workspaceId}`, {
+      type: "workspace:updated",
+      workspaceId: payload.workspaceId,
+      kind: "note:deleted",
+    });
   }
-
-  const userIds = new Set(
-    realtimeAuthRepository.listWorkspaceMemberUserIds(payload.workspaceId),
-  );
-  userIds.add(payload.actorUserId);
-  for (const userId of userIds) broadcastToUser(userId, message);
 }
 
 export function broadcastYjsUpdate(noteId: string, updateBase64: string) {
@@ -630,11 +662,29 @@ export function broadcastWorkspaceUpdated(
     [k: string]: any;
   },
 ) {
-  broadcastRoom(`workspace:${workspaceId}`, {
-    type: "workspace:updated",
-    workspaceId,
-    ...payload,
-  });
+  const room = `workspace:${workspaceId}`;
+  const set = rooms.get(room);
+  if (!set) return;
+  const noteId = typeof payload.noteId === "string" ? payload.noteId : null;
+  const notebookId = typeof payload.notebookId === "string" ? payload.notebookId : null;
+  const noteIds = Array.isArray(payload.noteIds)
+    ? payload.noteIds.filter((id: unknown): id is string => typeof id === "string")
+    : null;
+
+  for (const cid of Array.from(set)) {
+    const client = clients.get(cid);
+    if (!client) continue;
+    let detailedPayload: Record<string, any> | null = payload;
+    if (noteId && !canJoinNoteRoom(noteId, client.info.userId)) detailedPayload = null;
+    if (notebookId && !canJoinNotebookResource(notebookId, client.info.userId)) detailedPayload = null;
+    if (noteIds) {
+      const visibleIds = noteIds.filter((id) => canJoinNoteRoom(id, client.info.userId));
+      detailedPayload = visibleIds.length > 0 ? { ...payload, noteIds: visibleIds } : null;
+    }
+    send(client.ws, detailedPayload
+      ? { type: "workspace:updated", workspaceId, ...detailedPayload }
+      : { type: "workspace:updated", workspaceId, kind: payload.kind });
+  }
 }
 
 export function broadcastToUser(userId: string, msg: ServerMessage) {

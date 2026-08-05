@@ -15,6 +15,10 @@ import {
   resolveNotebookMemberPermission,
 } from "../services/notebook-permissions";
 import {
+  capabilitiesToLegacyPermission,
+  resolveResourceKnowledgeAccess,
+} from "../services/knowledgeCapabilities";
+import {
   aclQueryRepository,
   noteAclRepository,
   workspaceMembersRepository,
@@ -94,6 +98,15 @@ export function resolveNotePermission(
 
   if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
 
+  const knowledgeAccess = resolveResourceKnowledgeAccess("note", noteId, userId);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: note.workspaceId,
+      noteOwnerId: note.userId,
+    };
+  }
+
   if (note.userId === userId) {
     return { permission: "manage", workspaceId: note.workspaceId, noteOwnerId: note.userId };
   }
@@ -134,6 +147,15 @@ export function resolveNotebookPermission(
   const nb = aclQueryRepository.getNotebookOwnerScope(notebookId);
 
   if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccess("notebook", notebookId, userId);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: nb.workspaceId,
+      notebookOwnerId: nb.userId,
+    };
+  }
 
   if (nb.userId === userId) {
     return { permission: "manage", workspaceId: nb.workspaceId, notebookOwnerId: nb.userId };

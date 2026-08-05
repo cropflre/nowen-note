@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { getTaskNotificationSurface, showTestTaskNotification } from "@/lib/taskNotifications";
 import type { Task, TaskPriority, TaskReminder, TaskDependency } from "@/types";
 import { isRepeatingTask } from "./taskRepeatUtils";
 // TASK-RECURRENCE-LUNAR-01: 农历转换
@@ -41,9 +42,8 @@ import {
 
 /** Shows a warning badge if notifications are not available */
 function NotificationStatusBadge({ t }: { t: (key: string) => string }) {
-  const desktop = (typeof window !== "undefined") ? (window as any).nowenDesktop : null;
-  if (desktop?.taskNotify) {
-    // Electron: native notifications always available
+  const surface = getTaskNotificationSurface();
+  if (surface === "electron" || surface === "native") {
     return null;
   }
   if (typeof Notification === "undefined") {
@@ -461,19 +461,11 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
   // test notification
   const handleTestNotification = async () => {
-    const desktop = (window as any).nowenDesktop;
-    if (desktop?.taskNotify) {
-      await desktop.taskNotify(t("tasks.reminder.title"), t("tasks.reminder.testBody"));
-    } else if ("Notification" in window) {
-      if (Notification.permission === "granted") {
-        new Notification(t("tasks.reminder.title"), { body: t("tasks.reminder.testBody") });
-      } else if (Notification.permission !== "denied") {
-        const perm = await Notification.requestPermission();
-        if (perm === "granted") {
-          new Notification(t("tasks.reminder.title"), { body: t("tasks.reminder.testBody") });
-        }
-      }
-    }
+    const delivered = await showTestTaskNotification(
+      t("tasks.reminder.title"),
+      t("tasks.reminder.testBody"),
+    );
+    if (!delivered) toast.error(t("tasks.reminder.noPermission"));
   };
 
   return (

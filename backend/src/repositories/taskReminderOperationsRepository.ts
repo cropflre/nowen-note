@@ -36,6 +36,10 @@ export interface TaskReminderDueCandidate {
   isCompleted: number;
 }
 
+export interface TaskReminderScheduleRow extends TaskReminderOverviewRow {
+  workspaceId: string | null;
+}
+
 function toIntegerBoolean(value: number | boolean): number {
   return value === true || value === 1 ? 1 : 0;
 }
@@ -128,6 +132,20 @@ export const taskReminderOperationsRepository = {
        JOIN tasks t ON t.id = r."taskId"
        WHERE r."userId" = ? AND t."workspaceId" IS NULL
        ORDER BY r."createdAt" DESC`,
+      [userId],
+    );
+  },
+
+  async listScheduleAsync(userId: string): Promise<TaskReminderScheduleRow[]> {
+    return getDatabaseAdapter().queryMany<TaskReminderScheduleRow>(
+      `SELECT r.id AS "reminderId", r."taskId", r."offsetMinutes", r.enabled,
+              r."lastNotifiedAt", r."snoozedUntil", t.title AS "taskTitle",
+              t.status AS "taskStatus", t."isCompleted", t."dueDate", t."dueAt",
+              t."workspaceId"
+         FROM task_reminders r
+         JOIN tasks t ON t.id = r."taskId"
+        WHERE r."userId" = ?
+        ORDER BY r."createdAt" DESC`,
       [userId],
     );
   },

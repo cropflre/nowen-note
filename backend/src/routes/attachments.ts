@@ -247,6 +247,13 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     }
   }
 
+  // The attachment UUID is no longer an authorization capability. Native image/video requests
+  // must use a short-lived signed URL; API clients may send a verified Bearer credential.
+  if (!hasCompleteSignature && !verifiedUserId) {
+    console.warn("[attachment.access.denied]", { id, reason: "missing_verified_access" });
+    return c.json({ error: "附件不存在", code: "ATTACHMENT_NOT_FOUND" }, 404);
+  }
+
   const downloadRequested = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
   if (downloadRequested && signatureVerification?.allowDownload === false) {
     console.warn("[attachment.access.denied]", { id, reason: "download_forbidden" });
@@ -274,7 +281,5 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     console.warn("[attachment.access.denied]", { id, status: response.status });
   }
 
-  return hasCompleteSignature || verifiedUserId
-    ? hardenScopedResponse(response)
-    : response;
+  return hardenScopedResponse(response);
 }
