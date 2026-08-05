@@ -1,0 +1,108 @@
+name: Retry renderer clean-exit recovery fix
+
+on:
+  push:
+    branches:
+      - fix/v1.4.6-renderer-clean-exit-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.4.6-renderer-clean-exit-recovery
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply corrected recovery implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/tmp-renderer-clean-exit-recovery.yml").read_text()
+          step_marker = "      - name: Apply recovery implementation\n"
+          step_start = workflow.index(step_marker)
+          run_marker = "        run: |\n"
+          block_start = workflow.index(run_marker, step_start) + len(run_marker)
+          block_end = workflow.index("\n      - name: Verify renderer recovery", block_start)
+          block_lines = workflow[block_start:block_end].splitlines()
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in block_lines
+          ) + "\n"
+
+          old_helper = '''from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8-sig")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one target in {path}, found {count}: {old[:140]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '''
+          # The block was dedented above, so normalize the helper before replacing it.
+          old_helper = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in old_helper.splitlines()
+          ).strip("\n") + "\n"
+          new_helper = '''from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8-sig")
+              count = text.count(old)
+              if count == 1:
+                  updated = text.replace(old, new, 1)
+              else:
+                  parts = re.split(r"(\\s+)", old)
+                  pattern = "".join(
+                      r"\\s+" if part and part.isspace() else re.escape(part)
+                      for part in parts
+                      if part
+                  )
+                  updated, regex_count = re.subn(pattern, lambda _match: new, text, count=1)
+                  if regex_count != 1:
+                      raise SystemExit(
+                          f"expected one target in {path}, found exact={count} regex={regex_count}: {old[:140]!r}"
+                      )
+              file.write_text(updated, encoding="utf-8")
+          '''
+          new_helper = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in new_helper.splitlines()
+          ).strip("\n") + "\n"
+          if old_helper not in script:
+              raise SystemExit("unable to locate patch helper")
+          script = script.replace(old_helper, new_helper, 1)
+          Path("/tmp/apply-renderer-recovery.sh").write_text(script)
+          PY
+          bash /tmp/apply-renderer-recovery.sh
+
+      - name: Verify renderer recovery
+        shell: bash
+        run: |
+          node --check electron/main.js
+          node --check electron/renderer-recovery.js
+          node --test scripts/tests/renderer-recovery.test.cjs scripts/tests/unified-loading-experience.test.mjs
+          git diff --check
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-renderer-clean-exit-recovery.yml
+          git rm .github/workflows/tmp-renderer-clean-exit-recovery-v2.yml
+          git config user.name "Drug"
+          git config user.email "cropflre2333@gmail.com"
+          git add electron/main.js electron/renderer-recovery.js scripts/tests/renderer-recovery.test.cjs package.json
+          git commit -m "fix: recover desktop renderer after clean exit"
+          git push origin HEAD:fix/v1.4.6-renderer-clean-exit-recovery
