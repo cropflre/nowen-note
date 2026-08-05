@@ -32,6 +32,7 @@ type TargetColumn = {
   nullable: boolean;
   columnDefault: string | null;
   identity: boolean;
+  generated: boolean;
 };
 
 type TargetForeignKey = {
@@ -321,13 +322,15 @@ async function inspectTargetTable(
     isNullable: string;
     columnDefault: string | null;
     isIdentity: string;
+    isGenerated: string;
   }>(
     `SELECT column_name AS name,
             data_type AS "dataType",
             udt_name AS "udtName",
             is_nullable AS "isNullable",
             column_default AS "columnDefault",
-            is_identity AS "isIdentity"
+            is_identity AS "isIdentity",
+            is_generated AS "isGenerated"
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ?
       ORDER BY ordinal_position`,
@@ -348,6 +351,7 @@ async function inspectTargetTable(
     nullable: column.isNullable === "YES",
     columnDefault: column.columnDefault,
     identity: column.isIdentity === "YES",
+    generated: column.isGenerated === "ALWAYS",
   }));
   const nullableByName = new Map(normalizedColumns.map((column) => [column.name, column.nullable]));
   const foreignKeys = await adapter.queryMany<{
@@ -413,6 +417,80 @@ function resolveColumns(
   return sourceTable.columns.map((column) => targetByName.get(column.name)!);
 }
 
+function buildChangeSnapshotStatement(input: {
+  runId: string;
+  tableName: string;
+  columns: TargetColumn[];
+  primaryKeyColumns: string[];
+  row: Record<string, unknown>;
+  batchSequence: number;
+}): DbStatement {
+  const byName = new Map(input.columns.map((column) => [column.name, column]));
+  const primaryKey = Object.fromEntries(input.primaryKeyColumns.map((columnName) => {
+    const column = byName.get(columnName);
+    if (!column) {
+      throw new SqlitePostgresMigrationError(
+        "SQLITE_PG_MIGRATION_PRIMARY_KEY_COLUMN_MISSING",
+        "目标表缺少 run-owned tracking 所需主键列",
+        500,
+        { tableName: input.tableName, column: columnName },
+      );
+    }
+    return [columnName, canonicalValue(column, input.row[columnName])];
+  }));
+  const existingParams = input.primaryKeyColumns.map((columnName) => {
+    const column = byName.get(columnName)!;
+    return convertValue(column, input.row[columnName]);
+  });
+  const canonicalRow = Object.fromEntries(input.columns.map((column) => [
+    column.name,
+    canonicalValue(column, input.row[column.name]),
+  ]));
+  const firstPrimaryKey = input.primaryKeyColumns[0];
+  return {
+    sql: `INSERT INTO sqlite_postgres_migration_row_changes (
+            "runId", "tableName", "primaryKey", "primaryKeyHash",
+            "batchSequence", "changeKind", "originalRow", "migratedRow",
+            "migratedChecksum"
+          )
+          SELECT ?, ?, ?::jsonb, ?, ?,
+                 CASE
+                   WHEN current_target.${quoteIdentifier(firstPrimaryKey)} IS NULL
+                   THEN 'inserted'
+                   ELSE 'updated'
+                 END,
+                 CASE
+                   WHEN current_target.${quoteIdentifier(firstPrimaryKey)} IS NULL
+                   THEN NULL
+                   ELSE to_jsonb(current_target)
+                 END,
+                 NULL,
+                 ?
+            FROM (SELECT 1) AS seed
+            LEFT JOIN ${quoteIdentifier(input.tableName)} AS current_target
+              ON ${input.primaryKeyColumns
+                .map((column) => `current_target.${quoteIdentifier(column)} = ?`)
+                .join(" AND ")}
+          ON CONFLICT ("runId", "tableName", "primaryKeyHash") DO UPDATE
+            SET "batchSequence" = LEAST(
+                  sqlite_postgres_migration_row_changes."batchSequence",
+                  EXCLUDED."batchSequence"
+                ),
+                "migratedChecksum" = EXCLUDED."migratedChecksum",
+                "updatedAt" = CURRENT_TIMESTAMP`,
+    params: [
+      input.runId,
+      input.tableName,
+      JSON.stringify(primaryKey),
+      sha256(stableJson(primaryKey)),
+      Math.max(0, Math.trunc(input.batchSequence)),
+      sha256(stableJson(canonicalRow)),
+      ...existingParams,
+    ],
+    requireChanges: 1,
+  };
+}
+
 function buildUpsertStatement(input: {
   tableName: string;
   columns: TargetColumn[];
@@ -442,56 +520,111 @@ function buildUpsertStatement(input: {
           ON CONFLICT (${input.primaryKeyColumns.map(quoteIdentifier).join(", ")})
           ${conflictSql}`,
     params: values,
+    requireChanges: 1,
   };
 }
 
-
-function buildRowOwnershipStatement(input: {
+function buildMigratedSnapshotStatement(input: {
   runId: string;
   tableName: string;
   columns: TargetColumn[];
   primaryKeyColumns: string[];
   row: Record<string, unknown>;
-  batchSequence: number;
 }): DbStatement {
   const byName = new Map(input.columns.map((column) => [column.name, column]));
   const primaryKey = Object.fromEntries(input.primaryKeyColumns.map((columnName) => {
-    const column = byName.get(columnName);
-    if (!column) {
-      throw new SqlitePostgresMigrationError(
-        "SQLITE_PG_MIGRATION_PRIMARY_KEY_COLUMN_MISSING",
-        "目标表缺少 run-owned tracking 所需主键列",
-        500,
-        { tableName: input.tableName, column: columnName },
-      );
-    }
+    const column = byName.get(columnName)!;
     return [columnName, canonicalValue(column, input.row[columnName])];
   }));
-  const canonicalRow = Object.fromEntries(input.columns.map((column) => [
-    column.name,
-    canonicalValue(column, input.row[column.name]),
-  ]));
+  const primaryKeyHash = sha256(stableJson(primaryKey));
+  const primaryKeyParams = input.primaryKeyColumns.map((columnName) => {
+    const column = byName.get(columnName)!;
+    return convertValue(column, input.row[columnName]);
+  });
   return {
-    sql: `INSERT INTO sqlite_postgres_migration_row_changes (
-            "runId", "tableName", "primaryKey", "primaryKeyHash",
-            "batchSequence", "changeKind", "originalRow", "migratedChecksum"
-          ) VALUES (?, ?, ?::jsonb, ?, ?, 'inserted', NULL, ?)
-          ON CONFLICT ("runId", "tableName", "primaryKeyHash") DO UPDATE
-            SET "batchSequence" = LEAST(
-                  sqlite_postgres_migration_row_changes."batchSequence",
-                  EXCLUDED."batchSequence"
-                ),
-                "migratedChecksum" = EXCLUDED."migratedChecksum",
-                "updatedAt" = CURRENT_TIMESTAMP`,
+    sql: `UPDATE sqlite_postgres_migration_row_changes AS change
+             SET "migratedRow" = to_jsonb(target_row),
+                 "changeKind" = CASE
+                   WHEN change."changeKind" = 'updated'
+                    AND change."originalRow" = to_jsonb(target_row)
+                   THEN 'unchanged'
+                   ELSE change."changeKind"
+                 END,
+                 "updatedAt" = CURRENT_TIMESTAMP
+            FROM ${quoteIdentifier(input.tableName)} AS target_row
+           WHERE ${input.primaryKeyColumns
+             .map((column) => `target_row.${quoteIdentifier(column)} = ?`)
+             .join(" AND ")}
+             AND change."runId" = ?
+             AND change."tableName" = ?
+             AND change."primaryKeyHash" = ?`,
     params: [
+      ...primaryKeyParams,
       input.runId,
       input.tableName,
-      JSON.stringify(primaryKey),
-      sha256(stableJson(primaryKey)),
-      Math.max(0, Math.trunc(input.batchSequence)),
-      sha256(stableJson(canonicalRow)),
+      primaryKeyHash,
     ],
+    requireChanges: 1,
   };
+}
+
+async function refreshTrackedMigratedRows(input: {
+  adapter: DatabaseAdapter;
+  runId: string;
+  tableName: string;
+  batchSize: number;
+}): Promise<void> {
+  const changes = await input.adapter.queryMany<{
+    primaryKey: Record<string, unknown>;
+    primaryKeyHash: string;
+  }>(
+    `SELECT "primaryKey", "primaryKeyHash"
+       FROM sqlite_postgres_migration_row_changes
+      WHERE "runId" = ? AND "tableName" = ?
+      ORDER BY "primaryKeyHash"`,
+    [input.runId, input.tableName],
+  );
+  for (let offset = 0; offset < changes.length; offset += input.batchSize) {
+    const statements = changes.slice(offset, offset + input.batchSize).map((change) => {
+      const entries = Object.entries(change.primaryKey || {});
+      if (entries.length === 0) {
+        throw new SqlitePostgresMigrationError(
+          "SQLITE_PG_MIGRATION_PRIMARY_KEY_COLUMN_MISSING",
+          "run-owned tracking 缺少主键",
+          500,
+          { tableName: input.tableName },
+        );
+      }
+      return {
+        sql: `UPDATE sqlite_postgres_migration_row_changes AS change
+                 SET "migratedRow" = target.snapshot,
+                     "changeKind" = CASE
+                       WHEN change."changeKind" = 'updated'
+                        AND change."originalRow" = target.snapshot
+                       THEN 'unchanged'
+                       ELSE change."changeKind"
+                     END,
+                     "updatedAt" = CURRENT_TIMESTAMP
+                FROM (
+                  SELECT to_jsonb(target_row) AS snapshot
+                    FROM ${quoteIdentifier(input.tableName)} AS target_row
+                   WHERE ${entries
+                     .map(([column]) => `target_row.${quoteIdentifier(column)} = ?`)
+                     .join(" AND ")}
+                ) AS target
+               WHERE change."runId" = ? AND change."tableName" = ?
+                 AND change."primaryKeyHash" = ?`,
+        params: [
+          ...entries.map(([, value]) => value),
+          input.runId,
+          input.tableName,
+          change.primaryKeyHash,
+        ],
+        requireChanges: 1,
+      } satisfies DbStatement;
+    });
+    if (statements.length > 0) await input.adapter.executeStatements(statements);
+  }
 }
 
 async function repairSelfReferences(input: {
@@ -559,75 +692,91 @@ async function repairIdentitySequences(
   }
 }
 
-async function readTargetBatch(input: {
+async function readTargetRowsForSourceBatch(input: {
   adapter: DatabaseAdapter;
   tableName: string;
   columns: TargetColumn[];
   primaryKeyColumns: string[];
-  lastCursor: SqliteMigrationCursor | null;
-  limit: number;
+  sourceRows: Array<Record<string, unknown>>;
 }): Promise<Array<Record<string, unknown>>> {
+  if (input.sourceRows.length === 0) return [];
+  const byName = new Map(input.columns.map((column) => [column.name, column]));
   const params: unknown[] = [];
-  let whereSql = "";
-  if (input.lastCursor) {
-    const cursorValues = input.primaryKeyColumns.map((column) => input.lastCursor![column]);
-    whereSql = ` WHERE (${input.primaryKeyColumns.map(quoteIdentifier).join(", ")})
-                       > (${input.primaryKeyColumns.map(() => "?").join(", ")})`;
-    params.push(...cursorValues);
-  }
-  params.push(input.limit);
+  const predicates = input.sourceRows.map((row) => {
+    const parts = input.primaryKeyColumns.map((columnName) => {
+      const column = byName.get(columnName);
+      if (!column) {
+        throw new SqlitePostgresMigrationError(
+          "SQLITE_PG_MIGRATION_PRIMARY_KEY_COLUMN_MISSING",
+          "目标表缺少校验所需主键列",
+          500,
+          { tableName: input.tableName, column: columnName },
+        );
+      }
+      params.push(convertValue(column, row[columnName]));
+      return `${quoteIdentifier(columnName)} = ?`;
+    });
+    return `(${parts.join(" AND ")})`;
+  });
   return input.adapter.queryMany<Record<string, unknown>>(
     `SELECT ${input.columns.map((column) => quoteIdentifier(column.name)).join(", ")}
-       FROM ${quoteIdentifier(input.tableName)}${whereSql}
-      ORDER BY ${input.primaryKeyColumns.map(quoteIdentifier).join(", ")}
-      LIMIT ?`,
+       FROM ${quoteIdentifier(input.tableName)}
+      WHERE ${predicates.join(" OR ")}
+      ORDER BY ${input.primaryKeyColumns.map(quoteIdentifier).join(", ")}`,
     params,
   );
 }
 
-async function verifyTargetBatches(input: {
+async function verifyTargetAgainstSource(input: {
   adapter: DatabaseAdapter;
-  tableName: string;
+  reader: SqliteMigrationReader;
+  sourceTable: SqliteMigrationTable;
   columns: TargetColumn[];
-  primaryKeyColumns: string[];
-  sourceBatches: CanonicalBatch[];
   batchSize: number;
 }): Promise<{ rowCount: number; checksum: string }> {
-  const targetBatches: CanonicalBatch[] = [];
+  const batches: CanonicalBatch[] = [];
   let cursor: SqliteMigrationCursor | null = null;
   let sequence = 0;
   let rowCount = 0;
   while (true) {
-    const rows = await readTargetBatch({ ...input, lastCursor: cursor, limit: input.batchSize });
-    if (rows.length === 0) break;
-    const checksum = checksumRows(rows, input.columns);
-    targetBatches.push({ batchSequence: sequence, rowCount: rows.length, checksum });
-    rowCount += rows.length;
-    cursor = jsonCursor(rows[rows.length - 1], input.primaryKeyColumns);
-    sequence += 1;
-  }
-
-  if (targetBatches.length !== input.sourceBatches.length) {
-    throw new SqlitePostgresMigrationError(
-      "SQLITE_PG_MIGRATION_BATCH_COUNT_MISMATCH",
-      "PostgreSQL 目标表批次数与 SQLite 源表不一致",
-      409,
-      { tableName: input.tableName },
-    );
-  }
-  for (let index = 0; index < input.sourceBatches.length; index += 1) {
-    const source = input.sourceBatches[index];
-    const target = targetBatches[index];
-    if (source.rowCount !== target.rowCount || source.checksum !== target.checksum) {
+    const sourceBatch = input.reader.readBatch({
+      tableName: input.sourceTable.name,
+      columns: input.sourceTable.columns.map((column) => column.name),
+      primaryKeyColumns: input.sourceTable.primaryKeyColumns,
+      lastCursor: cursor,
+      limit: input.batchSize,
+    });
+    if (sourceBatch.rows.length === 0) break;
+    const targetRows = await readTargetRowsForSourceBatch({
+      adapter: input.adapter,
+      tableName: input.sourceTable.name,
+      columns: input.columns,
+      primaryKeyColumns: input.sourceTable.primaryKeyColumns,
+      sourceRows: sourceBatch.rows,
+    });
+    const canonicalSource = sourceBatch.rows.map((row) => Object.fromEntries(
+      input.columns.map((column) => [column.name, convertValue(column, row[column.name])]),
+    ));
+    const sourceChecksum = checksumRows(canonicalSource, input.columns);
+    const targetChecksum = checksumRows(targetRows, input.columns);
+    if (targetRows.length !== sourceBatch.rows.length || targetChecksum !== sourceChecksum) {
       throw new SqlitePostgresMigrationError(
         "SQLITE_PG_MIGRATION_BATCH_CHECKSUM_MISMATCH",
-        "PostgreSQL 目标批次与 SQLite 源批次内容不一致",
+        "PostgreSQL 目标主键范围与 SQLite 源批次内容不一致",
         409,
-        { tableName: input.tableName, batchSequence: source.batchSequence },
+        { tableName: input.sourceTable.name, batchSequence: sequence },
       );
     }
+    batches.push({
+      batchSequence: sequence,
+      rowCount: sourceBatch.rows.length,
+      checksum: sourceChecksum,
+    });
+    rowCount += sourceBatch.rows.length;
+    cursor = sourceBatch.cursorEnd;
+    sequence += 1;
   }
-  return { rowCount, checksum: checksumBatches(targetBatches) };
+  return { rowCount, checksum: checksumBatches(batches) };
 }
 
 function canonicalBatchesFromCheckpoints(
@@ -734,23 +883,30 @@ export function createSqlitePostgresCopyRuntime(
         columns.map((column) => [column.name, convertValue(column, row[column.name])]),
       ));
       const checksum = checksumRows(canonicalRows, columns);
-const statements = batch.rows.flatMap((row) => [
-  buildUpsertStatement({
-    tableName: sourceTable.name,
-    columns,
-    primaryKeyColumns: sourceTable.primaryKeyColumns,
-    row,
-    deferredSelfColumns: deferredNames,
-  }),
-  buildRowOwnershipStatement({
-    runId: input.claim.runId,
-    tableName: sourceTable.name,
-    columns,
-    primaryKeyColumns: sourceTable.primaryKeyColumns,
-    row,
-    batchSequence,
-  }),
-]);
+      const statements = batch.rows.flatMap((row) => [
+        buildChangeSnapshotStatement({
+          runId: input.claim.runId,
+          tableName: sourceTable.name,
+          columns,
+          primaryKeyColumns: sourceTable.primaryKeyColumns,
+          row,
+          batchSequence,
+        }),
+        buildUpsertStatement({
+          tableName: sourceTable.name,
+          columns,
+          primaryKeyColumns: sourceTable.primaryKeyColumns,
+          row,
+          deferredSelfColumns: deferredNames,
+        }),
+        buildMigratedSnapshotStatement({
+          runId: input.claim.runId,
+          tableName: sourceTable.name,
+          columns,
+          primaryKeyColumns: sourceTable.primaryKeyColumns,
+          row,
+        }),
+      ]);
       copiedRows += batch.rows.length;
       await repository.commitBatch({
         runId: input.claim.runId,
@@ -811,12 +967,17 @@ const statements = batch.rows.flatMap((row) => [
       batchSize: input.batchSize,
     });
     await repairIdentitySequences(adapter, sourceTable.name, columns);
-    const verified = await verifyTargetBatches({
+    await refreshTrackedMigratedRows({
       adapter,
+      runId: input.claim.runId,
       tableName: sourceTable.name,
+      batchSize: input.batchSize,
+    });
+    const verified = await verifyTargetAgainstSource({
+      adapter,
+      reader: input.reader,
+      sourceTable,
       columns,
-      primaryKeyColumns: sourceTable.primaryKeyColumns,
-      sourceBatches: completedBatches,
       batchSize: input.batchSize,
     });
     if (verified.rowCount !== sourceTable.rowCount || verified.checksum !== sourceChecksum) {
@@ -844,10 +1005,15 @@ const statements = batch.rows.flatMap((row) => [
   }): Promise<SqlitePostgresMigrationSnapshot> {
     let snapshot = await repository.getSnapshotByRunId(input.runId);
     if (snapshot.run.status === "completed") return snapshot;
-    if (!snapshot.run.targetWasEmpty) {
+    const execution = (snapshot.run.plan as {
+      execution?: { conflictPolicy?: "abort" | "overwrite-with-backup" };
+    }).execution;
+    if (!snapshot.run.targetWasEmpty
+      && (!snapshot.run.allowNonEmptyTarget
+        || execution?.conflictPolicy !== "overwrite-with-backup")) {
       throw new SqlitePostgresMigrationError(
-        "SQLITE_PG_MIGRATION_NON_EMPTY_APPLY_NOT_ENABLED",
-        "当前复制执行切片仅允许写入预检时为空的 PostgreSQL 目标库",
+        "SQLITE_PG_MIGRATION_NON_EMPTY_CONFLICT_POLICY_REQUIRED",
+        "非空目标 apply 需要 allowNonEmptyTarget 与 overwrite-with-backup 冲突策略",
         409,
       );
     }
@@ -902,37 +1068,6 @@ const statements = batch.rows.flatMap((row) => [
     }
   }
 
-  async function recomputeSourceBatches(input: {
-    reader: SqliteMigrationReader;
-    sourceTable: SqliteMigrationTable;
-    columns: TargetColumn[];
-    batchSize: number;
-  }): Promise<CanonicalBatch[]> {
-    const batches: CanonicalBatch[] = [];
-    let cursor: SqliteMigrationCursor | null = null;
-    let sequence = 0;
-    while (true) {
-      const batch = input.reader.readBatch({
-        tableName: input.sourceTable.name,
-        columns: input.sourceTable.columns.map((column) => column.name),
-        primaryKeyColumns: input.sourceTable.primaryKeyColumns,
-        lastCursor: cursor,
-        limit: input.batchSize,
-      });
-      if (batch.rows.length === 0) return batches;
-      const canonicalRows = batch.rows.map((row) => Object.fromEntries(
-        input.columns.map((column) => [column.name, convertValue(column, row[column.name])]),
-      ));
-      batches.push({
-        batchSequence: sequence,
-        rowCount: batch.rows.length,
-        checksum: checksumRows(canonicalRows, input.columns),
-      });
-      cursor = batch.cursorEnd;
-      sequence += 1;
-    }
-  }
-
   async function verify(input: {
     runId: string;
     snapshotPath: string;
@@ -958,21 +1093,14 @@ const statements = batch.rows.flatMap((row) => [
           }
           const target = await inspectTargetTable(adapter, sourceTable.name);
           const columns = resolveColumns(sourceTable, target);
-          const sourceBatches = await recomputeSourceBatches({
+          const targetResult = await verifyTargetAgainstSource({
+            adapter,
             reader,
             sourceTable,
             columns,
             batchSize,
           });
-          const sourceChecksum = checksumBatches(sourceBatches);
-          const targetResult = await verifyTargetBatches({
-            adapter,
-            tableName: sourceTable.name,
-            columns,
-            primaryKeyColumns: sourceTable.primaryKeyColumns,
-            sourceBatches,
-            batchSize,
-          });
+          const sourceChecksum = targetResult.checksum;
           const matched = targetResult.rowCount === sourceTable.rowCount
             && targetResult.checksum === sourceChecksum;
           tables.push({

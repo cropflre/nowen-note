@@ -12,6 +12,7 @@ type CliOptions = {
   backupPath?: string;
   idempotencyKey?: string;
   allowNonEmptyTarget: boolean;
+  conflictPolicy: "abort" | "overwrite-with-backup";
   batchSize?: number;
 };
 
@@ -29,21 +30,30 @@ function usage(): string {
     "  --dry-run                  Run read-only preflight; never writes target data",
     "  --apply                    Copy and verify all planned business tables",
     "  --verify                   Independently re-read the frozen backup and verify PostgreSQL",
-    "  --rollback                 Delete only rows owned by an empty-target migration run",
+    "  --rollback                 Restore updated rows and delete inserted rows owned by the run",
     "  --source <path>            Live SQLite source used only for preflight (defaults to DB_PATH)",
     "  --backup <path>            Verified frozen SQLite backup used as the execution source",
     "  --idempotency-key <key>    Stable 8–128 character migration key for apply/verify/rollback",
     "  --batch-size <1..2000>     Rows per transactional upsert/checkpoint batch (default 200)",
-    "  --allow-non-empty-target   Allow planning against non-empty PostgreSQL; apply remains blocked",
+    "  --allow-non-empty-target   Permit non-empty PostgreSQL when an explicit conflict policy is set",
+    "  --conflict-policy <mode>  abort (default) or overwrite-with-backup",
     "  --help                     Show this help",
     "",
-    "Rollback currently supports only runs whose PostgreSQL target was empty at preflight.",
+    "Non-empty apply requires --allow-non-empty-target --conflict-policy overwrite-with-backup.",
   ].join("\n");
 }
 
 function valueAfter(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function parseConflictPolicy(value: string | undefined): "abort" | "overwrite-with-backup" {
+  const normalized = value || "abort";
+  if (normalized !== "abort" && normalized !== "overwrite-with-backup") {
+    throw new Error("--conflict-policy must be abort or overwrite-with-backup.");
+  }
+  return normalized;
 }
 
 function parseBatchSize(value: string | undefined): number | undefined {
@@ -85,12 +95,18 @@ function parseArgs(args: string[]): CliOptions {
     && !idempotencyKey) {
     throw new Error("--idempotency-key is required for apply, verify, and rollback.");
   }
+  const allowNonEmptyTarget = args.includes("--allow-non-empty-target");
+  const conflictPolicy = parseConflictPolicy(valueAfter(args, "--conflict-policy"));
+  if (conflictPolicy === "overwrite-with-backup" && !allowNonEmptyTarget) {
+    throw new Error("overwrite-with-backup requires --allow-non-empty-target.");
+  }
   return {
     mode,
     sourcePath,
     backupPath,
     idempotencyKey,
-    allowNonEmptyTarget: args.includes("--allow-non-empty-target"),
+    allowNonEmptyTarget,
+    conflictPolicy,
     batchSize: parseBatchSize(valueAfter(args, "--batch-size")),
   };
 }
@@ -115,6 +131,7 @@ async function main(): Promise<void> {
         sourcePath: options.sourcePath!,
         backupPath: options.backupPath,
         allowNonEmptyTarget: options.allowNonEmptyTarget,
+        conflictPolicy: options.conflictPolicy,
         batchSize: options.batchSize,
       });
       console.log(JSON.stringify(report, null, 2));
@@ -127,6 +144,7 @@ async function main(): Promise<void> {
         sourcePath: options.sourcePath!,
         backupPath: options.backupPath!,
         allowNonEmptyTarget: options.allowNonEmptyTarget,
+        conflictPolicy: options.conflictPolicy,
         batchSize: options.batchSize,
       });
       console.log(JSON.stringify(result, null, 2));

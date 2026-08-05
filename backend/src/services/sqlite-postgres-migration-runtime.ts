@@ -17,6 +17,8 @@ import {
   type SqlitePostgresCopyVerificationReport,
 } from "./sqlite-postgres-copy-runtime";
 
+export type SqlitePostgresConflictPolicy = "abort" | "overwrite-with-backup";
+
 export type SqlitePostgresMigrationRisk = {
   code: string;
   message: string;
@@ -61,6 +63,7 @@ export type SqlitePostgresMigrationDryRunReport = {
       batchSize: number;
       source: "verified-backup";
       writes: "transactional-upsert-checkpoint";
+      conflictPolicy: SqlitePostgresConflictPolicy;
     };
   };
   blockers: SqlitePostgresMigrationRisk[];
@@ -224,6 +227,7 @@ export function createSqlitePostgresMigrationRuntime(
     sourcePath: string;
     backupPath?: string | null;
     allowNonEmptyTarget?: boolean;
+    conflictPolicy?: SqlitePostgresConflictPolicy;
     batchSize?: number;
   }): Promise<SqlitePostgresMigrationDryRunReport> {
     const source = inspectSource(input.sourcePath);
@@ -232,6 +236,7 @@ export function createSqlitePostgresMigrationRuntime(
     const blockers: SqlitePostgresMigrationRisk[] = [];
     const warnings: SqlitePostgresMigrationRisk[] = [];
     const batchSize = normalizeBatchSize(input.batchSize);
+    const conflictPolicy = input.conflictPolicy || "abort";
 
     if (!source.integrityOk) {
       blockers.push({
@@ -268,6 +273,12 @@ export function createSqlitePostgresMigrationRuntime(
         message: "目标 PostgreSQL 含有业务数据；默认禁止覆盖非空目标库",
         details: { totalBusinessRows: target.totalBusinessRows },
       });
+    } else if (!target.targetWasEmpty && conflictPolicy !== "overwrite-with-backup") {
+      blockers.push({
+        code: "POSTGRES_NON_EMPTY_CONFLICT_POLICY_REQUIRED",
+        message: "非空目标迁移必须显式选择 overwrite-with-backup 冲突策略",
+        details: { conflictPolicy },
+      });
     }
     if (!backup) {
       blockers.push({
@@ -288,11 +299,12 @@ export function createSqlitePostgresMigrationRuntime(
         details: { walSize: source.walSize },
       });
     }
-    if (input.allowNonEmptyTarget && !target.targetWasEmpty) {
+    if (input.allowNonEmptyTarget && !target.targetWasEmpty
+      && conflictPolicy === "overwrite-with-backup") {
       warnings.push({
-        code: "POSTGRES_NON_EMPTY_OVERRIDE",
-        message: "已显式允许非空目标库进行规划；当前 apply 执行器仍只开放空目标库写入",
-        details: { totalBusinessRows: target.totalBusinessRows },
+        code: "POSTGRES_NON_EMPTY_OVERWRITE_WITH_BACKUP",
+        message: "已启用非空目标覆盖；updated 行会保存完整原值快照并受并发修改保护",
+        details: { totalBusinessRows: target.totalBusinessRows, conflictPolicy },
       });
     }
     if (source.excludedTables.length > 0) {
@@ -372,6 +384,7 @@ export function createSqlitePostgresMigrationRuntime(
           batchSize,
           source: "verified-backup",
           writes: "transactional-upsert-checkpoint",
+          conflictPolicy,
         },
       },
       blockers,
@@ -384,6 +397,7 @@ export function createSqlitePostgresMigrationRuntime(
     sourcePath: string;
     backupPath: string;
     allowNonEmptyTarget?: boolean;
+    conflictPolicy?: SqlitePostgresConflictPolicy;
     batchSize?: number;
   }): Promise<{
     report: SqlitePostgresMigrationDryRunReport;
@@ -442,6 +456,7 @@ export function createSqlitePostgresMigrationRuntime(
       sourcePath: string;
       backupPath: string;
       allowNonEmptyTarget?: boolean;
+      conflictPolicy?: SqlitePostgresConflictPolicy;
       batchSize?: number;
       maxBatches?: number | null;
     }): Promise<{

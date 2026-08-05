@@ -143,3 +143,34 @@ npm run migrate:sqlite-to-postgres -- \
 ```
 
 Rollback is resumable and idempotent. A run created before ownership tracking, or a run planned against a non-empty target, is rejected rather than guessing a deletion range. Restoring overwritten pre-existing rows remains disabled until original-row snapshots and conflict policies are complete.
+
+
+## Non-empty target recovery
+
+A non-empty PostgreSQL target remains opt-in and requires both controls:
+
+```bash
+npm run migrate:sqlite-to-postgres -- \
+  --apply \
+  --source /path/to/nowen-note.db \
+  --backup /path/to/nowen-note.backup.db \
+  --idempotency-key migration-2026-08-05 \
+  --allow-non-empty-target \
+  --conflict-policy overwrite-with-backup
+```
+
+For every source primary key, one PostgreSQL statement locks the existing target row,
+performs the upsert, and records the change in the same transaction:
+
+- `inserted`: the target row did not exist before migration;
+- `updated`: the target row existed and was changed; its full typed `originalRow` is retained;
+- `unchanged`: the existing target row already matched the migrated result.
+
+The tracked `migratedRow` is the exact PostgreSQL row after write and post-copy repairs.
+Rollback deletes inserted rows, restores updated rows with `jsonb_populate_record`, and leaves
+unchanged rows untouched. Every delete or restore is guarded by the exact migrated snapshot;
+if a user or another process changes the row after migration, rollback stops with
+`SQLITE_PG_MIGRATION_ROLLBACK_CONCURRENT_MODIFICATION` instead of overwriting newer data.
+
+Verification is scoped to the source primary-key set, so unrelated rows already present in the
+non-empty target are preserved and excluded from source parity checks.
