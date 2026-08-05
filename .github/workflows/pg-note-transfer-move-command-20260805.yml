@@ -48,10 +48,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat backend/scripts/.move-command-v2.gz.b64.part-* \
-            | base64 --decode \
-            | gzip --decompress \
-            > /tmp/implement-note-transfer-move.py
+          cat backend/scripts/.move-command-v3.py.gz.part-* > /tmp/implement-note-transfer-move.py.gz
+          echo "1d8d63da9931a1022bafc8b0f212956662c0f7816be7061338ce40e1eb67ce1d  /tmp/implement-note-transfer-move.py.gz" | sha256sum --check
+          gzip --test /tmp/implement-note-transfer-move.py.gz
+          gzip --decompress --stdout /tmp/implement-note-transfer-move.py.gz > /tmp/implement-note-transfer-move.py
           echo "74cca103ac5bb334b54c332819b246327a535e4db660d3b1b018ccee88b6dd43  /tmp/implement-note-transfer-move.py" | sha256sum --check
           python3 -m py_compile /tmp/implement-note-transfer-move.py
           python3 /tmp/implement-note-transfer-move.py
@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f .github/workflows/pg-note-transfer-move-command-20260805.yml
-          rm -f backend/scripts/.move-command*.gz.b64.part-*
+          rm -f backend/scripts/.move-command*.part-*
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
