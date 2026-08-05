@@ -99,6 +99,112 @@ jobs:
                 continue
               fi
 
+              if [ "$path" = "backend/src/routes/task-reminders.ts" ]; then
+                cp "/tmp/pg-merge/ours/$path" "$path"
+                python3 - <<'PY'
+          from pathlib import Path
+
+          route = Path("backend/src/routes/task-reminders.ts")
+          s = route.read_text()
+          old_import = '''  TaskReminderDueCandidate,
+            TaskReminderOverviewRow,
+          } from "../repositories/taskReminderOperationsRepository";
+          '''
+          new_import = '''  TaskReminderDueCandidate,
+            TaskReminderOverviewRow,
+            TaskReminderScheduleRow,
+          } from "../repositories/taskReminderOperationsRepository";
+          '''
+          if s.count(old_import) != 1: raise SystemExit("task reminder type import anchor mismatch")
+          s = s.replace(old_import, new_import, 1)
+          anchor = '''taskReminders.post("/test-now", (c) => {
+            const result = scanDueReminders();
+            return c.json({ count: result.length, reminders: result });
+          });
+
+          '''
+          schedule = '''// GET /schedule -- all future reminders for native client scheduling.
+          taskReminders.get("/schedule", async (c) => {
+            const userId = c.req.header("X-User-Id");
+            if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+            const rows = await taskReminderOperationsRepository.listScheduleAsync(userId);
+            const now = Date.now();
+            const reminders = rows.flatMap((row: TaskReminderScheduleRow) => {
+              if (toIntegerBoolean(row.enabled) !== 1 || toIntegerBoolean(row.isCompleted) === 1) return [];
+              if (row.workspaceId && !getUserWorkspaceRole(row.workspaceId, userId)) return [];
+              const reminderAt = resolveReminderAt(row);
+              if (!reminderAt) return [];
+              const reminderMs = new Date(reminderAt).getTime();
+              if (!Number.isFinite(reminderMs) || reminderMs <= now) return [];
+              return [{
+                reminderId: row.reminderId,
+                taskId: row.taskId,
+                taskTitle: row.taskTitle,
+                reminderAt,
+                dueAt: row.dueAt,
+                dueDate: row.dueDate,
+                snoozedUntil: row.snoozedUntil,
+                offsetMinutes: Number(row.offsetMinutes || 0),
+              }];
+            }).sort((a, b) => new Date(a.reminderAt).getTime() - new Date(b.reminderAt).getTime())
+              .slice(0, 1000);
+
+            return c.json({ reminders });
+          });
+
+          '''
+          if s.count(anchor) != 1: raise SystemExit("task reminder test-now anchor mismatch")
+          route.write_text(s.replace(anchor, anchor + schedule, 1))
+
+          repo = Path("backend/src/repositories/taskReminderOperationsRepository.ts")
+          r = repo.read_text()
+          interface_anchor = '''export interface TaskReminderDueCandidate {
+            reminderId: string;
+            taskId: string;
+            userId: string;
+            offsetMinutes: number;
+            lastNotifiedAt: string | null;
+            snoozedUntil: string | null;
+            taskTitle: string;
+            dueAt: string | null;
+            dueDate: string | null;
+            isCompleted: number;
+          }
+
+          '''
+          interface_extra = '''export interface TaskReminderScheduleRow extends TaskReminderOverviewRow {
+            workspaceId: string | null;
+          }
+
+          '''
+          if r.count(interface_anchor) != 1: raise SystemExit("schedule interface anchor mismatch")
+          r = r.replace(interface_anchor, interface_anchor + interface_extra, 1)
+          method_anchor = '''  /** SQLite compatibility path used by the existing synchronous notification scanner. */
+            listDueCandidates(): TaskReminderDueCandidate[] {
+          '''
+          method = '''  async listScheduleAsync(userId: string): Promise<TaskReminderScheduleRow[]> {
+              return getDatabaseAdapter().queryMany<TaskReminderScheduleRow>(
+                `SELECT r.id AS "reminderId", r."taskId", r."offsetMinutes", r.enabled,
+                        r."lastNotifiedAt", r."snoozedUntil", t.title AS "taskTitle",
+                        t.status AS "taskStatus", t."isCompleted", t."dueDate", t."dueAt",
+                        t."workspaceId"
+                   FROM task_reminders r
+                   JOIN tasks t ON t.id = r."taskId"
+                  WHERE r."userId" = ?
+                  ORDER BY r."createdAt" DESC`,
+                [userId],
+              );
+            },
+
+          '''
+          if r.count(method_anchor) != 1: raise SystemExit("schedule repository method anchor mismatch")
+          repo.write_text(r.replace(method_anchor, method + method_anchor, 1))
+          PY
+                git add "$path" backend/src/repositories/taskReminderOperationsRepository.ts
+                continue
+              fi
+
               set +e
               git merge-file -p "/tmp/pg-merge/ours/$path" "/tmp/pg-merge/base/$path" "/tmp/pg-merge/theirs/$path" > "/tmp/pg-merge/result/$path"
               file_status=$?
@@ -110,9 +216,7 @@ jobs:
           import re
           p = Path("/tmp/pg-merge/result/backend/src/routes/attachments.ts")
           s = p.read_text()
-          pattern = re.compile(
-              r'<<<<<<<[^\n]*\n\s*return hasCompleteSignature \|\| verifiedUserId\n\s*\? hardenScopedResponse\(response\)\n\s*: response;\n=======\n\s*return hardenScopedResponse\(response\);\n>>>>>>>[^\n]*\n'
-          )
+          pattern = re.compile(r'<<<<<<<[^\n]*\n\s*return hasCompleteSignature \|\| verifiedUserId\n\s*\? hardenScopedResponse\(response\)\n\s*: response;\n=======\n\s*return hardenScopedResponse\(response\);\n>>>>>>>[^\n]*\n')
           s, count = pattern.subn('  return hardenScopedResponse(response);\n', s)
           if count != 1 or '<<<<<<<' in s: raise SystemExit("attachment conflict block mismatch")
           p.write_text(s)
