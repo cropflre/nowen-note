@@ -1,0 +1,67 @@
+name: Apply three-column folder selection
+
+on:
+  push:
+    branches:
+      - fix/v1.4.6-three-column-folder-selection
+    paths:
+      - scripts/tmp-apply-three-column-folder-selection.mjs
+      - .github/workflows/tmp-apply-three-column-folder-selection.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.4.6-three-column-folder-selection
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply source patch
+        run: node scripts/tmp-apply-three-column-folder-selection.mjs
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Verify backend direct and recursive notebook scopes
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/notebook-note-scope.test.ts
+
+      - name: Type-check backend
+        working-directory: backend
+        run: npm run build:tsc
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verify three-column folder interaction contract
+        working-directory: frontend
+        run: npm run test:run -- src/lib/__tests__/knowledgeTreeSidebarContract.test.ts
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+
+      - name: Commit verified implementation
+        run: |
+          git rm scripts/tmp-apply-three-column-folder-selection.mjs
+          git rm .github/workflows/tmp-apply-three-column-folder-selection.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/lib/notebookNoteScope.ts \
+                  backend/src/routes/notes.ts \
+                  backend/tests/notebook-note-scope.test.ts \
+                  frontend/src/components/KnowledgeTreePanel.tsx \
+                  frontend/src/components/NoteList.tsx \
+                  frontend/src/lib/__tests__/knowledgeTreeSidebarContract.test.ts
+          git commit -m "fix(navigation): separate folder selection from disclosure"
+          git push origin HEAD:fix/v1.4.6-three-column-folder-selection
