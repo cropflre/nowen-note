@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("backend/tests/note-transfer-preview-runtime-pg.test.ts")
           text = path.read_text()
@@ -33,23 +34,31 @@ jobs:
           if import_line not in text:
             text = text.replace(import_anchor, import_anchor + import_line, 1)
 
-          old_route = '''    const app = new Hono();
-            app.route(
-              "/api/note-transfers",
-              createNoteTransfersRuntimeRouter(adapter),
-            );'''
-          new_route = '''    const app = new Hono();
-            const effects = createNoteTransferEffectsRuntime(adapter, {
-              publishRealtime: async () => {},
-              retryBaseSeconds: 0,
-            });
-            app.route(
-              "/api/note-transfers",
-              createNoteTransfersRuntimeRouter(adapter, { effects }),
-            );'''
-          if text.count(old_route) != 1:
-            raise SystemExit("router setup anchor mismatch")
-          path.write_text(text.replace(old_route, new_route, 1))
+          pattern = re.compile(
+            r'(?P<indent>^[ \t]*)const app = new Hono\(\);\s*'
+            r'app\.route\(\s*'
+            r'"/api/note-transfers",\s*'
+            r'createNoteTransfersRuntimeRouter\(adapter\),\s*'
+            r'\);',
+            re.M,
+          )
+          def replacement(match):
+            indent = match.group("indent")
+            return (
+              f"{indent}const app = new Hono();\n"
+              f"{indent}const effects = createNoteTransferEffectsRuntime(adapter, {{\n"
+              f"{indent}  publishRealtime: async () => {{}},\n"
+              f"{indent}  retryBaseSeconds: 0,\n"
+              f"{indent}}});\n"
+              f"{indent}app.route(\n"
+              f"{indent}  \"/api/note-transfers\",\n"
+              f"{indent}  createNoteTransfersRuntimeRouter(adapter, {{ effects }}),\n"
+              f"{indent});"
+            )
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+            raise SystemExit("router setup pattern mismatch")
+          path.write_text(text)
           PY
           git diff --check
       - name: Commit regression dependency
