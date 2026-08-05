@@ -1,4 +1,4 @@
-# schema-parity-parser-v2-copy-regression-updated
+# schema-parity-parser-v2-copy-regression-regex
 name: PostgreSQL Note Transfer Move Command 20260805
 
 on:
@@ -58,14 +58,16 @@ jobs:
           python3 /tmp/implement-note-transfer-move.py
           python3 - <<'PY'
           from pathlib import Path
+          import re
           path = Path("backend/tests/note-transfer-commit-runtime-pg.test.ts")
           text = path.read_text()
-          old = '''    await assert.rejects(
-              runtime.commit({ actorUserId: ACTOR, idempotencyKey: "transfer-atomic-commit-move" }),
-              (error: any) => error?.code === "NOTE_TRANSFER_MOVE_COMMIT_PENDING",
-            );
-          '''
-          new = '''    const moveCommit = await runtime.commit({
+          pattern = re.compile(
+              r'\s{4}await assert\.rejects\(\s*'
+              r'runtime\.commit\(\{ actorUserId: ACTOR, idempotencyKey: "transfer-atomic-commit-move" \}\),\s*'
+              r'\(error: any\) => error\?\.code === "NOTE_TRANSFER_MOVE_COMMIT_PENDING",\s*'
+              r'\);\n'
+          )
+          replacement = '''    const moveCommit = await runtime.commit({
               actorUserId: ACTOR,
               idempotencyKey: "transfer-atomic-commit-move",
             });
@@ -80,9 +82,10 @@ jobs:
               1,
             );
           '''
-          if text.count(old) != 1:
-              raise SystemExit("move commit regression assertion anchor mismatch")
-          path.write_text(text.replace(old, new, 1))
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit("move commit regression assertion pattern mismatch")
+          path.write_text(text)
           PY
           test -f backend/src/db/postgres/migrations/0021_note_transfer_move_source_deletion.sql
           test -f backend/src/repositories/noteTransferMoveDeletionRepository.ts
