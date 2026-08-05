@@ -1,0 +1,105 @@
+name: PostgreSQL SQLite Rollback Command v4
+
+on:
+  push:
+    branches:
+      - feat/pg-sqlite-rollback-20260805
+    paths:
+      - ".github/workflows/pg-sqlite-rollback-command-v4.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pg-sqlite-rollback-20260805
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Merge latest migration baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin pg-migration-unified
+          git merge --no-edit origin/pg-migration-unified
+
+      - name: Apply rollback implementation
+        run: |
+          python backend/scripts/apply-pg-rollback-slice.py
+          python backend/scripts/apply-pg-rollback-test-expectation.py
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript and database boundaries
+        working-directory: backend
+        run: |
+          npm run build:tsc -- --noEmit
+          npm run audit:sqlite-boundaries
+          npm run audit:pg-schema-parity
+
+      - name: PostgreSQL migration rollback regressions
+        working-directory: backend
+        run: |
+          node --import tsx --test --test-concurrency=1 \
+            tests/postgres-migrations.test.ts \
+            tests/sqlite-postgres-migration-runtime-pg.test.ts \
+            tests/sqlite-postgres-rollback-runtime-pg.test.ts
+
+      - name: CLI and production bundle
+        working-directory: backend
+        run: |
+          npm run migrate:sqlite-to-postgres -- --help
+          npm run build
+          test -f dist/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql
+
+      - name: Commit implementation
+        run: |
+          git rm -f \
+            .github/workflows/pg-sqlite-rollback-command.yml \
+            .github/workflows/pg-sqlite-rollback-command-v2.yml \
+            .github/workflows/pg-sqlite-rollback-command-v3.yml \
+            .github/workflows/pg-sqlite-rollback-command-v4.yml \
+            backend/scripts/apply-pg-rollback-slice.py \
+            backend/scripts/apply-pg-rollback-test-expectation.py
+          git add \
+            .github/workflows/pg-sqlite-data-migration.yml \
+            backend/docs/sqlite-to-postgres-migration.md \
+            backend/scripts/migrate-sqlite-to-postgres.ts \
+            backend/src/db/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql \
+            backend/src/services/sqlite-postgres-copy-runtime.ts \
+            backend/src/services/sqlite-postgres-migration-runtime.ts \
+            backend/src/services/sqlite-postgres-rollback-runtime.ts \
+            backend/tests/postgres-migrations.test.ts \
+            backend/tests/sqlite-postgres-rollback-runtime-pg.test.ts
+          git commit -m "feat(pg): add resumable empty-target migration rollback"
+          git push origin HEAD:feat/pg-sqlite-rollback-20260805
