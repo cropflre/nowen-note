@@ -12,6 +12,8 @@ export type NoteTransferOperationStatus =
   | "prepared"
   | "staging"
   | "committing"
+  | "target_committed"
+  | "source_deleting"
   | "completed"
   | "failed"
   | "cancelled";

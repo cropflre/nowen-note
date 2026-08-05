@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
 import { memberQueryService } from "../queries/memberQueryService.js";
+import { knowledgeCapabilitiesRepository } from "../repositories/knowledgeCapabilitiesRepository.js";
 import { findNearestKnowledgeDenial } from "./knowledgeDenyPolicy.js";
 import {
   findNearestRestrictedKnowledgePolicy,
@@ -245,9 +246,11 @@ function legacyAccess(
   }
 
   if (!node.workspaceId) return permissionToAccess(null);
-  const workspaceRole = db.prepare(
-    "SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?",
-  ).get(node.workspaceId, userId) as { role: string } | undefined;
+  const workspaceRole = knowledgeCapabilitiesRepository.getWorkspaceRole(
+    db,
+    node.workspaceId,
+    userId,
+  );
   return permissionToAccess(workspaceRole?.role);
 }
 
@@ -261,15 +264,14 @@ export function resolveKnowledgeNodeAccess(
   if (!node || node.isDeleted) return noAccess(nodeId);
 
   const ownsPersonalNode = !node.workspaceId && node.userId === userId;
-  const workspaceOwner = node.workspaceId
-    ? db.prepare("SELECT ownerId FROM workspaces WHERE id = ?").get(node.workspaceId) as { ownerId: string } | undefined
-    : undefined;
+  const workspaceOwnerId = node.workspaceId
+    ? knowledgeCapabilitiesRepository.getWorkspaceOwnerId(db, node.workspaceId)
+    : null;
   const workspaceRole = node.workspaceId
-    ? db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-        .get(node.workspaceId, userId) as { role: string } | undefined
+    ? knowledgeCapabilitiesRepository.getWorkspaceRole(db, node.workspaceId, userId)
     : undefined;
   const administersWorkspace = workspaceRole?.role === "owner" || workspaceRole?.role === "admin";
-  if (ownsPersonalNode || workspaceOwner?.ownerId === userId || administersWorkspace) {
+  if (ownsPersonalNode || workspaceOwnerId === userId || administersWorkspace) {
     return {
       nodeId,
       rolePreset: "admin",

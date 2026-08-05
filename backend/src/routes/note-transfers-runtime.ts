@@ -9,6 +9,10 @@ import { createNoteTransferAttachmentStagingRuntime } from "../services/note-tra
 import { createNoteTransferCommitRuntime } from "../services/note-transfer-commit-runtime";
 import { createNoteTransferCleanupRuntime } from "../services/note-transfer-cleanup-runtime";
 import {
+  createNoteTransferMoveDeletionRuntime,
+  type NoteTransferMoveDeletionRuntime,
+} from "../services/note-transfer-move-deletion-runtime";
+import {
   createNoteTransferEffectsRuntime,
   type NoteTransferEffectsRuntime,
 } from "../services/note-transfer-effects-runtime";
@@ -88,7 +92,10 @@ function errorResponse(c: Context, error: unknown): Response {
 
 export default function createNoteTransfersRuntimeRouter(
   adapter?: DatabaseAdapter,
-  options: { effects?: NoteTransferEffectsRuntime } = {},
+  options: {
+    effects?: NoteTransferEffectsRuntime;
+    moveDeletion?: NoteTransferMoveDeletionRuntime;
+  } = {},
 ) {
   const app = new Hono();
   const runtime = createNoteTransferPreviewRuntime(adapter);
@@ -97,6 +104,8 @@ export default function createNoteTransfersRuntimeRouter(
   const commitRuntime = createNoteTransferCommitRuntime(adapter, { operations });
   const cleanupRuntime = createNoteTransferCleanupRuntime(adapter, { operations });
   const effectsRuntime = options.effects || createNoteTransferEffectsRuntime(adapter);
+  const moveDeletionRuntime = options.moveDeletion
+    || createNoteTransferMoveDeletionRuntime(adapter);
 
   app.post("/preview", async (c) => {
     c.header("Cache-Control", "private, no-store");
@@ -239,6 +248,7 @@ export default function createNoteTransfersRuntimeRouter(
         idempotencyKey: c.req.param("idempotencyKey"),
       });
       effectsRuntime.wake();
+      moveDeletionRuntime.wake();
       return c.json(result, result.reused ? 200 : 201);
     } catch (error) {
       return errorResponse(c, error);
@@ -252,6 +262,23 @@ export default function createNoteTransfersRuntimeRouter(
 
     try {
       const result = await effectsRuntime.resume({
+        actorUserId: c.req.header("X-User-Id") || "",
+        idempotencyKey: c.req.param("idempotencyKey"),
+      });
+      if (result.summary.complete) moveDeletionRuntime.wake();
+      return c.json(result, result.summary.complete ? 200 : 202);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/operations/:idempotencyKey/source-deletion/resume", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const credentialError = rejectNonInteractiveCredential(c);
+    if (credentialError) return credentialError;
+
+    try {
+      const result = await moveDeletionRuntime.resume({
         actorUserId: c.req.header("X-User-Id") || "",
         idempotencyKey: c.req.param("idempotencyKey"),
       });
@@ -289,7 +316,7 @@ export default function createNoteTransfersRuntimeRouter(
     if (credentialError) return credentialError;
     return c.json(
       {
-        error: "PostgreSQL 笔记转移复制链路已支持分阶段提交；统一执行入口将在 move 删除与副作用收口后开放",
+        error: "PostgreSQL 笔记复制与移动分阶段链路已完成；统一执行入口将在正式编排收口后开放",
         code: "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING",
         issue: 249,
       },

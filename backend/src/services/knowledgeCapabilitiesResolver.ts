@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
 import { memberQueryService } from "../queries/memberQueryService.js";
+import { knowledgeCapabilitiesRepository } from "../repositories/knowledgeCapabilitiesRepository.js";
 import { findNearestRestrictedKnowledgePolicy } from "./knowledgeAccessPolicy.js";
 import { findNearestKnowledgeDenial } from "./knowledgeDenyPolicy.js";
 import {
@@ -126,9 +127,7 @@ function legacyPermission(
 }
 
 function workspaceOwnerId(db: Database.Database, workspaceId: string): string | null {
-  return ((db.prepare("SELECT ownerId FROM workspaces WHERE id = ?").get(workspaceId) as
-    | { ownerId: string }
-    | undefined)?.ownerId) || null;
+  return knowledgeCapabilitiesRepository.getWorkspaceOwnerId(db, workspaceId);
 }
 
 function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) {
@@ -144,9 +143,11 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) 
   }
 
   if (!node.workspaceId) return legacyPermission(null);
-  const workspaceRole = db.prepare(
-    "SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?",
-  ).get(node.workspaceId, userId) as { role: string } | undefined;
+  const workspaceRole = knowledgeCapabilitiesRepository.getWorkspaceRole(
+    db,
+    node.workspaceId,
+    userId,
+  );
   return legacyPermission(workspaceRole?.role);
 }
 
@@ -172,8 +173,7 @@ export function resolveKnowledgeNodeAccess(
   const ownsPersonalNode = !node.workspaceId && node.userId === userId;
   const ownsWorkspace = !!node.workspaceId && workspaceOwnerId(db, node.workspaceId) === userId;
   const workspaceRole = node.workspaceId
-    ? db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-        .get(node.workspaceId, userId) as { role: string } | undefined
+    ? knowledgeCapabilitiesRepository.getWorkspaceRole(db, node.workspaceId, userId)
     : undefined;
   const administersWorkspace = workspaceRole?.role === "owner" || workspaceRole?.role === "admin";
   if (ownsPersonalNode || ownsWorkspace || administersWorkspace) {
