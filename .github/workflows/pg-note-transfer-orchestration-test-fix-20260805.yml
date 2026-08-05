@@ -1,0 +1,50 @@
+name: PostgreSQL Note Transfer Orchestration Test Fix 20260805
+
+on:
+  push:
+    branches: [feat/pg-note-transfer-orchestration-20260805]
+    paths:
+      - ".github/workflows/pg-note-transfer-orchestration-test-fix-20260805.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pg-note-transfer-orchestration-20260805
+          fetch-depth: 0
+      - name: Isolate orchestration test IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("backend/tests/note-transfer-orchestration-runtime-pg.test.ts")
+          text = path.read_text()
+          replacements = {
+            "11111111-1111-4111-8111-111111111111": "a1010101-1010-4101-8101-010101010101",
+            "22222222-2222-4222-8222-222222222222": "a2020202-2020-4202-8202-020202020202",
+            "33333333-3333-4333-8333-333333333333": "a3030303-3030-4303-8303-030303030303",
+            "44444444-4444-4444-8444-444444444444": "a4040404-4040-4404-8404-040404040404",
+            "55555555-5555-4555-8555-555555555555": "a5050505-5050-4505-8505-050505050505",
+          }
+          for old, new in replacements.items():
+            if text.count(old) != 1:
+              raise SystemExit(f"test ID anchor mismatch: {old}")
+            text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Commit test isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/tests/note-transfer-orchestration-runtime-pg.test.ts
+          git commit -m "test(pg): isolate orchestration fixtures"
+          git push origin HEAD:feat/pg-note-transfer-orchestration-20260805
