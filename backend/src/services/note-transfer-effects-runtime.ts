@@ -84,12 +84,13 @@ export function createNoteTransferEffectsRuntime(
       `INSERT INTO audit_logs (
          id, userId, category, action, level, targetType, targetId,
          details, ip, userAgent
-       ) VALUES (?, ?, 'note-transfer', 'copy_completed', 'info',
+       ) VALUES (?, ?, 'note-transfer', ?, 'info',
                  'note-transfer-operation', ?, ?, '', 'postgres-runtime')
        ON CONFLICT (id) DO NOTHING`,
       [
         claim.eventKey,
         claim.actorUserId,
+        claim.payload.mode === "move" ? "move_target_committed" : "copy_completed",
         claim.operationId,
         JSON.stringify(claim.payload).slice(0, 5_000),
       ],

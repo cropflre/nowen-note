@@ -58,7 +58,7 @@ export type NoteTransferCommitTargetTag = {
 
 export type NoteTransferCommitResult = {
   operationId: string;
-  mode: "copy";
+  mode: "copy" | "move";
   sourceNoteCount: number;
   targetWorkspaceId: string | null;
   targetNotebookId: string;
@@ -263,7 +263,9 @@ export function createNoteTransferCommitRepository(adapter?: DatabaseAdapter) {
         WHERE userId = ? AND idempotencyKey = ?`,
       [actorUserId, idempotencyKey],
     );
-    if (row?.status !== "completed") return null;
+    if (!row || !["target_committed", "source_deleting", "completed"].includes(row.status)) {
+      return null;
+    }
     return parseJson<NoteTransferCommitResult | null>(row.result, null);
   }
 
@@ -358,14 +360,6 @@ export function createNoteTransferCommitRepository(adapter?: DatabaseAdapter) {
       if (completed) return { result: completed, reused: true };
 
       const operation = input.operation;
-      if (operation.mode !== "copy") {
-        throw new NoteTransferOperationError(
-          "NOTE_TRANSFER_MOVE_COMMIT_PENDING",
-          "移动模式将在复制提交与源删除恢复边界完成后开放",
-          409,
-          { operationId: operation.id },
-        );
-      }
       if (operation.status !== "staging") {
         throw new NoteTransferOperationError(
           "NOTE_TRANSFER_STATE_CONFLICT",
@@ -652,14 +646,38 @@ export function createNoteTransferCommitRepository(adapter?: DatabaseAdapter) {
           requireChanges: operation.plan.attachmentCount,
         });
       }
+      if (operation.mode === "move") {
+        for (const note of input.sourceNotes) {
+          const sourceAttachmentCandidates = operation.stagedAttachments
+            .filter((attachment) => attachment.sourceNoteId === note.id)
+            .map((attachment) => ({ id: attachment.sourceAttachmentId, path: attachment.sourcePath }));
+          statements.push({
+            sql: `INSERT INTO note_transfer_move_source_deletions (
+                    operationId, sourceNoteId, sourceVersion,
+                    sourceWorkspaceId, sourceNotebookId, sourceAttachmentCandidates
+                  ) VALUES (?, ?, ?, ?, ?, CAST(? AS JSONB))`,
+            params: [
+              operation.id,
+              note.id,
+              note.version,
+              note.workspaceId,
+              note.notebookId,
+              JSON.stringify(sourceAttachmentCandidates),
+            ],
+            requireChanges: 1,
+          });
+        }
+      }
+      const targetStatus = operation.mode === "move" ? "target_committed" : "completed";
       statements.push({
         sql: `UPDATE note_transfer_operations
-                 SET status = 'completed', result = CAST(? AS JSONB),
+                 SET status = ?, result = CAST(? AS JSONB),
                      errorCode = NULL, errorMessage = NULL,
                      updatedAt = CURRENT_TIMESTAMP
                WHERE id = ? AND userId = ? AND idempotencyKey = ?
                  AND status = 'committing'`,
         params: [
+          targetStatus,
           JSON.stringify(input.result),
           operation.id,
           input.actorUserId,

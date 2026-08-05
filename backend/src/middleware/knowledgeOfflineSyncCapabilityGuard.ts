@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Context, Next } from "hono";
 
-import { getDb } from "../db/schema.js";
+import { knowledgeCapabilityGuardRepository } from "../repositories/knowledgeCapabilityGuardRepository.js";
 import {
   hasKnowledgeCapability,
   resolveKnowledgeNodeAccess,
@@ -76,16 +76,9 @@ function sanitizeBundle(item: SyncItem, userId: string): SyncItem | null {
 }
 
 function canReceiveDeletedNote(noteId: string, userId: string): boolean {
-  const db = getDb();
-  const node = db.prepare(`
-    SELECT id
-    FROM knowledge_tree_nodes
-    WHERE resourceType = 'note' AND resourceId = ?
-    ORDER BY isDeleted ASC, updatedAt DESC
-    LIMIT 1
-  `).get(noteId) as { id: string } | undefined;
-  if (!node) return false;
-  return hasKnowledgeCapability(resolveKnowledgeNodeAccess(node.id, userId, db), "canView");
+  const nodeId = knowledgeCapabilityGuardRepository.findKnowledgeNoteNodeId(noteId);
+  if (!nodeId) return false;
+  return hasKnowledgeCapability(resolveKnowledgeNodeAccess(nodeId, userId), "canView");
 }
 
 function sanitizeItems(items: unknown, userId: string): SyncItem[] {
@@ -106,19 +99,8 @@ function sanitizeItems(items: unknown, userId: string): SyncItem[] {
 }
 
 function visibleWorkspaceState(workspaceId: string, userId: string) {
-  const db = getDb();
-  const notebooks = db.prepare(`
-    SELECT id, parentId, updatedAt
-    FROM notebooks
-    WHERE workspaceId = ? AND isDeleted = 0
-    ORDER BY id ASC
-  `).all(workspaceId) as Array<{ id: string; parentId: string | null; updatedAt: string }>;
-  const notes = db.prepare(`
-    SELECT id, notebookId, updatedAt
-    FROM notes
-    WHERE workspaceId = ? AND isTrashed = 0
-    ORDER BY id ASC
-  `).all(workspaceId) as Array<{ id: string; notebookId: string; updatedAt: string }>;
+  const notebooks = knowledgeCapabilityGuardRepository.listWorkspaceNotebooks(workspaceId);
+  const notes = knowledgeCapabilityGuardRepository.listWorkspaceNotes(workspaceId);
 
   const visibleNotebookIds = new Set<string>();
   const notebookFingerprint: string[] = [];
@@ -152,7 +134,6 @@ function visibleWorkspaceState(workspaceId: string, userId: string) {
 }
 
 function sanitizePlan(payload: any, workspaceId: string, userId: string): any {
-  const db = getDb();
   const state = visibleWorkspaceState(workspaceId, userId);
   const notebooks = Array.isArray(payload?.notebooks)
     ? payload.notebooks
@@ -163,11 +144,7 @@ function sanitizePlan(payload: any, workspaceId: string, userId: string): any {
         }))
     : [];
 
-  const attachmentRows = db.prepare(`
-    SELECT noteId, size
-    FROM attachments
-    WHERE workspaceId = ?
-  `).all(workspaceId) as Array<{ noteId: string; size: number }>;
+  const attachmentRows = knowledgeCapabilityGuardRepository.listWorkspaceAttachmentRows(workspaceId);
   let attachmentCount = 0;
   let attachmentBytes = 0;
   const forbiddenNotes = new Set<string>();
@@ -182,16 +159,9 @@ function sanitizePlan(payload: any, workspaceId: string, userId: string): any {
   }
 
   const linkedTagIds = new Set(
-    (db.prepare(`
-      SELECT DISTINCT nt.tagId
-      FROM note_tags nt
-      JOIN notes n ON n.id = nt.noteId
-      WHERE n.workspaceId = ?
-    `).all(workspaceId) as Array<{ tagId: string }>).filter((row) => {
-      const linked = db.prepare("SELECT noteId FROM note_tags WHERE tagId = ?")
-        .all(row.tagId) as Array<{ noteId: string }>;
-      return linked.some((entry) => state.visibleNoteIds.has(entry.noteId));
-    }).map((row) => row.tagId),
+    knowledgeCapabilityGuardRepository.listWorkspaceAllTagLinks(workspaceId)
+      .filter((row) => state.visibleNoteIds.has(row.noteId))
+      .map((row) => row.tagId),
   );
 
   const tags = Array.isArray(payload?.tags)

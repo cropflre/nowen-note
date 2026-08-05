@@ -9,10 +9,10 @@ export type NoteTransferEffectStatus = "pending" | "processing" | "completed" | 
 
 export type NoteTransferCompletedEffectEvent = {
   eventId: string;
-  kind: "note.transfer.completed";
+  kind: "note.transfer.completed" | "note.transfer.target_committed";
   operationId: string;
   actorUserId: string;
-  mode: "copy";
+  mode: "copy" | "move";
   sourceWorkspaceId: string | null;
   targetWorkspaceId: string | null;
   targetNotebookId: string;
@@ -110,8 +110,8 @@ export function createNoteTransferEffectsRepository(adapter?: DatabaseAdapter) {
 
   async function assertCompleted(input: { actorUserId: string; idempotencyKey: string }): Promise<string> {
     const key = normalizeIdempotencyKey(input.idempotencyKey);
-    const row = await db.queryOne<{ id: string; status: string }>(
-      `SELECT id, status
+    const row = await db.queryOne<{ id: string; mode: string; status: string }>(
+      `SELECT id, mode, status
          FROM note_transfer_operations
         WHERE userId = ? AND idempotencyKey = ?`,
       [input.actorUserId, key],
@@ -123,12 +123,15 @@ export function createNoteTransferEffectsRepository(adapter?: DatabaseAdapter) {
         404,
       );
     }
-    if (row.status !== "completed") {
+    const ready = row.mode === "copy"
+      ? row.status === "completed"
+      : ["target_committed", "source_deleting", "completed"].includes(row.status);
+    if (!ready) {
       throw new NoteTransferOperationError(
         "NOTE_TRANSFER_EFFECTS_NOT_READY",
-        `当前状态 ${row.status} 尚不能派发完成事件`,
+        `当前状态 ${row.status} 尚不能派发目标提交事件`,
         409,
-        { operationId: row.id, status: row.status },
+        { operationId: row.id, mode: row.mode, status: row.status },
       );
     }
     return row.id;
@@ -160,7 +163,8 @@ export function createNoteTransferEffectsRepository(adapter?: DatabaseAdapter) {
              FROM note_transfer_effect_outbox outbox
              JOIN note_transfer_operations operation ON operation.id = outbox.operationId
             WHERE operation.userId = ? AND operation.idempotencyKey = ?
-              AND operation.status = 'completed'
+              AND ((operation.mode = 'copy' AND operation.status = 'completed')
+                OR (operation.mode = 'move' AND operation.status IN ('target_committed', 'source_deleting', 'completed')))
               AND outbox.attempts < ?
               AND outbox.availableAt <= CURRENT_TIMESTAMP
               AND (
@@ -311,7 +315,9 @@ export function createNoteTransferEffectsRepository(adapter?: DatabaseAdapter) {
         `SELECT COUNT(*)::int AS count
            FROM note_transfer_effect_outbox outbox
            JOIN note_transfer_operations operation ON operation.id = outbox.operationId
-          WHERE operation.status = 'completed' AND outbox.status <> 'completed'`,
+          WHERE ((operation.mode = 'copy' AND operation.status = 'completed')
+              OR (operation.mode = 'move' AND operation.status IN ('target_committed', 'source_deleting', 'completed')))
+            AND outbox.status <> 'completed'`,
       );
       return toNumber(row?.count || 0);
     },

@@ -36,6 +36,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "0018_note_transfer_attachment_staging_runtime",
     "0019_note_transfer_cleanup_runtime",
     "0020_note_transfer_effect_outbox",
+    "0021_note_transfer_move_source_deletion",
   ]);
 
   const stateTable = await pool.query(
@@ -69,6 +70,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "note_split_items",
     "note_split_operations",
     "note_transfer_effect_outbox",
+    "note_transfer_move_source_deletions",
     "note_transfer_operation_items",
     "note_transfer_operations",
     "note_transfer_staged_attachments",
@@ -278,6 +280,13 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
       "verifiedSize",
     ],
   );
+
+  const moveIndexes = await pool.query(
+    `SELECT to_regclass('public.idx_note_transfer_move_source_claim') AS claim_index,
+            to_regclass('public.idx_note_transfer_move_source_operation') AS operation_index`,
+  );
+  assert.equal(moveIndexes.rows[0].claim_index, "idx_note_transfer_move_source_claim");
+  assert.equal(moveIndexes.rows[0].operation_index, "idx_note_transfer_move_source_operation");
 
   const second = await runPostgresMigrations(adapter);
   assert.deepEqual(second, first);

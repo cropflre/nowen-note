@@ -1,34 +1,15 @@
 import type { Context, Next } from "hono";
 
-import { getDb } from "../db/schema.js";
+import {
+  knowledgeCapabilityGuardRepository,
+  type KnowledgeFileListDbRow as FileListDbRow,
+  type KnowledgeFileScope as FileScope,
+} from "../repositories/knowledgeCapabilityGuardRepository.js";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url.js";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
 } from "../services/knowledgeCapabilities.js";
-
-type FileScope = {
-  scope: "personal" | "workspace";
-  workspaceId: string | null;
-};
-
-type FileListDbRow = {
-  id: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-  path: string;
-  createdAt: string;
-  noteId: string;
-  folderId: string | null;
-  hash: string | null;
-  noteTitle: string | null;
-  notebookId: string | null;
-  isTrashed: number | null;
-  notebookName: string | null;
-  notebookIcon: string | null;
-  folderName: string | null;
-};
 
 const THUMBNAILABLE_MIMES = new Set([
   "image/png",
@@ -62,9 +43,7 @@ async function readJsonResponse(c: Context): Promise<any | null> {
 }
 
 function attachmentNoteId(attachmentId: string): string | null {
-  const row = getDb().prepare("SELECT noteId FROM attachments WHERE id = ?")
-    .get(attachmentId) as { noteId: string } | undefined;
-  return row?.noteId || null;
+  return knowledgeCapabilityGuardRepository.getAttachmentNoteId(attachmentId);
 }
 
 function noteIdFromFileRow(row: any): string | null {
@@ -119,20 +98,7 @@ function sanitizeFileRow(row: any, userId: string): any | null {
 }
 
 function visibleAttachmentStats(workspaceId: string | null, userId: string) {
-  const db = getDb();
-  const rows = workspaceId
-    ? db.prepare(`
-        SELECT a.id, a.noteId, a.mimeType, a.size
-        FROM attachments a
-        JOIN notes n ON n.id = a.noteId
-        WHERE a.workspaceId = ?
-      `).all(workspaceId)
-    : db.prepare(`
-        SELECT a.id, a.noteId, a.mimeType, a.size
-        FROM attachments a
-        JOIN notes n ON n.id = a.noteId
-        WHERE a.workspaceId IS NULL AND a.userId = ?
-      `).all(userId) as Array<{ id: string; noteId: string; mimeType: string; size: number }>;
+  const rows = knowledgeCapabilityGuardRepository.listAttachmentStatsRows(workspaceId, userId);
 
   const byMime = new Map<string, { count: number; bytes: number }>();
   let total = 0;
@@ -176,24 +142,6 @@ function normalizePositiveInteger(value: string | undefined, fallback: number, m
   return max ? Math.min(max, normalized) : normalized;
 }
 
-function resolveOrderBy(sort: string): string {
-  switch (sort.toLowerCase()) {
-    case "name_asc":
-      return "a.filename COLLATE NOCASE ASC";
-    case "name_desc":
-      return "a.filename COLLATE NOCASE DESC";
-    case "size_asc":
-      return "a.size ASC";
-    case "size_desc":
-      return "a.size DESC";
-    case "created_asc":
-      return "a.createdAt ASC";
-    case "created_desc":
-    default:
-      return "a.createdAt DESC";
-  }
-}
-
 function fileScope(c: Context): FileScope {
   const rawWorkspaceId = (c.req.query("workspaceId") || "").trim();
   return rawWorkspaceId && rawWorkspaceId !== "personal"
@@ -202,35 +150,10 @@ function fileScope(c: Context): FileScope {
 }
 
 function buildUnreferencedSet(scope: FileScope, userId: string): Set<string> {
-  const db = getDb();
   const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
-  const contentRows = (scope.scope === "workspace"
-    ? db.prepare(`
-        SELECT content
-        FROM notes
-        WHERE workspaceId = ? AND content IS NOT NULL AND content <> ''
-      `).all(scope.workspaceId!)
-    : db.prepare(`
-        SELECT content
-        FROM notes
-        WHERE userId = ? AND workspaceId IS NULL
-          AND content IS NOT NULL AND content <> ''
-      `).all(userId)) as Array<{ content: string }>;
+  const contentRows = knowledgeCapabilityGuardRepository.listNoteContents(scope, userId);
   const haystack = contentRows.map((row) => row.content).join("\n");
-
-  const candidates = (scope.scope === "workspace"
-    ? db.prepare(`
-        SELECT a.id, a.createdAt
-        FROM attachments a
-        INNER JOIN notes n ON n.id = a.noteId
-        WHERE a.workspaceId = ?
-      `).all(scope.workspaceId!)
-    : db.prepare(`
-        SELECT a.id, a.createdAt
-        FROM attachments a
-        INNER JOIN notes n ON n.id = a.noteId
-        WHERE a.userId = ? AND a.workspaceId IS NULL
-      `).all(userId)) as Array<{ id: string; createdAt: string }>;
+  const candidates = knowledgeCapabilityGuardRepository.listAttachmentCandidates(scope, userId);
 
   const ids = new Set<string>();
   for (const row of candidates) {
@@ -283,87 +206,28 @@ function toFileOut(row: FileListDbRow): Record<string, unknown> {
  * produce empty pages and a false total. Access must be resolved before pagination.
  */
 function visibleFileList(c: Context, userId: string) {
-  const db = getDb();
   const scope = fileScope(c);
   const category = (c.req.query("category") || "all").toLowerCase();
   const filter = (c.req.query("filter") || "").toLowerCase();
-  const mime = (c.req.query("mime") || "").toLowerCase();
-  const notebookId = c.req.query("notebookId") || "";
-  const noteId = c.req.query("noteId") || "";
-  const folderId = c.req.query("folderId") || "";
-  const q = (c.req.query("q") || "").trim();
   const page = normalizePositiveInteger(c.req.query("page"), 1);
   const pageSize = normalizePositiveInteger(c.req.query("pageSize"), 50, 200);
-  const whereParts: string[] = [];
-  const params: Array<string | number> = [];
-
-  if (scope.scope === "workspace") {
-    whereParts.push("a.workspaceId = ?");
-    params.push(scope.workspaceId!);
-  } else {
-    whereParts.push("a.userId = ?", "a.workspaceId IS NULL");
-    params.push(userId);
-  }
-
-  if (category === "image") whereParts.push("a.mimeType LIKE 'image/%'");
-  if (category === "file") whereParts.push("(a.mimeType IS NULL OR a.mimeType NOT LIKE 'image/%')");
-  if (mime) {
-    whereParts.push("a.mimeType = ?");
-    params.push(mime);
-  }
-  if (notebookId) {
-    whereParts.push("n.notebookId = ?");
-    params.push(notebookId);
-  }
-  if (q) {
-    whereParts.push("a.filename LIKE ? COLLATE NOCASE");
-    params.push(`%${q}%`);
-  }
-  if (noteId) {
-    whereParts.push(
-      "(a.noteId = ? OR EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id AND ar.noteId = ?))",
-    );
-    params.push(noteId, noteId);
-  }
-  if (folderId === "__unarchived") {
-    whereParts.push("a.folderId IS NULL");
-  } else if (folderId) {
-    whereParts.push("a.folderId = ?");
-    params.push(folderId);
-  }
-  if (filter === "unreferenced") {
-    const ids = [...buildUnreferencedSet(scope, userId)];
-    if (ids.length === 0) {
-      whereParts.push("1 = 0");
-    } else {
-      whereParts.push(`a.id IN (${ids.map(() => "?").join(",")})`);
-      params.push(...ids);
-    }
-  }
-  if (filter === "myuploads") {
-    whereParts.push("a.uploadSource = ?");
-    params.push("file_manager");
-    const referenceFilter = (c.req.query("myUploadsRef") || "").toLowerCase();
-    if (referenceFilter === "referenced") {
-      whereParts.push("EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id)");
-    } else if (referenceFilter === "unreferenced") {
-      whereParts.push("NOT EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id)");
-    }
-  }
-
-  const rows = db.prepare(`
-    SELECT a.id, a.filename, a.mimeType, a.size, a.path, a.createdAt, a.hash,
-           a.noteId, a.folderId,
-           n.title AS noteTitle, n.notebookId, n.isTrashed,
-           nb.name AS notebookName, nb.icon AS notebookIcon,
-           af.name AS folderName
-    FROM attachments a
-    LEFT JOIN notes n ON n.id = a.noteId
-    LEFT JOIN notebooks nb ON nb.id = n.notebookId
-    LEFT JOIN attachment_folders af ON af.id = a.folderId
-    WHERE ${whereParts.join(" AND ")}
-    ORDER BY ${resolveOrderBy(c.req.query("sort") || "created_desc")}
-  `).all(...params) as FileListDbRow[];
+  const unreferencedIds = filter === "unreferenced"
+    ? [...buildUnreferencedSet(scope, userId)]
+    : [];
+  const rows = knowledgeCapabilityGuardRepository.listFileRows({
+    scope,
+    userId,
+    category,
+    filter,
+    mime: (c.req.query("mime") || "").toLowerCase(),
+    notebookId: c.req.query("notebookId") || "",
+    noteId: c.req.query("noteId") || "",
+    folderId: c.req.query("folderId") || "",
+    q: (c.req.query("q") || "").trim(),
+    myUploadsRef: (c.req.query("myUploadsRef") || "").toLowerCase(),
+    unreferencedIds,
+    sort: c.req.query("sort") || "created_desc",
+  });
 
   const accessCache = new Map<string, { canView: boolean; canDownload: boolean }>();
   const permissions = (noteIdValue: string) => {

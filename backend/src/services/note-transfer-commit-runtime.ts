@@ -84,14 +84,6 @@ function rewriteInternalNoteLinks(
 }
 
 function ensureCommitReady(operation: PreparedNoteTransferOperation): void {
-  if (operation.mode !== "copy") {
-    throw new NoteTransferOperationError(
-      "NOTE_TRANSFER_MOVE_COMMIT_PENDING",
-      "移动模式将在复制提交与源删除恢复边界完成后开放",
-      409,
-      { operationId: operation.id },
-    );
-  }
   if (operation.status !== "staging") {
     throw new NoteTransferOperationError(
       "NOTE_TRANSFER_STATE_CONFLICT",
@@ -240,7 +232,11 @@ export function createNoteTransferCommitRuntime(
         );
       }
 
-      if (operation.status === "completed") {
+      if (
+        operation.status === "completed"
+        || (operation.mode === "move"
+          && ["target_committed", "source_deleting"].includes(operation.status))
+      ) {
         const result = await commits.loadCompleted(input);
         if (!result) {
           throw new NoteTransferOperationError(
@@ -364,7 +360,7 @@ export function createNoteTransferCommitRuntime(
       const blockCount = targetNotes.reduce((sum, note) => sum + note.blocks.length, 0);
       const result = {
         operationId: operation.id,
-        mode: "copy" as const,
+        mode: operation.mode,
         sourceNoteCount: operation.sourceNoteCount,
         targetWorkspaceId: operation.targetWorkspaceId,
         targetNotebookId: operation.targetNotebookId,
@@ -385,7 +381,12 @@ export function createNoteTransferCommitRuntime(
         result,
       });
       const completedOperation = await operations.getPrepared(input);
-      if (!completedOperation || completedOperation.status !== "completed") {
+      const persisted = completedOperation && (
+        operation.mode === "copy"
+          ? completedOperation.status === "completed"
+          : ["target_committed", "source_deleting", "completed"].includes(completedOperation.status)
+      );
+      if (!persisted) {
         throw new NoteTransferOperationError(
           "NOTE_TRANSFER_COMMIT_PERSIST_FAILED",
           "目标数据已提交但操作状态读取失败",

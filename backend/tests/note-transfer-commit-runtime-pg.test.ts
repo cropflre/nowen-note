@@ -334,10 +334,20 @@ test("PostgreSQL note-transfer copy commit is atomic, idempotent and derived-dat
       includeTags: false,
       attachmentSize: 0,
     });
-    await assert.rejects(
-      runtime.commit({ actorUserId: ACTOR, idempotencyKey: "transfer-atomic-commit-move" }),
-      (error: any) => error?.code === "NOTE_TRANSFER_MOVE_COMMIT_PENDING",
-    );
+    const moveCommit = await runtime.commit({
+    actorUserId: ACTOR,
+    idempotencyKey: "transfer-atomic-commit-move",
+  });
+  assert.equal(moveCommit.reused, false);
+  assert.equal(moveCommit.operation.status, "target_committed");
+  assert.equal(
+    Number((await pool.query(`SELECT COUNT(*) AS count FROM notes WHERE id = $1`, [SOURCE_B])).rows[0].count),
+    1,
+  );
+  assert.equal(
+    Number((await pool.query(`SELECT COUNT(*) AS count FROM notes WHERE id = $1`, [moveCommit.result.targetNoteIds[SOURCE_B]])).rows[0].count),
+    1,
+  );
   } finally {
     await fs.promises.rm(dataDir, { recursive: true, force: true });
     await closePgPool(pool);
