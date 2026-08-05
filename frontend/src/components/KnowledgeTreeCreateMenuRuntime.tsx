@@ -385,6 +385,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
           createRequest={createRequest}
           importRequest={importRequest}
           showAllNotesToolbar={showAllNotesEntry}
+          layoutMode={layoutMode}
         />
       </div>
       {allNotesHost && createPortal(

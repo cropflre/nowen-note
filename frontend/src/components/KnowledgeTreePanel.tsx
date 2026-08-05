@@ -72,7 +72,11 @@ import {
   loadKnowledgeTreeSortMode,
   saveKnowledgeTreeSortMode,
 } from "@/lib/knowledgeTreeSort";
-import { detectNoteWorkspaceSurface } from "@/lib/noteWorkspaceLayout";
+import {
+  detectNoteWorkspaceSurface,
+  usesThreeColumnFolderNavigation,
+  type NoteWorkspaceLayoutMode,
+} from "@/lib/noteWorkspaceLayout";
 import { cn } from "@/lib/utils";
 import {
   canMoveWithinSharedRoot,
@@ -231,6 +235,7 @@ export interface KnowledgeTreePanelProps {
   createRequest?: KnowledgeTreeInlineCreateRequest;
   importRequest?: KnowledgeTreeImportRequest;
   showAllNotesToolbar?: boolean;
+  layoutMode?: NoteWorkspaceLayoutMode;
 }
 
 export interface KnowledgeTreeInlineCreateRequest {
@@ -251,9 +256,15 @@ export function KnowledgeTreePanel({
   createRequest,
   importRequest,
   showAllNotesToolbar = true,
+  layoutMode = "standard",
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const threeColumnFolderNavigation = usesThreeColumnFolderNavigation({
+    mode: layoutMode,
+    noteListCollapsed: state.noteListCollapsed,
+    desktopSurface: variant === "desktop",
+  });
   const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const surfaceActive = useActiveSidebarSurface(variant);
   const rootRef = useRef<HTMLElement>(null);
@@ -505,11 +516,16 @@ export function KnowledgeTreePanel({
     closeMenu();
     if (node.nodeType === "folder") {
       if (!isFolderUnlocked(node, unlockedFolderIds)) {
-        setPendingFolderAction({ nodeId: node.id, action: "select" });
+        if (threeColumnFolderNavigation) {
+          setPendingFolderAction({ nodeId: node.id, action: "select" });
+        } else {
+          setPendingFolderAction({ nodeId: node.id, action: "toggle" });
+        }
         setPasswordDialog({ node, mode: "unlock" });
         return;
       }
-      selectFolder(node);
+      if (threeColumnFolderNavigation) selectFolder(node);
+      else await toggle(node);
       return;
     }
     if (node.resourceType !== "note") return;
@@ -845,7 +861,8 @@ export function KnowledgeTreePanel({
     const active = (
       (node.resourceType === "note" && state.activeNote?.id === node.resourceId)
       || (
-        node.resourceType === "notebook"
+        threeColumnFolderNavigation
+        && node.resourceType === "notebook"
         && state.viewMode === "notebook"
         && state.selectedNotebookId === node.resourceId
       )

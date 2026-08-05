@@ -9,6 +9,7 @@ import {
   persistNoteWorkspaceLayoutMode,
   resolveNoteWorkspaceVisibility,
   supportsWideNoteWorkspaceLayout,
+  usesThreeColumnFolderNavigation,
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
 
@@ -35,7 +36,14 @@ describe("note workspace layout", () => {
     expect(supportsWideNoteWorkspaceLayout("native-mobile")).toBe(false);
   });
 
-  it("migrates the previous note-list collapsed preference", () => {
+  it("limits direct folder navigation to desktop three-column mode", () => {
+      expect(usesThreeColumnFolderNavigation({ mode: "three-column", noteListCollapsed: false, desktopSurface: true })).toBe(true);
+      expect(usesThreeColumnFolderNavigation({ mode: "standard", noteListCollapsed: false, desktopSurface: true })).toBe(false);
+      expect(usesThreeColumnFolderNavigation({ mode: "three-column", noteListCollapsed: true, desktopSurface: true })).toBe(false);
+      expect(usesThreeColumnFolderNavigation({ mode: "three-column", noteListCollapsed: false, desktopSurface: false })).toBe(false);
+    });
+
+    it("migrates the previous note-list collapsed preference", () => {
     expect(loadNoteWorkspaceLayoutMode(true)).toBe("standard");
     expect(loadNoteWorkspaceLayoutMode(false)).toBe("three-column");
   });

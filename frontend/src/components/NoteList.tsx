@@ -25,6 +25,13 @@ import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/s
 import { getNoteListDragHint, reorderNotesWithinNotebook, shouldUseHtmlNoteDragging } from "@/lib/noteManualSort";
 import { sortNotesPinnedFirst } from "@/lib/notePinnedOrder";
 import { resolveExternalDropNotebookId } from "@/lib/notebookExternalDropTarget";
+import {
+  loadNoteWorkspaceLayoutMode,
+  NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT,
+  NOTE_WORKSPACE_LAYOUT_STORAGE_KEY,
+  usesThreeColumnFolderNavigation,
+  type NoteWorkspaceLayoutMode,
+} from "@/lib/noteWorkspaceLayout";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -1323,6 +1330,44 @@ function VirtualNoteList({
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
+  const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
+    loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
+  );
+  const [desktopFolderNavigationSurface, setDesktopFolderNavigationSurface] = useState(() =>
+    typeof window === "undefined" ? true : window.matchMedia("(min-width: 768px)").matches,
+  );
+
+  useEffect(() => {
+    const onLayoutChanged = (event: Event) => {
+      const mode = (event as CustomEvent<NoteWorkspaceLayoutMode>).detail;
+      if (mode === "standard" || mode === "three-column") setLayoutMode(mode);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === NOTE_WORKSPACE_LAYOUT_STORAGE_KEY) {
+        setLayoutMode(loadNoteWorkspaceLayoutMode(state.noteListCollapsed));
+      }
+    };
+    window.addEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, onLayoutChanged);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, onLayoutChanged);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [state.noteListCollapsed]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setDesktopFolderNavigationSurface(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const directNotebookScope = usesThreeColumnFolderNavigation({
+    mode: layoutMode,
+    noteListCollapsed: state.noteListCollapsed,
+    desktopSurface: desktopFolderNavigationSurface,
+  });
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
   // moveModal 新增 sourceWorkspaceId：源笔记所在工作区（null = 个人空间）。
@@ -1439,7 +1484,11 @@ export default function NoteList() {
         sortOrder: sortPref.dir,
       };
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        const params: Record<string, string> = { notebookId: state.selectedNotebookId, includeDescendants: "0", ...sortParams };
+        const params: Record<string, string> = {
+        notebookId: state.selectedNotebookId,
+        ...(directNotebookScope ? { includeDescendants: "0" } : {}),
+        ...sortParams,
+      };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "favorites") {
@@ -1505,7 +1554,7 @@ export default function NoteList() {
         actions.setLoading(false);
       }
     }
-  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, t]);
+  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, directNotebookScope, t]);
 
   useEffect(() => {
     void fetchNotes();
@@ -1548,7 +1597,11 @@ export default function NoteList() {
     const sortParams: Record<string, string> = { sortBy: sortPref.by, sortOrder: sortPref.dir };
     const fetcher = async (): Promise<NoteListItem[]> => {
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        return api.getNotes({ notebookId: state.selectedNotebookId, includeDescendants: "0", ...sortParams });
+        return api.getNotes({
+        notebookId: state.selectedNotebookId,
+        ...(directNotebookScope ? { includeDescendants: "0" } : {}),
+        ...sortParams,
+      });
       }
       if (state.viewMode === "favorites") {
         return api.getNotes({ isFavorite: "1", ...sortParams });
@@ -1575,6 +1628,7 @@ export default function NoteList() {
     sortPref.by,
     sortPref.dir,
     state.notesRefreshToken,
+    directNotebookScope,
   ]);
 
   // 按本地日期聚合每日笔记数：YYYY-MM-DD → count。
