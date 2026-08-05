@@ -4388,35 +4388,35 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
 
     const inlineImage = isInlineImageAttachment(item);
-  const inlineVideo = !inlineImage && isInlineVideoAttachment(item);
-  const chain = editor.chain().focus();
-  if (inlineImage) {
-    chain.setImage({
-      src: item.url,
-      alt: item.filename,
-      title: item.filename,
-    }).run();
-  } else if (inlineVideo) {
-    chain.setVideoFile({
-      previewUrl: toInlineAttachmentUrl(item.url),
-      url: item.url,
-      attachmentId: item.id,
-      filename: item.filename,
-      mimeType: item.mimeType,
-      size: item.size,
-    }).run();
-  } else {
-    chain
-      .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
-      .run();
-  }
+    const inlineVideo = !inlineImage && isInlineVideoAttachment(item);
+    const chain = editor.chain().focus();
+    if (inlineImage) {
+      chain.setImage({
+        src: item.url,
+        alt: item.filename,
+        title: item.filename,
+      }).run();
+    } else if (inlineVideo) {
+      chain.setVideoFile({
+        previewUrl: toInlineAttachmentUrl(item.url),
+        url: item.url,
+        attachmentId: item.id,
+        filename: item.filename,
+        mimeType: item.mimeType,
+        size: item.size,
+      }).run();
+    } else {
+      chain
+        .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
+        .run();
+    }
 
-  closeAttachmentLibrary();
-  toast.success(inlineImage
-    ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
-    : inlineVideo
-      ? t("tiptap.videoInsertedFromFileManager", { defaultValue: "视频已插入" })
-      : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
+    closeAttachmentLibrary();
+    toast.success(inlineImage
+      ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
+      : inlineVideo
+        ? t("tiptap.videoInsertedFromFileManager", { defaultValue: "视频已插入" })
+        : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
   }, [closeAttachmentLibrary, editor, restoreEditorInsertAnchor, t]);
 
   const handleImageUpload = useCallback(() => {
