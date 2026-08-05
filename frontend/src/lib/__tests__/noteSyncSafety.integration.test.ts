@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe("installed note sync safety", () => {
-  it("does not report an optimistic offline response as server-confirmed", async () => {
+  it("returns a complete local-pending note instead of reporting an optimistic response as saved", async () => {
     const transportUpdate = vi.fn().mockResolvedValue(note(4, "local body"));
     (api as any).getNote = vi.fn().mockResolvedValue(note(4));
     (api as any).updateNote = transportUpdate;
@@ -68,9 +68,13 @@ describe("installed note sync safety", () => {
       content: "local body",
       contentText: "local body",
       contentFormat: "markdown",
-    } as any)).rejects.toMatchObject({
-      code: "OFFLINE_WRITE_QUEUED",
-      queued: true,
+    } as any)).resolves.toMatchObject({
+      id: "note-1",
+      userId: "user-1",
+      notebookId: "notebook-1",
+      version: 4,
+      content: "local body",
+      __syncPending: true,
     });
     window.removeEventListener(NOTE_SYNC_PENDING_EVENT, pending);
 
@@ -79,7 +83,7 @@ describe("installed note sync safety", () => {
     expect(localStorage.getItem("nowen-draft-note-1")).toContain("local body");
   });
 
-  it("fetches the server revision and blocks PUT when an offline detail is stale", async () => {
+  it("preserves a stale offline edit as one pending conflict without issuing PUT", async () => {
     const transportGet = vi.fn().mockResolvedValue(note(9, "new server body"));
     const transportUpdate = vi.fn();
     (api as any).getNote = transportGet;
@@ -93,18 +97,20 @@ describe("installed note sync safety", () => {
       content: "old cached body",
       contentText: "old cached body",
       contentFormat: "markdown",
-    } as any)).rejects.toMatchObject({
-      status: 409,
-      code: "VERSION_CONFLICT",
-      currentVersion: 9,
+    } as any)).resolves.toMatchObject({
+      id: "note-1",
+      version: 9,
+      content: "old cached body",
+      __syncPending: true,
     });
 
     expect(transportGet).toHaveBeenCalledTimes(1);
     expect(transportUpdate).not.toHaveBeenCalled();
     expect(localStorage.getItem("nowen-note-sync-conflicts:v1")).toContain("new server body");
+    expect(getQueue()).toHaveLength(1);
   });
 
-  it("pauses later writes after one conflict and only refreshes the preserved local payload", async () => {
+  it("pauses later writes after one conflict and refreshes the same queue generation", async () => {
     const transportGet = vi.fn().mockResolvedValue(note(9, "new server body"));
     const transportUpdate = vi.fn();
     (api as any).getNote = transportGet;
@@ -112,18 +118,17 @@ describe("installed note sync safety", () => {
     markOfflineNoteSnapshot(note(4, "old cached body"));
     installNoteSyncSafety();
 
-    const conflictEvents = vi.fn();
-    window.addEventListener("offlineQueue:conflict", conflictEvents);
     await expect(api.updateNote("note-1", {
       version: 4,
       title: "Title",
       content: "first local body",
       contentText: "first local body",
       contentFormat: "markdown",
-    } as any)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    } as any)).resolves.toMatchObject({ __syncPending: true });
+    const firstQueueId = getQueue()[0]?.id;
 
     await expect(api.updateNote("note-1", {
-      version: 4,
+      version: 9,
       title: "Title",
       content: "latest local body",
       contentText: "latest local body",
@@ -132,14 +137,14 @@ describe("installed note sync safety", () => {
       id: "note-1",
       version: 9,
       content: "latest local body",
+      __syncPending: true,
     });
-    window.removeEventListener("offlineQueue:conflict", conflictEvents);
 
     expect(transportGet).toHaveBeenCalledTimes(1);
     expect(transportUpdate).not.toHaveBeenCalled();
-    expect(conflictEvents).not.toHaveBeenCalled();
     expect(getQueue()).toEqual([
       expect.objectContaining({
+        id: firstQueueId,
         noteId: "note-1",
         conflict: true,
         localPayload: expect.objectContaining({ content: "latest local body" }),
@@ -147,7 +152,7 @@ describe("installed note sync safety", () => {
     ]);
   });
 
-  it("blocks same-version writes when the cached base body differs from the server", async () => {
+  it("preserves same-version body mismatches as a pending conflict", async () => {
     const transportGet = vi.fn().mockResolvedValue(note(4, "important server body"));
     const transportUpdate = vi.fn();
     (api as any).getNote = transportGet;
@@ -161,14 +166,14 @@ describe("installed note sync safety", () => {
       content: "",
       contentText: "",
       contentFormat: "markdown",
-    } as any)).rejects.toMatchObject({
-      status: 409,
-      code: "VERSION_CONFLICT",
-      currentVersion: 4,
-      baseContentMismatch: true,
+    } as any)).resolves.toMatchObject({
+      version: 4,
+      content: "",
+      __syncPending: true,
     });
 
     expect(transportUpdate).not.toHaveBeenCalled();
+    expect(getQueue()).toHaveLength(1);
   });
 
   it("allows a cached detail only after a fresh GET confirms revision and base body", async () => {
@@ -208,5 +213,62 @@ describe("installed note sync safety", () => {
     } as any)).resolves.toMatchObject({ version: 5, content: "" });
 
     expect(transportUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("automatically rebases a version-only conflict and retries the latest snapshot once", async () => {
+    const conflict = Object.assign(new Error("conflict"), {
+      status: 409,
+      code: "VERSION_CONFLICT",
+      currentVersion: 5,
+    });
+    const transportGet = vi.fn()
+      .mockResolvedValueOnce(note(4, "server body"))
+      .mockResolvedValueOnce(note(5, "server body"));
+    const transportUpdate = vi.fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce(note(6, "local body"));
+    (api as any).getNote = transportGet;
+    (api as any).updateNote = transportUpdate;
+    installNoteSyncSafety();
+
+    await api.getNote("note-1");
+    await expect(api.updateNote("note-1", {
+      version: 4,
+      title: "Title",
+      content: "local body",
+      contentText: "local body",
+      contentFormat: "markdown",
+    } as any)).resolves.toMatchObject({ version: 6, content: "local body" });
+
+    expect(transportUpdate).toHaveBeenNthCalledWith(2, "note-1", expect.objectContaining({ version: 5 }));
+    expect(getQueue()).toHaveLength(0);
+  });
+
+  it("treats a fetched matching body as a lost acknowledgement instead of a conflict", async () => {
+    const conflict = Object.assign(new Error("conflict"), {
+      status: 409,
+      code: "VERSION_CONFLICT",
+      currentVersion: 5,
+    });
+    const transportGet = vi.fn()
+      .mockResolvedValueOnce(note(4, "server body"))
+      .mockResolvedValueOnce(note(5, "local body"));
+    const transportUpdate = vi.fn().mockRejectedValueOnce(conflict);
+    (api as any).getNote = transportGet;
+    (api as any).updateNote = transportUpdate;
+    installNoteSyncSafety();
+
+    await api.getNote("note-1");
+    await expect(api.updateNote("note-1", {
+      version: 4,
+      title: "Title",
+      content: "local body",
+      contentText: "local body",
+      contentFormat: "markdown",
+    } as any)).resolves.toMatchObject({ version: 5, content: "local body" });
+
+    expect(transportUpdate).toHaveBeenCalledTimes(1);
+    expect(getQueue()).toHaveLength(0);
+    expect(localStorage.getItem("nowen-note-sync-conflicts:v1")).toBeNull();
   });
 });
