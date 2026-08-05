@@ -42,7 +42,10 @@ async function seedSource(pool: import("pg").Pool, id: string, version = 1): Pro
   );
 }
 
-function createDeterministicRuntime(adapter: PostgresAdapter) {
+function createDeterministicRuntime(
+  adapter: PostgresAdapter,
+  shutdowns: Array<() => Promise<void>>,
+) {
   const repositoryBase = createNoteTransferOrchestrationRepository(adapter);
   const repository = {
     ...repositoryBase,
@@ -74,13 +77,19 @@ function createDeterministicRuntime(adapter: PostgresAdapter) {
     wake: () => {},
     shutdown: async () => {},
   };
-  return createNoteTransferOrchestrationRuntime(adapter, {
+  const orchestration = createNoteTransferOrchestrationRuntime(adapter, {
     repository,
     effects,
     moveDeletion,
     retryBaseSeconds: 0,
     maxTransitions: 4,
   });
+  shutdowns.push(async () => {
+    await orchestration.shutdown();
+    await effectsBase.shutdown();
+    await moveBase.shutdown();
+  });
+  return orchestration;
 }
 
 function request(input: {
@@ -106,11 +115,12 @@ function request(input: {
 test("PostgreSQL note-transfer orchestration unifies copy/move progress and recovery", { skip: !hasPg }, async () => {
   const pool = await getPgPool();
   assert.ok(pool);
+  const shutdowns: Array<() => Promise<void>> = [];
   try {
     await initPgSchema(pool);
     await seedBase(pool);
     const adapter = new PostgresAdapter(pool);
-    const orchestration = createDeterministicRuntime(adapter);
+    const orchestration = createDeterministicRuntime(adapter, shutdowns);
 
     const copySource = "a1010101-1010-4101-8101-010101010101";
     const copyKey = "orchestration-copy-001";
@@ -188,7 +198,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
       idempotencyKey: restartKey,
       mode: "copy",
     }));
-    const restartedRuntime = createDeterministicRuntime(adapter);
+    const restartedRuntime = createDeterministicRuntime(adapter, shutdowns);
     const recovered = await restartedRuntime.advanceForOperation({
       actorUserId: ACTOR,
       idempotencyKey: restartKey,
@@ -242,6 +252,7 @@ test("PostgreSQL note-transfer orchestration unifies copy/move progress and reco
     assert.equal(cancelled.operation.status, "cancelled");
     assert.equal((await pool.query(`SELECT 1 FROM notes WHERE id = $1`, [cancelSource])).rowCount, 1);
   } finally {
+    await Promise.allSettled(shutdowns.map((shutdown) => shutdown()));
     await closePgPool(pool);
   }
 });
