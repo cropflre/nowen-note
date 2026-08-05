@@ -11,6 +11,10 @@ import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
 export type ConflictResolutionChoice = "keep-local" | "use-server";
 export const NOTE_CONFLICT_AUTO_RESOLVED_EVENT = "nowen:note-conflict-auto-resolved";
+const DELETE_GUARD_INSTALL_KEY = "__NOWEN_CONFLICT_COPY_DELETE_GUARD_V1__" as const;
+const PENDING_STATUS_BRIDGE_INSTALL_KEY = "__NOWEN_PENDING_SYNC_STATUS_BRIDGE_V1__" as const;
+const NOTE_SYNC_PENDING_EVENT_NAME = "nowen:note-sync-pending";
+const OFFLINE_QUEUED_EVENT_NAME = "nowen:offline-queued";
 
 export interface NoteConflictAutoResolvedDetail {
   note: Note;
@@ -57,6 +61,11 @@ type ConflictPayload = {
 type DraftStorageCompatibility = {
   clearDraft: (noteId: string) => unknown;
   forceClearDraft?: (noteId: string) => void;
+};
+
+type ConflictBridgeWindow = Window & typeof globalThis & {
+  [DELETE_GUARD_INSTALL_KEY]?: () => void;
+  [PENDING_STATUS_BRIDGE_INSTALL_KEY]?: () => void;
 };
 
 function payloadFromQueue(item: OfflineQueueItem): Partial<ConflictPayload> {
@@ -157,6 +166,63 @@ export function discardConflictStateForDeletedCopy(copyId: string): string | nul
   );
   if (!item) return null;
   return clearResolvedConflict(item) ? item.noteId : null;
+}
+
+/**
+ * Conflict copies are ordinary notes in the tree, so the regular trash action is the only reliable
+ * place to learn that the user intentionally discarded one. Install an outer API guard after App
+ * lazy-load: a confirmed trash write clears the source conflict generation and prevents sync from
+ * recreating the same deterministic copy.
+ */
+export function installConflictCopyDeletionGuard(): void {
+  if (typeof window === "undefined" || typeof (api as any).updateNote !== "function") return;
+  const guardedWindow = window as ConflictBridgeWindow;
+  if (guardedWindow[DELETE_GUARD_INSTALL_KEY]) return;
+
+  const originalUpdateNote = api.updateNote.bind(api);
+  (api as any).updateNote = async (noteId: string, data: Partial<Note>): Promise<Note> => {
+    const updated = await originalUpdateNote(noteId, data);
+    if ((data as Partial<Note>).isTrashed === 1) {
+      discardConflictStateForDeletedCopy(noteId);
+    }
+    return updated;
+  };
+
+  guardedWindow[DELETE_GUARD_INSTALL_KEY] = () => {
+    (api as any).updateNote = originalUpdateNote;
+    delete guardedWindow[DELETE_GUARD_INSTALL_KEY];
+  };
+}
+
+/**
+ * EditorPane historically reports every resolved update Promise as "saved" and resets it to idle
+ * two seconds later. Pending conflict/offline responses are deliberately resolved so autosave does
+ * not enter its failure/requeue loop, therefore reassert the existing global "queued" UI event
+ * after both transitions while the note still has a durable queue item.
+ */
+export function installPendingSyncStatusBridge(): void {
+  if (typeof window === "undefined") return;
+  const guardedWindow = window as ConflictBridgeWindow;
+  if (guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY]) return;
+
+  const publishQueuedIfPending = (noteId: string) => {
+    if (!getQueue().some((item) => item.noteId === noteId)) return;
+    window.dispatchEvent(new CustomEvent(OFFLINE_QUEUED_EVENT_NAME, {
+      detail: { noteId, pending: true },
+    }));
+  };
+  const onPending = (event: Event) => {
+    const noteId = (event as CustomEvent<{ noteId?: string }>).detail?.noteId;
+    if (!noteId) return;
+    window.setTimeout(() => publishQueuedIfPending(noteId), 0);
+    window.setTimeout(() => publishQueuedIfPending(noteId), 2200);
+  };
+
+  window.addEventListener(NOTE_SYNC_PENDING_EVENT_NAME, onPending);
+  guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY] = () => {
+    window.removeEventListener(NOTE_SYNC_PENDING_EVENT_NAME, onPending);
+    delete guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY];
+  };
 }
 
 async function keepLocalVersion(
@@ -300,3 +366,6 @@ export async function resolveQueuedNoteConflicts(
     failures,
   };
 }
+
+installConflictCopyDeletionGuard();
+installPendingSyncStatusBridge();

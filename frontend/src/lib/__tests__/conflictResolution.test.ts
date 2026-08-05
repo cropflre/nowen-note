@@ -385,4 +385,21 @@ describe("resolveNoteConflict", () => {
     expect(clearDraft).toHaveBeenCalledWith("note-1");
     expect(clearNoteSyncConflict).toHaveBeenCalledWith("note-1");
   });
+
+  it("reasserts the queued UI state while a pending conflict remains durable", () => {
+    vi.useFakeTimers();
+    const item = conflictItem();
+    getQueue.mockReturnValue([item]);
+    const queuedEvents = vi.fn();
+    window.addEventListener("nowen:offline-queued", queuedEvents);
+
+    window.dispatchEvent(new CustomEvent("nowen:note-sync-pending", {
+      detail: { noteId: "note-1", queued: true },
+    }));
+    vi.runAllTimers();
+
+    expect(queuedEvents).toHaveBeenCalledTimes(2);
+    window.removeEventListener("nowen:offline-queued", queuedEvents);
+    vi.useRealTimers();
+  });
 });
