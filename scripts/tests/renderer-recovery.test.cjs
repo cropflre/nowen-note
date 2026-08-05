@@ -57,6 +57,7 @@ test("diagnostic reload returns to the application instead of reloading the erro
   assert.match(mainSource, /MAIN_WINDOW_RELOAD_URL = "nowen-reload:\/\/main"/);
   assert.match(mainSource, /reloadMainApplication\("diagnostic-page-button"\)/);
   assert.match(mainSource, /rendererRecoveryGate\.consume\(details\)/);
+  assert.match(mainSource, /recoveringRenderer \|\| getIsQuitting\(\)/);
   assert.match(mainSource, /重新加载应用/);
   assert.doesNotMatch(
     mainSource,

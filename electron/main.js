@@ -1136,6 +1136,13 @@ function createWindow() {
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     const currentURL = mainWindow?.webContents?.getURL?.() || "";
     console.error("[main-window] render-process-gone:", details);
+    if (recoveringRenderer || getIsQuitting()) {
+      console.warn(
+        `[main-window] ignore render-process-gone during ` +
+          `${getIsQuitting() ? "shutdown" : "active-recovery"}`
+      );
+      return;
+    }
     const recovery = loadingErrorPage
       ? { recover: false, reason: "error-page-active", attempt: 0 }
       : rendererRecoveryGate.consume(details);
