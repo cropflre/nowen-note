@@ -71,6 +71,16 @@ jobs:
           echo "e747544c6904a4b74fc85a53c91fa6e84b5a9e00f736544707efd8f0e069fda5  /tmp/patch-knowledge-boundaries.py" | sha256sum --check
           python3 -m py_compile /tmp/patch-knowledge-boundaries.py
           python3 /tmp/patch-knowledge-boundaries.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/middleware/knowledgeFilesCapabilityGuard.ts")
+          text = path.read_text()
+          bad = 'join("' + "\n" + '");'
+          good = 'join("\\n");'
+          if text.count(bad) != 1:
+              raise SystemExit("knowledge files newline literal anchor mismatch")
+          path.write_text(text.replace(bad, good, 1))
+          PY
           test -f backend/src/repositories/knowledgeAccessPolicyRepository.ts
           test -f backend/src/repositories/knowledgeDenyPolicyRepository.ts
           test -f backend/src/repositories/knowledgeCapabilityGuardRepository.ts
