@@ -816,7 +816,7 @@ server.resource(
 
 // ==================== 启动 ====================
 
-async function main() {
+export async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`🚀 Nowen Note MCP Server 已启动`);
@@ -824,7 +824,4 @@ async function main() {
   console.error(`   用户: ${config.username}`);
 }
 
-main().catch((err) => {
-  console.error("MCP Server 启动失败:", err);
-  process.exit(1);
-});
+await main();

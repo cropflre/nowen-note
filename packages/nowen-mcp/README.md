@@ -20,20 +20,46 @@ npm install
 npm run build
 ```
 
-构建入口：
+构建产物：
 
 ```text
 dist/scoped-entry.js
 ```
 
+稳定启动器（客户端应配置这个文件）：
+
+```text
+bin/nowen-mcp.mjs
+```
+
 快速检查：
 
 ```bash
-node ./dist/scoped-entry.js
+node ./bin/nowen-mcp.mjs
 ```
 
 stdio Server 正常情况下会等待客户端输入并保持静默。没有立即退出或报错即说明脚本可以启动，按 `Ctrl+C` 结束。
 
+
+## 启动诊断与运行日志
+
+稳定启动器会在真正加载 `dist/scoped-entry.js` 之前检查 Node.js 版本、`NOWEN_URL` 和构建入口，并把结构化日志写入 **stderr**。stdout 仅用于 MCP stdio 协议，不会被普通日志污染。
+
+常见错误会给出稳定错误码和解决建议：
+
+- `ENTRY_NOT_FOUND`：执行 `npm install && npm run build`；
+- `DEPENDENCY_NOT_FOUND`：依赖或构建产物不完整，重新安装并构建；
+- `INVALID_NOWEN_URL`：修正服务地址；
+- `uncaught_exception` / `unhandled_rejection`：日志包含完整 stack；
+- `stdin_closed` / `shutdown_signal`：明确记录父进程关闭或信号退出。
+
+调试长会话时可选开启心跳，默认关闭：
+
+```text
+NOWEN_MCP_HEARTBEAT_MS=300000
+```
+
+心跳只写 stderr，并包含 PID、运行时长和内存使用；允许范围为 10000～86400000 毫秒。
 ## 最小客户端配置
 
 ```json
@@ -42,7 +68,7 @@ stdio Server 正常情况下会等待客户端输入并保持静默。没有立�
     "nowen-note": {
       "command": "node",
       "args": [
-        "/absolute/path/to/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -74,7 +100,7 @@ VS Code 的 `.vscode/mcp.json` 使用顶层 `servers` 字段：
       "type": "stdio",
       "command": "node",
       "args": [
-        "/absolute/path/to/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -91,7 +117,7 @@ VS Code 的 `.vscode/mcp.json` 使用顶层 `servers` 字段：
 claude mcp add nowen-note --scope user \
   --env NOWEN_URL=http://192.168.1.20:3001 \
   --env NOWEN_API_TOKEN=nkn_xxx \
-  -- node /absolute/path/to/dist/scoped-entry.js
+  -- node /absolute/path/to/bin/nowen-mcp.mjs
 ```
 
 验证：
@@ -112,6 +138,7 @@ claude mcp list
 | `ALLOWED_NOTEBOOK_IDS` | MCP 本地笔记本白名单，逗号分隔 | 未启用 |
 | `MCP_ACCESS_MODE` | `read-only` 或 `read-write` | `read-write` |
 | `MCP_INCLUDE_DESCENDANTS` | 本地白名单是否包含子笔记本 | `false` |
+| `NOWEN_MCP_HEARTBEAT_MS` | 可选 stderr 心跳间隔（毫秒），0/off 关闭 | `0` |
 
 认证优先级：
 
