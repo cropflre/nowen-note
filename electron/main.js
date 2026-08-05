@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, shell, dialog, ipcMain, Menu, session } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, Menu, session } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -10,6 +10,7 @@ const { buildMenu, applyFormatState } = require("./menu");
 const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray");
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { initLogger, getLogDir } = require("./logger");
+const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings } = require("./settings");
@@ -62,6 +63,8 @@ let ugreenWorkspaceWindow = null;
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
+
+const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
 
 // ---------- 单实例锁（防止多开损坏 SQLite） ----------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -817,7 +820,7 @@ function buildMainWindowErrorHtml({ title, message, details = [] }) {
     <div class="title">${escapeHtml(title)}</div>
     <div class="message">${escapeHtml(message)}</div>
     ${rows}
-    <button onclick="window.location.reload()">重新加载</button>
+    <button onclick="window.location.href='${MAIN_WINDOW_RELOAD_URL}'">重新加载应用</button>
   </div></body></html>`;
 }
 
@@ -930,6 +933,11 @@ function createWindow() {
   setTrustedMainWindowId(mainWindow.webContents.id);
   let hasShownMainWindow = false;
   let loadingErrorPage = false;
+  let recoveringRenderer = false;
+  const rendererRecoveryGate = createRendererRecoveryGate({
+    maxAttempts: 2,
+    windowMs: 60_000,
+  });
   const revealMainWindow = (reason) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (hasShownMainWindow) return;
@@ -971,6 +979,18 @@ function createWindow() {
       `targetUrl=${targetUrl} mode=${currentMode} packaged=${app.isPackaged}` +
       (developmentBackendUrl ? " devBackend=external" : "")
   );
+  const loadApplicationSurface = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return Promise.reject(new Error("MAIN_WINDOW_DESTROYED"));
+    }
+    if (frontendIndexExists) {
+      return mainWindow.loadFile(frontendIndex, { query: { serverUrl: targetUrl } });
+    }
+    if (!app.isPackaged && currentMode !== "lite") {
+      return mainWindow.loadURL(targetUrl);
+    }
+    return Promise.reject(new Error("MAIN_WINDOW_FRONTEND_MISSING"));
+  };
   const handleInitialLoadError = (err) => {
     console.error("[main-window] initial load failed:", err?.stack || err?.message || err);
     if (!loadingErrorPage) {
@@ -992,6 +1012,26 @@ function createWindow() {
       });
     }
     revealMainWindow("initial-load-error");
+  };
+  const reloadMainApplication = (reason) => {
+    if (!mainWindow || mainWindow.isDestroyed() || recoveringRenderer) return;
+    recoveringRenderer = true;
+    loadingErrorPage = false;
+    console.warn(`[main-window] renderer recovery start reason=${reason}`);
+    loadApplicationSurface()
+      .then(() => {
+        console.log(`[main-window] renderer recovery succeeded reason=${reason}`);
+      })
+      .catch((error) => {
+        console.error(
+          `[main-window] renderer recovery failed reason=${reason}:`,
+          error?.stack || error?.message || error
+        );
+        handleInitialLoadError(error);
+      })
+      .finally(() => {
+        recoveringRenderer = false;
+      });
   };
   if (frontendIndexExists) {
     // 桌面客户端始终加载本地 UI，远程地址作为 API base 通过 query 参数传入
@@ -1060,6 +1100,13 @@ function createWindow() {
         `[main-window] did-fail-load code=${errorCode} desc=${errorDescription} ` +
           `url=${validatedURL} isMainFrame=${isMainFrame}`
       );
+      if (recoveringRenderer) {
+        console.warn(
+          `[main-window] did-fail-load during renderer recovery code=${errorCode} ` +
+            `desc=${errorDescription} url=${validatedURL}`
+        );
+        return;
+      }
       if (!isMainFrame || loadingErrorPage) {
         revealMainWindow("did-fail-load");
         return;
@@ -1087,16 +1134,39 @@ function createWindow() {
   );
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    const currentURL = mainWindow?.webContents?.getURL?.() || "";
     console.error("[main-window] render-process-gone:", details);
+    if (recoveringRenderer || getIsQuitting()) {
+      console.warn(
+        `[main-window] ignore render-process-gone during ` +
+          `${getIsQuitting() ? "shutdown" : "active-recovery"}`
+      );
+      return;
+    }
+    const recovery = loadingErrorPage
+      ? { recover: false, reason: "error-page-active", attempt: 0 }
+      : rendererRecoveryGate.consume(details);
+
+    if (recovery.recover) {
+      console.warn(
+        `[main-window] auto-recover renderer attempt=${recovery.attempt} ` +
+          `reason=${details?.reason || "unknown"} exitCode=${details?.exitCode ?? ""}`
+      );
+      reloadMainApplication(`render-process-gone:${details?.reason || "unknown"}`);
+      revealMainWindow("render-process-recovery");
+      return;
+    }
+
     if (!loadingErrorPage) {
       loadingErrorPage = true;
       loadMainWindowErrorPage(mainWindow, {
         title: "Nowen Note 渲染进程异常",
-        message: "主窗口渲染进程已退出。应用已打开诊断页，避免只剩后台进程。",
+        message: "主窗口渲染进程连续退出或无法安全恢复。请点击“重新加载应用”；若仍失败，请重启客户端并提供日志。",
         details: [
           { label: "reason", value: details?.reason },
           { label: "exitCode", value: details?.exitCode },
-          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "recovery", value: recovery.reason },
+          { label: "currentURL", value: currentURL },
           { label: "logs", value: getLogDir() },
           { label: "data", value: getUserDataPath() },
         ],
@@ -1142,6 +1212,11 @@ function createWindow() {
   // SEC-ELECTRON-01-C-B1: 主窗口 navigation 拦截
   // 防止 renderer 通过 window.location、恶意链接、脚本跳转等方式把主窗口导航到非应用页面
   mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    if (navigationUrl === MAIN_WINDOW_RELOAD_URL && loadingErrorPage) {
+      event.preventDefault();
+      reloadMainApplication("diagnostic-page-button");
+      return;
+    }
     const currentUrl = mainWindow.webContents.getURL();
     if (isAllowedMainWindowNavigation(navigationUrl, currentUrl)) {
       return; // 允许内部导航

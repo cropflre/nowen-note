@@ -115,7 +115,7 @@ nkn_xxxxxxxxxxxxxxxxx
 
 Token 通常只展示一次，请妥善保存。
 
-### 5. 找到 MCP 脚本的绝对路径
+### 5. 找到稳定启动器的绝对路径
 
 #### Windows PowerShell
 
@@ -140,13 +140,13 @@ C:\Users\YourName\nowen-note\packages\nowen-mcp\dist\scoped-entry.js
 #### macOS / Linux / WSL
 
 ```bash
-realpath ./dist/scoped-entry.js
+realpath ./bin/nowen-mcp.mjs
 ```
 
 示例结果：
 
 ```text
-/home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js
+/home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 然后选择下面对应的客户端配置。
@@ -163,7 +163,7 @@ Claude Code 可以直接通过命令添加 stdio MCP Server。
 claude mcp add nowen-note --scope user \
   --env NOWEN_URL=http://192.168.1.20:3001 \
   --env NOWEN_API_TOKEN=nkn_xxx \
-  -- node /home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js
+  -- node /home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 ### Windows PowerShell
@@ -203,7 +203,7 @@ Cursor 支持项目级和全局 MCP 配置：
     "nowen-note": {
       "command": "node",
       "args": [
-        "/home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -264,7 +264,7 @@ VS Code 的顶层字段是 `servers`，不是 Cursor 的 `mcpServers`。
       "type": "stdio",
       "command": "node",
       "args": [
-        "/home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -319,7 +319,7 @@ MCP: List Servers
     "nowen-note": {
       "command": "node",
       "args": [
-        "/absolute/path/to/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -341,6 +341,17 @@ MCP: List Servers
 
 ---
 
+## MCP 启动诊断
+
+客户端应运行 `bin/nowen-mcp.mjs`。该启动器与 `dist` 解耦，即使构建入口缺失，也能向 stderr 输出可操作的错误码、绝对入口路径、当前工作目录、Node.js 版本和修复建议。
+
+所有普通诊断只写 stderr，stdout 始终保留给 MCP stdio 协议。长会话偶发退出时，可临时增加：
+
+```json
+"NOWEN_MCP_HEARTBEAT_MS": "300000"
+```
+
+默认不输出心跳。进程退出前会记录 `stdin_closed`、`shutdown_signal`、`uncaught_exception`、`unhandled_rejection` 或 `process_exit`，便于区分父进程关闭、系统信号和应用异常。
 ## 验证是否安装成功
 
 重启客户端后，先确认工具列表中出现以下任意工具：
@@ -402,6 +413,7 @@ npm run build
 | `ALLOWED_NOTEBOOK_IDS` | MCP 实例侧笔记本白名单，逗号分隔；显式空值代表拒绝全部 | 未启用本地作用域 |
 | `MCP_ACCESS_MODE` | `read-only` 或 `read-write` | `read-write` |
 | `MCP_INCLUDE_DESCENDANTS` | 本地白名单是否包含全部子笔记本 | `false` |
+| `NOWEN_MCP_HEARTBEAT_MS` | 可选 stderr 心跳间隔（毫秒），0/off 关闭 | `0` |
 
 认证优先级：
 
@@ -429,7 +441,7 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/dist/scoped-entry.js"],
+      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx"
@@ -446,7 +458,7 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/dist/scoped-entry.js"],
+      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx",
@@ -539,7 +551,7 @@ macOS / Linux：
 which node
 ```
 
-### 提示找不到 `dist/scoped-entry.js`
+### 提示找不到 `bin/nowen-mcp.mjs`
 
 重新构建：
 
@@ -605,7 +617,7 @@ MCP_INCLUDE_DESCENDANTS=true
 直接执行：
 
 ```bash
-node /absolute/path/to/dist/scoped-entry.js
+node /absolute/path/to/bin/nowen-mcp.mjs
 ```
 
 stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提示并保持运行。这说明脚本至少能够启动；按 `Ctrl+C` 退出即可。

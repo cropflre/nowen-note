@@ -29,6 +29,7 @@ import {
   Link2,
   Maximize2,
   Minimize2,
+  ShieldCheck,
 } from "lucide-react";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { FileDetail } from "@/types";
@@ -260,10 +261,14 @@ export default function AttachmentDetailDrawer({
   // ---- 删除（带二次确认） ----
   const handleDelete = useCallback(async () => {
     if (!detail) return;
+    const isProtectedManualUpload = Boolean(
+      (detail as FileDetail & { isAutoCleanupProtected?: boolean }).isAutoCleanupProtected,
+    );
     const ok = await confirmDialog({
       title: "确定要删除此文件吗？",
-      description:
-        "删除后，引用该文件的笔记里将显示为破图 / 失效链接。该操作不可撤销。",
+      description: isProtectedManualUpload
+        ? "这是受保护的手动上传文件，不会被系统自动清理。确认后将由你主动永久删除，该操作不可撤销。"
+        : "删除后，引用该文件的笔记里将显示为破图 / 失效链接。该操作不可撤销。",
       confirmText: "删除",
       danger: true,
     });
@@ -279,6 +284,10 @@ export default function AttachmentDetailDrawer({
       toast.error(err?.message || "删除失败");
     }
   }, [detail, onClose, onAfterDelete]);
+
+  const isAutoCleanupProtected = Boolean(
+    (detail as (FileDetail & { isAutoCleanupProtected?: boolean }) | null)?.isAutoCleanupProtected,
+  );
 
   if (!attachmentId) return null;
 
@@ -354,6 +363,21 @@ export default function AttachmentDetailDrawer({
                   />
                 )}
               </div>
+
+              {isAutoCleanupProtected && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5">
+                  <ShieldCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                      <span>手动上传</span>
+                      <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px]">受保护</span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] leading-4 text-tx-secondary">
+                      此文件不会被“清理附件”自动删除，即使当前没有任何笔记引用；只有你主动删除时才会移除。
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 外链分享区块：图床模式高亮，普通模式紧凑展示 */}
               {(() => {

@@ -13,9 +13,15 @@ on:
       - 'frontend/src/components/SharedNotebookTree.tsx'
       - 'frontend/src/lib/sidebarTreeMode.ts'
       - 'frontend/src/lib/knowledgeTreeApi.ts'
+      - 'frontend/src/lib/noteTransferRefreshBridge.ts'
+      - 'frontend/src/lib/rootDocumentCreateBridge.ts'
+      - 'frontend/src/lib/rootDocumentCreatePolicy.ts'
+      - 'frontend/src/lib/toast.ts'
       - 'frontend/src/lib/__tests__/knowledgeTreeSidebarContract.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx'
+      - 'frontend/src/lib/__tests__/rootDocumentCreatePolicy.test.ts'
       - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
+      - 'frontend/src/lib/__tests__/toastDedup.test.ts'
       - '.github/workflows/knowledge-tree-sidebar-ci.yml'
 
 permissions:
@@ -54,9 +60,9 @@ jobs:
         working-directory: frontend
         run: npm ci --silent
 
-      - name: Unified Sidebar, context-menu and shared-tree tests
+      - name: Unified Sidebar, root-create, toast and shared-tree tests
         working-directory: frontend
-        run: npx vitest run --reporter=basic src/lib/__tests__/knowledgeTreeSidebarContract.test.ts src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx src/lib/__tests__/knowledgeTreeModel.test.ts src/lib/__tests__/sharedKnowledgeTree.test.ts
+        run: npx vitest run --reporter=basic src/lib/__tests__/knowledgeTreeSidebarContract.test.ts src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx src/lib/__tests__/knowledgeTreeModel.test.ts src/lib/__tests__/rootDocumentCreatePolicy.test.ts src/lib/__tests__/sharedKnowledgeTree.test.ts src/lib/__tests__/toastDedup.test.ts
 
       - name: Frontend typecheck
         working-directory: frontend

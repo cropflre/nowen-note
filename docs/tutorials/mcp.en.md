@@ -79,7 +79,7 @@ Recommended settings:
 
 Copy the generated token, for example `nkn_xxx`.
 
-### 5. Resolve the absolute script path
+### 5. Resolve the stable launcher path
 
 Windows PowerShell:
 
@@ -90,7 +90,7 @@ Windows PowerShell:
 macOS / Linux / WSL:
 
 ```bash
-realpath ./dist/scoped-entry.js
+realpath ./bin/nowen-mcp.mjs
 ```
 
 Windows paths must be escaped in JSON:
@@ -107,7 +107,7 @@ macOS / Linux / WSL:
 claude mcp add nowen-note --scope user \
   --env NOWEN_URL=http://192.168.1.20:3001 \
   --env NOWEN_API_TOKEN=nkn_xxx \
-  -- node /home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js
+  -- node /home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 Windows PowerShell:
@@ -140,7 +140,7 @@ Use `.cursor/mcp.json` for a project configuration or `~/.cursor/mcp.json` for a
     "nowen-note": {
       "command": "node",
       "args": [
-        "/home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -166,7 +166,7 @@ Run `MCP: Add Server` from the Command Palette, or create `.vscode/mcp.json`:
       "type": "stdio",
       "command": "node",
       "args": [
-        "/home/yourname/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -193,7 +193,7 @@ Most clients that accept local stdio MCP servers use this structure:
     "nowen-note": {
       "command": "node",
       "args": [
-        "/absolute/path/to/nowen-note/packages/nowen-mcp/dist/scoped-entry.js"
+        "/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -208,6 +208,17 @@ Current Claude Desktop versions prefer Desktop Extensions (DXT) under Settings â
 
 Official reference: [Local MCP servers on Claude Desktop](https://support.anthropic.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 
+## MCP startup diagnostics
+
+Configure clients to run `bin/nowen-mcp.mjs`. The stable launcher validates Node.js, `NOWEN_URL`, the compiled entry, and dependencies before loading the server. Structured diagnostics go to stderr; stdout remains reserved for the MCP stdio protocol.
+
+For long-session debugging, enable an optional heartbeat:
+
+```json
+"NOWEN_MCP_HEARTBEAT_MS": "300000"
+```
+
+Heartbeats are disabled by default. Exit logs distinguish parent stdin closure, termination signals, uncaught exceptions, unhandled rejections, and normal process exit.
 ## Verify the connection
 
 After restarting the client, confirm that tools such as these appear:
@@ -255,6 +266,7 @@ Restart the MCP server or the client afterwards. If you move the repository, upd
 | `ALLOWED_NOTEBOOK_IDS` | Additional comma-separated local notebook allowlist; an explicit empty value denies all | disabled |
 | `MCP_ACCESS_MODE` | `read-only` or `read-write` | `read-write` |
 | `MCP_INCLUDE_DESCENDANTS` | Include descendants of locally allowed notebooks | `false` |
+| `NOWEN_MCP_HEARTBEAT_MS` | Optional stderr heartbeat interval in milliseconds; 0/off disables it | `0` |
 
 Authentication priority:
 
@@ -278,7 +290,7 @@ You can add an MCP-side allowlist as a second layer:
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/dist/scoped-entry.js"],
+      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx",
@@ -311,7 +323,7 @@ macOS / Linux:
 which node
 ```
 
-### `dist/scoped-entry.js` is missing
+### `bin/nowen-mcp.mjs` is missing
 
 ```bash
 cd packages/nowen-mcp
@@ -358,7 +370,7 @@ All of the following must allow writing:
 A stdio MCP server normally waits for client input and can remain silent:
 
 ```bash
-node /absolute/path/to/dist/scoped-entry.js
+node /absolute/path/to/bin/nowen-mcp.mjs
 ```
 
 If it stays running without crashing, the script can start. Press `Ctrl+C` to stop it.

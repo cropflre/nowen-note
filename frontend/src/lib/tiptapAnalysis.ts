@@ -13,12 +13,39 @@ export interface TiptapAnalysisResult {
   stats: { chars: number; charsNoSpace: number; words: number };
 }
 
-const LEAF_TEXT_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
+const PLAIN_TEXT_BLOCK_TYPES = new Set(["paragraph", "heading", "codeBlock"]);
+
+/**
+ * ProseMirror leaf/atom nodes always have nodeSize = 1, even when their DOM is large.
+ *
+ * Empty text blocks and container nodes are different: their JSON normally omits the
+ * `content` property, but their ProseMirror nodeSize is still 2 (opening + closing token).
+ * Treating every node without JSON children as a leaf made each legacy empty paragraph,
+ * empty heading or empty list cell shift every following outline position by one.
+ */
+const PROSEMIRROR_LEAF_NODE_TYPES = new Set([
+  "hardBreak",
+  "horizontalRule",
+  "image",
+  "video",
+  "blockEmbed",
+  "mathInline",
+  "mathBlock",
+  "footnoteReference",
+  "footnoteDefinition",
+  // Compatibility for atom nodes that can exist in imported or older documents.
+  "attachment",
+  "emoji",
+  "mention",
+]);
 
 function nodeSize(node: TiptapJsonNode): number {
-  if (node.type === "text") return node.text?.length || 0;
-  if (!node.content?.length) return 1;
-  return 2 + node.content.reduce((total, child) => total + nodeSize(child), 0);
+  const type = node.type || "";
+  if (type === "text") return node.text?.length || 0;
+  if (PROSEMIRROR_LEAF_NODE_TYPES.has(type)) return 1;
+
+  // ProseMirror non-leaf nodes contribute two boundary tokens even when empty.
+  return 2 + (node.content || []).reduce((total, child) => total + nodeSize(child), 0);
 }
 
 function inlineText(node: TiptapJsonNode): string {
@@ -33,7 +60,7 @@ export function analyzeTiptapDocument(doc: TiptapJsonNode): TiptapAnalysisResult
   const blocks: string[] = [];
 
   const visit = (node: TiptapJsonNode, pos: number) => {
-    if (LEAF_TEXT_TYPES.has(node.type || "")) blocks.push(inlineText(node));
+    if (PLAIN_TEXT_BLOCK_TYPES.has(node.type || "")) blocks.push(inlineText(node));
     if (node.type === "heading") {
       headings.push({
         id: `h-${headings.length}`,

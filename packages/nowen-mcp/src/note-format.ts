@@ -65,6 +65,7 @@ export function buildUpdateNotePayload(params: {
     contentText?: string;
     contentFormat?: NoteContentFormat;
     version: number;
+    syncToYjs?: boolean;
   } = {
     version: params.currentNote.version || 1,
   };
@@ -73,9 +74,17 @@ export function buildUpdateNotePayload(params: {
     body.title = params.title;
   }
   if (params.content !== undefined) {
+    const contentFormat = normalizeContentFormat(params.contentFormat);
     body.content = params.content;
     body.contentText = params.content;
-    body.contentFormat = normalizeContentFormat(params.contentFormat);
+    body.contentFormat = contentFormat;
+
+    // Markdown Live 模式以服务端 Y.Doc/Y.Text 为运行时权威状态。MCP 如果只更新
+    // notes.content，活跃房间里的旧 Y.Text 会在下一次持久化时把 MCP 内容覆盖掉。
+    // 复用 notes PUT 已有的原子替换路径，使数据库、Yjs 历史和在线客户端同步更新。
+    if (contentFormat === "markdown") {
+      body.syncToYjs = true;
+    }
   }
 
   return body;
