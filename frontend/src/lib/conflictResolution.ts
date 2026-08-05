@@ -2,6 +2,7 @@ import type { Note } from "@/types";
 import { api } from "@/lib/api";
 import {
   discardResolvedQueueItems,
+  getQueue,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
 import * as draftStorage from "@/lib/draftStorage";
@@ -91,6 +92,12 @@ function sameContent(local: ConflictPayload, remote: Note): boolean {
     && (local.contentFormat || remote.contentFormat) === remote.contentFormat;
 }
 
+function sameConflictCopyContent(copy: Note, local: ConflictPayload, remote: Note): boolean {
+  return copy.content === local.content
+    && copy.contentText === local.contentText
+    && copy.contentFormat === (local.contentFormat || remote.contentFormat);
+}
+
 function formatConflictCopyTitle(title: string, now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -138,6 +145,20 @@ function clearResolvedConflict(item: OfflineQueueItem): boolean {
   return true;
 }
 
+/**
+ * When a user deletes a generated conflict copy, discard the source conflict generation too.
+ * Otherwise the next sync pass recreates the same copy and makes deletion appear broken.
+ */
+export function discardConflictStateForDeletedCopy(copyId: string): string | null {
+  const item = getQueue().find(
+    (queued) => queued.type === "updateNote"
+      && (queued.conflict || queued.errorCode === "VERSION_CONFLICT")
+      && getConflictCopyId(queued.id) === copyId,
+  );
+  if (!item) return null;
+  return clearResolvedConflict(item) ? item.noteId : null;
+}
+
 async function keepLocalVersion(
   item: OfflineQueueItem,
   remote: Note,
@@ -157,6 +178,24 @@ async function keepLocalVersion(
     throw new Error("处理期间本地内容已更新，等待下一次后台同步。");
   }
   return { note: updated, resolvedLocal: local };
+}
+
+async function updateExistingConflictCopy(
+  existing: Note,
+  remote: Note,
+  local: ConflictPayload,
+): Promise<Note> {
+  if (sameConflictCopyContent(existing, local, remote)) return existing;
+  const updated = await api.updateNoteConfirmed(existing.id, {
+    content: local.content,
+    contentText: local.contentText,
+    contentFormat: local.contentFormat || remote.contentFormat,
+    version: existing.version,
+  });
+  if (typeof updated.version !== "number" || updated.version <= existing.version) {
+    throw new Error("冲突副本尚未得到服务器确认，请稍后重试。");
+  }
+  return updated;
 }
 
 async function createOrLoadConflictCopy(
@@ -179,8 +218,10 @@ async function createOrLoadConflictCopy(
     const details = error as { status?: number; code?: string };
     if (details.status !== 409 || details.code !== "NOTE_ID_CONFLICT") throw error;
     // The previous request may have committed successfully while its response was lost. Because
-    // the id is deterministic for this conflict, loading it is safe and makes retry idempotent.
-    return api.getNote(copyId);
+    // the id is deterministic for this conflict, load and refresh that same copy with the latest
+    // local snapshot instead of creating a second timestamped document.
+    const existing = await api.getNote(copyId);
+    return updateExistingConflictCopy(existing, remote, local);
   }
 }
 

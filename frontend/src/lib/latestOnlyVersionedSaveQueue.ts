@@ -1,5 +1,10 @@
 export interface VersionedSaveResult {
   version: number;
+  /**
+   * The original note was not committed, but the latest local snapshot was durably
+   * preserved in the conflict queue. This is a pending state rather than a transport error.
+   */
+  __syncPending?: boolean;
 }
 
 export interface VersionedSaveEnvelope<TPayload, TResult extends VersionedSaveResult> {
@@ -119,7 +124,8 @@ export class LatestOnlyVersionedSaveQueue<TPayload, TResult extends VersionedSav
         return;
       }
 
-      if (!Number.isFinite(result.version) || result.version <= baseVersion) {
+      const locallyPreserved = result.__syncPending === true;
+      if (!Number.isFinite(result.version) || (!locallyPreserved && result.version <= baseVersion)) {
         const error = new Error("Server did not confirm a newer version") as Error & {
           code?: string;
           saveBaseVersion?: number;
@@ -135,7 +141,9 @@ export class LatestOnlyVersionedSaveQueue<TPayload, TResult extends VersionedSav
         return;
       }
 
-      state.confirmedVersion = result.version;
+      // Pending-conflict responses carry the latest known server revision without
+      // acknowledging the local body. Keep the queue rebased while draft cleanup stays off.
+      state.confirmedVersion = Math.max(state.confirmedVersion, result.version);
       const pending = this.readPending(state);
       if (pending) {
         pending.waiters.unshift(...batch.waiters);

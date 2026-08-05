@@ -66,17 +66,21 @@ export function installNoteUpdateSerialQueue(): void {
       payload,
     });
 
-    // EditorPane and other callers historically clear drafts by noteId after their Promise
-    // resolves. All coalesced callers receive this same latest result, so record the exact
-    // authoritative body first. draftStorage will refuse a late caller's cleanup if a newer
-    // local snapshot has already replaced it.
-    markDraftAcknowledged({
-      noteId,
-      title: saved.result.title,
-      content: saved.result.content,
-      contentText: saved.result.contentText,
-      serverVersion: saved.result.version,
-    });
+    // A pending conflict is locally durable but is not a server acknowledgement of this body.
+    // Never let the editor clear the only recoverable draft for that state.
+    if ((saved.result as Note & { __syncPending?: boolean }).__syncPending !== true) {
+      // EditorPane and other callers historically clear drafts by noteId after their Promise
+      // resolves. All coalesced callers receive this same latest result, so record the exact
+      // authoritative body first. draftStorage will refuse a late caller's cleanup if a newer
+      // local snapshot has already replaced it.
+      markDraftAcknowledged({
+        noteId,
+        title: saved.result.title,
+        content: saved.result.content,
+        contentText: saved.result.contentText,
+        serverVersion: saved.result.version,
+      });
+    }
     return saved.result;
   };
 
