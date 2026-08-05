@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { PostgresAdapter } from "../src/db/postgresAdapter";
 import { createNoteTransferOperationRepository } from "../src/repositories/noteTransferOperationRepository";
 import createNoteTransfersRuntimeRouter from "../src/routes/note-transfers-runtime";
+import { createNoteTransferEffectsRuntime } from "../src/services/note-transfer-effects-runtime";
 import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-db";
 
 const ACTOR = "pg-transfer-preview-actor";
@@ -103,9 +104,13 @@ test("PostgreSQL note-transfer preview and durable preparation are permission-sa
     const adapter = new PostgresAdapter(pool);
     const operations = createNoteTransferOperationRepository(adapter);
     const app = new Hono();
+    const effects = createNoteTransferEffectsRuntime(adapter, {
+      publishRealtime: async () => {},
+      retryBaseSeconds: 0,
+    });
     app.route(
       "/api/note-transfers",
-      createNoteTransfersRuntimeRouter(adapter),
+      createNoteTransfersRuntimeRouter(adapter, { effects }),
     );
 
     const request = async (
