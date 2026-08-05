@@ -56,6 +56,67 @@ jobs:
               git show ":1:$path" > "/tmp/pg-merge/base/$path"
               git show ":3:$path" > "/tmp/pg-merge/theirs/$path"
 
+              if [ "$path" = "backend/src/middleware/acl.ts" ]; then
+                cp "/tmp/pg-merge/ours/$path" "$path"
+                python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/src/middleware/acl.ts")
+          text = path.read_text()
+
+          permission_import = '''import {
+            resolveNoteNotebookMemberPermission,
+            resolveNotebookMemberPermission,
+          } from "../services/notebook-permissions";
+          '''
+          knowledge_import = '''import {
+            capabilitiesToLegacyPermission,
+            resolveResourceKnowledgeAccess,
+          } from "../services/knowledgeCapabilities";
+          '''
+          if text.count(permission_import) != 1:
+              raise SystemExit("ACL permission import anchor mismatch")
+          text = text.replace(permission_import, permission_import + knowledge_import, 1)
+
+          note_anchor = '''  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
+
+          '''
+          note_access = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("note", noteId, userId);
+            if (knowledgeAccess.nodeId) {
+              return {
+                permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+                workspaceId: note.workspaceId,
+                noteOwnerId: note.userId,
+              };
+            }
+
+          '''
+          if text.count(note_anchor) != 1:
+              raise SystemExit("ACL note anchor mismatch")
+          text = text.replace(note_anchor, note_anchor + note_access, 1)
+
+          notebook_anchor = '''  if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };
+
+          '''
+          notebook_access = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("notebook", notebookId, userId);
+            if (knowledgeAccess.nodeId) {
+              return {
+                permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+                workspaceId: nb.workspaceId,
+                notebookOwnerId: nb.userId,
+              };
+            }
+
+          '''
+          if text.count(notebook_anchor) != 1:
+              raise SystemExit("ACL notebook anchor mismatch")
+          text = text.replace(notebook_anchor, notebook_anchor + notebook_access, 1)
+          path.write_text(text)
+          PY
+                git add "$path"
+                continue
+              fi
+
               set +e
               git merge-file -p \
                 "/tmp/pg-merge/ours/$path" \
