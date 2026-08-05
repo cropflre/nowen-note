@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           runtime = Path("backend/src/services/note-transfer-orchestration-runtime.ts")
           runtime_text = runtime.read_text()
@@ -45,15 +46,17 @@ jobs:
 
           test = Path("backend/tests/note-transfer-preview-runtime-pg.test.ts")
           test_text = test.read_text()
-          old_test = '''    const execution = await request("", ACTOR, {
-              sourceNoteIds: [SOURCE_NOTE_A],
-              targetWorkspaceId: ACTOR_WORKSPACE,
-              targetNotebookId: ACTOR_TARGET,
-              mode: "copy",
-            }, 503);
-            assert.equal(execution.code, "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING");
-            assert.equal(execution.issue, 249);'''
-          new_test = '''    const executionKey = "transfer-unified-execution-001";
+          pattern = re.compile(
+            r'    const execution = await request\("", ACTOR, \{\s*'
+            r'sourceNoteIds: \[SOURCE_NOTE_A\],\s*'
+            r'targetWorkspaceId: ACTOR_WORKSPACE,\s*'
+            r'targetNotebookId: ACTOR_TARGET,\s*'
+            r'mode: "copy",\s*'
+            r'\}, 503\);\s*'
+            r'assert\.equal\(execution\.code, "POSTGRES_NOTE_TRANSFER_EXECUTION_PENDING"\);\s*'
+            r'assert\.equal\(execution\.issue, 249\);'
+          )
+          replacement = '''    const executionKey = "transfer-unified-execution-001";
             const execution = await request("", ACTOR, {
               sourceNoteIds: [SOURCE_NOTE_A],
               targetWorkspaceId: ACTOR_WORKSPACE,
@@ -82,9 +85,10 @@ jobs:
             }
             assert.equal(executionStatus.terminal, true);
             assert.equal(executionStatus.phase, "completed");'''
-          if test_text.count(old_test) != 1:
-            raise SystemExit("unified execution test anchor mismatch")
-          test.write_text(test_text.replace(old_test, new_test, 1))
+          test_text, count = pattern.subn(replacement, test_text, count=1)
+          if count != 1:
+            raise SystemExit("unified execution test pattern mismatch")
+          test.write_text(test_text)
           PY
           git diff --check
       - name: Commit contract fixes
