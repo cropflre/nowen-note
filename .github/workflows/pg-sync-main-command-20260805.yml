@@ -2,10 +2,8 @@ name: PostgreSQL Sync Latest Main Command 20260805
 
 on:
   push:
-    branches:
-      - pg-migration-unified
-    paths:
-      - .github/workflows/pg-sync-main-command-20260805.yml
+    branches: [pg-migration-unified]
+    paths: [.github/workflows/pg-sync-main-command-20260805.yml]
 
 permissions:
   contents: write
@@ -30,10 +28,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-
-          before="$(git rev-parse HEAD)"
           main="$(git rev-parse origin/main)"
-          echo "branch before: $before"
+          echo "branch before: $(git rev-parse HEAD)"
           echo "main:          $main"
 
           set +e
@@ -47,11 +43,9 @@ jobs:
             printf ' - %s\n' "${conflicts[@]}"
 
             for path in "${conflicts[@]}"; do
-              mkdir -p "$(dirname "/tmp/pg-merge/ours/$path")" \
-                       "$(dirname "/tmp/pg-merge/base/$path")" \
-                       "$(dirname "/tmp/pg-merge/theirs/$path")" \
-                       "$(dirname "/tmp/pg-merge/result/$path")"
-
+              for side in ours base theirs result; do
+                mkdir -p "$(dirname "/tmp/pg-merge/$side/$path")"
+              done
               git show ":2:$path" > "/tmp/pg-merge/ours/$path"
               git show ":1:$path" > "/tmp/pg-merge/base/$path"
               git show ":3:$path" > "/tmp/pg-merge/theirs/$path"
@@ -60,27 +54,22 @@ jobs:
                 cp "/tmp/pg-merge/ours/$path" "$path"
                 python3 - <<'PY'
           from pathlib import Path
-
-          path = Path("backend/src/middleware/acl.ts")
-          text = path.read_text()
-          permission_import = '''import {
+          p = Path("backend/src/middleware/acl.ts")
+          s = p.read_text()
+          imp = '''import {
             resolveNoteNotebookMemberPermission,
             resolveNotebookMemberPermission,
           } from "../services/notebook-permissions";
           '''
-          knowledge_import = '''import {
+          extra = '''import {
             capabilitiesToLegacyPermission,
             resolveResourceKnowledgeAccess,
           } from "../services/knowledgeCapabilities";
           '''
-          if text.count(permission_import) != 1:
-              raise SystemExit("ACL permission import anchor mismatch")
-          text = text.replace(permission_import, permission_import + knowledge_import, 1)
-
-          note_anchor = '''  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
-
-          '''
-          note_access = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("note", noteId, userId);
+          if s.count(imp) != 1: raise SystemExit("ACL import anchor mismatch")
+          s = s.replace(imp, imp + extra, 1)
+          note = '  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };\n\n'
+          note_extra = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("note", noteId, userId);
             if (knowledgeAccess.nodeId) {
               return {
                 permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
@@ -90,14 +79,10 @@ jobs:
             }
 
           '''
-          if text.count(note_anchor) != 1:
-              raise SystemExit("ACL note anchor mismatch")
-          text = text.replace(note_anchor, note_anchor + note_access, 1)
-
-          notebook_anchor = '''  if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };
-
-          '''
-          notebook_access = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("notebook", notebookId, userId);
+          if s.count(note) != 1: raise SystemExit("ACL note anchor mismatch")
+          s = s.replace(note, note + note_extra, 1)
+          notebook = '  if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };\n\n'
+          notebook_extra = '''  const knowledgeAccess = resolveResourceKnowledgeAccess("notebook", notebookId, userId);
             if (knowledgeAccess.nodeId) {
               return {
                 permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
@@ -107,58 +92,45 @@ jobs:
             }
 
           '''
-          if text.count(notebook_anchor) != 1:
-              raise SystemExit("ACL notebook anchor mismatch")
-          text = text.replace(notebook_anchor, notebook_anchor + notebook_access, 1)
-          path.write_text(text)
-          PY
-                git add "$path"
-                continue
-              fi
-
-              if [ "$path" = "backend/src/routes/attachments.ts" ]; then
-                cp "/tmp/pg-merge/ours/$path" "$path"
-                python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("backend/src/routes/attachments.ts")
-          text = path.read_text()
-          old = '''  return hasCompleteSignature || verifiedUserId
-            ? hardenScopedResponse(response)
-            : response;
-          '''
-          new = '''  return hardenScopedResponse(response);
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("attachment response hardening anchor mismatch")
-          path.write_text(text.replace(old, new, 1))
+          if s.count(notebook) != 1: raise SystemExit("ACL notebook anchor mismatch")
+          p.write_text(s.replace(notebook, notebook + notebook_extra, 1))
           PY
                 git add "$path"
                 continue
               fi
 
               set +e
-              git merge-file -p \
-                "/tmp/pg-merge/ours/$path" \
-                "/tmp/pg-merge/base/$path" \
-                "/tmp/pg-merge/theirs/$path" \
-                > "/tmp/pg-merge/result/$path"
+              git merge-file -p "/tmp/pg-merge/ours/$path" "/tmp/pg-merge/base/$path" "/tmp/pg-merge/theirs/$path" > "/tmp/pg-merge/result/$path"
               file_status=$?
               set -e
+
+              if [ "$path" = "backend/src/routes/attachments.ts" ] && [ "$file_status" -ne 0 ]; then
+                python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("/tmp/pg-merge/result/backend/src/routes/attachments.ts")
+          s = p.read_text()
+          pattern = re.compile(
+              r'<<<<<<<[^\n]*\n\s*return hasCompleteSignature \|\| verifiedUserId\n\s*\? hardenScopedResponse\(response\)\n\s*: response;\n=======\n\s*return hardenScopedResponse\(response\);\n>>>>>>>[^\n]*\n'
+          )
+          s, count = pattern.subn('  return hardenScopedResponse(response);\n', s)
+          if count != 1 or '<<<<<<<' in s: raise SystemExit("attachment conflict block mismatch")
+          p.write_text(s)
+          PY
+                file_status=0
+              fi
 
               if [ "$file_status" -ne 0 ]; then
                 echo "Unresolved overlapping edits in $path"
                 cat "/tmp/pg-merge/result/$path"
                 exit 1
               fi
-
               cp "/tmp/pg-merge/result/$path" "$path"
               git add "$path"
             done
           fi
 
           if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "Unmerged paths remain"
             git diff --name-only --diff-filter=U
             exit 1
           fi
@@ -166,5 +138,5 @@ jobs:
           rm -f .github/workflows/pg-sync-main-command-20260805.yml
           git add -A
           git commit -m "Merge latest main into pg-migration-unified" \
-            -m "Sync main@${main} before the Note Transfer move source-deletion migration. Preserve both main product behavior and PostgreSQL migration boundaries through strict three-way file resolution."
+            -m "Sync main@${main} before the Note Transfer move source-deletion migration. Preserve main product behavior and PostgreSQL repository boundaries through strict three-way resolution."
           git push origin HEAD:pg-migration-unified
