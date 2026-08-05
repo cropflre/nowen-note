@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { DatabaseAdapter } from "../db/adapters/types";
+import type { DatabaseAdapter, DbStatement } from "../db/adapters/types";
 import { getDatabaseAdapter } from "../db/runtime";
 
 export type SqlitePostgresMigrationTableStatus =
@@ -77,6 +77,24 @@ export type SqlitePostgresMigrationTableCheckpoint = {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SqlitePostgresMigrationBatchCheckpoint = {
+  id: string;
+  runId: string;
+  tableName: string;
+  batchSequence: number;
+  status: "planned" | "writing" | "completed" | "failed";
+  cursorStart: Record<string, unknown> | null;
+  cursorEnd: Record<string, unknown> | null;
+  rowCount: number;
+  checksum: string | null;
+  attempts: number;
+  leaseExpiresAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
 };
 
 export type SqlitePostgresMigrationSnapshot = {
@@ -170,6 +188,19 @@ function normalizeTable(row: Row): SqlitePostgresMigrationTableCheckpoint {
   } as SqlitePostgresMigrationTableCheckpoint;
 }
 
+function normalizeBatch(row: Row): SqlitePostgresMigrationBatchCheckpoint {
+  return {
+    ...row,
+    batchSequence: numberValue(row.batchSequence),
+    rowCount: numberValue(row.rowCount),
+    attempts: numberValue(row.attempts),
+    leaseExpiresAt: optionalTimestamp(row.leaseExpiresAt),
+    createdAt: timestamp(row.createdAt),
+    updatedAt: timestamp(row.updatedAt),
+    completedAt: optionalTimestamp(row.completedAt),
+  } as SqlitePostgresMigrationBatchCheckpoint;
+}
+
 export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapter) {
   const db = adapter ?? getDatabaseAdapter();
 
@@ -210,6 +241,27 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
     progress.complete = tables.length > 0
       && tables.every((table) => table.status === "verified" || table.status === "skipped");
     return { run: normalizeRun(runRow), tables, progress };
+  }
+
+  async function refreshRunProgress(runId: string): Promise<void> {
+    await db.execute(
+      `UPDATE sqlite_postgres_migration_runs run
+          SET "completedTables" = summary.completed_tables,
+              "copiedRows" = summary.copied_rows,
+              "verifiedRows" = summary.verified_rows,
+              "updatedAt" = CURRENT_TIMESTAMP
+         FROM (
+           SELECT "runId",
+                  COUNT(*) FILTER (WHERE status IN ('verified', 'skipped'))::int AS completed_tables,
+                  COALESCE(SUM("copiedRows"), 0)::bigint AS copied_rows,
+                  COALESCE(SUM("verifiedRows"), 0)::bigint AS verified_rows
+             FROM sqlite_postgres_migration_table_checkpoints
+            WHERE "runId" = ?
+            GROUP BY "runId"
+         ) summary
+        WHERE run.id = summary."runId"`,
+      [runId],
+    );
   }
 
   return {
@@ -310,8 +362,8 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
              FROM sqlite_postgres_migration_table_checkpoints checkpoint
              JOIN sqlite_postgres_migration_runs run ON run.id = checkpoint."runId"
             WHERE checkpoint."runId" = ?
-              AND run.status IN ('planned', 'copying', 'failed')
-              AND checkpoint.status IN ('planned', 'copying', 'failed')
+              AND run.status IN ('planned', 'copying', 'verifying', 'failed')
+              AND checkpoint.status IN ('planned', 'copying', 'verifying', 'failed')
               AND checkpoint.attempts < ?
               AND checkpoint."availableAt" <= CURRENT_TIMESTAMP
               AND (
@@ -323,7 +375,7 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
                   FROM sqlite_postgres_migration_table_checkpoints dependency
                  WHERE dependency."runId" = checkpoint."runId"
                    AND dependency."dependencyOrder" < checkpoint."dependencyOrder"
-                   AND dependency.status NOT IN ('copied', 'verified', 'skipped')
+                   AND dependency.status NOT IN ('verified', 'skipped')
               )
             ORDER BY checkpoint."dependencyOrder", checkpoint."tableName"
             FOR UPDATE OF checkpoint SKIP LOCKED
@@ -335,6 +387,7 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
                 "leaseToken" = ?,
                 "leaseExpiresAt" = CURRENT_TIMESTAMP + (? * INTERVAL '1 second'),
                 "startedAt" = COALESCE("startedAt", CURRENT_TIMESTAMP),
+                "lastError" = NULL,
                 "updatedAt" = CURRENT_TIMESTAMP
            FROM candidate
           WHERE checkpoint."runId" = candidate."runId"
@@ -350,10 +403,10 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
       if (!row) return null;
       await db.execute(
         `UPDATE sqlite_postgres_migration_runs
-            SET status = 'copying', "currentTable" = ?,
+            SET status = 'copying', "currentTable" = ?, "lastError" = NULL,
                 "startedAt" = COALESCE("startedAt", CURRENT_TIMESTAMP),
                 "updatedAt" = CURRENT_TIMESTAMP
-          WHERE id = ? AND status IN ('planned', 'copying', 'failed')`,
+          WHERE id = ? AND status IN ('planned', 'copying', 'verifying', 'failed')`,
         [row.tableName, row.runId],
       );
       return {
@@ -365,6 +418,197 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
         lastCursor: row.lastCursor ?? null,
         leaseToken,
       };
+    },
+
+    async getCompletedBatches(input: {
+      runId: string;
+      tableName: string;
+    }): Promise<SqlitePostgresMigrationBatchCheckpoint[]> {
+      return (await db.queryMany<Row>(
+        `SELECT *
+           FROM sqlite_postgres_migration_batch_checkpoints
+          WHERE "runId" = ? AND "tableName" = ? AND status = 'completed'
+          ORDER BY "batchSequence"`,
+        [input.runId, input.tableName],
+      )).map(normalizeBatch);
+    },
+
+    async commitBatch(input: {
+      runId: string;
+      tableName: string;
+      leaseToken: string;
+      batchSequence: number;
+      cursorStart: Record<string, unknown> | null;
+      cursorEnd: Record<string, unknown> | null;
+      rowCount: number;
+      checksum: string;
+      copiedRows: number;
+      lastCursor: Record<string, unknown>;
+      leaseSeconds?: number;
+      statements: DbStatement[];
+    }): Promise<void> {
+      const statements: DbStatement[] = [
+        ...input.statements,
+        {
+          sql: `INSERT INTO sqlite_postgres_migration_batch_checkpoints (
+                  id, "runId", "tableName", "batchSequence", status,
+                  "cursorStart", "cursorEnd", "rowCount", checksum,
+                  attempts, "completedAt", "updatedAt"
+                ) VALUES (?, ?, ?, ?, 'completed', ?::jsonb, ?::jsonb, ?, ?, 1,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT ("runId", "tableName", "batchSequence") DO UPDATE
+                  SET status = 'completed',
+                      "cursorStart" = EXCLUDED."cursorStart",
+                      "cursorEnd" = EXCLUDED."cursorEnd",
+                      "rowCount" = EXCLUDED."rowCount",
+                      checksum = EXCLUDED.checksum,
+                      attempts = sqlite_postgres_migration_batch_checkpoints.attempts + 1,
+                      "lastError" = NULL,
+                      "completedAt" = CURRENT_TIMESTAMP,
+                      "updatedAt" = CURRENT_TIMESTAMP`,
+          params: [
+            randomUUID(), input.runId, input.tableName,
+            Math.max(0, Math.trunc(input.batchSequence)),
+            JSON.stringify(input.cursorStart), JSON.stringify(input.cursorEnd),
+            Math.max(0, Math.trunc(input.rowCount)),
+            normalizeHash(input.checksum, "batch checksum"),
+          ],
+        },
+        {
+          sql: `UPDATE sqlite_postgres_migration_table_checkpoints
+                   SET status = 'copying', "copiedRows" = ?, "lastCursor" = ?::jsonb,
+                       "leaseExpiresAt" = CURRENT_TIMESTAMP + (? * INTERVAL '1 second'),
+                       "lastError" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+                 WHERE "runId" = ? AND "tableName" = ? AND "leaseToken" = ?`,
+          params: [
+            Math.max(0, Math.trunc(input.copiedRows)),
+            JSON.stringify(input.lastCursor),
+            Math.max(30, Math.trunc(input.leaseSeconds ?? 300)),
+            input.runId, input.tableName, input.leaseToken,
+          ],
+          requireChanges: 1,
+        },
+        {
+          sql: `UPDATE sqlite_postgres_migration_runs run
+                   SET "copiedRows" = summary.copied_rows,
+                       "currentTable" = ?, "updatedAt" = CURRENT_TIMESTAMP
+                  FROM (
+                    SELECT "runId", COALESCE(SUM("copiedRows"), 0)::bigint AS copied_rows
+                      FROM sqlite_postgres_migration_table_checkpoints
+                     WHERE "runId" = ?
+                     GROUP BY "runId"
+                  ) summary
+                 WHERE run.id = summary."runId"`,
+          params: [input.tableName, input.runId],
+        },
+      ];
+      await db.executeStatements(statements);
+    },
+
+    async markTableVerifying(input: {
+      runId: string;
+      tableName: string;
+      leaseToken: string;
+      sourceChecksum: string;
+      leaseSeconds?: number;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE sqlite_postgres_migration_table_checkpoints
+            SET status = 'verifying', "sourceChecksum" = ?,
+                "leaseExpiresAt" = CURRENT_TIMESTAMP + (? * INTERVAL '1 second'),
+                "lastError" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "runId" = ? AND "tableName" = ? AND "leaseToken" = ?`,
+        [
+          normalizeHash(input.sourceChecksum, "source checksum"),
+          Math.max(30, Math.trunc(input.leaseSeconds ?? 300)),
+          input.runId, input.tableName, input.leaseToken,
+        ],
+      );
+      if (result.changes !== 1) {
+        throw new SqlitePostgresMigrationError(
+          "SQLITE_PG_MIGRATION_TABLE_LEASE_LOST",
+          "数据迁移表租约已失效",
+          409,
+        );
+      }
+      await db.execute(
+        `UPDATE sqlite_postgres_migration_runs
+            SET status = 'verifying', "currentTable" = ?, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [input.tableName, input.runId],
+      );
+    },
+
+    async markTableVerified(input: {
+      runId: string;
+      tableName: string;
+      leaseToken: string;
+      verifiedRows: number;
+      targetChecksum: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE sqlite_postgres_migration_table_checkpoints
+            SET status = 'verified', "verifiedRows" = ?, "targetChecksum" = ?,
+                "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+                "lastError" = NULL, "completedAt" = CURRENT_TIMESTAMP,
+                "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "runId" = ? AND "tableName" = ? AND "leaseToken" = ?`,
+        [
+          Math.max(0, Math.trunc(input.verifiedRows)),
+          normalizeHash(input.targetChecksum, "target checksum"),
+          input.runId, input.tableName, input.leaseToken,
+        ],
+      );
+      if (result.changes !== 1) {
+        throw new SqlitePostgresMigrationError(
+          "SQLITE_PG_MIGRATION_TABLE_LEASE_LOST",
+          "数据迁移表租约已失效",
+          409,
+        );
+      }
+      await refreshRunProgress(input.runId);
+      const remaining = await db.queryOne<{ count: number | string }>(
+        `SELECT COUNT(*)::bigint AS count
+           FROM sqlite_postgres_migration_table_checkpoints
+          WHERE "runId" = ? AND status NOT IN ('verified', 'skipped')`,
+        [input.runId],
+      );
+      const complete = numberValue(remaining?.count) === 0;
+      await db.execute(
+        `UPDATE sqlite_postgres_migration_runs
+            SET status = ?, "currentTable" = NULL, "lastError" = NULL,
+                "completedAt" = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+                "updatedAt" = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [complete ? "completed" : "copying", complete, input.runId],
+      );
+    },
+
+    async releaseTableLease(input: {
+      runId: string;
+      tableName: string;
+      leaseToken: string;
+    }): Promise<void> {
+      const result = await db.execute(
+        `UPDATE sqlite_postgres_migration_table_checkpoints
+            SET status = 'copying', "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+                "availableAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "runId" = ? AND "tableName" = ? AND "leaseToken" = ?`,
+        [input.runId, input.tableName, input.leaseToken],
+      );
+      if (result.changes !== 1) {
+        throw new SqlitePostgresMigrationError(
+          "SQLITE_PG_MIGRATION_TABLE_LEASE_LOST",
+          "数据迁移表租约已失效",
+          409,
+        );
+      }
+      await db.execute(
+        `UPDATE sqlite_postgres_migration_runs
+            SET "currentTable" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [input.runId],
+      );
     },
 
     async markTableCopied(input: {
@@ -396,24 +640,7 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
           409,
         );
       }
-      await db.execute(
-        `UPDATE sqlite_postgres_migration_runs run
-            SET "completedTables" = summary.completed_tables,
-                "copiedRows" = summary.copied_rows,
-                "currentTable" = NULL,
-                "updatedAt" = CURRENT_TIMESTAMP
-           FROM (
-             SELECT "runId",
-                    COUNT(*) FILTER (WHERE status IN ('copied', 'verified', 'skipped'))::int
-                      AS completed_tables,
-                    COALESCE(SUM("copiedRows"), 0)::bigint AS copied_rows
-               FROM sqlite_postgres_migration_table_checkpoints
-              WHERE "runId" = ?
-              GROUP BY "runId"
-           ) summary
-          WHERE run.id = summary."runId"`,
-        [input.runId],
-      );
+      await refreshRunProgress(input.runId);
     },
 
     async markTableFailed(input: {
@@ -449,6 +676,16 @@ export function createSqlitePostgresMigrationRepository(adapter?: DatabaseAdapte
                 "currentTable" = NULL, "updatedAt" = CURRENT_TIMESTAMP
           WHERE id = ?`,
         [message, input.runId],
+      );
+    },
+
+    async markRunFailed(input: { runId: string; error: string }): Promise<void> {
+      await db.execute(
+        `UPDATE sqlite_postgres_migration_runs
+            SET status = 'failed', "lastError" = ?, attempts = attempts + 1,
+                "currentTable" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE id = ? AND status <> 'completed'`,
+        [String(input.error || "unknown migration error").slice(0, 2_000), input.runId],
       );
     },
   };

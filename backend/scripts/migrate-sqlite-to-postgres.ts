@@ -6,27 +6,35 @@ import { PostgresAdapter } from "../src/db/postgresAdapter";
 import { createSqlitePostgresMigrationRuntime } from "../src/services/sqlite-postgres-migration-runtime";
 
 type CliOptions = {
-  mode: "dry-run";
-  sourcePath: string;
+  mode: "dry-run" | "apply" | "verify";
+  sourcePath?: string;
   backupPath?: string;
+  idempotencyKey?: string;
   allowNonEmptyTarget: boolean;
+  batchSize?: number;
 };
 
 function usage(): string {
   return [
-    "SQLite → PostgreSQL migration preflight",
+    "SQLite → PostgreSQL migration tool",
     "",
     "Usage:",
     "  npm run migrate:sqlite-to-postgres -- --dry-run --source <nowen-note.db> --backup <backup.db>",
+    "  npm run migrate:sqlite-to-postgres -- --apply --source <nowen-note.db> --backup <backup.db> --idempotency-key <key>",
+    "  npm run migrate:sqlite-to-postgres -- --verify --backup <backup.db> --idempotency-key <key>",
     "",
     "Options:",
     "  --dry-run                  Run read-only preflight; never writes target data",
-    "  --source <path>            Source SQLite file (defaults to DB_PATH)",
-    "  --backup <path>            Full SQLite backup used for safety verification",
-    "  --allow-non-empty-target   Explicitly allow planning against a non-empty target",
+    "  --apply                    Copy and verify all planned business tables",
+    "  --verify                   Independently re-read the frozen backup and verify PostgreSQL",
+    "  --source <path>            Live SQLite source used only for preflight (defaults to DB_PATH)",
+    "  --backup <path>            Verified frozen SQLite backup used as the execution source",
+    "  --idempotency-key <key>    Stable 8–128 character migration key for apply/verify",
+    "  --batch-size <1..2000>     Rows per transactional upsert/checkpoint batch (default 200)",
+    "  --allow-non-empty-target   Allow planning against non-empty PostgreSQL; apply remains blocked",
     "  --help                     Show this help",
     "",
-    "The apply/verify/rollback workers are intentionally not enabled in this slice.",
+    "Rollback remains disabled until run-owned row tracking is implemented.",
   ].join("\n");
 }
 
@@ -35,23 +43,48 @@ function valueAfter(args: string[], name: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function parseBatchSize(value: string | undefined): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 2_000) {
+    throw new Error("--batch-size must be an integer between 1 and 2000.");
+  }
+  return parsed;
+}
+
 function parseArgs(args: string[]): CliOptions {
   if (args.includes("--help")) {
     console.log(usage());
     process.exit(0);
   }
-  if (!args.includes("--dry-run")) {
-    throw new Error("Only --dry-run is enabled. Apply/verify/rollback are not available yet.");
+  const selected = ["--dry-run", "--apply", "--verify"].filter((mode) => args.includes(mode));
+  if (selected.length !== 1) {
+    throw new Error("Select exactly one mode: --dry-run, --apply, or --verify.");
   }
+  const mode = selected[0] === "--apply"
+    ? "apply"
+    : selected[0] === "--verify"
+      ? "verify"
+      : "dry-run";
   const sourcePath = valueAfter(args, "--source") || process.env.DB_PATH;
-  if (!sourcePath) {
+  const backupPath = valueAfter(args, "--backup");
+  const idempotencyKey = valueAfter(args, "--idempotency-key");
+  if ((mode === "dry-run" || mode === "apply") && !sourcePath) {
     throw new Error("SQLite source path is required via --source or DB_PATH.");
   }
+  if (!backupPath) {
+    throw new Error("A frozen SQLite backup is required via --backup.");
+  }
+  if ((mode === "apply" || mode === "verify") && !idempotencyKey) {
+    throw new Error("--idempotency-key is required for apply and verify.");
+  }
   return {
-    mode: "dry-run",
+    mode,
     sourcePath,
-    backupPath: valueAfter(args, "--backup"),
+    backupPath,
+    idempotencyKey,
     allowNonEmptyTarget: args.includes("--allow-non-empty-target"),
+    batchSize: parseBatchSize(valueAfter(args, "--batch-size")),
   };
 }
 
@@ -65,20 +98,42 @@ async function main(): Promise<void> {
   const pool = new Pool({
     connectionString: databaseUrl,
     max: 2,
-    application_name: "nowen-note-sqlite-pg-migration-preflight",
+    application_name: "nowen-note-sqlite-pg-migration",
   });
   try {
     await pool.query("SELECT 1");
     const runtime = createSqlitePostgresMigrationRuntime(
       new PostgresAdapter(pool),
     );
-    const report = await runtime.dryRun({
-      sourcePath: options.sourcePath,
-      backupPath: options.backupPath,
-      allowNonEmptyTarget: options.allowNonEmptyTarget,
+    if (options.mode === "dry-run") {
+      const report = await runtime.dryRun({
+        sourcePath: options.sourcePath!,
+        backupPath: options.backupPath,
+        allowNonEmptyTarget: options.allowNonEmptyTarget,
+        batchSize: options.batchSize,
+      });
+      console.log(JSON.stringify(report, null, 2));
+      if (!report.canApply) process.exitCode = 2;
+      return;
+    }
+    if (options.mode === "apply") {
+      const result = await runtime.apply({
+        idempotencyKey: options.idempotencyKey!,
+        sourcePath: options.sourcePath!,
+        backupPath: options.backupPath!,
+        allowNonEmptyTarget: options.allowNonEmptyTarget,
+        batchSize: options.batchSize,
+      });
+      console.log(JSON.stringify(result, null, 2));
+      if (result.snapshot.run.status !== "completed") process.exitCode = 3;
+      return;
+    }
+    const report = await runtime.verify({
+      idempotencyKey: options.idempotencyKey!,
+      backupPath: options.backupPath!,
     });
     console.log(JSON.stringify(report, null, 2));
-    if (!report.canApply) process.exitCode = 2;
+    if (!report.ok) process.exitCode = 4;
   } finally {
     await pool.end();
   }
@@ -88,7 +143,7 @@ main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(JSON.stringify({
     ok: false,
-    code: "SQLITE_PG_MIGRATION_PREFLIGHT_FAILED",
+    code: "SQLITE_PG_MIGRATION_COMMAND_FAILED",
     error: message,
   }));
   process.exitCode = 1;

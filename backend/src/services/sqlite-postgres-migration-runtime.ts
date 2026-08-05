@@ -12,6 +12,10 @@ import {
   type SqlitePostgresMigrationSnapshot,
   type SqlitePostgresMigrationTablePlan,
 } from "../repositories/sqlitePostgresMigrationRepository";
+import {
+  createSqlitePostgresCopyRuntime,
+  type SqlitePostgresCopyVerificationReport,
+} from "./sqlite-postgres-copy-runtime";
 
 export type SqlitePostgresMigrationRisk = {
   code: string;
@@ -53,6 +57,11 @@ export type SqlitePostgresMigrationDryRunReport = {
     totalRows: number;
     deferredTables: string[];
     unsupportedTables: string[];
+    execution: {
+      batchSize: number;
+      source: "verified-backup";
+      writes: "transactional-upsert-checkpoint";
+    };
   };
   blockers: SqlitePostgresMigrationRisk[];
   warnings: SqlitePostgresMigrationRisk[];
@@ -60,6 +69,7 @@ export type SqlitePostgresMigrationDryRunReport = {
 
 export type SqlitePostgresMigrationRuntimeOptions = {
   repository?: ReturnType<typeof createSqlitePostgresMigrationRepository>;
+  copy?: ReturnType<typeof createSqlitePostgresCopyRuntime>;
   inspectSource?: typeof inspectSqliteMigrationSource;
 };
 
@@ -70,6 +80,8 @@ const TARGET_METADATA_TABLES = new Set([
   "sqlite_postgres_migration_table_checkpoints",
   "sqlite_postgres_migration_batch_checkpoints",
 ]);
+
+const DEFAULT_BATCH_SIZE = 200;
 
 function quoteIdentifier(value: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
@@ -99,6 +111,10 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(stableJson(value)).digest("hex");
 }
 
+function normalizeBatchSize(value: number | undefined): number {
+  return Math.max(1, Math.min(2_000, Math.trunc(value ?? DEFAULT_BATCH_SIZE)));
+}
+
 function backupMatches(
   source: SqliteMigrationSourceSnapshot,
   backup: SqliteMigrationSourceSnapshot,
@@ -115,12 +131,19 @@ function backupMatches(
 function orderTables(tables: SqliteMigrationTable[]): {
   ordered: SqliteMigrationTable[];
   cyclic: string[];
+  selfReferential: string[];
 } {
   const byName = new Map(tables.map((table) => [table.name, table]));
+  const selfReferential = tables
+    .filter((table) => table.dependencies.includes(table.name))
+    .map((table) => table.name)
+    .sort();
   const dependencies = new Map(
     tables.map((table) => [
       table.name,
-      new Set(table.dependencies.filter((dependency) => byName.has(dependency))),
+      new Set(table.dependencies.filter(
+        (dependency) => dependency !== table.name && byName.has(dependency),
+      )),
     ]),
   );
   const remaining = new Set(byName.keys());
@@ -140,7 +163,7 @@ function orderTables(tables: SqliteMigrationTable[]): {
 
   const cyclic = [...remaining].sort();
   for (const name of cyclic) ordered.push(byName.get(name)!);
-  return { ordered, cyclic };
+  return { ordered, cyclic, selfReferential };
 }
 
 async function inspectPostgresTarget(
@@ -194,17 +217,20 @@ export function createSqlitePostgresMigrationRuntime(
   const repository = options.repository
     || createSqlitePostgresMigrationRepository(adapter);
   const inspectSource = options.inspectSource || inspectSqliteMigrationSource;
+  const copy = options.copy || createSqlitePostgresCopyRuntime(adapter, { repository });
 
   async function dryRun(input: {
     sourcePath: string;
     backupPath?: string | null;
     allowNonEmptyTarget?: boolean;
+    batchSize?: number;
   }): Promise<SqlitePostgresMigrationDryRunReport> {
     const source = inspectSource(input.sourcePath);
     const backup = input.backupPath ? inspectSource(input.backupPath) : null;
     const target = await inspectPostgresTarget(adapter);
     const blockers: SqlitePostgresMigrationRisk[] = [];
     const warnings: SqlitePostgresMigrationRisk[] = [];
+    const batchSize = normalizeBatchSize(input.batchSize);
 
     if (!source.integrityOk) {
       blockers.push({
@@ -257,14 +283,14 @@ export function createSqlitePostgresMigrationRuntime(
     if (source.walPresent && source.walSize > 0) {
       warnings.push({
         code: "SQLITE_WAL_PRESENT",
-        message: "源数据库存在非空 WAL；正式执行前应先生成一致性快照",
+        message: "源数据库存在非空 WAL；正式执行将只读取已验证的冻结备份",
         details: { walSize: source.walSize },
       });
     }
     if (input.allowNonEmptyTarget && !target.targetWasEmpty) {
       warnings.push({
         code: "POSTGRES_NON_EMPTY_OVERRIDE",
-        message: "已显式允许非空目标库；后续写入必须使用幂等 upsert 与冲突报告",
+        message: "已显式允许非空目标库进行规划；当前 apply 执行器仍只开放空目标库写入",
         details: { totalBusinessRows: target.totalBusinessRows },
       });
     }
@@ -290,12 +316,31 @@ export function createSqlitePostgresMigrationRuntime(
     }
 
     const migratable = source.tables.filter((table) => targetNames.has(table.name));
-    const { ordered, cyclic } = orderTables(migratable);
+    const withoutPrimaryKey = migratable
+      .filter((table) => table.primaryKeyColumns.length === 0)
+      .map((table) => table.name)
+      .sort();
+    if (withoutPrimaryKey.length > 0) {
+      blockers.push({
+        code: "SQLITE_PRIMARY_KEY_REQUIRED",
+        message: "实际复制要求每个业务表具备稳定主键游标",
+        details: { tables: withoutPrimaryKey },
+      });
+    }
+
+    const { ordered, cyclic, selfReferential } = orderTables(migratable);
     if (cyclic.length > 0) {
-      warnings.push({
-        code: "SQLITE_FOREIGN_KEY_CYCLE",
-        message: "检测到循环外键；执行器需在延迟约束事务中处理这些表",
+      blockers.push({
+        code: "SQLITE_FOREIGN_KEY_CYCLE_UNSUPPORTED",
+        message: "检测到跨表循环外键，当前安全执行器不会绕过 PostgreSQL 约束",
         details: { tables: cyclic },
+      });
+    }
+    if (selfReferential.length > 0) {
+      warnings.push({
+        code: "SQLITE_SELF_REFERENTIAL_TABLES",
+        message: "自引用外键将在行复制后以幂等修复批次恢复",
+        details: { tables: selfReferential },
       });
     }
     const tablePlan = ordered.map((table, dependencyOrder) => ({
@@ -322,69 +367,132 @@ export function createSqlitePostgresMigrationRuntime(
         totalRows: tablePlan.reduce((sum, table) => sum + table.totalRows, 0),
         deferredTables: source.excludedTables,
         unsupportedTables,
+        execution: {
+          batchSize,
+          source: "verified-backup",
+          writes: "transactional-upsert-checkpoint",
+        },
       },
       blockers,
       warnings,
     };
   }
 
+  async function prepareApply(input: {
+    idempotencyKey: string;
+    sourcePath: string;
+    backupPath: string;
+    allowNonEmptyTarget?: boolean;
+    batchSize?: number;
+  }): Promise<{
+    report: SqlitePostgresMigrationDryRunReport;
+    snapshot: SqlitePostgresMigrationSnapshot;
+    reused: boolean;
+  }> {
+    const report = await dryRun(input);
+    if (!report.canApply) {
+      throw new SqlitePostgresMigrationError(
+        "SQLITE_PG_MIGRATION_PREFLIGHT_BLOCKED",
+        "SQLite → PostgreSQL 迁移预检未通过",
+        409,
+        {
+          blockers: report.blockers.map((blocker) => blocker.code),
+        },
+      );
+    }
+
+    const requestHash = sha256({
+      sourceFingerprint: report.source.sourceFingerprint,
+      backupFingerprint: report.backup.snapshot?.sourceFingerprint ?? null,
+      targetLatestMigration: report.target.latestMigration,
+      targetWasEmpty: report.target.targetWasEmpty,
+      allowNonEmptyTarget: Boolean(input.allowNonEmptyTarget),
+      tables: report.plan.tables,
+      execution: report.plan.execution,
+    });
+    const created = await repository.createPlannedRun({
+      idempotencyKey: input.idempotencyKey,
+      requestHash,
+      sourceFingerprint: report.source.sourceFingerprint,
+      sourcePathHint: report.source.sourcePathHint,
+      sourceSchemaVersion: report.source.sourceSchemaVersion,
+      sourceFileSize: report.source.fileSize,
+      sourceModifiedAt: report.source.modifiedAt,
+      sourceSnapshot: report.source as unknown as Record<string, unknown>,
+      plan: report.plan as unknown as Record<string, unknown>,
+      targetWasEmpty: report.target.targetWasEmpty,
+      allowNonEmptyTarget: Boolean(input.allowNonEmptyTarget),
+      tables: report.plan.tables,
+    });
+
+    return {
+      report,
+      snapshot: created.snapshot,
+      reused: created.reused,
+    };
+  }
+
   return {
     dryRun,
+    prepareApply,
 
-    async prepareApply(input: {
+    async apply(input: {
       idempotencyKey: string;
       sourcePath: string;
       backupPath: string;
       allowNonEmptyTarget?: boolean;
+      batchSize?: number;
+      maxBatches?: number | null;
     }): Promise<{
-      report: SqlitePostgresMigrationDryRunReport;
+      report: SqlitePostgresMigrationDryRunReport | null;
       snapshot: SqlitePostgresMigrationSnapshot;
       reused: boolean;
     }> {
-      const report = await dryRun(input);
-      if (!report.canApply) {
-        throw new SqlitePostgresMigrationError(
-          "SQLITE_PG_MIGRATION_PREFLIGHT_BLOCKED",
-          "SQLite → PostgreSQL 迁移预检未通过",
-          409,
-          {
-            blockers: report.blockers.map((blocker) => blocker.code),
-          },
-        );
+      let prepared: Awaited<ReturnType<typeof prepareApply>> | null = null;
+      let existing: SqlitePostgresMigrationSnapshot | null = null;
+      try {
+        existing = await repository.getSnapshotByIdempotencyKey(input.idempotencyKey);
+      } catch (error) {
+        if (!(error instanceof SqlitePostgresMigrationError)
+          || error.code !== "SQLITE_PG_MIGRATION_RUN_NOT_FOUND") {
+          throw error;
+        }
       }
-
-      const requestHash = sha256({
-        sourceFingerprint: report.source.sourceFingerprint,
-        backupFingerprint: report.backup.snapshot?.sourceFingerprint ?? null,
-        targetLatestMigration: report.target.latestMigration,
-        targetWasEmpty: report.target.targetWasEmpty,
-        allowNonEmptyTarget: Boolean(input.allowNonEmptyTarget),
-        tables: report.plan.tables,
+      if (!existing) {
+        prepared = await prepareApply(input);
+        existing = prepared.snapshot;
+      }
+      const snapshot = await copy.apply({
+        runId: existing.run.id,
+        snapshotPath: input.backupPath,
+        maxBatches: input.maxBatches,
       });
-      const created = await repository.createPlannedRun({
-        idempotencyKey: input.idempotencyKey,
-        requestHash,
-        sourceFingerprint: report.source.sourceFingerprint,
-        sourcePathHint: report.source.sourcePathHint,
-        sourceSchemaVersion: report.source.sourceSchemaVersion,
-        sourceFileSize: report.source.fileSize,
-        sourceModifiedAt: report.source.modifiedAt,
-        sourceSnapshot: report.source as unknown as Record<string, unknown>,
-        plan: report.plan as unknown as Record<string, unknown>,
-        targetWasEmpty: report.target.targetWasEmpty,
-        allowNonEmptyTarget: Boolean(input.allowNonEmptyTarget),
-        tables: report.plan.tables,
-      });
-
       return {
-        report,
-        snapshot: created.snapshot,
-        reused: created.reused,
+        report: prepared?.report ?? null,
+        snapshot,
+        reused: prepared?.reused ?? true,
       };
+    },
+
+    async verify(input: {
+      idempotencyKey: string;
+      backupPath: string;
+    }): Promise<SqlitePostgresCopyVerificationReport> {
+      const snapshot = await repository.getSnapshotByIdempotencyKey(input.idempotencyKey);
+      return copy.verify({
+        runId: snapshot.run.id,
+        snapshotPath: input.backupPath,
+      });
     },
 
     getStatus(runId: string): Promise<SqlitePostgresMigrationSnapshot> {
       return repository.getSnapshotByRunId(runId);
+    },
+
+    getStatusByIdempotencyKey(
+      idempotencyKey: string,
+    ): Promise<SqlitePostgresMigrationSnapshot> {
+      return repository.getSnapshotByIdempotencyKey(idempotencyKey);
     },
   };
 }

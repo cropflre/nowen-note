@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - "backend/src/db/migration/sqliteMigrationSource.ts"
+      - "backend/src/db/migration/sqliteMigrationReader.ts"
       - "backend/src/db/postgres/migrations/0023_sqlite_postgres_migration_runs.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
+      - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
@@ -17,8 +19,10 @@ on:
     branches: [pg-migration-unified]
     paths:
       - "backend/src/db/migration/sqliteMigrationSource.ts"
+      - "backend/src/db/migration/sqliteMigrationReader.ts"
       - "backend/src/db/postgres/migrations/0023_sqlite_postgres_migration_runs.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
+      - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
@@ -32,7 +36,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  foundation:
+  executor:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -66,7 +70,7 @@ jobs:
           npm run build:tsc -- --noEmit
           npm run audit:sqlite-boundaries
           npm run audit:pg-schema-parity
-      - name: Migration foundation regressions
+      - name: Migration executor regressions
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
