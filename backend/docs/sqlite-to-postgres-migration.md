@@ -1,44 +1,54 @@
 # SQLite → PostgreSQL data migration
 
-This document describes the durable preflight, copy and verification slices for issue #251.
+This document describes the durable SQLite → PostgreSQL migration runtime for issue #251.
 
 ## Current scope
 
 Implemented:
 
-- read-only SQLite source inspection;
-- `integrity_check` and `foreign_key_check`;
-- source schema/table/primary-key/dependency inventory;
-- full-backup comparison by schema version, schema hash and per-table row counts;
+- read-only SQLite source inspection with `integrity_check` and `foreign_key_check`;
+- verified frozen-backup comparison by schema version, schema hash and per-table row counts;
 - PostgreSQL target schema and emptiness inspection;
-- dependency-ordered migration plan;
-- durable migration run, table checkpoint and batch checkpoint state;
-- idempotent apply-plan creation;
-- table-level leases with expired-lease takeover;
-- primary-key cursor batch reads from a verified frozen backup;
-- transactional PostgreSQL upsert + batch checkpoint + table cursor commits;
-- INTEGER 0/1 → BOOLEAN conversion;
-- SQLite time text → TIMESTAMPTZ conversion;
-- BLOB → BYTEA conversion;
-- JSON/JSONB validation and conversion;
-- BIGINT-safe transfer without JavaScript precision loss;
-- nullable self-referencing foreign-key repair after row insertion;
-- identity/sequence repair;
-- per-batch content checksum and per-table row/checksum verification;
-- independent machine-readable `--verify` mode;
-- restart/resume and idempotent replay.
+- dependency-ordered migration plans;
+- durable run, table, batch and run-owned row checkpoints;
+- table leases with expired-lease takeover;
+- stable primary-key keyset pagination;
+- transactional business upsert + ownership record + checkpoint commits;
+- restart/resume and idempotent replay;
+- INTEGER `0/1` → BOOLEAN, timestamp, JSON/JSONB, BYTEA and BIGINT-safe conversion;
+- nullable self-reference repair and identity/sequence repair;
+- copy-time and independent row-count/checksum verification;
+- empty-target rollback;
+- explicit non-empty-target conflict handling and typed original-row restoration;
+- concurrent modification protection during rollback;
+- scalable apply → verify → rollback drills;
+- persisted and file-based machine-readable final reports.
 
-Not enabled yet:
+Still outside this migration runtime:
 
-- apply into a non-empty target database;
-- run-owned row tracking and rollback execution;
-- production read/write switching.
+- FTS and vector rebuild, tracked by #252;
+- PostgreSQL backup and restore, tracked by #253;
+- deployment, cutover, rollback rehearsal and production switching, tracked by #254.
 
-FTS and vector tables remain excluded and are rebuilt in #252.
+`businessRoutesReady` remains `false` until the remaining PostgreSQL work is complete.
 
-## Dry run
+## Safety model
 
-Bootstrap the target PostgreSQL schema first, then run:
+- SQLite files are opened with `readonly`, `fileMustExist` and `query_only`.
+- The live source is used only for preflight.
+- Apply and verify read only the verified frozen backup.
+- Source and backup paths are reduced to file-name hints in reports.
+- Credentials, tokens, document bodies and business row contents are not logged.
+- Every migrated table must have a stable primary key.
+- Cross-table foreign-key cycles remain blockers; nullable self-references use a recoverable second pass.
+- Business writes, run-owned row tracking and checkpoints commit in the same PostgreSQL transaction.
+- A transaction failure leaves neither a partial business row nor a completed checkpoint.
+- Reusing an idempotency key with a different source, plan, batch size or conflict policy is rejected.
+- Rollback deletes only run-owned inserted rows and restores only snapshotted updated rows.
+- Rollback verifies the exact migrated row before changing it; newer user changes stop rollback instead of being overwritten.
+- FTS, vector and SQLite internal tables are excluded.
+
+## Preflight
 
 ```bash
 cd backend
@@ -49,128 +59,165 @@ npm run migrate:sqlite-to-postgres -- \
   --backup /path/to/nowen-note.backup.db
 ```
 
-The command is read-only for both the SQLite source and PostgreSQL business data. It exits with code `2` when safety blockers remain.
+Dry-run does not write PostgreSQL business data. It exits with code `2` while safety blockers remain.
 
-A non-empty target is rejected by default. `--allow-non-empty-target` only allows risk inspection and plan creation; the current apply executor still refuses to write into a target that was non-empty during preflight.
+## Empty-target apply
 
-## Apply
-
-Use one stable idempotency key for the complete migration attempt:
+Use one stable idempotency key for the complete attempt:
 
 ```bash
-cd backend
 DATABASE_URL='postgres://...' \
 npm run migrate:sqlite-to-postgres -- \
   --apply \
   --source /path/to/nowen-note.db \
   --backup /path/to/nowen-note.backup.db \
-  --idempotency-key migration-2026-08-05
+  --idempotency-key migration-2026-08-06 \
+  --batch-size 200
 ```
 
-Optional batch size:
+Valid batch size is `1..2000`; the default is `200`.
+
+## Non-empty-target apply
+
+A non-empty target requires two explicit controls:
 
 ```bash
---batch-size 500
-```
-
-Valid range is `1..2000`; the default is `200`.
-
-The live source is used only for preflight. All copied rows are read from the verified backup, which acts as the frozen execution snapshot. Each batch commits the following in one PostgreSQL transaction:
-
-1. idempotent row upserts;
-2. completed batch checkpoint;
-3. primary-key cursor and copied-row progress;
-4. run-level copied-row progress.
-
-A process crash before commit leaves no target rows or checkpoint for that batch. A crash after commit resumes from the persisted cursor and does not duplicate rows.
-
-Exit codes:
-
-- `0`: all planned tables copied and verified;
-- `1`: command/runtime failure;
-- `2`: dry-run blockers;
-- `3`: apply stopped before terminal completion;
-- `4`: independent verification mismatch.
-
-## Independent verification
-
-```bash
-cd backend
 DATABASE_URL='postgres://...' \
-npm run migrate:sqlite-to-postgres -- \
-  --verify \
-  --backup /path/to/nowen-note.backup.db \
-  --idempotency-key migration-2026-08-05
-```
-
-Verification re-reads the frozen SQLite backup and the PostgreSQL target in the same primary-key order. It compares every batch row count and canonical content checksum, covering BOOLEAN, timestamps, JSON, binary values and BIGINT values.
-
-## Safety model
-
-- SQLite is opened with `readonly`, `fileMustExist` and `query_only`.
-- The verified backup is the only apply/verify row source.
-- Paths in reports are reduced to file names.
-- Row contents, credentials, tokens and document bodies are never logged.
-- FTS, vector and SQLite internal tables are excluded and deferred to #252.
-- Every copied business table must have a stable primary key.
-- Cross-table foreign-key cycles remain a preflight blocker; nullable self-references are handled in a recoverable second pass.
-- Durable checkpoints are stored only in PostgreSQL.
-- Table claims use lease tokens and `FOR UPDATE SKIP LOCKED`.
-- Expired leases can be reclaimed after process restart.
-- Reusing an idempotency key with a different source, plan or batch size is rejected.
-- The source and backup files are never modified.
-
-## Remaining #251 slice
-
-The next slice will add:
-
-1. run-owned primary-key tracking;
-2. safe rollback in reverse dependency order;
-3. non-empty target conflict policy and restoration records;
-4. final migration report persistence;
-5. larger generated datasets and failure-injection coverage;
-6. cutover readiness signal after successful verify and rollback drill.
-
-
-## Empty-target rollback
-
-Each apply batch records the migrated row primary key in `sqlite_postgres_migration_row_changes` in the same PostgreSQL transaction as the business upsert and checkpoint. For targets that were empty at preflight, rollback deletes only those run-owned rows in reverse table dependency order.
-
-```bash
-npm run migrate:sqlite-to-postgres -- \
-  --rollback \
-  --idempotency-key migration-2026-08-05
-```
-
-Rollback is resumable and idempotent. A run created before ownership tracking, or a run planned against a non-empty target, is rejected rather than guessing a deletion range. Restoring overwritten pre-existing rows remains disabled until original-row snapshots and conflict policies are complete.
-
-
-## Non-empty target recovery
-
-A non-empty PostgreSQL target remains opt-in and requires both controls:
-
-```bash
 npm run migrate:sqlite-to-postgres -- \
   --apply \
   --source /path/to/nowen-note.db \
   --backup /path/to/nowen-note.backup.db \
-  --idempotency-key migration-2026-08-05 \
+  --idempotency-key migration-2026-08-06 \
   --allow-non-empty-target \
   --conflict-policy overwrite-with-backup
 ```
 
-For every source primary key, one PostgreSQL statement locks the existing target row,
-performs the upsert, and records the change in the same transaction:
+Each source primary key is classified in the same transaction as the upsert:
 
-- `inserted`: the target row did not exist before migration;
-- `updated`: the target row existed and was changed; its full typed `originalRow` is retained;
-- `unchanged`: the existing target row already matched the migrated result.
+- `inserted`: no target row existed before migration;
+- `updated`: a target row existed and changed; the complete typed original row is retained;
+- `unchanged`: the target row already matched the migrated result.
 
-The tracked `migratedRow` is the exact PostgreSQL row after write and post-copy repairs.
-Rollback deletes inserted rows, restores updated rows with `jsonb_populate_record`, and leaves
-unchanged rows untouched. Every delete or restore is guarded by the exact migrated snapshot;
-if a user or another process changes the row after migration, rollback stops with
-`SQLITE_PG_MIGRATION_ROLLBACK_CONCURRENT_MODIFICATION` instead of overwriting newer data.
+Unrelated target rows are preserved and excluded from source parity checks.
 
-Verification is scoped to the source primary-key set, so unrelated rows already present in the
-non-empty target are preserved and excluded from source parity checks.
+## Independent verification
+
+```bash
+DATABASE_URL='postgres://...' \
+npm run migrate:sqlite-to-postgres -- \
+  --verify \
+  --backup /path/to/nowen-note.backup.db \
+  --idempotency-key migration-2026-08-06
+```
+
+Verification re-reads the frozen backup and PostgreSQL in primary-key order and compares canonical row counts and checksums.
+
+## Rollback
+
+```bash
+DATABASE_URL='postgres://...' \
+npm run migrate:sqlite-to-postgres -- \
+  --rollback \
+  --idempotency-key migration-2026-08-06
+```
+
+Rollback runs in reverse dependency order. It deletes inserted rows, restores updated rows, leaves unchanged rows untouched and is resumable and idempotent.
+
+## Migration drill
+
+The drill command exercises the complete reversible path:
+
+```text
+apply
+→ independent verify
+→ rollback
+→ post-rollback primary-key/count/checksum validation
+→ foreign-key orphan validation
+→ final report persistence
+```
+
+### Empty-target drill
+
+```bash
+DATABASE_URL='postgres://...' \
+npm run migrate:sqlite-to-postgres:drill -- \
+  --source /path/to/nowen-note.db \
+  --backup /path/to/nowen-note.backup.db \
+  --idempotency-key drill-2026-08-06 \
+  --batch-size 200 \
+  --max-batches-per-pass 10 \
+  --max-rollback-batches-per-pass 10 \
+  --report /secure/path/sqlite-postgres-drill-report.json
+```
+
+### Non-empty-target drill
+
+```bash
+DATABASE_URL='postgres://...' \
+npm run migrate:sqlite-to-postgres:drill -- \
+  --source /path/to/nowen-note.db \
+  --backup /path/to/nowen-note.backup.db \
+  --idempotency-key drill-nonempty-2026-08-06 \
+  --allow-non-empty-target \
+  --conflict-policy overwrite-with-backup \
+  --batch-size 200 \
+  --max-batches-per-pass 10 \
+  --max-rollback-batches-per-pass 10 \
+  --report /secure/path/sqlite-postgres-drill-report.json
+```
+
+The pass limits deliberately bound one invocation and exercise persisted resume behavior. Omit them for an uninterrupted local drill.
+
+The report is written to the requested file and persisted in `sqlite_postgres_migration_runs.report`. It includes:
+
+- source/backup file-name hints and sizes;
+- table and row totals;
+- apply and rollback pass counts;
+- inserted, updated, unchanged, deleted and restored row totals;
+- independent verification details;
+- post-rollback primary-key, row-count and checksum results;
+- PostgreSQL foreign-key orphan findings;
+- concurrent conflict and failure totals;
+- duration and a conservative free-space recommendation.
+
+## Operator runbook
+
+Before execution:
+
+1. Stop or quiesce writes to the SQLite source.
+2. Create a full backup and retain the original source.
+3. Bootstrap the target PostgreSQL schema.
+4. Confirm free disk capacity for the source, frozen backup, PostgreSQL data and a verified PostgreSQL backup. The drill report recommends at least three times the combined source and frozen-backup size as a conservative floor.
+5. Run dry-run and resolve every blocker.
+6. Run an apply → verify → rollback drill against a disposable or staging PostgreSQL target.
+
+During execution:
+
+1. Reuse the same idempotency key for retries and resume.
+2. Do not replace or modify the frozen backup.
+3. Treat checksum, foreign-key or concurrent-modification findings as hard failures.
+4. Keep `businessRoutesReady = false`; this tool does not perform application cutover.
+
+After execution:
+
+1. Preserve the final JSON report with deployment records.
+2. Keep the original SQLite source and frozen backup until migration verification passes, the rollback window is closed and a PostgreSQL backup has been independently restored and verified.
+3. Do not delete SQLite data merely because apply completed.
+4. Complete #252, #253 and #254 before production read/write switching.
+
+## Exit codes
+
+Main migration command:
+
+- `0`: requested operation completed successfully;
+- `1`: command/runtime failure;
+- `2`: dry-run blockers;
+- `3`: apply stopped before terminal completion;
+- `4`: independent verification mismatch;
+- `5`: rollback stopped before terminal completion.
+
+Drill command:
+
+- `0`: apply, verify, rollback and post-rollback validation passed;
+- `1`: command/runtime failure;
+- `6`: drill completed but the final report is not successful.
