@@ -16,7 +16,8 @@
     "rebuild:electron": "node ../scripts/rebuild-native.mjs --prebuild=true",
     "migrate:inline-images": "node ../scripts/migrate-inline-images-to-attachments.mjs",
     "migrate:inline-images:apply": "node ../scripts/migrate-inline-images-to-attachments.mjs --apply",
-    "migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts"
+    "migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "migrate:sqlite-to-postgres:drill": "tsx scripts/drill-sqlite-to-postgres.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
