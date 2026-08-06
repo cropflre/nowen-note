@@ -131,6 +131,19 @@ describe("LatestOnlyVersionedSaveQueue", () => {
       .rejects.toMatchObject({ code: "SAVE_NOT_CONFIRMED", saveBaseVersion: 4 });
   });
 
+  it("accepts a locally preserved pending conflict without pretending it is an ACK", async () => {
+    const queue = new LatestOnlyVersionedSaveQueue<string, { version: number; __syncPending?: boolean }>(
+      async (_noteId, _payload, version) => ({ version, __syncPending: true }),
+    );
+
+    await expect(queue.enqueue({ key: "n1", baseVersion: 4, payload: "draft" }))
+      .resolves.toMatchObject({
+        baseVersion: 4,
+        result: { version: 4, __syncPending: true },
+      });
+    expect(queue.getConfirmedVersion("n1")).toBe(4);
+  });
+
   it("accepts a newer base after a real conflict is resolved", async () => {
     let fail = true;
     const calls: number[] = [];

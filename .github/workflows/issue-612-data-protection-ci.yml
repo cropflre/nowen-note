@@ -27,12 +27,14 @@ on:
       - "frontend/src/lib/yjsDurability.ts"
       - "frontend/src/lib/draftStorage.ts"
       - "frontend/src/lib/editorLifecycleSafety.ts"
+      - "frontend/src/lib/noteSyncSafety.ts"
       - "frontend/src/lib/noteUpdateSerialQueue.ts"
       - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
       - "frontend/src/lib/conflictResolution.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
       - "frontend/src/lib/__tests__/editorLifecycleSafety.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncSafety.integration.test.ts"
       - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
       - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
@@ -61,12 +63,14 @@ on:
       - "frontend/src/lib/yjsDurability.ts"
       - "frontend/src/lib/draftStorage.ts"
       - "frontend/src/lib/editorLifecycleSafety.ts"
+      - "frontend/src/lib/noteSyncSafety.ts"
       - "frontend/src/lib/noteUpdateSerialQueue.ts"
       - "frontend/src/lib/latestOnlyVersionedSaveQueue.ts"
       - "frontend/src/lib/conflictResolution.ts"
       - "frontend/src/lib/__tests__/yjsDurability.test.ts"
       - "frontend/src/lib/__tests__/draftStorage.conflict.test.ts"
       - "frontend/src/lib/__tests__/editorLifecycleSafety.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncSafety.integration.test.ts"
       - "frontend/src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts"
       - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - ".github/workflows/issue-612-data-protection-ci.yml"
@@ -117,6 +121,7 @@ jobs:
           src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts
           src/lib/__tests__/draftStorage.conflict.test.ts
           src/lib/__tests__/editorLifecycleSafety.test.ts
+          src/lib/__tests__/noteSyncSafety.integration.test.ts
           src/lib/__tests__/latestOnlyVersionedSaveQueue.test.ts
           src/lib/__tests__/conflictResolution.test.ts
       - name: Frontend typecheck

@@ -74,6 +74,26 @@ describe("draft conflict preservation", () => {
     )).toBe(true);
   });
 
+  it("never lets generic save-success cleanup delete an unresolved conflicted draft", () => {
+    saveDraft({
+      noteId: "note-conflicted-clear",
+      editorMode: "md",
+      title: "Local title",
+      content: "local unresolved body",
+      contentText: "local unresolved body",
+      baseVersion: 3,
+      savedAt: Date.now(),
+      conflicted: true,
+      serverVersion: 9,
+    });
+
+    expect(clearDraft("note-conflicted-clear")).toBe(false);
+    expect(loadDraft("note-conflicted-clear")).toEqual(expect.objectContaining({
+      content: "local unresolved body",
+      conflicted: true,
+    }));
+  });
+
   it("offers a divergent local body even when the server clock is ahead", () => {
     const draft = {
       noteId: "note-clock-skew",

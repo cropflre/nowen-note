@@ -2,6 +2,7 @@ import type { Note } from "@/types";
 import { api } from "@/lib/api";
 import {
   discardResolvedQueueItems,
+  getQueue,
   type OfflineQueueItem,
 } from "@/lib/offlineQueue";
 import * as draftStorage from "@/lib/draftStorage";
@@ -10,6 +11,10 @@ import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
 
 export type ConflictResolutionChoice = "keep-local" | "use-server";
 export const NOTE_CONFLICT_AUTO_RESOLVED_EVENT = "nowen:note-conflict-auto-resolved";
+const DELETE_GUARD_INSTALL_KEY = "__NOWEN_CONFLICT_COPY_DELETE_GUARD_V1__" as const;
+const PENDING_STATUS_BRIDGE_INSTALL_KEY = "__NOWEN_PENDING_SYNC_STATUS_BRIDGE_V1__" as const;
+const NOTE_SYNC_PENDING_EVENT_NAME = "nowen:note-sync-pending";
+const OFFLINE_QUEUED_EVENT_NAME = "nowen:offline-queued";
 
 export interface NoteConflictAutoResolvedDetail {
   note: Note;
@@ -58,6 +63,11 @@ type DraftStorageCompatibility = {
   forceClearDraft?: (noteId: string) => void;
 };
 
+type ConflictBridgeWindow = Window & typeof globalThis & {
+  [DELETE_GUARD_INSTALL_KEY]?: () => void;
+  [PENDING_STATUS_BRIDGE_INSTALL_KEY]?: () => void;
+};
+
 function payloadFromQueue(item: OfflineQueueItem): Partial<ConflictPayload> {
   const payload = item.localPayload || item.body || {};
   return {
@@ -89,6 +99,12 @@ function sameContent(local: ConflictPayload, remote: Note): boolean {
     && local.content === remote.content
     && local.contentText === remote.contentText
     && (local.contentFormat || remote.contentFormat) === remote.contentFormat;
+}
+
+function sameConflictCopyContent(copy: Note, local: ConflictPayload, remote: Note): boolean {
+  return copy.content === local.content
+    && copy.contentText === local.contentText
+    && copy.contentFormat === (local.contentFormat || remote.contentFormat);
 }
 
 function formatConflictCopyTitle(title: string, now = new Date()): string {
@@ -138,6 +154,77 @@ function clearResolvedConflict(item: OfflineQueueItem): boolean {
   return true;
 }
 
+/**
+ * When a user deletes a generated conflict copy, discard the source conflict generation too.
+ * Otherwise the next sync pass recreates the same copy and makes deletion appear broken.
+ */
+export function discardConflictStateForDeletedCopy(copyId: string): string | null {
+  const item = getQueue().find(
+    (queued) => queued.type === "updateNote"
+      && (queued.conflict || queued.errorCode === "VERSION_CONFLICT")
+      && getConflictCopyId(queued.id) === copyId,
+  );
+  if (!item) return null;
+  return clearResolvedConflict(item) ? item.noteId : null;
+}
+
+/**
+ * Conflict copies are ordinary notes in the tree, so the regular trash action is the only reliable
+ * place to learn that the user intentionally discarded one. Install an outer API guard after App
+ * lazy-load: a confirmed trash write clears the source conflict generation and prevents sync from
+ * recreating the same deterministic copy.
+ */
+export function installConflictCopyDeletionGuard(): void {
+  if (typeof window === "undefined" || typeof (api as any).updateNote !== "function") return;
+  const guardedWindow = window as ConflictBridgeWindow;
+  if (guardedWindow[DELETE_GUARD_INSTALL_KEY]) return;
+
+  const originalUpdateNote = api.updateNote.bind(api);
+  (api as any).updateNote = async (noteId: string, data: Partial<Note>): Promise<Note> => {
+    const updated = await originalUpdateNote(noteId, data);
+    if ((data as Partial<Note>).isTrashed === 1) {
+      discardConflictStateForDeletedCopy(noteId);
+    }
+    return updated;
+  };
+
+  guardedWindow[DELETE_GUARD_INSTALL_KEY] = () => {
+    (api as any).updateNote = originalUpdateNote;
+    delete guardedWindow[DELETE_GUARD_INSTALL_KEY];
+  };
+}
+
+/**
+ * EditorPane historically reports every resolved update Promise as "saved" and resets it to idle
+ * two seconds later. Pending conflict/offline responses are deliberately resolved so autosave does
+ * not enter its failure/requeue loop, therefore reassert the existing global "queued" UI event
+ * after both transitions while the note still has a durable queue item.
+ */
+export function installPendingSyncStatusBridge(): void {
+  if (typeof window === "undefined") return;
+  const guardedWindow = window as ConflictBridgeWindow;
+  if (guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY]) return;
+
+  const publishQueuedIfPending = (noteId: string) => {
+    if (!getQueue().some((item) => item.noteId === noteId)) return;
+    window.dispatchEvent(new CustomEvent(OFFLINE_QUEUED_EVENT_NAME, {
+      detail: { noteId, pending: true },
+    }));
+  };
+  const onPending = (event: Event) => {
+    const noteId = (event as CustomEvent<{ noteId?: string }>).detail?.noteId;
+    if (!noteId) return;
+    window.setTimeout(() => publishQueuedIfPending(noteId), 0);
+    window.setTimeout(() => publishQueuedIfPending(noteId), 2200);
+  };
+
+  window.addEventListener(NOTE_SYNC_PENDING_EVENT_NAME, onPending);
+  guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY] = () => {
+    window.removeEventListener(NOTE_SYNC_PENDING_EVENT_NAME, onPending);
+    delete guardedWindow[PENDING_STATUS_BRIDGE_INSTALL_KEY];
+  };
+}
+
 async function keepLocalVersion(
   item: OfflineQueueItem,
   remote: Note,
@@ -157,6 +244,24 @@ async function keepLocalVersion(
     throw new Error("处理期间本地内容已更新，等待下一次后台同步。");
   }
   return { note: updated, resolvedLocal: local };
+}
+
+async function updateExistingConflictCopy(
+  existing: Note,
+  remote: Note,
+  local: ConflictPayload,
+): Promise<Note> {
+  if (sameConflictCopyContent(existing, local, remote)) return existing;
+  const updated = await api.updateNoteConfirmed(existing.id, {
+    content: local.content,
+    contentText: local.contentText,
+    contentFormat: local.contentFormat || remote.contentFormat,
+    version: existing.version,
+  });
+  if (typeof updated.version !== "number" || updated.version <= existing.version) {
+    throw new Error("冲突副本尚未得到服务器确认，请稍后重试。");
+  }
+  return updated;
 }
 
 async function createOrLoadConflictCopy(
@@ -179,8 +284,10 @@ async function createOrLoadConflictCopy(
     const details = error as { status?: number; code?: string };
     if (details.status !== 409 || details.code !== "NOTE_ID_CONFLICT") throw error;
     // The previous request may have committed successfully while its response was lost. Because
-    // the id is deterministic for this conflict, loading it is safe and makes retry idempotent.
-    return api.getNote(copyId);
+    // the id is deterministic for this conflict, load and refresh that same copy with the latest
+    // local snapshot instead of creating a second timestamped document.
+    const existing = await api.getNote(copyId);
+    return updateExistingConflictCopy(existing, remote, local);
   }
 }
 
@@ -259,3 +366,6 @@ export async function resolveQueuedNoteConflicts(
     failures,
   };
 }
+
+installConflictCopyDeletionGuard();
+installPendingSyncStatusBridge();

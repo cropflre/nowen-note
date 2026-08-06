@@ -8,18 +8,20 @@ const apiMock = vi.hoisted(() => ({
   createNoteConfirmed: vi.fn(),
 }));
 const discardResolvedQueueItems = vi.hoisted(() => vi.fn());
+const getQueue = vi.hoisted(() => vi.fn());
 const clearDraft = vi.hoisted(() => vi.fn());
 const loadDraft = vi.hoisted(() => vi.fn());
 const clearOfflineNoteSnapshot = vi.hoisted(() => vi.fn());
 const clearNoteSyncConflict = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
-vi.mock("@/lib/offlineQueue", () => ({ discardResolvedQueueItems }));
+vi.mock("@/lib/offlineQueue", () => ({ discardResolvedQueueItems, getQueue }));
 vi.mock("@/lib/draftStorage", () => ({ clearDraft, loadDraft }));
 vi.mock("@/lib/offlineRead", () => ({ clearOfflineNoteSnapshot }));
 vi.mock("@/lib/noteSyncSafety", () => ({ clearNoteSyncConflict }));
 
 import {
+  discardConflictStateForDeletedCopy,
   getConflictCopyId,
   resolveNoteConflict,
   resolveQueuedNoteConflicts,
@@ -87,8 +89,11 @@ describe("resolveNoteConflict", () => {
     vi.clearAllMocks();
     localStorage.clear();
     loadDraft.mockReturnValue(null);
+    getQueue.mockReturnValue([]);
     discardResolvedQueueItems.mockReturnValue({ discarded: true, remainingForNote: false });
     apiMock.getNote.mockResolvedValue(remoteNote());
+    apiMock.updateNoteConfirmed.mockReset();
+    apiMock.createNoteConfirmed.mockReset();
   });
 
   it("distinguishes debounced editor input from the conflict payload already copied", () => {
@@ -264,7 +269,13 @@ describe("resolveNoteConflict", () => {
       status: 409,
       code: "NOTE_ID_CONFLICT",
     });
-    const existingCopy = remoteNote({ id: copyId, title: "已存在的冲突副本", version: 1 });
+    const existingCopy = remoteNote({
+      id: copyId,
+      title: "已存在的冲突副本",
+      content: "本地正文",
+      contentText: "本地正文",
+      version: 1,
+    });
     apiMock.createNoteConfirmed.mockRejectedValue(conflictError);
     apiMock.getNote
       .mockResolvedValueOnce(remoteNote())
@@ -273,8 +284,40 @@ describe("resolveNoteConflict", () => {
     const result = await resolveNoteConflict(item, "use-server");
 
     expect(apiMock.getNote).toHaveBeenNthCalledWith(2, copyId);
+    expect(apiMock.updateNoteConfirmed).not.toHaveBeenCalled();
     expect(result.conflictCopy).toBe(existingCopy);
     expect(discardResolvedQueueItems).toHaveBeenCalledWith(item);
+  });
+
+  it("updates the same deterministic copy when later local input arrives", async () => {
+    const item = conflictItem();
+    const copyId = getConflictCopyId(item.id);
+    const conflictError = Object.assign(new Error("duplicate"), {
+      status: 409,
+      code: "NOTE_ID_CONFLICT",
+    });
+    const existingCopy = remoteNote({ id: copyId, title: "已存在的冲突副本", version: 1 });
+    const refreshedCopy = remoteNote({
+      id: copyId,
+      title: "已存在的冲突副本",
+      content: "本地正文",
+      contentText: "本地正文",
+      version: 2,
+    });
+    apiMock.createNoteConfirmed.mockRejectedValue(conflictError);
+    apiMock.getNote
+      .mockResolvedValueOnce(remoteNote())
+      .mockResolvedValueOnce(existingCopy);
+    apiMock.updateNoteConfirmed.mockResolvedValue(refreshedCopy);
+
+    const result = await resolveNoteConflict(item, "use-server");
+
+    expect(apiMock.updateNoteConfirmed).toHaveBeenCalledWith(copyId, expect.objectContaining({
+      content: "本地正文",
+      contentText: "本地正文",
+      version: 1,
+    }));
+    expect(result.conflictCopy).toBe(refreshedCopy);
   });
 
   it("keeps a newer local payload after recovering a copy whose response was lost", async () => {
@@ -286,7 +329,12 @@ describe("resolveNoteConflict", () => {
     apiMock.createNoteConfirmed.mockRejectedValue(conflictError);
     apiMock.getNote
       .mockResolvedValueOnce(remoteNote())
-      .mockResolvedValueOnce(remoteNote({ id: getConflictCopyId(item.id), version: 1 }));
+      .mockResolvedValueOnce(remoteNote({
+        id: getConflictCopyId(item.id),
+        content: "本地正文",
+        contentText: "本地正文",
+        version: 1,
+      }));
     discardResolvedQueueItems.mockReturnValue({ discarded: false, remainingForNote: true });
 
     await expect(resolveNoteConflict(item, "use-server")).rejects.toThrow("本地内容已更新");
@@ -326,5 +374,32 @@ describe("resolveNoteConflict", () => {
     expect(discardResolvedQueueItems).not.toHaveBeenCalled();
     expect(clearDraft).not.toHaveBeenCalled();
     expect(clearNoteSyncConflict).not.toHaveBeenCalled();
+  });
+
+  it("clears the source conflict generation when its generated copy is deleted", () => {
+    const item = conflictItem();
+    getQueue.mockReturnValue([item]);
+
+    expect(discardConflictStateForDeletedCopy(getConflictCopyId(item.id))).toBe("note-1");
+    expect(discardResolvedQueueItems).toHaveBeenCalledWith(item);
+    expect(clearDraft).toHaveBeenCalledWith("note-1");
+    expect(clearNoteSyncConflict).toHaveBeenCalledWith("note-1");
+  });
+
+  it("reasserts the queued UI state while a pending conflict remains durable", () => {
+    vi.useFakeTimers();
+    const item = conflictItem();
+    getQueue.mockReturnValue([item]);
+    const queuedEvents = vi.fn();
+    window.addEventListener("nowen:offline-queued", queuedEvents);
+
+    window.dispatchEvent(new CustomEvent("nowen:note-sync-pending", {
+      detail: { noteId: "note-1", queued: true },
+    }));
+    vi.runAllTimers();
+
+    expect(queuedEvents).toHaveBeenCalledTimes(2);
+    window.removeEventListener("nowen:offline-queued", queuedEvents);
+    vi.useRealTimers();
   });
 });
