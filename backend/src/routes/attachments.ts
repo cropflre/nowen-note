@@ -206,7 +206,7 @@ attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;
 
-function hardenScopedResponse(response: Response, attachmentId: string, requestHeaders: Headers): Response {
+function hardenScopedResponse(response: Response, _attachmentId: string, _requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);
   // 授权可随时撤销，因此浏览器/CDN 不得在未经服务端复核的情况下直接使用副本。
   //
@@ -226,40 +226,19 @@ function hardenScopedResponse(response: Response, attachmentId: string, requestH
   headers.set("Cache-Control", "private, no-cache, must-revalidate, no-transform");
   headers.set("Vary", "Authorization");
 
-  // no-cache 只有配合验证器才能省下重复传输。附件内容由 UUID 唯一确定
-  // （attachments-core 对同一附件返回 immutable），因此 id 本身就是稳定的 ETag。
-  // 仅对完整成功响应启用：206 有 Content-Range 语义，304 不该再带实体头。
-  if (response.status === 200 && !headers.has("ETag")) {
-    headers.set("ETag", `"att-${attachmentId}"`);
-  }
-
-  const etag = headers.get("ETag");
-  if (response.status === 200 && etag && requestMatchesEtag(requestHeaders, etag)) {
-    // 授权复核已在上游完成，此处只是告诉浏览器"你手里那份仍然有效"。
-    const notModified = new Headers();
-    for (const key of ["Cache-Control", "Vary", "ETag"]) {
-      const value = headers.get(key);
-      if (value) notModified.set(key, value);
-    }
-    return new Response(null, { status: 304, statusText: "Not Modified", headers: notModified });
-  }
+  // ETag 与 304 短路已经在核心 handler（attachments-core.ts::handleDownloadAttachment）
+  // 里按 (attachmentId, variant) 计算完成——原图和每个缩略图宽度各自独立的验证器，
+  // 短路发生在权限校验之后、读取文件字节之前，这样才能同时保住"撤销后重放必须
+  // 403 而非 304"和"避免不必要的磁盘/对象存储读取"。这里不再重新合成 ETag
+  // 或做二次 304 判断，避免用一个不区分 variant 的 "att-<id>" 覆盖掉正确的值，
+  // 只原样保留核心 handler 已经设置好的 ETag（若有）。
+  //
+  // 206（Range 分片）没有 ETag 是预期行为：Content-Range 语义下不该带实体头。
 
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers,
-  });
-}
-
-/** If-None-Match 比对，兼容多值与 W/弱验证器前缀。*/
-function requestMatchesEtag(requestHeaders: Headers, etag: string): boolean {
-  const ifNoneMatch = requestHeaders.get("If-None-Match");
-  if (!ifNoneMatch) return false;
-  const normalize = (value: string) => value.trim().replace(/^W\//, "");
-  const target = normalize(etag);
-  return ifNoneMatch.split(",").some((candidate) => {
-    const normalized = normalize(candidate);
-    return normalized === "*" || normalized === target;
   });
 }
 

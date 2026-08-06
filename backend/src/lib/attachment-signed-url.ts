@@ -15,6 +15,11 @@ const MAX_TTL_MS = 24 * 60 * 60 * 1000;
 const SCOPE_PREFIX = "v2.";
 const MAX_SCOPE_LENGTH = 1024;
 
+// PERF-ATTACHMENT-01：将 exp 向上取整到固定窗口，避免同一附件在短时间内
+// 重复签发出不同 URL，导致浏览器无法复用 ETag/缓存。取整只会延长有效期，
+// 最大额外时长为一个窗口；验证侧同步放宽相同容差。
+const EXP_QUANTIZATION_WINDOW_MS = 15 * 60 * 1000;
+
 export type AttachmentAccessScope =
   | { version: 2; kind: "user"; subjectId: string; noteId: string; allowDownload: boolean }
   | { version: 2; kind: "share"; subjectId: string; noteId: string; allowDownload: boolean }
@@ -205,7 +210,11 @@ export function createAttachmentSignedParams(
     ? Math.max(1000, ttlMs)
     : DEFAULT_TTL_MS;
   const clampedTtl = Math.min(normalizedTtl, MAX_TTL_MS);
-  const exp = Math.floor((Date.now() + clampedTtl) / 1000).toString();
+  const rawExpiryMs = Date.now() + clampedTtl;
+  const quantizedExpiryMs = Math.ceil(
+    rawExpiryMs / EXP_QUANTIZATION_WINDOW_MS,
+  ) * EXP_QUANTIZATION_WINDOW_MS;
+  const exp = Math.floor(quantizedExpiryMs / 1000).toString();
   const secret = getSigningSecret();
   const payload = `${attachmentId}:${exp}:${scope}`;
   const sig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
@@ -260,7 +269,9 @@ export function verifyAttachmentSignature(
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (expTimestamp < nowSeconds) return { valid: false, reason: "expired" };
-  if (expTimestamp - nowSeconds > Math.ceil(MAX_TTL_MS / 1000)) {
+  const maxAllowedSeconds = Math.ceil(MAX_TTL_MS / 1000)
+    + Math.ceil(EXP_QUANTIZATION_WINDOW_MS / 1000);
+  if (expTimestamp - nowSeconds > maxAllowedSeconds) {
     return { valid: false, reason: "exp_too_long" };
   }
 

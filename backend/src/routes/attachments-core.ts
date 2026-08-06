@@ -75,6 +75,7 @@ import {
   isThumbnailable,
   deleteThumbnailsFor,
 } from "../services/thumbnails";
+import { computeAttachmentEtag, requestMatchesEtag } from "../lib/attachment-etag";
 
 const ATTACHMENTS_DIR = getStorageAttachmentsDir();
 
@@ -440,13 +441,6 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     }
   }
 
-  const absPath = path.join(ATTACHMENTS_DIR, row.path);
-  const localExists = fs.existsSync(absPath);
-  const buffer = await readAttachmentObject(row.path);
-  if (!buffer) {
-    return c.json({ error: "attachment file missing" }, 404);
-  }
-
   const forceDownload = c.req.query("download") === "1";
   // ?inline=1 —— 显式声明"用于浏览器内联预览（如 <video>/<audio>/<iframe>）"。
   // 对于非图片附件，此参数会跳过 Content-Disposition: attachment，让浏览器直接渲染
@@ -456,26 +450,48 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   const inlinePreview = c.req.query("inline") === "1";
   const requestedWidth = parseThumbnailWidth(c.req.query("w"));
 
+  // 是否会走缩略图分支只依赖 query 参数 + row.mimeType，不需要读文件内容就能
+  // 确定。据此可在读取任何字节之前算出这次响应的 ETag variant，命中
+  // If-None-Match 时直接 304，省掉磁盘/对象存储读取以及（若是缩略图）sharp
+  // 编码。此前 ETag 统一为 "att-<id>"，原图和不同宽度的缩略图共用同一个验证
+  // 器，属于错误的实体标识；现在按 (id, variant) 区分。
+  const willServeThumbnail = Boolean(requestedWidth) && !forceDownload && isThumbnailable(row.mimeType);
+  const etag = computeAttachmentEtag(row.id, willServeThumbnail ? requestedWidth! : "original");
+
+  if (requestMatchesEtag(new Headers(c.req.raw.headers), etag)) {
+    return new Response(null, {
+      status: 304,
+      statusText: "Not Modified",
+      headers: {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        ETag: etag,
+      },
+    });
+  }
+
+  const absPath = path.join(ATTACHMENTS_DIR, row.path);
+  const localExists = fs.existsSync(absPath);
+
   // 缩略图分支：仅在
   //   1) 请求带合法 ?w=
   //   2) 不是 ?download=1（下载场景必须给原文件）
   //   3) 原图是可缩略的 raster 图片
   // 三者同时满足时尝试。任何一步失败就回退到原图。
-  if (requestedWidth && !forceDownload && isThumbnailable(row.mimeType)) {
+  if (willServeThumbnail) {
     const thumb = localExists
       ? await getOrCreateThumbnailAsync(
           ATTACHMENTS_DIR,
           row.id,
           absPath,
           row.mimeType,
-          requestedWidth,
+          requestedWidth!,
         )
       : await getOrCreateThumbnailFromBufferAsync(
           ATTACHMENTS_DIR,
           row.id,
-          buffer,
+          (await readAttachmentObject(row.path)) || Buffer.alloc(0),
           row.mimeType,
-          requestedWidth,
+          requestedWidth!,
         );
     if (thumb) {
       return c.body(toResponseBody(thumb.buffer), 200, {
@@ -484,14 +500,24 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
         "Cache-Control": "public, max-age=31536000, immutable",
         // 让前端 / 代理可以观察到这张响应是缩略图
         "X-Thumbnail-Width": String(requestedWidth),
+        ETag: etag,
       });
     }
-    // thumb 为 null（sharp 失败 / 不可用）→ fall through 返回原图
+    // thumb 为 null（sharp 失败 / 不可用）→ fall through 返回原图。
+    // 此时上面预先算好的 etag 是缩略图 variant，和接下来要返回的原图内容
+    // 不匹配，下面重新按 "original" 计算，避免客户端拿到错误的验证器。
   }
 
+  const buffer = await readAttachmentObject(row.path);
+  if (!buffer) {
+    return c.json({ error: "attachment file missing" }, 404);
+  }
+
+  const originalEtag = willServeThumbnail ? computeAttachmentEtag(row.id, "original") : etag;
   const headers: Record<string, string> = {
     "Content-Type": row.mimeType || "application/octet-stream",
     "Cache-Control": "public, max-age=31536000, immutable",
+    ETag: originalEtag,
   };
 
   // SEC-UPLOAD-01: 高风险 MIME 强制下载
