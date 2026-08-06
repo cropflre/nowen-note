@@ -1,0 +1,92 @@
+name: PostgreSQL Backup Runtime
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - "backend/src/services/postgres-backup-runtime.ts"
+      - "backend/src/routes/backups-runtime.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/tests/postgres-backup-runtime.test.ts"
+      - "backend/docs/postgres-backup-runtime.md"
+      - ".github/workflows/pg-backup-runtime.yml"
+      - "Dockerfile"
+  pull_request:
+    paths:
+      - "backend/src/services/postgres-backup-runtime.ts"
+      - "backend/src/routes/backups-runtime.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/tests/postgres-backup-runtime.test.ts"
+      - "backend/docs/postgres-backup-runtime.md"
+      - ".github/workflows/pg-backup-runtime.yml"
+      - "Dockerfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      RUN_PG_BACKUP_INTEGRATION: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          pg_dump --version
+          pg_restore --version
+
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+
+      - name: PostgreSQL backup unit and integration tests
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-backup-runtime.test.ts
+
+      - name: Production bundle
+        run: npm run build
+
+      - name: Verify container PostgreSQL client dependency
+        working-directory: ..
+        run: grep -F "postgresql-client" Dockerfile

@@ -12,6 +12,7 @@ import {
   getDatabaseRuntimeStatus,
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
+import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
 import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
@@ -98,6 +99,11 @@ app.get("/api/health", async (c) => {
         "GET /api/search",
         "GET /api/search/health",
         "POST /api/search/rebuild",
+        "GET /api/backups",
+        "GET /api/backups/status",
+        "POST /api/backups (PostgreSQL db-only/full)",
+        "GET /api/backups/:filename/download",
+        "POST /api/backups/:filename/restore?dryRun=1",
         "POST /api/note-transfers (unified asynchronous copy/move orchestration)",
         "POST /api/note-transfers/preview",
         "POST /api/note-transfers/prepare",
@@ -133,6 +139,10 @@ app.get("/api/health", async (c) => {
         "PostgreSQL weighted full-text search for note titles and content",
         "tag and attachment search with Unicode-safe literal fallback",
         "search health diagnostics and administrator index rebuild",
+        "PostgreSQL custom-format pg_dump database backups",
+        "database-independent backup manifests with table counts and checksums",
+        "PostgreSQL full backups with attachments, fonts, plugins and JWT secret",
+        "non-destructive pg_restore archive validation and restore dry-run",
         "note-transfer cross-driver preview and permission analysis",
         "note-transfer durable idempotency, source-version snapshots and transactional preparation",
         "note-transfer prepared-to-staging CAS and recoverable attachment manifests",
@@ -172,7 +182,10 @@ app.get("/api/health", async (c) => {
       noteTransferMoveDeletion: await transferMoveDeletion.getStats(),
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
-      pendingCapabilities: [],
+      pendingCapabilities: [
+        "PostgreSQL destructive restore through temporary database cutover (#253)",
+        "PostgreSQL automatic backup scheduling and remote backup parity (#253)",
+      ],
     },
   }, status);
 });
@@ -253,6 +266,10 @@ app.use("/api/search", authenticateApiRequest);
 app.use("/api/search/*", authenticateApiRequest);
 app.route("/api/search", createSearchRuntimeRouter(adapter));
 
+app.use("/api/backups", authenticateApiRequest);
+app.use("/api/backups/*", authenticateApiRequest);
+app.route("/api/backups", createBackupsRuntimeRouter(adapter));
+
 app.use("/api/note-transfers", authenticateApiRequest);
 app.use("/api/note-transfers/*", authenticateApiRequest);
 app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter, {
@@ -279,7 +296,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, full-text search, unified durable note-transfer copy/move orchestration and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until remaining PostgreSQL phases complete");
+console.warn("[db] Notes, full-text search, PostgreSQL backups, unified durable note-transfer copy/move orchestration and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
