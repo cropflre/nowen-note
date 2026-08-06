@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { DatabaseAdapter } from "../db/adapters/types";
 import { getDatabaseAdapter } from "../db/runtime";
 import { SqlitePostgresMigrationError } from "./sqlitePostgresMigrationRepository";
@@ -41,6 +43,21 @@ function quoteIdentifier(value: string): string {
     );
   }
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+function stableJson(value: unknown): string {
+  if (value == null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function sha256(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
 }
 
 function numberValue(value: unknown): number {
@@ -94,41 +111,19 @@ export function createSqlitePostgresMigrationDrillRepository(
             .map(([column]) => `target.${quoteIdentifier(column)} = ?`)
             .join(" AND ")})`;
         });
-        const rows = await db.queryMany<{
-          row: Record<string, unknown>;
-          primaryKeyHash: string;
-        }>(
-          `SELECT to_jsonb(target) AS row,
-                  tracked."primaryKeyHash" AS "primaryKeyHash"
+        const rows = await db.queryMany<{ row: Record<string, unknown> }>(
+          `SELECT to_jsonb(target) AS row
              FROM ${quoteIdentifier(input.tableName)} AS target
-             JOIN sqlite_postgres_migration_row_changes AS tracked
-               ON tracked."runId" = ?
-              AND tracked."tableName" = ?
-              AND (${predicates.map((predicate) => predicate.replaceAll("target.", "target.")).join(" OR ")})
-            WHERE tracked."primaryKeyHash" = ANY(?::text[])`,
-          [
-            input.changes[0]?.runId,
-            input.tableName,
-            ...params,
-            batch.map((change) => change.primaryKeyHash),
-          ],
-        ).catch(async () => {
-          const fallbackRows = new Map<string, Record<string, unknown>>();
-          for (const change of batch) {
-            const entries = Object.entries(change.primaryKey || {});
-            const row = await db.queryOne<{ row: Record<string, unknown> }>(
-              `SELECT to_jsonb(target) AS row
-                 FROM ${quoteIdentifier(input.tableName)} AS target
-                WHERE ${entries
-                  .map(([column]) => `target.${quoteIdentifier(column)} = ?`)
-                  .join(" AND ")}`,
-              entries.map(([, value]) => value),
-            );
-            if (row?.row) fallbackRows.set(change.primaryKeyHash, row.row);
-          }
-          return [...fallbackRows].map(([primaryKeyHash, row]) => ({ row, primaryKeyHash }));
-        });
-        for (const row of rows) current.set(row.primaryKeyHash, row.row);
+            WHERE ${predicates.join(" OR ")}`,
+          params,
+        );
+        const primaryKeyNames = Object.keys(batch[0].primaryKey || {});
+        for (const entry of rows) {
+          const primaryKey = Object.fromEntries(
+            primaryKeyNames.map((column) => [column, entry.row[column]]),
+          );
+          current.set(sha256(primaryKey), entry.row);
+        }
       }
       return current;
     },
