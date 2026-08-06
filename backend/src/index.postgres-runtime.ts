@@ -16,6 +16,7 @@ import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
 import createKnowledgeTreeRuntimeRouter from "./routes/knowledge-tree-runtime";
 import createKnowledgeTreeSurfacesRuntimeRouter from "./routes/knowledge-tree-surfaces-runtime";
+import createSearchRuntimeRouter from "./routes/search-runtime";
 import { createNoteDeletionEffectsRuntime } from "./services/note-deletion-effects-runtime";
 import { createNoteTransferEffectsRuntime } from "./services/note-transfer-effects-runtime";
 import { createNoteTransferMoveDeletionRuntime } from "./services/note-transfer-move-deletion-runtime";
@@ -94,6 +95,9 @@ app.get("/api/health", async (c) => {
         "PUT /api/notes/:id (tiptap-json, markdown, html, core metadata, trash/restore/move)",
         "PUT /api/notes/reorder/batch",
         "DELETE /api/notes/:id",
+        "GET /api/search",
+        "GET /api/search/health",
+        "POST /api/search/rebuild",
         "POST /api/note-transfers (unified asynchronous copy/move orchestration)",
         "POST /api/note-transfers/preview",
         "POST /api/note-transfers/prepare",
@@ -126,6 +130,9 @@ app.get("/api/health", async (c) => {
       migratedCapabilities: [
         "note deletion audit logs",
         "note deletion webhooks",
+        "PostgreSQL weighted full-text search for note titles and content",
+        "tag and attachment search with Unicode-safe literal fallback",
+        "search health diagnostics and administrator index rebuild",
         "note-transfer cross-driver preview and permission analysis",
         "note-transfer durable idempotency, source-version snapshots and transactional preparation",
         "note-transfer prepared-to-staging CAS and recoverable attachment manifests",
@@ -165,9 +172,7 @@ app.get("/api/health", async (c) => {
       noteTransferMoveDeletion: await transferMoveDeletion.getStats(),
       subdocuments: subdocumentWs.getStats(),
       yjsCompaction: yjsCompaction.getStats(),
-      pendingCapabilities: [
-        "notes full-text search (#252)",
-      ],
+      pendingCapabilities: [],
     },
   }, status);
 });
@@ -244,6 +249,10 @@ app.route("/api/notes", createNotesRuntimeRouter(
   { publishMutation: hub.publishMutation },
 ));
 
+app.use("/api/search", authenticateApiRequest);
+app.use("/api/search/*", authenticateApiRequest);
+app.route("/api/search", createSearchRuntimeRouter(adapter));
+
 app.use("/api/note-transfers", authenticateApiRequest);
 app.use("/api/note-transfers/*", authenticateApiRequest);
 app.route("/api/note-transfers", createNoteTransfersRuntimeRouter(adapter, {
@@ -270,7 +279,7 @@ app.all("*", (c) => c.json({
 }, 503));
 
 console.log(`[db] PostgreSQL runtime-only mode enabled on port ${port}`);
-console.warn("[db] Notes, unified durable note-transfer copy/move orchestration and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until remaining PostgreSQL phases complete");
+console.warn("[db] Notes, full-text search, unified durable note-transfer copy/move orchestration and knowledge-tree routes are PostgreSQL-safe; production cutover remains disabled until remaining PostgreSQL phases complete");
 
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 hub.attach(server);
