@@ -72,11 +72,11 @@ function parseArgs(args: string[]): Options {
   if (!backupPath) throw new Error("--backup is required.");
   if (!idempotencyKey) throw new Error("--idempotency-key is required.");
   const allowNonEmptyTarget = args.includes("--allow-non-empty-target");
-  const conflictPolicy = (valueAfter(args, "--conflict-policy") || "abort")
-    as SqlitePostgresConflictPolicy;
-  if (conflictPolicy !== "abort" && conflictPolicy !== "overwrite-with-backup") {
+  const conflictPolicyValue = valueAfter(args, "--conflict-policy") || "abort";
+  if (conflictPolicyValue !== "abort" && conflictPolicyValue !== "overwrite-with-backup") {
     throw new Error("--conflict-policy must be abort or overwrite-with-backup.");
   }
+  const conflictPolicy: SqlitePostgresConflictPolicy = conflictPolicyValue;
   if (conflictPolicy === "overwrite-with-backup" && !allowNonEmptyTarget) {
     throw new Error("overwrite-with-backup requires --allow-non-empty-target.");
   }
