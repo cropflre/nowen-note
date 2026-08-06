@@ -3,5 +3,14 @@
     "notes_fts",
     "vec_note_chunks"
   ],
-  "deferredTables": []
+  "deferredTables": [],
+  "postgresCatalogTables": [
+    "pg_attribute",
+    "pg_class",
+    "pg_constraint",
+    "pg_namespace"
+  ],
+  "parserKeywords": [
+    "lateral"
+  ]
 }

@@ -174,9 +174,13 @@ const repositoryTables = union(...repositoryFiles.map((path) => extractRepositor
 
 const allowlistPath = join(scriptDir, "pg-schema-parity-allowlist.json");
 const allowlist = JSON.parse(read(allowlistPath));
-const allowed = new Set([
+const allowedParityGaps = new Set([
   ...(allowlist.sqliteOnlyTables ?? []),
   ...(allowlist.deferredTables ?? []),
+].map((value) => value.toLowerCase()));
+const externalReferences = new Set([
+  ...(allowlist.postgresCatalogTables ?? []),
+  ...(allowlist.parserKeywords ?? []),
 ].map((value) => value.toLowerCase()));
 
 const ignoredSqlWords = new Set([
@@ -189,14 +193,15 @@ const ignoredSqlWords = new Set([
 function missingFromPostgres(sourceTables) {
   return [...sourceTables]
     .filter((table) => !postgresTables.has(table))
-    .filter((table) => !allowed.has(table))
+    .filter((table) => !allowedParityGaps.has(table))
+    .filter((table) => !externalReferences.has(table))
     .filter((table) => !ignoredSqlWords.has(table))
     .sort();
 }
 
 const missingSqliteTables = missingFromPostgres(sqliteTables);
 const missingRepositoryTables = missingFromPostgres(repositoryTables);
-const unusedDeferredTables = [...allowed]
+const unusedDeferredTables = [...allowedParityGaps]
   .filter((table) => !sqliteTables.has(table) && !repositoryTables.has(table))
   .sort();
 
@@ -214,7 +219,8 @@ const report = {
   },
   missingSqliteTables,
   missingRepositoryTables,
-  deferredTables: [...allowed].sort(),
+  deferredTables: [...allowedParityGaps].sort(),
+  externalReferences: [...externalReferences].sort(),
   unusedDeferredTables,
 };
 

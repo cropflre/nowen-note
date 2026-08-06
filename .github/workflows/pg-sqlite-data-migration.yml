@@ -9,13 +9,20 @@ on:
       - "backend/src/db/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql"
       - "backend/src/db/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
+      - "backend/src/repositories/sqlitePostgresMigrationDrillRepository.ts"
       - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
       - "backend/src/services/sqlite-postgres-rollback-runtime.ts"
+      - "backend/src/services/sqlite-postgres-migration-drill-runtime.ts"
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
+      - "backend/scripts/drill-sqlite-to-postgres.ts"
+      - "backend/scripts/check-pg-schema-parity.mjs"
+      - "backend/scripts/pg-schema-parity-allowlist.json"
+      - "backend/tests/helpers/sqlite-postgres-drill-fixture.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-rollback-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts"
+      - "backend/tests/sqlite-postgres-scale-drill-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/package.json"
       - "backend/docs/sqlite-to-postgres-migration.md"
@@ -29,13 +36,20 @@ on:
       - "backend/src/db/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql"
       - "backend/src/db/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql"
       - "backend/src/repositories/sqlitePostgresMigrationRepository.ts"
+      - "backend/src/repositories/sqlitePostgresMigrationDrillRepository.ts"
       - "backend/src/services/sqlite-postgres-copy-runtime.ts"
       - "backend/src/services/sqlite-postgres-migration-runtime.ts"
       - "backend/src/services/sqlite-postgres-rollback-runtime.ts"
+      - "backend/src/services/sqlite-postgres-migration-drill-runtime.ts"
       - "backend/scripts/migrate-sqlite-to-postgres.ts"
+      - "backend/scripts/drill-sqlite-to-postgres.ts"
+      - "backend/scripts/check-pg-schema-parity.mjs"
+      - "backend/scripts/pg-schema-parity-allowlist.json"
+      - "backend/tests/helpers/sqlite-postgres-drill-fixture.ts"
       - "backend/tests/sqlite-postgres-migration-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-rollback-runtime-pg.test.ts"
       - "backend/tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts"
+      - "backend/tests/sqlite-postgres-scale-drill-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - "backend/package.json"
       - "backend/docs/sqlite-to-postgres-migration.md"
@@ -48,7 +62,7 @@ concurrency:
 jobs:
   executor:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16-alpine
@@ -80,7 +94,7 @@ jobs:
           npm run build:tsc -- --noEmit
           npm run audit:sqlite-boundaries
           npm run audit:pg-schema-parity
-      - name: Migration executor and recovery regressions
+      - name: Migration executor, recovery, and scale drill regressions
         working-directory: backend
         run: >-
           node --import tsx --test --test-concurrency=1
@@ -88,9 +102,12 @@ jobs:
           tests/sqlite-postgres-migration-runtime-pg.test.ts
           tests/sqlite-postgres-rollback-runtime-pg.test.ts
           tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts
-      - name: CLI help contract
+          tests/sqlite-postgres-scale-drill-runtime-pg.test.ts
+      - name: CLI help contracts
         working-directory: backend
-        run: npm run migrate:sqlite-to-postgres -- --help
+        run: |
+          npm run migrate:sqlite-to-postgres -- --help
+          npm run migrate:sqlite-to-postgres:drill -- --help
       - name: Production bundle
         working-directory: backend
         run: |
