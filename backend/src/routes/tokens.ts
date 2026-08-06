@@ -2,39 +2,62 @@
  * Personal API Token 管理路由（/api/tokens）
  * ---------------------------------------------------------------------------
  * 支持 scopes、过期/吊销、使用统计，以及笔记本资源级授权。
+ *
+ * 所有数据库操作均通过 Database Runtime Provider 执行，SQLite / PostgreSQL
+ * 共享同一业务接口，不在路由模块导入阶段打开 SQLite。
  */
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
-import { getDb } from "../db/schema";
 import {
+  API_TOKEN_PREFIX,
   API_TOKEN_SCOPES,
   generateApiTokenRaw,
   hashApiToken,
-  initApiTokensTable,
   isValidScope,
-  API_TOKEN_PREFIX,
-  pruneTokenUsage,
-  type ApiTokenResourceMode,
 } from "../lib/api-tokens";
-import { apiTokensRepository } from "../repositories";
-import { hasPermission, resolveNotebookPermission } from "../middleware/acl";
+import {
+  apiTokenResourcesRepository,
+  apiTokensRepository,
+  type ApiTokenResourceMode,
+  type ApiTokenResourcePermission,
+} from "../repositories";
 import { logAudit } from "../services/audit";
 
 const app = new Hono();
-initApiTokensTable(getDb());
-pruneTokenUsage(getDb());
+let pruneUsagePromise: Promise<void> | undefined;
 
-type ResourcePermission = "read" | "write";
-interface NotebookResourceInput {
+interface NotebookResourceRequest {
   notebookId: string;
-  permission: ResourcePermission;
+  permission: ApiTokenResourcePermission;
   includeDescendants: boolean;
 }
+
+async function ensureTokenUsageMaintenance(): Promise<void> {
+  if (!pruneUsagePromise) {
+    const cutoffDay = new Date(Date.now() - 90 * 86400_000)
+      .toISOString()
+      .slice(0, 10);
+    pruneUsagePromise = apiTokensRepository
+      .pruneUsageBeforeAsync(cutoffDay)
+      .catch((error) => {
+        pruneUsagePromise = undefined;
+        console.warn("[tokens] prune token usage failed:", error);
+      });
+  }
+  await pruneUsagePromise;
+}
+
+app.use("*", async (_c, next) => {
+  await ensureTokenUsageMaintenance();
+  await next();
+});
 
 function safeParseJsonArray(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
   } catch {
     return [];
   }
@@ -57,115 +80,75 @@ function normalizeResourceMode(value: unknown): ApiTokenResourceMode {
   return value === "restricted" ? "restricted" : "unrestricted";
 }
 
-function normalizeResources(value: unknown): NotebookResourceInput[] {
+function normalizeResources(value: unknown): NotebookResourceRequest[] {
   if (!Array.isArray(value)) return [];
-  const byNotebook = new Map<string, NotebookResourceInput>();
+
+  const byNotebook = new Map<string, NotebookResourceRequest>();
   for (const raw of value) {
     if (!raw || typeof raw !== "object") continue;
     const notebookId = String((raw as any).notebookId || "").trim();
     if (!notebookId) continue;
-    const permission: ResourcePermission = (raw as any).permission === "write" ? "write" : "read";
+
+    const permission: ApiTokenResourcePermission =
+      (raw as any).permission === "write" ? "write" : "read";
     const includeDescendants = Boolean((raw as any).includeDescendants);
     const previous = byNotebook.get(notebookId);
+
     byNotebook.set(notebookId, {
       notebookId,
       permission: previous?.permission === "write" ? "write" : permission,
       includeDescendants: Boolean(previous?.includeDescendants || includeDescendants),
     });
   }
+
   return Array.from(byNotebook.values());
 }
 
-function validateResources(userId: string, resources: NotebookResourceInput[]): string | null {
+async function validateResources(
+  userId: string,
+  resources: NotebookResourceRequest[],
+): Promise<string | null> {
+  if (resources.length === 0) return null;
+
+  const options = await apiTokenResourcesRepository.listAuthorizedNotebookOptionsAsync(userId);
+  const accessByNotebook = new Map(options.map((option) => [option.id, option]));
+
   for (const resource of resources) {
-    const { permission } = resolveNotebookPermission(resource.notebookId, userId);
-    if (!hasPermission(permission, "read")) {
-      return `无权授权笔记本: ${resource.notebookId}`;
-    }
-    if (resource.permission === "write" && !hasPermission(permission, "write")) {
+    const option = accessByNotebook.get(resource.notebookId);
+    if (!option) return `无权授权笔记本: ${resource.notebookId}`;
+    if (resource.permission === "write" && !option.canWrite) {
       return `当前用户对笔记本 ${resource.notebookId} 没有写权限`;
     }
   }
+
   return null;
 }
 
-function listResources(tokenId: string) {
-  return getDb().prepare(`
-    SELECT
-      r.resourceId AS notebookId,
-      r.permission,
-      r.includeDescendants,
-      n.name AS notebookName,
-      n.parentId
-    FROM api_token_resources r
-    LEFT JOIN notebooks n ON n.id = r.resourceId
-    WHERE r.tokenId = ? AND r.resourceType = 'notebook'
-    ORDER BY n.name COLLATE NOCASE ASC, r.resourceId ASC
-  `).all(tokenId) as Array<{
-    notebookId: string;
-    permission: ResourcePermission;
-    includeDescendants: number;
-    notebookName: string | null;
-    parentId: string | null;
-  }>;
-}
-
-function replaceResources(tokenId: string, resources: NotebookResourceInput[]): void {
-  const db = getDb();
-  const replace = db.transaction(() => {
-    db.prepare("DELETE FROM api_token_resources WHERE tokenId = ?").run(tokenId);
-    const insert = db.prepare(`
-      INSERT INTO api_token_resources
-        (id, tokenId, resourceType, resourceId, permission, includeDescendants)
-      VALUES (?, ?, 'notebook', ?, ?, ?)
-    `);
-    for (const resource of resources) {
-      insert.run(
-        uuid(),
-        tokenId,
-        resource.notebookId,
-        resource.permission,
-        resource.includeDescendants ? 1 : 0,
-      );
-    }
-  });
-  replace();
-}
-
-function serializeResources(tokenId: string) {
-  return listResources(tokenId).map((resource) => ({
+function withResourceIds(resources: NotebookResourceRequest[]) {
+  return resources.map((resource) => ({
+    id: uuid(),
     ...resource,
-    includeDescendants: resource.includeDescendants === 1,
   }));
 }
 
+async function serializeResources(tokenId: string) {
+  return apiTokenResourcesRepository.listResourcesByTokenAsync(tokenId);
+}
+
 /** 列出当前用户的 Token。 */
-app.get("/", (c) => {
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id")!;
-  const rows = getDb().prepare(`
-    SELECT id, name, scopes, resourceMode, expiresAt, lastUsedAt, lastUsedIp, createdAt, revokedAt
-    FROM api_tokens
-    WHERE userId = ?
-    ORDER BY revokedAt IS NOT NULL, createdAt DESC
-  `).all(userId) as Array<{
-    id: string;
-    name: string;
-    scopes: string;
-    resourceMode: string;
-    expiresAt: string | null;
-    lastUsedAt: string | null;
-    lastUsedIp: string | null;
-    createdAt: string;
-    revokedAt: string | null;
-  }>;
+  const rows = await apiTokenResourcesRepository.listTokensByUserAsync(userId);
+
+  const tokens = await Promise.all(rows.map(async (row) => ({
+    ...row,
+    scopes: safeParseJsonArray(row.scopes),
+    resourceMode: normalizeResourceMode(row.resourceMode),
+    notebookResources: await serializeResources(row.id),
+  })));
 
   return c.json({
-    tokens: rows.map((row) => ({
-      ...row,
-      scopes: safeParseJsonArray(row.scopes),
-      resourceMode: normalizeResourceMode(row.resourceMode),
-      notebookResources: serializeResources(row.id),
-    })),
+    tokens,
     availableScopes: API_TOKEN_SCOPES,
     availableResourcePermissions: ["read", "write"],
   });
@@ -183,7 +166,7 @@ app.post("/", async (c) => {
     expiresAt?: string | null;
     expiresInDays?: number;
     resourceMode?: ApiTokenResourceMode;
-    notebookResources?: NotebookResourceInput[];
+    notebookResources?: NotebookResourceRequest[];
   };
 
   const name = (body.name || "").trim();
@@ -196,7 +179,9 @@ app.post("/", async (c) => {
     if (!isValidScope(scope)) return c.json({ error: `未知 scope: ${scope}` }, 400);
     if (!normalizedScopes.includes(scope)) normalizedScopes.push(scope);
   }
-  if (normalizedScopes.length === 0) return c.json({ error: "请至少选择一个 scope" }, 400);
+  if (normalizedScopes.length === 0) {
+    return c.json({ error: "请至少选择一个 scope" }, 400);
+  }
 
   let expiresAt: string | null = null;
   if (typeof body.expiresInDays === "number" && body.expiresInDays > 0) {
@@ -209,23 +194,27 @@ app.post("/", async (c) => {
   }
 
   const resources = normalizeResources(body.notebookResources);
-  const resourceMode = normalizeResourceMode(body.resourceMode ?? (resources.length > 0 ? "restricted" : "unrestricted"));
-  const resourceError = validateResources(userId, resources);
+  const resourceMode = normalizeResourceMode(
+    body.resourceMode ?? (resources.length > 0 ? "restricted" : "unrestricted"),
+  );
+  const resourceError = await validateResources(userId, resources);
   if (resourceError) return c.json({ error: resourceError }, 403);
 
   const raw = generateApiTokenRaw();
   const id = uuid();
-  apiTokensRepository.create({
+
+  await apiTokenResourcesRepository.createTokenAsync({
     id,
     userId,
     name,
     tokenHash: hashApiToken(raw),
     scopes: normalizedScopes,
     expiresAt,
+    resourceMode,
+    resources: withResourceIds(resources),
   });
-  getDb().prepare("UPDATE api_tokens SET resourceMode = ? WHERE id = ?").run(resourceMode, id);
-  replaceResources(id, resources);
 
+  const notebookResources = await serializeResources(id);
   logAudit(userId, "system", "api_token_created", {
     tokenId: id,
     name,
@@ -240,7 +229,7 @@ app.post("/", async (c) => {
     name,
     scopes: normalizedScopes,
     resourceMode,
-    notebookResources: serializeResources(id),
+    notebookResources,
     expiresAt,
     createdAt: new Date().toISOString(),
     token: raw,
@@ -249,62 +238,45 @@ app.post("/", async (c) => {
 });
 
 /** 当前用户可授权给 Token 的笔记本。 */
-app.get("/notebook-options", (c) => {
+app.get("/notebook-options", async (c) => {
   const denied = rejectApiTokenManagement(c);
   if (denied) return denied;
-  const userId = c.req.header("X-User-Id")!;
-  const rows = getDb().prepare(`
-    SELECT id, name, parentId, workspaceId, userId
-    FROM notebooks
-    WHERE isDeleted = 0
-    ORDER BY sortOrder ASC, name COLLATE NOCASE ASC
-  `).all() as Array<{
-    id: string;
-    name: string;
-    parentId: string | null;
-    workspaceId: string | null;
-    userId: string;
-  }>;
 
-  const notebooks = rows.flatMap((row) => {
-    const { permission } = resolveNotebookPermission(row.id, userId);
-    if (!hasPermission(permission, "read")) return [];
-    return [{
-      ...row,
-      canWrite: hasPermission(permission, "write"),
-    }];
+  const userId = c.req.header("X-User-Id")!;
+  const options = await apiTokenResourcesRepository.listAuthorizedNotebookOptionsAsync(userId);
+  return c.json({
+    notebooks: options.map(({ permission: _permission, ...option }) => option),
   });
-  return c.json({ notebooks });
 });
 
 /** 修改已有 Token 的资源模式与笔记本授权，不轮换明文。 */
 app.patch("/:id/resources", async (c) => {
   const denied = rejectApiTokenManagement(c);
   if (denied) return denied;
+
   const userId = c.req.header("X-User-Id")!;
   const tokenId = c.req.param("id");
-  const token = getDb().prepare("SELECT id, userId, revokedAt FROM api_tokens WHERE id = ? AND userId = ?")
-    .get(tokenId, userId) as { id: string; userId: string; revokedAt: string | null } | undefined;
+  const token = await apiTokensRepository.getByIdAndUserAsync(tokenId, userId);
   if (!token) return c.json({ error: "token 不存在" }, 404);
   if (token.revokedAt) return c.json({ error: "已吊销 token 不能再修改授权" }, 409);
 
   const body = (await c.req.json().catch(() => ({}))) as {
     resourceMode?: ApiTokenResourceMode;
-    notebookResources?: NotebookResourceInput[];
+    notebookResources?: NotebookResourceRequest[];
   };
   const resourceMode = normalizeResourceMode(body.resourceMode);
   const resources = normalizeResources(body.notebookResources);
-  const resourceError = validateResources(userId, resources);
+  const resourceError = await validateResources(userId, resources);
   if (resourceError) return c.json({ error: resourceError }, 403);
 
-  const db = getDb();
-  const update = db.transaction(() => {
-    db.prepare("UPDATE api_tokens SET resourceMode = ? WHERE id = ? AND userId = ?")
-      .run(resourceMode, tokenId, userId);
-    replaceResources(tokenId, resources);
+  await apiTokenResourcesRepository.updateTokenResourcesAsync({
+    tokenId,
+    userId,
+    resourceMode,
+    resources: withResourceIds(resources),
   });
-  update();
 
+  const notebookResources = await serializeResources(tokenId);
   logAudit(userId, "system", "api_token_resources_updated", {
     tokenId,
     resourceMode,
@@ -314,51 +286,69 @@ app.patch("/:id/resources", async (c) => {
   return c.json({
     success: true,
     resourceMode,
-    notebookResources: serializeResources(tokenId),
+    notebookResources,
   });
 });
 
 /** 使用统计。 */
-app.get("/usage", (c) => {
+app.get("/usage", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const parsed = Number.parseInt(c.req.query("days") || "7", 10);
   const days = Number.isFinite(parsed) && parsed >= 1 && parsed <= 90 ? parsed : 7;
   const today = new Date();
   const todayDay = today.toISOString().slice(0, 10);
-  const startDay = new Date(today.getTime() - (days - 1) * 86400_000).toISOString().slice(0, 10);
-  const prevStartDay = new Date(today.getTime() - (days * 2 - 1) * 86400_000).toISOString().slice(0, 10);
-  const prevEndDay = new Date(today.getTime() - days * 86400_000).toISOString().slice(0, 10);
-  const dailyRows = apiTokensRepository.getDailyUsage(userId, startDay, todayDay);
-  const dailyMap = new Map(dailyRows.map((row) => [row.day, row.count]));
+  const startDay = new Date(today.getTime() - (days - 1) * 86400_000)
+    .toISOString()
+    .slice(0, 10);
+  const prevStartDay = new Date(today.getTime() - (days * 2 - 1) * 86400_000)
+    .toISOString()
+    .slice(0, 10);
+  const prevEndDay = new Date(today.getTime() - days * 86400_000)
+    .toISOString()
+    .slice(0, 10);
+
+  const [dailyRows, prevTotal, byTokenRows] = await Promise.all([
+    apiTokensRepository.getDailyUsageAsync(userId, startDay, todayDay),
+    apiTokensRepository.getPrevPeriodTotalAsync(userId, prevStartDay, prevEndDay),
+    apiTokensRepository.getUsageByTokenAsync(userId, startDay, todayDay),
+  ]);
+
+  const dailyMap = new Map<string, number>();
+  for (const row of dailyRows) dailyMap.set(row.day, Number(row.count));
   const series: Array<{ day: string; count: number }> = [];
   for (let index = days - 1; index >= 0; index -= 1) {
-    const day = new Date(today.getTime() - index * 86400_000).toISOString().slice(0, 10);
+    const day = new Date(today.getTime() - index * 86400_000)
+      .toISOString()
+      .slice(0, 10);
     series.push({ day, count: dailyMap.get(day) || 0 });
   }
+
   return c.json({
     days,
     total: series.reduce((sum, item) => sum + item.count, 0),
-    prevTotal: apiTokensRepository.getPrevPeriodTotal(userId, prevStartDay, prevEndDay) || 0,
+    prevTotal: Number(prevTotal) || 0,
     series,
-    byToken: apiTokensRepository.getUsageByToken(userId, startDay, todayDay),
+    byToken: byTokenRows.map((row) => ({ ...row, count: Number(row.count) })),
   });
 });
 
 /** 吊销 Token。 */
-app.delete("/:id", (c) => {
+app.delete("/:id", async (c) => {
   const denied = rejectApiTokenManagement(c);
   if (denied) return denied;
+
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
-  const row = getDb().prepare("SELECT id, userId, revokedAt FROM api_tokens WHERE id = ? AND userId = ?")
-    .get(id, userId) as { id: string; userId: string; revokedAt: string | null } | undefined;
+  const row = await apiTokensRepository.getByIdAndUserAsync(id, userId);
   if (!row) return c.json({ error: "token 不存在" }, 404);
   if (row.revokedAt) return c.json({ success: true, alreadyRevoked: true });
-  apiTokensRepository.revokeById(id);
+
+  await apiTokensRepository.revokeByIdAsync(id);
   logAudit(userId, "system", "api_token_revoked", { tokenId: id }, {
     targetType: "api_token",
     targetId: id,
   });
+
   return c.json({ success: true });
 });
 

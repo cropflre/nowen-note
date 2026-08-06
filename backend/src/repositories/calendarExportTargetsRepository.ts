@@ -1,14 +1,12 @@
 /**
  * Calendar Export Targets Repository
  *
- * 职责：
- * - 封装 calendar_export_targets 表的所有数据库操作
- * - 提供类型安全的接口
- * - 保持现有 SQLite 行为不变
+ * 同步方法保留给现有 SQLite 调用链；async 方法通过数据库运行时 Provider
+ * 在 SQLite / PostgreSQL 下共用同一业务接口。
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 import type {
   CalendarExportTargetRecord,
   CalendarExportTargetRecordBoolean,
@@ -17,12 +15,10 @@ import type {
   UpdateCalendarExportTargetStatusInput,
 } from "./types";
 
-/** 创建轻量 adapter 实例 */
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
-/** 将 SQLite 0/1 转换为 boolean */
 function toBoolean(row: CalendarExportTargetRecord): CalendarExportTargetRecordBoolean {
   return {
     ...row,
@@ -31,47 +27,29 @@ function toBoolean(row: CalendarExportTargetRecord): CalendarExportTargetRecordB
 }
 
 export const calendarExportTargetsRepository = {
-  /**
-   * 列出用户的所有 export targets
-   */
   listByUser(userId: string): CalendarExportTargetRecordBoolean[] {
-    const db = getDb();
-    const rows = db
-      .prepare(
-        'SELECT * FROM calendar_export_targets WHERE "userId" = ? ORDER BY "createdAt" DESC',
-      )
+    const rows = getDb()
+      .prepare('SELECT * FROM calendar_export_targets WHERE "userId" = ? ORDER BY "createdAt" DESC')
       .all(userId) as CalendarExportTargetRecord[];
     return rows.map(toBoolean);
   },
 
-  /**
-   * 获取单个 export target（含 userId 校验）
-   */
   getByIdAndUser(id: string, userId: string): CalendarExportTargetRecordBoolean | undefined {
-    const db = getDb();
-    const row = db
+    const row = getDb()
       .prepare('SELECT * FROM calendar_export_targets WHERE id = ? AND "userId" = ?')
       .get(id, userId) as CalendarExportTargetRecord | undefined;
     return row ? toBoolean(row) : undefined;
   },
 
-  /**
-   * 列出所有启用的 export targets
-   */
   listEnabled(): CalendarExportTargetRecordBoolean[] {
-    const db = getDb();
-    const rows = db
+    const rows = getDb()
       .prepare("SELECT * FROM calendar_export_targets WHERE enabled = 1")
       .all() as CalendarExportTargetRecord[];
     return rows.map(toBoolean);
   },
 
-  /**
-   * 创建 export target
-   */
   create(input: CreateCalendarExportTargetInput): void {
-    const db = getDb();
-    db.prepare(
+    getDb().prepare(
       `INSERT INTO calendar_export_targets (id, "userId", "feedId", type, enabled, name, "configJson")
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
@@ -85,13 +63,9 @@ export const calendarExportTargetsRepository = {
     );
   },
 
-  /**
-   * 更新 export target（按 id + userId）
-   */
   updateByIdAndUser(id: string, userId: string, patch: UpdateCalendarExportTargetInput): void {
-    const db = getDb();
     const updates: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (patch.name !== undefined) {
       updates.push("name = ?");
@@ -105,32 +79,23 @@ export const calendarExportTargetsRepository = {
       updates.push('"configJson" = ?');
       params.push(patch.configJson);
     }
-
     if (updates.length === 0) return;
 
     updates.push('"updatedAt" = datetime(\'now\')');
     params.push(id, userId);
-
-    db.prepare(
+    getDb().prepare(
       `UPDATE calendar_export_targets SET ${updates.join(", ")} WHERE id = ? AND userId = ?`,
     ).run(...params);
   },
 
-  /**
-   * 更新 export target 状态（按 id，不含 userId 校验）
-   *
-   * 注意：此方法用于更新导出状态，由内部调度器调用，不做 userId 校验。
-   */
   updateStatusById(id: string, patch: UpdateCalendarExportTargetStatusInput): void {
-    const db = getDb();
     const updates: string[] = ['"lastExportAt" = datetime(\'now\')', "updatedAt = datetime('now')"];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (patch.lastStatus !== undefined) {
       updates.push('"lastStatus" = ?');
       params.push(patch.lastStatus);
     }
-
     if (patch.lastStatus === "success" && patch.publicUrl) {
       updates.push('"publicUrl" = ?');
       params.push(patch.publicUrl);
@@ -141,28 +106,17 @@ export const calendarExportTargetsRepository = {
     }
 
     params.push(id);
-
-    db.prepare(
+    getDb().prepare(
       `UPDATE calendar_export_targets SET ${updates.join(", ")} WHERE id = ?`,
     ).run(...params);
   },
 
-  /**
-   * 删除 export target（按 id + userId）
-   */
   deleteByIdAndUser(id: string, userId: string): boolean {
-    const db = getDb();
-    const result = db
-      .prepare("DELETE FROM calendar_export_targets WHERE id = ? AND userId = ?")
-      .run(id, userId);
-    return result.changes > 0;
+    return getDb().prepare(
+      "DELETE FROM calendar_export_targets WHERE id = ? AND userId = ?",
+    ).run(id, userId).changes > 0;
   },
 
-  // ============================================================
-  // Async 方法（批量试点，使用 SqliteAdapter）
-  // ============================================================
-
-  /** 列出用户的所有 export targets（async） */
   async listByUserAsync(userId: string): Promise<CalendarExportTargetRecordBoolean[]> {
     const rows = await getAdapter().queryMany<CalendarExportTargetRecord>(
       'SELECT * FROM calendar_export_targets WHERE "userId" = ? ORDER BY "createdAt" DESC',
@@ -171,7 +125,6 @@ export const calendarExportTargetsRepository = {
     return rows.map(toBoolean);
   },
 
-  /** 获取单个 export target（async，含 userId 校验） */
   async getByIdAndUserAsync(id: string, userId: string): Promise<CalendarExportTargetRecordBoolean | undefined> {
     const row = await getAdapter().queryOne<CalendarExportTargetRecord>(
       'SELECT * FROM calendar_export_targets WHERE id = ? AND "userId" = ?',
@@ -180,7 +133,6 @@ export const calendarExportTargetsRepository = {
     return row ? toBoolean(row) : undefined;
   },
 
-  /** 列出所有启用的 export targets（async） */
   async listEnabledAsync(): Promise<CalendarExportTargetRecordBoolean[]> {
     const rows = await getAdapter().queryMany<CalendarExportTargetRecord>(
       "SELECT * FROM calendar_export_targets WHERE enabled = 1",
@@ -188,7 +140,6 @@ export const calendarExportTargetsRepository = {
     return rows.map(toBoolean);
   },
 
-  /** 创建 export target（async） */
   async createAsync(input: CreateCalendarExportTargetInput): Promise<void> {
     await getAdapter().execute(
       `INSERT INTO calendar_export_targets (id, "userId", "feedId", type, enabled, name, "configJson")
@@ -197,7 +148,6 @@ export const calendarExportTargetsRepository = {
     );
   },
 
-  /** 更新 export target（async，按 id + userId） */
   async updateByIdAndUserAsync(id: string, userId: string, patch: UpdateCalendarExportTargetInput): Promise<void> {
     const updates: string[] = [];
     const params: unknown[] = [];
@@ -214,19 +164,16 @@ export const calendarExportTargetsRepository = {
       updates.push('"configJson" = ?');
       params.push(patch.configJson);
     }
-
     if (updates.length === 0) return;
 
     updates.push('"updatedAt" = datetime(\'now\')');
     params.push(id, userId);
-
     await getAdapter().execute(
       `UPDATE calendar_export_targets SET ${updates.join(", ")} WHERE id = ? AND userId = ?`,
       params,
     );
   },
 
-  /** 更新 export target 状态（async，按 id，不含 userId 校验） */
   async updateStatusByIdAsync(id: string, patch: UpdateCalendarExportTargetStatusInput): Promise<void> {
     const updates: string[] = ['"lastExportAt" = datetime(\'now\')', "updatedAt = datetime('now')"];
     const params: unknown[] = [];
@@ -235,7 +182,6 @@ export const calendarExportTargetsRepository = {
       updates.push('"lastStatus" = ?');
       params.push(patch.lastStatus);
     }
-
     if (patch.lastStatus === "success" && patch.publicUrl) {
       updates.push('"publicUrl" = ?');
       params.push(patch.publicUrl);
@@ -246,14 +192,12 @@ export const calendarExportTargetsRepository = {
     }
 
     params.push(id);
-
     await getAdapter().execute(
       `UPDATE calendar_export_targets SET ${updates.join(", ")} WHERE id = ?`,
       params,
     );
   },
 
-  /** 删除 export target（async，按 id + userId） */
   async deleteByIdAndUserAsync(id: string, userId: string): Promise<boolean> {
     const result = await getAdapter().execute(
       "DELETE FROM calendar_export_targets WHERE id = ? AND userId = ?",

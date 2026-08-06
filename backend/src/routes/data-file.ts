@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 数据库文件（.data）级别的导出 / 导入 / 空间统计
  *
  * 与 /api/backups 的区别：
@@ -13,7 +13,7 @@
  *
  * 导入流程（Windows 文件锁安全）：
  *   1) 校验上传文件头前 16 字节为 "SQLite format 3\0"
- *   2) 将上传文件写入 `<dbPath>.import.tmp`
+ *   2) 将上传文件写到 `<dbPath>.import.tmp`
  *   3) 对当前库执行 `db.backup()` 快照到 `<dbPath>.pre-import-<ts>.bak`
  *   4) closeDb() 释放句柄
  *   5) fs.rename(tmp, dbPath)（原子替换）
@@ -311,14 +311,18 @@ app.post("/import", async (c) => {
 // ----------------------------------------------------------------------------
 // 所有登录用户可用，但只清理"当前用户名下"的孤儿附件。
 //
+// 保留策略：
+//   - uploadSource = 'file_manager' 表示用户在文件管理中主动上传。这类文件是
+//     用户明确保存的资产，即使从未插入笔记，也永久排除出所有自动清理阶段；
+//     只能由用户在文件管理中显式删除。
+//   - 其余编辑器上传、粘贴、内联抽取产生的附件，在失去所有正文引用后才进入
+//     下面的自动回收流程，并继续享受 24 小时安全宽限期。
+//
 // 孤儿三类：
 //   1) DB 孤儿：attachments 行的 noteId 已经不存在（笔记早被永久删除，但历史
 //      版本遗留了行），CASCADE 场景下正常不会出现；为兼容老数据仍然扫一次。
 //   2) 内容孤儿：attachments 行在 DB 里、noteId 对应的 note 还活着，但**该附件
-//      的 URL（/api/attachments/<id>）不再出现在任何 notes.content 里**。这类
-//      在"文件管理→上传"场景尤其常见：上传时会落到一个 isArchived=1 的 holder
-//      笔记兜底外键，之后用户把编辑器里的图删了，笔记不会消失，于是旧逻辑永远
-//      识别不出来。
+//      的 URL（/api/attachments/<id>）不再出现在任何 notes.content 里**。
 //      为避免误杀"刚上传还没保存引用"的新附件，使用 24h 宽限期——createdAt 距
 //      今不足该窗口的附件不参与。
 //   3) 磁盘孤儿：文件系统里存在、但 attachments 表里已经没有对应行的物理文件
@@ -346,18 +350,21 @@ app.post("/cleanup-orphans", (c) => {
 
   const attachmentsDir = getAttachmentsDir();
 
-  // 1) DB 孤儿：attachments 行 noteId 对应的 notes 已不存在
-  //    普通用户仅清自己；管理员清全表
+  // 1) DB 孤儿：attachments 行 noteId 对应的 notes 已不存在。
+  //    文件管理手动上传的受保护文件始终跳过，即使历史库里出现悬空 noteId 也不自动删。
   const dbOrphanRows = (isAdmin
     ? db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
-         WHERE n.id IS NULL`,
+         WHERE n.id IS NULL
+           AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
       ).all()
     : db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
-         WHERE n.id IS NULL AND a.userId = ?`,
+         WHERE n.id IS NULL
+           AND a.userId = ?
+           AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
       ).all(userId)) as { id: string; path: string; size: number }[];
 
   let dbOrphansRemoved = 0;
@@ -408,9 +415,10 @@ app.post("/cleanup-orphans", (c) => {
     }
   }
 
-  // 2) 内容孤儿：DB 行还在、note 还在，但没有任何 notes.content 引用这个 id
-  //    作用域 = 当前用户的所有附件（个人空间 + 工作区上传的），管理员全表
-  //    content 扫描范围 = 全表 notes.content（大库上一次性扫完够用，后面可改增量）
+  // 2) 内容孤儿：DB 行还在、note 还在，但没有任何 notes.content 引用这个 id。
+  //    uploadSource='file_manager' 的手动上传文件被明确排除，只允许用户显式删除。
+  //    作用域 = 当前用户的所有附件（个人空间 + 工作区上传的），管理员全表。
+  //    content 扫描范围 = 全表 notes.content（大库上一次性扫完够用，后面可改增量）。
   //
   // 为什么把 haystack 限制为 content 不为空的 note：大量 note.content 是空字符串，
   // 过滤掉能显著降 join 字符串的开销。
@@ -423,13 +431,15 @@ app.post("/cleanup-orphans", (c) => {
     ? db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size, a.createdAt
            FROM attachments a
-          INNER JOIN notes n ON n.id = a.noteId`,
+          INNER JOIN notes n ON n.id = a.noteId
+          WHERE COALESCE(a.uploadSource, '') <> 'file_manager'`,
       ).all()
     : db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size, a.createdAt
            FROM attachments a
           INNER JOIN notes n ON n.id = a.noteId
-          WHERE a.userId = ?`,
+          WHERE a.userId = ?
+            AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
       ).all(userId)) as { id: string; path: string; size: number; createdAt: string }[];
 
   const contentOrphanRows: { id: string; path: string; size: number }[] = [];
@@ -498,7 +508,9 @@ app.post("/cleanup-orphans", (c) => {
   if (isAdmin) {
     try {
       // 收集 DB 中已登记的全部 path（刚刚删的 DB 孤儿已经不在这批里，这正是我们要的）
-      // 收集 attachments + task_attachments 的已登记 path，防止待办图片被误删
+      // 收集 attachments + task_attachments 的已登记 path，防止待办图片被误删。
+      // 手动上传的受保护文件仍保留 DB 行，因此其 path 会自然进入 knownPaths，不会
+      // 被磁盘孤儿扫描误删。
       const rows = db.prepare("SELECT path FROM attachments").all() as { path: string }[];
       const taskRows = taskAttachmentsRepository.listAllPaths();
       const knownPaths = new Set<string>();
@@ -555,7 +567,7 @@ app.post("/cleanup-orphans", (c) => {
     dbOrphansRemoved,
     dbOrphanFilesRemoved,
     dbOrphanBytes,
-    // 内容孤儿（notes.content 不再引用；本次新增分类，解决"清理完文件管理里还在"的核心问题）
+    // 内容孤儿（notes.content 不再引用；手动上传受保护文件不在候选集合中）
     contentOrphansRemoved,
     contentOrphanFilesRemoved,
     contentOrphanBytes,

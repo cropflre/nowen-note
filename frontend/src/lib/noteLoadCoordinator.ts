@@ -1,6 +1,6 @@
-export const NOTE_LOADING_DELAY_MS = 150;
-export const NOTE_LOADING_MIN_VISIBLE_MS = 180;
-export const NOTE_LOADING_SLOW_MS = 800;
+export const NOTE_LOADING_DELAY_MS = 260;
+export const NOTE_LOADING_MIN_VISIBLE_MS = 500;
+export const NOTE_LOADING_SLOW_MS = 1_200;
 export const NOTE_LOADING_TIMEOUT_MS = 10_000;
 
 export interface NoteLoadSummary {
@@ -91,6 +91,8 @@ export class NoteLoadCoordinator {
       startedAt,
     });
 
+    // Keep the previous note visible for quick cache/network hits. A loading skeleton only
+    // appears after the interaction has taken long enough to need explicit feedback.
     const showTimer = setTimeout(() => {
       if (this.sequence !== requestId) return;
       shownAt = Date.now();
@@ -125,6 +127,8 @@ export class NoteLoadCoordinator {
 
       this.clearTimers(active);
       if (shownAt !== null) {
+        // Once the skeleton has become visible, keep it stable long enough to read as one
+        // deliberate transition instead of a flash between two note surfaces.
         const remaining = NOTE_LOADING_MIN_VISIBLE_MS - (Date.now() - shownAt);
         await wait(remaining);
       }

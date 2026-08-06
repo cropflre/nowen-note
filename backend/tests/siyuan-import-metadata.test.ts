@@ -50,6 +50,7 @@ async function writeFixture(): Promise<string> {
     { Type: "NodeParagraph", Children: [{ Type: "NodeText", Data: "first" }] },
   ])));
   zip.file("data/box-b/doc-html.sy", JSON.stringify(doc("doc-html", "HTML 与嵌入", "1f9e9", [
+    { Type: "NodeInlineHTML", Data: "<span>内联 HTML</span>" },
     { Type: "NodeHTMLBlock", Data: "<mark>保留 HTML</mark><script>alert('xss')</script>" },
     { Type: "NodeIFrame", Data: "<iframe src=\"https://www.youtube-nocookie.com/embed/demo\"></iframe>" },
   ])));

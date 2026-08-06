@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { Readable } from "stream";
 import type { Context } from "hono";
+import JSZip from "jszip";
 import { getDb } from "../db/schema";
 import {
   ReliableExportBusyError,
@@ -97,6 +98,40 @@ function inferWorkspaceId(userId: string, noteIds: string[]): string | null {
   return workspaceId;
 }
 
+function sanitizeMarkdownFilename(value: string): string {
+  const normalized = String(value || "")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  return normalized || "未命名";
+}
+
+async function normalizeSingleFlatMarkdownFilename(
+  buffer: Buffer,
+  title: string,
+): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  const rootMarkdownFiles = Object.keys(zip.files).filter((name) =>
+    !name.includes("/") && name.toLowerCase().endsWith(".md") && !zip.files[name].dir,
+  );
+  if (rootMarkdownFiles.length !== 1) return buffer;
+
+  const currentName = rootMarkdownFiles[0];
+  const targetName = `${sanitizeMarkdownFilename(title)}.md`;
+  if (currentName === targetName) return buffer;
+
+  const content = await zip.file(currentName)!.async("nodebuffer");
+  zip.remove(currentName);
+  zip.file(targetName, content);
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+}
+
 async function buildJob(
   job: Job,
   notes: PreparedMarkdownNote[],
@@ -120,7 +155,10 @@ async function buildJob(
       layout,
       filenameBase,
     });
-    fs.writeFileSync(job.tmpPath, result.buffer);
+    const buffer = layout === "flat" && notes.length === 1
+      ? await normalizeSingleFlatMarkdownFilename(result.buffer, notes[0].title)
+      : result.buffer;
+    fs.writeFileSync(job.tmpPath, buffer);
     job.filename = result.filename;
     job.warnings = result.stats.warnings;
     job.current = job.total;

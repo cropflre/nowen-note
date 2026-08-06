@@ -25,6 +25,26 @@ import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/s
 import { getNoteListDragHint, reorderNotesWithinNotebook, shouldUseHtmlNoteDragging } from "@/lib/noteManualSort";
 import { sortNotesPinnedFirst } from "@/lib/notePinnedOrder";
 import { resolveExternalDropNotebookId } from "@/lib/notebookExternalDropTarget";
+import {
+  loadNoteWorkspaceLayoutMode,
+  NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT,
+  NOTE_WORKSPACE_LAYOUT_STORAGE_KEY,
+  usesThreeColumnFolderNavigation,
+  type NoteWorkspaceLayoutMode,
+} from "@/lib/noteWorkspaceLayout";
+import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import {
+  hideLockedFolderDescendants,
+  KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT,
+  loadUnlockedFolderIds,
+} from "@/lib/knowledgeTreePassword";
+import {
+  buildThreeColumnFolderContents,
+  loadThreeColumnFolderScopeMode,
+  requestKnowledgeTreeFolderOpen,
+  saveThreeColumnFolderScopeMode,
+  type ThreeColumnFolderScopeMode,
+} from "@/lib/threeColumnFolderContents";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -1323,6 +1343,111 @@ function VirtualNoteList({
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
+  const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
+    loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
+  );
+  const [desktopFolderNavigationSurface, setDesktopFolderNavigationSurface] = useState(() =>
+    typeof window === "undefined" ? true : window.matchMedia("(min-width: 768px)").matches,
+  );
+  const [folderScopeMode, setFolderScopeMode] = useState<ThreeColumnFolderScopeMode>(
+    loadThreeColumnFolderScopeMode,
+  );
+  const [folderTreeNodes, setFolderTreeNodes] = useState<KnowledgeTreeNode[]>([]);
+  const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(
+    loadUnlockedFolderIds,
+  );
+
+  useEffect(() => {
+    const onLayoutChanged = (event: Event) => {
+      const mode = (event as CustomEvent<NoteWorkspaceLayoutMode>).detail;
+      if (mode === "standard" || mode === "three-column") setLayoutMode(mode);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === NOTE_WORKSPACE_LAYOUT_STORAGE_KEY) {
+        setLayoutMode(loadNoteWorkspaceLayoutMode(state.noteListCollapsed));
+      }
+    };
+    window.addEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, onLayoutChanged);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, onLayoutChanged);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [state.noteListCollapsed]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setDesktopFolderNavigationSurface(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const directNotebookScope = usesThreeColumnFolderNavigation({
+    mode: layoutMode,
+    noteListCollapsed: state.noteListCollapsed,
+    desktopSurface: desktopFolderNavigationSurface,
+  });
+  const showThreeColumnFolderContents = directNotebookScope
+    && state.viewMode === "notebook"
+    && !!state.selectedNotebookId;
+  const currentFolderOnly = showThreeColumnFolderContents && folderScopeMode === "current";
+
+  useEffect(() => {
+    const syncUnlockedFolders = () => setUnlockedFolderIds(loadUnlockedFolderIds());
+    window.addEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
+  }, []);
+
+  useEffect(() => {
+    if (!showThreeColumnFolderContents) {
+      setFolderTreeNodes([]);
+      return;
+    }
+
+    let active = true;
+    const reload = async () => {
+      try {
+        const [ownedResult, sharedResult] = await Promise.allSettled([
+          knowledgeTreeApi.list(),
+          knowledgeTreeApi.listShared(),
+        ]);
+        if (ownedResult.status === "rejected") throw ownedResult.reason;
+        const sharedNodes = sharedResult.status === "fulfilled" ? sharedResult.value.nodes : [];
+        const merged = Array.from(new Map(
+          [...ownedResult.value.nodes, ...sharedNodes].map((node) => [node.id, node]),
+        ).values());
+        if (active) setFolderTreeNodes(merged);
+      } catch (error) {
+        console.warn("[NoteList] load three-column folder contents failed", error);
+        if (active) setFolderTreeNodes([]);
+      }
+    };
+
+    const refresh = () => void reload();
+    void reload();
+    window.addEventListener("nowen:workspace-changed", refresh);
+    window.addEventListener("nowen:knowledge-tree-changed", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("nowen:workspace-changed", refresh);
+      window.removeEventListener("nowen:knowledge-tree-changed", refresh);
+    };
+  }, [showThreeColumnFolderContents, state.notesRefreshToken]);
+
+  const visibleFolderTreeNodes = useMemo(
+    () => hideLockedFolderDescendants(folderTreeNodes, unlockedFolderIds),
+    [folderTreeNodes, unlockedFolderIds],
+  );
+  const threeColumnFolderContents = useMemo(
+    () => buildThreeColumnFolderContents(visibleFolderTreeNodes, state.selectedNotebookId),
+    [state.selectedNotebookId, visibleFolderTreeNodes],
+  );
+  const visibleChildFolders = showThreeColumnFolderContents
+    ? threeColumnFolderContents.childFolders
+    : [];
+  const hasVisibleChildFolders = visibleChildFolders.length > 0;
+
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
   // moveModal 新增 sourceWorkspaceId：源笔记所在工作区（null = 个人空间）。
@@ -1413,6 +1538,7 @@ export default function NoteList() {
     dateFilter,
     sortBy: sortPref.by,
     sortDir: sortPref.dir,
+    folderScope: currentFolderOnly ? "current" : "recursive",
   }), [
     state.viewMode,
     state.selectedNotebookId,
@@ -1421,6 +1547,7 @@ export default function NoteList() {
     dateFilter,
     sortPref.by,
     sortPref.dir,
+    currentFolderOnly,
   ]);
 
   const fetchNotes = useCallback(async () => {
@@ -1439,7 +1566,11 @@ export default function NoteList() {
         sortOrder: sortPref.dir,
       };
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        const params: Record<string, string> = { notebookId: state.selectedNotebookId, ...sortParams };
+        const params: Record<string, string> = {
+        notebookId: state.selectedNotebookId,
+        ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
+        ...sortParams,
+      };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "favorites") {
@@ -1505,7 +1636,7 @@ export default function NoteList() {
         actions.setLoading(false);
       }
     }
-  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, t]);
+  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, currentFolderOnly, t]);
 
   useEffect(() => {
     void fetchNotes();
@@ -1548,7 +1679,11 @@ export default function NoteList() {
     const sortParams: Record<string, string> = { sortBy: sortPref.by, sortOrder: sortPref.dir };
     const fetcher = async (): Promise<NoteListItem[]> => {
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
-        return api.getNotes({ notebookId: state.selectedNotebookId, ...sortParams });
+        return api.getNotes({
+        notebookId: state.selectedNotebookId,
+        ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
+        ...sortParams,
+      });
       }
       if (state.viewMode === "favorites") {
         return api.getNotes({ isFavorite: "1", ...sortParams });
@@ -1575,6 +1710,7 @@ export default function NoteList() {
     sortPref.by,
     sortPref.dir,
     state.notesRefreshToken,
+    currentFolderOnly,
   ]);
 
   // 按本地日期聚合每日笔记数：YYYY-MM-DD → count。
@@ -1624,6 +1760,18 @@ export default function NoteList() {
       return cmp * dir || a.id.localeCompare(b.id);
     });
   }, [state.notes, sortPref.by, sortPref.dir, state.viewMode]);
+
+  const displayedDirectNoteCount = currentFolderOnly
+    ? sortedNotes.length
+    : threeColumnFolderContents.directNoteCount;
+  const displayedTotalNoteCount = currentFolderOnly
+    ? Math.max(
+        sortedNotes.length,
+        threeColumnFolderContents.totalNoteCount
+          - threeColumnFolderContents.directNoteCount
+          + sortedNotes.length,
+      )
+    : sortedNotes.length;
 
   const showNotebookLabel = state.viewMode === "all";
   const notebookLabels = useMemo(() => {
@@ -3246,10 +3394,105 @@ export default function NoteList() {
         </div>
       )}
 
-      {/* Count */}
-      <div className="px-4 py-1.5">
-        <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
-      </div>
+      {/* 三栏布局：明确区分当前层级和递归范围，避免左侧总数与中栏结果产生“文件丢失”错觉。 */}
+      {showThreeColumnFolderContents ? (
+        <div className="flex min-w-0 items-center justify-between gap-2 border-b border-app-border/50 px-3 py-1.5">
+          <span className="min-w-0 truncate text-[10px] text-tx-tertiary">
+            {currentFolderOnly
+              ? t("noteList.currentFolderCount", {
+                  direct: displayedDirectNoteCount,
+                  total: displayedTotalNoteCount,
+                  folders: visibleChildFolders.length,
+                  defaultValue: "本层 {{direct}} 篇 · 共 {{total}} 篇 · {{folders}} 个子文件夹",
+                })
+              : t("noteList.recursiveFolderCount", {
+                  total: displayedTotalNoteCount,
+                  folders: visibleChildFolders.length,
+                  defaultValue: "共 {{total}} 篇 · {{folders}} 个直属子文件夹",
+                })}
+          </span>
+          <div
+            className="flex shrink-0 items-center rounded-md bg-app-hover p-0.5"
+            role="group"
+            aria-label={t("noteList.folderScope", { defaultValue: "文件夹展示范围" })}
+          >
+            {(["current", "recursive"] as const).map((mode) => {
+              const active = folderScopeMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    const nextMode: ThreeColumnFolderScopeMode = mode;
+                    setFolderScopeMode(nextMode);
+                    saveThreeColumnFolderScopeMode(nextMode);
+                  }}
+                  className={cn(
+                    "rounded px-2 py-1 text-[10px] font-medium transition-colors",
+                    active
+                      ? "bg-app-elevated text-tx-primary shadow-sm"
+                      : "text-tx-tertiary hover:text-tx-secondary",
+                  )}
+                >
+                  {mode === "current"
+                    ? t("noteList.currentLevel", { defaultValue: "当前层级" })
+                    : t("noteList.includeSubfolders", { defaultValue: "包含子文件夹" })}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 py-1.5">
+          <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
+        </div>
+      )}
+
+      {showThreeColumnFolderContents && hasVisibleChildFolders && (
+        <section
+          data-three-column-child-folders
+          className="border-b border-app-border/50 px-2 py-2"
+          aria-label={t("noteList.childFolders", { defaultValue: "子文件夹" })}
+        >
+          <div className="mb-1.5 flex items-center justify-between px-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-tx-tertiary">
+              {t("noteList.childFolders", { defaultValue: "子文件夹" })}
+            </span>
+            <span className="text-[10px] text-tx-tertiary">{visibleChildFolders.length}</span>
+          </div>
+          <div className="max-h-40 space-y-1 overflow-y-auto pr-0.5">
+            {visibleChildFolders.map((folder) => (
+              <button
+                key={folder.node.id}
+                type="button"
+                onClick={() => requestKnowledgeTreeFolderOpen(folder.node)}
+                className="group flex w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-app-border hover:bg-app-hover"
+                title={folder.node.title}
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-500">
+                  {folder.node.icon
+                    ? <span className="text-sm leading-none">{folder.node.icon}</span>
+                    : <Folder size={15} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1">
+                    <span className="truncate text-xs font-medium text-tx-primary">{folder.node.title}</span>
+                    {!!folder.node.isPasswordProtected && <Lock size={11} className="shrink-0 text-tx-tertiary" />}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] text-tx-tertiary">
+                    {t("noteList.folderNoteCount", {
+                      count: folder.totalNoteCount,
+                      defaultValue: "{{count}} 篇笔记",
+                    })}
+                  </span>
+                </span>
+                <ChevronRight size={14} className="shrink-0 text-tx-tertiary transition-transform group-hover:translate-x-0.5" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 多选操作栏 */}
       {selectedIds.size > 0 && (
@@ -3543,7 +3786,17 @@ export default function NoteList() {
               </div>
             </div>
           )}
-          {state.notes.length === 0 && !state.isLoading && !notesLoadError && (
+          {state.notes.length === 0 && !state.isLoading && !notesLoadError && hasVisibleChildFolders && (
+            <div className="flex flex-col items-center justify-center px-6 py-8 text-center">
+              <Folder size={22} className="mb-2 text-amber-500/60" />
+              <p className="text-xs font-medium text-tx-secondary">
+                {currentFolderOnly
+                  ? t("noteList.noDirectNotes", { defaultValue: "当前层级暂无文档，可进入上方子文件夹" })
+                  : t("noteList.noRecursiveNotes", { defaultValue: "当前目录及子文件夹暂无文档" })}
+              </p>
+            </div>
+          )}
+          {state.notes.length === 0 && !state.isLoading && !notesLoadError && !hasVisibleChildFolders && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className={cn(
                 "w-16 h-16 rounded-2xl flex items-center justify-center mb-4",

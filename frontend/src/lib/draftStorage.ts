@@ -168,6 +168,7 @@ export function loadDraft(noteId: string): NoteDraft | null {
 /**
  * Clear a draft after save success without allowing an older response to delete newer local text.
  *
+ * - Conflicted draft: explicit conflict resolution is the only allowed cleanup path.
  * - No ACK marker: preserve historical/manual cleanup behavior and delete immediately.
  * - ACK body differs from current draft: refuse cleanup; the draft is newer than the response.
  * - ACK body matches: delay deletion and re-check savedAt/body after the editor debounce window.
@@ -178,6 +179,8 @@ export function clearDraft(noteId: string): boolean {
     removeDraftNow(noteId);
     return true;
   }
+
+  if (draft.conflicted) return false;
 
   const acknowledgement = acknowledgements.get(noteId);
   if (!acknowledgement) {

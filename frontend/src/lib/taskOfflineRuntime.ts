@@ -327,8 +327,43 @@ function compact(queue: Op[], operation: Op): Op[] {
   return [...queue, operation];
 }
 
+const NATIVE_METHODS = [
+  "getTasks", "getTaskStats", "createTask", "updateTask", "toggleTask", "deleteTask",
+  "getHabits", "getHabitStats", "getHabitCheckinLog", "createHabit", "updateHabit",
+  "archiveHabit", "deleteHabit", "checkInHabit",
+] as const;
+
 export function installTaskOfflineApi(api: any, options: Options) {
   if (api[FLAG]) return api[FLAG] as { flush: () => Promise<void>; pending: () => number };
+
+  // 该函数在 api.ts 模块顶层执行，导入 api 的任意模块都会触发它。
+  const missing = NATIVE_METHODS.filter((name) => typeof api?.[name] !== "function");
+  if (missing.length > 0) {
+    // PERF-TASKOFFLINE-01：此前这里对生产环境也静默降级为no-op，理由是"根因
+    // 只在测试 mock 里出现，生产 api.impl 不会残缺"。但这个降级本身与那个判断
+    // 矛盾——既然认定生产环境不会触发，就不该为它保留一条生产可达的兜底路径；
+    // 一旦未来因为循环依赖/懒加载/导出变更真的触发，会表现为"离线任务静默失效、
+    // flush 不执行、pending 恒为 0、用户无感知"，比直接抛错更难定位。
+    // 现在收紧为：只有测试环境（Vitest设置 import.meta.env.MODE === "test"）
+    // 才允许 no-op 降级；生产环境视为契约错误，直接抛错让问题在构建/启动阶段
+    // 暴露，而不是静默吞掉。测试侧应改为在 mock 里补全 NATIVE_METHODS（见
+    // frontend/src/lib/__tests__/taskOfflineApiTestMock.ts 的 createApiMock()），
+    // 而不是依赖这条降级路径。
+    const isTestEnv = typeof import.meta !== "undefined" && import.meta.env?.MODE === "test";
+    if (!isTestEnv) {
+      throw new Error(
+        `[task-offline] installTaskOfflineApi: api 缺少方法 ${missing.join(", ")}，`
+        + "无法安装离线任务队列。这是生产环境的 API 契约错误，请检查 api.impl 的导出。",
+      );
+    }
+    if (typeof console !== "undefined") {
+      console.warn(`[task-offline] 测试环境 mock 缺少 ${missing.join(", ")}，跳过离线任务安装`);
+    }
+    const noop = { flush: async () => {}, pending: () => 0 };
+    if (api) api[FLAG] = noop;
+    return noop;
+  }
+
   const native: NativeApi = {
     getTasks: api.getTasks.bind(api), getTaskStats: api.getTaskStats.bind(api),
     createTask: api.createTask.bind(api), updateTask: api.updateTask.bind(api),

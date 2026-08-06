@@ -27,7 +27,7 @@ test("Docker production entrypoint loads automatic full-backup hardening", () =>
   );
   assert.match(
     hardenedEntry,
-    /import\s+["']\.\/runtime\/auto-full-backup(?:\.js)?["'];/,
-    "hardened 入口必须加载自动全量备份补丁",
+    /(?:import\s+["']\.\/runtime\/auto-full-backup(?:\.js)?["'];|await\s+import\(["']\.\/runtime\/auto-full-backup(?:\.js)?["']\))/, 
+    "hardened 入口必须在 SQLite 启动路径加载自动全量备份补丁",
   );
 });

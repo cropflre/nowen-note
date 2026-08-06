@@ -408,10 +408,10 @@ test("Rich Text import safely preserves advanced Siyuan nodes without unknown sc
   assert.equal(result.stats.unsupportedNodes.NodeAudio, 1);
   assert.equal(result.stats.unsupportedNodes.NodeIFrame, 2);
   assert.equal(result.stats.unsupportedNodes.NodeWidget, 1);
-  assert.equal(result.stats.unsupportedNodes.NodeCallout, 1);
+  assert.equal(result.stats.unsupportedNodes.NodeCallout || 0, 0);
   assert.ok(result.warnings.some((item) => item.includes("audio") && item.includes("link")));
   assert.ok(result.warnings.some((item) => item.includes("iframe") && item.includes("downgraded")));
-  assert.ok(result.warnings.some((item) => item.includes("callout") && item.includes("blockquote")));
+  assert.ok(!result.warnings.some((item: string) => item.includes("callout") && item.includes("blockquote")));
   assert.ok(result.warnings.some((item) => item.includes("widget") && item.includes("link")));
 
   const note = getNoteByTitle("高级节点保真");
@@ -499,10 +499,11 @@ test("Markdown import keeps advanced Siyuan nodes on the markdown path", async (
   const note = getNoteByTitle("高级节点 Markdown");
   assert.ok(note);
   assert.equal(note.contentFormat, "markdown");
-  assert.match(note.content, /^# 一级标题$/m);
-  assert.match(note.content, /^#### 四级标题$/m);
-  assert.match(note.content, /^##### 五级标题$/m);
-  assert.match(note.content, /^###### 六级标题$/m);
+  const blockIdSuffix = String.raw`(?: \^blk_[A-Za-z0-9-]+)?`;
+  assert.match(note.content, new RegExp(`^# 一级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^#### 四级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^##### 五级标题${blockIdSuffix}$`, "m"));
+  assert.match(note.content, new RegExp(`^###### 六级标题${blockIdSuffix}$`, "m"));
   assert.match(note.content, /\$x\+y\$/);
   assert.match(note.content, /\$\$\s*E=mc\^2\s*\$\$/s);
   assert.match(note.content, /> \[!NOTE] 备注/);

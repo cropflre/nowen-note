@@ -264,7 +264,7 @@ test("rejects reuse of one user-level operation ID on another note", async () =>
   assert.equal(versionRows(secondNoteId).length, 0);
 });
 
-test("rejects the legacy Tiptap operation shape for Markdown notes", async () => {
+test("rejects legacy Tiptap-style operations for Markdown notes", async () => {
   const noteId = "44444444-4444-4444-8444-444444444444";
   insertNote({
     id: noteId,

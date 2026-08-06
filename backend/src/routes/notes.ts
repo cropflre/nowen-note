@@ -44,6 +44,7 @@ import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favori
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
+import { resolveNotebookNoteScopeIds } from "../lib/notebookNoteScope";
 
 const app = new Hono();
 
@@ -89,6 +90,8 @@ app.get("/", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const workspaceId = c.req.query("workspaceId");
   const notebookId = c.req.query("notebookId");
+  // 三栏式目录默认传 0：只显示当前文件夹直属笔记；未传时保持历史递归行为。
+  const includeDescendants = c.req.query("includeDescendants") !== "0";
   const isFavorite = c.req.query("isFavorite");
   const isTrashed = c.req.query("isTrashed");
   const search = c.req.query("search");
@@ -186,18 +189,7 @@ app.get("/", (c) => {
     query += ` AND notes.id IN (${placeholders})`;
     params.push(...filteredNoteIds);
   } else if (notebookId) {
-    // 递归收集 notebookId 自身 + 全部后代笔记本，使笔记列表能展示子笔记本下的笔记
-    // 用 SQLite 的递归 CTE：从给定 id 出发沿 parentId 反向向下展开
-    const descendantRows = db.prepare(`
-      WITH RECURSIVE descendants(id) AS (
-        SELECT id FROM notebooks WHERE id = ?
-        UNION ALL
-        SELECT n.id FROM notebooks n
-        INNER JOIN descendants d ON n.parentId = d.id
-      )
-      SELECT id FROM descendants
-    `).all(notebookId) as { id: string }[];
-    const ids = descendantRows.map((r) => r.id);
+    const ids = resolveNotebookNoteScopeIds(db, notebookId, includeDescendants);
     if (ids.length === 0) {
       // 给的 notebookId 不存在 → 直接返回空，避免 IN () 语法错误
       return c.json([]);

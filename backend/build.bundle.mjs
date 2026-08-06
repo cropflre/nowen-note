@@ -15,12 +15,13 @@
  *                               external 后由运行时 node_modules 直接解析
  *
  * 其他业务依赖（hono, ws, jsonwebtoken, mammoth, jszip, yjs, zod 等）全部 inline 进 bundle。
+ * PostgreSQL schema 与版本化 migrations 作为运行时资源复制到 dist/postgres。
  */
 
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { rmSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outdir = join(__dirname, "dist");
@@ -70,9 +71,22 @@ await build({
   },
 });
 
+const postgresSourceDir = join(__dirname, "src", "db", "postgres");
+const postgresOutputDir = join(outdir, "postgres");
+const migrationsSourceDir = join(postgresSourceDir, "migrations");
+const migrationsOutputDir = join(postgresOutputDir, "migrations");
+mkdirSync(migrationsOutputDir, { recursive: true });
+copyFileSync(join(postgresSourceDir, "schema.sql"), join(postgresOutputDir, "schema.sql"));
+copyFileSync(join(postgresSourceDir, "schema.base.sql"), join(postgresOutputDir, "schema.base.sql"));
+for (const file of readdirSync(migrationsSourceDir)) {
+  if (!file.endsWith(".sql")) continue;
+  copyFileSync(join(migrationsSourceDir, file), join(migrationsOutputDir, file));
+}
+
 const ms = Date.now() - start;
 const bundleBytes = statSync(outfile).size;
 console.log(
-  `[backend bundle] done in ${ms}ms -> ${outfile} (${(bundleBytes / 1024 / 1024).toFixed(2)} MB)`
+  `[backend bundle] done in ${ms}ms -> ${outfile} (${(bundleBytes / 1024 / 1024).toFixed(2)} MB)`,
 );
 console.log(`[backend bundle] external: ${external.join(", ")}`);
+console.log(`[backend bundle] PostgreSQL resources -> ${postgresOutputDir}`);

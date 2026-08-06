@@ -6,8 +6,8 @@
  *
  * 设计原则：
  * - QueryService 不处理 HTTP / 鉴权 / 文件删除
- * - QueryService 使用 getDb() 获取数据库实例
- * - 未来 PostgreSQL 接入时，只需为 QueryService 提供 pg 实现
+ * - QueryService 不直接访问数据库驱动，统一委托 Repository 边界
+ * - PostgreSQL 同步/异步双库实现由 #249 统一推进
  */
 
 export { attachmentQueryService } from "./attachmentQueryService";

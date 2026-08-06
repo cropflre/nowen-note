@@ -69,6 +69,13 @@ function seedPersonalNotebookTree() {
     .run("22222222-2222-2222-2222-222222222222", USER, "nb-child", "Child Note", "see [[note:11111111-1111-1111-1111-111111111111|Root]]", "", "markdown", 0, 0, 0, 0, 3, 5);
 }
 
+function reducePersonalTreeToRoot() {
+  getDb().exec(`
+    DELETE FROM notes WHERE notebookId IN ('nb-root', 'nb-child');
+    DELETE FROM notebooks WHERE id = 'nb-child';
+  `);
+}
+
 function copy(input: Partial<Parameters<typeof copyPersonalNotebookToWorkspace>[0]> = {}) {
   return copyPersonalNotebookToWorkspace({
     actorUserId: USER,
@@ -115,12 +122,14 @@ test("mode move is rejected", () => {
 test("source must be personal and owned by actor", () => {
   seedUsersAndWorkspaces();
   seedPersonalNotebookTree();
+  reducePersonalTreeToRoot();
   getDb().prepare("UPDATE notebooks SET workspaceId = ? WHERE id = ?").run(WS, "nb-root");
   assert.throws(() => copy(), /source notebook must be in personal workspace/);
 
   resetDb();
   seedUsersAndWorkspaces();
   seedPersonalNotebookTree();
+  reducePersonalTreeToRoot();
   getDb().prepare("UPDATE notebooks SET userId = ? WHERE id = ?").run(OTHER, "nb-root");
   assert.throws(
     () => copy(),
@@ -216,25 +225,26 @@ test("attachments are copied and content urls are rewritten", () => {
   assert.equal(fs.existsSync(path.join(getAttachmentsDir(), newAttachment.path)), true);
 
   const newNote = getDb().prepare("SELECT * FROM notes WHERE id = ?").get(newAttachment.noteId) as any;
-  assert.match(newNote.content, new RegExp(`/api/attachments/${newAttachment.id}\\?inline=1`));
-  assert.match(newNote.contentText, new RegExp(`/api/attachments/${newAttachment.id}\\?download=1`));
+  assert.equal(newNote.content, `/api/attachments/${newAttachment.id}?inline=1`);
+  assert.equal(newNote.contentText, `/api/attachments/${newAttachment.id}?download=1`);
 
   const ref = getDb().prepare("SELECT * FROM attachment_references WHERE attachmentId = ? AND noteId = ?")
     .get(newAttachment.id, newAttachment.noteId);
   assert.ok(ref);
 });
 
-test("tags are mapped with existing global tag uniqueness", () => {
+test("tags are copied into the target workspace scope", () => {
   seedUsersAndWorkspaces("editor");
   seedPersonalNotebookTree();
   getDb().prepare("INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, NULL, ?, ?)").run("tag-old", USER, "Important", "#f00");
   getDb().prepare("INSERT INTO note_tags (noteId, tagId) VALUES (?, ?)").run("11111111-1111-1111-1111-111111111111", "tag-old");
 
   const result = copy();
-  assert.equal(result.tagCount, 0);
-  assert.deepEqual(result.warnings, ["tag_reused_due_unique_constraint:Important"]);
-  const tag = getDb().prepare("SELECT * FROM tags WHERE workspaceId IS NULL AND name = ?").get("Important") as any;
+  assert.equal(result.tagCount, 1);
+  assert.deepEqual(result.warnings, []);
+  const tag = getDb().prepare("SELECT * FROM tags WHERE workspaceId = ? AND name = ?").get(WS, "Important") as any;
   assert.ok(tag);
+  assert.equal(tag.workspaceId, WS);
   const binding = getDb()
     .prepare(`SELECT nt.* FROM note_tags nt JOIN notes n ON n.id = nt.noteId WHERE n.workspaceId = ? AND nt.tagId = ?`)
     .get(WS, tag.id);

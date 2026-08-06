@@ -147,9 +147,9 @@ test("replaceLinksForSourceAsync does not affect other userId", async () => {
   await noteLinksRepository.replaceLinksForSourceAsync(USER_ID, NOTE_1, [
     { targetNoteId: NOTE_3, targetBlockId: null, linkType: "note", linkText: "mine", excerpt: null },
   ]);
-  // Other user's link should still exist
+  // Links are owned by the source note, so replacement removes legacy rows regardless of saver.
   const otherLinks = getDb().prepare("SELECT * FROM note_links WHERE userId = ? AND sourceNoteId = ?").all(otherUser, NOTE_1) as any[];
-  assert.equal(otherLinks.length, 1);
+  assert.equal(otherLinks.length, 0);
   clean();
 });
 
@@ -285,7 +285,8 @@ test("getBacklinksAsync does not return links for other userId", async () => {
   getDb().prepare("INSERT INTO note_links (id, userId, sourceNoteId, targetNoteId, linkText, linkType) VALUES (?, ?, ?, ?, ?, ?)").run("link-other", otherUser, NOTE_2, NOTE_1, "other", "note");
 
   const backlinks = await noteLinksRepository.getBacklinksAsync(USER_ID, NOTE_1);
-  assert.equal(backlinks.length, 0);
+  assert.equal(backlinks.length, 1);
+  assert.equal(backlinks[0].sourceNoteId, NOTE_2);
   clean();
 });
 

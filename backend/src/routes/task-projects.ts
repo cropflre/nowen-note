@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import crypto from "crypto";
 import {
   getUserWorkspaceRole,
@@ -19,12 +18,12 @@ function resolveScope(c: any, userId: string) {
 }
 
 // List projects
-taskProjects.get("/", (c) => {
+taskProjects.get("/", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const scope = resolveScope(c, userId);
   if (scope.error) return c.json({ error: scope.error }, 403);
 
-  const rows = taskProjectsRepository.listByUser(userId, scope.workspaceId);
+  const rows = await taskProjectsRepository.listByUserAsync(userId, scope.workspaceId);
   return c.json(rows);
 });
 
@@ -33,7 +32,6 @@ const ROLE_RANK: Record<string, number> = { viewer: 1, commenter: 2, editor: 3, 
 
 // Create project
 taskProjects.post("/", async (c) => {
-  const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json();
   const scope = resolveScope(c, userId);
@@ -53,8 +51,16 @@ taskProjects.post("/", async (c) => {
   const color = body.color || "#6366f1";
   const sortOrder = body.sortOrder ?? 0;
 
-  taskProjectsRepository.create({ id, userId, workspaceId: scope.workspaceId, name, icon, color, sortOrder });
-  const project = taskProjectsRepository.getByIdWithStats(id);
+  await taskProjectsRepository.createAsync({
+    id,
+    userId,
+    workspaceId: scope.workspaceId,
+    name,
+    icon,
+    color,
+    sortOrder,
+  });
+  const project = await taskProjectsRepository.getByIdWithStatsAsync(id);
   return c.json(project, 201);
 });
 
@@ -63,7 +69,7 @@ taskProjects.put("/:id", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
 
-  const existing = taskProjectsRepository.getById(id);
+  const existing = await taskProjectsRepository.getByIdAsync(id);
   if (!existing) return c.json({ error: "Project not found" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
@@ -75,23 +81,23 @@ taskProjects.put("/:id", async (c) => {
   const color = body.color ?? existing.color;
   const sortOrder = body.sortOrder ?? existing.sortOrder;
 
-  taskProjectsRepository.update(id, { name, icon, color, sortOrder });
-  const updated = taskProjectsRepository.getByIdWithStats(id);
+  await taskProjectsRepository.updateAsync(id, { name, icon, color, sortOrder });
+  const updated = await taskProjectsRepository.getByIdWithStatsAsync(id);
   return c.json(updated);
 });
 
 // Delete project (tasks are NOT deleted, just unlinked)
-taskProjects.delete("/:id", (c) => {
+taskProjects.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
 
-  const existing = taskProjectsRepository.getById(id);
+  const existing = await taskProjectsRepository.getByIdAsync(id);
   if (!existing) return c.json({ error: "Project not found" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
   }
 
-  taskProjectsRepository.delete(id);
+  await taskProjectsRepository.deleteAsync(id);
   return c.json({ success: true });
 });
 
@@ -109,14 +115,14 @@ taskProjects.put("/reorder/batch", async (c) => {
 
   // Fix 3: validate permissions for every project
   for (const item of safeItems) {
-    const project = taskProjectsRepository.getById(item.id);
+    const project = await taskProjectsRepository.getByIdAsync(item.id);
     if (!project) return c.json({ error: `Project ${item.id} not found`, code: "NOT_FOUND" }, 404);
     if (!canManageResource(project.userId, project.workspaceId, userId)) {
       return c.json({ error: "No permission to reorder project " + item.id, code: "FORBIDDEN" }, 403);
     }
   }
 
-  taskProjectsRepository.updateSortOrder(safeItems);
+  await taskProjectsRepository.updateSortOrderAsync(safeItems);
   return c.json({ success: true });
 });
 

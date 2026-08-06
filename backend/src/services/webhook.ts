@@ -16,7 +16,7 @@
  *  - 投递日志记录
  */
 
-import { getDb } from "../db/schema.js";
+import { webhookRepository } from "../repositories/webhookRepository";
 import crypto from "crypto";
 
 // ===== 类型定义 =====
@@ -56,39 +56,7 @@ export interface WebhookDelivery {
 // ===== 数据库迁移 =====
 
 export function initWebhookTables(): void {
-  const db = getDb();
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS webhooks (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL,
-      url TEXT NOT NULL,
-      secret TEXT NOT NULL DEFAULT '',
-      events TEXT NOT NULL DEFAULT '["*"]',
-      isActive INTEGER DEFAULT 1,
-      description TEXT DEFAULT '',
-      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS webhook_deliveries (
-      id TEXT PRIMARY KEY,
-      webhookId TEXT NOT NULL,
-      event TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      responseStatus INTEGER,
-      responseBody TEXT DEFAULT '',
-      success INTEGER DEFAULT 0,
-      attempts INTEGER DEFAULT 0,
-      deliveredAt TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (webhookId) REFERENCES webhooks(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(userId);
-    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhookId);
-    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_time ON webhook_deliveries(deliveredAt DESC);
-  `);
+  webhookRepository.initTables();
 }
 
 // ===== HMAC 签名 =====
@@ -113,10 +81,7 @@ class WebhookDispatcher {
   /** 触发事件 — 异步推送所有匹配的 Webhook */
   async emit(event: WebhookEvent, userId: string, data: Record<string, any>): Promise<void> {
     try {
-      const db = getDb();
-      const webhooks = db.prepare(
-        "SELECT * FROM webhooks WHERE userId = ? AND isActive = 1"
-      ).all(userId) as WebhookConfig[];
+      const webhooks = webhookRepository.listActiveByUser<WebhookConfig>(userId);
 
       for (const webhook of webhooks) {
         const events: string[] = JSON.parse(webhook.events as any);
@@ -139,7 +104,6 @@ class WebhookDispatcher {
     data: Record<string, any>,
     maxRetries: number = 3,
   ): Promise<void> {
-    const db = getDb();
     const deliveryId = crypto.randomUUID();
 
     const payload = JSON.stringify({
@@ -192,19 +156,16 @@ class WebhookDispatcher {
 
     // 记录投递日志
     try {
-      db.prepare(`
-        INSERT INTO webhook_deliveries (id, webhookId, event, payload, responseStatus, responseBody, success, attempts)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        deliveryId,
-        webhook.id,
+      webhookRepository.recordDelivery({
+        id: deliveryId,
+        webhookId: webhook.id,
         event,
         payload,
-        lastStatus,
-        (lastBody || "").slice(0, 2000), // 限制日志大小
-        success ? 1 : 0,
-        maxRetries,
-      );
+        responseStatus: lastStatus,
+        responseBody: (lastBody || "").slice(0, 2000),
+        success: success ? 1 : 0,
+        attempts: maxRetries,
+      });
     } catch { /* 日志写入失败不影响主流程 */ }
   }
 }

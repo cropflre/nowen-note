@@ -7,35 +7,21 @@ import "./lib/workspaceRefreshBridge";
 import "./i18n";
 // Must run before App and its import/export/editor schemas are evaluated.
 import "./lib/imageNodeTransformBootstrap";
-import App from "./App";
-import PublicNotebookView from "./components/PublicNotebookView";
-import PublicSpaceLauncher from "./components/PublicSpaceLauncher";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
-import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge";
-import EmbeddingIndexTaskCopyBridge from "./components/EmbeddingIndexTaskCopyBridge";
-import MarkdownExperienceBridge from "./components/MarkdownExperienceBridge";
-import MindMapAppearanceBridge from "./components/MindMapAppearanceBridge";
+import SidebarSearchExperienceBridge from "./components/SidebarSearchExperienceBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import ImageExperienceBridge from "./components/ImageExperienceBridge";
+import MobileImageViewerBridge from "./components/MobileImageViewerBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
 import DesktopUpdateCenter from "./components/DesktopUpdateCenter";
 import DockerUpdateCenter from "./components/DockerUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
-import TaskDataTransferBridgeV2 from "./components/TaskDataTransferBridgeV2";
-import SystemFullDataTransferBridge from "./components/SystemFullDataTransferBridge";
-import BackupWebDavBridge from "./components/BackupWebDavBridge";
 import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
-import NoteImageExportCenter from "./components/NoteImageExportCenter";
-import DocxImportCenter from "./components/DocxImportCenter";
-import NoteTransferCenter from "./components/NoteTransferCenter";
-import RoundTripImportBatchCenter from "./components/RoundTripImportBatchCenter";
-import RoundTripPermissionMappingCenter from "./components/RoundTripPermissionMappingCenter";
-import RoundTripPermissionExportCenter from "./components/RoundTripPermissionExportCenter";
-import SiyuanImportProgressBridge from "./components/SiyuanImportProgressBridge";
+import DeferredGlobalFeatureCentersMount from "./components/DeferredGlobalFeatureCentersMount";
 import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
 import InlineCommentBridge from "./components/InlineCommentBridge";
 import "./index.css";
@@ -49,6 +35,7 @@ import "./mobile-knowledge-tree-compact.css";
 import "./siyuan-rich-text-callout.css";
 import "./knowledge-tree-markdown-drop.css";
 import "./inline-comments.css";
+import "./loading-experience.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
@@ -72,34 +59,39 @@ import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
+import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
 import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 import { installUgreenCredentialedFetch } from "./lib/ugreenRemoteAccess";
+import { observeBootSplashReadiness } from "./lib/bootSplash";
+
+const App = React.lazy(() => import("./App"));
+const PublicNotebookView = React.lazy(() => import("./components/PublicNotebookView"));
 
 void cleanupRemovedServerProfiles();
 installUgreenCredentialedFetch();
 
-function removeBootSplash() {
-  try {
-    window.clearTimeout((window as any).__NOWEN_BOOT_TIMER__);
-    const el = document.getElementById("app-boot-splash");
-    if (!el) return;
-    el.classList.add("app-boot-splash--leaving");
-    window.setTimeout(() => el.remove(), 220);
-  } catch {
-    /* ignore */
-  }
+/**
+ * The HTML startup card stays above React while lazy modules, auth restoration and quick
+ * login probing are running. Once a real route or interactive surface mounts, this observer
+ * dismisses it with the minimum-visible-time guard from bootSplash.ts.
+ */
+function BootSplashReadinessObserver() {
+  React.useEffect(() => observeBootSplashReadiness(document.getElementById("root")), []);
+  return null;
 }
 
-function BootSplashRemover() {
-  React.useEffect(() => {
-    removeBootSplash();
-  }, []);
+/**
+ * Suspense must stay visually silent during cold start. The HTML startup card already owns
+ * that feedback; rendering another centered spinner here caused the second loading screen.
+ */
+function MainRouteFallback() {
   return null;
 }
 
 installKnowledgeTreeScrollbarBridge();
+installWorkspaceRealtimeSubscription();
 installKnowledgeTreeMarkdownDrop();
 installNodeViewMutationGuard();
 installEditorMediaScopeGuard();
@@ -155,41 +147,33 @@ const publicRoute = resolvePublicNotebookRoute();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SiteSettingsProvider>
-      <BootSplashRemover />
+      <BootSplashReadinessObserver />
       {publicRoute.matched ? (
         <ThemeProvider>
-          <PublicNotebookView token={publicRoute.token} />
+          <React.Suspense fallback={<MainRouteFallback />}>
+            <PublicNotebookView token={publicRoute.token} />
+          </React.Suspense>
           <Toaster />
         </ThemeProvider>
       ) : (
         <>
           <NoteIconBridge />
-          <AIProfileSwitcherBridge />
-          <EmbeddingIndexTaskCopyBridge />
-          <MarkdownExperienceBridge />
-          <MindMapAppearanceBridge />
+          <SidebarSearchExperienceBridge />
           <EmbedPasswordBridge />
           <ImageExperienceBridge />
+          <MobileImageViewerBridge />
           <MediaExperienceBridge />
           <EditorImageTransformBridge />
           <DesktopUpdateCenter />
           <DockerUpdateCenter />
           <TwoFactorLoginChallengeCenter />
-          <TaskDataTransferBridgeV2 />
-          <SystemFullDataTransferBridge />
-          <BackupWebDavBridge />
           <AndroidShareImportCenter />
-          <NoteImageExportCenter />
-          <DocxImportCenter />
-          <PublicSpaceLauncher />
-          <NoteTransferCenter />
-          <RoundTripImportBatchCenter />
-          <RoundTripPermissionMappingCenter />
-          <RoundTripPermissionExportCenter />
-          <SiyuanImportProgressBridge />
+          <DeferredGlobalFeatureCentersMount />
           <SiyuanRichTextCalloutBridge />
           <InlineCommentBridge />
-          <App />
+          <React.Suspense fallback={<MainRouteFallback />}>
+            <App />
+          </React.Suspense>
         </>
       )}
     </SiteSettingsProvider>

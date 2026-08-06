@@ -1,7 +1,6 @@
 import type { Context, Next } from "hono";
 
-import { getDb } from "../db/schema.js";
-import { projectMarkdownNoteForUser } from "../lib/markdownUserContent.js";
+import { knowledgeCapabilityGuardRepository } from "../repositories/knowledgeCapabilityGuardRepository.js";
 import { getUserWorkspaceRole } from "./acl.js";
 import {
   hasKnowledgeCapability,
@@ -58,20 +57,8 @@ function canDownloadNote(noteId: string, userId: string): boolean {
 }
 
 function exportRows(workspaceId: string, userId: string): any[] {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT n.id, n.title, n.content, n.contentText, n.createdAt, n.updatedAt,
-           n.notebookId AS notebookId,
-           nb.name AS notebookName,
-           n.contentFormat
-    FROM notes n
-    LEFT JOIN notebooks nb ON nb.id = n.notebookId
-    WHERE n.workspaceId = ? AND n.isTrashed = 0
-    ORDER BY nb.name, n.title
-  `).all(workspaceId) as any[];
-  return rows
-    .filter((row) => canDownloadNote(row.id, userId))
-    .map((row) => projectMarkdownNoteForUser(db, row));
+  return knowledgeCapabilityGuardRepository.listMarkdownExportRows(workspaceId)
+    .filter((row) => canDownloadNote(row.id, userId));
 }
 
 async function handleTeamMarkdownExportJob(c: Context, workspaceId: string, userId: string): Promise<Response> {
@@ -92,12 +79,7 @@ async function handleTeamMarkdownExportJob(c: Context, workspaceId: string, user
     return c.json({ error: "导出笔记列表包含无效或重复 ID", code: "INVALID_NOTE_IDS" }, 400);
   }
 
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT id, workspaceId
-    FROM notes
-    WHERE id IN (${noteIds.map(() => "?").join(",")}) AND isTrashed = 0
-  `).all(...noteIds) as Array<{ id: string; workspaceId: string | null }>;
+  const rows = knowledgeCapabilityGuardRepository.listNoteScopes(noteIds);
   const inWorkspace = new Set(rows.filter((row) => row.workspaceId === workspaceId).map((row) => row.id));
   if (noteIds.some((id) => !inWorkspace.has(id) || !canDownloadNote(id, userId))) {
     return c.json({ error: "部分笔记不存在或无导出权限", code: "NOTE_SCOPE_MISMATCH" }, 404);
@@ -148,13 +130,7 @@ function noteIdFromTagPath(path: string): string | null {
 }
 
 function tagCountsForVisibleNotes(workspaceId: string, userId: string): Map<string, number> {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT nt.tagId, nt.noteId
-    FROM note_tags nt
-    JOIN notes n ON n.id = nt.noteId
-    WHERE n.workspaceId = ? AND n.isTrashed = 0
-  `).all(workspaceId) as Array<{ tagId: string; noteId: string }>;
+  const rows = knowledgeCapabilityGuardRepository.listWorkspaceTagLinks(workspaceId);
   const counts = new Map<string, number>();
   for (const row of rows) {
     if (!canViewNote(row.noteId, userId)) continue;

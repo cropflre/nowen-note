@@ -2,43 +2,44 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test, { after, beforeEach } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-note-transfer-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
 process.env.ELECTRON_USER_DATA = tempDir;
 process.env.JWT_SECRET = "note-transfer-test-secret";
 
-const { closeDb, getDb } = await import("../src/db/schema.js");
-const { initAuditTables } = await import("../src/services/audit.js");
-const {
-  executeNoteTransfer,
-  NoteTransferError,
-  previewNoteTransfer,
-} = await import("../src/services/noteTransfer.js");
-const { getAttachmentsDir } = await import("../src/services/attachment-storage.js");
-
-const db = getDb();
-initAuditTables();
+let closeDb: () => void;
+let db: any;
+let previewNoteTransfer: (input: any) => Promise<any>;
+let executeNoteTransfer: (input: any) => Promise<any>;
+let NoteTransferError: any;
+let getAttachmentsDir: () => string;
 
 const NOTE_ONE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const NOTE_TWO = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ATTACHMENT = "11111111-1111-4111-8111-111111111111";
 
+before(async () => {
+  const schema = await import("../src/db/schema.js");
+  const audit = await import("../src/services/audit.js");
+  const transfer = await import("../src/services/noteTransfer.js");
+  const storage = await import("../src/services/attachment-storage.js");
+
+  closeDb = schema.closeDb;
+  db = schema.getDb();
+  previewNoteTransfer = transfer.previewNoteTransfer;
+  executeNoteTransfer = transfer.executeNoteTransfer;
+  NoteTransferError = transfer.NoteTransferError;
+  getAttachmentsDir = storage.getAttachmentsDir;
+  audit.initAuditTables();
+});
+
 function resetDb() {
   db.pragma("foreign_keys = OFF");
   for (const table of [
-    "audit_logs",
-    "note_links",
-    "attachment_references",
-    "note_tags",
-    "tags",
-    "attachments",
-    "notes",
-    "notebooks",
-    "workspace_members",
-    "workspaces",
-    "users",
+    "audit_logs", "note_links", "attachment_references", "note_tags", "tags",
+    "attachments", "notes", "notebooks", "workspace_members", "workspaces", "users",
   ]) {
     try { db.prepare(`DELETE FROM ${table}`).run(); } catch { /* optional table */ }
   }
@@ -62,14 +63,8 @@ function seedNotebook(id: string, userId: string, workspaceId: string | null, na
 }
 
 function seedNote(input: {
-  id: string;
-  userId: string;
-  workspaceId: string | null;
-  notebookId: string;
-  title?: string;
-  content?: string;
-  version?: number;
-  locked?: boolean;
+  id: string; userId: string; workspaceId: string | null; notebookId: string;
+  title?: string; content?: string; version?: number; locked?: boolean;
 }) {
   db.prepare(`
     INSERT INTO notes (
@@ -104,7 +99,7 @@ function seedAttachment(noteId: string, userId: string, workspaceId: string | nu
 beforeEach(resetDb);
 
 after(() => {
-  closeDb();
+  closeDb?.();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -134,12 +129,8 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   seedNotebook("personal", "u1", null);
   seedNotebook("target", "u1", "w1");
   seedNote({
-    id: NOTE_ONE,
-    userId: "u1",
-    workspaceId: null,
-    notebookId: "personal",
-    title: "One",
-    content: `note://${NOTE_TWO} /api/attachments/${ATTACHMENT}`,
+    id: NOTE_ONE, userId: "u1", workspaceId: null, notebookId: "personal",
+    title: "One", content: `note://${NOTE_TWO} /api/attachments/${ATTACHMENT}`,
   });
   seedNote({ id: NOTE_TWO, userId: "u1", workspaceId: null, notebookId: "personal", title: "Two" });
   seedAttachment(NOTE_ONE, "u1", null, ATTACHMENT, "hello");
@@ -147,11 +138,8 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   db.prepare("INSERT INTO note_tags (noteId, tagId) VALUES (?, 'tag-1')").run(NOTE_ONE);
 
   const preview = await previewNoteTransfer({
-    actorUserId: "u1",
-    sourceNoteIds: [NOTE_ONE, NOTE_TWO],
-    targetWorkspaceId: "w1",
-    targetNotebookId: "target",
-    mode: "copy",
+    actorUserId: "u1", sourceNoteIds: [NOTE_ONE, NOTE_TWO], targetWorkspaceId: "w1",
+    targetNotebookId: "target", mode: "copy",
   });
   assert.equal(preview.canExecute, true);
   assert.equal(preview.noteCount, 2);
@@ -159,19 +147,15 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   assert.equal(preview.internalNoteLinkCount, 1);
 
   const result = await executeNoteTransfer({
-    actorUserId: "u1",
-    sourceNoteIds: [NOTE_ONE, NOTE_TWO],
-    targetWorkspaceId: "w1",
-    targetNotebookId: "target",
-    mode: "copy",
-    expectedVersions: preview.sourceVersions,
+    actorUserId: "u1", sourceNoteIds: [NOTE_ONE, NOTE_TWO], targetWorkspaceId: "w1",
+    targetNotebookId: "target", mode: "copy", expectedVersions: preview.sourceVersions,
   });
 
   assert.equal(result.copiedNoteCount, 2);
   assert.equal(result.copiedAttachmentCount, 1);
   assert.equal(result.internalNoteLinkCount, 1);
-  const one = result.items.find((item) => item.sourceNoteId === NOTE_ONE)!;
-  const two = result.items.find((item) => item.sourceNoteId === NOTE_TWO)!;
+  const one = result.items.find((item: any) => item.sourceNoteId === NOTE_ONE)!;
+  const two = result.items.find((item: any) => item.sourceNoteId === NOTE_TWO)!;
   assert.notEqual(one.targetNoteId, NOTE_ONE);
   const copiedOne = db.prepare("SELECT * FROM notes WHERE id = ?").get(one.targetNoteId) as any;
   assert.equal(copiedOne.workspaceId, "w1");
@@ -195,22 +179,15 @@ test("moves a team note to personal only after the target copy verifies", async 
   seedNote({ id: "team-note", userId: "u1", workspaceId: "w1", notebookId: "source", version: 7 });
 
   const preview = await previewNoteTransfer({
-    actorUserId: "u1",
-    sourceNoteIds: ["team-note"],
-    targetWorkspaceId: null,
-    targetNotebookId: "personal",
-    mode: "move",
+    actorUserId: "u1", sourceNoteIds: ["team-note"], targetWorkspaceId: null,
+    targetNotebookId: "personal", mode: "move",
   });
   assert.equal(preview.canExecute, true);
   assert.deepEqual(preview.sourceVersions, { "team-note": 7 });
 
   const result = await executeNoteTransfer({
-    actorUserId: "u1",
-    sourceNoteIds: ["team-note"],
-    targetWorkspaceId: null,
-    targetNotebookId: "personal",
-    mode: "move",
-    expectedVersions: preview.sourceVersions,
+    actorUserId: "u1", sourceNoteIds: ["team-note"], targetWorkspaceId: null,
+    targetNotebookId: "personal", mode: "move", expectedVersions: preview.sourceVersions,
   });
   assert.equal(result.movedSourceNoteCount, 1);
   const source = db.prepare("SELECT isTrashed, version FROM notes WHERE id = 'team-note'").get() as any;
@@ -236,22 +213,15 @@ test("blocks move when an attachment object is missing and leaves the source unt
   `).run();
 
   const preview = await previewNoteTransfer({
-    actorUserId: "u1",
-    sourceNoteIds: ["n1"],
-    targetWorkspaceId: "w1",
-    targetNotebookId: "target",
-    mode: "move",
+    actorUserId: "u1", sourceNoteIds: ["n1"], targetWorkspaceId: "w1",
+    targetNotebookId: "target", mode: "move",
   });
   assert.equal(preview.canExecute, false);
-  assert.ok(preview.blockers.some((item) => item.code === "ATTACHMENT_FILE_MISSING"));
+  assert.ok(preview.blockers.some((item: any) => item.code === "ATTACHMENT_FILE_MISSING"));
   await assert.rejects(
     () => executeNoteTransfer({
-      actorUserId: "u1",
-      sourceNoteIds: ["n1"],
-      targetWorkspaceId: "w1",
-      targetNotebookId: "target",
-      mode: "move",
-      expectedVersions: preview.sourceVersions,
+      actorUserId: "u1", sourceNoteIds: ["n1"], targetWorkspaceId: "w1",
+      targetNotebookId: "target", mode: "move", expectedVersions: preview.sourceVersions,
     }),
     NoteTransferError,
   );

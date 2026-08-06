@@ -1,7 +1,9 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
-import { attachmentFoldersRepository } from "../repositories";
+import {
+  attachmentFolderOperationsRepository,
+  attachmentFoldersRepository,
+} from "../repositories";
 
 const app = new Hono();
 
@@ -9,27 +11,18 @@ const app = new Hono();
  * GET /api/attachment-folders
  * 获取当前用户的文件夹列表
  */
-app.get("/", (c) => {
-  const db = getDb();
+app.get("/", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
-
-  const folders = attachmentFoldersRepository.listByUser(userId);
-
-  // 统计每个文件夹下的附件数
-  const counts = db
-    .prepare(
-      `SELECT folderId, COUNT(*) AS count
-       FROM attachments
-       WHERE userId = ? AND folderId IS NOT NULL
-       GROUP BY folderId`
-    )
-    .all(userId) as Array<{ folderId: string; count: number }>;
-  const countMap = new Map(counts.map((r) => [r.folderId, r.count]));
+  const [folders, counts] = await Promise.all([
+    attachmentFoldersRepository.listByUserAsync(userId),
+    attachmentFolderOperationsRepository.listCountsByUserAsync(userId),
+  ]);
+  const countMap = new Map(counts.map((row) => [row.folderId, row.count]));
 
   return c.json({
-    folders: folders.map((f) => ({
-      ...f,
-      fileCount: countMap.get(f.id) || 0,
+    folders: folders.map((folder) => ({
+      ...folder,
+      fileCount: countMap.get(folder.id) || 0,
     })),
   });
 });
@@ -48,19 +41,17 @@ app.post("/", async (c) => {
   if (name.length > 100) return c.json({ error: "文件夹名称过长" }, 400);
 
   // 同级同名校验
-  if (attachmentFoldersRepository.existsByName(userId, name, parentId)) {
+  if (await attachmentFoldersRepository.existsByNameAsync(userId, name, parentId)) {
     return c.json({ error: "同级已存在同名文件夹" }, 409);
   }
 
   // 如果有 parentId，校验父文件夹存在且属于当前用户
-  if (parentId) {
-    if (!attachmentFoldersRepository.parentExists(parentId, userId)) {
-      return c.json({ error: "父文件夹不存在" }, 404);
-    }
+  if (parentId && !await attachmentFoldersRepository.parentExistsAsync(parentId, userId)) {
+    return c.json({ error: "父文件夹不存在" }, 404);
   }
 
   const id = uuid();
-  attachmentFoldersRepository.create({ id, userId, name, parentId });
+  await attachmentFoldersRepository.createAsync({ id, userId, name, parentId });
 
   return c.json({
     id,
@@ -83,15 +74,20 @@ app.patch("/:id", async (c) => {
   if (!name) return c.json({ error: "文件夹名称不能为空" }, 400);
   if (name.length > 100) return c.json({ error: "文件夹名称过长" }, 400);
 
-  const folder = attachmentFoldersRepository.getById(id, userId);
+  const folder = await attachmentFoldersRepository.getByIdAsync(id, userId);
   if (!folder) return c.json({ error: "文件夹不存在" }, 404);
 
   // 同级同名校验（排除自身）
-  if (attachmentFoldersRepository.existsByName(userId, name, folder.parentId, id)) {
+  if (await attachmentFoldersRepository.existsByNameAsync(
+    userId,
+    name,
+    folder.parentId,
+    id,
+  )) {
     return c.json({ error: "同级已存在同名文件夹" }, 409);
   }
 
-  attachmentFoldersRepository.updateName(id, name);
+  await attachmentFoldersRepository.updateNameAsync(id, name);
 
   return c.json({ id, name, parentId: folder.parentId });
 });
@@ -100,19 +96,14 @@ app.patch("/:id", async (c) => {
  * DELETE /api/attachment-folders/:id
  * 删除文件夹，文件夹内附件的 folderId 置为 NULL（归入未归档）
  */
-app.delete("/:id", (c) => {
-  const db = getDb();
+app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const folder = attachmentFoldersRepository.getById(id, userId);
+  const folder = await attachmentFoldersRepository.getByIdAsync(id, userId);
   if (!folder) return c.json({ error: "文件夹不存在" }, 404);
 
-  // 把该文件夹内附件的 folderId 清空
-  db.prepare("UPDATE attachments SET folderId = NULL WHERE folderId = ? AND userId = ?")
-    .run(id, userId);
-
-  attachmentFoldersRepository.delete(id);
+  await attachmentFolderOperationsRepository.deleteFolderAndUnassignAsync(id, userId);
 
   return c.json({ success: true });
 });

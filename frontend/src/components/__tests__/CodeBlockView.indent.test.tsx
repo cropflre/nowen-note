@@ -2,6 +2,8 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const copyTextMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@tiptap/react", () => ({
   NodeViewWrapper: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   NodeViewContent: (props: React.HTMLAttributes<HTMLElement>) => <code {...props} />,
@@ -9,6 +11,10 @@ vi.mock("@tiptap/react", () => ({
 
 vi.mock("@/components/MermaidView", () => ({
   default: () => <div data-testid="mermaid" />,
+}));
+
+vi.mock("@/lib/clipboard", () => ({
+  copyText: copyTextMock,
 }));
 
 import { CodeBlockView, normalizeCodeBlockIndent } from "@/components/CodeBlockView";
@@ -48,11 +54,14 @@ describe("CodeBlockView block indent", () => {
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    copyTextMock.mockReset();
+    copyTextMock.mockResolvedValue(true);
   });
 
   afterEach(async () => {
     await act(async () => roots.splice(0).forEach((root) => root.unmount()));
     containers.splice(0).forEach((container) => container.remove());
+    vi.restoreAllMocks();
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
@@ -87,5 +96,53 @@ describe("CodeBlockView block indent", () => {
       root.render(<CodeBlockView {...createProps(editor, 0)} />);
     });
     expect(container.querySelector(".code-block-wrapper")?.hasAttribute("data-indent")).toBe(false);
+  });
+
+  it("uses the shared clipboard fallback and reports success after a real copy", async () => {
+    const editor = new FakeEditor();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(<CodeBlockView {...createProps(editor, 0)} />);
+    });
+
+    const copyButton = container.querySelector<HTMLButtonElement>('button[title="复制代码"]');
+    expect(copyButton).not.toBeNull();
+
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(copyTextMock).toHaveBeenCalledWith("const answer = 42;");
+    expect(container.querySelector<HTMLButtonElement>('button[title="已复制"]')).not.toBeNull();
+  });
+
+  it("does not show copied state when every clipboard path fails", async () => {
+    copyTextMock.mockResolvedValueOnce(false);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const editor = new FakeEditor();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(<CodeBlockView {...createProps(editor, 0)} />);
+    });
+
+    const copyButton = container.querySelector<HTMLButtonElement>('button[title="复制代码"]');
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector<HTMLButtonElement>('button[title="已复制"]')).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith("Copy code block failed: clipboard API unavailable");
   });
 });

@@ -441,3 +441,201 @@ test("stale trigger marks an old write immediately and rebuild restores healthy 
     status: "healthy",
   });
 });
+
+// 复杂度回归：物化与重建过程中，整篇文档最多各解析一次。
+//
+// 历史问题：materializeTiptapRecords / buildIndexedPayloads 曾对每条 Block 记录
+// 调用 tiptapNodeAtPath，而该函数内部 JSON.parse 整篇文档，导致
+// "记录数 × 全文解析" 的 O(n²) 行为。5000 段 / 776KB 的笔记单次读取实测 10.6s，
+// 而 GET /api/notes/:id 每次非 slim 读取都会走到这里。
+//
+// 这里用 JSON.parse 调用次数（而非绝对耗时）断言，避免 CI 上的时间抖动。
+test("materializes large documents without re-parsing the whole doc per block", async () => {
+  const paragraphs = 400;
+  const content = JSON.stringify({
+    type: "doc",
+    content: Array.from({ length: paragraphs }, (_, index) => ({
+      type: "paragraph",
+      attrs: { blockId: `blk_perf_${index}` },
+      content: [{ type: "text", text: `第${index} 段内容` }],
+    })),
+  });
+  const noteId = "78787878-7878-4878-8878-787878787878";
+  const { db, store, content: normalized } = await createAuthorityNote(noteId, "tiptap-json", content);
+
+  const originalParse = JSON.parse;
+  let fullDocParses = 0;
+  // 只统计"整篇文档级别"的解析，忽略单个 Block payload 的小解析
+  JSON.parse = ((text: string, ...rest: unknown[]) => {
+    if (typeof text === "string" && text.length > normalized.length / 2) fullDocParses++;
+    return (originalParse as any)(text, ...rest);
+  }) as typeof JSON.parse;
+
+  let materialized: string;
+  try {
+    materialized = store.materializeBlockAuthorityContent(db, noteId);
+  } finally {
+    JSON.parse = originalParse;
+  }
+
+  assert.equal(materialized, normalized, "物化结果必须与原文一致");
+  assert.ok(
+    fullDocParses <= 1,
+    `物化 ${paragraphs} 段文档时整篇解析次数应 <= 1，实际 ${fullDocParses} 次`,
+  );
+
+  // 重建路径同样不允许逐块重复解析整篇文档
+  let rebuildParses = 0;
+  JSON.parse = ((text: string, ...rest: unknown[]) => {
+    if (typeof text === "string" && text.length > normalized.length / 2) rebuildParses++;
+    return (originalParse as any)(text, ...rest);
+  }) as typeof JSON.parse;
+  try {
+    store.rebuildBlockAuthorityStore(db, noteId, normalized, "tiptap-json", {
+      noteVersion: 2,
+      operationType: "whole-save",
+    });
+  } finally {
+    JSON.parse = originalParse;
+  }
+
+  assert.ok(
+    rebuildParses <= 2,
+    `重建 ${paragraphs} 段文档时整篇解析次数应 <= 2，实际 ${rebuildParses} 次`,
+  );
+});
+
+// 已处于 mismatch 的文档，重复读取不得再次物化校验或写库。
+//
+// 历史行为：readAuthoritativeNoteContent 对 mismatch 文档也会跑完整物化 + 3 次
+// 全文哈希，然后无条件 UPDATE。由于本函数不自愈（mismatch 必须保留现场），
+// 这些工作得不出新结论，而且会把触发器写入的具体原因覆盖成通用的
+// authority_hash_mismatch，反而丢掉诊断信息。
+test("skips revalidation and rewrites for documents already marked mismatch", async () => {
+  const noteId = "89898989-8989-4989-8989-898989898989";
+  const { db, store, content } = await createAuthorityNote(noteId, "tiptap-json", tiptapAuthorityFixture());
+
+  // 未整合的写入方改动 notes.content，触发器写入具体原因
+  db.prepare("UPDATE notes SET content = content || ' ' WHERE id = ?").run(noteId);
+  const drifted = (db.prepare("SELECT content FROM notes WHERE id = ?").get(noteId) as any).content;
+  const before = db.prepare(`
+    SELECT status, mismatchReason, updatedAt FROM note_block_documents WHERE noteId = ?
+  `).get(noteId) as { status: string; mismatchReason: string; updatedAt: string };
+  assert.equal(before.status, "mismatch");
+  assert.equal(before.mismatchReason, "notes_content_changed_without_shadow_rebuild");
+
+  // 多次读取：返回值保持"保留现场"语义
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(store.readAuthoritativeNoteContent(db, noteId, drifted), {
+      content: drifted,
+      source: "notes",
+      status: "mismatch",
+    });
+  }
+
+  const after = db.prepare(`
+    SELECT status, mismatchReason, updatedAt FROM note_block_documents WHERE noteId = ?
+  `).get(noteId) as { status: string; mismatchReason: string; updatedAt: string };
+  assert.equal(after.status, "mismatch");
+  assert.equal(
+    after.mismatchReason,
+    "notes_content_changed_without_shadow_rebuild",
+    "读取不得覆盖触发器写入的具体诊断原因",
+  );
+  assert.equal(after.updatedAt, before.updatedAt, "已 mismatch 的文档重复读取不应再写库");
+
+  // 重建仍可恢复 healthy —— 短路不得阻断自愈路径
+  const synced = (await import("../src/lib/noteBlocks")).syncNoteBlocks(db, noteId, drifted, "tiptap-json");
+  db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+    .run(synced.content, synced.contentText, noteId);
+  store.rebuildBlockAuthorityStore(db, noteId, synced.content, "tiptap-json", {
+    noteVersion: 2,
+    operationType: "read-repair",
+  });
+  assert.equal(store.readAuthoritativeNoteContent(db, noteId, synced.content).status, "healthy");
+  assert.notEqual(content, null);
+});
+
+// 建表 DDL 每个连接只执行一次。
+//
+// 这些语句都是 IF NOT EXISTS，重复执行逻辑上无害但并非免费：内存库约 0.02ms，
+// 文件库（Docker volume / NAS 的真实形态）实测约 5ms —— 而 GET /api/notes/:id
+// 每次都会调用一次。这里断言重复调用不再产生 DDL，同时确认建表结果仍然齐备。
+test("runs block authority schema DDL only once per connection", async () => {
+  const { getDb } = await import("../src/db/schema");
+  const store = await import("../src/lib/blockAuthorityStore");
+  const db = getDb();
+
+  // 首次调用后，表与陈旧标记触发器都必须存在
+  store.ensureBlockAuthorityTables(db);
+  const documentsTable = db.prepare(`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'note_block_documents'
+  `).get();
+  assert.ok(documentsTable, "note_block_documents 必须已建立");
+  const staleTrigger = db.prepare(`
+    SELECT name FROM sqlite_master WHERE type = 'trigger'
+      AND name = 'trg_note_block_authority_stale_after_content_update'
+  `).get();
+  assert.ok(staleTrigger, "陈旧标记触发器必须已建立");
+
+  // 重复调用不得再执行 DDL
+  const originalExec = db.exec.bind(db);
+  let execCalls = 0;
+  (db as any).exec = (sql: string) => {
+    execCalls++;
+    return originalExec(sql);
+  };
+  try {
+    for (let i = 0; i < 5; i++) store.ensureBlockAuthorityTables(db);
+  } finally {
+    (db as any).exec = originalExec;
+  }
+  assert.equal(execCalls, 0, "同一连接重复调用不应再执行建表 DDL");
+});
+
+// healthy 判定可缓存，但任何输入变化都必须立刻重新校验。
+//
+// 物化 + 3 次全文哈希只为回答"这份数据是否仍健康"，1MB 文档一次判定实测约 30ms。
+// 同一笔记内容未变时反复读取（A→B→A、乐观锁重试）会重复得出同一结论。
+test("caches healthy verdicts without ever serving a stale one", async () => {
+  const noteId = "9a9a9a9a-9a9a-4a9a-8a9a-9a9a9a9a9a9a";
+  const { db, store, content } = await createAuthorityNote(noteId, "tiptap-json", tiptapAuthorityFixture());
+
+  // 重复读取：结论与内容都必须稳定
+  const first = store.readAuthoritativeNoteContent(db, noteId, content);
+  assert.deepEqual(first, { content, source: "blocks", status: "healthy" });
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(store.readAuthoritativeNoteContent(db, noteId, content), {
+      content,
+      source: "blocks",
+      status: "healthy",
+    });
+  }
+
+  // notesContent 变化必须绕过缓存并判定 mismatch
+  const drifted = `${content} `;
+  assert.equal(store.readAuthoritativeNoteContent(db, noteId, drifted).status, "mismatch");
+
+  // 重建后必须重新判定 healthy 并返回新内容
+  const noteBlocks = await import("../src/lib/noteBlocks");
+  const changed = JSON.stringify({
+    type: "doc",
+    content: [{
+      type: "paragraph",
+      attrs: { blockId: "blk_root_a1" },
+      content: [{ type: "text", text: "缓存失效后的新内容" }],
+    }],
+  });
+  const synced = noteBlocks.syncNoteBlocks(db, noteId, changed, "tiptap-json");
+  db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+    .run(synced.content, synced.contentText, noteId);
+  store.rebuildBlockAuthorityStore(db, noteId, synced.content, "tiptap-json", {
+    noteVersion: 2,
+    operationType: "whole-save",
+  });
+  assert.deepEqual(store.readAuthoritativeNoteContent(db, noteId, synced.content), {
+    content: synced.content,
+    source: "blocks",
+    status: "healthy",
+  });
+});

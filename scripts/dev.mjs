@@ -1,9 +1,10 @@
-import net from "node:net"
 import path from "node:path"
 import process from "node:process"
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { forceReleasePorts } from "./dev-port-manager.mjs"
+import { ensureWorkspaceDependencies } from "./dev-dependency-manager.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const scriptsDir = path.dirname(__filename)
@@ -16,27 +17,6 @@ function parsePort(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback
 }
 
-function isPortAvailable(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer()
-
-    server.unref()
-    server.once("error", () => resolve(false))
-    server.listen({ port, host: "0.0.0.0", exclusive: true }, () => {
-      server.close(() => resolve(true))
-    })
-  })
-}
-
-async function findAvailablePort(startPort, excludedPorts = new Set()) {
-  for (let port = startPort; port <= 65535; port += 1) {
-    if (excludedPorts.has(port)) continue
-    if (await isPortAvailable(port)) return port
-  }
-
-  throw new Error(`从 ${startPort} 开始未找到可用端口`)
-}
-
 function assertFile(filePath, installHint) {
   if (!existsSync(filePath)) {
     console.error(`\n[dev] 缺少依赖文件：${path.relative(rootDir, filePath)}`)
@@ -45,20 +25,29 @@ function assertFile(filePath, installHint) {
   }
 }
 
-const preferredBackendPort = parsePort(
+const backendPort = parsePort(
   process.env.NOWEN_DEV_BACKEND_PORT ?? process.env.PORT,
   3001,
 )
-const preferredFrontendPort = parsePort(process.env.NOWEN_DEV_FRONTEND_PORT, 5173)
+const frontendPort = parsePort(process.env.NOWEN_DEV_FRONTEND_PORT, 5173)
 
-const backendPort = await findAvailablePort(preferredBackendPort)
-const frontendPort = await findAvailablePort(
-  preferredFrontendPort,
-  new Set([backendPort]),
-)
+if (backendPort === frontendPort) {
+  console.error(`\n[dev] 前后端不能使用同一个端口：${backendPort}\n`)
+  process.exit(1)
+}
 
 const backendUrl = `http://127.0.0.1:${backendPort}`
 const frontendUrl = `http://localhost:${frontendPort}`
+
+console.log("\n[dev] 正在检查项目依赖...")
+try {
+  ensureWorkspaceDependencies(rootDir, "根目录")
+  ensureWorkspaceDependencies(backendDir, "后端")
+  ensureWorkspaceDependencies(frontendDir, "前端")
+} catch (error) {
+  console.error(`\n[dev] 依赖检查失败：${error instanceof Error ? error.message : String(error)}\n`)
+  process.exit(1)
+}
 
 const electronCli = path.join(rootDir, "node_modules", "electron", "cli.js")
 const tsxCli = path.join(backendDir, "node_modules", "tsx", "dist", "cli.mjs")
@@ -72,9 +61,22 @@ assertFile(viteCli, "npm run install:all")
 assertFile(backendEntry, "确认 backend/src/index.hardened.ts 是否存在")
 assertFile(viteDevConfig, "确认 frontend/vite.dev.config.ts 是否存在")
 
+console.log("\n[dev] 正在检查开发端口...")
+try {
+  await forceReleasePorts([
+    { label: "后端", port: backendPort },
+    { label: "前端", port: frontendPort },
+  ])
+} catch (error) {
+  console.error(`\n[dev] 无法释放开发端口：${error instanceof Error ? error.message : String(error)}\n`)
+  process.exit(1)
+}
+
 console.log("\n🚀 Nowen Note 开发环境")
-console.log(`   前端: ${frontendUrl}${frontendPort !== preferredFrontendPort ? `（${preferredFrontendPort} 已占用，已自动切换）` : ""}`)
-console.log(`   后端: ${backendUrl}${backendPort !== preferredBackendPort ? `（${preferredBackendPort} 已占用，已自动切换）` : ""}`)
+console.log(`   前端: ${frontendUrl}`)
+console.log(`   后端: ${backendUrl}`)
+console.log("   依赖变更时会自动执行对应目录的 npm install")
+console.log("   端口冲突时会强制停止占用进程并重新启动")
 console.log("   按 Ctrl+C 可同时停止前后端\n")
 
 const children = []
@@ -91,14 +93,14 @@ function startProcess(label, command, args, options) {
   children.push(child)
 
   child.once("error", (error) => {
-    console.error(`[dev] ${label} 启动失败:`, error)
+    console.error(`[dev] ${label}启动失败:`, error)
     void shutdown(1)
   })
 
   child.once("exit", (code, signal) => {
     if (stopping) return
     const reason = signal ? `信号 ${signal}` : `退出码 ${code ?? 1}`
-    console.error(`\n[dev] ${label} 已退出（${reason}），正在停止其余进程...`)
+    console.error(`\n[dev] ${label}已退出（${reason}），正在停止其余进程...`)
     void shutdown(code ?? 1)
   })
 

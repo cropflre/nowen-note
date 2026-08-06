@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "note": "Short-lived issue-owned allowances introduced by newly synchronized mainline files. Move entries into the primary exception registry or remove them when their Repository boundary lands.",
+  "files": {
+    "routes/task-day-plans.ts": {
+      "owner": "#249",
+      "reason": "Main introduced the Task My Day route after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; its user/workspace/task transaction boundary must migrate with the remaining task repositories under #249.",
+      "counts": {
+        "db-exec-call": 1,
+        "getDb-call": 6,
+        "prepare-call": 6
+      }
+    },
+    "routes/task-inbox.ts": {
+      "owner": "#249",
+      "reason": "Main introduced personal task Inbox and quick capture after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate Inbox membership and capture transactions through shared repositories under #249.",
+      "counts": {
+        "getDb-call": 11
+      }
+    },
+    "routes/task-metadata.ts": {
+      "owner": "#249",
+      "reason": "Main introduced task labels and saved views after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its label, assignment and saved-view transactions through shared repositories under #249.",
+      "counts": {
+        "getDb-call": 27,
+        "prepare-call": 2,
+        "transaction-call": 1
+      }
+    },
+    "routes/task-time-blocks.ts": {
+      "owner": "#249",
+      "reason": "Main introduced task estimates and personal time blocks after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its task estimate and time-block lifecycle through shared repositories under #249.",
+      "counts": {
+        "getDb-call": 10
+      }
+    },
+    "services/workspace-deletion.ts": {
+      "owner": "#249",
+      "reason": "Main extracted workspace deletion hierarchy transfer into a SQLite service after the reviewed snapshot. PostgreSQL runtime-only does not mount the legacy workspace deletion route; migrate the transfer transaction through a shared repository under #249.",
+      "counts": {
+        "better-sqlite3": 1,
+        "prepare-call": 5
+      }
+    }
+  }
+}

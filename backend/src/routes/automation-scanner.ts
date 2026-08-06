@@ -28,8 +28,6 @@ const overdueDailySent = new Set<string>();
 export function scanDependencyReadyNotifications(): SystemReminder[] {
   const db = getDb();
 
-  // Find unfinished successors that have at least one finish_to_start dependency,
-  // and ALL of their finish_to_start predecessors are completed.
   const rows = db.prepare(`
     SELECT DISTINCT
       succ.id AS successorTaskId,
@@ -50,7 +48,6 @@ export function scanDependencyReadyNotifications(): SystemReminder[] {
   `).all() as any[];
 
   const results: SystemReminder[] = [];
-
   for (const row of rows) {
     const key = `dep-ready:${row.userId}:${row.successorTaskId}`;
     if (dependencyReadySent.has(key)) continue;
@@ -71,21 +68,15 @@ export function scanDependencyReadyNotifications(): SystemReminder[] {
 /**
  * Scan for overdue tasks and produce a daily reminder.
  *
- * Uses JS-side time comparison for dueAt (ISO string comparison is unreliable
- * for same-day checks). Each task gets at most one overdue reminder per
- * calendar day (local timezone).
- *
- * Dedup: per userId+taskId+day, in-memory. Restart may re-notify for today (acceptable).
+ * Uses JS-side time comparison for dueAt. Each task gets at most one overdue
+ * reminder per local calendar day.
  */
 export function scanOverdueDailyNotifications(): SystemReminder[] {
   const db = getDb();
-
   const now = new Date();
   const nowMs = now.getTime();
-  // Local date for daily dedup
   const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  // Broad SQL: fetch candidates that have any due info, check in JS
   const rows = db.prepare(`
     SELECT id, title, userId, dueAt, dueDate
     FROM tasks
@@ -94,14 +85,13 @@ export function scanOverdueDailyNotifications(): SystemReminder[] {
   `).all() as any[];
 
   const results: SystemReminder[] = [];
-
   for (const row of rows) {
     const dueStr = row.dueAt || (row.dueDate ? row.dueDate + "T23:59:59" : null);
     if (!dueStr) continue;
 
     const dueMs = new Date(dueStr).getTime();
     if (!Number.isFinite(dueMs)) continue;
-    if (dueMs >= nowMs) continue; // not overdue yet
+    if (dueMs >= nowMs) continue;
 
     const key = `${row.userId}:${row.id}:${todayLocal}`;
     if (overdueDailySent.has(key)) continue;

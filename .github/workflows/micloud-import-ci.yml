@@ -3,28 +3,22 @@ name: MiCloud Import CI
 on:
   pull_request:
     paths:
-      - "frontend/src/components/MiCloudImport.tsx"
       - "frontend/src/lib/miNoteService.ts"
       - "frontend/src/lib/__tests__/miNoteService.test.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/runtime/micloud-import-hardening.ts"
-      - "backend/src/runtime/micloud-import-jobs.ts"
       - "backend/src/routes/micloud.ts"
       - "backend/tests/micloud-import-hardening.test.ts"
-      - "backend/tests/micloud-import-jobs.test.ts"
       - ".github/workflows/micloud-import-ci.yml"
   push:
     branches: [main]
     paths:
-      - "frontend/src/components/MiCloudImport.tsx"
       - "frontend/src/lib/miNoteService.ts"
       - "frontend/src/lib/__tests__/miNoteService.test.ts"
       - "backend/src/index.hardened.ts"
       - "backend/src/runtime/micloud-import-hardening.ts"
-      - "backend/src/runtime/micloud-import-jobs.ts"
       - "backend/src/routes/micloud.ts"
       - "backend/tests/micloud-import-hardening.test.ts"
-      - "backend/tests/micloud-import-jobs.test.ts"
       - ".github/workflows/micloud-import-ci.yml"
 
 permissions:
@@ -45,10 +39,8 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: MiCloud legacy import regression tests
+      - name: MiCloud backend import regression tests
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/micloud-import-hardening.test.ts
-      - name: MiCloud background job regression tests
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/micloud-import-jobs.test.ts
       - name: Backend typecheck
         if: always()
         run: npm run build:tsc

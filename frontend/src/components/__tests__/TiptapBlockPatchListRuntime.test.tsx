@@ -26,20 +26,10 @@ vi.mock("@/lib/draftStorage", () => ({
   clearDraft: vi.fn(),
 }));
 
-vi.mock("@/lib/api.impl", () => ({
-  api: {
-    attachments: { upload: async () => ({}) },
-    search: async () => [],
-    moveNotebook: async () => ({}),
-    reorderNotebooks: async () => ({}),
-    updateNotebook: async () => ({}),
-    createTask: async () => ({}),
-    getHabitCheckinLog: async () => [],
-  },
-  getBaseUrl: () => "/api",
-  getCurrentWorkspace: () => null,
-  getServerUrl: () => "",
-}));
+vi.mock("@/lib/api.impl", async () => {
+  const { createApiImplMock } = await import("@/lib/__tests__/testApiImplMock");
+  return createApiImplMock();
+});
 
 vi.mock("../TiptapEditor", async () => {
   const ReactModule = await import("react");

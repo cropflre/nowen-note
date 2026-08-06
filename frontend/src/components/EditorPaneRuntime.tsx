@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 
-import FormatAwareEditorPane from "./FormatAwareEditorPane";
-import NoteSplitDialog from "@/components/NoteSplitDialog";
+import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { canWriteNote } from "@/lib/notePermissions";
 import type { NoteSplitHeadingLevel } from "@/lib/noteSplit";
@@ -12,11 +11,17 @@ import {
 } from "@/lib/noteSplitAnalysis";
 import type { Note } from "@/types";
 
+const LazyFormatAwareEditorPane = React.lazy(() => import("./FormatAwareEditorPane"));
+const LazyNoteSplitDialog = React.lazy(() => import("./NoteSplitDialog"));
+
 /**
  * 文档拆分运行时外壳。
  *
  * 标题扫描只服务于可选的“拆分文档”入口，不应阻塞每次笔记切换。首次打开把扫描安排
  * 到浏览器空闲阶段；A → B → A 返回同一版本时直接复用缓存结果。
+ *
+ * 编辑器主体通过 React.lazy 独立成工作区 chunk。未登录时 App 虽然会解析这个轻量壳，
+ * 但不会下载 Tiptap、CodeMirror、导出和附件预览等高成本依赖。
  */
 export default function EditorPaneRuntime() {
   const { state } = useApp();
@@ -84,20 +89,24 @@ export default function EditorPaneRuntime() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      <FormatAwareEditorPane
-        canSplitDocument={canSplit}
-        onSplitDocument={() => setDialogOpen(true)}
-      />
+      <Suspense fallback={<LazyWorkspaceFallback label="正在加载编辑器…" />}>
+        <LazyFormatAwareEditorPane
+          canSplitDocument={canSplit}
+          onSplitDocument={() => setDialogOpen(true)}
+        />
+      </Suspense>
 
       {dialogOpen && activeNote && preferredLevel && (
-        <NoteSplitDialog
-          open
-          note={activeNote}
-          notebooks={state.notebooks || []}
-          preferredLevel={preferredLevel}
-          onClose={() => setDialogOpen(false)}
-          onApplied={handleApplied}
-        />
+        <Suspense fallback={null}>
+          <LazyNoteSplitDialog
+            open
+            note={activeNote}
+            notebooks={state.notebooks || []}
+            preferredLevel={preferredLevel}
+            onClose={() => setDialogOpen(false)}
+            onApplied={handleApplied}
+          />
+        </Suspense>
       )}
     </div>
   );

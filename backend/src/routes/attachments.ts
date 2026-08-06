@@ -206,12 +206,35 @@ attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;
 
-function hardenScopedResponse(response: Response): Response {
+function hardenScopedResponse(response: Response, _attachmentId: string, _requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);
-  // 授权可随时撤销，禁止浏览器/CDN 把成功响应长期缓存后绕过服务端复核。
-  headers.set("Cache-Control", "private, no-store, no-transform");
-  headers.set("Pragma", "no-cache");
+  // 授权可随时撤销，因此浏览器/CDN 不得在未经服务端复核的情况下直接使用副本。
+  //
+  //   这里用 no-cache 而不是 no-store：两者都要求每次请求回源，服务端仍会执行
+  //   完整授权复核（verifyAttachmentSignature 每次都查 shares/publications 的
+  //   isActive 与 note capabilities），区别只在于 no-cache 允许浏览器保留副本，
+  //   在服务端回 304 时复用它。
+  //
+  //   no-store 会强制每次重新下载并解码整份图片/视频 —— 图片密集的笔记每次切换
+  //   都要重下全部原图，这是"图片多的笔记切换慢"的主因。而它并未换来额外安全：
+  //   签名 URL 本身的 TTL 就是 12 小时（attachment-signed-url.ts DEFAULT_TTL_MS），
+  //   期间同一 URL 可反复取用，因此禁止本地副本并不缩小暴露窗口。
+  //
+  //   must-revalidate 与 no-cache 语义重叠，这里显式写出以兼容只识别其中一个的
+  //   老代理。移除 Pragma: no-cache —— 它是 HTTP/1.0 请求头，作为响应头无标准
+  //   含义，且部分实现会把它当作 no-store 处理，反而抵消上面的意图。
+  headers.set("Cache-Control", "private, no-cache, must-revalidate, no-transform");
   headers.set("Vary", "Authorization");
+
+  // ETag 与 304 短路已经在核心 handler（attachments-core.ts::handleDownloadAttachment）
+  // 里按 (attachmentId, variant) 计算完成——原图和每个缩略图宽度各自独立的验证器，
+  // 短路发生在权限校验之后、读取文件字节之前，这样才能同时保住"撤销后重放必须
+  // 403 而非 304"和"避免不必要的磁盘/对象存储读取"。这里不再重新合成 ETag
+  // 或做二次 304 判断，避免用一个不区分 variant 的 "att-<id>" 覆盖掉正确的值，
+  // 只原样保留核心 handler 已经设置好的 ETag（若有）。
+  //
+  // 206（Range 分片）没有 ETag 是预期行为：Content-Range 语义下不该带实体头。
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -306,5 +329,5 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     console.warn("[attachment.access.denied]", { id, status: response.status });
   }
 
-  return hardenScopedResponse(response);
+  return hardenScopedResponse(response, id, new Headers(c.req.raw.headers));
 }

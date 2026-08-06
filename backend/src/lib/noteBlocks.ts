@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type Database from "better-sqlite3";
+import { stripLegacyInternalMarkdownMarkers } from "./markdownUserContent";
 
 export const SUPPORTED_NOTE_BLOCK_TYPES = [
   "heading",
@@ -175,8 +176,11 @@ function cleanMarkdownText(type: NoteBlockType, value: string): string {
 }
 
 function normalizeGeneratedMarkdownMarkers(content: string): string {
-  if (!content.includes("^blk_")) return content;
-  const lines = lineOffsets(content);
+  // 旧版无下划线块 ID 不属于当前身份体系：先从正文中物理清除，随后
+  // assignCandidateIds/applyMarkdownIds 会为真实内容生成标准 blk_<uuid> 标记。
+  const legacySanitized = stripLegacyInternalMarkdownMarkers(content);
+  if (!legacySanitized.includes("^blk_")) return legacySanitized;
+  const lines = lineOffsets(legacySanitized);
   const edits: Array<{ from: number; to: number; insert: string }> = [];
   let fenceChar = "";
   let fenceLength = 0;
@@ -223,7 +227,7 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
     }
   }
 
-  let normalized = content;
+  let normalized = legacySanitized;
   for (const edit of edits.sort((a, b) => b.from - a.from)) {
     normalized = normalized.slice(0, edit.from) + edit.insert + normalized.slice(edit.to);
   }

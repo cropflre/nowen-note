@@ -15,6 +15,7 @@ import {
   enforceKnowledgeTagCapabilities,
 } from "../middleware/knowledgeExportTagCapabilityGuard.js";
 import { enforceKnowledgePermissionPolicies } from "../middleware/knowledgePermissionPolicyGuard.js";
+import { fileOrphanVisibilityMiddleware } from "./file-orphan-visibility.js";
 import knowledgeTreeRouter from "../routes/knowledge-tree.js";
 import notebooksRouter from "../routes/notebooks.js";
 import notesRouter from "../routes/notes.js";
@@ -182,6 +183,10 @@ export function wrapKnowledgeRoute(path: string, subApp: Hono<any>): Hono<any> {
 
   const wrapper = new Hono<any>();
   wrapper.use("*", middleware);
+  if (normalized === "/api/files") {
+    // Keep the release branch orphan/source-note visibility correction after access filtering.
+    wrapper.use("*", fileOrphanVisibilityMiddleware);
+  }
   wrapper.route("/", subApp);
   guardedPaths(wrapper as RouterLike).add(normalized);
   return wrapper;

@@ -29,9 +29,10 @@ vi.mock("@/lib/draftStorage", () => ({
   clearDraft: fixture.clearDraft,
 }));
 
-vi.mock("@/lib/api.impl", () => ({
-  getBaseUrl: () => "/api",
-}));
+vi.mock("@/lib/api.impl", async () => {
+  const { createApiImplMock } = await import("@/lib/__tests__/testApiImplMock");
+  return createApiImplMock();
+});
 
 vi.mock("../TiptapEditor", async () => {
   const ReactModule = await import("react");

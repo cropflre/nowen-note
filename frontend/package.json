@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:web": "npm run build && node ../scripts/precompress-frontend.mjs",
+    "analyze:bundle": "node ../scripts/analyze-frontend-bundle.mjs",
+    "verify:bundle": "node ../scripts/analyze-frontend-bundle.mjs --enforce",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",

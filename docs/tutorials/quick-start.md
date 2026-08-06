@@ -65,19 +65,25 @@ npm install
 
 # 前后端依赖与原生模块
 npm run install:all
+
+# 一键启动前端与后端
+npm run dev
 ```
 
-分别启动两个终端：
+默认地址：
+
+- 前端：`http://localhost:5173`
+- 后端：`http://127.0.0.1:3001`
+
+`npm run dev` 会先检查这两个端口。如果端口已经被其他程序监听，启动器会直接强制结束对应进程树，确认端口释放后再启动前后端。Windows 使用 `taskkill /T /F`，Linux、WSL 和 macOS 使用强制终止信号。
+
+需要使用自定义端口时：
 
 ```bash
-npm run dev:backend
+NOWEN_DEV_FRONTEND_PORT=5174 NOWEN_DEV_BACKEND_PORT=3002 npm run dev
 ```
 
-```bash
-npm run dev:frontend
-```
-
-打开 `http://localhost:5173`。
+> 该命令会强制结束指定端口上的监听程序。运行前请确认这些端口没有承载需要保留的其他服务。
 
 更多安装方式见[完整部署指南](../deployment.md)。
 

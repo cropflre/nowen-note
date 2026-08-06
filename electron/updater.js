@@ -1,19 +1,24 @@
 // electron/updater.js
 //
-// Nowen Note 桌面端应用内更新状态机：
-//   idle -> checking -> available -> downloading -> downloaded -> installing
-//                        \-> not-available / error
+// Nowen Note 桌面端应用更新状态机：
+//   Windows/Linux: idle -> checking -> available -> downloading -> downloaded -> installing
+//   macOS:         idle -> checking -> available -> browser manual download
 //
 // 设计原则：
 //   - 仅使用 electron-builder 固定的官方 GitHub Release provider；renderer 无法传入 URL。
 //   - 禁止预发布版与降级，版本比较、平台/架构选择、SHA-512 校验交给 electron-updater。
 //   - 检测到版本后先由应用内 UI 征得用户同意，再开始下载（autoDownload=false）。
+//   - macOS 暂停应用内下载和静默安装：用户确认更新后，由系统浏览器打开对应 Release。
 //   - 兼容旧 preload：继续复用 updater:check / updater:quit-and-install 两个 IPC。
-//     updater:check 会根据当前状态执行“检查 / 开始下载 / 失败重试 / 退出时安装”。
 //   - 安装前广播 preparing-install，让 renderer 有时间触发编辑器立即保存和队列落盘。
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const {
+  buildReleaseDownloadUrl,
+  isManualDownloadPlatform,
+  withManualDownloadNotice,
+} = require("./updaterPolicy");
 
 let autoUpdater = null;
 try {
@@ -45,6 +50,8 @@ let state = {
   bytesPerSecond: 0,
   checkedAt: null,
   installOnQuit: false,
+  manualDownload: isManualDownloadPlatform(),
+  downloadUrl: "",
   message: "",
   errorStage: null,
   platform: process.platform,
@@ -141,10 +148,13 @@ function broadcast(status, patch = {}) {
 }
 
 function infoPayload(info) {
+  const releaseNotes = normalizeReleaseNotes(info?.releaseNotes);
   return {
     version: typeof info?.version === "string" ? info.version : null,
     releaseName: typeof info?.releaseName === "string" ? info.releaseName.slice(0, 300) : "",
-    releaseNotes: normalizeReleaseNotes(info?.releaseNotes),
+    releaseNotes: isManualDownloadPlatform()
+      ? withManualDownloadNotice(releaseNotes).slice(0, 5000)
+      : releaseNotes,
     releaseDate: typeof info?.releaseDate === "string" ? info.releaseDate : "",
     fileSize: pickFileSize(info),
   };
@@ -156,6 +166,46 @@ function isStableVersion(version) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function currentDownloadUrl() {
+  return buildReleaseDownloadUrl(state.version || availableInfo?.version);
+}
+
+async function openManualDownloadPage() {
+  const url = currentDownloadUrl();
+  try {
+    await shell.openExternal(url);
+    return {
+      ok: true,
+      external: true,
+      url,
+      state: broadcast("available", {
+        phase: "update-available",
+        manualDownload: true,
+        downloadUrl: url,
+        installOnQuit: false,
+        message: "已打开浏览器，请下载对应芯片版本并手动安装",
+        errorStage: null,
+      }),
+    };
+  } catch (error) {
+    const message = sanitizeError(error);
+    console.error("[updater] open manual download page failed:", message);
+    return {
+      ok: false,
+      reason: message,
+      url,
+      state: broadcast("error", {
+        phase: "error",
+        manualDownload: true,
+        downloadUrl: url,
+        installOnQuit: false,
+        message: `无法打开浏览器：${message}`,
+        errorStage: "download",
+      }),
+    };
+  }
 }
 
 /**
@@ -270,6 +320,7 @@ async function downloadAvailableUpdate() {
   if (!autoUpdater || !availableInfo) {
     return { ok: false, reason: "no-update-available", state: publicState() };
   }
+  if (isManualDownloadPlatform()) return openManualDownloadPage();
   if (downloadPromise) return downloadPromise;
   if (state.status === "downloaded") return { ok: true, state: publicState() };
 
@@ -309,6 +360,14 @@ async function downloadAvailableUpdate() {
 }
 
 function armInstallOnQuit() {
+  if (isManualDownloadPlatform()) {
+    return {
+      ok: false,
+      reason: "manual-download-required",
+      url: currentDownloadUrl(),
+      state: publicState(),
+    };
+  }
   if (!autoUpdater || state.status !== "downloaded") {
     return { ok: false, reason: "update-not-downloaded", state: publicState() };
   }
@@ -322,6 +381,7 @@ function armInstallOnQuit() {
 }
 
 async function installNow(opts = {}) {
+  if (isManualDownloadPlatform()) return openManualDownloadPage();
   if (!autoUpdater || state.status !== "downloaded") {
     return { ok: false, reason: "update-not-downloaded", state: publicState() };
   }
@@ -377,6 +437,7 @@ function registerIpc(opts, disabled) {
     if (disabled) return { ok: false, reason: disabled, state: publicState() };
 
     // 兼容旧 preload 的单一 checkForUpdates()：按状态推进下一步。
+    // macOS 的 available 分支会打开系统浏览器，不进入 downloadUpdate/quitAndInstall。
     if (state.status === "available") return downloadAvailableUpdate();
     if (state.status === "downloaded") return armInstallOnQuit();
     if (state.status === "error" && lastErrorStage === "download" && availableInfo) {
@@ -435,6 +496,8 @@ function initAutoUpdater(opts = {}) {
     }
     availableInfo = info;
     backupPrepared = false;
+    const manualDownload = isManualDownloadPlatform();
+    const downloadUrl = manualDownload ? buildReleaseDownloadUrl(info.version) : "";
     broadcast("available", {
       phase: "update-available",
       ...infoPayload(info),
@@ -444,7 +507,11 @@ function initAutoUpdater(opts = {}) {
       bytesPerSecond: 0,
       checkedAt: new Date().toISOString(),
       installOnQuit: false,
-      message: "发现新版本",
+      manualDownload,
+      downloadUrl,
+      message: manualDownload
+        ? "发现新版本，点击更新后将打开浏览器下载安装包"
+        : "发现新版本",
       errorStage: null,
     });
   });
@@ -458,12 +525,17 @@ function initAutoUpdater(opts = {}) {
       releaseNotes: "",
       fileSize: null,
       checkedAt: new Date().toISOString(),
+      installOnQuit: false,
+      manualDownload: isManualDownloadPlatform(),
+      downloadUrl: "",
       message: "已是最新版本",
       errorStage: null,
     });
   });
 
   autoUpdater.on("download-progress", (progress) => {
+    // 理论上 macOS 不会进入该事件；保留防御，避免旧缓存/第三方调用污染状态。
+    if (isManualDownloadPlatform()) return;
     broadcast("downloading", {
       phase: "downloading",
       percent: Number(progress?.percent) || 0,
@@ -476,6 +548,22 @@ function initAutoUpdater(opts = {}) {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
+    if (isManualDownloadPlatform()) {
+      availableInfo = info || availableInfo;
+      autoUpdater.autoInstallOnAppQuit = false;
+      broadcast("available", {
+        phase: "update-available",
+        ...infoPayload(info || availableInfo),
+        percent: 0,
+        transferred: 0,
+        installOnQuit: false,
+        manualDownload: true,
+        downloadUrl: currentDownloadUrl(),
+        message: "macOS 暂不支持客户端内安装，请前往浏览器下载",
+        errorStage: null,
+      });
+      return;
+    }
     availableInfo = info || availableInfo;
     autoUpdater.autoInstallOnAppQuit = false;
     broadcast("downloaded", {
@@ -501,7 +589,7 @@ function initAutoUpdater(opts = {}) {
   });
 
   app.on("before-quit", () => {
-    if (state.status === "downloaded" && state.installOnQuit) {
+    if (!isManualDownloadPlatform() && state.status === "downloaded" && state.installOnQuit) {
       backupDatabaseBeforeUpdate();
     }
   });
@@ -510,7 +598,7 @@ function initAutoUpdater(opts = {}) {
   // 自动检查由 renderer 在主 UI 挂载并读取用户偏好后触发，避免启动阶段丢事件。
 }
 
-/** 系统菜单“检查更新”：只检查，不会因当前 available 状态误触发下载。 */
+/** 系统菜单“检查更新”：只检查；macOS 已发现更新时打开浏览器下载页。 */
 async function checkForUpdatesManually() {
   const disabled = updaterDisabledReason();
   if (disabled) {
@@ -527,6 +615,10 @@ async function checkForUpdatesManually() {
   }
 
   if (state.status === "available") {
+    if (isManualDownloadPlatform()) {
+      await openManualDownloadPage();
+      return;
+    }
     broadcast("available", { ...state, manual: true });
     return;
   }
