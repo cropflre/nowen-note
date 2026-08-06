@@ -96,6 +96,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const isRegister = mode === "register";
   const isTwoFactorStep = loginStep === "twoFactor";
   const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
+  const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
+  const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
 
   useEffect(() => {
     const desktop = (window as any).nowenDesktop;
@@ -254,11 +256,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const submitDisabled = useMemo(() => {
     if (isLoading || isAuthorizingUgreen) return true;
     if (isTwoFactorStep) return false;
+    // 绿联远程域名需要先在绿联网关页面完成认证；本地表单账号不会提交给网关。
+    if (!isRegister && isMobileUgreenAddress) return false;
     if (!username.trim() || !password) return true;
     if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isRegister, isTwoFactorStep, password, serverParts.host, username]);
+  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, serverParts.host, username]);
 
   const serverStatusIcon = () => {
     if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
@@ -271,6 +275,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     if (!isClientMode) return;
     const url = buildServerUrl(serverParts);
     if (!url) return;
+    // UGREENlink 的远程 Docker 域名会先跳转到网关认证页，不能按普通 API 健康检查判失败。
+    if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
+      setServerStatus("ok");
+      setServerUrl(url);
+      localStorage.setItem("nowen-server-url-last", url);
+      return;
+    }
     setServerStatus("checking");
     const result = await testServerConnection(url);
     setServerStatus(result.ok ? "ok" : "fail");
@@ -288,6 +299,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setError("");
     try {
       await openUgreenRemoteWorkspace(url);
+      // Android/iOS 使用系统安全浏览器打开远程工作台，不会收到 Electron 网关事件。
+      // Browser.open 返回后立即释放本地等待态，避免回到 App 时按钮永久转圈。
+      if (isNativeMobileClient) {
+        pendingUgreenLoginRef.current = false;
+        setIsAuthorizingUgreen(false);
+        setServerStatus("ok");
+      }
     } catch (openError) {
       console.error("[login] failed to open UGREEN authentication", openError);
       pendingUgreenLoginRef.current = false;
@@ -302,6 +320,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     const url = buildServerUrl(serverParts);
     if (!url) {
       setError(t("auth.serverRequired"));
+      return null;
+    }
+    // Android 原生 HTTP 无法完成绿联网关的交互式 302 认证。
+    // 对可信 UGREENlink 域名直接打开远程 Web 工作台，且不发送 Nowen 账号密码。
+    if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
+      setServerStatus("ok");
+      setServerUrl(url);
+      localStorage.setItem("nowen-server-url-last", url);
+      await beginUgreenAuthorization(url);
       return null;
     }
     setServerStatus("checking");
@@ -783,7 +810,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             >
               {isLoading || isAuthorizingUgreen
                 ? <Loader2 className="w-4 h-4 animate-spin" />
-                : isRegister ? t("auth.registerButton") : t("auth.loginButton")}
+                : isRegister
+                  ? t("auth.registerButton")
+                  : isMobileUgreenAddress
+                    ? t("auth.ugreenAccess.button")
+                    : t("auth.loginButton")}
               {isAuthorizingUgreen && <span className="ml-2">{t("auth.ugreenAccess.authorizing")}</span>}
             </button>
             </>

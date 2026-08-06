@@ -327,8 +327,29 @@ function compact(queue: Op[], operation: Op): Op[] {
   return [...queue, operation];
 }
 
+const NATIVE_METHODS = [
+  "getTasks", "getTaskStats", "createTask", "updateTask", "toggleTask", "deleteTask",
+  "getHabits", "getHabitStats", "getHabitCheckinLog", "createHabit", "updateHabit",
+  "archiveHabit", "deleteHabit", "checkInHabit",
+] as const;
+
 export function installTaskOfflineApi(api: any, options: Options) {
   if (api[FLAG]) return api[FLAG] as { flush: () => Promise<void>; pending: () => number };
+
+  // 该函数在 api.ts 模块顶层执行，导入 api 的任意模块都会触发它。若传入的 api
+  // 缺少任务/习惯方法（精简运行时、被裁剪的测试替身等），直接 .bind() 会抛
+  // TypeError 并让整条导入链在渲染前崩溃。此处降级为跳过安装：调用方拿到
+  // no-op controller，原生方法保持不变，离线队列能力关闭而非整个应用挂掉。
+  const missing = NATIVE_METHODS.filter((name) => typeof api?.[name] !== "function");
+  if (missing.length > 0) {
+    if (typeof console !== "undefined") {
+      console.warn(`[task-offline] 缺少 ${missing.join(", ")}，跳过离线任务安装`);
+    }
+    const noop = { flush: async () => {}, pending: () => 0 };
+    if (api) api[FLAG] = noop;
+    return noop;
+  }
+
   const native: NativeApi = {
     getTasks: api.getTasks.bind(api), getTaskStats: api.getTaskStats.bind(api),
     createTask: api.createTask.bind(api), updateTask: api.updateTask.bind(api),

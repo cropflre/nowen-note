@@ -131,7 +131,21 @@ test("specific-user notebook share receives a revocable attachment URL", async (
   const beforeRemoval = await app.request(signedRoute(signedUrl));
   assert.equal(beforeRemoval.status, 200);
   assert.equal(beforeRemoval.headers.get("content-type"), "application/pdf");
-  assert.equal(beforeRemoval.headers.get("cache-control"), "private, no-store, no-transform");
+  // no-cache（而非 no-store）：浏览器可留副本，但每次使用前必须回源复核授权。
+  assert.equal(
+    beforeRemoval.headers.get("cache-control"),
+    "private, no-cache, must-revalidate, no-transform",
+  );
+  // 附件内容由 id 唯一确定，因此提供稳定 ETag 供条件请求复用。
+  const contentEtag = beforeRemoval.headers.get("etag");
+  assert.ok(contentEtag, "附件本体应带 ETag 以支持 304 复用");
+
+  // 授权仍在时，条件请求应命中 304 且不重传实体。
+  const revalidated = await app.request(signedRoute(signedUrl), {
+    headers: { "If-None-Match": contentEtag as string },
+  });
+  assert.equal(revalidated.status, 304);
+  assert.equal(await revalidated.text(), "", "304 不应携带响应体");
 
   db().prepare("DELETE FROM notebook_members WHERE notebookId = ? AND userId = ?")
     .run(NOTEBOOK_ID, RECIPIENT_ID);
@@ -141,6 +155,17 @@ test("specific-user notebook share receives a revocable attachment URL", async (
   const denied = await responseJson<{ code: string; reason: string }>(afterRemoval);
   assert.equal(denied.code, "ATTACHMENT_ACCESS_REVOKED");
   assert.equal(denied.reason, "user_access_revoked");
+
+  // 关键：带着此前拿到的有效 ETag 再来，也必须被拒绝，不能因条件请求而回 304。
+  // 否则允许本地副本就等于放宽了撤销的即时性。
+  const revalidateAfterRemoval = await app.request(signedRoute(signedUrl), {
+    headers: { "If-None-Match": contentEtag as string },
+  });
+  assert.equal(
+    revalidateAfterRemoval.status,
+    403,
+    "授权撤销后条件请求必须同样被拒绝，不得返回 304",
+  );
 });
 
 test("authenticated upload immediately returns a signed display URL", async () => {

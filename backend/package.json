@@ -1,6 +1,6 @@
 {
   "name": "nowen-note-backend",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "scripts": {
     "dev": "tsx watch src/index.hardened.ts",
     "build": "node build.bundle.mjs",
@@ -8,16 +8,11 @@
     "start": "node dist/index.js",
     "test": "node --import tsx --import ./tests/setup-db-isolation.ts --test tests/*.test.ts",
     "test:serial": "node scripts/run-tests-serial.mjs",
-    "audit:sqlite-boundaries": "node scripts/audit-direct-db-access.mjs --report-json /tmp/direct-db-access-report.json && node scripts/check-direct-db-access-baseline.mjs /tmp/direct-db-access-report.json",
-    "report:sqlite-boundaries": "node scripts/audit-direct-db-access.mjs --report-json direct-db-access-report.json --report-md direct-db-access-report.md",
-    "audit:pg-schema-parity": "node scripts/check-pg-schema-parity.mjs --report-json /tmp/pg-schema-parity-report.json",
     "fixture:phase-b": "node scripts/phase-b-notebook-fixture.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "node ../scripts/rebuild-native.mjs --prebuild=true",
     "migrate:inline-images": "node ../scripts/migrate-inline-images-to-attachments.mjs",
-    "migrate:inline-images:apply": "node ../scripts/migrate-inline-images-to-attachments.mjs --apply",
-    "migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
-    "migrate:sqlite-to-postgres:drill": "tsx scripts/drill-sqlite-to-postgres.ts"
+    "migrate:inline-images:apply": "node ../scripts/migrate-inline-images-to-attachments.mjs --apply"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

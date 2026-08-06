@@ -110,7 +110,11 @@ test("video attachments can be uploaded and previewed inline", async () => {
   assert.equal(inlineRes.status, 200);
   assert.equal(inlineRes.headers.get("content-type"), "video/mp4");
   assert.equal(inlineRes.headers.get("content-disposition"), null);
-  assert.equal(inlineRes.headers.get("cache-control"), "private, no-store, no-transform");
+  // no-cache 而非 no-store：允许浏览器留副本，但每次使用前必须回源复核授权。
+  assert.equal(
+    inlineRes.headers.get("cache-control"),
+    "private, no-cache, must-revalidate, no-transform",
+  );
 });
 
 test("empty Android MIME is normalized from a known video extension", async () => {
