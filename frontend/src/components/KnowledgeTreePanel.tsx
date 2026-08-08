@@ -38,6 +38,7 @@ import {
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { api } from "@/lib/api";
+import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
   defaultInlineCreateTitle,
   normalizeInlineCreateTitle,
@@ -734,7 +735,15 @@ export function KnowledgeTreePanel({
       if (!ok) return;
     }
     try {
-      await knowledgeTreeApi.remove(node.id, mode);
+      const deleted = await knowledgeTreeApi.remove(node.id, mode);
+      const deletedNoteIds = affectedKnowledgeNoteIds(nodes, deleted.affectedNodeIds);
+      for (const noteId of deletedNoteIds) {
+        actions.removeNoteFromList(noteId);
+        actions.removeNoteTab(noteId);
+      }
+      if (state.activeNote && deletedNoteIds.includes(state.activeNote.id)) {
+        actions.setActiveNote(null);
+      }
       emitTreeChanged("node-deleted");
       await reload();
       actions.refreshNotebooks();

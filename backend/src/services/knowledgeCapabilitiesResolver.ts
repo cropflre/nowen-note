@@ -37,6 +37,16 @@ type AclRow = {
   depth: number;
 };
 
+type KnowledgeAccessResolveOptions = {
+  /**
+   * Evaluate the ACL attached to a soft-deleted knowledge-tree node.
+   *
+   * This is intentionally opt-in. Normal reads/edits must keep tombstones hidden;
+   * only recycle-bin listing, restore and permanent-delete flows should enable it.
+   */
+  includeDeleted?: boolean;
+};
+
 const NONE: KnowledgeCapabilities = {
   canView: false,
   canComment: false,
@@ -159,15 +169,20 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) 
  * 4. If a restricted boundary exists and no eligible allow is found, workspace
  *    membership must not fall back to read access.
  * 5. Without a restricted boundary, legacy workspace/notebook permissions remain.
+ *
+ * Soft-deleted nodes are denied by default. Recycle-bin lifecycle code can opt in
+ * to evaluating the same ownership/ACL/deny/restricted rules against the tombstone
+ * via includeDeleted; this does not make the resource visible to ordinary reads.
  */
 export function resolveKnowledgeNodeAccess(
   nodeId: string,
   userId: string,
   db: Database.Database = getDb(),
+  options: KnowledgeAccessResolveOptions = {},
 ): EffectiveKnowledgeAccess {
   ensureKnowledgeTreeTables(db);
   const node = readNode(db, nodeId);
-  if (!node || node.isDeleted) return noAccess(nodeId);
+  if (!node || (node.isDeleted && !options.includeDeleted)) return noAccess(nodeId);
 
   const ownsPersonalNode = !node.workspaceId && node.userId === userId;
   const ownsWorkspace = !!node.workspaceId && workspaceOwnerId(db, node.workspaceId) === userId;
@@ -218,6 +233,20 @@ export function resolveKnowledgeNodeAccess(
   };
 }
 
+function resourceNode(
+  db: Database.Database,
+  resourceType: TreeNodeRow["resourceType"],
+  resourceId: string,
+): TreeNodeRow | null {
+  return (db.prepare(`
+    SELECT id, userId, workspaceId, parentId, resourceType, resourceId, isDeleted
+    FROM knowledge_tree_nodes
+    WHERE resourceType = ? AND resourceId = ?
+    ORDER BY isDeleted ASC, updatedAt DESC
+    LIMIT 1
+  `).get(resourceType, resourceId) as TreeNodeRow | undefined) || null;
+}
+
 export function resolveResourceKnowledgeAccess(
   resourceType: TreeNodeRow["resourceType"],
   resourceId: string,
@@ -225,12 +254,26 @@ export function resolveResourceKnowledgeAccess(
   db: Database.Database = getDb(),
 ): EffectiveKnowledgeAccess {
   ensureKnowledgeTreeTables(db);
-  const node = (db.prepare(`
-    SELECT id, userId, workspaceId, parentId, resourceType, resourceId, isDeleted
-    FROM knowledge_tree_nodes
-    WHERE resourceType = ? AND resourceId = ?
-    ORDER BY isDeleted ASC, updatedAt DESC
-    LIMIT 1
-  `).get(resourceType, resourceId) as TreeNodeRow | undefined) || null;
+  const node = resourceNode(db, resourceType, resourceId);
   return node ? resolveKnowledgeNodeAccess(node.id, userId, db) : noAccess("");
+}
+
+/**
+ * Resolve permissions for a resource that is already soft deleted.
+ *
+ * Keep this separate from resolveResourceKnowledgeAccess so ordinary callers can
+ * never accidentally surface tombstones. Use only for recycle-bin lifecycle
+ * operations where the user still has to pass the original ACL checks.
+ */
+export function resolveResourceKnowledgeAccessForTombstone(
+  resourceType: TreeNodeRow["resourceType"],
+  resourceId: string,
+  userId: string,
+  db: Database.Database = getDb(),
+): EffectiveKnowledgeAccess {
+  ensureKnowledgeTreeTables(db);
+  const node = resourceNode(db, resourceType, resourceId);
+  return node
+    ? resolveKnowledgeNodeAccess(node.id, userId, db, { includeDeleted: true })
+    : noAccess("");
 }

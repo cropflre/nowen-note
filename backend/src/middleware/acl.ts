@@ -18,6 +18,7 @@ import {
 import {
   capabilitiesToLegacyPermission,
   resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
 } from "../services/knowledgeCapabilities";
 import { noteAclRepository, workspaceMembersRepository } from "../repositories";
 
@@ -134,6 +135,37 @@ export function resolveNotePermission(
   const role = getUserWorkspaceRole(note.workspaceId, userId);
   if (!role) return { permission: null, workspaceId: note.workspaceId, noteOwnerId: note.userId };
   return { permission: roleToPermission(role), workspaceId: note.workspaceId, noteOwnerId: note.userId };
+}
+
+/**
+ * 解析已进入回收站笔记的生命周期权限。
+ *
+ * 普通 resolveNotePermission 继续严格隐藏 tombstone；只有恢复和永久删除
+ * 这类删除生命周期操作显式调用本函数。权限仍来自同一套 Knowledge ACL，
+ * 因而 Restricted / explicit deny / owner-admin 语义不会被绕过。
+ */
+export function resolveTrashedNotePermission(
+  noteId: string,
+  userId: string,
+): { permission: Permission | null; workspaceId: string | null; noteOwnerId: string | null } {
+  const db = getDb();
+  const note = db
+    .prepare("SELECT userId, workspaceId FROM notes WHERE id = ?")
+    .get(noteId) as { userId: string; workspaceId: string | null } | undefined;
+
+  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccessForTombstone("note", noteId, userId, db);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: note.workspaceId,
+      noteOwnerId: note.userId,
+    };
+  }
+
+  // 尚未生成统一知识树节点的历史资源继续沿用旧 ACL 回退。
+  return resolveNotePermission(noteId, userId);
 }
 
 /**

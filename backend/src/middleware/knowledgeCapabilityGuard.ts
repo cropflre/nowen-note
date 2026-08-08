@@ -3,11 +3,13 @@ import type { Context, Next } from "hono";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
   type KnowledgeCapabilityName,
 } from "../services/knowledgeCapabilities.js";
 
 const UUID_SEGMENT = "([0-9a-fA-F-]{36})";
 type GuardedResourceType = "note" | "notebook";
+type ResourceAccessOptions = { includeDeleted?: boolean };
 
 function forbidden(c: Context, required: KnowledgeCapabilityName, nodeId: string) {
   return c.json({
@@ -27,8 +29,11 @@ function resourceAccess(
   resourceId: string,
   userId: string,
   capability: KnowledgeCapabilityName,
+  options: ResourceAccessOptions = {},
 ) {
-  const access = resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
+  const access = options.includeDeleted
+    ? resolveResourceKnowledgeAccessForTombstone(resourceType, resourceId, userId)
+    : resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
   return { access, allowed: hasKnowledgeCapability(access, capability) };
 }
 
@@ -52,6 +57,10 @@ function notebookIdFromPath(path: string): string | null {
  * Legacy list routes query by workspace membership. Post-filter their JSON arrays
  * through the unified knowledge capability resolver so restricted descendants do
  * not leak into sidebar caches, search results or offline synchronization.
+ *
+ * Recycle-bin note rows are a special lifecycle view: their knowledge-tree node
+ * is intentionally tombstoned, but the user still needs the pre-delete ACL to
+ * view/restore/delete it. Only those rows opt into tombstone-aware resolution.
  */
 async function filterCollectionResponse(
   c: Context,
@@ -76,7 +85,9 @@ async function filterCollectionResponse(
     const id = row && typeof row === "object" && typeof (row as any).id === "string"
       ? (row as any).id
       : "";
-    return id && resourceAccess(resourceType, id, userId, "canView").allowed;
+    if (!id) return false;
+    const includeDeleted = resourceType === "note" && Number((row as any).isTrashed) === 1;
+    return resourceAccess(resourceType, id, userId, "canView", { includeDeleted }).allowed;
   });
 
   if (filtered.length === payload.length) return;
@@ -128,7 +139,9 @@ export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
   }
 
   if (method === "DELETE") {
-    const checked = resourceAccess("note", noteId, userId, "canManageMembers");
+    // Permanent delete is a recycle-bin lifecycle action. The tree node may
+    // already be tombstoned, so evaluate the original ACL without resurfacing it.
+    const checked = resourceAccess("note", noteId, userId, "canManageMembers", { includeDeleted: true });
     return checked.allowed ? next() : forbidden(c, "canManageMembers", checked.access.nodeId);
   }
 
@@ -151,7 +164,11 @@ export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
   if (body.isFavorite !== undefined && requirements.size === 0) requirements.add("canView");
 
   for (const capability of requirements) {
-    const checked = resourceAccess("note", noteId, userId, capability);
+    // Soft-delete and restore share the isTrashed field. On restore the resource
+    // is already a tombstone, so only this lifecycle capability may look through
+    // the deleted marker. Edit/move/manage checks remain strict.
+    const includeDeleted = capability === "canDelete" && body.isTrashed !== undefined;
+    const checked = resourceAccess("note", noteId, userId, capability, { includeDeleted });
     if (!checked.allowed) return forbidden(c, capability, checked.access.nodeId);
   }
   if (typeof body.notebookId === "string" && body.notebookId) {

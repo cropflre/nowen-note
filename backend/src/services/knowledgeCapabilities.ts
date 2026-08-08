@@ -20,4 +20,5 @@ export {
 export {
   resolveKnowledgeNodeAccess,
   resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
 } from "./knowledgeCapabilitiesResolver.js";

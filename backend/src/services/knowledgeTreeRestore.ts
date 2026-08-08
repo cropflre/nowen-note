@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
-import { resolveKnowledgeNodeAccess } from "./knowledgeCapabilities.js";
+import { resolveResourceKnowledgeAccessForTombstone } from "./knowledgeCapabilities.js";
 import { KnowledgeTreeError } from "./knowledgeTreeCore.js";
 
 type RestorableNode = {
@@ -16,16 +16,15 @@ type RestorableNode = {
 };
 
 function canRestoreRoot(db: Database.Database, node: RestorableNode, actorUserId: string): boolean {
-  if (!node.workspaceId) return node.userId === actorUserId;
-  const workspace = db.prepare("SELECT ownerId FROM workspaces WHERE id = ?").get(node.workspaceId) as
-    | { ownerId: string }
-    | undefined;
-  if (workspace?.ownerId === actorUserId) return true;
-  const member = db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-    .get(node.workspaceId, actorUserId) as { role: string } | undefined;
-  if (member?.role === "owner" || member?.role === "admin") return true;
-  if (!node.parentId) return false;
-  return resolveKnowledgeNodeAccess(node.parentId, actorUserId, db).capabilities.canDelete;
+  // Restore is a tombstone lifecycle operation. Evaluate the deleted resource's
+  // own effective ACL (including explicit deny/restricted boundaries) instead of
+  // inferring permission from the nearest surviving parent.
+  return resolveResourceKnowledgeAccessForTombstone(
+    node.resourceType,
+    node.resourceId,
+    actorUserId,
+    db,
+  ).capabilities.canDelete;
 }
 
 function readSubtree(db: Database.Database, nodeId: string, includeSubtree: boolean): RestorableNode[] {

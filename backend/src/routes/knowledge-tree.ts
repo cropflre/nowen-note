@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createHash } from "node:crypto";
 
 import { getDb } from "../db/schema.js";
+import { broadcastNotesDeleted } from "../services/realtime.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
@@ -178,11 +179,40 @@ app.put("/reorder", async (c) => {
 app.delete("/nodes/:nodeId", (c) => {
   try {
     const mode = c.req.query("mode") === "promote" ? "promote" : "subtree";
-    return c.json(deleteKnowledgeNode({
-      actorUserId: userIdOf(c),
-      nodeId: c.req.param("nodeId"),
+    const actorUserId = userIdOf(c);
+    const nodeId = c.req.param("nodeId");
+    const db = getDb();
+    const scope = db.prepare("SELECT workspaceId FROM knowledge_tree_nodes WHERE id = ?")
+      .get(nodeId) as { workspaceId: string | null } | undefined;
+    const result = deleteKnowledgeNode({
+      actorUserId,
+      nodeId,
       mode,
-    }));
+      db,
+    });
+
+    // DELETE /knowledge-tree returns tree-node ids. Resolve the affected
+    // note resource ids after the soft delete (tree rows intentionally
+    // remain as tombstones) and reuse the existing privacy-safe batch
+    // realtime event: the actor receives exact ids, workspace peers only
+    // receive a generic invalidation signal.
+    if (result.affectedNodeIds.length > 0) {
+      const placeholders = result.affectedNodeIds.map(() => "?").join(",");
+      const affectedNotes = db.prepare(`
+        SELECT resourceId FROM knowledge_tree_nodes
+        WHERE resourceType = 'note' AND id IN (${placeholders})
+      `).all(...result.affectedNodeIds) as Array<{ resourceId: string }>;
+      broadcastNotesDeleted(
+        Array.from(new Set(affectedNotes.map((row) => row.resourceId).filter(Boolean))),
+        {
+          actorUserId,
+          ...(scope?.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+          trashed: true,
+        },
+      );
+    }
+
+    return c.json(result);
   } catch (error) {
     return mapError(c, error);
   }

@@ -6,6 +6,7 @@ import { emitWebhook } from "../services/webhook";
 import { logAudit } from "../services/audit";
 import {
   resolveNotePermission,
+  resolveTrashedNotePermission,
   resolveNotebookPermission,
   hasPermission,
   getUserWorkspaceRole,
@@ -670,8 +671,12 @@ app.put("/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
 
-  // 权限校验
-  const { permission, workspaceId: noteWorkspaceId } = resolveNotePermission(id, userId);
+  // 权限校验。恢复操作发生时知识树节点已经是 tombstone，必须显式使用
+  // 删除生命周期权限桥；其它编辑/软删仍保持普通严格权限。
+  const notePermissionResolver = body.isTrashed === 0
+    ? resolveTrashedNotePermission
+    : resolveNotePermission;
+  const { permission, workspaceId: noteWorkspaceId } = notePermissionResolver(id, userId);
 
   // 根据变更字段决定所需权限
   const writeFields = ["title", "content", "contentText", "contentFormat", "notebookId", "isPinned", "isFavorite",
@@ -1469,7 +1474,8 @@ app.delete("/:id", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const { permission } = resolveNotePermission(id, userId);
+  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
+  const { permission } = resolveTrashedNotePermission(id, userId);
   if (!hasPermission(permission, "manage")) {
     // editor 不能永久删除，只能放入回收站
     return c.json({ error: "仅笔记 owner 或工作区管理员可永久删除", code: "FORBIDDEN" }, 403);
