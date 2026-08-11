@@ -1,0 +1,101 @@
+name: Apply SignPath Legacy Guard
+
+on:
+  push:
+    branches:
+      - codex/github-signpath-windows-update-signing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/github-signpath-windows-update-signing
+          fetch-depth: 0
+
+      - name: Apply targeted release guard patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          legacy_path = Path('scripts/release-legacy.sh')
+          legacy = legacy_path.read_text(encoding='utf-8')
+          atomic_anchor = '# ===== 自动推断 --atomic（原子发布） ====='
+          if 'check-local-windows-publish-policy.mjs' not in legacy:
+              guard = '''# ===== 本地 Windows GitHub Release 签名守门 =====
+          # Windows Full/Lite 正式 Release 必须改走 Git tag / workflow dispatch，让
+          # GitHub Actions 完成 SignPath 签名。这里位于目标展开和 GitHub Release
+          # 自动推断之后、任何 preflight/tag/push 之前，因此交互式和显式目标共用
+          # 同一条失败关闭策略，非 Windows 本地发布保持原有行为。
+          if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+              _LOCAL_RELEASE_HOST="$(uname -s 2>/dev/null || echo unknown)"
+              if ! node "$REPO_ROOT/scripts/check-local-windows-publish-policy.mjs" \\
+                  --targets "$TARGETS" \\
+                  --pc-platforms "$PC_PLATFORMS" \\
+                  --host "$_LOCAL_RELEASE_HOST" \\
+                  --github-release 1; then
+                  die "本地未签名 Windows Full/Lite 不能发布到 GitHub Release。请推送 Git tag 或使用 workflow dispatch；本地调试可加 --no-github-release"
+              fi
+          fi
+
+          '''
+              if atomic_anchor not in legacy:
+                  raise SystemExit('atomic inference anchor not found')
+              legacy = legacy.replace(atomic_anchor, guard + atomic_anchor, 1)
+              legacy_path.write_text(legacy, encoding='utf-8')
+
+          wrapper_path = Path('scripts/release.sh')
+          wrapper = wrapper_path.read_text(encoding='utf-8')
+          wrapper = wrapper.replace('LOCAL_WINDOWS_POLICY_SCRIPT="${SCRIPT_DIR}/check-local-windows-publish-policy.mjs"\n', '')
+          wrapper = wrapper.replace('[ -f "$LOCAL_WINDOWS_POLICY_SCRIPT" ] || { echo "[release-guard] missing $LOCAL_WINDOWS_POLICY_SCRIPT" >&2; exit 1; }\n', '')
+          wrapper = wrapper.replace('PC_PLATFORMS=""\nGITHUB_RELEASE_EXPLICIT=-1\n', '')
+          wrapper = wrapper.replace('    --github-release) GITHUB_RELEASE_EXPLICIT=1 ;;\n    --no-github-release) GITHUB_RELEASE_EXPLICIT=0 ;;\n', '')
+          pc_case = '''    --pc-platform)
+              if (( i + 1 < ${#ARGS[@]} )); then
+                PC_PLATFORMS="${ARGS[$((i + 1))]}"
+                i=$((i + 1))
+              fi
+              ;;
+          '''
+          wrapper = wrapper.replace(pc_case, '')
+          start = wrapper.find('resolve_github_release_for_policy() {')
+          end_anchor = '# Linux desktop release artifacts contain better-sqlite3'
+          end = wrapper.find(end_anchor)
+          if start == -1 or end == -1 or end <= start:
+              raise SystemExit('wrapper policy block anchors not found')
+          wrapper = wrapper[:start] + wrapper[end:]
+          wrapper = wrapper.replace('#   2. block local publication of unsigned Windows Full/Lite artifacts;\n#   3. stage new GitHub Releases as drafts;\n#   4. download and verify remote updater metadata/assets before publishing;\n#   5. normalize release-only native/Android toolchains to supported baselines.\n', '#   2. stage new GitHub Releases as drafts;\n#   3. download and verify remote updater metadata/assets before publishing;\n#   4. normalize release-only native/Android toolchains to supported baselines.\n')
+          wrapper_path.write_text(wrapper, encoding='utf-8')
+
+          Path('.github/workflows/apply-signpath-legacy-guard.yml').unlink()
+          PY
+
+      - name: Verify targeted patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n "check-local-windows-publish-policy.mjs" scripts/release-legacy.sh
+          if grep -n "check-local-windows-publish-policy.mjs" scripts/release.sh; then
+            echo "wrapper still owns the Windows release guard" >&2
+            exit 1
+          fi
+          bash -n scripts/release.sh
+          bash -n scripts/release-legacy.sh
+          node --test scripts/tests/local-windows-publish-policy.test.cjs scripts/release-linux-app.test.mjs
+          git diff --check
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/release.sh scripts/release-legacy.sh .github/workflows/apply-signpath-legacy-guard.yml
+          git commit -m "fix(release): 在 legacy 推送前阻止未签名 Windows 包"
+          git push origin HEAD:codex/github-signpath-windows-update-signing
