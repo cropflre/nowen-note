@@ -5,22 +5,19 @@
 # wrapper adds release-safety invariants without duplicating the 2,800-line flow:
 #   1. clean the output directory selected for this run, preventing stale output
 #      from winning the legacy candidate-order lookup;
-#   2. block local publication of unsigned Windows Full/Lite artifacts;
-#   3. stage new GitHub Releases as drafts;
-#   4. download and verify remote updater metadata/assets before publishing;
-#   5. normalize release-only native/Android toolchains to supported baselines.
+#   2. stage new GitHub Releases as drafts;
+#   3. download and verify remote updater metadata/assets before publishing;
+#   4. normalize release-only native/Android toolchains to supported baselines.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_SCRIPT="${SCRIPT_DIR}/release-legacy.sh"
 VERIFY_SCRIPT="${SCRIPT_DIR}/verify-release-update-assets.mjs"
-LOCAL_WINDOWS_POLICY_SCRIPT="${SCRIPT_DIR}/check-local-windows-publish-policy.mjs"
 GITHUB_REPO_SLUG="cropflre/nowen-note"
 ANDROID_NODE22_IMAGE="cimg/android:2025.10.1-node"
 
 [ -f "$LEGACY_SCRIPT" ] || { echo "[release-guard] missing $LEGACY_SCRIPT" >&2; exit 1; }
-[ -f "$LOCAL_WINDOWS_POLICY_SCRIPT" ] || { echo "[release-guard] missing $LOCAL_WINDOWS_POLICY_SCRIPT" >&2; exit 1; }
 
 ARGS=("$@")
 DRY_RUN=0
@@ -30,8 +27,6 @@ HELP_ONLY=0
 ASSUME_YES=0
 TARGETS=""
 TARGETS_EXPLICIT=0
-PC_PLATFORMS=""
-GITHUB_RELEASE_EXPLICIT=-1
 ANDROID_DOCKER_REQUESTED=0
 ANDROID_DOCKER_SYNC_REQUESTED=0
 ANDROID_DOCKER_IMAGE_EXPLICIT=0
@@ -44,8 +39,6 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
     --draft) USER_REQUESTED_DRAFT=1 ;;
     -h|--help) HELP_ONLY=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
-    --github-release) GITHUB_RELEASE_EXPLICIT=1 ;;
-    --no-github-release) GITHUB_RELEASE_EXPLICIT=0 ;;
     --android-docker) ANDROID_DOCKER_REQUESTED=1 ;;
     --android-docker-sync) ANDROID_DOCKER_SYNC_REQUESTED=1 ;;
     --android-docker-image|--android-docker-image=*) ANDROID_DOCKER_IMAGE_EXPLICIT=1 ;;
@@ -64,50 +57,6 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
       ;;
   esac
 done
-
-resolve_github_release_for_policy() {
-  local targets="$1"
-  if [ "$GITHUB_RELEASE_EXPLICIT" = "1" ]; then
-    echo 1
-    return
-  fi
-  if [ "$GITHUB_RELEASE_EXPLICIT" = "0" ]; then
-    echo 0
-    return
-  fi
-  case ",${targets}," in
-    *,all,*|*,pc,*|*,linux-app,*|*,android,*|*,fpk,*|*,upk,*|*,lite,*|*,clipper,*) echo 1 ;;
-    *) echo 0 ;;
-  esac
-}
-
-check_local_windows_publish_policy() {
-  local policy_targets="$1"
-  local github_release
-  local host
-  github_release="$(resolve_github_release_for_policy "$policy_targets")"
-  host="$(uname -s 2>/dev/null || echo unknown)"
-  node "$LOCAL_WINDOWS_POLICY_SCRIPT" \
-    --targets "$policy_targets" \
-    --pc-platforms "$PC_PLATFORMS" \
-    --host "$host" \
-    --github-release "$github_release"
-}
-
-# 本地正式发布必须在进入 legacy preflight/tag/push 前完成签名策略判断。
-# 交互式向导无法在调用 legacy 前可靠知道最终 Windows 平台选择，因此默认
-# 禁止交互式 GitHub Release；仍可显式 --target 非 Windows 目标，或使用
-# --no-github-release 进行本地调试构建。
-if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ]; then
-  if [ "$TARGETS_EXPLICIT" = "1" ]; then
-    check_local_windows_publish_policy "$TARGETS"
-  elif [ "$ASSUME_YES" = "1" ]; then
-    check_local_windows_publish_policy "docker"
-  elif [ "$GITHUB_RELEASE_EXPLICIT" != "0" ]; then
-    echo "[release-policy] interactive GitHub Release is disabled because the final Windows target cannot be proven signed before legacy preflight. Specify --target explicitly, push a Git tag/use workflow dispatch for Windows, or use --no-github-release for local debug builds." >&2
-    exit 1
-  fi
-fi
 
 # Linux desktop release artifacts contain better-sqlite3, so their ABI must be
 # built against the project's glibc 2.31 / GLIBCXX 3.4.28 compatibility

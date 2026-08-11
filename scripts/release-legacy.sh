@@ -659,6 +659,22 @@ if [ "$DO_GITHUB_RELEASE" = "0" ] && [ "$NO_GITHUB_RELEASE_EXPLICIT" = "0" ] \
     DO_GITHUB_RELEASE=1
 fi
 
+# ===== 本地 Windows GitHub Release 签名守门 =====
+# Windows Full/Lite 正式 Release 必须改走 Git tag / workflow dispatch，让
+# GitHub Actions 完成 SignPath 签名。这里位于目标展开和 GitHub Release
+# 自动推断之后、任何 preflight/tag/push 之前，因此交互式和显式目标共用
+# 同一条失败关闭策略，非 Windows 本地发布保持原有行为。
+if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+    _LOCAL_RELEASE_HOST="$(uname -s 2>/dev/null || echo unknown)"
+    if ! node "$REPO_ROOT/scripts/check-local-windows-publish-policy.mjs" \
+        --targets "$TARGETS" \
+        --pc-platforms "$PC_PLATFORMS" \
+        --host "$_LOCAL_RELEASE_HOST" \
+        --github-release 1; then
+        die "本地未签名 Windows Full/Lite 不能发布到 GitHub Release。请推送 Git tag 或使用 workflow dispatch；本地调试可加 --no-github-release"
+    fi
+fi
+
 # ===== 自动推断 --atomic（原子发布） =====
 # 多端组合（任意 ≥2 个 target）时自动开启：
 # 先把所有构建完成，最后统一执行 docker push / git tag / GitHub Release，
