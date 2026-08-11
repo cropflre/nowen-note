@@ -193,6 +193,7 @@ jobs:
           artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800
           output-artifact-directory: signed-windows/full
 
       - name: Submit Lite Windows artifact to SignPath
@@ -206,6 +207,7 @@ jobs:
           artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800
           output-artifact-directory: signed-windows/lite
 
       - name: Export signed Windows Authenticode records

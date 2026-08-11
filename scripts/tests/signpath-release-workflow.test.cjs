@@ -42,6 +42,7 @@ test("SignPath receives GitHub artifact IDs and explicit release configuration",
     assert.match(source, new RegExp(`${name}:`));
   }
   assert.match(source, /wait-for-completion: true/);
+  assert.equal((source.match(/wait-for-completion-timeout-in-seconds: 10800/g) || []).length, 2);
   assert.match(source, /output-artifact-directory: signed-windows\/full/);
   assert.match(source, /output-artifact-directory: signed-windows\/lite/);
 });
@@ -70,7 +71,7 @@ test("publish job downloads only formal artifacts and publishes after remote ver
   assert.match(source, /nowen-note-win-unsigned/);
 
   const remoteIndex = publishSource.indexOf("verify-release-update-assets.mjs remote");
-  const publicIndex = publishSource.indexOf('gh release edit "$TAG" --draft=false');
+  const publicIndex = publishSource.indexOf('gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false');
   assert.ok(remoteIndex >= 0);
   assert.ok(publicIndex > remoteIndex);
 });
