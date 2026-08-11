@@ -8,6 +8,12 @@ const {
 
 const complete = Object.fromEntries(REQUIRED_SIGNPATH_CONFIG.map((name) => [name, `${name}-value`]));
 
+test("SignPath release config requires isolated Full and Lite Artifact Configurations", () => {
+  assert.ok(REQUIRED_SIGNPATH_CONFIG.includes("SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG"));
+  assert.ok(REQUIRED_SIGNPATH_CONFIG.includes("SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG"));
+  assert.ok(!REQUIRED_SIGNPATH_CONFIG.includes("SIGNPATH_ARTIFACT_CONFIGURATION_SLUG"));
+});
+
 test("SignPath release config reports only missing names, never values", () => {
   const env = {
     ...complete,
