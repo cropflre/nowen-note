@@ -1,0 +1,47 @@
+name: Fix SignPath Build Only Guard
+
+on:
+  push:
+    branches:
+      - codex/github-signpath-windows-update-signing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/github-signpath-windows-update-signing
+          fetch-depth: 0
+      - name: Patch build-only guard
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/release-legacy.sh')
+          source = path.read_text(encoding='utf-8')
+          old = 'if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ]; then'
+          new = 'if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ] && [ "$BUILD_ONLY" != "1" ]; then'
+          if source.count(old) != 1:
+              raise SystemExit(f'expected exactly one guard condition, found {source.count(old)}')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          Path('.github/workflows/fix-signpath-build-only-guard.yml').unlink()
+          PY
+      - name: Verify
+        run: |
+          set -euo pipefail
+          grep -nF 'if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ] && [ "$BUILD_ONLY" != "1" ]; then' scripts/release-legacy.sh
+          bash -n scripts/release-legacy.sh
+          git diff --check
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/release-legacy.sh .github/workflows/fix-signpath-build-only-guard.yml
+          git commit -m "fix(release): 保留 build-only 本地构建行为"
+          git push origin HEAD:codex/github-signpath-windows-update-signing
