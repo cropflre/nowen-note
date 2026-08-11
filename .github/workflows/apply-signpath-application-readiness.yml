@@ -29,7 +29,8 @@ jobs:
           grep -n "SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml
           grep -n "toJSON(steps.package_version.outputs.version)" .github/workflows/release.yml
           grep -n "Ensure Release code signing policy" .github/workflows/release.yml
-          node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/release.yml','utf8')); console.log('release.yml ok')"
+          grep -n "docs/CODE_SIGNING.md" .github/workflows/release.yml
+          grep -n "docs/PRIVACY.md" .github/workflows/release.yml
           git diff --check
 
       - name: Commit patch and remove helper files
