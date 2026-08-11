@@ -218,6 +218,18 @@ docker run -d \
 
 > 各平台实际发布的安装包以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
 
+## Code signing policy
+
+Free code signing provided by SignPath.io, certificate by SignPath Foundation
+
+- **Authors:** [cropflre](https://github.com/cropflre)
+- **Reviewers:** [cropflre](https://github.com/cropflre)
+- **Approvers:** [cropflre](https://github.com/cropflre)
+- 只有本仓库 GitHub Actions 从已提交源码生成的正式 Windows artifact 才允许提交到 SignPath 请求签名；本地构建的未签名 Windows Full/Lite 包不能直接发布到 GitHub Release。
+- 签名完成后，发布流程会再次验证 Authenticode 状态、证书发布者、更新元数据、SHA-512 和 blockmap，并在远端资产复核通过后才公开 Release。
+- 隐私与第三方服务的数据处理边界请查看 [隐私政策](./docs/PRIVACY.md)。代码签名只处理构建产物，不会把用户笔记或账号数据发送给 SignPath。
+- 从历史未签名/旧发布者版本迁移到首个 SignPath 签名版本时，Windows 用户需要从 GitHub Release 手动下载安装该桥接版本；从该版本开始，后续使用同一证书发布者的版本可恢复应用内自动更新。
+
 ## 本地开发
 
 要求 Node.js 20+、npm、Git。Electron 和原生依赖构建还需要对应平台的编译工具链。
