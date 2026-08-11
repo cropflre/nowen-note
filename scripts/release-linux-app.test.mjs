@@ -28,3 +28,12 @@ test("release.sh performs strict authentication and final remote checks", () => 
   assert.match(wrapperSource, /verify-release-update-assets\.mjs/);
   assert.match(wrapperSource, /remote --repo/);
 });
+
+test("legacy Windows release guard skips dry-run and build-only flows", () => {
+  assert.match(
+    legacySource,
+    /if \[ "\$DO_GITHUB_RELEASE" = "1" \] && \[ "\$DRY_RUN" != "1" \] && \[ "\$BUILD_ONLY" != "1" \]; then/,
+  );
+  assert.match(legacySource, /check-local-windows-publish-policy\.mjs/);
+  assert.doesNotMatch(wrapperSource, /check-local-windows-publish-policy\.mjs/);
+});
