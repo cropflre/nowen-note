@@ -6,8 +6,16 @@
  */
 const base = require("./builder.base.config.js");
 
+const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
+const { publisherName: _legacyWindowsPublisherName, ...baseWin } = base.win || {};
+
 module.exports = {
   ...base,
+  win: {
+    ...baseWin,
+    verifyUpdateCodeSignature: true,
+    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
+  },
   files: [
     ...(Array.isArray(base.files) ? base.files : []),
     "!electron/builder.base.config.js",

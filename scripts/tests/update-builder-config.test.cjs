@@ -4,8 +4,42 @@ const test = require("node:test");
 const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "../..");
-const full = require(path.join(repoRoot, "electron", "builder.config.js"));
-const lite = require(path.join(repoRoot, "electron", "builder.lite.config.js"));
+const fullConfigPath = path.join(repoRoot, "electron", "builder.config.js");
+const liteConfigPath = path.join(repoRoot, "electron", "builder.lite.config.js");
+const fullBasePath = path.join(repoRoot, "electron", "builder.base.config.js");
+const liteBasePath = path.join(repoRoot, "electron", "builder.lite.base.config.js");
+
+function loadConfig(configPath, basePath, env = {}) {
+  const envName = "NOWEN_WINDOWS_PUBLISHER_NAME";
+  const previous = process.env[envName];
+  if (Object.prototype.hasOwnProperty.call(env, envName)) {
+    process.env[envName] = env[envName];
+  } else {
+    delete process.env[envName];
+  }
+
+  delete require.cache[require.resolve(configPath)];
+  delete require.cache[require.resolve(basePath)];
+  try {
+    return require(configPath);
+  } finally {
+    delete require.cache[require.resolve(configPath)];
+    delete require.cache[require.resolve(basePath)];
+    if (previous === undefined) delete process.env[envName];
+    else process.env[envName] = previous;
+  }
+}
+
+function loadFull(env = {}) {
+  return loadConfig(fullConfigPath, fullBasePath, env);
+}
+
+function loadLite(env = {}) {
+  return loadConfig(liteConfigPath, liteBasePath, env);
+}
+
+const full = loadFull();
+const lite = loadLite();
 
 test("full desktop updater uses stable no-space artifact names", () => {
   assert.equal(full.nsis?.artifactName, "Nowen-Note-${version}-setup.${ext}");
@@ -29,4 +63,20 @@ test("lite updater stays on an isolated latest-lite channel", () => {
     fs.readFileSync(path.join(repoRoot, "scripts", "safe-build-legacy.mjs"), "utf8"),
     /verifyUpdateArtifactsCli\.js/,
   );
+});
+
+test("full updater publisher comes from the SignPath certificate environment", () => {
+  assert.equal(
+    loadFull({ NOWEN_WINDOWS_PUBLISHER_NAME: "SignPath Foundation" }).win.publisherName,
+    "SignPath Foundation",
+  );
+  assert.equal(loadFull({ NOWEN_WINDOWS_PUBLISHER_NAME: "   " }).win.publisherName, undefined);
+});
+
+test("lite updater publisher comes from the SignPath certificate environment", () => {
+  assert.equal(
+    loadLite({ NOWEN_WINDOWS_PUBLISHER_NAME: "SignPath Foundation" }).win.publisherName,
+    "SignPath Foundation",
+  );
+  assert.equal(loadLite({ NOWEN_WINDOWS_PUBLISHER_NAME: "   " }).win.publisherName, undefined);
 });
