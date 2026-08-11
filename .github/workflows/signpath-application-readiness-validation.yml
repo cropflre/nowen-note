@@ -57,8 +57,8 @@ jobs:
           set -euo pipefail
           grep -n "SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml docs/CODE_SIGNING.md
           grep -n "SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml docs/CODE_SIGNING.md
-          if grep -RIn "SIGNPATH_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml scripts docs/CODE_SIGNING.md; then
-            echo "legacy single Artifact Configuration variable remains" >&2
+          if grep -RIn "SIGNPATH_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml docs/CODE_SIGNING.md scripts/lib/signpath-release-config.cjs scripts/check-signpath-release-config.mjs; then
+            echo "legacy single Artifact Configuration variable remains in production configuration" >&2
             exit 1
           fi
           grep -n "toJSON(steps.package_version.outputs.version)" .github/workflows/release.yml
