@@ -47,6 +47,19 @@ test("SignPath receives GitHub artifact IDs and explicit release configuration",
   assert.match(source, /output-artifact-directory: signed-windows\/lite/);
 });
 
+test("Full and Lite use separate restricted Artifact Configurations with the package version", () => {
+  assert.match(source, /id: package_version/);
+  assert.match(source, /SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG: \$\{\{ vars\.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG \}\}/);
+  assert.match(source, /SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG: \$\{\{ vars\.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG \}\}/);
+  assert.match(source, /artifact-configuration-slug: \$\{\{ vars\.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG \}\}/);
+  assert.match(source, /artifact-configuration-slug: \$\{\{ vars\.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG \}\}/);
+  assert.equal(
+    (source.match(/version: \$\{\{ toJSON\(steps\.package_version\.outputs\.version\) \}\}/g) || []).length,
+    2,
+  );
+  assert.doesNotMatch(source, /vars\.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG/);
+});
+
 test("signed Windows assets are verified and metadata is rebuilt before formal upload", () => {
   const verifyIndex = source.indexOf("verify-windows-signatures.mjs");
   const refreshIndex = source.indexOf("refresh-windows-update-metadata.mjs");
@@ -56,6 +69,20 @@ test("signed Windows assets are verified and metadata is rebuilt before formal u
   assert.ok(refreshIndex > verifyIndex);
   assert.ok(localVerifyIndex > refreshIndex);
   assert.ok(signedUploadIndex > localVerifyIndex);
+});
+
+test("publish job exposes the Code signing policy before uploading formal assets", () => {
+  const publishStart = source.indexOf("\n  publish:");
+  assert.ok(publishStart >= 0);
+  const publishSource = source.slice(publishStart);
+  const policyIndex = publishSource.indexOf("Ensure Release code signing policy");
+  const uploadIndex = publishSource.indexOf("Upload allowlisted Release assets");
+  assert.ok(policyIndex >= 0);
+  assert.ok(uploadIndex > policyIndex);
+  assert.match(publishSource, /## Code signing policy/);
+  assert.match(publishSource, /Free code signing provided by SignPath\.io, certificate by SignPath Foundation\./);
+  assert.match(publishSource, /docs\/CODE_SIGNING\.md/);
+  assert.match(publishSource, /docs\/PRIVACY\.md/);
 });
 
 test("publish job downloads only formal artifacts and publishes after remote verification", () => {
