@@ -22,7 +22,7 @@
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "test:update-release": "node --test scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/refresh-windows-update-metadata.test.cjs scripts/tests/windows-signature-validator.test.cjs scripts/tests/signpath-release-config.test.cjs scripts/tests/signpath-release-workflow.test.cjs",
+    "test:update-release": "node --test scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/refresh-windows-update-metadata.test.cjs scripts/tests/windows-signature-validator.test.cjs scripts/tests/signpath-release-config.test.cjs scripts/tests/signpath-release-workflow.test.cjs scripts/tests/local-windows-publish-policy.test.cjs",
     "verify:update-release": "node scripts/verify-release-update-assets.mjs",
     "migrate:attachments:object": "node scripts/migrate-attachments-to-object-storage.mjs",
     "test:object-storage": "node scripts/test-object-storage.mjs",

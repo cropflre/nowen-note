@@ -2,20 +2,24 @@
 # Issue #329 release guard.
 #
 # The original release implementation is preserved in release-legacy.sh. This
-# wrapper adds three invariants without duplicating the 2,800-line build flow:
+# wrapper adds four invariants without duplicating the 2,800-line build flow:
 #   1. clean the output directory selected for this run, preventing stale output
 #      from winning the legacy candidate-order lookup;
-#   2. stage new GitHub Releases as drafts;
-#   3. download and verify remote updater metadata/assets before publishing.
+#   2. block local publication of unsigned Windows Full/Lite artifacts when the
+#      requested target can be resolved before entering the legacy flow;
+#   3. stage new GitHub Releases as drafts;
+#   4. download and verify remote updater metadata/assets before publishing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_SCRIPT="${SCRIPT_DIR}/release-legacy.sh"
 VERIFY_SCRIPT="${SCRIPT_DIR}/verify-release-update-assets.mjs"
+LOCAL_WINDOWS_POLICY_SCRIPT="${SCRIPT_DIR}/check-local-windows-publish-policy.mjs"
 GITHUB_REPO_SLUG="cropflre/nowen-note"
 
 [ -f "$LEGACY_SCRIPT" ] || { echo "[release-guard] missing $LEGACY_SCRIPT" >&2; exit 1; }
+[ -f "$LOCAL_WINDOWS_POLICY_SCRIPT" ] || { echo "[release-guard] missing $LOCAL_WINDOWS_POLICY_SCRIPT" >&2; exit 1; }
 
 ARGS=("$@")
 DRY_RUN=0
@@ -25,6 +29,8 @@ HELP_ONLY=0
 ASSUME_YES=0
 TARGETS=""
 TARGETS_EXPLICIT=0
+PC_PLATFORMS=""
+GITHUB_RELEASE_EXPLICIT=-1
 
 for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
   arg="${ARGS[$i]}"
@@ -34,6 +40,8 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
     --draft) USER_REQUESTED_DRAFT=1 ;;
     -h|--help) HELP_ONLY=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
+    --github-release) GITHUB_RELEASE_EXPLICIT=1 ;;
+    --no-github-release) GITHUB_RELEASE_EXPLICIT=0 ;;
     --target)
       if (( i + 1 < ${#ARGS[@]} )); then
         TARGETS="${ARGS[$((i + 1))]}"
@@ -41,8 +49,55 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
         i=$((i + 1))
       fi
       ;;
+    --pc-platform)
+      if (( i + 1 < ${#ARGS[@]} )); then
+        PC_PLATFORMS="${ARGS[$((i + 1))]}"
+        i=$((i + 1))
+      fi
+      ;;
   esac
 done
+
+resolve_github_release_for_policy() {
+  local targets="$1"
+  if [ "$GITHUB_RELEASE_EXPLICIT" = "1" ]; then
+    echo 1
+    return
+  fi
+  if [ "$GITHUB_RELEASE_EXPLICIT" = "0" ]; then
+    echo 0
+    return
+  fi
+  case ",${targets}," in
+    *,all,*|*,pc,*|*,linux-app,*|*,android,*|*,fpk,*|*,upk,*|*,lite,*|*,clipper,*) echo 1 ;;
+    *) echo 0 ;;
+  esac
+}
+
+check_local_windows_publish_policy() {
+  local policy_targets="$1"
+  local github_release
+  local host
+  github_release="$(resolve_github_release_for_policy "$policy_targets")"
+  host="$(uname -s 2>/dev/null || echo unknown)"
+  node "$LOCAL_WINDOWS_POLICY_SCRIPT" \
+    --targets "$policy_targets" \
+    --pc-platforms "$PC_PLATFORMS" \
+    --host "$host" \
+    --github-release "$github_release"
+}
+
+# For explicit/non-interactive targets we can fail before the legacy script runs
+# any preflight, tag or push. Interactive target selection remains owned by the
+# legacy wizard and is covered by the same policy module in follow-up migration.
+if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ]; then
+  if [ "$TARGETS_EXPLICIT" = "1" ]; then
+    check_local_windows_publish_policy "$TARGETS"
+  elif [ "$ASSUME_YES" = "1" ]; then
+    # Legacy -y keeps the backward-compatible default target=docker.
+    check_local_windows_publish_policy "docker"
+  fi
+fi
 
 clean_directory() {
   local directory="$1"
