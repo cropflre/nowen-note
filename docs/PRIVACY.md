@@ -2,7 +2,7 @@
 
 **最后更新日期：2026 年 8 月 11 日**
 
-Nowen Note 是一个开源、自托管的笔记与知识管理项目。本政策说明 Nowen Note 桌面端/服务端以及 Nowen Note Web Clipper 如何处理用户数据。项目不会因为 Windows 代码签名而把用户笔记、账号、附件或配置发送给 SignPath。
+Nowen Note 是一个开源、自托管的笔记与知识管理项目。本政策说明 Nowen Note 桌面端/服务端以及 Nowen Note Web Clipper 如何处理用户数据。项目不会把用户笔记、账号、附件或配置发送给 SignPath；Windows 代码签名只处理构建产物。
 
 ## 1. 桌面端与服务端
 
