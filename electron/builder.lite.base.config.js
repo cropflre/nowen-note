@@ -22,6 +22,8 @@
 const path = require("path");
 const os = require("os");
 
+const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
+
 // full 配置里的环境变量 / 路径策略保持一致（产物可外迁到 %TEMP%，避免 IDE 监听锁）
 const OUT_DIR = process.env.NOWEN_BUILD_OUT
   ? path.join(os.tmpdir(), "nowen-note-lite-build")
@@ -148,7 +150,7 @@ module.exports = {
     signDlls: false,
     signingHashAlgorithms: ["sha256"],
     verifyUpdateCodeSignature: true,
-    publisherName: "Nowen",
+    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
     // 产物名加 -lite 后缀，便于跟 full 分发包并排
     artifactName: "${productName}-${version}-lite-setup.${ext}",
   },

@@ -6,6 +6,8 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
+const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
+
 // ===== 打包前校验：better-sqlite3 原生模块必须已 rebuild 为 Electron ABI + 目标平台 =====
 // 防止忘记 `npm run rebuild:native` 就打包，或在 Linux 上为 Win 目标编出 Linux .so，
 // 导致安装后 ERR_DLOPEN_FAILED / "is not a valid Win32 application"。
@@ -479,7 +481,7 @@ module.exports = {
     // 若使用 Azure Code Signing / Cloud HSM，可改用 signingHashAlgorithms + signtoolOptions
     signingHashAlgorithms: ["sha256"],
     verifyUpdateCodeSignature: true,
-    publisherName: "Nowen",
+    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
   },
   nsis: {
     oneClick: false,
