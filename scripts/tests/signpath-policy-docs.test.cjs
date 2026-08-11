@@ -6,6 +6,7 @@ const test = require("node:test");
 const repoRoot = path.resolve(__dirname, "../..");
 const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
 const privacy = fs.readFileSync(path.join(repoRoot, "docs", "PRIVACY.md"), "utf8");
+const codeSigning = fs.readFileSync(path.join(repoRoot, "docs", "CODE_SIGNING.md"), "utf8");
 
 test("README exposes the SignPath Foundation code signing policy", () => {
   assert.match(readme, /^## Code signing policy$/m);
@@ -17,6 +18,22 @@ test("README exposes the SignPath Foundation code signing policy", () => {
   assert.match(readme, /\[隐私政策\]\(\.\/docs\/PRIVACY\.md\)/);
   assert.match(readme, /首个 SignPath 签名版本/);
   assert.match(readme, /应用内自动更新/);
+});
+
+test("dedicated Code signing policy documents roles, privacy and production restrictions", () => {
+  assert.match(codeSigning, /^# Code signing policy$/m);
+  assert.match(codeSigning, /Free code signing provided by SignPath\.io, certificate by SignPath Foundation/);
+  assert.match(codeSigning, /Authors: \[cropflre\]/);
+  assert.match(codeSigning, /Reviewers: \[cropflre\]/);
+  assert.match(codeSigning, /Approvers: \[cropflre\]/);
+  assert.match(codeSigning, /PRIVACY\.md/);
+  assert.match(codeSigning, /windows-full\.xml/);
+  assert.match(codeSigning, /windows-lite\.xml/);
+  assert.match(codeSigning, /SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG/);
+  assert.match(codeSigning, /SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG/);
+  assert.match(codeSigning, /NOWEN_WINDOWS_PUBLISHER_NAME.*actual.*SignerCertificate/s);
+  assert.match(codeSigning, /manual approval/i);
+  assert.match(codeSigning, /first SignPath-signed bridge release/i);
 });
 
 test("privacy policy covers desktop updates and user-configured remote services", () => {
