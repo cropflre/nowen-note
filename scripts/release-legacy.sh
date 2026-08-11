@@ -664,7 +664,7 @@ fi
 # GitHub Actions 完成 SignPath 签名。这里位于目标展开和 GitHub Release
 # 自动推断之后、任何 preflight/tag/push 之前，因此交互式和显式目标共用
 # 同一条失败关闭策略，非 Windows 本地发布保持原有行为。
-if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+if [ "$DO_GITHUB_RELEASE" = "1" ] && [ "$DRY_RUN" != "1" ] && [ "$BUILD_ONLY" != "1" ]; then
     _LOCAL_RELEASE_HOST="$(uname -s 2>/dev/null || echo unknown)"
     if ! node "$REPO_ROOT/scripts/check-local-windows-publish-policy.mjs" \
         --targets "$TARGETS" \
