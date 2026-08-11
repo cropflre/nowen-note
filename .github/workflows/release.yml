@@ -1,21 +1,14 @@
-# 三平台打包 + 可选发布到 GitHub Release
+# 三平台构建 + SignPath Windows 签名 + 单一 GitHub Release 发布边界
 #
 # 触发方式：
-#   1. push tag v*.*.*  → 自动打包并发布到对应 Release（草稿）
-#   2. workflow_dispatch → 手动触发，可选不发布
+#   1. push tag v*.*.*  → 构建全部平台，Windows 经过 SignPath 后再集中发布
+#   2. workflow_dispatch → publish=never 只保留构建 artifact；publish=always 走正式发布链路
 #
-# 需配置的 Secrets（在仓库 Settings → Secrets and variables → Actions）：
-#   GH_TOKEN                      : 默认 ${{ secrets.GITHUB_TOKEN }} 即可
-#   # Windows 代码签名（可选）：
-#   WIN_CSC_LINK                  : 证书 .pfx 的 base64（或可访问的 URL）
-#   WIN_CSC_KEY_PASSWORD          : 证书密码
-#   # macOS 代码签名 + 公证（可选）：
-#   MAC_CSC_LINK 或 CSC_LINK      : .p12 证书 base64
-#   MAC_CSC_KEY_PASSWORD 或 CSC_KEY_PASSWORD : p12 密码
-#   APPLE_API_KEY                 : App Store Connect API Key 文件内容（base64 或 p8 原文）
-#   APPLE_API_KEY_ID              : Key ID
-#   APPLE_API_ISSUER              : Issuer ID
-#   或：APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+# SignPath 正式发布必需：
+#   Secret: SIGNPATH_API_TOKEN
+#   Variables: SIGNPATH_ORGANIZATION_ID / SIGNPATH_PROJECT_SLUG /
+#              SIGNPATH_SIGNING_POLICY_SLUG / SIGNPATH_ARTIFACT_CONFIGURATION_SLUG /
+#              NOWEN_WINDOWS_PUBLISHER_NAME
 
 name: Build & Release
 
@@ -36,6 +29,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -51,7 +45,7 @@ jobs:
             name: linux
 
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -63,14 +57,17 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      # ---------------------------------------------------------------
-      # 依赖安装
-      # 关键点：
-      #   1. 不使用 --ignore-scripts。better-sqlite3 / sharp 等原生模块需要 postinstall
-      #      下载 prebuilt 或本地编译，跳过会导致后续 rebuild:native 找不到源。
-      #   2. backend 的 better-sqlite3 必须 rebuild 成 Electron ABI（见后续 step），
-      #      仅靠 npm ci 安装的是 Node ABI，运行时会 ERR_DLOPEN_FAILED。
-      # ---------------------------------------------------------------
+      - name: Check SignPath release configuration
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+        run: node scripts/check-signpath-release-config.mjs
+
       - name: Install root deps
         run: npm ci
         shell: bash
@@ -85,12 +82,6 @@ jobs:
         run: npm ci
         shell: bash
 
-      # ---------------------------------------------------------------
-      # Linux 上 electron 装包后跑 install-app-deps 时需要 build-essential 等；
-      # ubuntu-latest 镜像默认已带 gcc/make/python3，better-sqlite3 能直接编译。
-      # macOS / Windows 镜像也已自带相应工具链，无需额外 setup。
-      # ---------------------------------------------------------------
-
       - name: Fetch embedded Node binary
         run: npm run fetch:node
         shell: bash
@@ -99,31 +90,13 @@ jobs:
         run: npm run build:all
         shell: bash
 
-      # ---------------------------------------------------------------
-      # 把 backend/node_modules/better-sqlite3 重编为当前 Electron ABI
-      # 等价于本地 release.sh 跑的 npm run rebuild:native（@electron/rebuild）
-      # 不做这步，builder.config.js 的 beforeBuild 校验会直接 throw：
-      #   [builder] better-sqlite3 原生模块不存在：.../better_sqlite3.node
-      # ---------------------------------------------------------------
       - name: Rebuild native modules for Electron ABI
         if: matrix.os != 'macos-latest'
         run: npm run rebuild:native
         shell: bash
 
-      # ========= Windows 代码签名环境变量（可选） =========
-      - name: Export Windows signing env
-        if: matrix.os == 'windows-latest' && env.WIN_CSC_LINK != ''
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: |
-          echo "CSC_LINK=$WIN_CSC_LINK" >> $GITHUB_ENV
-          echo "CSC_KEY_PASSWORD=$WIN_CSC_KEY_PASSWORD" >> $GITHUB_ENV
-        shell: bash
-
-      # ========= macOS 代码签名 + 公证环境变量（可选） =========
       - name: Export macOS signing env
-        if: matrix.os == 'macos-latest'
+        if: matrix.name == 'mac'
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK || secrets.CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD || secrets.CSC_KEY_PASSWORD }}
@@ -134,79 +107,307 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          if [ -n "$MAC_CSC_LINK" ]; then
-            echo "CSC_LINK=$MAC_CSC_LINK" >> $GITHUB_ENV
-          fi
-          if [ -n "$MAC_CSC_KEY_PASSWORD" ]; then
-            echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> $GITHUB_ENV
-          fi
-          echo "APPLE_ID=$APPLE_ID" >> $GITHUB_ENV
-          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> $GITHUB_ENV
-          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> $GITHUB_ENV
-          echo "APPLE_API_KEY=$APPLE_API_KEY" >> $GITHUB_ENV
-          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> $GITHUB_ENV
-          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> $GITHUB_ENV
+          if [ -n "$MAC_CSC_LINK" ]; then echo "CSC_LINK=$MAC_CSC_LINK" >> "$GITHUB_ENV"; fi
+          if [ -n "$MAC_CSC_KEY_PASSWORD" ]; then echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"; fi
+          echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
         shell: bash
 
-      # ========= 打包 =========
-      # 注意：electron-builder 这里不再让它自己 install-app-deps —— 我们已经在上面用
-      #       @electron/rebuild 把 backend 的 better-sqlite3 编好了，再让 builder
-      #       去 npm rebuild 反而会把它退回 Node ABI。所以加 --config.npmRebuild=false
-      #       不行（25.x 没这个 flag），我们改成依赖 builder.config.js 自身的 files 配置 +
-      #       extraResources 直接拷贝 backend/node_modules，不再二次重建。
-      - name: Build Electron (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build Electron Full (Windows)
+        if: matrix.name == 'win'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron/builder.config.js --win --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+        run: npx electron-builder --config electron/builder.config.js --win --publish never
+        shell: bash
+
+      - name: Build Electron Lite (Windows)
+        if: matrix.name == 'win'
+        env:
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+        run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
         shell: bash
 
       - name: Build Electron (macOS x64 / Intel)
-        if: matrix.os == 'macos-latest'
+        if: matrix.name == 'mac'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
           NOWEN_MAC_ARCH: x64
           TARGET_ARCH: x64
           npm_config_target_arch: x64
-        run: |
-          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
-          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        run: npm run rebuild:native -- --target-platform=darwin --target-arch=x64 && npx electron-builder --config electron/builder.config.js --mac --publish never
         shell: bash
 
       - name: Build Electron (macOS arm64 / Apple Silicon)
-        if: matrix.os == 'macos-latest'
+        if: matrix.name == 'mac'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
           NOWEN_MAC_ARCH: arm64
           TARGET_ARCH: arm64
           npm_config_target_arch: arm64
-        run: |
-          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
-          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        run: npm run rebuild:native -- --target-platform=darwin --target-arch=arm64 && npx electron-builder --config electron/builder.config.js --mac --publish never
         shell: bash
 
       - name: Build Electron (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron/builder.config.js --linux --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        if: matrix.name == 'linux'
+        run: npx electron-builder --config electron/builder.config.js --linux --publish never
         shell: bash
 
-      # ========= 上传构建产物作为 workflow artifact（便于下载调试） =========
-      # builder.config.js 中 directories.output 默认为 dist-electron（CI 未设 NOWEN_BUILD_OUT）
-      - name: Upload artifacts
+      - name: Upload unsigned Full Windows artifact for SignPath
+        id: upload_full_unsigned
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
         uses: actions/upload-artifact@v4
         with:
-          name: nowen-note-${{ matrix.name }}
+          name: nowen-note-win-full-unsigned-signpath
           path: |
             dist-electron/*.exe
+            dist-electron/*.blockmap
+            dist-electron/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unsigned Lite Windows artifact for SignPath
+        id: upload_lite_unsigned
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-lite-unsigned-signpath
+          path: |
+            dist-electron-lite/*.exe
+            dist-electron-lite/*.blockmap
+            dist-electron-lite/latest-lite.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Submit Full Windows artifact to SignPath
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-windows/full
+
+      - name: Submit Lite Windows artifact to SignPath
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-windows/lite
+
+      - name: Export signed Windows Authenticode records
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        shell: pwsh
+        run: ./scripts/export-windows-signatures.ps1 -Root signed-windows -Output signed-windows/signatures.json
+
+      - name: Verify signed Windows publisher and required channels
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        run: node scripts/verify-windows-signatures.mjs --report signed-windows/signatures.json --publisher "${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}" --require full,lite
+        shell: bash
+
+      - name: Refresh signed Windows blockmaps and updater metadata
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/full/latest.yml --asset-dir signed-windows/full --channel full --version $version
+          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/lite/latest-lite.yml --asset-dir signed-windows/lite --channel lite --version $version
+          New-Item -ItemType Directory -Path signed-windows/release -Force | Out-Null
+          Copy-Item signed-windows/full/* signed-windows/release/ -Force
+          Copy-Item signed-windows/lite/* signed-windows/release/ -Force
+          Remove-Item signed-windows/release/signatures.json -ErrorAction SilentlyContinue
+
+      - name: Verify signed Windows updater assets locally
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/verify-release-update-assets.mjs local --dir signed-windows/release --version $version
+
+      - name: Upload formal signed Windows artifact
+        if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-signed
+          path: signed-windows/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unsigned Full Windows debug artifact
+        if: matrix.name == 'win' && github.event_name != 'push' && inputs.publish != 'always'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-unsigned-full
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+            dist-electron/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unsigned Lite Windows debug artifact
+        if: matrix.name == 'win' && github.event_name != 'push' && inputs.publish != 'always'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-unsigned-lite
+          path: |
+            dist-electron-lite/*.exe
+            dist-electron-lite/*.blockmap
+            dist-electron-lite/latest-lite.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload formal macOS artifact
+        if: matrix.name == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-mac
+          path: |
             dist-electron/*.dmg
             dist-electron/*.zip
+            dist-electron/*.blockmap
+            dist-electron/latest*.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload formal Linux artifact
+        if: matrix.name == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-linux
+          path: |
             dist-electron/*.AppImage
             dist-electron/*.deb
             dist-electron/*.blockmap
             dist-electron/latest*.yml
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.publish == 'always'
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download signed Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nowen-note-win-signed
+          path: release-assets/windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nowen-note-mac
+          path: release-assets/mac
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nowen-note-linux
+          path: release-assets/linux
+
+      - name: Resolve and verify release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p 'require("./package.json").version')"
+          TAG="v${VERSION}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+            echo "tag/version mismatch: ref=$GITHUB_REF_NAME package=$VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Re-verify Windows Authenticode signatures
+        shell: pwsh
+        run: |
+          ./scripts/export-windows-signatures.ps1 -Root release-assets/windows -Output release-assets/windows-signatures.json
+          node scripts/verify-windows-signatures.mjs --report release-assets/windows-signatures.json --publisher "${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}" --require full,lite
+
+      - name: Verify local updater metadata before upload
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          node scripts/verify-release-update-assets.mjs local --dir release-assets/windows --version $version
+          node scripts/verify-release-update-assets.mjs local --dir release-assets/mac --version $version
+          node scripts/verify-release-update-assets.mjs local --dir release-assets/linux --version $version
+
+      - name: Create or force Release back to draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+          fi
+
+      - name: Upload allowlisted Release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(
+            release-assets/windows/*.exe
+            release-assets/windows/*.blockmap
+            release-assets/windows/latest*.yml
+            release-assets/mac/*.dmg
+            release-assets/mac/*.zip
+            release-assets/mac/*.blockmap
+            release-assets/mac/latest*.yml
+            release-assets/linux/*.AppImage
+            release-assets/linux/*.deb
+            release-assets/linux/*.blockmap
+            release-assets/linux/latest*.yml
+          )
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no allowlisted release assets found" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+
+      - name: Verify remote Release updater metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: node scripts/verify-release-update-assets.mjs remote --repo "$GITHUB_REPOSITORY" --tag "$TAG" --version "$VERSION"
+
+      - name: Publish verified Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
