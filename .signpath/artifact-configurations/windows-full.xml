@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file
+      path="Nowen-Note-${version}-setup.exe"
+      product-name="Nowen Note"
+      product-version="${version}">
+      <authenticode-sign
+        hash-algorithm="sha256"
+        description="Nowen Note"
+        description-url="https://github.com/cropflre/nowen-note" />
+    </pe-file>
+    <pe-file
+      path="Nowen-Note-${version}-portable.exe"
+      product-name="Nowen Note"
+      product-version="${version}">
+      <authenticode-sign
+        hash-algorithm="sha256"
+        description="Nowen Note"
+        description-url="https://github.com/cropflre/nowen-note" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
