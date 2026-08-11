@@ -7,8 +7,8 @@
 # SignPath 正式发布必需：
 #   Secret: SIGNPATH_API_TOKEN
 #   Variables: SIGNPATH_ORGANIZATION_ID / SIGNPATH_PROJECT_SLUG /
-#              SIGNPATH_SIGNING_POLICY_SLUG / SIGNPATH_ARTIFACT_CONFIGURATION_SLUG /
-#              NOWEN_WINDOWS_PUBLISHER_NAME
+#              SIGNPATH_SIGNING_POLICY_SLUG / SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG /
+#              SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG / NOWEN_WINDOWS_PUBLISHER_NAME
 
 name: Build & Release
 
@@ -57,6 +57,12 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Resolve package version for SignPath
+        id: package_version
+        shell: bash
+        run: |
+          node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+
       - name: Check SignPath release configuration
         if: matrix.name == 'win' && (github.event_name == 'push' || inputs.publish == 'always')
         env:
@@ -64,7 +70,8 @@ jobs:
           SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
           NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
         run: node scripts/check-signpath-release-config.mjs
 
@@ -190,8 +197,10 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.package_version.outputs.version) }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 10800
           output-artifact-directory: signed-windows/full
@@ -204,8 +213,10 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.package_version.outputs.version) }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 10800
           output-artifact-directory: signed-windows/lite
@@ -370,6 +381,27 @@ jobs:
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true
           else
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+          fi
+
+      - name: Ensure Release code signing policy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_NOTES="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')"
+          if ! grep -q '^## Code signing policy$' <<<"$CURRENT_NOTES"; then
+            NOTES_FILE="$(mktemp)"
+            {
+              printf '%s\n\n' '## Code signing policy'
+              printf '%s\n\n' 'Free code signing provided by SignPath.io, certificate by SignPath Foundation.'
+              printf '%s\n\n' 'Policy: https://github.com/cropflre/nowen-note/blob/main/docs/CODE_SIGNING.md'
+              printf '%s\n\n' 'Privacy: https://github.com/cropflre/nowen-note/blob/main/docs/PRIVACY.md'
+              printf '%s\n' "$CURRENT_NOTES"
+            } > "$NOTES_FILE"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$NOTES_FILE"
+            rm -f "$NOTES_FILE"
           fi
 
       - name: Upload allowlisted Release assets
