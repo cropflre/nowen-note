@@ -49,12 +49,6 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
         i=$((i + 1))
       fi
       ;;
-    --pc-platform)
-      if (( i + 1 < ${#ARGS[@]} )); then
-        PC_PLATFORMS="${ARGS[$((i + 1))]}"
-        i=$((i + 1))
-      fi
-      ;;
   esac
 done
 
@@ -127,6 +121,8 @@ if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ]; th
       *,all,*|*,lite,*) CLEAN_LITE=1 ;;
     esac
   elif [ "$ASSUME_YES" = "0" ]; then
+    # The interactive wizard decides later; clean both desktop outputs so either
+    # choice starts from a deterministic directory.
     CLEAN_FULL=1
     CLEAN_LITE=1
   fi
@@ -144,6 +140,8 @@ fi
 
 LEGACY_ARGS=("${ARGS[@]}")
 if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$USER_REQUESTED_DRAFT" = "0" ]; then
+  # New releases remain invisible until the remote metadata/asset verification
+  # succeeds. Existing releases are moved to draft if a clobber verification fails.
   LEGACY_ARGS+=("--draft")
 fi
 
@@ -163,6 +161,7 @@ if [ "$LEGACY_STATUS" -ne 0 ]; then
   exit "$LEGACY_STATUS"
 fi
 
+# Docker-only/local-only runs do not create a GitHub Release.
 if ! grep -q "GitHub Release 已发布" "$LOG_FILE"; then
   exit 0
 fi
