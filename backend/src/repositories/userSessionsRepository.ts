@@ -136,11 +136,18 @@ export const userSessionsRepository = {
    * @param userId 用户 ID
    * @returns 会话信息，或 undefined
    */
-  getByIdAndUser(sessionId: string, userId: string): { id: string; revokedAt: string | null } | undefined {
+  getByIdAndUser(
+    sessionId: string,
+    userId: string,
+  ): { id: string; revokedAt: string | null; expiresAt: string | null } | undefined {
     const db = getDb();
     return db
-      .prepare(`SELECT id, "revokedAt" FROM user_sessions WHERE id = ? AND "userId" = ?`)
-      .get(sessionId, userId) as { id: string; revokedAt: string | null } | undefined;
+      .prepare(`SELECT id, "revokedAt", "expiresAt" FROM user_sessions WHERE id = ? AND "userId" = ?`)
+      .get(sessionId, userId) as {
+        id: string;
+        revokedAt: string | null;
+        expiresAt: string | null;
+      } | undefined;
   },
 
   /**

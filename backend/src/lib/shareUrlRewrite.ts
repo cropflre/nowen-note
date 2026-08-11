@@ -33,6 +33,13 @@ function isLoopbackHost(host: string): boolean {
     || lowered.startsWith("[::1]");
 }
 
+function normalizeForwardedPrefix(value: string | undefined | null): string {
+  const raw = (value || "").split(",")[0]?.trim() || "";
+  if (!raw || raw === "/") return "";
+  if (!raw.startsWith("/") || raw.includes("..") || /[\\?#]/.test(raw)) return "";
+  return raw.replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+}
+
 /**
  * 根据请求头推断 "公网访问本服务时" 应使用的 origin。
  * 优先使用反代/网关注入的 X-Forwarded-Proto / X-Forwarded-Host，
@@ -43,12 +50,13 @@ function isLoopbackHost(host: string): boolean {
  * 即使它来自 X-Forwarded-Host，也不能把回环地址签发给外部客户端。调用方此时应返回
  * 相对 URL，由客户端以真实 API 请求 origin 解析。
  *
- * 返回形如 "https://notes.example.com"，不带末尾斜杠。
+ * 返回形如 "https://notes.example.com" 或 "https://example.com/nowen-note"，不带末尾斜杠。
  * 解析失败返回 null，调用方应放弃改写并保持相对路径。
  */
 export function resolvePublicOrigin(getHeader: (name: string) => string | undefined | null): string | null {
   const xfProto = (getHeader("x-forwarded-proto") || "").split(",")[0]?.trim().toLowerCase();
   const xfHost = (getHeader("x-forwarded-host") || "").split(",")[0]?.trim();
+  const xfPrefix = normalizeForwardedPrefix(getHeader("x-forwarded-prefix"));
   const host = (getHeader("host") || "").trim();
 
   const finalHost = xfHost || host;
@@ -81,7 +89,7 @@ export function resolvePublicOrigin(getHeader: (name: string) => string | undefi
   if (proto !== "http" && proto !== "https") return null;
   if (!/^[\w.\-:\[\]]+$/.test(finalHost)) return null;
 
-  return `${proto}://${finalHost}`;
+  return `${proto}://${finalHost}${xfPrefix}`;
 }
 
 /**

@@ -1,0 +1,71 @@
+name: Task My Day CI
+
+on:
+  push:
+    branches:
+      - feature/task-my-day-v1
+    paths:
+      - "backend/src/routes/task-day-plans.ts"
+      - "backend/src/routes/user-preferences.ts"
+      - "backend/src/db/taskDayPlansMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/postgres/schema.sql"
+      - "backend/tests/task-day-plans.test.ts"
+      - "frontend/src/components/TaskCenter.tsx"
+      - "frontend/src/components/tasks/MyDayPanel.tsx"
+      - "frontend/src/components/tasks/taskMyDay.ts"
+      - "frontend/src/components/tasks/__tests__/taskMyDay.test.ts"
+      - "frontend/src/lib/taskDayPlanApi.ts"
+      - ".github/workflows/task-my-day-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/task-day-plans.ts"
+      - "backend/src/routes/user-preferences.ts"
+      - "backend/src/db/taskDayPlansMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/postgres/schema.sql"
+      - "backend/tests/task-day-plans.test.ts"
+      - "frontend/src/components/TaskCenter.tsx"
+      - "frontend/src/components/tasks/MyDayPanel.tsx"
+      - "frontend/src/components/tasks/taskMyDay.ts"
+      - "frontend/src/components/tasks/__tests__/taskMyDay.test.ts"
+      - "frontend/src/lib/taskDayPlanApi.ts"
+      - ".github/workflows/task-my-day-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build:tsc
+      - name: Test My Day API
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/task-day-plans.test.ts
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Test My Day planning helpers
+        run: npx vitest run src/components/tasks/__tests__/taskMyDay.test.ts --reporter=verbose

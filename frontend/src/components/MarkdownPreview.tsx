@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/markdownPreviewOutline";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
+import MobileImageViewer from "@/components/MobileImageViewer";
 import { MarkdownCodeBlock, isMarkdownBlockCode } from "@/components/MarkdownCodeBlock";
 import { MathView } from "@/components/MathView";
 import { NoteLinkPreviewAnchor } from "@/components/NoteLinkPreview";
@@ -21,6 +22,10 @@ import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { resolveAttachmentUrl } from "@/lib/api";
+import {
+  getAttachmentAccessSnapshot,
+  subscribeAttachmentAccess,
+} from "@/lib/noteAttachmentAccessBridge";
 import {
   MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD,
   splitMarkdownPreview,
@@ -184,21 +189,43 @@ function PreviewIframe({ src, title }: { src?: string; title?: string }) {
 
 function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   const { t } = useTranslation();
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  useSyncExternalStore(
+    subscribeAttachmentAccess,
+    getAttachmentAccessSnapshot,
+    getAttachmentAccessSnapshot,
+  );
+  const resolvedSrc = !src ? "" : src.startsWith("//") ? src : resolveAttachmentUrl(src);
+
+  useEffect(() => {
+    setFailedSrc(null);
+    setPreviewOpen(false);
+  }, [resolvedSrc]);
+
   if (!src) return null;
-  const resolvedSrc = src.startsWith("//") ? src : resolveAttachmentUrl(src);
-  if (failed) {
+  if (failedSrc === resolvedSrc) {
     return <span className="inline-flex items-center gap-1 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")}</span>;
   }
   return (
-    <img
-      src={resolvedSrc}
-      alt={alt || ""}
-      loading="lazy"
-      className="my-4 block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
-      onClick={() => window.open(resolvedSrc, "_blank", "noopener,noreferrer")}
-      onError={() => setFailed(true)}
-    />
+    <>
+      <img
+        key={resolvedSrc}
+        src={resolvedSrc}
+        alt={alt || ""}
+        loading="lazy"
+        className="my-4 block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
+        onClick={() => setPreviewOpen(true)}
+        onLoad={() => setFailedSrc((current) => current === resolvedSrc ? null : current)}
+        onError={() => setFailedSrc(resolvedSrc)}
+      />
+      <MobileImageViewer
+        open={previewOpen}
+        src={resolvedSrc}
+        alt={alt || ""}
+        onClose={() => setPreviewOpen(false)}
+      />
+    </>
   );
 }
 

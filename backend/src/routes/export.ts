@@ -8,6 +8,7 @@ import { parseFolderUnlockTokens } from "../lib/knowledgeTreePasswordAccess";
 import { broadcastToUser } from "../services/realtime";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl";
 import fs from "fs";
+import crypto from "node:crypto";
 import os from "os";
 import path from "path";
 import { Readable } from "stream";
@@ -18,6 +19,11 @@ import {
   stageGeneratedExport,
   type PreparedMarkdownNote,
 } from "../services/markdownExportJobs";
+import {
+  createSiyuanImportJob,
+  getSiyuanImportJob,
+  getSiyuanImportJobByRequestId,
+} from "../services/siyuanImportJobs";
 
 const Busboy = require("busboy");
 
@@ -148,7 +154,13 @@ function normalizeImportedContentFormat(value: unknown): "tiptap-json" | "markdo
   return value === "markdown" ? "markdown" : "tiptap-json";
 }
 
-async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string; tmpPath: string; filename: string; size: number }> {
+async function receiveMultipartFileToTemp(c: Context): Promise<{
+  tmpDir: string;
+  tmpPath: string;
+  filename: string;
+  size: number;
+  sha256: string;
+}> {
   const contentType = c.req.header("content-type") || "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {
     throw new Error("请求必须是 multipart/form-data");
@@ -177,6 +189,7 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
       let seenFile = false;
       let filename = "siyuan.zip";
       let size = 0;
+      const hash = crypto.createHash("sha256");
       let fileWrite: Promise<void> | null = null;
 
       let failed = false;
@@ -194,7 +207,10 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
         seenFile = true;
         filename = info?.filename || filename;
         const out = fs.createWriteStream(tmpPath);
-        file.on("data", (chunk: Buffer) => { size += chunk.length; });
+        file.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          hash.update(chunk);
+        });
         file.on("limit", () => {
           file.unpipe(out);
           out.destroy();
@@ -218,7 +234,7 @@ async function receiveMultipartFileToTemp(c: Context): Promise<{ tmpDir: string;
             if (!seenFile) throw new Error("缺少 file 字段");
             if (fileWrite) await fileWrite;
             if (size <= 0) throw new Error("上传文件为空");
-            resolve({ tmpDir, tmpPath, filename, size });
+            resolve({ tmpDir, tmpPath, filename, size, sha256: hash.digest("hex") });
           } catch (err) {
             fail(err);
           }
@@ -634,7 +650,21 @@ app.post("/import", async (c) => {
   }, 201);
 });
 
-// ====== 思源 .sy 数据包导入（服务端流式路径） ======
+// ====== 思源 .sy 数据包导入（流式上传 + 持久化后台任务） ======
+
+app.get("/import/siyuan-package/jobs/by-request/:requestId", (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const job = getSiyuanImportJobByRequestId(c.req.param("requestId"), userId);
+  if (!job) return c.json({ error: "思源导入任务不存在", code: "SIYUAN_IMPORT_JOB_NOT_FOUND" }, 404);
+  return c.json({ job });
+});
+
+app.get("/import/siyuan-package/jobs/:jobId", (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const job = getSiyuanImportJob(c.req.param("jobId"), userId);
+  if (!job) return c.json({ error: "思源导入任务不存在", code: "SIYUAN_IMPORT_JOB_NOT_FOUND" }, 404);
+  return c.json({ job });
+});
 
 app.post("/import/siyuan-package", async (c) => {
   const db = getDb();
@@ -644,6 +674,11 @@ app.post("/import/siyuan-package", async (c) => {
     !wsRaw || wsRaw.trim() === "" || wsRaw.trim() === "personal" ? null : wsRaw.trim();
   const targetNotebookId = (c.req.query("targetNotebookId") || "").trim() || undefined;
   const contentFormat = normalizeImportedContentFormat(c.req.query("contentFormat"));
+  const requestId = (c.req.header("X-Import-Request-Id") || crypto.randomUUID()).trim();
+
+  if (!/^[A-Za-z0-9._:-]{8,128}$/.test(requestId)) {
+    return c.json({ error: "导入请求 ID 格式无效", code: "INVALID_IMPORT_REQUEST_ID" }, 400);
+  }
 
   const denied = denyIfPersonalFeatureDisabled(
     userId,
@@ -654,6 +689,13 @@ app.post("/import/siyuan-package", async (c) => {
 
   if (targetWs !== null && !isSystemAdmin(userId) && !hasRole(getUserWorkspaceRole(targetWs, userId), "editor")) {
     return c.json({ error: "无权导入到该工作区", code: "WORKSPACE_FORBIDDEN" }, 403);
+  }
+
+  const existingJob = getSiyuanImportJobByRequestId(requestId, userId);
+  if (existingJob) {
+    const payload = { job: existingJob, reused: true };
+    if (existingJob.status === "completed" || existingJob.status === "failed") return c.json(payload, 200);
+    return c.json(payload, 202);
   }
 
   if (targetNotebookId) {
@@ -672,34 +714,36 @@ app.post("/import/siyuan-package", async (c) => {
     }
   }
 
-  let uploaded: { tmpDir: string; tmpPath: string; filename: string; size: number } | null = null;
+  let uploaded: {
+    tmpDir: string;
+    tmpPath: string;
+    filename: string;
+    size: number;
+    sha256: string;
+  } | null = null;
   try {
     uploaded = await receiveMultipartFileToTemp(c);
-    const { importSiyuanPackageFromZipFile } = await import("../services/siyuanPackageImport");
-    const result = await importSiyuanPackageFromZipFile(uploaded.tmpPath, {
+    const created = await createSiyuanImportJob({
+      requestId,
       userId,
       workspaceId: targetWs,
       targetNotebookId,
       contentFormat,
+      fingerprint: uploaded.sha256,
+      filename: uploaded.filename,
+      size: uploaded.size,
+      tmpDir: uploaded.tmpDir,
+      tmpPath: uploaded.tmpPath,
     });
-
-    broadcastToUser(userId, {
-      type: "notes:imported" as any,
-      count: result.count,
-      notebookIds: result.notebookIds,
-      workspaceId: targetWs,
-    });
-
-    return c.json(result, 201);
+    uploaded = null;
+    if (created.job.status === "completed" || created.job.status === "failed") return c.json(created, 200);
+    return c.json(created, 202);
   } catch (err: any) {
     if (err instanceof SiyuanImportTooLargeError || err?.code === "SIYUAN_IMPORT_TOO_LARGE") {
       return c.json({ error: err?.message || "思源导入包过大", code: "SIYUAN_IMPORT_TOO_LARGE" }, 413);
     }
-    if (err?.code === "SIYUAN_ZIP_BUDGET_EXCEEDED") {
-      return c.json({ error: err?.message || "思源导入包解压后超出限制", code: "SIYUAN_ZIP_BUDGET_EXCEEDED" }, 413);
-    }
     console.error("[export.import.siyuan-package] Error:", err);
-    return c.json({ error: err?.message || "Siyuan import failed", code: "SIYUAN_IMPORT_FAILED" }, 500);
+    return c.json({ error: err?.message || "思源导入任务创建失败", code: "SIYUAN_IMPORT_JOB_CREATE_FAILED" }, 500);
   } finally {
     if (uploaded?.tmpDir) {
       try { await fs.promises.rm(uploaded.tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }

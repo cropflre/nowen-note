@@ -16,6 +16,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
+import MobileImageViewer from "@/components/MobileImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
 import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
 import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block";
@@ -53,9 +54,15 @@ import { CellSelection } from "@tiptap/pm/tables";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
+import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
+import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import {
+  isInlineImageAttachment,
+  isInlineVideoAttachment,
+} from "@/lib/existingAttachmentInsert";
 import {
   buildReplacedImageAttrs,
   getImageCopySource,
@@ -78,11 +85,11 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
-  Code, FileCode, Sparkles, X, ZoomIn, ZoomOut, RotateCcw,
+  Code, FileCode, Sparkles, X,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch,
+  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -96,6 +103,7 @@ import {
 import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
+import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { choose as chooseDialog, prompt as promptDialog } from "@/components/ui/confirm";
@@ -108,6 +116,7 @@ import { sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
+import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
@@ -1583,15 +1592,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [attachmentLibraryOpen, setAttachmentLibraryOpen] = useState(false);
   const attachmentLibraryAnchorRef = useRef<AsyncInsertAnchor | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [imageZoom, setImageZoom] = useState(1);
-  const [imageDrag, setImageDrag] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
   // 编辑器是否聚焦 —— 用来控制移动端浮动工具栏是否显示
   // （未聚焦时键盘其实已经收起，这里是双重保险：避免聚焦到标题栏时误显示）
 
   // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
 
-  const dragStart = useRef({ x: 0, y: 0, imgX: 0, imgY: 0 });
   const { t, i18n } = useTranslation();
 
   // ---------- 选区气泡菜单（划词弹出） ----------
@@ -1666,7 +1671,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // hover 关闭延迟定时器：用户从链接移到气泡上时给一个缓冲，避免穿过空隙时闪烁
   const linkHoverCloseTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // 笔记引用搜索菜单状态（[[ 触发）
+  // 笔记引用搜索菜单状态（[[ / 【【 触发）
   const [noteLinkMenu, setNoteLinkMenu] = useState<{
     open: boolean;
     position: { top: number; left: number };
@@ -2732,28 +2737,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         }
       }, 150);
 
-      // 检测 [[ 触发笔记搜索菜单
+      // 检测 [[ / 【【 触发笔记搜索菜单
       const { state } = editor;
       const { selection } = state;
       const { $from } = selection;
       const textBefore = $from.parent.textContent.slice(0, $from.parentOffset);
 
-      // 查找最近的 [[ 触发
-      const triggerIndex = textBefore.lastIndexOf("[[");
-      if (triggerIndex !== -1) {
-        const query = textBefore.slice(triggerIndex + 2);
-        // 计算 [[ 在文档中的位置
-        const triggerDocPos = $from.pos - ($from.parentOffset - triggerIndex);
+      const activeWiki = detectActiveWikiNoteQuery(
+        textBefore,
+        $from.pos,
+        $from.pos - $from.parentOffset,
+      );
+      if (activeWiki) {
         // 计算菜单位置
         const coords = editor.view.coordsAtPos($from.pos);
         setNoteLinkMenu({
           open: true,
           position: { top: coords.bottom + 8, left: coords.left },
-          query,
-          triggerFrom: triggerDocPos,
+          query: activeWiki.query,
+          triggerFrom: activeWiki.from,
         });
       } else {
-        // 没有 [[ 触发，关闭菜单
+        // 没有活动的双链触发，关闭菜单
         if (noteLinkMenu.open) {
           setNoteLinkMenu(prev => ({ ...prev, open: false }));
         }
@@ -3077,14 +3082,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     () => ({
       flushSave: () => {
         if (!editor) return;
-        if (!debounceTimer.current) return;
-        clearTimeout(debounceTimer.current);
-        debounceTimer.current = null;
-        const json = JSON.stringify(editor.getJSON());
-        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         const title = isTitleComposingRef.current
           ? noteRef.current.title
           : titleRef.current?.value || noteRef.current.title;
+        const mode = resolveEditorLifecycleSave({
+          hasPendingContent: !!debounceTimer.current,
+          title,
+          noteTitle: noteRef.current.title,
+          lastEmittedTitle: lastEmittedTitleRef.current,
+          isTitleComposing: isTitleComposingRef.current,
+        });
+        if (mode === "none") return;
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+        if (mode === "title") {
+          lastEmittedTitleRef.current = title;
+          onUpdateRef.current({ title, _noteId: noteRef.current.id });
+          return;
+        }
+        const json = JSON.stringify(editor.getJSON());
+        const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         lastEmittedTitleRef.current = title;
         onUpdateRef.current({
           content: json,
@@ -3208,6 +3227,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       return;
     }
 
+    // 自动保存开始时，父组件会先把编辑器刚发出的内容同步回 activeNote。
+    // 同笔记且原始 JSON 已与当前编辑器一致时无需再次修复或 setContent，
+    // 否则会重置斜杠菜单、选区等正在进行的编辑器交互。
+    if (
+      editor
+      && !noteChanged
+      && note.content === JSON.stringify(editor.getJSON())
+    ) {
+      return;
+    }
+
     // 切换笔记时立即清理旧的 debounce timer，防止旧笔记的保存请求泄漏
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
@@ -3326,16 +3356,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   // 图片点击预览事件监听
   //
-  // 行为分流（解决"点图片立即放大、调不出 ResizableImageView 的尺寸手柄"问题）：
-  //   - 只读态（!editable）：保持原行为，单击图片即弹 Lightbox 预览，符合阅读期望。
-  //   - 编辑态：
-  //       * 单击  → 让 ProseMirror 选中图片节点，ResizableImageView 显示四角手柄。
-  //                 这里只需"不打开预览"即可（选中由 ProseMirror 默认行为完成）。
-  //       * 双击  → 打开 Lightbox 预览原图，相当于显式"我要看大图"的意图，
-  //                 不会和拖动手柄改尺寸的操作互相干扰。
-  //
-  // 注意：handle 元素位于图片右下角等四角处，使用 pointer-events:auto 但
-  //   onMouseDown 会 stopPropagation，所以拖手柄时不会冒泡到这里触发预览。
+  // Web 与 Electron 都在渲染进程内打开同一查看器，不依赖 window.open。
+  // ProseMirror 会先完成图片节点选中；关闭预览后仍可继续使用尺寸手柄和图片工具栏。
+  // 四角 handle 的 onMouseDown 会 stopPropagation，不会误触发预览。
   useEffect(() => {
     if (!editor) return;
 
@@ -3345,67 +3368,22 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     };
 
     const openPreview = (img: HTMLImageElement) => {
-      const src = img.src;
+      const src = img.currentSrc || img.src || img.getAttribute("src") || "";
       if (!src) return;
       setPreviewImage(src);
-      setImageZoom(1);
-      setImageDrag({ x: 0, y: 0 });
     };
 
-    // 单击：仅在只读态下打开预览；编辑态保留给 ProseMirror 做节点选择。
     const handleClick = (e: MouseEvent) => {
       if (!isEditorImage(e.target)) return;
-      if (editor.isEditable) return; // 编辑态：让出单击给"选中→出手柄"
-      openPreview(e.target as HTMLImageElement);
-    };
-
-    // 双击：编辑态下显式"打开大图预览"。只读态此时已经走 click 了，
-    // 不必重复处理（双击在只读态会被 click 先消费一次但行为一致）。
-    const handleDblClick = (e: MouseEvent) => {
-      if (!isEditorImage(e.target)) return;
-      if (!editor.isEditable) return;
-      e.preventDefault();
-      e.stopPropagation();
       openPreview(e.target as HTMLImageElement);
     };
 
     const editorDom = editor.view.dom;
     editorDom.addEventListener("click", handleClick);
-    editorDom.addEventListener("dblclick", handleDblClick);
     return () => {
       editorDom.removeEventListener("click", handleClick);
-      editorDom.removeEventListener("dblclick", handleDblClick);
     };
   }, [editor]);
-
-  // 图片预览滚轮缩放
-  const handlePreviewWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setImageZoom(prev => {
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      return Math.max(0.1, Math.min(5, prev + delta));
-    });
-  }, []);
-
-  // 图片预览拖拽
-  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY, imgX: imageDrag.x, imgY: imageDrag.y };
-  }, [imageDrag]);
-
-  const handlePreviewMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setImageDrag({
-      x: dragStart.current.imgX + (e.clientX - dragStart.current.x),
-      y: dragStart.current.imgY + (e.clientY - dragStart.current.y),
-    });
-  }, [isDragging]);
-
-  const handlePreviewMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
 
   const getSelectedImageAttrs = useCallback((): ImageNodeAttrs | null => {
     if (!editor || !editor.isActive("image")) return null;
@@ -3417,8 +3395,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const src = typeof attrs?.src === "string" ? attrs.src : "";
     if (!src) return;
     setPreviewImage(resolveAttachmentUrl(src));
-    setImageZoom(1);
-    setImageDrag({ x: 0, y: 0 });
   }, [getSelectedImageAttrs]);
 
   const handleDownloadSelectedImage = useCallback(async () => {
@@ -4355,13 +4331,37 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       toast.error(t("tiptap.attachmentInsertPositionLost", { defaultValue: "插入位置已失效，请重试" }));
       return;
     }
-    editor
-      .chain()
-      .focus()
-      .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
-      .run();
+
+    const inlineImage = isInlineImageAttachment(item);
+    const inlineVideo = !inlineImage && isInlineVideoAttachment(item);
+    const chain = editor.chain().focus();
+    if (inlineImage) {
+      chain.setImage({
+        src: item.url,
+        alt: item.filename,
+        title: item.filename,
+      }).run();
+    } else if (inlineVideo) {
+      chain.setVideoFile({
+        previewUrl: toInlineAttachmentUrl(item.url),
+        url: item.url,
+        attachmentId: item.id,
+        filename: item.filename,
+        mimeType: item.mimeType,
+        size: item.size,
+      }).run();
+    } else {
+      chain
+        .insertContent(buildAttachmentLinkHtml(item.filename, item.url, item.size))
+        .run();
+    }
+
     closeAttachmentLibrary();
-    toast.success(t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
+    toast.success(inlineImage
+      ? t("tiptap.imageInsertedFromFileManager", { defaultValue: "图片已插入" })
+      : inlineVideo
+        ? t("tiptap.videoInsertedFromFileManager", { defaultValue: "视频已插入" })
+        : t("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
   }, [closeAttachmentLibrary, editor, restoreEditorInsertAnchor, t]);
 
   const handleImageUpload = useCallback(() => {
@@ -4715,6 +4715,22 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setShowAI(true);
   }, [editor]);
 
+  const openTaskCapture = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const text = from < to
+      ? editor.state.doc.textBetween(from, to, " ").trim().slice(0, 8_000)
+      : "";
+    openTaskQuickCapture({
+      text,
+      sourceType: text ? "selection" : "note",
+      sourceId: note.id,
+      sourceTitle: note.title,
+      noteId: note.id,
+    });
+    setBubble((current) => ({ ...current, open: false }));
+  }, [editor, note.id, note.title]);
+
   /**
    * 把一段可能是 Markdown 的文本注入到编辑器的 [from, to] 范围。
    * - 若检测到 Markdown 语法：直接转换为富文本 HTML 后插入，并弹 success toast 告知用户。
@@ -4727,11 +4743,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const insertWithMarkdownDetect = useCallback((text: string, from: number, to: number) => {
     if (!editor) return;
     const view = editor.view;
+    const hasInternalBlockMarkers = findInternalMarkdownMarkerRanges(text).length > 0;
 
-    if (looksLikeMarkdown(text)) {
+    if (hasInternalBlockMarkers || looksLikeMarkdown(text)) {
       // 直接转换为富文本 HTML 后插入，一步到位
       try {
-        const convertedHtml = markdownToSimpleHtml(text);
+        const convertedHtml = hasInternalBlockMarkers
+          ? mdToFullHtml(text) || markdownToSimpleHtml(text)
+          : markdownToSimpleHtml(text);
         const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = convertedHtml;
@@ -4800,10 +4819,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       aiPosition?.top || 0,
       attachmentPreview?.id || "",
       previewImage || "",
-      imageZoom,
-      imageDrag.x,
-      imageDrag.y,
-      isDragging,
       selectedTextAction,
       bubble.open,
       imageBubble.open,
@@ -5316,6 +5331,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         {!isGuest && (
           <>
             <ToolbarDivider />
+            <ToolbarButton
+              onClick={openTaskCapture}
+              title={t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+            >
+              <ClipboardPlus size={iconSize} className="text-blue-500" />
+            </ToolbarButton>
             <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
               <Sparkles size={iconSize} className="text-violet-500" />
             </ToolbarButton>
@@ -5510,6 +5531,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           {!isGuest && (
             <>
               <div className="w-px h-4 bg-app-border mx-0.5" />
+              <ToolbarButton
+                onClick={openTaskCapture}
+                title={t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={14} className="text-blue-500" />
+              </ToolbarButton>
               <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
@@ -6157,120 +6184,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         />
       )}
 
-      {/* 图片预览 Lightbox */}
-      <AnimatePresence>
-        {previewImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            onClick={(e) => { if (e.target === e.currentTarget) { setPreviewImage(null); } }}
-            onWheel={handlePreviewWheel}
-            onMouseMove={handlePreviewMouseMove}
-            onMouseUp={handlePreviewMouseUp}
-            onMouseLeave={handlePreviewMouseUp}
-          >
-            {/* 桌面端：顶部工具栏 */}
-            <div className="hidden md:flex absolute top-4 right-4 items-center gap-2 z-10">
-              <button
-                onClick={() => setImageZoom(prev => Math.min(5, prev + 0.25))}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="放大"
-              >
-                <ZoomIn size={18} />
-              </button>
-              <button
-                onClick={() => setImageZoom(prev => Math.max(0.1, prev - 0.25))}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="缩小"
-              >
-                <ZoomOut size={18} />
-              </button>
-              <button
-                onClick={() => { setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="重置"
-              >
-                <RotateCcw size={18} />
-              </button>
-              <span className="text-white/70 text-xs font-mono min-w-[3rem] text-center">
-                {Math.round(imageZoom * 100)}%
-              </span>
-              <button
-                onClick={() => setPreviewImage(null)}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="关闭"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* 移动端：顶部只保留关闭按钮 */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setPreviewImage(null); setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-              className="md:hidden fixed right-4 z-[120] w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur text-white flex items-center justify-center transition-colors"
-              style={{ top: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-              title="关闭"
-            >
-              <X size={20} />
-            </button>
-
-            {/* 移动端：底部缩放工具栏 */}
-            <div
-              className="md:hidden fixed left-1/2 z-[120] flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/55 backdrop-blur border border-white/10 text-white shadow-lg"
-              style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)", transform: "translateX(-50%)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                onClick={() => setImageZoom(prev => Math.max(0.1, prev - 0.25))}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="缩小"
-              >
-                <ZoomOut size={20} />
-              </button>
-              <button
-                onClick={() => { setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="重置"
-              >
-                <RotateCcw size={18} />
-              </button>
-              <span className="text-white/80 text-sm font-mono min-w-[48px] text-center select-none">
-                {Math.round(imageZoom * 100)}%
-              </span>
-              <button
-                onClick={() => setImageZoom(prev => Math.min(5, prev + 0.25))}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="放大"
-              >
-                <ZoomIn size={20} />
-              </button>
-            </div>
-
-            {/* 图片
-                注意：缩放/平移交给 framer-motion 的独立 transform 通道（scale/x/y）来驱动，
-                不能再写 style.transform 字符串——motion 会接管 transform 并覆盖外部 style，
-                导致 100% 的数字一直在变但 DOM 上 transform 永远停在入场动画终态。
-                入场仅用 opacity 做淡入，初始 scale 用当前 imageZoom 防止抖动。 */}
-            <motion.img
-              src={previewImage}
-              alt="preview"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1, scale: imageZoom, x: imageDrag.x, y: imageDrag.y }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: isDragging ? 0 : 0.15 }}
-              className="max-w-[90vw] max-h-[90vh] object-contain select-none"
-              style={{
-                cursor: isDragging ? 'grabbing' : 'grab',
-              }}
-              onMouseDown={handlePreviewMouseDown}
-              draggable={false}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <MobileImageViewer
+        open={!!previewImage}
+        src={previewImage || ""}
+        alt=""
+        onClose={() => setPreviewImage(null)}
+      />
 
       {/* AI Writing Assistant */}
       <AnimatePresence>

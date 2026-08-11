@@ -1,0 +1,104 @@
+name: Workspace Shared Journals CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/journal-cleanup-natural-dates-v4
+    paths:
+      - backend/src/db/migrations.ts
+      - backend/src/db/workspaceJournalsMigration.ts
+      - backend/src/db/postgres/schema.base.sql
+      - backend/src/routes/journals.ts
+      - backend/src/services/workspaceJournals.ts
+      - backend/tests/workspace-journals.test.ts
+      - backend/tests/workspace-journal-routes.test.ts
+      - backend/tests/journal-archive-tree.test.ts
+      - backend/tests/journal-archive-routes.test.ts
+      - backend/tests/journal-archive-cleanup.test.ts
+      - backend/tests/journal-archive-cleanup-routes.test.ts
+      - frontend/src/lib/api.impl.ts
+      - frontend/src/lib/journalScope.ts
+      - frontend/src/lib/__tests__/journalScope.test.ts
+      - frontend/src/components/daily-records/DailyRecordsHub.tsx
+      - frontend/src/components/daily-records/DailyJournalView.tsx
+      - frontend/src/components/daily-records/dailyRecordSlashCommands.tsx
+      - frontend/src/components/daily-records/markdownDailyRecordSlashCommands.tsx
+      - frontend/src/components/daily-records/__tests__/workspaceSharedJournalContract.test.ts
+      - frontend/src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx
+      - frontend/src/components/daily-records/__tests__/markdownDailyRecordSlashCommands.test.tsx
+      - frontend/src/components/daily-records/__tests__/journalArchiveCleanupContract.test.ts
+      - .github/workflows/workspace-shared-journals-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --silent
+      - name: Workspace journal service regression
+        working-directory: backend
+        run: npx tsx --test tests/workspace-journals.test.ts
+      - name: Workspace journal route lifecycle
+        working-directory: backend
+        run: npx tsx --test tests/workspace-journal-routes.test.ts
+      - name: Existing journal archive and cleanup regressions
+        working-directory: backend
+        run: >-
+          npx tsx --test
+          tests/journal-archive-tree.test.ts
+          tests/journal-archive-routes.test.ts
+          tests/journal-archive-cleanup.test.ts
+          tests/journal-archive-cleanup-routes.test.ts
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run build:tsc
+      - name: PostgreSQL schema parity
+        run: |
+          grep -q 'CREATE TABLE IF NOT EXISTS workspace_journals' backend/src/db/postgres/schema.base.sql
+          grep -q 'PRIMARY KEY ("workspaceId", "journalDate")' backend/src/db/postgres/schema.base.sql
+          grep -q 'workspaceJournalsMigration' backend/src/db/migrations.ts
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Workspace journal frontend regressions
+        working-directory: frontend
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/journalScope.test.ts
+          src/lib/__tests__/dailyRecordCommandDefinitions.test.ts
+          src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx
+          src/components/daily-records/__tests__/markdownDailyRecordSlashCommands.test.tsx
+          src/components/daily-records/__tests__/workspaceSharedJournalContract.test.ts
+          src/components/daily-records/__tests__/journalArchiveCleanupContract.test.ts
+          src/components/__tests__/SlashCommandExtension.test.ts
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Vite production bundle
+        working-directory: frontend
+        run: npx vite build

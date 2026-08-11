@@ -22,6 +22,19 @@ const MAX_TTL_MS = 24 * 60 * 60 * 1000;     // 24 小时；访问权限仍会逐
 const SCOPE_PREFIX = "v2.";
 const MAX_SCOPE_LENGTH = 1024;
 
+// PERF-ATTACHMENT-01：exp 若直接取Date.now()+ttl，每次签发都会得到不同的秒数，
+// 完整URL（exp+sig 都编码在查询串里）也就跟着每次变化。前端在打开笔记时会
+// 反复调用 /access/urls 重新换取附件地址（见 attachments.ts:186），如果这几次
+// 调用之间 exp 不同，浏览器按完整 URL 区分缓存条目，同一张图片也无法复用之前
+// 拿到的 ETag —— 这是"图片密集笔记反复切换仍要整张重下"的直接原因之一。
+//
+// 把过期时间向上取整到固定窗口边界，可以让"短时间内的多次签发"落到同一个
+// exp（因而同一个 sig、同一个完整 URL）上，同时仍然保证：
+//   - 实际有效期 >= 调用方请求的 ttl（只会因为取整而"多给一点"，绝不会提前过期）；
+//   - 取整带来的最大额外时长 = 窗口大小，远小于 MAX_TTL_MS 与 DEFAULT_TTL_MS
+//     之间 12 小时的余量，不会导致签名在验证时被 exp_too_long 拒绝。
+const EXP_QUANTIZATION_WINDOW_MS = 15 * 60 * 1000; // 15 分钟
+
 export type AttachmentAccessScope =
   | { version: 2; kind: "user"; subjectId: string; noteId: string; allowDownload: boolean }
   | { version: 2; kind: "share"; subjectId: string; noteId: string; allowDownload: boolean }
@@ -188,7 +201,11 @@ export function createAttachmentSignedParams(
 ): { exp: string; sig: string; scope: string } {
   const normalizedTtl = Number.isFinite(ttlMs) ? Math.max(1000, ttlMs) : DEFAULT_TTL_MS;
   const clampedTtl = Math.min(normalizedTtl, MAX_TTL_MS);
-  const exp = Math.floor((Date.now() + clampedTtl) / 1000).toString();
+  const rawExpiryMs = Date.now() + clampedTtl;
+  // 向上取整到窗口边界：保证实际有效期只会比请求的 ttl 更长，不会更短，
+  // 同时让窗口内的重复签发落到同一个 exp 上（见上方常量注释）。
+  const quantizedExpiryMs = Math.ceil(rawExpiryMs / EXP_QUANTIZATION_WINDOW_MS) * EXP_QUANTIZATION_WINDOW_MS;
+  const exp = Math.floor(quantizedExpiryMs / 1000).toString();
   const secret = getSigningSecret();
   const payload = `${attachmentId}:${exp}:${scope}`;
   const sig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
@@ -241,7 +258,13 @@ export function verifyAttachmentSignature(
   if (isNaN(expTimestamp)) return { valid: false, reason: "invalid_exp" };
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (expTimestamp < nowSeconds) return { valid: false, reason: "expired" };
-  if (expTimestamp - nowSeconds > Math.ceil(MAX_TTL_MS / 1000)) {
+  // 签发时 exp 会向上取整到 EXP_QUANTIZATION_WINDOW_MS 窗口边界（见
+  // createAttachmentSignedParams），因此即使调用方请求的 ttl恰好等于
+  // MAX_TTL_MS，实际 exp 也可能比 "now + MAX_TTL_MS" 多出最多一个窗口。
+  // 校验侧必须放宽同样的容差，否则会把刚签发、完全合法的 URL 误判为
+  // exp_too_long。
+  const maxAllowedSeconds = Math.ceil(MAX_TTL_MS / 1000) + Math.ceil(EXP_QUANTIZATION_WINDOW_MS / 1000);
+  if (expTimestamp - nowSeconds > maxAllowedSeconds) {
     return { valid: false, reason: "exp_too_long" };
   }
 

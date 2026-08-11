@@ -1,0 +1,86 @@
+name: Journal Archive CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/journals.ts'
+      - 'backend/src/services/journalArchiveTree.ts'
+      - 'backend/tests/journal-archive-tree.test.ts'
+      - 'backend/tests/journal-archive-routes.test.ts'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/components/daily-records/**'
+      - '.github/workflows/journal-archive-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: journal-archive-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out PR merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q source
+          cd source
+          git remote add origin https://github.com/${{ github.repository }}.git
+          if [ -n "${PR_NUMBER}" ]; then
+            git fetch -q --depth 1 origin pull/${PR_NUMBER}/merge
+          else
+            git fetch -q --depth 1 origin "${{ github.ref_name }}"
+          fi
+          git checkout -q FETCH_HEAD
+      - name: Install backend dependencies
+        working-directory: source/backend
+        run: npm ci --silent
+      - name: Journal archive service and route tests
+        working-directory: source/backend
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/journal-archive-tree.test.ts
+          tests/journal-archive-routes.test.ts
+      - name: Backend typecheck
+        working-directory: source/backend
+        run: npx tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out PR merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q source
+          cd source
+          git remote add origin https://github.com/${{ github.repository }}.git
+          if [ -n "${PR_NUMBER}" ]; then
+            git fetch -q --depth 1 origin pull/${PR_NUMBER}/merge
+          else
+            git fetch -q --depth 1 origin "${{ github.ref_name }}"
+          fi
+          git checkout -q FETCH_HEAD
+      - name: Install frontend dependencies
+        working-directory: source/frontend
+        run: npm ci --silent
+      - name: Daily records regressions
+        working-directory: source/frontend
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/dailyRecords.test.ts
+          src/components/daily-records/__tests__/dailyRecordSlashCommands.test.tsx
+          src/components/__tests__/SlashCommandExtension.test.ts
+      - name: Frontend typecheck
+        working-directory: source/frontend
+        run: npx tsc -b
+      - name: Vite production bundle
+        working-directory: source/frontend
+        run: npx vite build

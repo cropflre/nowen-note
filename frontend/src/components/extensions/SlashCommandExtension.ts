@@ -64,9 +64,14 @@ export function isSlashTriggerContext(state: EditorState, from: number): boolean
   }
 }
 
-function readActiveQuery(state: EditorState, slashFrom: number): string | null {
-  if (!state.selection.empty) return null;
-  const cursor = state.selection.from;
+function readActiveQuery(
+  state: EditorState,
+  slashFrom: number,
+  allowCompositionSelection = false,
+): string | null {
+  if (!state.selection.empty && !allowCompositionSelection) return null;
+  // 输入法组合态可能用非空选区标记正在拼写的文本，此时查询范围应取选区末端。
+  const cursor = allowCompositionSelection ? state.selection.to : state.selection.from;
   if (slashFrom < 0 || cursor < slashFrom + 1 || cursor > state.doc.content.size) return null;
 
   try {
@@ -105,7 +110,8 @@ function stateAfterTransaction(
 
   if (previous.active) {
     const mappedFrom = tr.mapping.map(previous.from, -1);
-    const query = readActiveQuery(newState, mappedFrom);
+    const isCompositionTransaction = tr.getMeta("composition") != null;
+    const query = readActiveQuery(newState, mappedFrom, isCompositionTransaction);
     return query == null
       ? inactiveState()
       : { active: true, from: mappedFrom, query };

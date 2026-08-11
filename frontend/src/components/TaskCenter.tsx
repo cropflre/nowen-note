@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
+import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
@@ -7,16 +8,18 @@ export * from "./TaskCenterImpl";
 export default function TaskCenter() {
   const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
 
+  const remountTaskWorkspace = useCallback(() => {
+    setWorkspaceGeneration((value) => value + 1);
+  }, []);
+
   useEffect(() => {
     const handleWorkspaceChange = () => {
-      // Remount the full task center. This immediately drops the previous
-      // workspace state, and late promises from the unmounted instance cannot
-      // overwrite the newly selected workspace.
-      setWorkspaceGeneration((value) => value + 1);
+      // Remount capture, planning state, smart views and the legacy task center together.
+      remountTaskWorkspace();
     };
     window.addEventListener("nowen:workspace-changed", handleWorkspaceChange);
     return () => window.removeEventListener("nowen:workspace-changed", handleWorkspaceChange);
-  }, []);
+  }, [remountTaskWorkspace]);
 
   useEffect(() => {
     const handleDeleteCapture = (event: MouseEvent) => {
@@ -36,5 +39,9 @@ export default function TaskCenter() {
     return () => document.removeEventListener("click", handleDeleteCapture, true);
   }, []);
 
-  return <TaskCenterImpl key={workspaceGeneration} />;
+  return (
+    <TaskMetadataWorkspace key={workspaceGeneration}>
+      <TaskCenterImpl />
+    </TaskMetadataWorkspace>
+  );
 }

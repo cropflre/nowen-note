@@ -200,6 +200,8 @@ export interface NoteListItem {
   userId: string;
   notebookId: string;
   workspaceId: string | null;   // Phase 1 新增
+  /** 统一知识树中的直属父节点；null 表示根目录。仅列表接口保证返回。 */
+  treeParentId?: string | null;
   title: string;
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */
@@ -228,6 +230,7 @@ export interface NoteListItem {
 export interface Tag {
   id: string;
   userId: string;
+  workspaceId?: string | null;
   name: string;
   color: string;
   createdAt: string;
@@ -412,6 +415,7 @@ export interface Task {
   dueDate: string | null;
   /** Phase 2: 精确到分钟的截止时间，ISO 8601 格式（如 2026-06-12T18:00）。兼容旧 dueDate */
   dueAt: string | null;
+  /** 开始日期或精确到分钟的开始时间（YYYY-MM-DD 或 YYYY-MM-DDTHH:mm） */
   startDate?: string | null;
   noteId: string | null;
   parentId: string | null;

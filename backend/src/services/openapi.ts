@@ -73,7 +73,7 @@ export function generateOpenAPISpec(): Record<string, any> {
             id: { type: "string", format: "uuid" },
             title: { type: "string" },
             isCompleted: { type: "integer", enum: [0, 1] },
-            priority: { type: "integer", description: "1=高 2=中 3=低" },
+            priority: { type: "integer", description: "1=低 2=中 3=高" },
             dueDate: { type: "string", nullable: true },
             noteId: { type: "string", nullable: true },
             createdAt: { type: "string", format: "date-time" },

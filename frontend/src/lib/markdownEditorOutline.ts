@@ -1,4 +1,5 @@
 import type { NoteEditorHeading } from "@/components/editors/types";
+import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 
 interface FenceState {
   marker: "`" | "~";
@@ -11,14 +12,12 @@ function isFenceClose(line: string, fence: FenceState): boolean {
 }
 
 /**
- * Extract ATX H4-H6 headings with source offsets from Markdown.
- *
- * The editor already supplies H1-H3 from CodeMirror's incremental syntax tree. This
- * scanner only fills the historically omitted deep levels and deliberately skips
- * fenced code blocks so examples such as `#### not a heading` do not enter the outline.
+ * 直接扫描整篇 Markdown 的 ATX 标题，避免 CodeMirror 增量语法树尚未解析到
+ * 文档后半段时，大纲只显示当前已解析区域。
  */
-export function extractDeepMarkdownHeadings(
+function extractMarkdownHeadings(
   markdown: string | null | undefined,
+  minLevel: number,
 ): NoteEditorHeading[] {
   const source = markdown || "";
   const headings: NoteEditorHeading[] = [];
@@ -43,13 +42,13 @@ export function extractDeepMarkdownHeadings(
           size: fenceStart[1].length,
         };
       } else {
-        const heading = line.match(/^[\t ]{0,3}(#{4,6})(?:[\t ]+|$)(.*)$/);
+        const heading = line.match(/^[\t ]{0,3}(#{1,6})(?:[\t ]+|$)(.*)$/);
         if (heading) {
           const level = heading[1].length;
-          const text = heading[2]
+          const text = projectMarkdownForUser(heading[2])
             .replace(/[\t ]+#{1,6}[\t ]*$/, "")
             .trim();
-          if (text) {
+          if (level >= minLevel && text) {
             headings.push({
               id: `h-${offset}`,
               level,
@@ -68,16 +67,25 @@ export function extractDeepMarkdownHeadings(
   return headings;
 }
 
-/** Merge the editor-provided outline with deep headings without creating duplicates. */
+/** 保留原有 H4-H6 提取接口，供深层标题能力和现有调用继续使用。 */
+export function extractDeepMarkdownHeadings(
+  markdown: string | null | undefined,
+): NoteEditorHeading[] {
+  return extractMarkdownHeadings(markdown, 4);
+}
+
+/** 合并编辑器已解析标题与整篇文档扫描结果，并按源码位置去重。 */
 export function mergeMarkdownEditorHeadings(
   existing: NoteEditorHeading[],
   markdown: string | null | undefined,
 ): NoteEditorHeading[] {
   const merged = new Map<string, NoteEditorHeading>();
   for (const heading of existing) {
-    merged.set(`${heading.pos}:${heading.level}`, heading);
+    const text = projectMarkdownForUser(heading.text).trim();
+    if (text) merged.set(`${heading.pos}:${heading.level}`, { ...heading, text });
   }
-  for (const heading of extractDeepMarkdownHeadings(markdown)) {
+  // CodeMirror 的语法树按视口增量解析；再次扫描整篇文档可补齐尚未解析的标题。
+  for (const heading of extractMarkdownHeadings(markdown, 1)) {
     const key = `${heading.pos}:${heading.level}`;
     if (!merged.has(key)) merged.set(key, heading);
   }

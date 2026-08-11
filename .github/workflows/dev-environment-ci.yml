@@ -1,0 +1,71 @@
+name: Development Environment CI
+
+on:
+  push:
+    branches:
+      - release/v1.4.6
+    paths:
+      - ".github/workflows/dev-environment-ci.yml"
+      - "scripts/dev.mjs"
+      - "scripts/dev-dependency-manager.mjs"
+      - "scripts/tests/dev-dependency-manager.test.mjs"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "package.json"
+      - "package-lock.json"
+  pull_request:
+    paths:
+      - ".github/workflows/dev-environment-ci.yml"
+      - "scripts/dev.mjs"
+      - "scripts/dev-dependency-manager.mjs"
+      - "scripts/tests/dev-dependency-manager.test.mjs"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "package.json"
+      - "package-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate development launcher syntax
+        run: |
+          node --check scripts/dev.mjs
+          node --check scripts/dev-dependency-manager.mjs
+
+      - name: Run dependency synchronization tests
+        run: node --test scripts/tests/dev-dependency-manager.test.mjs
+
+      - name: Verify local notifications dependency contract
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('frontend/package-lock.json', 'utf8'));
+          const name = '@capacitor/local-notifications';
+          if (!manifest.dependencies?.[name]) {
+            throw new Error(`${name} is missing from frontend/package.json`);
+          }
+          if (!lock.packages?.['node_modules/@capacitor/local-notifications']) {
+            throw new Error(`${name} is missing from frontend/package-lock.json`);
+          }
+          console.log(`${name} dependency contract is synchronized`);
+          NODE

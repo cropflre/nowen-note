@@ -15,6 +15,11 @@ import {
   resolveNoteNotebookMemberPermission,
   resolveNotebookMemberPermission,
 } from "../services/notebook-permissions";
+import {
+  capabilitiesToLegacyPermission,
+  resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
+} from "../services/knowledgeCapabilities";
 import { noteAclRepository, workspaceMembersRepository } from "../repositories";
 
 export type WorkspaceRole = "owner" | "admin" | "editor" | "commenter" | "viewer";
@@ -76,12 +81,11 @@ export function getUserWorkspaceRole(workspaceId: string, userId: string): Works
 }
 
 /**
- * 解析笔记的有效权限
- *  1. 若笔记是个人空间（workspaceId IS NULL）：仅 owner 可访问（write/manage）
- *  2. 若笔记属于工作区：
- *     a. 先查 note_acl 覆写
- *     b. 再查 workspace_members 角色对应的权限
- *     c. 均无记录则返回 null（无权）
+ * 解析笔记的有效权限。
+ *
+ * 新知识树节点存在时，以统一 EffectiveKnowledgeAccess 为唯一来源，使旧 REST、
+ * Yjs、附件和编辑器路由不能绕过受限目录。若历史资源尚未生成知识树节点，才回退
+ * 到旧 notebook_members / note_acl / workspace role 逻辑。
  */
 export function resolveNotePermission(
   noteId: string,
@@ -93,6 +97,15 @@ export function resolveNotePermission(
     .get(noteId) as { userId: string; workspaceId: string | null } | undefined;
 
   if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccess("note", noteId, userId, db);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: note.workspaceId,
+      noteOwnerId: note.userId,
+    };
+  }
 
   if (note.userId === userId) {
     return { permission: "manage", workspaceId: note.workspaceId, noteOwnerId: note.userId };
@@ -125,7 +138,39 @@ export function resolveNotePermission(
 }
 
 /**
- * 解析笔记本的有效权限（与笔记类似，但直接基于 notebooks.workspaceId）
+ * 解析已进入回收站笔记的生命周期权限。
+ *
+ * 普通 resolveNotePermission 继续严格隐藏 tombstone；只有恢复和永久删除
+ * 这类删除生命周期操作显式调用本函数。权限仍来自同一套 Knowledge ACL，
+ * 因而 Restricted / explicit deny / owner-admin 语义不会被绕过。
+ */
+export function resolveTrashedNotePermission(
+  noteId: string,
+  userId: string,
+): { permission: Permission | null; workspaceId: string | null; noteOwnerId: string | null } {
+  const db = getDb();
+  const note = db
+    .prepare("SELECT userId, workspaceId FROM notes WHERE id = ?")
+    .get(noteId) as { userId: string; workspaceId: string | null } | undefined;
+
+  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccessForTombstone("note", noteId, userId, db);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: note.workspaceId,
+      noteOwnerId: note.userId,
+    };
+  }
+
+  // 尚未生成统一知识树节点的历史资源继续沿用旧 ACL 回退。
+  return resolveNotePermission(noteId, userId);
+}
+
+/**
+ * 解析笔记本的有效权限。知识树节点存在时使用统一权限；只对尚未完成层级同步的
+ * 历史资源保留旧权限回退。
  */
 export function resolveNotebookPermission(
   notebookId: string,
@@ -137,6 +182,15 @@ export function resolveNotebookPermission(
     .get(notebookId) as { userId: string; workspaceId: string | null } | undefined;
 
   if (!nb) return { permission: null, workspaceId: null, notebookOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccess("notebook", notebookId, userId, db);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: nb.workspaceId,
+      notebookOwnerId: nb.userId,
+    };
+  }
 
   if (nb.userId === userId) {
     return { permission: "manage", workspaceId: nb.workspaceId, notebookOwnerId: nb.userId };

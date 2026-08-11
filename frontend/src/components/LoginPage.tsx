@@ -24,6 +24,8 @@ import {
   saveRememberedCredentials,
 } from "@/lib/rememberLogin";
 import type { User as AuthUser } from "@/types";
+import { isUgreenRemoteAccessUrl, openUgreenRemoteWorkspace } from "@/lib/ugreenRemoteAccess";
+import { clearAuthTokens, storeAuthTokens } from "@/lib/authSession";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -44,11 +46,6 @@ function isMobileNativeClientRuntime(): boolean {
   } catch {
     return false;
   }
-}
-
-function storeLoginToken(token: string) {
-  localStorage.setItem("nowen-token", token);
-  try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch { }
 }
 
 export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
@@ -85,13 +82,48 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [canSavePassword, setCanSavePassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(isClientMode);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
   const [error, setError] = useState("");
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
+  const pendingUgreenLoginRef = useRef(false);
 
   const icpBeianText = siteConfig.icpBeian?.trim() || "";
   const showIcpBeian = !!icpBeianText && !isMobileNativeClientRuntime();
   const isRegister = mode === "register";
   const isTwoFactorStep = loginStep === "twoFactor";
+  const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
+  const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
+  const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
+
+  useEffect(() => {
+    const desktop = (window as any).nowenDesktop;
+    if (!desktop?.isDesktop || typeof desktop.on !== "function") return;
+
+    const stopReady = desktop.on("ugreen:gateway-ready", (payload: unknown) => {
+      const ready = payload as { serverUrl?: unknown };
+      if (!pendingUgreenLoginRef.current) return;
+      if (typeof ready.serverUrl !== "string" || !isUgreenRemoteAccessUrl(ready.serverUrl)) return;
+
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("ok");
+      setServerUrl(ready.serverUrl);
+      localStorage.setItem("nowen-server-url-last", ready.serverUrl);
+      setError("");
+      window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+    });
+    const stopCancelled = desktop.on("ugreen:auth-cancelled", () => {
+      if (!pendingUgreenLoginRef.current) return;
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("fail");
+      setError(t("auth.ugreenAccess.cancelled"));
+    });
+    return () => {
+      stopReady?.();
+      stopCancelled?.();
+    };
+  }, [t]);
 
   const handleHistoryReauth = (account: AccountLoginHistoryItem, message?: string) => {
     pendingReauthRef.current = { serverUrl: account.serverUrl, username: account.username };
@@ -218,13 +250,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   }, []);
 
   const submitDisabled = useMemo(() => {
-    if (isLoading) return true;
+    if (isLoading || isAuthorizingUgreen) return true;
     if (isTwoFactorStep) return false;
+    // 绿联远程域名需要先在绿联网关页面完成认证；本地表单账号不会提交给网关。
+    if (!isRegister && isMobileUgreenAddress) return false;
     if (!username.trim() || !password) return true;
     if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isClientMode, isLoading, isRegister, isTwoFactorStep, password, serverParts.host, username]);
+  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, serverParts.host, username]);
 
   const serverStatusIcon = () => {
     if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
@@ -237,6 +271,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     if (!isClientMode) return;
     const url = buildServerUrl(serverParts);
     if (!url) return;
+    // UGREENlink 的远程 Docker 域名会先跳转到网关认证页，不能按普通 API 健康检查判失败。
+    if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
+      setServerStatus("ok");
+      setServerUrl(url);
+      localStorage.setItem("nowen-server-url-last", url);
+      return;
+    }
     setServerStatus("checking");
     const result = await testServerConnection(url);
     setServerStatus(result.ok ? "ok" : "fail");
@@ -247,6 +288,29 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     }
   };
 
+  const beginUgreenAuthorization = async (url: string) => {
+    if (pendingUgreenLoginRef.current) return;
+    pendingUgreenLoginRef.current = true;
+    setIsAuthorizingUgreen(true);
+    setError("");
+    try {
+      await openUgreenRemoteWorkspace(url);
+      // Android/iOS 使用系统安全浏览器打开远程工作台，不会收到 Electron 网关事件。
+      // Browser.open 返回后立即释放本地等待态，避免回到 App 时按钮永久转圈。
+      if (isNativeMobileClient) {
+        pendingUgreenLoginRef.current = false;
+        setIsAuthorizingUgreen(false);
+        setServerStatus("ok");
+      }
+    } catch (openError) {
+      console.error("[login] failed to open UGREEN authentication", openError);
+      pendingUgreenLoginRef.current = false;
+      setIsAuthorizingUgreen(false);
+      setServerStatus("fail");
+      setError(t("auth.ugreenAccess.openFailed"));
+    }
+  };
+
   const resolveBaseUrl = async (): Promise<string | null> => {
     if (!isClientMode) return "";
     const url = buildServerUrl(serverParts);
@@ -254,9 +318,22 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       setError(t("auth.serverRequired"));
       return null;
     }
+    // Android 原生 HTTP 无法完成绿联网关的交互式 302 认证。
+    // 对可信 UGREENlink 域名直接打开远程 Web 工作台，且不发送 Nowen 账号密码。
+    if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
+      setServerStatus("ok");
+      setServerUrl(url);
+      localStorage.setItem("nowen-server-url-last", url);
+      await beginUgreenAuthorization(url);
+      return null;
+    }
     setServerStatus("checking");
     const result = await testServerConnection(url);
     if (!result.ok) {
+      if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
+        await beginUgreenAuthorization(url);
+        return null;
+      }
       setServerStatus("fail");
       setError(result.error || t("server.connectFailed"));
       return null;
@@ -309,7 +386,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           email: email.trim() || undefined,
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
-        storeLoginToken(data.token);
+        storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
         onLogin(data.token, data.user);
         return;
       }
@@ -344,7 +421,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       }
 
       await persistRememberedLogin(baseUrl || "");
-      storeLoginToken(data.token);
+      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       onLogin(data.token, data.user);
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
@@ -410,7 +487,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       }
 
       await persistRememberedLogin(baseUrl || "");
-      storeLoginToken(data.token);
+      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       onLogin(data.token, data.user);
     } catch (err: any) {
       setError(err?.message || t("auth.networkError"));
@@ -429,7 +506,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
   const handleDisconnect = () => {
     clearServerUrl();
-    localStorage.removeItem("nowen-token");
+    clearAuthTokens();
     setServerParts({ protocol: "http", host: "", port: "", path: "" });
     setServerStatus("idle");
     setUsername("");
@@ -585,7 +662,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.serverAddress")}</label>
                   <ServerAddressInput
                     value={serverParts}
-                    onChange={(next) => { setServerParts(next); if (serverStatus !== "idle") setServerStatus("idle"); }}
+                    onChange={(next) => {
+                      setServerParts(next);
+                      if (serverStatus !== "idle") setServerStatus("idle");
+                    }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
                     accent="indigo"
@@ -594,7 +674,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
                   <LanDiscoveryPanel
                     currentHostIsEmpty={!serverParts.host.trim()}
-                    onSelect={(next) => { setServerParts(next); setServerStatus("idle"); }}
+                    onSelect={(next) => {
+                      setServerParts(next);
+                      setServerStatus("idle");
+                    }}
                   />
                 </motion.div>
               )}
@@ -710,12 +793,25 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               )}
             </AnimatePresence>
 
+            {isAuthorizingUgreen && (
+              <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                <span>{t("auth.ugreenAccess.waiting")}</span>
+              </div>
+            )}
             <button
               type="submit"
               disabled={submitDisabled}
               className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : isRegister ? t("auth.registerButton") : t("auth.loginButton")}
+              {isLoading || isAuthorizingUgreen
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : isRegister
+                  ? t("auth.registerButton")
+                  : isMobileUgreenAddress
+                    ? t("auth.ugreenAccess.button")
+                    : t("auth.loginButton")}
+              {isAuthorizingUgreen && <span className="ml-2">{t("auth.ugreenAccess.authorizing")}</span>}
             </button>
             </>
             )}

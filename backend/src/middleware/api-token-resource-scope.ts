@@ -1,5 +1,6 @@
 import type { Context, Next } from "hono";
 import { getDb } from "../db/schema";
+import { hasPermission, resolveNotebookPermission } from "./acl";
 import { logAudit } from "../services/audit";
 
 export type ApiTokenResourcePermission = "read" | "write";
@@ -164,6 +165,43 @@ async function replaceFilteredResponse(c: Context, filter: (body: any) => any): 
   c.res = jsonResponse(filter(body), c.res.status, c.res.headers);
 }
 
+/**
+ * Restricted Token 的笔记本列表不能依赖 /api/notebooks 的默认“个人空间”查询。
+ * Token 已经显式保存了 notebookId 白名单，因此这里以授权表为发现入口，再与用户
+ * 当前 ACL 求交集。这样工作区成员身份被撤销后，历史 Token grant 也不会继续泄露资源。
+ */
+function listGrantedNotebookCatalog(ctx: TokenAccessContext): any[] {
+  const ids = Array.from(ctx.notebooks.keys()).filter((id) => canRead(ctx, id));
+  if (ids.length === 0) return [];
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getDb().prepare(`
+    SELECT
+      nb.*,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM notes n
+        WHERE n.notebookId = nb.id AND n.isTrashed = 0
+      ), 0) AS noteCount,
+      ws.name AS workspaceName
+    FROM notebooks nb
+    LEFT JOIN workspaces ws ON ws.id = nb.workspaceId
+    WHERE nb.id IN (${placeholders})
+      AND nb.isDeleted = 0
+    ORDER BY
+      CASE WHEN nb.workspaceId IS NULL THEN 0 ELSE 1 END ASC,
+      COALESCE(ws.name, '') COLLATE NOCASE ASC,
+      nb.sortOrder ASC,
+      nb.name COLLATE NOCASE ASC,
+      nb.id ASC
+  `).all(...ids) as Array<Record<string, any>>;
+
+  return rows.filter((row) => {
+    const { permission } = resolveNotebookPermission(String(row.id || ""), ctx.userId);
+    return hasPermission(permission, "read");
+  });
+}
+
 function requiredScope(pathname: string, method: string): string | null {
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
@@ -190,6 +228,10 @@ async function handleNotebooks(c: Context, next: Next, ctx: TokenAccessContext):
   if (path === "/api/notebooks" || path === "/api/notebooks/shared-with-me") {
     if (method === "GET") {
       await next();
+      if (path === "/api/notebooks" && c.res.status >= 200 && c.res.status < 300) {
+        c.res = jsonResponse(listGrantedNotebookCatalog(ctx), c.res.status, c.res.headers);
+        return;
+      }
       await replaceFilteredResponse(c, (body) => Array.isArray(body)
         ? body.filter((item) => canRead(ctx, item?.id))
         : body);

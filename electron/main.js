@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, shell, dialog, ipcMain, Menu, session } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, Menu, session } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -10,6 +10,7 @@ const { buildMenu, applyFormatState } = require("./menu");
 const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray");
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { initLogger, getLogDir } = require("./logger");
+const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings } = require("./settings");
@@ -22,6 +23,7 @@ const {
 const folderSync = require("./folder-sync");
 const {
   isAllowedExternalUrl,
+  isAllowedUgreenRemoteUrl,
   isAllowedMainWindowNavigation,
   isTrustedMainWindowSender,
   isTrustedSetupWindowSender,
@@ -54,10 +56,15 @@ let backendPort = 0;
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
 let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
+let currentRendererSession = null;
+let currentOfflineCacheDir = "";
+let ugreenWorkspaceWindow = null;
 // Phase A: 桌面零登录所用的本地账号 token / user，在 startBackend 之后由
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
+
+const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
 
 // ---------- 单实例锁（防止多开损坏 SQLite） ----------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -95,6 +102,99 @@ function getDataDirInfo() {
     exists: fs.existsSync(currentPath),
     mode: currentMode,
   };
+}
+
+const RENDERER_STORAGE_ENTRIES = [
+  "IndexedDB",
+  "Local Storage",
+  "Session Storage",
+  "WebStorage",
+  "Service Worker",
+  "CacheStorage",
+  "blob_storage",
+  "Cookies",
+  "Cookies-journal",
+  "Network Persistent State",
+];
+
+function migrateRendererStorage(sourceDir, targetDir) {
+  if (!sourceDir || !targetDir || path.resolve(sourceDir) === path.resolve(targetDir)) return;
+  fs.mkdirSync(targetDir, { recursive: true });
+  const migratedEntries = [];
+  for (const name of RENDERER_STORAGE_ENTRIES) {
+    const source = path.join(sourceDir, name);
+    if (!fs.existsSync(source)) continue;
+    const target = path.join(targetDir, name);
+    fs.cpSync(source, target, { recursive: true, force: true });
+    if (!fs.existsSync(target)) throw new Error(`OFFLINE_CACHE_COPY_FAILED:${name}`);
+    migratedEntries.push(source);
+  }
+  fs.writeFileSync(
+    path.join(targetDir, ".nowen-offline-cache"),
+    JSON.stringify({ migratedAt: new Date().toISOString() }, null, 2),
+    "utf8"
+  );
+  for (const source of migratedEntries) {
+    fs.rmSync(source, { recursive: true, force: true });
+  }
+}
+
+function prepareRendererSession(settings) {
+  const defaultPath = app.getPath("userData");
+  let targetPath = settings.offlineCacheDir || defaultPath;
+  const migrationSource = settings.offlineCacheMigrationSource;
+
+  if (migrationSource && path.resolve(migrationSource) !== path.resolve(targetPath)) {
+    try {
+      migrateRendererStorage(migrationSource, targetPath);
+      writeSettings({ offlineCacheMigrationSource: "" });
+    } catch (error) {
+      console.error("[offline-cache] migration failed:", error?.message || error);
+      targetPath = migrationSource;
+      writeSettings({
+        offlineCacheDir: path.resolve(migrationSource) === path.resolve(defaultPath) ? "" : migrationSource,
+        offlineCacheMigrationSource: "",
+      });
+    }
+  }
+
+  currentOfflineCacheDir = targetPath;
+  currentRendererSession = path.resolve(targetPath) === path.resolve(defaultPath)
+    ? session.defaultSession
+    : session.fromPath(targetPath);
+  return currentRendererSession;
+}
+
+function configureRendererSession(rendererSession) {
+  rendererSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "notifications" || permission === "fullscreen");
+  });
+  if (typeof rendererSession.setPermissionCheckHandler === "function") {
+    rendererSession.setPermissionCheckHandler((_webContents, permission) => (
+      permission === "notifications" || permission === "fullscreen"
+    ));
+  }
+
+  rendererSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    const contentType = (responseHeaders["content-type"] || responseHeaders["Content-Type"] || [""])[0] || "";
+    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) {
+      const cspRo = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' file: blob: data: http: https:",
+        "connect-src 'self' http: https: ws: wss:",
+        "font-src 'self' blob: data:",
+        "frame-src blob: data: http: https:",
+        "object-src 'none'",
+        "worker-src 'self' blob:",
+        "media-src 'self' blob:",
+      ].join("; ");
+      responseHeaders["Content-Security-Policy-Report-Only"] = [cspRo];
+    }
+    callback({ responseHeaders });
+  });
 }
 
 // ---------- JWT 密钥：桌面版"首启自动生成并持久化" ----------
@@ -299,20 +399,27 @@ function waitForRemoteReady(remoteUrl, timeoutMs = 15000) {
     timeout: 3000,
     rejectUnauthorized: false, // 容忍自签
   };
+  const pathPrefix = parsed.pathname.replace(/\/+$/, "");
 
   const start = Date.now();
   return new Promise((resolve, reject) => {
     let lastErr = null;
     const tick = () => {
-      const req = lib.get({ ...baseOpts, path: "/api/health" }, (res) => {
-        // 任何 2xx/3xx/4xx 都说明服务器在跑（4xx 可能是没鉴权的健康端点）
-        if (res.statusCode < 500) {
-          res.resume();
-          return resolve();
-        }
-        res.resume();
-        lastErr = new Error(`HTTP ${res.statusCode}`);
-        retry();
+      const req = lib.get({ ...baseOpts, path: `${pathPrefix}/api/health` }, (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => { if (body.length < 4096) body += chunk; });
+        res.on("end", () => {
+          let payload = null;
+          try { payload = JSON.parse(body); } catch { /* 门户 HTML / 反代错误 */ }
+          if (res.statusCode >= 200 && res.statusCode < 300 && payload?.status === "ok") {
+            return resolve();
+          }
+          lastErr = new Error(
+            `HTTP ${res.statusCode}，未检测到 Nowen Note API（可能仍是 NAS 门户或反代路径不正确）`,
+          );
+          retry();
+        });
       });
       req.on("error", (e) => {
         lastErr = e;
@@ -586,7 +693,7 @@ async function ensureLocalAccount() {
     const r = await localApiRequest("/auth/login", { username, password });
     if (r.status === 200 && r.data?.token) {
       console.log("[Electron] local desktop account login OK");
-      return { token: r.data.token, user: r.data.user };
+      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
     }
     // 401：密码错或用户存在但密码对不上；404 / 400：用户不存在 → 走注册
   } catch (e) {
@@ -603,7 +710,7 @@ async function ensureLocalAccount() {
     });
     if ((r.status === 200 || r.status === 201) && r.data?.token) {
       console.log("[Electron] local desktop account registered");
-      return { token: r.data.token, user: r.data.user };
+      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
     }
     // 409：用户名已存在（说明密码被人改了或 secret 文件丢了），
     //   不去暴力重置，让用户在登录页手动处理
@@ -628,8 +735,8 @@ async function resetLocalAccountAuth() {
       { "X-Nowen-Desktop-Secret": password },
     );
     if (r.status === 200 && r.data?.token) {
-      localAuthCache = { token: r.data.token, user: r.data.user };
-      return { ok: true, token: r.data.token, user: r.data.user };
+      localAuthCache = { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
+      return { ok: true, token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
     }
     return { ok: false, error: r.data?.error || `status=${r.status}` };
   } catch (e) {
@@ -720,7 +827,7 @@ function buildMainWindowErrorHtml({ title, message, details = [] }) {
     <div class="title">${escapeHtml(title)}</div>
     <div class="message">${escapeHtml(message)}</div>
     ${rows}
-    <button onclick="window.location.reload()">重新加载</button>
+    <button onclick="window.location.href='${MAIN_WINDOW_RELOAD_URL}'">重新加载应用</button>
   </div></body></html>`;
 }
 
@@ -799,7 +906,7 @@ function createWindow() {
   const macWindowOpts = isMac
     ? {
         titleBarStyle: "hiddenInset",
-        trafficLightPosition: { x: 12, y: 14 },
+        trafficLightPosition: { x: 12, y: 22 },
         vibrancy: "sidebar",
         visualEffectState: "active",
         transparent: false, // 开启 vibrancy 时 backgroundColor 可设半透明或不设
@@ -822,6 +929,7 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      session: currentRendererSession || session.defaultSession,
       // sandbox 不能开：preload 使用 require("electron")，sandbox 下 require 不可用
       preload: preloadPath,
       additionalArguments: isLiteOnlyBuild() ? ["--nowen-lite-only"] : [],
@@ -832,6 +940,11 @@ function createWindow() {
   setTrustedMainWindowId(mainWindow.webContents.id);
   let hasShownMainWindow = false;
   let loadingErrorPage = false;
+  let recoveringRenderer = false;
+  const rendererRecoveryGate = createRendererRecoveryGate({
+    maxAttempts: 2,
+    windowMs: 60_000,
+  });
   const revealMainWindow = (reason) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (hasShownMainWindow) return;
@@ -873,6 +986,18 @@ function createWindow() {
       `targetUrl=${targetUrl} mode=${currentMode} packaged=${app.isPackaged}` +
       (developmentBackendUrl ? " devBackend=external" : "")
   );
+  const loadApplicationSurface = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return Promise.reject(new Error("MAIN_WINDOW_DESTROYED"));
+    }
+    if (frontendIndexExists) {
+      return mainWindow.loadFile(frontendIndex, { query: { serverUrl: targetUrl } });
+    }
+    if (!app.isPackaged && currentMode !== "lite") {
+      return mainWindow.loadURL(targetUrl);
+    }
+    return Promise.reject(new Error("MAIN_WINDOW_FRONTEND_MISSING"));
+  };
   const handleInitialLoadError = (err) => {
     console.error("[main-window] initial load failed:", err?.stack || err?.message || err);
     if (!loadingErrorPage) {
@@ -894,6 +1019,26 @@ function createWindow() {
       });
     }
     revealMainWindow("initial-load-error");
+  };
+  const reloadMainApplication = (reason) => {
+    if (!mainWindow || mainWindow.isDestroyed() || recoveringRenderer) return;
+    recoveringRenderer = true;
+    loadingErrorPage = false;
+    console.warn(`[main-window] renderer recovery start reason=${reason}`);
+    loadApplicationSurface()
+      .then(() => {
+        console.log(`[main-window] renderer recovery succeeded reason=${reason}`);
+      })
+      .catch((error) => {
+        console.error(
+          `[main-window] renderer recovery failed reason=${reason}:`,
+          error?.stack || error?.message || error
+        );
+        handleInitialLoadError(error);
+      })
+      .finally(() => {
+        recoveringRenderer = false;
+      });
   };
   if (frontendIndexExists) {
     // 桌面客户端始终加载本地 UI，远程地址作为 API base 通过 query 参数传入
@@ -962,6 +1107,13 @@ function createWindow() {
         `[main-window] did-fail-load code=${errorCode} desc=${errorDescription} ` +
           `url=${validatedURL} isMainFrame=${isMainFrame}`
       );
+      if (recoveringRenderer) {
+        console.warn(
+          `[main-window] did-fail-load during renderer recovery code=${errorCode} ` +
+            `desc=${errorDescription} url=${validatedURL}`
+        );
+        return;
+      }
       if (!isMainFrame || loadingErrorPage) {
         revealMainWindow("did-fail-load");
         return;
@@ -989,16 +1141,39 @@ function createWindow() {
   );
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    const currentURL = mainWindow?.webContents?.getURL?.() || "";
     console.error("[main-window] render-process-gone:", details);
+    if (recoveringRenderer || getIsQuitting()) {
+      console.warn(
+        `[main-window] ignore render-process-gone during ` +
+          `${getIsQuitting() ? "shutdown" : "active-recovery"}`
+      );
+      return;
+    }
+    const recovery = loadingErrorPage
+      ? { recover: false, reason: "error-page-active", attempt: 0 }
+      : rendererRecoveryGate.consume(details);
+
+    if (recovery.recover) {
+      console.warn(
+        `[main-window] auto-recover renderer attempt=${recovery.attempt} ` +
+          `reason=${details?.reason || "unknown"} exitCode=${details?.exitCode ?? ""}`
+      );
+      reloadMainApplication(`render-process-gone:${details?.reason || "unknown"}`);
+      revealMainWindow("render-process-recovery");
+      return;
+    }
+
     if (!loadingErrorPage) {
       loadingErrorPage = true;
       loadMainWindowErrorPage(mainWindow, {
         title: "Nowen Note 渲染进程异常",
-        message: "主窗口渲染进程已退出。应用已打开诊断页，避免只剩后台进程。",
+        message: "主窗口渲染进程连续退出或无法安全恢复。请点击“重新加载应用”；若仍失败，请重启客户端并提供日志。",
         details: [
           { label: "reason", value: details?.reason },
           { label: "exitCode", value: details?.exitCode },
-          { label: "currentURL", value: mainWindow.webContents.getURL() },
+          { label: "recovery", value: recovery.reason },
+          { label: "currentURL", value: currentURL },
           { label: "logs", value: getLogDir() },
           { label: "data", value: getUserDataPath() },
         ],
@@ -1044,6 +1219,11 @@ function createWindow() {
   // SEC-ELECTRON-01-C-B1: 主窗口 navigation 拦截
   // 防止 renderer 通过 window.location、恶意链接、脚本跳转等方式把主窗口导航到非应用页面
   mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    if (navigationUrl === MAIN_WINDOW_RELOAD_URL && loadingErrorPage) {
+      event.preventDefault();
+      reloadMainApplication("diagnostic-page-button");
+      return;
+    }
     const currentUrl = mainWindow.webContents.getURL();
     if (isAllowedMainWindowNavigation(navigationUrl, currentUrl)) {
       return; // 允许内部导航
@@ -1143,7 +1323,8 @@ async function clearWebStorage() {
   // 这样切到新服务器后是全新登录态。
   // 不动 partition，因为本期只支持单一服务器。
   try {
-    await session.defaultSession.clearStorageData({
+    const rendererSession = currentRendererSession || session.defaultSession;
+    await rendererSession.clearStorageData({
       storages: [
         "cookies",
         "localstorage",
@@ -1154,7 +1335,7 @@ async function clearWebStorage() {
         "cachestorage",
       ],
     });
-    await session.defaultSession.clearCache();
+    await rendererSession.clearCache();
     console.log("[mode-switch] storage cleared");
   } catch (e) {
     console.warn("[mode-switch] clearStorageData failed:", e?.message || e);
@@ -1374,6 +1555,199 @@ async function changeRemoteServer() {
 
 // ---------- IPC：app 信息 ----------
 function registerAppIpc() {
+  ipcMain.removeHandler("client:http-json");
+  ipcMain.handle("client:http-json", async (event, payload = {}) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+
+    const rawUrl = typeof payload.url === "string" ? payload.url.slice(0, 4096) : "";
+    let target;
+    try {
+      target = new URL(rawUrl);
+    } catch {
+      return { ok: false, error: "INVALID_URL" };
+    }
+    if (!/^https?:$/.test(target.protocol) || !/(?:^|\/)api(?:\/|$)/.test(target.pathname)) {
+      return { ok: false, error: "INVALID_API_URL" };
+    }
+
+    const method = typeof payload.method === "string" ? payload.method.toUpperCase() : "GET";
+    if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      return { ok: false, error: "INVALID_METHOD" };
+    }
+
+    const headers = {};
+    if (payload.headers && typeof payload.headers === "object" && !Array.isArray(payload.headers)) {
+      for (const [rawName, rawValue] of Object.entries(payload.headers)) {
+        const name = String(rawName).toLowerCase();
+        if (!/^[a-z0-9!#$%&'*+.^_`|~-]+$/.test(name)) continue;
+        if (["host", "origin", "cookie", "content-length", "connection"].includes(name) || name.startsWith("sec-")) continue;
+        if (typeof rawValue !== "string") continue;
+        headers[name] = rawValue.slice(0, 16_384);
+      }
+    }
+
+    const body = typeof payload.body === "string" ? payload.body : undefined;
+    if (body && Buffer.byteLength(body, "utf8") > 32 * 1024 * 1024) {
+      return { ok: false, error: "REQUEST_TOO_LARGE" };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await (currentRendererSession || session.defaultSession).fetch(target.toString(), {
+        method,
+        headers,
+        body: method === "GET" || method === "HEAD" ? undefined : body,
+        credentials: "include",
+        redirect: "follow",
+        signal: controller.signal,
+      });
+      const responseHeaders = {};
+      response.headers.forEach((value, name) => {
+        if (name.toLowerCase() !== "set-cookie") responseHeaders[name] = value;
+      });
+      return {
+        ok: true,
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+        body: method === "HEAD" ? "" : await response.text(),
+        url: response.url || target.toString(),
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || "NETWORK_ERROR" };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  });
+
+  ipcMain.removeHandler("app:open-ugreen-remote-workspace");
+  ipcMain.handle("app:open-ugreen-remote-workspace", async (event, payload = {}) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+
+    const url = typeof payload.url === "string" ? payload.url.slice(0, 4096) : "";
+    if (!isAllowedUgreenRemoteUrl(url)) {
+      return { ok: false, error: "INVALID_UGREEN_URL" };
+    }
+    const target = new URL(url);
+    const healthUrl = `${target.origin}${target.pathname.replace(/\/+$/, "")}/api/health`;
+
+    if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+      if (ugreenWorkspaceWindow.webContents.getURL() !== healthUrl) {
+        await ugreenWorkspaceWindow.loadURL(healthUrl);
+      }
+      if (ugreenWorkspaceWindow.isMinimized()) ugreenWorkspaceWindow.restore();
+      ugreenWorkspaceWindow.show();
+      ugreenWorkspaceWindow.focus();
+      return { ok: true };
+    }
+
+    ugreenWorkspaceWindow = new BrowserWindow({
+      width: 1120,
+      height: 780,
+      minWidth: 760,
+      minHeight: 560,
+      parent: mainWindow || undefined,
+      title: "绿联认证",
+      show: false,
+      autoHideMenuBar: true,
+      backgroundColor: "#ffffff",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        session: currentRendererSession || session.defaultSession,
+      },
+    });
+    ugreenWorkspaceWindow.setMenuBarVisibility(false);
+    ugreenWorkspaceWindow.once("ready-to-show", () => {
+      if (!ugreenWorkspaceWindow || ugreenWorkspaceWindow.isDestroyed()) return;
+      ugreenWorkspaceWindow.show();
+      ugreenWorkspaceWindow.focus();
+    });
+    let gatewayReady = false;
+    ugreenWorkspaceWindow.on("closed", () => {
+      if (!gatewayReady && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("ugreen:auth-cancelled", { serverUrl: url });
+      }
+      ugreenWorkspaceWindow = null;
+    });
+    ugreenWorkspaceWindow.webContents.setWindowOpenHandler(({ url: popupUrl }) => {
+      try {
+        if (new URL(popupUrl).protocol === "https:") {
+          return {
+            action: "allow",
+            overrideBrowserWindowOptions: {
+              parent: ugreenWorkspaceWindow || undefined,
+              autoHideMenuBar: true,
+              webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true,
+                webSecurity: true,
+                allowRunningInsecureContent: false,
+                session: currentRendererSession || session.defaultSession,
+              },
+            },
+          };
+        }
+      } catch {}
+      return { action: "deny" };
+    });
+
+    const remoteSession = currentRendererSession || session.defaultSession;
+    let healthCheckRunning = false;
+    const authPollTimer = setInterval(async () => {
+      if (gatewayReady || healthCheckRunning || !ugreenWorkspaceWindow || ugreenWorkspaceWindow.isDestroyed()) return;
+      healthCheckRunning = true;
+      try {
+        const response = await remoteSession.fetch(healthUrl, {
+          method: "GET",
+          redirect: "manual",
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        if (response.status !== 200) return;
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.toLowerCase().includes("application/json")) return;
+        const body = await response.json().catch(() => null);
+        if (!body || body.status !== "ok") return;
+
+        gatewayReady = true;
+        clearInterval(authPollTimer);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("ugreen:gateway-ready", { serverUrl: url });
+          mainWindow.show();
+          mainWindow.focus();
+        }
+        if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+          ugreenWorkspaceWindow.close();
+        }
+      } catch {
+        // 绿联尚未完成认证；下一轮继续检查。
+      } finally {
+        healthCheckRunning = false;
+      }
+    }, 800);
+    authPollTimer.unref?.();
+    ugreenWorkspaceWindow.once("closed", () => clearInterval(authPollTimer));
+
+    try {
+      await ugreenWorkspaceWindow.loadURL(healthUrl);
+      return { ok: true };
+    } catch (error) {
+      if (ugreenWorkspaceWindow && !ugreenWorkspaceWindow.isDestroyed()) {
+        ugreenWorkspaceWindow.destroy();
+      }
+      ugreenWorkspaceWindow = null;
+      return { ok: false, error: error?.message || "LOAD_FAILED" };
+    }
+  });
+
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
   ipcMain.removeHandler("app:info");
   ipcMain.handle("app:info", (event) => {
@@ -1431,6 +1805,56 @@ function registerAppIpc() {
     const dir = getUserDataPath();
     await shell.openPath(dir);
     return { ok: true, path: dir };
+  });
+
+  ipcMain.removeHandler("app:get-offline-storage-info");
+  ipcMain.handle("app:get-offline-storage-info", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const dir = currentOfflineCacheDir || app.getPath("userData");
+    return {
+      ok: true,
+      path: dir,
+      exists: fs.existsSync(dir),
+      isCustom: path.resolve(dir) !== path.resolve(app.getPath("userData")),
+    };
+  });
+
+  ipcMain.removeHandler("app:open-offline-storage-dir");
+  ipcMain.handle("app:open-offline-storage-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const dir = currentOfflineCacheDir || app.getPath("userData");
+    const error = await shell.openPath(dir);
+    return error ? { ok: false, path: dir, error } : { ok: true, path: dir };
+  });
+
+  ipcMain.removeHandler("app:choose-offline-storage-dir");
+  ipcMain.handle("app:choose-offline-storage-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const result = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: "选择离线缓存保存位置",
+      buttonLabel: "使用此位置",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+
+    const targetPath = path.join(result.filePaths[0], "Nowen Note Offline Cache");
+    const sourcePath = currentOfflineCacheDir || app.getPath("userData");
+    if (path.resolve(targetPath) === path.resolve(sourcePath)) {
+      return { ok: true, path: targetPath, unchanged: true };
+    }
+    if (path.resolve(targetPath).startsWith(`${path.resolve(sourcePath)}${path.sep}`)) {
+      return { ok: false, error: "TARGET_INSIDE_CURRENT_CACHE" };
+    }
+
+    writeSettings({
+      offlineCacheDir: targetPath,
+      offlineCacheMigrationSource: sourcePath,
+    });
+    setTimeout(() => relaunchApp(), 150);
+    return { ok: true, path: targetPath, restarting: true };
   });
 
   ipcMain.removeHandler("app:get-data-dir-info");
@@ -1705,49 +2129,10 @@ app.whenReady().then(async () => {
   currentRemoteUrl = settings.remoteUrl;
   currentHideMenuBar = !!settings.hideMenuBar;
 
-  // SEC-ELECTRON-01-E2: 权限请求拦截 — 默认拒绝高风险权限，仅允许通知和全屏。
-  const defaultSession = session.defaultSession;
-  defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    // notifications 用于任务提醒；fullscreen 用于编辑器原生视频控件。
-    if (permission === "notifications" || permission === "fullscreen") {
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
-  // setPermissionCheckHandler: 拦截权限查询（非弹窗类的静默检查）
-  if (typeof defaultSession.setPermissionCheckHandler === "function") {
-    defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
-      // 与请求阶段保持一致，避免 Fullscreen API 在查询阶段被拒绝。
-      return permission === "notifications" || permission === "fullscreen";
-    });
-  }
-
-  // SEC-ELECTRON-01-E3.2: CSP Report-Only 注入 — 先观察，不拦截
-  // 注意：webRequest.onHeadersReceived 对 file:// 协议不生效（Chromium 限制），
-  // 生产环境主窗口通过 loadFile 加载（file://），CSP Report-Only 仅对 http/https 响应生效。
-  // 开发环境（Vite dev server）和 lite 模式远程页面会命中此拦截器。
-  defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const responseHeaders = { ...details.responseHeaders };
-    // 仅对 HTML 文档注入，跳过 JS/CSS/图片等资源
-    const contentType = (responseHeaders["content-type"] || responseHeaders["Content-Type"] || [""])[0] || "";
-    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) {
-      const cspRo = [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' file: blob: data: http: https:",
-        "connect-src 'self' http: https: ws: wss:",
-        "font-src 'self' blob: data:",
-        "frame-src blob: data: http: https:",
-        "object-src 'none'",
-        "worker-src 'self' blob:",
-        "media-src 'self' blob:",
-      ].join("; ");
-      responseHeaders["Content-Security-Policy-Report-Only"] = [cspRo];
-    }
-    callback({ responseHeaders });
-  });
+  // 主窗口可使用用户指定的持久化会话目录；离线 IndexedDB 与必要的
+  // renderer 登录态会在重启阶段一并迁移，避免更换位置后被迫重新登录。
+  const rendererSession = prepareRendererSession(settings);
+  configureRendererSession(rendererSession);
   console.log("[Electron] CSP Report-Only injected via webRequest.onHeadersReceived");
 
   // Lite-only 包强制使用 lite 模式：哪怕用户手改 settings.json 为 full 也纠正回来

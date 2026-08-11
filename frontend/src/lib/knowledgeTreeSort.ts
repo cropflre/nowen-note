@@ -130,3 +130,59 @@ export function applyKnowledgeTreeSort(
     sortOrder: displayOrder.get(node.id) ?? node.sortOrder,
   }));
 }
+
+export type KnowledgeTreeSiblingDropPlacement = "before" | "after";
+
+export interface KnowledgeTreeSiblingReorderPlan {
+  nodes: KnowledgeTreeNode[];
+  items: Array<{ id: string; sortOrder: number }>;
+}
+
+/**
+ * Plan a manual drag reorder inside one sibling group.
+ *
+ * Returns null when the drag crosses hierarchy levels: reparenting must go
+ * through the move flow instead of being silently mixed into a reorder.
+ * The returned nodes keep every parentId untouched and only reassign
+ * sortOrder inside the affected sibling group.
+ */
+export function planKnowledgeTreeSiblingReorder(
+  nodes: KnowledgeTreeNode[],
+  sourceId: string,
+  targetId: string,
+  placement: KnowledgeTreeSiblingDropPlacement,
+): KnowledgeTreeSiblingReorderPlan | null {
+  if (!sourceId || sourceId === targetId) return null;
+  const source = nodes.find((node) => node.id === sourceId);
+  const target = nodes.find((node) => node.id === targetId);
+  if (!source || !target) return null;
+  if ((source.parentId ?? null) !== (target.parentId ?? null)) return null;
+
+  const siblings = nodes
+    .filter((node) => (node.parentId ?? null) === (source.parentId ?? null))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const withoutSource = siblings.filter((node) => node.id !== sourceId);
+  const targetIndex = withoutSource.findIndex((node) => node.id === targetId);
+  if (targetIndex < 0) return null;
+
+  const insertIndex = placement === "before" ? targetIndex : targetIndex + 1;
+  const reordered = [
+    ...withoutSource.slice(0, insertIndex),
+    source,
+    ...withoutSource.slice(insertIndex),
+  ];
+
+  const nextSortOrder = new Map<string, number>();
+  reordered.forEach((node, index) => nextSortOrder.set(node.id, index));
+
+  const items: Array<{ id: string; sortOrder: number }> = [];
+  const nextNodes = nodes.map((node) => {
+    const sortOrder = nextSortOrder.get(node.id);
+    if (sortOrder === undefined || sortOrder === node.sortOrder) return node;
+    items.push({ id: node.id, sortOrder });
+    return { ...node, sortOrder };
+  });
+
+  if (items.length === 0) return null;
+  return { nodes: nextNodes, items };
+}

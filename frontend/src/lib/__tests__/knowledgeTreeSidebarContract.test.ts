@@ -28,7 +28,8 @@ describe("knowledge tree sidebar contract", () => {
   it("keeps loading recovery inside one embedded panel without a legacy fallback", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
     expect(panel).toContain('data-nowen-knowledge-tree="embedded"');
-    expect(panel).toContain("内容树加载失败");
+    expect(panel).toContain("内容暂时未加载");
+    expect(panel).toContain("重新加载");
     expect(panel).toContain("不能移动到自己的子节点中");
     expect(panel).not.toContain("onRequestLegacy");
     expect(panel).not.toContain("使用旧树");
@@ -47,6 +48,21 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain("if (!surfaceActive) return");
   });
 
+  it("separates folder selection from the disclosure arrow in three-column navigation", () => {
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    const noteList = source("../../components/NoteList.tsx");
+
+    expect(panel).toContain('action: "select" | "toggle"');
+    expect(panel).toContain('setPendingFolderAction({ nodeId: node.id, action: "select" })');
+    expect(panel).toContain('setPendingFolderAction({ nodeId: node.id, action: "toggle" })');
+    expect(panel).toContain("actions.setSelectedNotebook(node.resourceId)");
+    expect(panel).toContain('actions.setViewMode("notebook")');
+    expect(panel).toContain("selectFolder(node)");
+    expect(panel).toContain("state.selectedNotebookId === node.resourceId");
+    expect(panel).toContain("onClick={() => hasChildren && void toggleDisclosure(node)}");
+    expect(noteList).toContain('includeDescendants: "0"');
+  });
+
   it("keeps pinned and favorite note states visible beside the tree title", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
     expect(panel).toContain('aria-label="已置顶"');
@@ -62,6 +78,25 @@ describe("knowledge tree sidebar contract", () => {
     expect(menu).toContain("onNotePatched(node.id, patch)");
   });
 
+  it("renders all notes as a three-column-only desktop navigation entry", () => {
+    const runtime = source("../../components/KnowledgeTreeCreateMenuRuntime.tsx");
+
+    expect(runtime).toContain('data-knowledge-tree-all-notes=""');
+    expect(runtime).toContain('data-knowledge-tree-all-notes-count=""');
+    expect(runtime).toContain("panel.insertBefore(host, scroll)");
+    expect(runtime).toContain('actions.setViewMode("all")');
+    expect(runtime).toContain("actions.setSelectedNotebook(null)");
+    expect(runtime).toContain("actions.clearSelectedTags()");
+    expect(runtime).toContain('actions.setSearchQuery("")');
+    expect(runtime).toContain("notebook.noteCount");
+    expect(runtime).toContain("state.noteListCollapsed");
+    expect(runtime).toContain("actions.toggleNoteListCollapsed()");
+    expect(runtime).toContain('layoutMode === "three-column"');
+    expect(runtime).toContain('variant === "mobile"');
+    expect(runtime).toContain("for (const host of root.querySelectorAll<HTMLElement>");
+    expect(runtime).toContain('if (host.getAttribute(ALL_NOTES_HOST_ATTR) !== "mobile-toolbar") host.remove();');
+  });
+
   it("applies an unmistakably compact mobile density with a safe fallback", () => {
     const main = source("../../main.tsx");
     const compactCss = source("../../mobile-knowledge-tree-compact.css");
@@ -70,12 +105,13 @@ describe("knowledge tree sidebar contract", () => {
 
     expect(main).toContain('import "./mobile-knowledge-tree-compact.css"');
     expect(main).not.toContain('import "./desktop-knowledge-tree-compact.css"');
-    expect(bridge).toContain('<KnowledgeTreePanel variant="mobile" className="nowen-mobile-tree-density" />');
+    expect(bridge).toContain('variant="mobile"');
+    expect(bridge).toContain('className={compact ? "nowen-mobile-tree-density" : undefined}');
     expect(compactCss).toContain(".nowen-mobile-tree-density");
 
     // Root folders remain readable, nested folders are tighter, and documents are dense.
-    expect(compactCss).toContain("--nowen-mobile-tree-root-folder-row-height: 22px");
-    expect(compactCss).toContain("--nowen-mobile-tree-folder-row-height: 20px");
+    expect(compactCss).toContain("--nowen-mobile-tree-root-folder-row-height: 20px");
+    expect(compactCss).toContain("--nowen-mobile-tree-folder-row-height: 18px");
     expect(compactCss).toContain("--nowen-mobile-tree-note-row-height: 16px");
     expect(compactCss).toContain("font-size: 11px !important");
     expect(compactCss).toContain("line-height: 14px !important");
@@ -91,7 +127,7 @@ describe("knowledge tree sidebar contract", () => {
     expect(compactCss).not.toContain("@media (max-width: 767px)");
 
     // Existing interaction and title/status behavior must remain intact.
-    expect(panel).toContain("onClick={() => hasChildren && void toggle(node)}");
+    expect(panel).toContain("onClick={() => hasChildren && void toggleDisclosure(node)}");
     expect(panel).toContain('className="min-w-0 flex-1 truncate"');
     expect(panel).toContain('aria-label={`在“${node.title}”下新建文档`}');
     expect(panel).toContain('title="更多"');

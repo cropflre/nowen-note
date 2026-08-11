@@ -1,28 +1,18 @@
-import { knowledgeTreeMigration } from "../db/knowledgeTreeMigration.js";
-import { knowledgeTreeResourceMigration } from "../db/knowledgeTreeResourceMigration.js";
-import { knowledgeTreeParentPreservationMigration } from "../db/knowledgeTreeParentPreservationMigration.js";
-import { knowledgeTreeLegacySyncMigration } from "../db/knowledgeTreeLegacySyncMigration.js";
-import { knowledgeTreeStructuralGuardMigration } from "../db/knowledgeTreeStructuralGuardMigration.js";
-import { knowledgeTreePasswordMigration } from "../db/knowledgeTreePasswordMigration.js";
-import { MIGRATIONS as BASE_MIGRATIONS } from "../db/migrations.impl.js";
+import { MIGRATIONS } from "../db/migrations.js";
 
-// index.hardened imports this module before any runtime that can open the database.
-// Mutating the historical base list here lets migrations.ts compute CURRENT_SCHEMA_VERSION
-// with the feature migrations included, without coupling the main migration wrapper to them.
-//
-// Do not import route/runtime installers from this file. Some of them depend on ACL services
-// that install database guards at module-evaluation time. Opening the database here would load
-// migrations.ts before versions 60-65 are appended and freeze CURRENT_SCHEMA_VERSION at 59.
-for (const featureMigration of [
-  knowledgeTreeMigration,
-  knowledgeTreeResourceMigration,
-  knowledgeTreeParentPreservationMigration,
-  knowledgeTreeLegacySyncMigration,
-  knowledgeTreeStructuralGuardMigration,
-  knowledgeTreePasswordMigration,
-]) {
-  if (!BASE_MIGRATIONS.some((migration) => migration.version === featureMigration.version)) {
-    BASE_MIGRATIONS.push(featureMigration);
+const REQUIRED_KNOWLEDGE_TREE_MIGRATIONS = [60, 61, 62, 63, 64, 65] as const;
+
+/**
+ * Compatibility bootstrap kept for historical entry points.
+ *
+ * Versions 60-65 are now part of the canonical migration registry. This module
+ * must never mutate the migration list at runtime: doing so after migrations.ts
+ * has already imported the same feature migrations creates duplicate versions
+ * and makes database startup fail. The bootstrap now only verifies that a build
+ * did not accidentally omit the published knowledge-tree chain.
+ */
+for (const version of REQUIRED_KNOWLEDGE_TREE_MIGRATIONS) {
+  if (!MIGRATIONS.some((migration) => migration.version === version)) {
+    throw new Error(`[knowledge-tree-bootstrap] missing canonical migration v${version}`);
   }
 }
-BASE_MIGRATIONS.sort((a, b) => a.version - b.version);

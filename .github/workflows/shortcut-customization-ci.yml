@@ -6,12 +6,21 @@ on:
     paths:
       - 'frontend/src/lib/shortcutRegistry.ts'
       - 'frontend/src/lib/shortcutOverrides.ts'
+      - 'frontend/src/lib/ime.ts'
       - 'frontend/src/lib/shortcuts/**'
       - 'frontend/src/lib/__tests__/shortcut*.test.ts'
+      - 'frontend/src/lib/__tests__/ime.test.ts'
       - 'frontend/src/components/ShortcutRuntimeBridge.tsx'
       - 'frontend/src/components/ShortcutHelpCenter.tsx'
       - 'frontend/src/components/settings/ShortcutSettingsPanel.tsx'
       - 'frontend/src/components/SettingsModal.tsx'
+      - 'frontend/src/components/DiaryCenter.tsx'
+      - 'frontend/src/components/DiaryCenterImpl.tsx'
+      - 'frontend/src/components/diary/DiaryExperienceBridge.tsx'
+      - 'frontend/src/components/diary/SayMarkdownToolbar.tsx'
+      - 'frontend/src/components/diary/DiaryAiReportDialog.tsx'
+      - 'frontend/src/components/diary/__tests__/SayMarkdownToolbar.test.ts'
+      - 'frontend/src/components/diary/__tests__/DiaryAiReportDialog.test.ts'
       - 'electron/menu.js'
       - '.github/workflows/shortcut-customization-ci.yml'
 
@@ -31,9 +40,15 @@ jobs:
       - name: Install frontend dependencies
         working-directory: source/frontend
         run: npm ci --silent
-      - name: Shortcut registry and override tests
+      - name: Shortcut, IME and diary helper tests
         working-directory: source/frontend
-        run: npx vitest run --reporter=basic src/lib/__tests__/shortcutRegistry.test.ts src/lib/__tests__/shortcutOverrides.test.ts
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/shortcutRegistry.test.ts
+          src/lib/__tests__/shortcutOverrides.test.ts
+          src/lib/__tests__/ime.test.ts
+          src/components/diary/__tests__/SayMarkdownToolbar.test.ts
+          src/components/diary/__tests__/DiaryAiReportDialog.test.ts
       - name: Frontend typecheck
         working-directory: source/frontend
         run: npx tsc -b

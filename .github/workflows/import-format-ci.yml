@@ -1,0 +1,52 @@
+name: Import Format CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/ObsidianImport.tsx"
+      - "frontend/src/lib/importService.ts"
+      - "frontend/src/lib/importService.base.ts"
+      - "frontend/src/lib/obsidianImportTypes.ts"
+      - "frontend/src/lib/obsidianImportService.ts"
+      - "frontend/src/lib/__tests__/importServiceSiyuanMarkdown.test.ts"
+      - "frontend/src/lib/__tests__/obsidianImportFormat.test.ts"
+      - "frontend/src/components/__tests__/DataManagerImportFormatSelection.test.ts"
+      - ".github/workflows/import-format-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/ObsidianImport.tsx"
+      - "frontend/src/lib/importService.ts"
+      - "frontend/src/lib/importService.base.ts"
+      - "frontend/src/lib/obsidianImportTypes.ts"
+      - "frontend/src/lib/obsidianImportService.ts"
+      - "frontend/src/lib/__tests__/importServiceSiyuanMarkdown.test.ts"
+      - "frontend/src/lib/__tests__/obsidianImportFormat.test.ts"
+      - "frontend/src/components/__tests__/DataManagerImportFormatSelection.test.ts"
+      - ".github/workflows/import-format-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Import format regression tests
+        run: npm run test:run -- src/lib/__tests__/importServiceSiyuanMarkdown.test.ts src/lib/__tests__/obsidianImportFormat.test.ts src/components/__tests__/DataManagerImportFormatSelection.test.ts
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b

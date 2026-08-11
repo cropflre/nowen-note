@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, FileCode, FileText, Folder, List, Lock, Pin, Plus, X } from "lucide-react";
+import { Check, ChevronDown, FileCode, FileText, Folder, List, Lock, Pin, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
@@ -108,6 +108,58 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tagName === "input" || tagName === "textarea" || target.isContentEditable;
 }
 
+function sameTabIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function NoteTabVisual({
+  tab,
+  title,
+  active,
+  loading,
+  closeLabel,
+  onClose,
+}: {
+  tab: OpenNoteTab;
+  title: string;
+  active: boolean;
+  loading: boolean;
+  closeLabel: string;
+  onClose?: (event: React.MouseEvent<HTMLSpanElement>) => void;
+}) {
+  return (
+    <>
+      {tab.pinned && <Pin size={11} className="shrink-0 text-accent-primary fill-accent-primary/20" />}
+      {tab.isLocked ? (
+        <Lock size={12} className="shrink-0 text-orange-500" />
+      ) : tab.contentFormat === "markdown" ? (
+        <FileCode size={12} className="shrink-0 text-emerald-500" />
+      ) : (
+        <FileText size={12} className="shrink-0 text-tx-tertiary" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-left">{title}</span>
+      {active && loading ? (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-primary animate-pulse" />
+      ) : tab.contentFormat === "markdown" ? (
+        <span className="shrink-0 rounded border border-emerald-500/30 px-1 text-[9px] font-mono text-emerald-500">
+          MD
+        </span>
+      ) : null}
+      <span
+        role={onClose ? "button" : undefined}
+        tabIndex={onClose ? -1 : undefined}
+        aria-label={onClose ? closeLabel : undefined}
+        title={onClose ? closeLabel : undefined}
+        onClick={onClose}
+        className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-tx-tertiary opacity-60 hover:bg-app-active hover:text-tx-primary group-hover:opacity-100"
+      >
+        <X size={11} />
+      </span>
+      {active && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-primary" />}
+    </>
+  );
+}
+
 export default function NoteTabsBar() {
   const { state } = useApp();
   const actions = useAppActions();
@@ -121,11 +173,15 @@ export default function NoteTabsBar() {
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dragInsertTarget, setDragInsertTarget] = useState<DragInsertTarget>(null);
   const [creating, setCreating] = useState(false);
+  const [visibleTabIds, setVisibleTabIds] = useState<string[]>(() => openNoteTabs.map((tab) => tab.id));
   const menuRef = useRef<HTMLDivElement | null>(null);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const createNotebookMenuRef = useRef<HTMLDivElement | null>(null);
   const tabListMenuRef = useRef<HTMLDivElement | null>(null);
   const tabListTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const tabsViewportRef = useRef<HTMLDivElement | null>(null);
+  const tabsMeasureRef = useRef<HTMLDivElement | null>(null);
+  const newTabButtonRef = useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = useRef(false);
 
   const notebookOptions = useMemo(() => {
@@ -404,6 +460,83 @@ export default function NoteTabsBar() {
     if (contextMenu && !targetTab) setContextMenu(null);
   }, [contextMenu, targetTab]);
 
+  const recomputeVisibleTabs = useCallback(() => {
+    const viewport = tabsViewportRef.current;
+    const measure = tabsMeasureRef.current;
+    if (!viewport || !measure || viewport.clientWidth <= 0) return;
+
+    const viewportStyle = window.getComputedStyle(viewport);
+    const newTabButton = newTabButtonRef.current;
+    const newTabButtonStyle = newTabButton ? window.getComputedStyle(newTabButton) : null;
+    const reservedNewTabWidth = newTabButton
+      ? newTabButton.getBoundingClientRect().width
+        + (Number.parseFloat(newTabButtonStyle?.marginLeft || "") || 0)
+        + (Number.parseFloat(newTabButtonStyle?.marginRight || "") || 0)
+      : 0;
+    const availableWidth = viewport.clientWidth
+      - (Number.parseFloat(viewportStyle.paddingLeft) || 0)
+      - (Number.parseFloat(viewportStyle.paddingRight) || 0)
+      - reservedNewTabWidth;
+    if (availableWidth <= 0) return;
+
+    const measuredWidths = new Map<string, number>();
+    measure.querySelectorAll<HTMLElement>("[data-note-tab-measure-id]").forEach((element) => {
+      const id = element.dataset.noteTabMeasureId;
+      if (!id) return;
+      const style = window.getComputedStyle(element);
+      measuredWidths.set(
+        id,
+        element.getBoundingClientRect().width
+          + (Number.parseFloat(style.marginLeft) || 0)
+          + (Number.parseFloat(style.marginRight) || 0),
+      );
+    });
+    if (measuredWidths.size !== openNoteTabs.length) return;
+
+    const activeId = activeNote?.id && measuredWidths.has(activeNote.id) ? activeNote.id : null;
+    const nextVisible = new Set<string>();
+    let usedWidth = 0;
+
+    if (activeId) {
+      nextVisible.add(activeId);
+      usedWidth += measuredWidths.get(activeId) || 0;
+    }
+
+    for (const tab of openNoteTabs) {
+      if (tab.id === activeId) continue;
+      const width = measuredWidths.get(tab.id) || 0;
+      if (usedWidth + width > availableWidth + 0.5) continue;
+      nextVisible.add(tab.id);
+      usedWidth += width;
+    }
+
+    if (nextVisible.size === 0 && openNoteTabs[0]) {
+      nextVisible.add(openNoteTabs[0].id);
+    }
+
+    const orderedIds = openNoteTabs
+      .filter((tab) => nextVisible.has(tab.id))
+      .map((tab) => tab.id);
+    setVisibleTabIds((current) => sameTabIds(current, orderedIds) ? current : orderedIds);
+  }, [activeNote?.id, openNoteTabs]);
+
+  useLayoutEffect(() => {
+    recomputeVisibleTabs();
+    const viewport = tabsViewportRef.current;
+    const measure = tabsMeasureRef.current;
+    if (!viewport || !measure) return;
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(recomputeVisibleTabs);
+      observer.observe(viewport);
+      observer.observe(measure);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", recomputeVisibleTabs);
+    return () => window.removeEventListener("resize", recomputeVisibleTabs);
+  }, [recomputeVisibleTabs]);
+
   useLayoutEffect(() => {
     if (!tabListMenu) return;
     const activeItem = tabListMenuRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]');
@@ -423,6 +556,17 @@ export default function NoteTabsBar() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [activeNote, closeTab, openNoteTabs.length]);
 
+  const visibleIdSet = new Set(visibleTabIds);
+  if (activeNote?.id) visibleIdSet.add(activeNote.id);
+  const visibleTabs = openNoteTabs.filter((tab) => visibleIdSet.has(tab.id));
+  const overflowTabs = openNoteTabs.filter((tab) => !visibleIdSet.has(tab.id));
+  const activeTab = activeNote
+    ? openNoteTabs.find((tab) => tab.id === activeNote.id) || null
+    : null;
+  const tabListTabs = overflowTabs.length > 0
+    ? [activeTab, ...overflowTabs].filter((tab): tab is OpenNoteTab => !!tab)
+    : openNoteTabs;
+
   if (openNoteTabs.length === 0) return null;
 
   const menuX = contextMenu ? Math.max(8, Math.min(contextMenu.x, window.innerWidth - 236)) : 0;
@@ -436,11 +580,11 @@ export default function NoteTabsBar() {
 
   return (
     <div
-      className="hidden md:flex h-9 shrink-0 items-stretch border-b border-app-border bg-app-surface/60 overflow-hidden"
+      className="relative hidden md:flex h-9 shrink-0 items-stretch border-b border-app-border bg-app-surface/60 overflow-hidden"
       aria-label={t("editorTabs.openedTabs")}
     >
-      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden px-2">
-        {openNoteTabs.map((tab) => {
+      <div ref={tabsViewportRef} className="flex min-w-0 flex-1 items-stretch overflow-hidden px-2">
+        {visibleTabs.map((tab) => {
           const active = activeNote?.id === tab.id;
           const title = tab.title || t("editorTabs.noTitle");
           return (
@@ -502,7 +646,7 @@ export default function NoteTabsBar() {
                 }, 0);
               }}
               className={cn(
-                "group relative my-1 mr-1 flex max-w-[180px] min-w-[108px] items-center gap-1.5 rounded-t-md px-2.5 text-xs transition-colors",
+                "group relative my-1 mr-1 flex max-w-[180px] min-w-[108px] shrink-0 items-center gap-1.5 rounded-t-md px-2.5 text-xs transition-colors",
                 active
                   ? "bg-app-bg text-tx-primary shadow-sm"
                   : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -516,40 +660,22 @@ export default function NoteTabsBar() {
               {dragInsertTarget?.tabId === tab.id && dragInsertTarget.edge === "after" && (
                 <span className="pointer-events-none absolute -right-0.5 top-1 bottom-1 z-10 w-0.5 rounded-full bg-accent-primary" />
               )}
-              {tab.pinned && <Pin size={11} className="shrink-0 text-accent-primary fill-accent-primary/20" />}
-              {tab.isLocked ? (
-                <Lock size={12} className="shrink-0 text-orange-500" />
-              ) : tab.contentFormat === "markdown" ? (
-                <FileCode size={12} className="shrink-0 text-emerald-500" />
-              ) : (
-                <FileText size={12} className="shrink-0 text-tx-tertiary" />
-              )}
-              <span className="min-w-0 flex-1 truncate text-left">{title}</span>
-              {active && noteLoading ? (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-primary animate-pulse" />
-              ) : tab.contentFormat === "markdown" ? (
-                <span className="shrink-0 rounded border border-emerald-500/30 px-1 text-[9px] font-mono text-emerald-500">
-                  MD
-                </span>
-              ) : null}
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={t("editorTabs.close")}
-                title={t("editorTabs.close")}
-                onClick={(e) => {
+              <NoteTabVisual
+                tab={tab}
+                title={title}
+                active={active}
+                loading={active && noteLoading}
+                closeLabel={t("editorTabs.close")}
+                onClose={(e) => {
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-tx-tertiary opacity-60 hover:bg-app-active hover:text-tx-primary group-hover:opacity-100"
-              >
-                <X size={11} />
-              </span>
-              {active && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-primary" />}
+              />
             </button>
           );
         })}
         <button
+          ref={newTabButtonRef}
           type="button"
           className="my-1 mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-50"
           onClick={(e) => {
@@ -565,7 +691,34 @@ export default function NoteTabsBar() {
           <Plus size={16} className={creating ? "animate-pulse" : undefined} />
         </button>
       </div>
-      <div className="pointer-events-none w-8 bg-gradient-to-r from-transparent to-app-surface/80" />
+
+      <div
+        ref={tabsMeasureRef}
+        className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex w-max items-stretch"
+        aria-hidden="true"
+      >
+        {openNoteTabs.map((tab) => {
+          const active = activeNote?.id === tab.id;
+          const title = tab.title || t("editorTabs.noTitle");
+          return (
+            <div
+              key={tab.id}
+              data-note-tab-measure-id={tab.id}
+              className="group relative my-1 mr-1 flex max-w-[180px] min-w-[108px] shrink-0 items-center gap-1.5 rounded-t-md px-2.5 text-xs"
+            >
+              <NoteTabVisual
+                tab={tab}
+                title={title}
+                active={active}
+                loading={active && noteLoading}
+                closeLabel={t("editorTabs.close")}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="pointer-events-none w-8 shrink-0 bg-gradient-to-r from-transparent to-app-surface/80" />
       <div className="flex shrink-0 items-center border-l border-app-border/70 px-1">
         <button
           ref={tabListTriggerRef}
@@ -581,13 +734,24 @@ export default function NoteTabsBar() {
               y: rect.bottom + 6,
             });
           }}
-          aria-label={t("editorTabs.allOpenedTabs")}
-          title={t("editorTabs.openedTabCount", { count: openNoteTabs.length })}
+          aria-label={overflowTabs.length > 0 ? t("editorTabs.moreTabs") : t("editorTabs.allOpenedTabs")}
+          title={overflowTabs.length > 0
+            ? t("editorTabs.overflowTabCount", { count: overflowTabs.length })
+            : t("editorTabs.openedTabCount", { count: openNoteTabs.length })}
           aria-haspopup="dialog"
           aria-expanded={!!tabListMenu}
         >
-          <List size={14} />
-          <span className="min-w-3 text-center tabular-nums">{openNoteTabs.length}</span>
+          {overflowTabs.length > 0 ? (
+            <>
+              <span>{t("editorTabs.moreTabs")}</span>
+              <ChevronDown size={12} />
+            </>
+          ) : (
+            <>
+              <List size={14} />
+              <span className="min-w-3 text-center tabular-nums">{openNoteTabs.length}</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -654,14 +818,16 @@ export default function NoteTabsBar() {
           style={{ left: tabListMenuX, top: tabListMenuY }}
           role="dialog"
           aria-modal="false"
-          aria-label={t("editorTabs.allOpenedTabs")}
+          aria-label={overflowTabs.length > 0 ? t("editorTabs.moreTabs") : t("editorTabs.allOpenedTabs")}
           data-testid="note-tabs-switcher"
         >
           <div className="border-b border-app-border px-3 py-2 text-xs font-medium text-tx-tertiary">
-            {t("editorTabs.openedTabCount", { count: openNoteTabs.length })}
+            {overflowTabs.length > 0
+              ? t("editorTabs.overflowTabCount", { count: overflowTabs.length })
+              : t("editorTabs.openedTabCount", { count: openNoteTabs.length })}
           </div>
           <div className="max-h-[min(28rem,calc(100vh-6rem))] overflow-y-auto py-1">
-            {openNoteTabs.map((tab) => {
+            {tabListTabs.map((tab) => {
               const active = activeNote?.id === tab.id;
               const title = tab.title || t("editorTabs.noTitle");
               return (

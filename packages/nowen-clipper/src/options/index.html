@@ -154,9 +154,12 @@
           </select>
         </label>
         <label>
-          <span>正文截断字数上限</span>
+          <span>发送给 AI 的正文上限（字符）</span>
           <input id="aiMaxInputChars" type="number" min="1000" max="12000" step="500" placeholder="6000" />
         </label>
+        <p class="hint">
+          仅限制 AI 分析时读取的纯文本，不会截断最终保存的原文。超出上限时保留正文开头约 2/3 和结尾约 1/3；上限越高，AI 处理时间和模型用量可能增加。
+        </p>
         <label>
           <span>AI 失败时</span>
           <select id="aiFailureStrategy">

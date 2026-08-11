@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import BaseMermaidView, { MermaidView as NamedBaseMermaidView } from "./MermaidView";
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
+import "./mermaid-inline-preview.css";
 
 export * from "./MermaidView";
 
@@ -25,10 +26,32 @@ export const MermaidView: React.FC<MermaidViewProps> = (props) => {
     rootMargin: "1200px 0px",
     manualInLightweight: true,
   });
+  const [shellElement, setShellElement] = useState<HTMLDivElement | null>(null);
+
+  const runtimeRef = useCallback((next: HTMLDivElement | null) => {
+    observeRef(next);
+    setShellElement(next);
+  }, [observeRef]);
+
+  // Rich-text Mermaid previews are stored as codeBlock nodes, but in preview mode they should read
+  // like an inline diagram rather than a code card. Mark only the owning ProseMirror code block so
+  // the CSS can remove the code chrome. Markdown/shared Mermaid views and the standalone mind-map
+  // module are intentionally untouched.
+  useEffect(() => {
+    const codeBlock = shellElement?.closest<HTMLElement>(".code-block-wrapper");
+    if (!codeBlock || !codeBlock.closest(".ProseMirror")) return;
+
+    codeBlock.dataset.nowenMermaidInlinePreview = "true";
+    return () => {
+      if (codeBlock.dataset.nowenMermaidInlinePreview === "true") {
+        delete codeBlock.dataset.nowenMermaidInlinePreview;
+      }
+    };
+  }, [shellElement]);
 
   return (
     <div
-      ref={observeRef}
+      ref={runtimeRef}
       data-mermaid-runtime-state={shouldRenderHeavyContent ? "mounted" : "deferred"}
       style={{
         minHeight: shouldRenderHeavyContent ? undefined : 150,

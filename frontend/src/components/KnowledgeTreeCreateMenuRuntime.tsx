@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileCode, FileText, FileType2, Folder, Link2 } from "lucide-react";
+import { FileArchive, FileCode, Files, FileText, FileType2, Folder, Link2 } from "lucide-react";
 
 import KnowledgeTreePanelBase, {
   FOCUS_KNOWLEDGE_TREE_EVENT,
@@ -10,13 +10,22 @@ import KnowledgeTreePanelBase, {
   type KnowledgeTreePanelProps,
 } from "./KnowledgeTreePanel";
 import { type KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
+import {
+  loadNoteWorkspaceLayoutMode,
+  NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT,
+  NOTE_WORKSPACE_LAYOUT_STORAGE_KEY,
+  type NoteWorkspaceLayoutMode,
+} from "@/lib/noteWorkspaceLayout";
+import { cn } from "@/lib/utils";
+import { useApp, useAppActions } from "@/store/AppContext";
 
 export { FOCUS_KNOWLEDGE_TREE_EVENT, KNOWLEDGE_TREE_CHANGED_EVENT };
 export type { KnowledgeTreePanelProps };
 
 const CREATE_SCOPE_ATTR = "data-nowen-create-scope";
-const CREATE_MENU_WIDTH = 184;
-const CREATE_MENU_HEIGHT = 252;
+const ALL_NOTES_HOST_ATTR = "data-knowledge-tree-all-notes-host";
+const CREATE_MENU_WIDTH = 232;
+const CREATE_MENU_HEIGHT = 284;
 
 const CREATE_ITEMS = [
   { kind: "note", label: "富文本文档", icon: FileText },
@@ -26,6 +35,7 @@ const CREATE_ITEMS = [
 
 const IMPORT_ITEMS = [
   { kind: "markdown", label: "导入 Markdown 文件", icon: FileCode },
+  { kind: "markdown-zip", label: "导入 Markdown + 附件（ZIP）", icon: FileArchive },
   { kind: "word", label: "导入 Word 文档", icon: FileType2 },
   { kind: "wechat", label: "导入公众号文章", icon: Link2 },
 ] as const;
@@ -57,6 +67,110 @@ function markCreateButtons(root: HTMLElement): void {
     button.setAttribute("aria-label", title ? `在“${title}”下新建` : "在当前节点下新建");
     button.setAttribute("aria-haspopup", "menu");
   }
+}
+
+function ensureAllNotesHost(root: HTMLElement): HTMLElement | null {
+  const panel = root.querySelector<HTMLElement>('[data-nowen-knowledge-tree="embedded"]');
+  if (!panel) return null;
+  const scroll = panel.querySelector<HTMLElement>('[data-swipe-blocker="knowledge-tree-scroll"]');
+  if (!scroll || scroll.parentElement !== panel) return null;
+
+  const mobileToolbarHost = panel.querySelector<HTMLElement>(
+    `[${ALL_NOTES_HOST_ATTR}="mobile-toolbar"]`,
+  );
+  if (mobileToolbarHost) {
+    for (const host of panel.querySelectorAll<HTMLElement>(`[${ALL_NOTES_HOST_ATTR}]`)) {
+      if (host !== mobileToolbarHost) host.remove();
+    }
+    return mobileToolbarHost;
+  }
+
+  let host = panel.querySelector<HTMLElement>(`[${ALL_NOTES_HOST_ATTR}]`);
+  if (!host) {
+    host = document.createElement("div");
+    host.setAttribute(ALL_NOTES_HOST_ATTR, "");
+    host.className = "shrink-0 px-2 pb-1.5";
+    panel.insertBefore(host, scroll);
+  }
+  return host;
+}
+
+function AllNotesEntry({
+  variant,
+  compact,
+}: {
+  variant: "desktop" | "mobile";
+  compact: boolean;
+}) {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const active = state.viewMode === "all"
+    && state.selectedNotebookId === null
+    && state.selectedTagIds.length === 0;
+  const allNotesCount = useMemo(() => {
+    const countedNotebooks = state.notebooks.filter(
+      (notebook) => typeof notebook.noteCount === "number",
+    );
+    if (countedNotebooks.length === state.notebooks.length) {
+      return countedNotebooks.reduce(
+        (total, notebook) => total + Math.max(0, notebook.noteCount || 0),
+        0,
+      );
+    }
+    return active ? state.notes.length : null;
+  }, [active, state.notebooks, state.notes.length]);
+
+  const openAllNotes = useCallback(() => {
+    actions.setSelectedNotebook(null);
+    actions.clearSelectedTags();
+    actions.setSearchQuery("");
+    actions.setViewMode("all");
+    actions.setMobileView("list");
+    if (variant === "desktop" && state.noteListCollapsed) {
+      actions.toggleNoteListCollapsed();
+    }
+    if (variant === "mobile") actions.setMobileSidebar(false);
+  }, [actions, state.noteListCollapsed, variant]);
+
+  return (
+    <button
+      type="button"
+      onClick={openAllNotes}
+      className={cn(
+        "group flex w-full items-center text-left font-medium transition-colors",
+        compact
+          ? "h-8 gap-1.5 rounded-md px-2 text-[11px]"
+          : "h-9 gap-2 rounded-lg border px-2.5 text-xs",
+        active
+          ? compact
+            ? "bg-accent-primary/10 text-accent-primary"
+            : "border-accent-primary/15 bg-accent-primary/10 text-accent-primary"
+          : compact
+            ? "text-tx-secondary hover:bg-app-bg hover:text-tx-primary"
+            : "border-transparent text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+      )}
+      aria-current={active ? "page" : undefined}
+      aria-label={allNotesCount === null ? "查看所有笔记" : `查看所有笔记，共 ${allNotesCount} 条`}
+      data-knowledge-tree-all-notes=""
+    >
+      <Files size={compact ? 14 : 15} className="shrink-0 text-accent-primary" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">所有笔记</span>
+      {!compact && allNotesCount !== null && (
+        <span
+          className={cn(
+            "shrink-0 rounded-full text-center tabular-nums",
+            compact
+              ? "min-w-4 px-1 text-[9px] leading-4"
+              : "min-w-6 px-1.5 text-[10px] leading-5",
+            active ? "bg-accent-primary/10 text-accent-primary" : "bg-app-hover text-tx-tertiary",
+          )}
+          data-knowledge-tree-all-notes-count=""
+        >
+          {allNotesCount}
+        </span>
+      )}
+    </button>
+  );
 }
 
 function menuPosition(anchor: DOMRect): React.CSSProperties {
@@ -152,16 +266,18 @@ export function KnowledgeTreeCreateDropdown({
               size={15}
               className={item.kind === "markdown"
                 ? "text-emerald-500"
-                : item.kind === "word"
-                  ? "text-violet-500"
-                  : "text-sky-500"}
+                : item.kind === "markdown-zip"
+                  ? "text-amber-500"
+                  : item.kind === "word"
+                    ? "text-violet-500"
+                    : "text-sky-500"}
             />
             <span>{item.label}</span>
           </button>
         );
       })}
       <p className="border-t border-app-border px-2.5 pb-1 pt-2 text-[10px] text-tx-tertiary">
-        也可将 .md 文件拖拽到目录树导入
+        也可将 .md 或 Markdown 附件 ZIP 拖拽到目录树导入
       </p>
     </div>,
     document.body,
@@ -169,21 +285,58 @@ export function KnowledgeTreeCreateDropdown({
 }
 
 export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
+  const { state } = useApp();
   const rootRef = useRef<HTMLDivElement>(null);
   const requestCounterRef = useRef(0);
   const [createMenu, setCreateMenu] = useState<KnowledgeTreeCreateMenuState | null>(null);
   const [createRequest, setCreateRequest] = useState<KnowledgeTreeInlineCreateRequest | undefined>();
   const [importRequest, setImportRequest] = useState<KnowledgeTreeImportRequest | undefined>();
+  const [allNotesHost, setAllNotesHost] = useState<HTMLElement | null>(null);
+  const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
+    loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
+  );
+  const variant = props.variant ?? "desktop";
+  const showAllNotesEntry = variant === "mobile"
+    || (layoutMode === "three-column" && !state.editorFullscreen);
+
+  useEffect(() => {
+    const updateFromPreference = (event: Event) => {
+      const mode = (event as CustomEvent<NoteWorkspaceLayoutMode>).detail;
+      if (mode === "standard" || mode === "three-column") setLayoutMode(mode);
+    };
+    const updateFromStorage = (event: StorageEvent) => {
+      if (event.key !== NOTE_WORKSPACE_LAYOUT_STORAGE_KEY) return;
+      setLayoutMode(loadNoteWorkspaceLayoutMode(state.noteListCollapsed));
+    };
+    window.addEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, updateFromPreference);
+    window.addEventListener("storage", updateFromStorage);
+    return () => {
+      window.removeEventListener(NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT, updateFromPreference);
+      window.removeEventListener("storage", updateFromStorage);
+    };
+  }, [state.noteListCollapsed]);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const mark = () => markCreateButtons(root);
-    mark();
-    const observer = new MutationObserver(mark);
+    const syncRuntimeEnhancements = () => {
+      markCreateButtons(root);
+      if (!showAllNotesEntry) {
+        for (const host of root.querySelectorAll<HTMLElement>(`[${ALL_NOTES_HOST_ATTR}]`)) {
+          // The compact toolbar host belongs to React. Removing it directly leaves
+          // React's virtual tree out of sync, so a later three-column switch can
+          // only recreate "All notes" in the fallback position.
+          if (host.getAttribute(ALL_NOTES_HOST_ATTR) !== "mobile-toolbar") host.remove();
+        }
+      }
+      const host = showAllNotesEntry ? ensureAllNotesHost(root) : null;
+      setAllNotesHost((current) => current === host ? current : host);
+    };
+    syncRuntimeEnhancements();
+    const observer = new MutationObserver(syncRuntimeEnhancements);
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, []);
+  }, [showAllNotesEntry]);
 
   const requestInlineCreate = useCallback((
     parentId: string | null,
@@ -230,8 +383,21 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
   return (
     <>
       <div ref={rootRef} className="contents" onClickCapture={handleClickCapture}>
-        <KnowledgeTreePanelBase {...props} createRequest={createRequest} importRequest={importRequest} />
+        <KnowledgeTreePanelBase
+          {...props}
+          createRequest={createRequest}
+          importRequest={importRequest}
+          showAllNotesToolbar={showAllNotesEntry}
+          layoutMode={layoutMode}
+        />
       </div>
+      {allNotesHost && createPortal(
+        <AllNotesEntry
+          variant={variant}
+          compact={allNotesHost.getAttribute(ALL_NOTES_HOST_ATTR) === "mobile-toolbar"}
+        />,
+        allNotesHost,
+      )}
       <KnowledgeTreeCreateDropdown
         menu={createMenu}
         onClose={() => setCreateMenu(null)}

@@ -35,6 +35,7 @@ function normalizeRaw(value) {
         displayName: typeof item.displayName === "string" ? item.displayName : "",
         avatarUrl: typeof item.avatarUrl === "string" ? item.avatarUrl : "",
         tokenCipher: typeof item.tokenCipher === "string" ? item.tokenCipher : "",
+        refreshTokenCipher: typeof item.refreshTokenCipher === "string" ? item.refreshTokenCipher : "",
         lastUsedAt: Number.isFinite(item.lastUsedAt) ? item.lastUsedAt : 0,
         requiresReauth: !!item.requiresReauth,
       })).filter((item) => item.id && item.serverUrl && item.userId && item.username)
@@ -194,9 +195,12 @@ function saveAccountHistory(payload) {
   const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
   const username = typeof payload?.username === "string" ? payload.username.trim() : "";
   const token = typeof payload?.token === "string" ? payload.token : "";
+  const refreshToken = typeof payload?.refreshToken === "string" ? payload.refreshToken : "";
   if (!serverUrl || !userId || !username || !token) return { ok: false, error: "INVALID_PAYLOAD" };
   const tokenCipher = encryptSecret(token);
   if (!tokenCipher) return { ok: false, error: "ENCRYPTION_UNAVAILABLE" };
+  const refreshTokenCipher = refreshToken ? encryptSecret(refreshToken) : "";
+  if (refreshToken && !refreshTokenCipher) return { ok: false, error: "ENCRYPTION_UNAVAILABLE" };
 
   const raw = readRaw();
   const existing = raw.accountHistory.find((item) => item.serverUrl === serverUrl && item.userId === userId);
@@ -209,6 +213,7 @@ function saveAccountHistory(payload) {
     displayName: typeof payload.displayName === "string" ? payload.displayName.trim() : "",
     avatarUrl: typeof payload.avatarUrl === "string" ? payload.avatarUrl.trim() : "",
     tokenCipher,
+    refreshTokenCipher,
     lastUsedAt: Number.isFinite(payload.lastUsedAt) ? payload.lastUsedAt : Date.now(),
     requiresReauth: false,
   };
@@ -227,10 +232,12 @@ function loadAccountHistoryToken(id) {
   try {
     const token = decryptSecret(item.tokenCipher);
     if (!token) throw new Error("empty token");
-    return { ok: true, token };
+    const refreshToken = item.refreshTokenCipher ? decryptSecret(item.refreshTokenCipher) : "";
+    return { ok: true, token, ...(refreshToken ? { refreshToken } : {}) };
   } catch (error) {
     console.warn("[credentials] account history decrypt failed:", error?.message || error);
     item.tokenCipher = "";
+    item.refreshTokenCipher = "";
     item.requiresReauth = true;
     writeRaw(raw);
     return { ok: false, error: "TOKEN_UNAVAILABLE" };
@@ -250,6 +257,7 @@ function markAccountHistoryRequiresReauth(id) {
   const item = raw.accountHistory.find((entry) => entry.id === id);
   if (!item) return { ok: false, error: "NOT_FOUND" };
   item.tokenCipher = "";
+  item.refreshTokenCipher = "";
   item.requiresReauth = true;
   return { ok: writeRaw(raw) };
 }
@@ -297,6 +305,7 @@ function registerCredentialsIpc() {
     if (typeof payload.userId !== "string" || payload.userId.length > 256) return { ok: false, error: "INVALID_USER_ID" };
     if (typeof payload.username !== "string" || payload.username.length > 256) return { ok: false, error: "INVALID_USERNAME" };
     if (typeof payload.token !== "string" || payload.token.length > 16384) return { ok: false, error: "INVALID_TOKEN" };
+    if (payload.refreshToken !== undefined && (typeof payload.refreshToken !== "string" || payload.refreshToken.length > 16384)) return { ok: false, error: "INVALID_REFRESH_TOKEN" };
     if (payload.displayName !== undefined && (typeof payload.displayName !== "string" || payload.displayName.length > 256)) return { ok: false, error: "INVALID_DISPLAY_NAME" };
     if (payload.avatarUrl !== undefined && (typeof payload.avatarUrl !== "string" || payload.avatarUrl.length > 2048)) return { ok: false, error: "INVALID_AVATAR_URL" };
     return saveAccountHistory(payload);

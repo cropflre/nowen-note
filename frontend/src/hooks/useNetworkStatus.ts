@@ -23,6 +23,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getBaseUrl } from "@/lib/api";
 import { getQueueLength, subscribe } from "@/lib/offlineQueue";
 import { syncNow } from "@/lib/syncEngine";
+import { syncOfflineChangesIfDue } from "@/lib/offlineWorkspaceSync";
 
 const PROBE_INTERVAL = 30_000;
 const PROBE_TIMEOUT = 3_000;
@@ -47,7 +48,11 @@ export function shouldSignalRecoveredOfflineChanges({
     && flushSucceeded;
 }
 
-export function useNetworkStatus() {
+export interface UseNetworkStatusOptions {
+  signalRecovery?: boolean;
+}
+
+export function useNetworkStatus({ signalRecovery = true }: UseNetworkStatusOptions = {}) {
   const initialOnline = navigator.onLine;
   const initialQueueLength = getQueueLength();
   const [isOnline, setIsOnline] = useState(initialOnline);
@@ -183,7 +188,11 @@ export function useNetworkStatus() {
     const pendingBefore = recoveryPendingCountRef.current;
     const queueLength = getQueueLength();
     if (queueLength === 0) {
-      // 真实恢复但没有离线修改时保持静默。
+      // Even without local writes, the server may have changed on another device.
+      // A real reconnection forces a delta pull; steady probes respect the user interval.
+      void syncOfflineChangesIfDue(wasActuallyOffline).catch((error) => {
+        console.warn("[useNetworkStatus] offline workspace delta pull failed", error);
+      });
       if (wasActuallyOffline) recoveryPendingCountRef.current = 0;
       setPendingCount(0);
       return true;
@@ -195,7 +204,7 @@ export function useNetworkStatus() {
     const pendingAfter = getQueueLength();
     setPendingCount(pendingAfter);
 
-    if (shouldSignalRecoveredOfflineChanges({
+    if (signalRecovery && shouldSignalRecoveredOfflineChanges({
       wasActuallyOffline: wasActuallyOffline || pendingBefore > 0,
       pendingBefore,
       pendingAfter,
@@ -206,7 +215,7 @@ export function useNetworkStatus() {
     }
 
     return flushSucceeded;
-  }, [doFlush, markOffline, probe, showRecoverySignal]);
+  }, [doFlush, markOffline, probe, showRecoverySignal, signalRecovery]);
 
   useEffect(() => {
     mountedRef.current = true;

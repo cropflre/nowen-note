@@ -103,6 +103,7 @@ import {
   ChevronDown,
   Film,
   FolderSearch,
+  ClipboardPlus,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -113,11 +114,14 @@ import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
+import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
+import { sanitizeMarkdownClipboardText } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
+import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   applyMarkdownTaskCheckboxChange,
@@ -127,11 +131,13 @@ import {
 import { clampMarkdownSplitPercent } from "@/lib/markdownSplitPane";
 import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { buildExistingAttachmentMarkdownSnippet } from "@/lib/existingAttachmentInsert";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { buildWikiNoteLink, detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
+import { getMarkdownDailyRecordSlashCommands } from "@/components/daily-records/markdownDailyRecordSlashCommands";
 import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import {
   toggleWrap,
@@ -571,12 +577,30 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     replaceSelection(view, text);
   }, []);
 
+  const openTaskCapture = useCallback(() => {
+    const view = viewRef.current;
+    const selection = view?.state.selection.main;
+    const text = view && selection && !selection.empty
+      ? view.state.doc.sliceString(selection.from, selection.to).trim().slice(0, 8_000)
+      : "";
+    openTaskQuickCapture({
+      text,
+      sourceType: text ? "selection" : "note",
+      sourceId: note.id,
+      sourceTitle: note.title,
+      noteId: note.id,
+    });
+    setBubble((current) => ({ ...current, open: false }));
+  }, [note.id, note.title]);
+
   const copySelectionText = useCallback(async () => {
     const view = viewRef.current;
     if (!view) return;
     const sel = view.state.selection.main;
     if (sel.empty) return;
-    const ok = await copyText(view.state.doc.sliceString(sel.from, sel.to));
+    const ok = await copyText(sanitizeMarkdownClipboardText(
+      view.state.doc.sliceString(sel.from, sel.to),
+    ));
     if (ok) toast.success(tr('tiptap.copySelectionText'));
     else toast.info(tr('tiptap.copySelectionFail'));
     queueMicrotask(() => view.focus());
@@ -627,16 +651,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     toast.success(tr("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
   }, [closeAttachmentLibrary, tr]);
 
-  // slash 菜单项：图片、已有附件和 AI 共用编辑器级动作。
+  // slash 菜单项：基础 Markdown、附件、AI 与日期日记命令共享同一个 CodeMirror 菜单。
   const slashItems: MdSlashItem[] = useMemo(
-    () =>
-      getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
+    () => [
+      ...getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
         onImageUpload: () => {
           triggerImagePicker();
         },
         onAttachmentLibrary: openAttachmentLibrary,
         onAIAssistant: isGuest ? undefined : openAIAssistant,
       }),
+      ...getMarkdownDailyRecordSlashCommands(),
+    ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, isGuest, openAIAssistant, openAttachmentLibrary],
   );
@@ -870,11 +896,27 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     ref,
     () => ({
       flushSave: () => {
+        const title = isTitleComposingRef.current
+          ? noteRef.current.title
+          : titleRef.current?.value || noteRef.current.title;
+        const mode = resolveEditorLifecycleSave({
+          hasPendingContent: !!debounceTimer.current,
+          title,
+          noteTitle: noteRef.current.title,
+          lastEmittedTitle: lastEmittedTitleRef.current,
+          isTitleComposing: isTitleComposingRef.current,
+        });
+        if (mode === "none") return;
         if (debounceTimer.current) {
           clearTimeout(debounceTimer.current);
           debounceTimer.current = null;
-          emitSave();
         }
+        if (mode === "content") {
+          emitSave();
+          return;
+        }
+        lastEmittedTitleRef.current = title;
+        onUpdateRef.current({ title, _noteId: noteRef.current.id });
       },
       discardPending: () => {
         // �л��༭��ʱ���÷������� PUT����� debounce �����������
@@ -1290,11 +1332,34 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const currentDoc = view.state.doc.toString();
     if (currentDoc !== nextDoc) {
       isSettingContent.current = true;
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: nextDoc },
-        // �ѹ��ŵ��ĵ���ͷ������ɹ��λ��Խ��
-        selection: { anchor: 0 },
-      });
+      if (isSwitchingNote) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: nextDoc },
+          selection: { anchor: 0 },
+        });
+      } else {
+        // 同一笔记的保存回填只替换实际变化的区间，让 CodeMirror 自动映射原选区。
+        // 服务端在行尾补充隐藏块 ID 时，末尾回车后的光标会随插入量向后移动，
+        // 不再因整篇替换并强制 anchor=0 而跳到文档开头。
+        let from = 0;
+        const sharedLength = Math.min(currentDoc.length, nextDoc.length);
+        while (from < sharedLength && currentDoc[from] === nextDoc[from]) from += 1;
+
+        let currentTo = currentDoc.length;
+        let nextTo = nextDoc.length;
+        while (
+          currentTo > from
+          && nextTo > from
+          && currentDoc[currentTo - 1] === nextDoc[nextTo - 1]
+        ) {
+          currentTo -= 1;
+          nextTo -= 1;
+        }
+
+        view.dispatch({
+          changes: { from, to: currentTo, insert: nextDoc.slice(from, nextTo) },
+        });
+      }
       // ������һ΢������������� Tiptap ��ȼ��߼���
       queueMicrotask(() => {
         isSettingContent.current = false;
@@ -1843,9 +1908,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
           {!isGuest && <ToolbarDivider />}
           {!isGuest && (
-            <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
+            <>
+              <ToolbarButton
+                onClick={openTaskCapture}
+                title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={iconSize} className="text-blue-500" />
+              </ToolbarButton>
+              <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
+                <Sparkles size={iconSize} className="text-violet-500" />
+              </ToolbarButton>
+            </>
           )}
 
           {/* MARKDOWN-PREVIEW-MODE-01: 视图模式切换 */}
@@ -2077,6 +2150,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             <>
               <div className="w-px h-4 bg-app-border mx-0.5" />
               <ToolbarButton
+                onClick={openTaskCapture}
+                title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
+              >
+                <ClipboardPlus size={14} className="text-blue-500" />
+              </ToolbarButton>
+              <ToolbarButton
                 onClick={openAIAssistant}
                 title={tr("tiptap.aiAssistant") || "AI ����"}
               >
@@ -2127,10 +2206,6 @@ function formatBytesMd(bytes: number): string {
 }
 
 function buildMarkdownAttachmentSnippet(item: FileItem): string {
-  const label = (item.filename || "attachment")
-    .replace(/\\/g, "\\\\")
-    .replace(/\]/g, "\\]");
-  const sizeLabel = formatBytesMd(item.size);
-  return `[📎 ${label}${sizeLabel ? ` (${sizeLabel})` : ""}](${encodeMarkdownUrl(item.url)})`;
+  return buildExistingAttachmentMarkdownSnippet(item);
 }
 void StateEffect;

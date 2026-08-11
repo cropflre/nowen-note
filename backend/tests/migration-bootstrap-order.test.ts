@@ -3,6 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+function assertOrderedImports(
+  source: string,
+  firstImport: string,
+  secondImport: string,
+  entryLabel: string,
+): void {
+  const firstIndex = source.indexOf(firstImport);
+  const secondIndex = source.indexOf(secondImport);
+  assert.ok(firstIndex >= 0, `${entryLabel} must contain ${firstImport}`);
+  assert.ok(secondIndex >= 0, `${entryLabel} must contain ${secondImport}`);
+  assert.ok(
+    firstIndex < secondIndex,
+    `${entryLabel} must register feature migrations before database-consuming runtimes`,
+  );
+}
+
 test("knowledge-tree bootstrap registers schema versions 60-64 before migrations.ts is evaluated", async () => {
   await import("../src/runtime/knowledge-tree-migration-bootstrap");
   const { CURRENT_SCHEMA_VERSION, MIGRATIONS } = await import("../src/db/migrations");
@@ -17,9 +33,17 @@ test("knowledge-tree bootstrap registers schema versions 60-64 before migrations
   );
 });
 
-test("database-consuming permission runtime loads after the migration bootstrap", () => {
-  const indexSource = fs.readFileSync(
+test("permission routes load after migration bootstrap in hardened and legacy entries", () => {
+  const hardenedIndexSource = fs.readFileSync(
     path.resolve(__dirname, "../src/index.hardened.ts"),
+    "utf8",
+  );
+  const legacyIndexSource = fs.readFileSync(
+    path.resolve(__dirname, "../src/index.ts"),
+    "utf8",
+  );
+  const taskStatsRuntimeSource = fs.readFileSync(
+    path.resolve(__dirname, "../src/runtime/task-stats-hardening.ts"),
     "utf8",
   );
   const bootstrapSource = fs.readFileSync(
@@ -27,14 +51,22 @@ test("database-consuming permission runtime loads after the migration bootstrap"
     "utf8",
   );
 
-  const bootstrapIndex = indexSource.indexOf('import "./runtime/knowledge-tree-migration-bootstrap.js";');
-  const permissionRuntimeIndex = indexSource.indexOf('import "./runtime/notebook-permission-management.js";');
-
-  assert.ok(bootstrapIndex >= 0, "index.hardened must import the migration bootstrap");
-  assert.ok(permissionRuntimeIndex >= 0, "index.hardened must import the permission runtime");
-  assert.ok(
-    bootstrapIndex < permissionRuntimeIndex,
-    "feature migrations must be registered before permission runtime evaluation",
+  assertOrderedImports(
+    hardenedIndexSource,
+    'import "./runtime/knowledge-tree-migration-bootstrap.js";',
+    'import "./runtime/notebook-permission-management.js";',
+    "index.hardened",
+  );
+  assertOrderedImports(
+    legacyIndexSource,
+    'import "./runtime/knowledge-tree-migration-bootstrap";',
+    'import "./runtime/task-stats-hardening";',
+    "index",
+  );
+  assert.match(
+    taskStatsRuntimeSource,
+    /import\s+["']\.\/notebook-permission-management\.js["'];/,
+    "legacy startup runtime must install notebook permission routes",
   );
   assert.doesNotMatch(
     bootstrapSource,

@@ -33,6 +33,27 @@ function collectDescendantIds(db: any, rootIds: string[]): string[] {
   return [...result];
 }
 
+function isInvalidTaskDateRange(
+  startDate: string | null,
+  dueDate: string | null,
+  dueAt: string | null,
+): boolean {
+  if (!startDate) return false;
+  const end = dueAt || dueDate;
+  if (!end) return false;
+
+  const normalizedStart = startDate.trim().replace(" ", "T");
+  const normalizedEnd = end.trim().replace(" ", "T");
+  const startDay = normalizedStart.slice(0, 10);
+  const endDay = normalizedEnd.slice(0, 10);
+  if (startDay !== endDay) return startDay > endDay;
+
+  // A date-only dueDate means the end of that day. Compare exact times only
+  // when both boundaries include a time component.
+  if (!normalizedStart.includes("T") || !normalizedEnd.includes("T")) return false;
+  return normalizedStart > normalizedEnd;
+}
+
 const tasks = new Hono();
 
 // ---------------------------------------------------------------------------
@@ -317,7 +338,7 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
   }
 
-  if (startDate && dueDate && startDate > dueDate) {
+  if (isInvalidTaskDateRange(startDate, dueDate, dueAt)) {
     return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
   }
 
@@ -454,7 +475,7 @@ tasks.put("/:id", (c) => {
       return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
     }
 
-    if (startDate && dueDate && startDate > dueDate) {
+    if (isInvalidTaskDateRange(startDate, dueDate, dueAt)) {
       return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
     }
 

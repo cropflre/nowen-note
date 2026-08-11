@@ -1,16 +1,31 @@
 import { useEffect, useRef } from "react";
+import { App as CapApp } from "@capacitor/app";
 import i18n from "i18next";
 import { api } from "@/lib/api";
+import { TASK_REMINDER_SYNC_EVENT } from "@/lib/taskNotificationSchedule";
+import {
+  cancelAllNativeTaskNotifications,
+  getTaskNotificationPermission,
+  getTaskNotificationSurface,
+  registerTaskNotificationActionListener,
+  showImmediateTaskNotification,
+  syncNativeTaskNotifications,
+  wasTaskReminderScheduledNatively,
+} from "@/lib/taskNotifications";
 
 /**
- * Background reminder notifier.
+ * Global reminder runtime.
  *
- * Strategy:
- *   1. Frontend polls GET /api/task-reminders/recent?since=<ms> every 30s
- *   2. Backend scanner (30s interval) detects due reminders and stores them
- *      in a 5-min ring buffer, keyed by userId
- *   3. Uses session-local notifiedSet to deduplicate
- *   4. Stops polling when tab is hidden
+ * Native strategy:
+ *   1. Fetch every future reminder from the server and schedule it through
+ *      Capacitor Local Notifications. Android can then notify while the WebView
+ *      is hidden, the screen is locked, or the process is not running.
+ *   2. Resync on login, foreground, task/reminder mutations and server changes.
+ *   3. Keep the recent-reminder endpoint for automation notifications and for
+ *      Web/Electron fallback delivery.
+ *   4. ACK only after a notification is delivered or that exact reminder was
+ *      previously handed to the native OS. Scanner discovery alone is never
+ *      treated as successful delivery.
  */
 
 interface RecentReminder {
@@ -21,106 +36,215 @@ interface RecentReminder {
   type?: string;
 }
 
-// Session-scoped dedup set (cleared on full page reload, survives HMR)
 const globalKey = "__nowen_notified_set__";
-const notifiedSet: Set<string> =
-  (window as any)[globalKey] || ((window as any)[globalKey] = new Set());
+const deliveredSet: Set<string> = typeof window === "undefined"
+  ? new Set()
+  : ((window as any)[globalKey] || ((window as any)[globalKey] = new Set()));
 
-function sendNotification(title: string, body: string) {
-  // Try Electron first
-  const desktop = (window as any).nowenDesktop;
-  if (desktop?.taskNotify) {
-    desktop.taskNotify(title, body).catch(() => {});
-    return;
+function notificationCopy(reminder: RecentReminder): { title: string; body: string } {
+  const type = reminder.type || "task_reminder";
+  if (type === "dependency_ready") {
+    return {
+      title: `✅ ${i18n.t("tasks.notifications.dependencyReadyTitle")}`,
+      body: i18n.t("tasks.notifications.dependencyReadyBody", { taskTitle: reminder.taskTitle }),
+    };
   }
-  // Browser Notification API
-  if ("Notification" in window && Notification.permission === "granted") {
-    try {
-      new Notification(title, { body });
-    } catch {
-      // silently ignore
-    }
+  if (type === "overdue_daily") {
+    return {
+      title: `⚠️ ${i18n.t("tasks.notifications.overdueDailyTitle")}`,
+      body: i18n.t("tasks.notifications.overdueDailyBody", { taskTitle: reminder.taskTitle }),
+    };
   }
+  return {
+    title: `⏰ ${i18n.t("tasks.notifications.taskReminderTitle")}`,
+    body: i18n.t("tasks.notifications.taskReminderBody", { taskTitle: reminder.taskTitle }),
+  };
 }
 
-export function useReminderNotifier() {
+export function useReminderNotifier(onOpenTask?: (taskId: string) => void) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScanRef = useRef<number>(Date.now());
-  const permissionRequestedRef = useRef(false);
+  const nativeSchedulesReadyRef = useRef(false);
+  const onOpenTaskRef = useRef(onOpenTask);
+  onOpenTaskRef.current = onOpenTask;
 
   useEffect(() => {
-    // Request notification permission once on mount (if not Electron)
-    const requestPermission = async () => {
-      if (permissionRequestedRef.current) return;
-      const desktop = (window as any).nowenDesktop;
-      if (desktop?.taskNotify) return; // Electron has native notifications
-      if ("Notification" in window && Notification.permission === "default") {
-        permissionRequestedRef.current = true;
-        // Don't auto-request; let the test button trigger it
+    let disposed = false;
+    let removeActionListener: (() => void) | null = null;
+    let appStateHandle: { remove: () => Promise<void> } | null = null;
+
+    const syncNativeSchedules = async (): Promise<boolean> => {
+      if (getTaskNotificationSurface() !== "native") return true;
+      try {
+        const permission = await getTaskNotificationPermission();
+        if (permission !== "granted") {
+          nativeSchedulesReadyRef.current = false;
+          return false;
+        }
+        const { reminders } = await api.getTaskReminderSchedule();
+        const synced = await syncNativeTaskNotifications(reminders || []);
+        nativeSchedulesReadyRef.current = synced;
+        return synced;
+      } catch (error) {
+        nativeSchedulesReadyRef.current = false;
+        console.warn("[reminder] native schedule sync failed", error);
+        return false;
       }
     };
-    requestPermission();
+
+    const acknowledge = async (reminderId: string): Promise<boolean> => {
+      try {
+        await api.ackRecentReminders([reminderId]);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const deliverImmediately = async (reminder: RecentReminder): Promise<boolean> => {
+      const type = reminder.type || "task_reminder";
+      const copy = notificationCopy(reminder);
+      const delivered = await showImmediateTaskNotification(copy.title, copy.body, {
+        requestPermission: false,
+        taskId: reminder.taskId,
+        reminderId: reminder.reminderId,
+        type,
+      });
+      if (!delivered) return false;
+
+      // The notification is already visible/accepted by the OS. Remember that
+      // fact before ACK so a temporary network failure retries only ACK and does
+      // not show the same notification again in this session.
+      deliveredSet.add(reminder.reminderId);
+      return acknowledge(reminder.reminderId);
+    };
 
     const scan = async () => {
+      const scanStartedAt = Date.now();
+      let nextSince = scanStartedAt;
       try {
-        // Poll backend recent reminders endpoint
-        try {
-          const { reminders } = await api.getRecentReminders(lastScanRef.current);
-          const recent: RecentReminder[] = reminders || [];
-          for (const r of recent) {
-            if (notifiedSet.has(r.reminderId)) continue;
-            notifiedSet.add(r.reminderId);
-            const notifType = r.type || "task_reminder";
-            let title: string;
-            let body: string;
-            if (notifType === "dependency_ready") {
-              title = `\u2705 ${i18n.t("tasks.notifications.dependencyReadyTitle")}`;
-              body = i18n.t("tasks.notifications.dependencyReadyBody", { taskTitle: r.taskTitle });
-            } else if (notifType === "overdue_daily") {
-              title = `\u26A0\uFE0F ${i18n.t("tasks.notifications.overdueDailyTitle")}`;
-              body = i18n.t("tasks.notifications.overdueDailyBody", { taskTitle: r.taskTitle });
-            } else {
-              title = `\u23F0 ${i18n.t("tasks.notifications.taskReminderTitle")}`;
-              body = i18n.t("tasks.notifications.taskReminderBody", { taskTitle: r.taskTitle });
-            }
-            sendNotification(title, body);
-          }
-        } catch {
-          // ignore recent reminders polling failure
-        }
+        const { reminders } = await api.getRecentReminders(lastScanRef.current);
+        const recent: RecentReminder[] = reminders || [];
+        const surface = getTaskNotificationSurface();
 
-        lastScanRef.current = Date.now();
+        for (const reminder of recent) {
+          if (deliveredSet.has(reminder.reminderId)) {
+            if (!(await acknowledge(reminder.reminderId))) {
+              nextSince = Math.min(nextSince, reminder.triggeredAt - 1);
+            }
+            continue;
+          }
+
+          const type = reminder.type || "task_reminder";
+          if (surface === "native" && type === "task_reminder") {
+            if (!nativeSchedulesReadyRef.current) {
+              await syncNativeSchedules();
+            }
+
+            if (
+              nativeSchedulesReadyRef.current
+              && wasTaskReminderScheduledNatively(reminder.reminderId)
+            ) {
+              deliveredSet.add(reminder.reminderId);
+              if (!(await acknowledge(reminder.reminderId))) {
+                nextSince = Math.min(nextSince, reminder.triggeredAt - 1);
+              }
+              continue;
+            }
+
+            // The app may have been opened for the first time after this reminder
+            // was already due. A successful sync with no future item is not proof
+            // that Android ever received it, so deliver a catch-up notification.
+            if (!(await deliverImmediately(reminder))) {
+              nextSince = Math.min(nextSince, reminder.triggeredAt - 1);
+            }
+            continue;
+          }
+
+          if (!(await deliverImmediately(reminder))) {
+            nextSince = Math.min(nextSince, reminder.triggeredAt - 1);
+          }
+        }
       } catch {
-        // ignore network errors
+        nextSince = lastScanRef.current;
       }
+      lastScanRef.current = Math.max(0, nextSince);
     };
 
-    // Initial scan after 3s
-    const initialTimeout = setTimeout(scan, 3000);
+    const startPolling = () => {
+      if (timerRef.current) return;
+      timerRef.current = setInterval(scan, 30_000);
+    };
 
-    // Poll every 30s when visible
+    const stopPolling = () => {
+      if (!timerRef.current) return;
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
+
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        if (!timerRef.current) {
-          timerRef.current = setInterval(scan, 30000);
-        }
+        void syncNativeSchedules();
+        void scan();
+        startPolling();
       } else {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
+        stopPolling();
       }
     };
 
+    const onScheduleChanged = () => {
+      void syncNativeSchedules();
+    };
+
+    const resetNativeSchedules = () => {
+      deliveredSet.clear();
+      nativeSchedulesReadyRef.current = false;
+      void cancelAllNativeTaskNotifications();
+    };
+
+    const onServerChanged = () => {
+      deliveredSet.clear();
+      nativeSchedulesReadyRef.current = false;
+      void cancelAllNativeTaskNotifications().then(() => syncNativeSchedules());
+    };
+
+    void registerTaskNotificationActionListener((taskId) => {
+      onOpenTaskRef.current?.(taskId);
+    }).then((remove) => {
+      if (disposed) remove();
+      else removeActionListener = remove;
+    }).catch(() => {});
+
+    void CapApp.addListener("appStateChange", ({ isActive }) => {
+      if (!isActive) return;
+      void syncNativeSchedules();
+      void scan();
+    }).then((handle) => {
+      if (disposed) void handle.remove();
+      else appStateHandle = handle;
+    }).catch(() => {});
+
     document.addEventListener("visibilitychange", onVisibility);
-    if (document.visibilityState === "visible") {
-      timerRef.current = setInterval(scan, 30000);
-    }
+    window.addEventListener(TASK_REMINDER_SYNC_EVENT, onScheduleChanged);
+    window.addEventListener("nowen:server-url-changed", onServerChanged);
+    window.addEventListener("nowen:workspace-changed", onScheduleChanged);
+    window.addEventListener("nowen:token-changed", resetNativeSchedules);
+
+    void syncNativeSchedules();
+    const initialTimeout = setTimeout(() => { void scan(); }, 3_000);
+    if (document.visibilityState === "visible") startPolling();
 
     return () => {
+      disposed = true;
       clearTimeout(initialTimeout);
-      if (timerRef.current) clearInterval(timerRef.current);
+      stopPolling();
+      removeActionListener?.();
+      if (appStateHandle) void appStateHandle.remove();
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(TASK_REMINDER_SYNC_EVENT, onScheduleChanged);
+      window.removeEventListener("nowen:server-url-changed", onServerChanged);
+      window.removeEventListener("nowen:workspace-changed", onScheduleChanged);
+      window.removeEventListener("nowen:token-changed", resetNativeSchedules);
     };
   }, []);
 }

@@ -30,7 +30,9 @@ export type DesktopMenuChannel =
   | "menu:zoom-reset"
   | "menu:format"
   | "dock:new-note"
-  | "dock:search";
+  | "dock:search"
+  | "ugreen:gateway-ready"
+  | "ugreen:auth-cancelled";
 
 /** 格式菜单事件负载（menu:format） */
 export interface FormatMenuPayload {
@@ -105,6 +107,22 @@ export interface DataDirInfo {
   isCustom: boolean;
   exists: boolean;
   mode?: "full" | "lite";
+}
+
+export interface OfflineStorageInfo {
+  ok: boolean;
+  path: string;
+  exists: boolean;
+  isCustom: boolean;
+}
+
+export interface OfflineStorageChooseResult {
+  ok: boolean;
+  path?: string;
+  canceled?: boolean;
+  unchanged?: boolean;
+  restarting?: boolean;
+  error?: string;
 }
 
 export interface DataDirChooseResult {
@@ -257,6 +275,23 @@ export interface DesktopAccountHistoryAPI {
   remove(id: string): Promise<{ ok: boolean; error?: string }>;
 }
 
+export interface DesktopHttpAPI {
+  requestJson(payload: {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+  }): Promise<{
+    ok: boolean;
+    status?: number;
+    statusText?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    url?: string;
+    error?: string;
+  }>;
+}
+
 interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
@@ -267,6 +302,10 @@ interface NowenDesktopAPI {
   getEditorPerformanceMetrics?: () => Promise<{ heapBytes: number }>;
   openLogDir: () => Promise<{ ok: boolean; path: string }>;
   openDataDir?: () => Promise<{ ok: boolean; path: string }>;
+  openUgreenRemoteWorkspace?: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  getOfflineStorageInfo?: () => Promise<OfflineStorageInfo>;
+  openOfflineStorageDir?: () => Promise<{ ok: boolean; path: string; error?: string }>;
+  chooseOfflineStorageDir?: () => Promise<OfflineStorageChooseResult>;
   setHideMenuBar?: (next: boolean) => Promise<{ ok: boolean; hideMenuBar: boolean }>;
   /** 上报格式状态（同步菜单 checked）。preload 中已白名单化，仅 send，无 ack。 */
   sendFormatState?: (state: FormatStateSnapshot | null) => void;
@@ -281,9 +320,9 @@ interface NowenDesktopAPI {
     choose?: () => Promise<DataDirChooseResult>;
     migrate?: (targetPath: string) => Promise<DataDirMigrationResult>;
   };
-  getLocalAuth?: () => Promise<{ token: string; user: unknown } | null>;
+  getLocalAuth?: () => Promise<{ token: string; refreshToken?: string; user: unknown } | null>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
-  resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; user?: unknown; error?: string }>;
+  resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string }>;
   isDesktop: true;
   platform: string;
   /**
@@ -304,6 +343,8 @@ interface NowenDesktopAPI {
   folderSync?: FolderSyncAPI;
   /** 桌面端多账号登录历史；令牌由主进程 safeStorage 加密。 */
   accountHistory?: DesktopAccountHistoryAPI;
+  /** 桌面端 JSON API 原生请求通道；避免 file:// renderer 依赖 CORS 预检。 */
+  http?: DesktopHttpAPI;
 }
 
 function getBridge(): NowenDesktopAPI | null {
@@ -467,6 +508,24 @@ export async function openDataDir(): Promise<{ ok: boolean; path?: string; reaso
   return bridge.openDataDir();
 }
 
+export async function getOfflineStorageInfo(): Promise<OfflineStorageInfo | null> {
+  const bridge = getBridge();
+  if (!bridge?.getOfflineStorageInfo) return null;
+  return bridge.getOfflineStorageInfo();
+}
+
+export async function openOfflineStorageDir(): Promise<{ ok: boolean; path?: string; error?: string; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.openOfflineStorageDir) return { ok: false, reason: "not-supported" };
+  return bridge.openOfflineStorageDir();
+}
+
+export async function chooseOfflineStorageDir(): Promise<OfflineStorageChooseResult> {
+  const bridge = getBridge();
+  if (!bridge?.chooseOfflineStorageDir) return { ok: false, error: "not-supported" };
+  return bridge.chooseOfflineStorageDir();
+}
+
 export async function getDesktopDataDirInfo(): Promise<DataDirInfo | null> {
   const bridge = getBridge();
   if (!bridge?.dataDir?.getInfo) return null;
@@ -485,7 +544,7 @@ export async function migrateDesktopDataDir(targetPath: string): Promise<DataDir
   return bridge.dataDir.migrate(targetPath);
 }
 
-export async function resetDesktopLocalAuth(): Promise<{ ok: boolean; token?: string; user?: unknown; error?: string; reason?: string }> {
+export async function resetDesktopLocalAuth(): Promise<{ ok: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string; reason?: string }> {
   const bridge = getBridge();
   if (!bridge?.resetLocalAuth) return { ok: false, reason: "not-supported" };
   return bridge.resetLocalAuth();

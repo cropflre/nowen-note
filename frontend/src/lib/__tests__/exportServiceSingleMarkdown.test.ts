@@ -13,6 +13,15 @@ vi.mock("@/lib/exportServiceCore", () => ({
 import { exportSingleNote } from "@/lib/exportService";
 import { api } from "@/lib/api";
 
+function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error || new Error("failed to read Blob"));
+    reader.readAsText(blob);
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   saveAs.mockReset();
@@ -46,7 +55,7 @@ describe("single-note native Markdown export", () => {
     await expect(exportSingleNote("note-md")).resolves.toBe(true);
 
     expect(saveAs).toHaveBeenCalledTimes(1);
-    const exported = await (saveAs.mock.calls[0][0] as Blob).text();
+    const exported = await readBlobText(saveAs.mock.calls[0][0] as Blob);
     expect(exported.endsWith(markdown)).toBe(true);
     expect(exported).toContain("---\n### 基础代数与几何");
     expect(exported).not.toContain("\\### 基础代数与几何");

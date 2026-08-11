@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -88,6 +88,11 @@ import {
   shouldPersistPendingConflictSnapshot,
   type NoteConflictAutoResolvedDetail,
 } from "@/lib/conflictResolution";
+import {
+  convertNoteContent,
+  REQUEST_NOTE_FORMAT_CONVERSION_EVENT,
+  type NoteFormatConversionRequest,
+} from "@/lib/noteFormatConversion";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -527,6 +532,7 @@ export default function EditorPane({
         contentFormat: note.contentFormat,
         version,
         syncToYjs: true,
+        writeSource: "manual-save",
       } as any);
 
     try {
@@ -607,11 +613,6 @@ export default function EditorPane({
   const editorModeRef = useRef<EditorMode>(editorMode);
   useEffect(() => { editorModeRef.current = editorMode; }, [editorMode]);
 
-  // ������ P1-4: ��������ʧ�ܼ��� + toast ����ʱ��� ����������������������������������������������������������������
-  // ����ɹ� / �бʼ�ʱ���㣻���� ��2 ��ʧ�� + ���ϴ� toast �� 30s �ŵ�һ��
-  const consecutiveSaveFailRef = useRef<number>(0);
-  const lastSaveFailToastAtRef = useRef<Record<string, number>>({});
-
   // ������ P1-3: ҳ�汻ж�� / ����ʱǿ�ưѵ�ǰ�༭������д�뱾�زݸ� + ���߶��� ������������
   // �����������ƶ��� webview ��ϵͳ���ա�ˢ�¡��� Tab���е���̨��ɱ��
   // ���������첽 PUT��pagehide �� fetch �ᱻ��ֹ����ֻ��д localStorage ͬ�����̣�
@@ -683,6 +684,121 @@ export default function EditorPane({
   activeNoteRef.current = activeNote;
   const syncStatusRef = useRef(syncStatus);
   syncStatusRef.current = syncStatus;
+
+  const convertActiveNoteFormat = useCallback(async ({
+    noteId,
+    targetFormat,
+  }: NoteFormatConversionRequest) => {
+    const initialNote = activeNoteRef.current;
+    if (!initialNote || initialNote.id !== noteId || modeSwitchInflightRef.current) return;
+    if (initialNote.isLocked || viewLockedIdsRef.current.has(noteId)) {
+      toast.warning("请先解锁笔记再转换格式");
+      return;
+    }
+
+    modeSwitchInflightRef.current = true;
+    setModeSwitching(true);
+    let snapshot: { content: string; contentText: string } | null = null;
+
+    try {
+      snapshot = editorHandleRef.current?.getSnapshot?.() ?? {
+        content: initialNote.content,
+        contentText: initialNote.contentText,
+      };
+      editorHandleRef.current?.discardPending?.();
+
+      if (saveInflightRef.current) {
+        try { await saveInflightRef.current; } catch { /* 使用当前编辑器快照继续转换 */ }
+      }
+      if (activeNoteRef.current?.id !== noteId) return;
+
+      const persisted = await api.getNote(noteId);
+      const converted = convertNoteContent(
+        snapshot.content,
+        snapshot.contentText,
+        targetFormat,
+      );
+      actions.setSyncStatus("saving");
+      const updated = await api.updateNoteConfirmed(noteId, {
+        ...converted,
+        version: persisted.version,
+        ...(targetFormat === "markdown" ? { syncToYjs: true } : {}),
+        writeSource: "manual-save",
+      } as any);
+
+      activeNoteRef.current = updated;
+      actions.setActiveNote(updated);
+      actions.updateNoteInList({
+        id: updated.id,
+        contentText: updated.contentText,
+        contentFormat: updated.contentFormat,
+        updatedAt: updated.updatedAt,
+        version: updated.version,
+      });
+      actions.updateNoteTab({
+        id: updated.id,
+        contentFormat: updated.contentFormat,
+        updatedAt: updated.updatedAt,
+      });
+
+      const nextMode: EditorMode = targetFormat === "markdown" ? "md" : "tiptap";
+      persistEditorMode(nextMode);
+      clearForcedModeFromUrl();
+      setEditorMode(nextMode);
+      editorModeRef.current = nextMode;
+      try { clearDraft(noteId); } catch { /* ignore */ }
+
+      if (targetFormat === "tiptap-json") {
+        try { await api.releaseYjsRoom(noteId); } catch { /* 下次打开时会重新建立房间 */ }
+      }
+
+      actions.setSyncStatus("saved");
+      actions.setLastSynced(new Date().toISOString());
+      actions.refreshNotes();
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+        detail: { reason: "note-format-converted", noteId },
+      }));
+      toast.success(targetFormat === "markdown" ? "已转换为 Markdown" : "已转换为富文本");
+    } catch (error) {
+      console.error("[EditorPane] convert note format failed:", error);
+      const current = activeNoteRef.current;
+      if (snapshot && current?.id === noteId) {
+        const restored = {
+          ...current,
+          content: snapshot.content,
+          contentText: snapshot.contentText,
+        };
+        activeNoteRef.current = restored;
+        actions.setActiveNote(restored);
+        try {
+          saveDraft({
+            noteId,
+            editorMode: editorModeRef.current,
+            content: snapshot.content,
+            contentText: snapshot.contentText,
+            title: restored.title,
+            baseVersion: restored.version,
+            savedAt: Date.now(),
+          });
+        } catch { /* ignore */ }
+      }
+      actions.setSyncStatus("error");
+      toast.error("格式转换失败，当前内容已保留");
+    } finally {
+      modeSwitchInflightRef.current = false;
+      setModeSwitching(false);
+    }
+  }, [actions]);
+
+  useEffect(() => {
+    const handleRequest = (event: Event) => {
+      const detail = (event as CustomEvent<NoteFormatConversionRequest>).detail;
+      if (!detail?.noteId || !detail.targetFormat) return;
+      void convertActiveNoteFormat(detail);
+    };
+    window.addEventListener(REQUEST_NOTE_FORMAT_CONVERSION_EVENT, handleRequest);
+    return () => window.removeEventListener(REQUEST_NOTE_FORMAT_CONVERSION_EVENT, handleRequest);
+  }, [convertActiveNoteFormat]);
 
 
 
@@ -771,11 +887,13 @@ export default function EditorPane({
       const current = activeNoteRef.current;
       if (!current || (noteId && current.id !== noteId)) return;
 
+      persistCurrentEditorSnapshotDraft();
       try {
         const snapshot = editorHandleRef.current?.getSnapshot?.();
         if (snapshot && typeof snapshot.content === "string") {
           const next = {
             ...current,
+            title: snapshot.title ?? current.title,
             content: snapshot.content,
             contentText: snapshot.contentText,
           };
@@ -796,7 +914,7 @@ export default function EditorPane({
       const snapshot = editorHandleRef.current?.getSnapshot?.();
       if (!snapshot) return;
       publishEditorSplitMirrorUpdate(noteId, {
-        title: current.title,
+        title: snapshot.title ?? current.title,
         content: snapshot.content,
         contentText: snapshot.contentText,
         _noteId: noteId,
@@ -826,6 +944,7 @@ export default function EditorPane({
         activeNote.version,
         activeNote.updatedAt,
         activeNote.content,
+        activeNote.title,
       )
     ) {
       setPendingDraft(draft);
@@ -901,12 +1020,38 @@ export default function EditorPane({
     return () => { cancelled = true; };
   }, [selfUser]);
 
-  function getCurrentEditorSnapshot(): { content: string; contentText: string } | null {
+  function getCurrentEditorSnapshot(): { content: string; contentText: string; title?: string } | null {
     try {
       const snap = editorHandleRef.current?.getSnapshot?.();
       return snap && typeof snap.content === "string" ? snap : null;
     } catch {
       return null;
+    }
+  }
+
+  function persistCurrentEditorSnapshotDraft(): void {
+    const current = activeNoteRef.current;
+    if (!current || current.isLocked || viewLockedIdsRef.current.has(current.id)) return;
+    const snapshot = getCurrentEditorSnapshot();
+    if (!snapshot) return;
+    const title = snapshot.title ?? current.title;
+    if (
+      snapshot.content === current.content
+      && snapshot.contentText === current.contentText
+      && title === current.title
+    ) return;
+    try {
+      saveDraft({
+        noteId: current.id,
+        editorMode: editorModeRef.current,
+        content: snapshot.content,
+        contentText: snapshot.contentText,
+        title,
+        baseVersion: current.version,
+        savedAt: Date.now(),
+      });
+    } catch {
+      /* Local storage may be unavailable; flushSave still attempts the server write. */
     }
   }
 
@@ -916,7 +1061,9 @@ export default function EditorPane({
     if (syncStatusRef.current === "saving" || !!saveInflightRef.current) return true;
     const snap = getCurrentEditorSnapshot();
     if (!snap) return false;
-    return snap.content !== cur.content || snap.contentText !== cur.contentText;
+    return snap.content !== cur.content
+      || snap.contentText !== cur.contentText
+      || (snap.title ?? cur.title) !== cur.title;
   }
 
   function getCollabMarkdownSnapshot(): string | null {
@@ -1283,11 +1430,16 @@ export default function EditorPane({
 
   // ����ж��ǰ���� flush��ˢ�¡��رձ�ǩ��
   useEffect(() => {
-    const onBeforeUnload = () => {
+    const flushLifecycleSave = () => {
+      persistCurrentEditorSnapshotDraft();
       try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
     };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("beforeunload", flushLifecycleSave);
+    window.addEventListener("pagehide", flushLifecycleSave);
+    return () => {
+      window.removeEventListener("beforeunload", flushLifecycleSave);
+      window.removeEventListener("pagehide", flushLifecycleSave);
+    };
   }, []);
 
   // NoteList/Sidebar �������л� activeNote ǰ�������¼������� Tiptap �յ��� note.id ��
@@ -1299,6 +1451,7 @@ export default function EditorPane({
         skipNextSwitchFlushForNoteIdRef.current = null;
         return;
       }
+      persistCurrentEditorSnapshotDraft();
       try { editorHandleRef.current?.flushSave(); } catch { /* ignore */ }
     };
     window.addEventListener("nowen:before-note-switch", onBeforeNoteSwitch);
@@ -1447,6 +1600,7 @@ export default function EditorPane({
       // P0-#2 �޸���CRDT ģʽ�� content δ�� �� ֻͬ�� meta��title����
       // ���� REST PUT ������ yjs ��д notes.content ������̬����
       const payload: any = { title: effectiveData.title, version };
+      payload.writeSource = "live-autosave";
       payload.contentFormat = currentNote.contentFormat;
       if (effectiveData.content !== undefined) payload.content = effectiveData.content;
       if (effectiveData.contentText !== undefined) payload.contentText = effectiveData.contentText;
@@ -1599,9 +1753,8 @@ export default function EditorPane({
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
         savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
 
-        // P2-5: ����ɹ� �� ������زݸ壬����������ʧ�ܼ���
+        // P2-5: ����ɹ� �� ������زݸ�
         try { clearDraft(currentNote.id); } catch { /* ignore */ }
-        consecutiveSaveFailRef.current = 0;
       }
     } catch (err) {
       // �бʼ��жϣ�putWithReconcile �ڲ����Ϊ aborted�����������Ĵ���
@@ -1634,19 +1787,6 @@ export default function EditorPane({
         console.warn("[EditorPane] enqueue offline fallback failed:", queueErr);
       }
 
-      // P1-4: �������α���ʧ�� �� toast �����û�"����δ�������ݴ汾��"
-      // ������ͬһ�ʼ� 30s ��ֻ����һ�Σ�����ˢ��
-      try {
-        consecutiveSaveFailRef.current += 1;
-        const noteId = currentNote.id;
-        const now = Date.now();
-        const last = lastSaveFailToastAtRef.current[noteId] || 0;
-        if (consecutiveSaveFailRef.current >= 2 && now - last > 30000) {
-          lastSaveFailToastAtRef.current[noteId] = now;
-      toast.error(t("editor.saveFailedDraftKept") || "网络不稳定，已保存本地草稿版本，可稍后恢复或自动上传");
-        }
-      } catch { /* ignore */ }
-
       actions.setSyncStatus("error");
     }
     })();
@@ -1669,18 +1809,48 @@ export default function EditorPane({
 
   // �ֶ�����ͬ�������±��浱ǰ�༭������
   const handleManualSync = useCallback(async () => {
-    if (!activeNote || syncStatus === "saving") return;
+    const currentNote = activeNoteRef.current;
+    if (!currentNote || syncStatus === "saving") return;
+
+    // Manual sync must submit what is visible in the editor. In CRDT mode the live
+    // Markdown resides in CodeMirror/Y.Doc and activeNote.content can still be the
+    // previous server acknowledgement, which used to overwrite the second edit.
+    const snapshot = editorHandleRef.current?.getSnapshot?.();
+    editorHandleRef.current?.discardPending?.();
+    const title = snapshot?.title ?? currentNote.title;
+    const content = snapshot?.content ?? currentNote.content;
+    const contentText = snapshot?.contentText ?? currentNote.contentText;
+
     actions.setSyncStatus("saving");
     try {
-      const updated = await api.updateNote(activeNote.id, {
-        title: activeNote.title,
-        content: activeNote.content,
-        contentText: activeNote.contentText,
-        contentFormat: activeNote.contentFormat,
-        version: activeNote.version,
-      } as any);
+      // GET flushes an active server-side Y.Doc first and gives this explicit save the
+      // current optimistic-lock version. If the Y update already arrived, avoid a
+      // redundant PUT/version bump; otherwise persist the editor snapshot and align Y.Doc.
+      const persisted = await api.getNote(currentNote.id);
+      const alreadyPersisted = persisted.title === title
+        && persisted.content === content
+        && persisted.contentText === contentText
+        && persisted.contentFormat === currentNote.contentFormat;
+      const updated = alreadyPersisted
+        ? persisted
+        : await api.updateNoteConfirmed(currentNote.id, {
+          title,
+          content,
+          contentText,
+          contentFormat: currentNote.contentFormat,
+          version: persisted.version,
+          syncToYjs: true,
+          writeSource: "manual-save",
+        } as any);
+      activeNoteRef.current = updated;
       actions.setActiveNote(updated);
-      actions.updateNoteInList({ id: updated.id, title: updated.title, contentText: updated.contentText, updatedAt: updated.updatedAt });
+      actions.updateNoteInList({
+        id: updated.id,
+        title: updated.title,
+        contentText: updated.contentText,
+        updatedAt: updated.updatedAt,
+        version: updated.version,
+      });
       actions.updateNoteTab({
         id: updated.id,
         title: updated.title,
@@ -1693,10 +1863,11 @@ export default function EditorPane({
       actions.setLastSynced(new Date().toISOString());
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => actions.setSyncStatus("idle"), 2000);
-    } catch {
+    } catch (error) {
+      console.warn("[EditorPane] manual sync failed:", error);
       actions.setSyncStatus("error");
     }
-  }, [activeNote, syncStatus, actions]);
+  }, [syncStatus, actions]);
 
   const toggleFavorite = useCallback(async () => {
     if (!activeNote || activeNote.isTrashed) return;
@@ -3067,7 +3238,25 @@ const moveToTrash = useCallback(async () => {
             </button>
           )}
 
-          <div className="relative shrink-0" ref={desktopMoreMenuRef}>
+          {!state.editorFullscreen && (
+            <Button
+              data-editor-outline-toggle="desktop-toolbar"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-7 w-7 shrink-0",
+                showDesktopOutline && "bg-accent-primary/10 text-accent-primary",
+              )}
+              onClick={() => setShowOutline((open) => !open)}
+              title={showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}
+              aria-label={showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}
+              aria-pressed={showDesktopOutline}
+            >
+              <ListTree size={14} />
+            </Button>
+          )}
+
+          <div data-editor-more-menu="desktop" className="relative shrink-0" ref={desktopMoreMenuRef}>
             <Button
               variant="ghost"
               size="icon"
@@ -3104,13 +3293,6 @@ const moveToTrash = useCallback(async () => {
                   >
                     <FolderInput size={15} className="text-tx-tertiary" />
                     <span>{t('editor.moveToNotebook')}</span>
-                  </button>
-                  <button
-                    onClick={() => { setShowOutline(!showOutline); setShowDesktopMoreMenu(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
-                  >
-                    <ListTree size={15} className={cn(showDesktopOutline && "text-accent-primary")} />
-                    <span>{showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}</span>
                   </button>
                   <button
                     onClick={() => { setShowAttachmentsPanel(true); setShowDesktopMoreMenu(false); }}
@@ -3262,7 +3444,9 @@ const moveToTrash = useCallback(async () => {
           {/* 原生 Markdown 笔记：contentFormat === "markdown" 时始终用 MarkdownEditor */}
           {activeNote.contentFormat === "markdown" ? (
             <MarkdownEditor
-              key={`md-native-${activeNote.id}`}
+              // useYDoc only exposes the document after y:sync. Remount at that point so
+              // CodeMirror gains yCollab without disabling normal saves while unsynced.
+              key={collabYDoc ? `md-native-y-${activeNote.id}` : `md-native-${activeNote.id}`}
               ref={editorHandleRef}
               note={activeNote}
               onUpdate={handleUpdate}
@@ -3865,23 +4049,23 @@ function SyncIndicator({
   onManualSync: () => void;
 }) {
   const { t } = useTranslation();
+  // 失败、排队和离线状态继续保留在同步状态机中，但不再主动展示为失败提示。
+  // 手动同步入口仍保持可见，真正冲突继续走独立的冲突处理流程。
+  const displayStatus: SyncStatus =
+    syncStatus === "error" || syncStatus === "queued" || syncStatus === "offline"
+      ? "idle"
+      : syncStatus;
   const formatFullTime = (ts: string) => {
     try { return new Date(ts).toLocaleString(); } catch { return ts; }
   };
 
   const getTooltip = () => {
-    switch (syncStatus) {
+    switch (displayStatus) {
       case "saving": return t('editor.saving');
       case "saved":
         return lastSyncedAt
           ? `${t('editor.allSaved')}：${formatFullTime(lastSyncedAt)}`
           : t('editor.allSaved');
-      case "error":
-        return lastSyncedAt
-          ? `${t('editor.saveFailed')}，${t('editor.lastSaved')}：${formatFullTime(lastSyncedAt)}`
-          : t('editor.saveFailed');
-      case "queued": return t("editor.queued", { defaultValue: "草稿存储，等待网络恢复后自动同步" });
-      case "offline": return t("editor.offline", { defaultValue: "当前离线" });
       default:
         if (lastSyncedAt) {
           const diff = Date.now() - new Date(lastSyncedAt).getTime();
@@ -3902,7 +4086,7 @@ function SyncIndicator({
       className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 rounded-md text-[11px] transition-colors hover:bg-app-hover group"
     >
       <AnimatePresence mode="wait">
-        {syncStatus === "saving" && (
+        {displayStatus === "saving" && (
           <motion.div
             key="saving"
             initial={{ opacity: 0, scale: 0.5 }}
@@ -3913,7 +4097,7 @@ function SyncIndicator({
             <RefreshCw size={13} className="text-accent-primary" />
           </motion.div>
         )}
-        {syncStatus === "saved" && (
+        {displayStatus === "saved" && (
           <motion.div
             key="saved"
             initial={{ opacity: 0, scale: 0.5 }}
@@ -3924,29 +4108,7 @@ function SyncIndicator({
             <Check size={13} className="text-green-500" />
           </motion.div>
         )}
-        {syncStatus === "error" && (
-          <motion.div
-            key="error"
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.5 }}
-            transition={{ duration: 0.15 }}
-          >
-            <CloudOff size={13} className="text-red-500" />
-          </motion.div>
-        )}
-        {(syncStatus === "queued" || syncStatus === "offline") && (
-          <motion.div
-            key="queued"
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.5 }}
-            transition={{ duration: 0.15 }}
-          >
-            <CloudUpload size={13} className="text-amber-500" />
-          </motion.div>
-        )}
-        {syncStatus === "idle" && (
+        {displayStatus === "idle" && (
           <motion.div
             key="idle"
             initial={{ opacity: 0 }}
@@ -3961,14 +4123,12 @@ function SyncIndicator({
 
       <span className={cn(
         "hidden whitespace-nowrap sm:inline transition-colors",
-        syncStatus === "saving" && "text-accent-primary",
-        syncStatus === "saved" && "text-green-500",
-        syncStatus === "error" && "text-red-500",
-        (syncStatus === "queued" || syncStatus === "offline") && "text-amber-500",
-        syncStatus === "idle" && "text-tx-tertiary group-hover:text-tx-secondary",
+        displayStatus === "saving" && "text-accent-primary",
+        displayStatus === "saved" && "text-green-500",
+        displayStatus === "idle" && "text-tx-tertiary group-hover:text-tx-secondary",
       )}>
-        {syncStatus === "saving" && t('editor.savingStatus')}
-        {syncStatus === "saved" && (
+        {displayStatus === "saving" && t('editor.savingStatus')}
+        {displayStatus === "saved" && (
           <>
             {t('editor.savedStatus')}
             {lastSyncedAt && (
@@ -3978,10 +4138,7 @@ function SyncIndicator({
             )}
           </>
         )}
-        {syncStatus === "error" && t('editor.saveFailedStatus')}
-        {syncStatus === "queued" && t("editor.queuedStatus", { defaultValue: "草稿存储" })}
-        {syncStatus === "offline" && t("editor.offlineStatus", { defaultValue: "离线" })}
-        {syncStatus === "idle" && (
+        {displayStatus === "idle" && (
           lastSyncedAt
             ? <>{t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
             : t('editor.sync')

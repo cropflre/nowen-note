@@ -13,6 +13,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import offlineSyncRouter from "./routes/offline-sync";
 import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
@@ -72,6 +73,10 @@ import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
 import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
+import {
+  createStaticAssetHeaders,
+  isStaticAssetNotModified,
+} from "./lib/static-asset-response";
 
 const app = new Hono();
 
@@ -100,12 +105,10 @@ if (isProd) {
 }
 
 // HTTP 响应压缩（gzip/deflate）。
-//   - 针对 /api/* 的 JSON 响应启用；大多数"图片以 base64 内联在 notes.content"的
-//     笔记返回体能压到原大小的 20~30%，显著降低 GET /api/notes/:id 的网络耗时。
-//   - threshold 默认 1KB，小响应不压缩（避免无谓 CPU）。
-//   - 静态资源（字体、前端 dist）已有自己的 Cache-Control，这里不覆盖它们；
-//     仅包裹 /api/* 足够。
-app.use("/api/*", compress());
+//   - API JSON 和前端 JS/CSS 等可压缩响应统一处理；
+//   - threshold 默认 1KB，小响应不压缩，图片等不可压缩类型会由中间件自动跳过；
+//   - 静态资源同时设置长期缓存和条件请求，刷新时优先命中浏览器缓存或返回 304。
+app.use("*", compress());
 
 // 初始化数据库
 getDb();
@@ -457,6 +460,9 @@ app.use("/api/*", async (c, next) => {
     if (sess.revokedAt) {
       return c.json({ error: "该会话已被下线", code: "SESSION_REVOKED" }, 401);
     }
+    if (sess.expiresAt && Date.parse(sess.expiresAt) <= Date.now()) {
+      return c.json({ error: "登录已超过 30 天，请重新登录", code: "SESSION_EXPIRED" }, 401);
+    }
     touchSessionLastSeen(payload.jti);
   }
 
@@ -473,6 +479,7 @@ app.use("/api/*", enforceApiTokenAccess);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/offline-sync", offlineSyncRouter);
 app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
@@ -515,6 +522,25 @@ app.get("/api/task-reminders/recent", (c) => {
     .map((r) => ({ reminderId: r.reminderId, taskId: r.taskId, taskTitle: r.taskTitle, triggeredAt: r._triggeredAt, type: r.type || "task_reminder" }));
   return c.json({ reminders: mine });
 });
+app.post("/api/task-reminders/recent/ack", async (c) => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const ids = new Set(
+    (Array.isArray(body?.reminderIds) ? body.reminderIds : [])
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+      .slice(0, 200),
+  );
+  let acked = 0;
+  for (let i = recentReminders.length - 1; i >= 0; i -= 1) {
+    const item = recentReminders[i];
+    if (item.userId !== userId || !ids.has(item.reminderId)) continue;
+    if (item.type === "task_reminder") markReminderNotified(item.reminderId);
+    recentReminders.splice(i, 1);
+    acked += 1;
+  }
+  return c.json({ success: true, acked });
+});
 app.route("/api/task-reminders", taskRemindersRouter);
 app.route("/api/task-projects", taskProjectsRouter);
 app.route("/api/task-templates", taskTemplatesRouter);
@@ -546,9 +572,11 @@ setInterval(() => {
     }
     const pending = scanDueReminders();
     for (const r of pending) {
+      if (recentReminders.some((item) => item.type === "task_reminder" && item.reminderId === r.reminderId && item.userId === r.userId)) {
+        continue;
+      }
       console.log(`[reminder] Task "${r.taskTitle}" (${r.taskId}) reminder due for user ${r.userId}`);
       recentReminders.push({ ...r, _triggeredAt: now, type: "task_reminder" });
-      markReminderNotified(r.reminderId);
     }
 
     // Phase 6.4: dependency-ready notifications
@@ -682,7 +710,7 @@ if (process.env.NODE_ENV === "production") {
   };
 
   // 静态资源 + SPA fallback（排除 /api 路径）
-  app.get("*", (c) => {
+  app.get("*", async (c) => {
     if (c.req.path.startsWith("/api")) {
       return c.json({ error: "Not Found" }, 404);
     }
@@ -695,7 +723,13 @@ if (process.env.NODE_ENV === "production") {
     if (filePath) {
       const ext = path.extname(filePath).toLowerCase();
       const contentType = mimeTypes[ext] || "application/octet-stream";
-      const content = fs.readFileSync(filePath);
+      const stat = await fs.promises.stat(filePath);
+      const assetHeaders = createStaticAssetHeaders(c.req.path, filePath, stat);
+      for (const [name, value] of Object.entries(assetHeaders)) c.header(name, value);
+      if (isStaticAssetNotModified(c.req.raw.headers, assetHeaders)) {
+        return c.body(null, 304);
+      }
+      const content = await fs.promises.readFile(filePath);
       return c.body(content, 200, { "Content-Type": contentType });
     }
     if (path.extname(c.req.path) !== "") {
@@ -704,6 +738,12 @@ if (process.env.NODE_ENV === "production") {
     // SPA fallback：返回 index.html
     const indexPath = path.join(frontendDist, "index.html");
     if (fs.existsSync(indexPath)) {
+      const stat = await fs.promises.stat(indexPath);
+      const assetHeaders = createStaticAssetHeaders(c.req.path, indexPath, stat);
+      for (const [name, value] of Object.entries(assetHeaders)) c.header(name, value);
+      if (isStaticAssetNotModified(c.req.raw.headers, assetHeaders)) {
+        return c.body(null, 304);
+      }
       // SEC-XSS-01-C-RV1: CSP 必须加在 HTML document 响应上才对浏览器生效
       c.header(
         "Content-Security-Policy",
@@ -721,7 +761,7 @@ if (process.env.NODE_ENV === "production") {
           "frame-ancestors 'none'",
         ].join("; "),
       );
-      return c.html(fs.readFileSync(indexPath, "utf-8"));
+      return c.html(await fs.promises.readFile(indexPath, "utf-8"));
     }
     return c.json({ error: "Not Found" }, 404);
   });

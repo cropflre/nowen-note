@@ -89,6 +89,27 @@ function hideRootContainer(db: Database.Database, notebookId: string, nodeId: st
   db.prepare("DELETE FROM knowledge_tree_nodes WHERE id = ?").run(nodeId);
 }
 
+function rootDocumentContainerForParent(
+  db: Database.Database,
+  parentId: string,
+): { ownerUserId: string; workspaceId: string | null } | null {
+  ensureKnowledgeTreeTables(db);
+  const parent = db.prepare(`
+    SELECT tree.userId AS ownerUserId, tree.workspaceId, note.notebookId
+      FROM knowledge_tree_nodes tree
+      JOIN notes note
+        ON tree.resourceType = 'note' AND tree.resourceId = note.id
+     WHERE tree.id = ? AND tree.isDeleted = 0
+  `).get(parentId) as {
+    ownerUserId: string;
+    workspaceId: string | null;
+    notebookId: string | null;
+  } | undefined;
+
+  if (!parent || !isRootDocumentNotebookId(parent.notebookId)) return null;
+  return { ownerUserId: parent.ownerUserId, workspaceId: parent.workspaceId || null };
+}
+
 function nextRootSortOrder(db: Database.Database, scope: string, nodeId: string): number {
   const row = db.prepare(`
     SELECT COALESCE(MAX(sortOrder), -1) + 1 AS value
@@ -129,7 +150,27 @@ export function createKnowledgeChild(input: {
   title: string;
   db?: Database.Database;
 }): KnowledgeTreeNode {
-  if (input.parentId !== null || input.nodeType === "folder") {
+  if (input.parentId !== null) {
+    const db = input.db || getDb();
+    const parentContainer = rootDocumentContainerForParent(db, input.parentId);
+    if (!parentContainer) return createKnowledgeChildBase(input);
+
+    const execute = db.transaction(() => {
+      const container = activateRootContainer(
+        db,
+        parentContainer.ownerUserId,
+        parentContainer.workspaceId,
+      );
+      try {
+        return createKnowledgeChildBase({ ...input, db });
+      } finally {
+        hideRootContainer(db, container.notebookId, container.nodeId);
+      }
+    });
+    return execute();
+  }
+
+  if (input.nodeType === "folder") {
     return createKnowledgeChildBase(input);
   }
 

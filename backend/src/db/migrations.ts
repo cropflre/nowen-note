@@ -19,6 +19,22 @@ import { yjsSubdocumentsMigration } from "./yjsSubdocumentsMigration.js";
 import { blockAuthorityStaleGuardMigration } from "./blockAuthorityStaleGuardMigration.js";
 import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMigration.js";
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
+import { knowledgeTreeMigration } from "./knowledgeTreeMigration.js";
+import { knowledgeTreeResourceMigration } from "./knowledgeTreeResourceMigration.js";
+import { knowledgeTreeParentPreservationMigration } from "./knowledgeTreeParentPreservationMigration.js";
+import { knowledgeTreeLegacySyncMigration } from "./knowledgeTreeLegacySyncMigration.js";
+import { knowledgeTreeStructuralGuardMigration } from "./knowledgeTreeStructuralGuardMigration.js";
+import { knowledgeTreePasswordMigration } from "./knowledgeTreePasswordMigration.js";
+import { offlineSyncMigration } from "./offlineSyncMigration.js";
+import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
+import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
+import { blockSchemaRepairMigration } from "./blockSchemaRepairMigration.js";
+import { taskDayPlansMigration } from "./taskDayPlansMigration.js";
+import { yjsOperationReceiptsMigration } from "./yjsOperationReceiptsMigration.js";
+import { taskMetadataMigration } from "./taskMetadataMigration.js";
+import { taskTimePlanningMigration } from "./taskTimePlanningMigration.js";
+import { taskInboxMigration } from "./taskInboxMigration.js";
+import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -255,6 +271,29 @@ const repairSearchContentTextMigration: Migration = {
   },
 };
 
+// 任务功能曾在独立 bootstrap 中占用 v71-v73，导致 v71 与 Yjs 回执迁移冲突。
+// 保留历史版本含义，并用新版本把所有 schema 纳入同一条正式迁移链。
+const yjsOperationReceiptsRepairMigration: Migration = {
+  ...yjsOperationReceiptsMigration,
+  version: 74,
+  name: "yjs-operation-receipts-version-collision-repair",
+};
+const taskMetadataCanonicalMigration: Migration = {
+  ...taskMetadataMigration,
+  version: 75,
+  name: "task-labels-and-saved-views-canonical",
+};
+const taskTimePlanningCanonicalMigration: Migration = {
+  ...taskTimePlanningMigration,
+  version: 76,
+  name: "task-estimates-and-time-blocks-canonical",
+};
+const taskInboxCanonicalMigration: Migration = {
+  ...taskInboxMigration,
+  version: 77,
+  name: "personal-task-inbox-and-capture-source-canonical",
+};
+
 export const MIGRATIONS: Migration[] = [
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
@@ -270,6 +309,23 @@ export const MIGRATIONS: Migration[] = [
   blockAuthorityStaleGuardMigration,
   yjsSubdocumentGenerationMigration,
   tagScopeUniquenessMigration,
+  knowledgeTreeMigration,
+  knowledgeTreeResourceMigration,
+  knowledgeTreeParentPreservationMigration,
+  knowledgeTreeLegacySyncMigration,
+  knowledgeTreeStructuralGuardMigration,
+  knowledgeTreePasswordMigration,
+  offlineSyncMigration,
+  newUserOnboardingMigration,
+  newUserOnboardingFirstLoginMigration,
+  blockSchemaRepairMigration,
+  taskDayPlansMigration,
+  yjsOperationReceiptsMigration,
+  yjsOperationReceiptsRepairMigration,
+  taskMetadataCanonicalMigration,
+  taskTimePlanningCanonicalMigration,
+  taskInboxCanonicalMigration,
+  workspaceJournalsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
@@ -287,6 +343,33 @@ function ensureMigrationsTable(db: Database.Database): void {
   `);
 }
 
+function validateMigrationRegistry(): void {
+  const seen = new Map<number, string>();
+  for (const migration of MIGRATIONS) {
+    const existing = seen.get(migration.version);
+    if (existing) {
+      throw new Error(
+        `[migrations] 重复版本号 v${migration.version}: ${existing}, ${migration.name}`,
+      );
+    }
+    seen.set(migration.version, migration.name);
+  }
+}
+
+function getAppliedMigrationVersions(db: Database.Database): Set<number> {
+  ensureMigrationsTable(db);
+  const rows = db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>;
+  return new Set(rows.map((row) => row.version));
+}
+
+export function getPendingMigrations(db: Database.Database): Migration[] {
+  validateMigrationRegistry();
+  const applied = getAppliedMigrationVersions(db);
+  return MIGRATIONS
+    .filter((migration) => !applied.has(migration.version))
+    .sort((a, b) => a.version - b.version);
+}
+
 export function getCurrentSchemaVersion(db: Database.Database): number {
   ensureMigrationsTable(db);
   const row = db
@@ -297,6 +380,8 @@ export function getCurrentSchemaVersion(db: Database.Database): number {
 
 export function runMigrations(db: Database.Database): number {
   ensureMigrationsTable(db);
+  validateMigrationRegistry();
+
   const current = getCurrentSchemaVersion(db);
   if (current > CURRENT_SCHEMA_VERSION) {
     throw new Error(
@@ -305,20 +390,11 @@ export function runMigrations(db: Database.Database): number {
     );
   }
 
-  const pending = MIGRATIONS
-    .filter((migration) => migration.version > current)
-    .sort((a, b) => a.version - b.version);
+  // schema_migrations is an applied-migration ledger, not a single cursor.
+  // Looking only at MAX(version) permanently skips a migration added later with
+  // a lower historical version (the v48 block schema was affected by this).
+  const pending = getPendingMigrations(db);
   if (pending.length === 0) return 0;
-
-  let previous = current;
-  for (const migration of pending) {
-    if (migration.version <= previous) {
-      throw new Error(
-        `[migrations] 版本号必须严格递增：v${previous} 之后是 v${migration.version}（${migration.name}）`,
-      );
-    }
-    previous = migration.version;
-  }
 
   const insert = db.prepare(
     "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",

@@ -1,4 +1,9 @@
 import { parseServerTime } from "@/lib/dateTime";
+import {
+  isMarkdownImageExportSource,
+  prepareMarkdownFootnotesForImageExport,
+  refreshNoteImageAttachmentAccess,
+} from "@/lib/noteImageExportPreparation";
 
 export type NoteImageExportFormat = "png" | "jpg" | "svg";
 export type NoteImageExportLayout = "auto" | "long" | "pages";
@@ -76,18 +81,47 @@ export function normalizeNoteImageExportSource(
 }
 
 /**
+ * Prepare an isolated export copy. Markdown footnotes are converted to visual HTML for
+ * the image renderer, while the editor/store keeps the original Markdown unchanged.
+ */
+export function prepareNoteImageExportSource(
+  note: ExportableNoteImageSource,
+): ExportableNoteImageSource {
+  const prepared = normalizeNoteImageExportSource(note);
+  if (!isMarkdownImageExportSource(prepared.content || prepared.contentText || "", prepared.contentFormat)) {
+    return prepared;
+  }
+
+  if (prepared.content) {
+    prepared.content = prepareMarkdownFootnotesForImageExport(prepared.content);
+  }
+  if (prepared.contentText) {
+    prepared.contentText = prepareMarkdownFootnotesForImageExport(prepared.contentText);
+  }
+  return prepared;
+}
+
+/**
  * Opens the global image-export center and resolves after the user completes or
  * cancels the flow. Existing menu entry points can await this promise without
  * knowing whether the app is running in Web, Electron or Capacitor.
  */
-export function requestNoteImageExport(
+export async function requestNoteImageExport(
   note: ExportableNoteImageSource,
   options: NoteImageExportInitialOptions = {},
 ): Promise<boolean> {
-  if (typeof window === "undefined") return Promise.resolve(false);
+  if (typeof window === "undefined") return false;
 
   const requestId = createRequestId();
-  const exportNote = normalizeNoteImageExportSource(note);
+  const exportNote = prepareNoteImageExportSource(note);
+
+  // A fresh signed URL prevents Docker/NAS exports from fetching a protected attachment
+  // through its bare UUID path. Failure is non-fatal: the renderer still reports the asset.
+  await refreshNoteImageAttachmentAccess(
+    exportNote.id,
+    `${exportNote.content || ""}\n${exportNote.contentText || ""}`,
+  );
+
   return new Promise<boolean>((resolve) => {
     pending.set(requestId, resolve);
     window.dispatchEvent(new CustomEvent<NoteImageExportRequestDetail>(

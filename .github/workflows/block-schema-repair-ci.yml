@@ -1,0 +1,59 @@
+name: Block Schema Repair CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/db/blockSchemaRepairMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/migrations.impl.ts"
+      - "backend/src/db/blockAuthorityMigration.ts"
+      - "backend/src/db/blockAuthorityStaleGuardMigration.ts"
+      - "backend/src/db/yjsSubdocumentsMigration.ts"
+      - "backend/src/db/yjsSubdocumentGenerationMigration.ts"
+      - "backend/src/lib/noteBlocks.ts"
+      - "backend/src/routes/blocks.ts"
+      - "backend/tests/block-schema-repair-migration.test.ts"
+      - "backend/tests/block-patch-route.test.ts"
+      - ".github/workflows/block-schema-repair-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/blockSchemaRepairMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/migrations.impl.ts"
+      - "backend/src/db/blockAuthorityMigration.ts"
+      - "backend/src/db/blockAuthorityStaleGuardMigration.ts"
+      - "backend/src/db/yjsSubdocumentsMigration.ts"
+      - "backend/src/db/yjsSubdocumentGenerationMigration.ts"
+      - "backend/src/lib/noteBlocks.ts"
+      - "backend/src/routes/blocks.ts"
+      - "backend/tests/block-schema-repair-migration.test.ts"
+      - "backend/tests/block-patch-route.test.ts"
+      - ".github/workflows/block-schema-repair-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Run historical block schema and legacy route regressions
+        run: >-
+          node --import tsx --test
+          tests/block-schema-repair-migration.test.ts
+          tests/block-patch-route.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc

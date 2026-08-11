@@ -19,9 +19,25 @@ function db() {
   return getDb();
 }
 
-async function getJson(url: string, userId: string) {
-  const response = await app.request(url, { headers: { "X-User-Id": userId } });
+async function requestJson(
+  url: string,
+  userId: string,
+  method = "GET",
+  body?: unknown,
+) {
+  const response = await app.request(url, {
+    method,
+    headers: {
+      "X-User-Id": userId,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, json: await response.json() as any };
+}
+
+async function getJson(url: string, userId: string) {
+  return requestJson(url, userId);
 }
 
 test.before(async () => {
@@ -34,13 +50,24 @@ test.before(async () => {
   getDb = schemaModule.getDb;
   closeDb = schemaModule.closeDb;
 
-  for (const id of ["owner", "manager", "outsider"]) {
+  for (const id of ["owner", "manager", "editor", "commenter", "viewer", "outsider"]) {
     db().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(id, id, "hash");
   }
-  db().prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)")
-    .run("nb", "owner", "共享目录");
-  db().prepare("INSERT INTO notes (id, userId, notebookId, title, content, contentText) VALUES (?, ?, ?, ?, '{}', '')")
-    .run("note", "owner", "nb", "公开笔记");
+  db().prepare("INSERT INTO workspaces (id, name, description, icon, ownerId) VALUES (?, ?, '', '🏢', ?)")
+    .run("ws", "协作空间", "owner");
+  for (const [userId, role] of [
+    ["owner", "owner"],
+    ["editor", "editor"],
+    ["commenter", "commenter"],
+    ["viewer", "viewer"],
+  ] as const) {
+    db().prepare("INSERT INTO workspace_members (workspaceId, userId, role) VALUES (?, ?, ?)")
+      .run("ws", userId, role);
+  }
+  db().prepare("INSERT INTO notebooks (id, userId, workspaceId, name) VALUES (?, ?, ?, ?)")
+    .run("nb", "owner", "ws", "共享目录");
+  db().prepare("INSERT INTO notes (id, userId, notebookId, workspaceId, title, content, contentText) VALUES (?, ?, ?, ?, ?, '{}', '')")
+    .run("note", "owner", "nb", "ws", "公开笔记");
   db().prepare(`INSERT INTO notebook_members
     (id, notebookId, userId, role, status, allowDownload, allowReshare, source)
     VALUES (?, ?, ?, 'owner', 'active', 1, 1, 'manual')`)
@@ -105,4 +132,59 @@ test("note managers can open the existing per-note list and share detail", async
   assert.equal(detail.json.id, "share");
   assert.equal(detail.json.hasPassword, true);
   assert.equal("password" in detail.json, false);
+});
+
+test("workspace comment permissions preserve inline anchor data and management boundaries", async () => {
+  const anchorData = JSON.stringify({
+    version: 1,
+    kind: "text",
+    editor: "tiptap",
+    quote: "需要批注的原文",
+    prefix: "前文",
+    suffix: "后文",
+    start: 4,
+    end: 11,
+    createdAt: 1,
+  });
+
+  const viewerCreate = await requestJson("/shares/note/note/comments", "viewer", "POST", {
+    content: "viewer 不应成功",
+    anchorData,
+  });
+  assert.equal(viewerCreate.status, 403);
+
+  const commenterCreate = await requestJson("/shares/note/note/comments", "commenter", "POST", {
+    content: "这里需要补充说明",
+    anchorData,
+  });
+  assert.equal(commenterCreate.status, 201);
+  assert.equal(commenterCreate.json.userId, "commenter");
+  assert.equal(commenterCreate.json.anchorData, anchorData);
+
+  const viewerList = await getJson("/shares/note/note/comments", "viewer");
+  assert.equal(viewerList.status, 200);
+  assert.equal(viewerList.json.length, 1);
+  assert.equal(viewerList.json[0].content, "这里需要补充说明");
+
+  const editorResolve = await requestJson(
+    `/shares/note/note/comments/${commenterCreate.json.id}/resolve`,
+    "editor",
+    "PATCH",
+  );
+  assert.equal(editorResolve.status, 403);
+
+  const managerResolve = await requestJson(
+    `/shares/note/note/comments/${commenterCreate.json.id}/resolve`,
+    "manager",
+    "PATCH",
+  );
+  assert.equal(managerResolve.status, 200);
+  assert.equal(managerResolve.json.isResolved, 1);
+
+  const commenterDelete = await requestJson(
+    `/shares/note/note/comments/${commenterCreate.json.id}`,
+    "commenter",
+    "DELETE",
+  );
+  assert.equal(commenterDelete.status, 200);
 });

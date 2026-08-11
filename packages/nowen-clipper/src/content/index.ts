@@ -16,7 +16,6 @@
 
 import { extractArticle, extractSelection, extractSimplified, extractFullPage } from "../lib/extractor";
 import { installContentScriptListener } from "../lib/content-script-runtime";
-import { CONTENT_SCRIPT_PROTOCOL_VERSION } from "../lib/protocol";
 import type {
   ContentScriptPingRequest,
   ContentScriptPingResponse,
@@ -31,6 +30,9 @@ import type {
 (function initNowenClipperContent() {
   const win = window as unknown as Record<string, unknown>;
 
+  // content.js 必须保持为可直接注入的单文件经典脚本，不能从 protocol.ts 产生运行时
+  // import；协议升级时与 protocol.ts 的 CONTENT_SCRIPT_PROTOCOL_VERSION 同步修改。
+  const CONTENT_SCRIPT_PROTOCOL_VERSION = "1";
   // 版本标记——用于确认 content script 是否已更新
   const CONTENT_SCRIPT_VERSION = "0.5.0";
 

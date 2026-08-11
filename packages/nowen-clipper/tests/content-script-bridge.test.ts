@@ -34,7 +34,6 @@ test("keeps a healthy content script without duplicate injection", async () => {
       return { type: "EXTRACT_RESPONSE", ok: true };
     },
     injectContentScript: async () => { injections += 1; },
-    delay: async () => undefined,
   };
 
   const bridge = createContentScriptBridge(adapter);
@@ -60,7 +59,6 @@ test("injects content.js after a missing or stale receiver and retries", async (
       injections += 1;
       injected = true;
     },
-    delay: async () => undefined,
   };
 
   const bridge = createContentScriptBridge(adapter);
@@ -75,7 +73,6 @@ test("does not attempt injection on browser-protected pages", async () => {
     getTab: async () => ({ url: "edge://extensions" }),
     sendMessage: async () => { throw new Error("Receiving end does not exist"); },
     injectContentScript: async () => { injections += 1; },
-    delay: async () => undefined,
   };
 
   const bridge = createContentScriptBridge(adapter);
@@ -93,7 +90,6 @@ test("maps local-file permission failures to an actionable message", async () =>
     getTab: async () => ({ url: "file:///Users/demo/article.html" }),
     sendMessage: async () => { throw new Error("Receiving end does not exist"); },
     injectContentScript: async () => { throw new Error("Cannot access contents of url"); },
-    delay: async () => undefined,
   };
 
   const bridge = createContentScriptBridge(adapter);
@@ -134,6 +130,6 @@ test("translates popup-to-background receiver errors", () => {
   const message = describeRuntimeMessageError(
     new Error("Could not establish connection. Receiving end does not exist."),
   );
-  assert.match(message, /扩展管理页/);
+  assert.match(message, /重新打开剪藏弹窗/);
   assert.doesNotMatch(message, /Receiving end/);
 });

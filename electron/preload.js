@@ -24,6 +24,8 @@ const allowedChannels = new Set([
   "updater:status",
   // 局域网服务发现：主进程发现/丢失 mDNS 服务后向 renderer 推送最新列表
   "discovery:update",
+  "ugreen:gateway-ready",
+  "ugreen:auth-cancelled",
 ]);
 
 contextBridge.exposeInMainWorld("nowenDesktop", {
@@ -65,6 +67,27 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   /** 打开本地数据目录，便于用户备份/定位 SQLite 与附件数据。 */
   openDataDir() {
     return ipcRenderer.invoke("app:open-data-dir");
+  },
+
+  /** 查看桌面端 IndexedDB 离线缓存位置。 */
+  getOfflineStorageInfo() {
+    return ipcRenderer.invoke("app:get-offline-storage-info");
+  },
+
+  openOfflineStorageDir() {
+    return ipcRenderer.invoke("app:open-offline-storage-dir");
+  },
+
+  /** 在无 Node/IPC 注入的 Electron 安全窗口中完成绿联认证并访问远程工作台。 */
+  openUgreenRemoteWorkspace(url) {
+    if (typeof url !== "string") {
+      return Promise.resolve({ ok: false, error: "INVALID_URL" });
+    }
+    return ipcRenderer.invoke("app:open-ugreen-remote-workspace", { url: url.slice(0, 4096) });
+  },
+
+  chooseOfflineStorageDir() {
+    return ipcRenderer.invoke("app:choose-offline-storage-dir");
   },
 
   /** 本地数据目录：查询、选择与迁移。 */
@@ -153,6 +176,29 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   isDesktop: true,
   platform: process.platform,
   /**
+   * 通过主进程网络栈发送 JSON API 请求，避免 file:// renderer 的跨域预检
+   * 被第三方反向代理拒绝。仅允许 http(s) /api 请求，主进程会再次校验。
+   */
+  http: {
+    requestJson(payload) {
+      if (!payload || typeof payload !== "object") {
+        return Promise.resolve({ ok: false, error: "INVALID_REQUEST" });
+      }
+      const safe = {
+        url: typeof payload.url === "string" ? payload.url.slice(0, 4096) : "",
+        method: typeof payload.method === "string" ? payload.method.slice(0, 16) : "GET",
+        headers: {},
+        body: typeof payload.body === "string" ? payload.body : undefined,
+      };
+      if (payload.headers && typeof payload.headers === "object" && !Array.isArray(payload.headers)) {
+        for (const [name, value] of Object.entries(payload.headers)) {
+          if (typeof value === "string") safe.headers[String(name).slice(0, 256)] = value.slice(0, 16_384);
+        }
+      }
+      return ipcRenderer.invoke("client:http-json", safe);
+    },
+  },
+  /**
    * Lite-only 发行版标识：通过 additionalArguments 传递。
    * true 表示这份安装包里没有打包 backend，无法切回 full 模式，前端应隐藏
    * "切回本地模式"等入口，登录页默认强制客户端模式。
@@ -233,6 +279,7 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       if (typeof payload.displayName === "string") safe.displayName = payload.displayName.slice(0, 256);
       if (typeof payload.avatarUrl === "string") safe.avatarUrl = payload.avatarUrl.slice(0, 2048);
       if (typeof payload.token === "string") safe.token = payload.token.slice(0, 16384);
+      if (typeof payload.refreshToken === "string") safe.refreshToken = payload.refreshToken.slice(0, 16384);
       if (typeof payload.lastUsedAt === "number") safe.lastUsedAt = payload.lastUsedAt;
       return ipcRenderer.invoke("account-history:save", safe);
     },

@@ -1,14 +1,17 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, CloudDownload, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
+import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
 import SecuritySettings from "@/components/SecuritySettings";
 import TokenManagement from "@/components/TokenManagement";
 import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
+import OfflineSyncSettings from "@/components/settings/OfflineSyncSettings";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
@@ -26,17 +29,21 @@ import { detectShortcutSurface } from "@/lib/shortcutRegistry";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
+  loadMobileKnowledgeTreeCompact,
   loadDesktopKnowledgeTreeViewMode,
   loadMobileKnowledgeTreeViewMode,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY,
   MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
   saveDesktopKnowledgeTreeViewMode,
+  saveMobileKnowledgeTreeCompact,
   saveMobileKnowledgeTreeViewMode,
   type DesktopKnowledgeTreeViewMode,
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "offlineSync" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -389,13 +396,15 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
 
 function AboutPanel() {
   const { t } = useTranslation();
+  const feedbackEmail = "nowenlab@qq.com";
+  const feedbackMailto = `mailto:${feedbackEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
   const [showSponsor, setShowSponsor] = useState(false);
   const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showAuthorStory, setShowAuthorStory] = useState(false);
   // 赞赏码大图预览：点击赞赏码缩略图时弹起 Lightbox
   const [sponsorPreviewOpen, setSponsorPreviewOpen] = useState(false);
-  const sponsorImage = sponsorMethod === "wechat" ? "/weixin.jpg" : "/zhifubao.png";
+  const sponsorImage = sponsorMethod === "wechat" ? wechatSponsorQr : alipaySponsorQr;
   const sponsorLabel = sponsorMethod === "wechat"
     ? t('about.sponsorWechat')
     : t('about.sponsorAlipay');
@@ -502,6 +511,34 @@ function AboutPanel() {
           {t('about.authorStoryAction')}
         </span>
       </button>
+
+      {/* 意见与 Bug 反馈 */}
+      <a
+        href={feedbackMailto}
+        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
+            <Mail size={16} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('about.feedback')}
+            </div>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {t('about.feedbackDesc')}
+            </div>
+          </div>
+        </div>
+        <div className="ml-4 text-right shrink-0">
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t('about.feedbackAction')}
+          </div>
+          <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+            {feedbackEmail}
+          </div>
+        </div>
+      </a>
 
       {/* 支持作者 / 打赏 */}
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
@@ -645,6 +682,9 @@ function SwitchesPanel() {
   const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useState<MobileKnowledgeTreeViewMode>(
     () => loadMobileKnowledgeTreeViewMode(),
   );
+  const [mobileKnowledgeTreeCompact, setMobileKnowledgeTreeCompact] = useState(
+    () => loadMobileKnowledgeTreeCompact(),
+  );
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
     () => loadDesktopKnowledgeTreeViewMode(),
   );
@@ -690,6 +730,19 @@ function SwitchesPanel() {
   }, []);
 
   useEffect(() => {
+    const syncCompact = () => setMobileKnowledgeTreeCompact(loadMobileKnowledgeTreeCompact());
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY) syncCompact();
+    };
+    window.addEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  useEffect(() => {
     const syncMode = () => setDesktopKnowledgeTreeMode(loadDesktopKnowledgeTreeViewMode());
     const syncStorage = (event: StorageEvent) => {
       if (event.key === DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
@@ -706,6 +759,11 @@ function SwitchesPanel() {
     const nextMode: MobileKnowledgeTreeViewMode = treeEnabled ? "tree" : "navigator";
     setMobileKnowledgeTreeMode(nextMode);
     saveMobileKnowledgeTreeViewMode(nextMode);
+  };
+
+  const handleToggleMobileKnowledgeTreeCompact = (nextCompact: boolean) => {
+    setMobileKnowledgeTreeCompact(nextCompact);
+    saveMobileKnowledgeTreeCompact(nextCompact);
   };
 
   const handleToggleDesktopKnowledgeTreeMode = (quickEnabled: boolean) => {
@@ -840,6 +898,26 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileKnowledgeTreeModeDesc")}
+            </p>
+          </div>
+        </label>
+
+        <label
+          data-settings-switch="mobile-knowledge-tree-compact"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={mobileKnowledgeTreeCompact}
+            onChange={(event) => handleToggleMobileKnowledgeTreeCompact(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.mobileKnowledgeTreeCompact")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.mobileKnowledgeTreeCompactDesc")}
             </p>
           </div>
         </label>
@@ -1431,6 +1509,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     //     （personalExport/Import Enabled），由管理员集中控制。
     //   组件内部也做了一层防御性闸门，防止用户从深链绕过这里直达 admin-only 区域。
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
+    { id: "offlineSync" as const, label: "离线同步", icon: CloudDownload },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：
@@ -1618,6 +1697,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   {/* data tab 对所有用户可见：DataManager 内部会按 isAdmin 自动分流
                        —— 管理员看到完整三 scope；普通用户只看"个人空间"的导出/导入。 */}
                   {activeTab === "data" && <DataManager />}
+                  {activeTab === "offlineSync" && <OfflineSyncSettings />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}
                   {activeTab === "about" && <AboutPanel />}

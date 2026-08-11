@@ -1,25 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { getDeviceId } from "@/lib/deviceId";
+import { storeAuthTokens } from "@/lib/authSession";
 import {
   clearTwoFactorLoginChallenge,
   readTwoFactorLoginChallenge,
   TWO_FACTOR_LOGIN_CHALLENGE_EVENT,
   type TwoFactorLoginChallenge,
 } from "@/lib/twoFactorLoginChallenge";
-
-function storeLoginToken(token: string): void {
-  try {
-    localStorage.setItem("nowen-token", token);
-  } catch {
-    /* AuthGate reload will fall back to the login page if storage is unavailable. */
-  }
-  try {
-    window.dispatchEvent(new CustomEvent("nowen:token-changed"));
-  } catch {
-    /* ignore */
-  }
-}
 
 function finishLoginNavigation(): void {
   try {
@@ -179,7 +167,7 @@ export default function TwoFactorLoginChallengeCenter() {
         return;
       }
 
-      storeLoginToken(data.token);
+      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       clearTwoFactorLoginChallenge();
       finishLoginNavigation();
     } catch (requestError: any) {

@@ -293,6 +293,19 @@ CREATE TABLE IF NOT EXISTS note_yupdates (
 
 CREATE INDEX IF NOT EXISTS idx_note_yupdates_note ON note_yupdates("noteId", id);
 
+CREATE TABLE IF NOT EXISTS yjs_operation_receipts (
+    "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    "operationId" TEXT NOT NULL,
+    "updateId" BIGINT NOT NULL,
+    "userId" TEXT,
+    "updateHash" TEXT NOT NULL,
+    "persistedAt" TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY ("noteId", "operationId")
+);
+
+CREATE INDEX IF NOT EXISTS idx_yjs_operation_receipts_persisted
+    ON yjs_operation_receipts("persistedAt");
+
 -- ============================================================
 -- Embeddings
 -- ============================================================
@@ -957,3 +970,19 @@ CREATE TABLE IF NOT EXISTS note_y_subdocument_updates (
 CREATE INDEX IF NOT EXISTS idx_note_y_subdocument_updates_section
     ON note_y_subdocument_updates("noteId", "sectionId", id);
 
+
+
+-- Workspace shared journals: one bound note per workspace/calendar date.
+CREATE TABLE IF NOT EXISTS workspace_journals (
+  "workspaceId" TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  "journalDate" TEXT NOT NULL,
+  "noteId" TEXT NOT NULL UNIQUE REFERENCES notes(id) ON DELETE CASCADE,
+  "createdBy" TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ("workspaceId", "journalDate")
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_journals_note
+  ON workspace_journals("noteId");
+CREATE INDEX IF NOT EXISTS idx_workspace_journals_date
+  ON workspace_journals("workspaceId", "journalDate" DESC);

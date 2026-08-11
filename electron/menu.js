@@ -10,7 +10,6 @@
 const { Menu, app, shell, BrowserWindow } = require("electron");
 
 const isMac = process.platform === "darwin";
-const isDev = !app.isPackaged;
 
 /** 发送菜单事件给当前聚焦窗口 */
 function send(channel, payload) {
@@ -29,6 +28,7 @@ function buildMenu({
   onSwitchToFull,
   onChangeServer,
 } = {}) {
+  const isDev = !app.isPackaged;
   const isLite = mode === "lite";
 
   // "模式"子菜单：根据当前模式动态显示可用项

@@ -52,8 +52,7 @@ export function listKnowledgeTree(input: {
            CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isLocked, 0) ELSE 0 END AS isLocked,
            CASE WHEN node.resourceType = 'notebook' AND notebook_password.notebookId IS NOT NULL THEN 1 ELSE 0 END AS isPasswordProtected,
            CASE WHEN node.resourceType = 'note' THEN note.contentFormat ELSE NULL END AS contentFormat,
-           (SELECT COUNT(*) FROM knowledge_tree_nodes child
-             WHERE child.parentId = node.id AND child.isDeleted = 0) AS childCount
+           0 AS childCount
     FROM knowledge_tree_nodes node
     LEFT JOIN notebooks nb ON node.resourceType = 'notebook' AND nb.id = node.resourceId
     LEFT JOIN notebook_passwords notebook_password
@@ -70,12 +69,36 @@ export function listKnowledgeTree(input: {
       node.id
   `).all(input.userId, key) as ListedNodeRow[];
 
-  return rows
+  const visible = rows
     .filter((row) => !(row.resourceType === "notebook" && row.resourceId.startsWith(ROOT_DOCUMENT_NOTEBOOK_PREFIX)))
     .map((row) => ({
       ...row,
       parentId: row.parentId?.startsWith(ROOT_DOCUMENT_NODE_PREFIX) ? null : row.parentId,
-      access: resolveKnowledgeNodeAccess(row.id, input.userId, db),
+      // includeDeleted is an explicit recycle-bin/history view. Evaluate the
+      // tombstone with its original ACL instead of making the flag ineffective.
+      // Ordinary tree reads keep includeDeleted=false and still hide tombstones.
+      access: resolveKnowledgeNodeAccess(
+        row.id,
+        input.userId,
+        db,
+        { includeDeleted: input.includeDeleted === true },
+      ),
     }))
     .filter((row) => row.access.capabilities.canView);
+
+  const visibleIds = new Set(visible.map((row) => row.id));
+  const visibleChildCounts = new Map<string, number>();
+  for (const row of visible) {
+    if (!row.parentId || !visibleIds.has(row.parentId)) continue;
+    visibleChildCounts.set(row.parentId, (visibleChildCounts.get(row.parentId) || 0) + 1);
+  }
+
+  return visible.map((row) => ({
+    ...row,
+    // A directly shared descendant must remain reachable even when its restricted
+    // ancestor is hidden. Promote it to a visible root instead of leaking the
+    // ancestor title or leaving an orphaned parent reference.
+    parentId: row.parentId && visibleIds.has(row.parentId) ? row.parentId : null,
+    childCount: visibleChildCounts.get(row.id) || 0,
+  }));
 }

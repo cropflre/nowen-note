@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
+import { getDailyRecordSlashCommands } from "@/components/daily-records/dailyRecordSlashCommands";
 
 export interface SlashCommandItem {
   id: string;
@@ -71,8 +72,13 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
   // 被菜单和编辑器处理，造成命令执行两次或额外插入段落。
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 中文输入法确认候选词时也会触发 Enter，不能把它当作菜单选择。
-      if (e.isComposing || e.keyCode === 229) return;
+      const isImeComposing = e.isComposing || editor.view.composing;
+      if (isImeComposing) {
+        // 组合态回车只负责确认输入法候选词。阻止它继续传到 ProseMirror，
+        // 避免额外插入段落；组合结束后的下一次回车再执行菜单命令。
+        if (e.key === "Enter") e.stopPropagation();
+        return;
+      }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
@@ -100,7 +106,7 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [filteredItems, selectedIndex, onSelect, onClose]);
+  }, [editor, filteredItems, selectedIndex, onSelect, onClose]);
 
   // 点击外部关闭。使用 pointerdown capture，让鼠标、触控笔和触屏路径一致。
   useEffect(() => {
@@ -184,6 +190,7 @@ export function getDefaultSlashCommands(
   onAttachmentLibrary?: () => void,
 ): SlashCommandItem[] {
   return [
+    ...getDailyRecordSlashCommands(),
     // 标题
     {
       id: "heading1",

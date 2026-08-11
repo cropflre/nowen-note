@@ -32,6 +32,7 @@ import {
   type BiometryStatus,
 } from "@/lib/quickLogin";
 import { getServerUrl } from "@/lib/api";
+import { getRefreshToken } from "@/lib/authSession";
 
 interface Props {
   /** 当前已登录用户名，仅用于文案 */
@@ -92,6 +93,7 @@ export default function QuickLoginEnrollDialog({
     try {
       const result = await enableQuickLogin({
         token,
+        refreshToken: getRefreshToken() || undefined,
         serverUrl: getServerUrl() || "",
         username,
       });

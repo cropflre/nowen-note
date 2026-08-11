@@ -19,12 +19,15 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/workspaceRefreshBridge.ts"
+      - "frontend/src/lib/__tests__/editorMode.test.ts"
       - "frontend/src/lib/__tests__/workspaceRefreshBridge.test.ts"
       - "frontend/src/components/FormatAwareEditorPane.tsx"
+      - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/MarkdownPreview.tsx"
       - "frontend/src/components/__tests__/FormatAwareEditorPane.test.tsx"
+      - "frontend/src/components/__tests__/EditorPaneRuntimeLayout.test.tsx"
       - "frontend/src/components/__tests__/MarkdownPreview.issue494.test.tsx"
       - "frontend/src/lib/__tests__/markdownUserContent.test.ts"
       - ".github/workflows/issue-355-content-format-ci.yml"
@@ -45,12 +48,15 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/workspaceRefreshBridge.ts"
+      - "frontend/src/lib/__tests__/editorMode.test.ts"
       - "frontend/src/lib/__tests__/workspaceRefreshBridge.test.ts"
       - "frontend/src/components/FormatAwareEditorPane.tsx"
+      - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
       - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
       - "frontend/src/components/MarkdownPreview.tsx"
       - "frontend/src/components/__tests__/FormatAwareEditorPane.test.tsx"
+      - "frontend/src/components/__tests__/EditorPaneRuntimeLayout.test.tsx"
       - "frontend/src/components/__tests__/MarkdownPreview.issue494.test.tsx"
       - "frontend/src/lib/__tests__/markdownUserContent.test.ts"
       - ".github/workflows/issue-355-content-format-ci.yml"
@@ -97,7 +103,9 @@ jobs:
         run: >-
           npm run test:run --
           src/lib/__tests__/markdownUserContent.test.ts
+          src/lib/__tests__/editorMode.test.ts
           src/components/__tests__/FormatAwareEditorPane.test.tsx
+          src/components/__tests__/EditorPaneRuntimeLayout.test.tsx
       - name: Issue 494 Callout sanitization regression
         run: >-
           npm run test:run --

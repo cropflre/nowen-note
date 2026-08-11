@@ -152,7 +152,7 @@ export function getDependencyScheduleWarnings(
   const suggestedStart = addDays(latestBlockerDue, 1);
 
   // Check if current task dates need adjustment
-  const currentStart = task.startDate || null;
+  const currentStart = task.startDate?.slice(0, 10) || null;
   const currentDue = task.dueDate || null;
   const now = new Date();
   const todayStr = format(now);

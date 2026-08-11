@@ -18,6 +18,7 @@ export interface AccountLoginHistoryItem {
 
 interface SecureAccountLoginRecord extends AccountLoginHistoryItem {
   token: string;
+  refreshToken: string;
 }
 
 export interface AccountLoginUser {
@@ -42,9 +43,10 @@ interface DesktopAccountHistoryBridge {
     displayName: string;
     avatarUrl: string;
     token: string;
+    refreshToken?: string;
     lastUsedAt: number;
   }): Promise<{ ok: boolean; id?: string; error?: string }>;
-  loadToken(id: string): Promise<{ ok: boolean; token?: string; error?: string }>;
+  loadToken(id: string): Promise<{ ok: boolean; token?: string; refreshToken?: string; error?: string }>;
   markRequiresReauth(id: string): Promise<{ ok: boolean; error?: string }>;
   remove(id: string): Promise<{ ok: boolean; error?: string }>;
 }
@@ -94,6 +96,7 @@ function normalizeRecord(value: unknown): SecureAccountLoginRecord | null {
     displayName: typeof raw.displayName === "string" ? raw.displayName : "",
     avatarUrl: typeof raw.avatarUrl === "string" ? raw.avatarUrl : "",
     token: typeof raw.token === "string" ? raw.token : "",
+    refreshToken: typeof raw.refreshToken === "string" ? raw.refreshToken : "",
     lastUsedAt: Number.isFinite(raw.lastUsedAt) ? Number(raw.lastUsedAt) : 0,
     requiresReauth: !!raw.requiresReauth || !raw.token,
   };
@@ -132,7 +135,7 @@ async function writeMobileRecords(records: SecureAccountLoginRecord[]): Promise<
 }
 
 function toPublicItem(record: SecureAccountLoginRecord): AccountLoginHistoryItem {
-  const { token: _token, ...item } = record;
+  const { token: _token, refreshToken: _refreshToken, ...item } = record;
   return item;
 }
 
@@ -153,6 +156,7 @@ export async function listAccountLoginHistory(): Promise<AccountLoginHistoryItem
 export async function saveAccountLoginHistory(params: {
   serverUrl: string;
   token: string;
+  refreshToken?: string;
   user: AccountLoginUser;
   lastUsedAt?: number;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -167,6 +171,7 @@ export async function saveAccountLoginHistory(params: {
     displayName: params.user.displayName || "",
     avatarUrl: params.user.avatarUrl || "",
     token: params.token,
+    refreshToken: params.refreshToken || "",
     lastUsedAt: params.lastUsedAt ?? Date.now(),
   };
   const desktop = getDesktopBridge();
@@ -195,14 +200,16 @@ export async function saveAccountLoginHistory(params: {
   return ok ? { ok: true, id } : { ok: false, error: "WRITE_FAILED" };
 }
 
-export async function loadAccountLoginToken(id: string): Promise<{ ok: boolean; token?: string; error?: string }> {
+export async function loadAccountLoginToken(
+  id: string,
+): Promise<{ ok: boolean; token?: string; refreshToken?: string; error?: string }> {
   const desktop = getDesktopBridge();
   if (desktop) return desktop.loadToken(id).catch(() => ({ ok: false, error: "STORAGE_ERROR" }));
   const result = await readMobileRecords();
   if (!result.ok) return { ok: false, error: result.error || "STORAGE_ERROR" };
   const item = result.records.find((record) => record.id === id);
   return item?.token && !item.requiresReauth
-    ? { ok: true, token: item.token }
+    ? { ok: true, token: item.token, ...(item.refreshToken ? { refreshToken: item.refreshToken } : {}) }
     : { ok: false, error: "TOKEN_UNAVAILABLE" };
 }
 
@@ -221,6 +228,7 @@ export async function markAccountLoginRequiresReauth(id: string): Promise<{ ok: 
   const item = readResult.records.find((record) => record.id === id);
   if (!item) return { ok: false, error: "NOT_FOUND" };
   item.token = "";
+  item.refreshToken = "";
   item.requiresReauth = true;
   const ok = await writeMobileRecords(readResult.records);
   if (ok) {

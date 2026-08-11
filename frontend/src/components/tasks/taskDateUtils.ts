@@ -2,8 +2,57 @@ import type { Task } from "@/types";
 
 export function getDueTimeValue(dueAt: string | null | undefined): string {
   if (!dueAt) return "";
-  const timePart = dueAt.split("T")[1] || "";
+  const timePart = dueAt.replace(" ", "T").split("T")[1] || "";
   return timePart.slice(0, 5);
+}
+
+export function getDateValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.replace(" ", "T").split("T")[0];
+}
+
+function hasExplicitTaskTime(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /(?:T|\s)\d{2}:\d{2}/.test(value);
+}
+
+export type TaskScheduleMode = "unscheduled" | "all-day" | "timed";
+
+export function getTaskScheduleMode(
+  task: Pick<Task, "startDate" | "dueDate" | "dueAt">,
+): TaskScheduleMode {
+  const hasDate = Boolean(getDateValue(task.startDate) || getDateValue(task.dueDate) || getDateValue(task.dueAt));
+  if (!hasDate) return "unscheduled";
+  return hasExplicitTaskTime(task.startDate) || hasExplicitTaskTime(task.dueDate) || hasExplicitTaskTime(task.dueAt)
+    ? "timed"
+    : "all-day";
+}
+
+export function isTaskAllDay(task: Pick<Task, "startDate" | "dueDate" | "dueAt">): boolean {
+  return getTaskScheduleMode(task) === "all-day";
+}
+
+export function buildStartDateFromDateAndTime(dateValue: string | null | undefined, timeValue: string): string | null {
+  if (!dateValue) return null;
+  return timeValue ? `${dateValue}T${timeValue.slice(0, 5)}` : dateValue;
+}
+
+export function isTaskDateRangeInvalid(
+  startDate: string | null | undefined,
+  dueDate: string | null | undefined,
+  dueAt: string | null | undefined,
+): boolean {
+  if (!startDate) return false;
+  const end = dueAt || dueDate;
+  if (!end) return false;
+
+  const normalizedStart = startDate.replace(" ", "T");
+  const normalizedEnd = end.replace(" ", "T");
+  const startDay = normalizedStart.slice(0, 10);
+  const endDay = normalizedEnd.slice(0, 10);
+  if (startDay !== endDay) return startDay > endDay;
+  if (!normalizedStart.includes("T") || !normalizedEnd.includes("T")) return false;
+  return normalizedStart > normalizedEnd;
 }
 
 export function buildDueAtFromDateAndTime(dueDate: string | null | undefined, timeValue: string): string | null {

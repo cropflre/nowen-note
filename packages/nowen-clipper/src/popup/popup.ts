@@ -397,7 +397,7 @@ function collectAiTasks(): AIEnhanceTasks {
   const tasks: AIEnhanceTasks = {};
   document.querySelectorAll<HTMLInputElement>("#ai-details input[data-task]").forEach((element) => {
     const key = element.dataset.task as keyof AIEnhanceTasks;
-    if (element.checked) tasks[key] = true;
+    tasks[key] = element.checked;
   });
   return tasks;
 }

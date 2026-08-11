@@ -6,12 +6,7 @@
  */
 const base = require("./builder.lite.base.config.js");
 
-const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
-const {
-  artifactName: _legacyWindowsArtifactName,
-  publisherName: _legacyWindowsPublisherName,
-  ...win
-} = base.win || {};
+const { artifactName: _legacyWindowsArtifactName, ...win } = base.win || {};
 
 module.exports = {
   ...base,
@@ -24,11 +19,7 @@ module.exports = {
     "!electron/builder.base.config.js",
     "!electron/builder.lite.base.config.js",
   ],
-  win: {
-    ...win,
-    verifyUpdateCodeSignature: true,
-    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
-  },
+  win,
   nsis: {
     ...(base.nsis || {}),
     artifactName: "Nowen-Note-Lite-${version}-setup.${ext}",

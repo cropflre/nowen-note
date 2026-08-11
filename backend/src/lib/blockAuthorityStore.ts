@@ -89,7 +89,18 @@ export function hashBlockAuthorityContent(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+/**
+ * 已完成建表的连接。
+ *
+ * 这些 DDL 全是 IF NOT EXISTS，重复执行逻辑上无害，但并非免费：内存库约
+ * 0.02ms，而真实部署的文件库（Docker volume / NAS）实测约 5ms —— 每次
+ * GET /api/notes/:id 都会白付一次。用 WeakSet 按连接记忆，连接被回收时自动
+ * 释放；换新连接（重连、测试重建库）会重新建表，不影响正确性。
+ */
+const schemaReadyConnections = new WeakSet<Database.Database>();
+
 export function ensureBlockAuthorityTables(db: Database.Database): void {
+  if (schemaReadyConnections.has(db)) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_block_documents (
       noteId TEXT PRIMARY KEY,
@@ -162,6 +173,7 @@ export function ensureBlockAuthorityTables(db: Database.Database): void {
       WHERE noteId = NEW.id;
     END;
   `);
+  schemaReadyConnections.add(db);
 }
 
 function readIndexedBlocks(db: Database.Database, noteId: string): IndexedBlockRow[] {
@@ -172,9 +184,14 @@ function readIndexedBlocks(db: Database.Database, noteId: string): IndexedBlockR
   `).all(noteId) as IndexedBlockRow[];
 }
 
-function tiptapNodeAtPath(content: string, path: string): unknown {
-  const doc = JSON.parse(content || "{}");
-  let nodes = Array.isArray(doc?.content) ? doc.content : [];
+/**
+ * 在已解析的文档对象上按 path 定位节点。
+ *
+ * 只接受解析后的对象（而非 content 字符串），因为调用方都需要在遍历多条记录时
+ * 复用同一份解析结果 —— 每条记录各自 JSON.parse 整篇文档会退化成 O(n²)。
+ */
+function tiptapNodeAtPathInDoc(doc: unknown, path: string): unknown {
+  let nodes = Array.isArray((doc as any)?.content) ? (doc as any).content : [];
   let node: unknown = null;
   for (const part of path.split(".")) {
     const index = Number(part);
@@ -185,8 +202,9 @@ function tiptapNodeAtPath(content: string, path: string): unknown {
   return node;
 }
 
-function tiptapBlockPayload(content: string, row: IndexedBlockRow): string {
-  const node = tiptapNodeAtPath(content, row.path);
+/** 从已解析的文档对象中取出指定 Block 的 payload。 */
+function tiptapBlockPayloadFromDoc(doc: unknown, row: IndexedBlockRow): string {
+  const node = tiptapNodeAtPathInDoc(doc, row.path);
   if (!node) throw new Error(`无法从 path ${row.path} 读取 Block ${row.blockId}`);
   return JSON.stringify(node);
 }
@@ -279,9 +297,12 @@ function buildIndexedPayloads(
   if (contentFormat === "markdown" && rows.length === 0 && content.length > 0) {
     throw new Error("非空 Markdown 缺少可物化的 Block 记录");
   }
+  // tiptap 场景整篇只解析一次后复用：tiptapBlockPayload 内部会 JSON.parse 全文，
+  // 逐行调用会退化成 O(n²)（5000 段/776KB 实测 rebuild 21.6s）。
+  const parsedDoc = contentFormat === "tiptap-json" ? JSON.parse(content || "{}") : null;
   return rows.map((row, index) => {
     const payload = contentFormat === "tiptap-json"
-      ? tiptapBlockPayload(content, row)
+      ? tiptapBlockPayloadFromDoc(parsedDoc, row)
       : markdownBlockPayload(content, row, index, rows);
     return { row, payload, payloadHash: hashBlockAuthorityContent(payload) };
   });
@@ -400,9 +421,16 @@ function materializeTiptapRecords(
   const content = JSON.stringify({ type: "doc", content: roots });
   const recordsByPath = new Map(records.map((record) => [record.path, record]));
 
+  // 校验用的文档树只解析一次后复用。
+  //   之前每条 record 都调用 tiptapNodeAtPath(content, ...)，而该函数内部会
+  //   JSON.parse 整篇文档 —— 记录数 × 全文解析 = O(n²)。5000 段 / 776KB 的笔记
+  //   实测单次物化 10.6s，且 GET /api/notes/:id 每次读取都会走到这里。
+  //   这里改为复用 roots（已是解析后的对象），校验逻辑与语义保持完全一致。
+  const materializedDoc = { type: "doc", content: roots };
+
   // 顶层 payload 负责组装文档；嵌套记录用于逐 Block 校验，不能成为未验证的旁路副本。
   for (const record of records) {
-    const node = tiptapNodeAtPath(content, record.path);
+    const node = tiptapNodeAtPathInDoc(materializedDoc, record.path);
     if (!node || JSON.stringify(node) !== record.payload) {
       throw new Error(`Block ${record.blockId} 与物化文档的 path 不一致`);
     }
@@ -589,6 +617,56 @@ export function readBlockAuthorityHistory(
   return { items, limit, offset, hasMore: rows.length > limit };
 }
 
+/**
+ * healthy 判定结果缓存（按连接隔离）。
+ *
+ * 物化 + 3 次全文哈希只为回答"这份 Block 权威数据是否仍然健康"。同一笔记在
+ * 内容未变时反复读取（A→B→A、乐观锁重试、多端轮询）会重复得出同一结论，
+ * 而 1MB 文档的一次判定实测约 30ms。
+ *
+ * 缓存键覆盖全部影响判定的输入：
+ *   - snapshotHash / materializedHash / status 来自 note_block_documents，
+ *     任何重建都会更新它们；
+ *   - note_block_records 的改动必然经由 rebuildBlockAuthorityStore，从而刷新
+ *     上面两个 hash，因此无需单独纳入；
+ *   - notesContent 的哈希参与 notesHash !== snapshotHash 判定，必须纳入。
+ * 键不同即重新校验，所以不会返回过期结论。只缓存 healthy —— 劣化状态需要
+ * 落库并保留现场，不能走缓存。
+ *
+ * 已知边界：绕过所有写路径直接 UPDATE note_block_records 且不刷新任何 hash，
+ * 缓存命中期内无法发现（换连接或键变化后仍会被立刻检出）。正常写入都经由
+ * rebuildBlockAuthorityStore，因此不影响真实场景。
+ */
+const healthyVerdictCache = new WeakMap<Database.Database, Map<string, string>>();
+const MAX_HEALTHY_VERDICT_ENTRIES = 256;
+
+function healthyVerdictKey(row: StoredBlockDocument, notesContentHash: string): string {
+  return [row.status, row.snapshotHash, row.materializedHash, notesContentHash].join("|");
+}
+
+function readCachedHealthyVerdict(
+  db: Database.Database,
+  noteId: string,
+  key: string,
+): boolean {
+  return healthyVerdictCache.get(db)?.get(noteId) === key;
+}
+
+function rememberHealthyVerdict(db: Database.Database, noteId: string, key: string): void {
+  let perConnection = healthyVerdictCache.get(db);
+  if (!perConnection) {
+    perConnection = new Map();
+    healthyVerdictCache.set(db, perConnection);
+  }
+  perConnection.delete(noteId);
+  perConnection.set(noteId, key);
+  while (perConnection.size > MAX_HEALTHY_VERDICT_ENTRIES) {
+    const oldest = perConnection.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    perConnection.delete(oldest);
+  }
+}
+
 export function readAuthoritativeNoteContent(
   db: Database.Database,
   noteId: string,
@@ -600,6 +678,28 @@ export function readAuthoritativeNoteContent(
     FROM note_block_documents WHERE noteId = ?
   `).get(noteId) as StoredBlockDocument | undefined;
   if (!row) return { content: notesContent, source: "notes", status: "missing" };
+
+  // 已知处于 mismatch 的文档无需再次物化校验。
+  //   物化 + 3 次全文哈希只用于"从 healthy 判定是否劣化"，对已经 mismatch 的
+  //   文档得不出新结论：本函数不会自愈（mismatch 必须保留现场），所以每次读取
+  //   重跑一遍纯属浪费，而且会把触发器写入的具体原因覆盖成通用的
+  //   authority_hash_mismatch，反而丢掉诊断信息。
+  //   直接返回 notes.content —— 与下方 mismatch 分支的返回值完全一致。
+  if (row.status === "mismatch") {
+    return { content: notesContent, source: "notes", status: "mismatch" };
+  }
+
+  const notesHash = hashBlockAuthorityContent(notesContent);
+  const verdictKey = healthyVerdictKey(row, notesHash);
+
+  // 命中缓存说明这套输入上次已判定 healthy，可跳过物化与另外两次全文哈希。
+  //   返回 notesContent 是等价的：healthy 要求 notesHash === row.snapshotHash
+  //   且 liveMaterializedHash === row.materializedHash === row.snapshotHash，
+  //   即物化结果与 notesContent 的哈希相同 —— 同一份内容。
+  if (readCachedHealthyVerdict(db, noteId, verdictKey)) {
+    return { content: notesContent, source: "blocks", status: "healthy" };
+  }
+
   let materializedContent: string;
   let mismatchReason: string | null = null;
   try {
@@ -613,7 +713,6 @@ export function readAuthoritativeNoteContent(
     mismatchReason = `record_materialization_failed:${error instanceof Error ? error.message : String(error)}`;
   }
   const snapshotContentHash = hashBlockAuthorityContent(row.snapshotContent);
-  const notesHash = hashBlockAuthorityContent(notesContent);
   const liveMaterializedHash = hashBlockAuthorityContent(materializedContent);
   if (
     row.status !== "healthy"
@@ -628,8 +727,10 @@ export function readAuthoritativeNoteContent(
       SET status = 'mismatch', mismatchReason = ?, updatedAt = datetime('now')
       WHERE noteId = ?
     `).run((mismatchReason || "authority_hash_mismatch").slice(0, 512), noteId);
+    healthyVerdictCache.get(db)?.delete(noteId);
     return { content: notesContent, source: "notes", status: "mismatch" };
   }
+  rememberHealthyVerdict(db, noteId, verdictKey);
   return { content: materializedContent, source: "blocks", status: "healthy" };
 }
 

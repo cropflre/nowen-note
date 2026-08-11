@@ -18,6 +18,7 @@ import MermaidView from "@/components/MermaidView";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
+import { normalizeIndentValue } from "@/lib/codeBlockIndent";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
@@ -1571,6 +1572,11 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   );
 }
 
+export function renderSharedIndentAttribute(node: any): string {
+  const indent = normalizeIndentValue(node?.attrs?.indent);
+  return indent > 0 ? ` data-indent="${indent}"` : "";
+}
+
 /**
  * 将编辑器的 JSON content 渲染为 HTML
  * 如果 content 是 JSON 格式（Tiptap），尝试简单渲染
@@ -1609,7 +1615,7 @@ function renderContent(content: string): string {
 }
 
 /** 简单的 Tiptap JSON → HTML 渲染器 */
-function renderTiptapJSON(doc: any): string {
+export function renderTiptapJSON(doc: any): string {
   if (!doc.content) return "";
   // 预扫文档：建立 footnote identifier → 显示序号映射，供 renderNode 同步读取
   _footnoteOrderMap = computeFootnoteOrderFromTiptap(doc);
@@ -1839,20 +1845,20 @@ function renderNode(node: any): string {
     case "paragraph": {
       const inner = renderChildren(node);
       // Tiptap 空段落渲染为空 <p>，保留段落间距
-      return `<p>${inner || "<br/>"}</p>`;
+      return `<p${renderSharedIndentAttribute(node)}>${inner || "<br/>"}</p>`;
     }
     case "heading": {
       const level = node.attrs?.level || 1;
-      return `<h${level}>${renderChildren(node)}</h${level}>`;
+      return `<h${level}${renderSharedIndentAttribute(node)}>${renderChildren(node)}</h${level}>`;
     }
     case "bulletList":
-      return `<ul>${renderChildren(node)}</ul>`;
+      return `<ul${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "orderedList":
-      return `<ol>${renderChildren(node)}</ol>`;
+      return `<ol${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ol>`;
     case "listItem":
       return `<li>${renderChildren(node)}</li>`;
     case "taskList":
-      return `<ul class="task-list">${renderChildren(node)}</ul>`;
+      return `<ul class="task-list"${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "taskItem": {
       const checked = node.attrs?.checked ? "checked" : "";
       return `<li class="task-item"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
@@ -1893,7 +1899,7 @@ function renderNode(node: any): string {
       return `<div class="shared-footnote-def" id="fn-${encId}" data-footnote-def="${encId}" data-footnote-order="${order}"><span class="shared-footnote-def-marker"><a href="#fnref-${encId}" class="shared-footnote-back" data-footnote-back="${encId}" title="跳回">↩</a><span class="shared-footnote-def-index">${order || "?"}.</span></span><span class="shared-footnote-def-content">${escapeHtml(content)}</span></div>`;
     }
     case "blockquote":
-      return `<blockquote>${renderChildren(node)}</blockquote>`;
+      return `<blockquote${renderSharedIndentAttribute(node)}>${renderChildren(node)}</blockquote>`;
     case "horizontalRule":
       return "<hr />";
     case "image": {
@@ -2021,7 +2027,7 @@ function renderCodeBlock(node: any): string {
   const highlighted = highlightCode(codeText, langLabel);
 
   return `
-<div class="shared-code-block">
+<div class="shared-code-block"${renderSharedIndentAttribute(node)}>
   <div class="shared-code-toolbar">
     <div class="shared-code-toolbar-left">
       <span class="shared-code-dots">

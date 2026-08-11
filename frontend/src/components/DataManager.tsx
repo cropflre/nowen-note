@@ -9,18 +9,21 @@ import {
   Mail, Send, Settings as SettingsIcon, ChevronDown, ChevronRight,
   BookOpen, ExternalLink,
   User as UserIcon, Users, ServerCog, Package, Smartphone, FolderOpen, Heart,
+  ListTodo,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { exportAllNotes, ExportProgress } from "@/lib/exportService";
 import {
   readMarkdownFiles, readMarkdownFromZipWithMeta, importNotes,
   ImportFileInfo, ImportProgress,
+  type ImportTargetContentFormat,
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { toast } from "@/lib/toast";
+import { storeAuthTokens } from "@/lib/authSession";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
 import {
   chooseDesktopDataDir,
@@ -52,6 +55,7 @@ import {
   type ImportMethod,
 } from "@/lib/importHub";
 import type { Workspace } from "@/types";
+import { openTaskDataTransfer } from "@/lib/taskDataTransferBridge";
 
 // ============================================================================
 // 一级 Tab：scope —— 个人空间 / 工作区 / 系统
@@ -71,6 +75,44 @@ import type { Workspace } from "@/types";
 type Scope = "personal" | "workspace" | "system";
 type SubTab = "export" | "import" | "database" | "backup" | "danger";
 type MobileMemoMethod = "xiaomi" | "oppo" | "iphone";
+
+const IMPORT_FORMAT_STORAGE = {
+  siyuan: "nowen-import-format:siyuan",
+  generic: "nowen-import-format:generic-markdown",
+} as const;
+
+function readImportFormat(
+  key: string,
+  fallback: ImportTargetContentFormat,
+): ImportTargetContentFormat {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "markdown" || value === "tiptap-json" ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function hasPersistedImportFormat(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "markdown" || value === "tiptap-json";
+  } catch {
+    return false;
+  }
+}
+
+function persistImportFormat(key: string, value: ImportTargetContentFormat): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(key, value); } catch { /* storage may be disabled */ }
+}
+
+function isMarkdownImportSource(source?: string): boolean {
+  const value = String(source || "").toLowerCase();
+  return !value || value === "md" || value === "markdown" || value === "siyuan";
+}
 
 /** 各 scope 下允许的二级 Tab 集合（顺序即展示顺序） */
 const SUBTABS_BY_SCOPE: Record<Scope, ReadonlyArray<SubTab>> = {
@@ -227,7 +269,7 @@ function DesktopDataSafetyCard() {
     const res = await resetDesktopLocalAuth();
     setResetting(false);
     if (res.ok && res.token) {
-      localStorage.setItem("nowen-token", res.token);
+      storeAuthTokens({ token: res.token, refreshToken: res.refreshToken ?? null });
       setMessage("本地自动登录已恢复，正在刷新。");
       window.setTimeout(() => window.location.reload(), 400);
     } else {
@@ -394,10 +436,37 @@ export default function DataManager() {
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [serverSiyuanFile, setServerSiyuanFile] = useState<File | null>(null);
-  const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<"tiptap-json" | "markdown">("tiptap-json");
+  const [siyuanImportContentFormat, setSiyuanImportContentFormat] = useState<ImportTargetContentFormat>(
+    () => readImportFormat(IMPORT_FORMAT_STORAGE.siyuan, "tiptap-json"),
+  );
+  const [genericImportContentFormat, setGenericImportContentFormat] = useState<ImportTargetContentFormat>(
+    () => readImportFormat(IMPORT_FORMAT_STORAGE.generic, "markdown"),
+  );
+  // A persisted choice and an explicit click are authoritative. Package inspection may only
+  // recommend a default before the user has selected a format.
+  const siyuanImportFormatUserSelectedRef = useRef(
+    hasPersistedImportFormat(IMPORT_FORMAT_STORAGE.siyuan),
+  );
   const [activeImportMethod, setActiveImportMethod] = useState<ImportMethod>(() => readImportMethod());
   const [activeMobileMemoMethod, setActiveMobileMemoMethod] = useState<MobileMemoMethod>("xiaomi");
+  const selectSiyuanImportContentFormat = useCallback((format: ImportTargetContentFormat) => {
+    siyuanImportFormatUserSelectedRef.current = true;
+    setSiyuanImportContentFormat(format);
+  }, []);
+  const recommendSiyuanImportContentFormat = useCallback((format: ImportTargetContentFormat) => {
+    if (siyuanImportFormatUserSelectedRef.current) return;
+    setSiyuanImportContentFormat(format);
+  }, []);
+
   useEffect(() => persistImportMethod(activeImportMethod), [activeImportMethod]);
+  useEffect(
+    () => persistImportFormat(IMPORT_FORMAT_STORAGE.siyuan, siyuanImportContentFormat),
+    [siyuanImportContentFormat],
+  );
+  useEffect(
+    () => persistImportFormat(IMPORT_FORMAT_STORAGE.generic, genericImportContentFormat),
+    [genericImportContentFormat],
+  );
   // 记录"上一次导入实际落到的 workspaceId"和导入数量。
   //   - 当目标 ≠ 当前侧边栏 workspace 时，用于渲染"切到该工作区查看"的提示，
   //     避免出现"点完导入说成功、但侧边栏里看不到笔记"的体感（实际写入了别的空间）。
@@ -572,6 +641,8 @@ export default function DataManager() {
         const lowerZipName = zipFile.name.toLowerCase();
         const isSiyuanSyZip = lowerZipName.endsWith(".sy.zip");
         if (activeImportMethod === "siyuan" && isSiyuanSyZip) {
+          // .sy 是结构化块数据，富文本能保留更多结构，按来源切换推荐默认值。
+          recommendSiyuanImportContentFormat("tiptap-json");
           setServerSiyuanFile(zipFile);
           result = [{
             name: zipFile.name,
@@ -597,6 +668,10 @@ export default function DataManager() {
         let r: Awaited<ReturnType<typeof readMarkdownFromZipWithMeta>>;
         r = await readMarkdownFromZipWithMeta(zipFile);
         result = r.files;
+        if (activeImportMethod === "siyuan") {
+          // 思源 Markdown ZIP 的来源已经是 Markdown，默认原样保留。
+          recommendSiyuanImportContentFormat("markdown");
+        }
         setHasZip(true);
         // zip 由其内部目录/zip 文件名派生笔记本，关闭 per-file
         setPerFileNotebook(false);
@@ -619,6 +694,9 @@ export default function DataManager() {
         }
       } else {
         result = await readMarkdownFiles(files);
+        if (activeImportMethod === "siyuan") {
+          recommendSiyuanImportContentFormat("markdown");
+        }
         setHasZip(false);
         setZipMetaHint(null);
         setNotesImportNotice(null);
@@ -678,6 +756,9 @@ export default function DataManager() {
     const safeNotebookId = scopeMatchesGlobal ? selectedNotebookId : "";
     // perFileNotebook 与 selectedNotebookId 互斥：只要选了具体笔记本，就不启用 per-file
     const usePerFile = !safeNotebookId && perFileNotebook;
+    const selectedFiles = importFiles.filter((file) => file.selected);
+    const genericMarkdownOnly =
+      selectedFiles.length > 0 && selectedFiles.every((file) => isMarkdownImportSource(file.source));
     let result: { success: boolean; count: number };
     try {
       result = serverSiyuanFile
@@ -692,12 +773,24 @@ export default function DataManager() {
             targetNotebookId: safeNotebookId || undefined,
             workspaceId: effectiveWorkspaceId,
             contentFormat: siyuanImportContentFormat,
+            onProgress: (job) => setImportProgress({
+              phase: "uploading",
+              current: job.status === "completed" ? 1 : 0,
+              total: 1,
+              message: job.message,
+            }),
           });
+          const importedAssets = imported.stats?.importedAssets || 0;
+          const failedItems = imported.stats?.unresolvedAssets || 0;
           setImportProgress({
             phase: "done",
             current: imported.count,
             total: imported.count,
-            message: t("dataManager.importSuccessCount", { count: imported.count }),
+            message: t("dataManager.siyuanImportCompletedStats", {
+              count: imported.count,
+              assets: importedAssets,
+              failed: failedItems,
+            }),
           });
           const noticeMessages: string[] = [];
           if (imported.warnings?.length) {
@@ -721,6 +814,12 @@ export default function DataManager() {
             perFileNotebook: usePerFile,
             duplicateStrategy,
             workspaceId: effectiveWorkspaceId,
+            targetContentFormat:
+              activeImportMethod === "siyuan"
+                ? siyuanImportContentFormat
+                : activeImportMethod === "generic" && genericMarkdownOnly
+                  ? genericImportContentFormat
+                  : "tiptap-json",
           }
         );
     } catch (err: any) {
@@ -803,6 +902,9 @@ export default function DataManager() {
   };
 
   const selectedCount = importFiles.filter((f) => f.selected).length;
+  const selectedFilesAreMarkdownOnly =
+    selectedCount > 0 &&
+    importFiles.filter((file) => file.selected).every((file) => isMarkdownImportSource(file.source));
 
   // Danger Zone state
   const [showResetModal, setShowResetModal] = useState(false);
@@ -967,6 +1069,28 @@ export default function DataManager() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
           {t('dataManager.description')}
         </p>
+
+        <section className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <ListTodo size={19} />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">任务数据</h4>
+              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                导入或导出当前空间的待办、项目、层级、提醒和任务图片。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openTaskDataTransfer}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700 dark:hover:text-indigo-400"
+          >
+            管理导入与导出
+            <ChevronRight size={14} />
+          </button>
+        </section>
 
         <div className="space-y-3 mb-4">
           <SyncCenterCard />
@@ -1340,7 +1464,7 @@ export default function DataManager() {
                           <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
                             <button
                               type="button"
-                              onClick={() => setSiyuanImportContentFormat("tiptap-json")}
+                              onClick={() => selectSiyuanImportContentFormat("tiptap-json")}
                               className={`px-3 py-1.5 text-xs font-medium transition-colors ${siyuanImportContentFormat === "tiptap-json"
                                 ? "bg-emerald-600 text-white"
                                 : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -1350,7 +1474,7 @@ export default function DataManager() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setSiyuanImportContentFormat("markdown")}
+                              onClick={() => selectSiyuanImportContentFormat("markdown")}
                               className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 ${siyuanImportContentFormat === "markdown"
                                 ? "bg-emerald-600 text-white"
                                 : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -1363,6 +1487,40 @@ export default function DataManager() {
                             {siyuanImportContentFormat === "tiptap-json"
                               ? t('dataManager.siyuanImportFormatRichTextHint')
                               : t('dataManager.siyuanImportFormatMarkdownHint')}
+                          </p>
+                        </div>
+                      )}
+                      {activeImportMethod === "generic" && selectedFilesAreMarkdownOnly && (
+                        <div className="mt-3">
+                          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1.5">
+                            {t('dataManager.siyuanImportFormatLabel')}
+                          </p>
+                          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setGenericImportContentFormat("markdown")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors ${genericImportContentFormat === "markdown"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatMarkdown')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGenericImportContentFormat("tiptap-json")}
+                              className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 ${genericImportContentFormat === "tiptap-json"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                              {t('dataManager.siyuanImportFormatRichText')}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1.5">
+                            {genericImportContentFormat === "markdown"
+                              ? t('dataManager.siyuanImportFormatMarkdownHint')
+                              : t('dataManager.siyuanImportFormatRichTextHint')}
                           </p>
                         </div>
                       )}

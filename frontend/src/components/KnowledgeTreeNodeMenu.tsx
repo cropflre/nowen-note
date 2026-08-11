@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
+  ArrowLeftRight,
   Download,
+  FileArchive,
   FileCode,
   FilePlus,
   FileText,
@@ -32,8 +34,10 @@ import ContextMenu, { type ContextMenuItem } from "@/components/ContextMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
 import ShareModal from "@/components/ShareModal";
+import { confirm } from "@/components/ui/confirm";
 import {
   importMarkdownIntoKnowledgeTree,
+  importMarkdownZipIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
@@ -47,6 +51,11 @@ import {
 } from "@/lib/exportService";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import {
+  convertNoteContent,
+  getNoteFormatConversionTarget,
+  requestActiveNoteFormatConversion,
+} from "@/lib/noteFormatConversion";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { Notebook } from "@/types";
@@ -81,6 +90,7 @@ function separator(id: string): ContextMenuItem {
 function exportChildren(): ContextMenuItem[] {
   return [
     { id: "export_note_md", label: "Markdown", icon: <Download size={14} /> },
+    { id: "export_note_md_zip", label: "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
     { id: "export_note_pdf", label: "PDF", icon: <Printer size={14} /> },
     { id: "export_note_png", label: "PNG", icon: <ImageIcon size={14} /> },
     { id: "export_note_jpg", label: "JPG", icon: <ImageIcon size={14} /> },
@@ -98,7 +108,8 @@ function createChildren(): ContextMenuItem[] {
 
 function importChildren(): ContextMenuItem[] {
   return [
-    { id: "import_markdown", label: "Markdown 文件", icon: <FileCode size={14} /> },
+    { id: "import_markdown", label: "Markdown", icon: <FileCode size={14} /> },
+    { id: "import_markdown_zip", label: "Markdown + 附件（ZIP）", icon: <FileArchive size={14} /> },
     { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} /> },
     { id: "import_url", label: "公众号文章", icon: <Link2 size={14} /> },
   ];
@@ -151,6 +162,12 @@ export function buildKnowledgeTreeNodeMenuItems(
         label: note?.isLocked === 1 ? "解锁" : "锁定",
         icon: note?.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
         disabled: !note,
+      },
+      {
+        id: "convert_format",
+        label: note?.contentFormat === "markdown" ? "转换为富文本" : "转换为 Markdown",
+        icon: <ArrowLeftRight size={14} />,
+        disabled: !note || note.isLocked === 1,
       },
     );
   }
@@ -322,6 +339,20 @@ export default function KnowledgeTreeNodeMenu({
     actions.refreshNotebooks();
   };
 
+  const importMarkdownZip = async () => {
+    if (!node) return;
+    const imported = await importMarkdownZipIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
   const importUrl = async () => {
     if (!node) return;
     const imported = await importWeChatArticleIntoKnowledgeTree({
@@ -359,6 +390,53 @@ export default function KnowledgeTreeNodeMenu({
     actions.refreshNotes();
   };
 
+  const convertFormat = async () => {
+    if (!node || node.resourceType !== "note") return;
+    const current = note || await api.getNote(node.resourceId);
+    const targetFormat = getNoteFormatConversionTarget(current.contentFormat);
+    const targetLabel = targetFormat === "markdown" ? "Markdown" : "富文本";
+    const accepted = await confirm({
+      title: `转换为${targetLabel}？`,
+      description: "笔记会在原位置切换编辑器。复杂排版在两种格式之间转换时可能略有差异。",
+      confirmText: "转换",
+    });
+    if (!accepted) return;
+
+    if (state.activeNote?.id === current.id) {
+      requestActiveNoteFormatConversion({ noteId: current.id, targetFormat });
+      return;
+    }
+
+    const converted = convertNoteContent(current.content, current.contentText, targetFormat);
+    const updated = await api.updateNoteConfirmed(current.id, {
+      ...converted,
+      version: current.version,
+      ...(targetFormat === "markdown" ? { syncToYjs: true } : {}),
+    } as any);
+    if (targetFormat === "tiptap-json") {
+      try { await api.releaseYjsRoom(current.id); } catch { /* 下次打开时会重新建立房间 */ }
+    }
+    setNote(updated);
+    actions.updateNoteInList({
+      id: updated.id,
+      contentText: updated.contentText,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+      version: updated.version,
+    });
+    actions.updateNoteTab({
+      id: updated.id,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+    });
+    await onReload();
+    actions.refreshNotes();
+    window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+      detail: { reason: "note-format-converted", noteId: current.id },
+    }));
+    toast.success(`已转换为${targetLabel}`);
+  };
+
   const exportFolder = async () => {
     if (!node || node.resourceType !== "notebook") return;
     const { ids, names } = descendantNotebookResources(node, nodes);
@@ -383,8 +461,10 @@ export default function KnowledgeTreeNodeMenu({
     const noteId = node.resourceId;
     const toastId = toast.info(`正在导出“${node.title}”…`, 0);
     try {
-      if (actionId === "export_note_md") {
-        const ok = await exportSingleNote(noteId);
+      if (actionId === "export_note_md" || actionId === "export_note_md_zip") {
+        const ok = await exportSingleNote(noteId, {
+          forceZip: actionId === "export_note_md_zip",
+        });
         if (!ok) throw new Error("导出失败");
       } else if (actionId === "export_note_pdf") {
         const result = await exportSingleNoteAsPDF(noteId);
@@ -426,6 +506,7 @@ export default function KnowledgeTreeNodeMenu({
       "new_markdown",
       "new_folder",
       "import_markdown",
+      "import_markdown_zip",
       "import_word",
       "import_url",
       "export_folder",
@@ -444,11 +525,13 @@ export default function KnowledgeTreeNodeMenu({
         case "new_markdown": onCreate(node, "markdown"); break;
         case "new_folder": onCreate(node, "folder"); break;
         case "import_markdown": await importMarkdown(); break;
+        case "import_markdown_zip": await importMarkdownZip(); break;
         case "import_word": await importWord(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;
         case "toggle_favorite": await patchNote({ isFavorite: note?.isFavorite === 1 ? 0 : 1 }); break;
         case "toggle_lock": await patchNote({ isLocked: note?.isLocked === 1 ? 0 : 1 }); break;
+        case "convert_format": await convertFormat(); break;
         case "rename": await onRename(node); break;
         case "move": onMove(node); break;
         case "permissions": onPermissions(node); break;

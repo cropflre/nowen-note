@@ -7,10 +7,12 @@ import {
   JWT_SECRET,
   JWT_EXPIRES_IN,
   signLoginToken,
+  signRefreshToken,
   signSudoToken,
   SUDO_TOKEN_TTL_SEC,
   verifySudoFromRequest,
   verifyLoginToken,
+  verifyRefreshToken,
   extractClientIp,
   checkAndIncrementIpRate,
   checkAccountLock,
@@ -90,6 +92,28 @@ function revokeSession(sessionId: string, reason: string) {
   userSessionsRepository.revoke(sessionId, reason);
 }
 
+function issueLoginTokens(params: {
+  userId: string;
+  username: string;
+  tokenVersion: number;
+  sessionId: string;
+}) {
+  return {
+    token: signLoginToken({
+      userId: params.userId,
+      username: params.username,
+      tokenVersion: params.tokenVersion,
+      jti: params.sessionId,
+    }),
+    refreshToken: signRefreshToken({
+      userId: params.userId,
+      username: params.username,
+      tokenVersion: params.tokenVersion,
+      jti: params.sessionId,
+    }),
+  };
+}
+
 // ========== 工具 ==========
 
 function getRegistrationOpen(): boolean {
@@ -165,6 +189,7 @@ function extractUserId(c: any): string | null {
   if (payload.jti) {
     const session = userSessionsRepository.getByIdAndUser(payload.jti, user.id);
     if (!session || session.revokedAt) return null;
+    if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) return null;
   }
   return user.id;
 }
@@ -262,11 +287,11 @@ auth.post("/register", async (c) => {
     ip: extractClientIp(c),
     userAgent: c.req.header("user-agent") || "",
   });
-  const token = signLoginToken({
+  const tokens = issueLoginTokens({
     userId: id,
     username: trimmedUsername,
     tokenVersion: created.tokenVersion,
-    jti: sessionId,
+    sessionId,
   });
 
   const user = db
@@ -275,7 +300,7 @@ auth.post("/register", async (c) => {
     )
     .get(id);
 
-  return c.json({ token, user }, 201);
+  return c.json({ ...tokens, user }, 201);
 });
 
 auth.post("/desktop/reset-local", async (c) => {
@@ -331,11 +356,11 @@ auth.post("/desktop/reset-local", async (c) => {
     ip: extractClientIp(c),
     userAgent: c.req.header("user-agent") || "Nowen Desktop",
   });
-  const token = signLoginToken({
+  const tokens = issueLoginTokens({
     userId,
     username,
     tokenVersion: user.tokenVersion ?? 0,
-    jti: sessionId,
+    sessionId,
   });
 
   user.personalExportEnabled = user.personalExportEnabled === undefined
@@ -345,7 +370,7 @@ auth.post("/desktop/reset-local", async (c) => {
     ? true
     : user.personalImportEnabled !== 0;
 
-  return c.json({ token, user });
+  return c.json({ ...tokens, user });
 });
 
 // ========== 登录 ==========
@@ -462,15 +487,15 @@ auth.post("/login", async (c) => {
     userAgent: c.req.header("user-agent") || "",
     deviceId,
   });
-  const token = signLoginToken({
+  const tokens = issueLoginTokens({
     userId: user.id,
     username: user.username,
     tokenVersion: user.tokenVersion ?? 0,
-    jti: sessionId,
+    sessionId,
   });
 
   return c.json({
-    token,
+    ...tokens,
     user: {
       id: user.id,
       username: user.username,
@@ -595,7 +620,7 @@ auth.post("/change-password", async (c) => {
   // 会使旧 jti 对应的 token 在中间件里被拒（tver 不匹配），所以给当前端下发新 token 时
   // 也要分配一个新 sessionId。旧会话记录留在 DB 里，revokedAt 仍为 NULL 也无所谓——
   // 它们对应的 token 已经因 tver 不匹配而不可用。
-  let newToken: string | undefined;
+  let newTokens: { token: string; refreshToken: string } | undefined;
   if (newUsername || newPassword) {
     const updated = db
       .prepare("SELECT id, username, tokenVersion FROM users WHERE id = ?")
@@ -605,15 +630,15 @@ auth.post("/change-password", async (c) => {
       ip: extractClientIp(c),
       userAgent: c.req.header("user-agent") || "",
     });
-    newToken = signLoginToken({
+    newTokens = issueLoginTokens({
       userId: updated.id,
       username: updated.username,
       tokenVersion: updated.tokenVersion,
-      jti: sessionId,
+      sessionId,
     });
   }
 
-  return c.json({ success: true, message: "账户信息更新成功", token: newToken });
+  return c.json({ success: true, message: "账户信息更新成功", ...newTokens });
 });
 
 // ========== Sudo 二次验证（H2）==========
@@ -742,11 +767,11 @@ auth.post("/factory-reset", async (c) => {
       ip: extractClientIp(c),
       userAgent: c.req.header("user-agent") || "",
     });
-    const newToken = signLoginToken({
+    const newTokens = issueLoginTokens({
       userId: updated.id,
       username: updated.username,
       tokenVersion: updated.tokenVersion,
-      jti: sessionId,
+      sessionId,
     });
     console.log("💥 系统已恢复出厂设置：数据已清空，密码已重置为 admin123（bcrypt），首登强制修改");
     // M6: 审计日志（高危操作，单独标 warn 级别以便筛选）
@@ -760,7 +785,7 @@ auth.post("/factory-reset", async (c) => {
     return c.json({
       success: true,
       message: "系统已恢复出厂设置，请立即修改默认密码 admin123",
-      token: newToken,
+      ...newTokens,
       mustChangePassword: true,
     });
   } catch (error) {
@@ -1009,18 +1034,18 @@ auth.post("/2fa/verify", async (c) => {
     ip: extractClientIp(c),
     userAgent: c.req.header("user-agent") || "",
   });
-  const token = signLoginToken({
+  const tokens = issueLoginTokens({
     userId: user.id,
     username: user.username,
     tokenVersion: user.tokenVersion ?? 0,
-    jti: sessionId,
+    sessionId,
   });
   logAudit(user.id, "auth", "2fa_verify_ok", { via: okTotp ? "totp" : "recovery" }, {
     ip: extractClientIp(c),
     userAgent: c.req.header("user-agent") || "",
   });
   return c.json({
-    token,
+    ...tokens,
     user: {
       id: user.id,
       username: user.username,
@@ -1175,19 +1200,70 @@ auth.delete("/sessions", (c) => {
   return c.json({ success: true, revoked: revokedCount });
 });
 
+// ========== 刷新登录凭据 ==========
+
+auth.post("/refresh", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { refreshToken?: string };
+  const payload = body.refreshToken ? verifyRefreshToken(body.refreshToken) : null;
+  if (!payload) {
+    return c.json({ error: "登录已过期，请重新登录", code: "REFRESH_TOKEN_INVALID" }, 401);
+  }
+
+  const db = getDb();
+  const user = db
+    .prepare("SELECT id, username, isDisabled, tokenVersion FROM users WHERE id = ?")
+    .get(payload.userId) as {
+      id: string;
+      username: string;
+      isDisabled: number;
+      tokenVersion: number;
+    } | undefined;
+
+  if (!user) {
+    return c.json({ error: "账号不存在或已被删除", code: "USER_NOT_FOUND" }, 401);
+  }
+  if (user.isDisabled) {
+    return c.json({ error: "该账号已被禁用，请联系管理员", code: "ACCOUNT_DISABLED" }, 403);
+  }
+  if ((payload.tver ?? 0) !== user.tokenVersion) {
+    return c.json({ error: "会话已失效，请重新登录", code: "TOKEN_REVOKED" }, 401);
+  }
+
+  const session = userSessionsRepository.getByIdAndUser(payload.jti, payload.userId);
+  if (!session) {
+    return c.json({ error: "会话已失效，请重新登录", code: "TOKEN_REVOKED" }, 401);
+  }
+  if (session.revokedAt) {
+    return c.json({ error: "该会话已被下线", code: "SESSION_REVOKED" }, 401);
+  }
+  if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+    return c.json({ error: "登录已超过 30 天，请重新登录", code: "SESSION_EXPIRED" }, 401);
+  }
+
+  userSessionsRepository.updateLastSeen(payload.jti, extractClientIp(c));
+  return c.json({
+    token: signLoginToken({
+      userId: user.id,
+      username: user.username,
+      tokenVersion: user.tokenVersion,
+      jti: payload.jti,
+    }),
+  });
+});
+
 // ========== 登出（吊销当前会话） ==========
 //
 // 前端在本地清 token 的同时调用此接口，确保服务端的 user_sessions 也被吊销，
 // 这样即使 token 未过期被复用（如日志泄露、浏览器缓存），中间件依旧会拦截。
-auth.post("/logout", (c) => {
+auth.post("/logout", async (c) => {
   const authHeader = c.req.header("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return c.json({ success: true });
-  }
-  const token = authHeader.slice(7);
-  const payload = verifyLoginToken(token);
-  if (payload?.jti) {
-    revokeSession(payload.jti, "user_logout");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const loginPayload = token ? verifyLoginToken(token) : null;
+  const body = (await c.req.json().catch(() => ({}))) as { refreshToken?: string };
+  const refreshPayload = body.refreshToken ? verifyRefreshToken(body.refreshToken) : null;
+  const sessionId = loginPayload?.jti || refreshPayload?.jti;
+  if (sessionId) {
+    revokeSession(sessionId, "user_logout");
   }
   return c.json({ success: true });
 });

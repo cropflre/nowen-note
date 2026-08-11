@@ -2,11 +2,11 @@ import { prompt as appPrompt } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
 import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import {
-  importMarkdownFileIntoKnowledgeTree,
-  MAX_MARKDOWN_DROP_FILES,
-  MAX_MARKDOWN_DROP_FILE_SIZE,
-  MAX_MARKDOWN_DROP_TOTAL_SIZE,
+  formatMarkdownImportFailures,
+  importMarkdownFilesIntoKnowledgeTree,
+  importMarkdownZipFilesIntoKnowledgeTree,
   pickMarkdownFiles,
+  pickMarkdownZipFiles,
 } from "@/lib/knowledgeTreeMarkdownDrop";
 import { toast } from "@/lib/toast";
 
@@ -78,45 +78,63 @@ export async function importMarkdownIntoKnowledgeTree(
 ): Promise<LoadedNote | null> {
   const files = await pickMarkdownFiles();
   if (files.length === 0) return null;
-  if (files.length > MAX_MARKDOWN_DROP_FILES) {
-    throw new Error(`单次最多导入 ${MAX_MARKDOWN_DROP_FILES} 个 Markdown 文件`);
-  }
-  if (files.some((file) => file.size > MAX_MARKDOWN_DROP_FILE_SIZE)) {
-    throw new Error("单个 Markdown 文件不能超过 20 MB");
-  }
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalSize > MAX_MARKDOWN_DROP_TOTAL_SIZE) {
-    throw new Error("本次 Markdown 文件总大小不能超过 100 MB");
-  }
 
   const toastId = toast.info(`正在导入 ${files.length} 个 Markdown 文件…`, 0);
-  const imported: LoadedNote[] = [];
-  const failures: Array<{ name: string; reason: string }> = [];
+  let result: Awaited<ReturnType<typeof importMarkdownFilesIntoKnowledgeTree>>;
   try {
-    for (const file of files) {
-      try {
-        imported.push(await importMarkdownFileIntoKnowledgeTree(file, options.parent?.id ?? null));
-      } catch (error) {
-        failures.push({
-          name: file.name,
-          reason: error instanceof Error ? error.message : String(error || "导入失败"),
-        });
-      }
-    }
+    result = await importMarkdownFilesIntoKnowledgeTree(files, options.parent?.id ?? null);
   } finally {
     toast.dismiss(toastId);
   }
 
-  if (imported.length === 0) {
-    const first = failures[0];
-    throw new Error(first ? `${first.name}：${first.reason}` : "Markdown 文件导入失败");
+  if (result.imported.length === 0) {
+    throw new Error(
+      result.failures.length > 0
+        ? formatMarkdownImportFailures(result.failures)
+        : "Markdown 文件导入失败",
+    );
   }
-  if (failures.length > 0) {
-    toast.warning(`已导入 ${imported.length} 个，失败 ${failures.length} 个`, 6000);
+  if (result.failures.length > 0) {
+    toast.warning(
+      `成功导入 ${result.imported.length} 个文件，${result.failures.length} 个失败：${formatMarkdownImportFailures(result.failures)}`,
+      8000,
+    );
   } else {
-    toast.success(`已导入 ${imported.length} 个 Markdown 文件`);
+    toast.success(`已导入 ${result.imported.length} 个 Markdown 文件`);
   }
-  return imported[0];
+  return result.imported[0];
+}
+
+export async function importMarkdownZipIntoKnowledgeTree(
+  options: KnowledgeTreeImportOptions,
+): Promise<LoadedNote | null> {
+  const files = await pickMarkdownZipFiles();
+  if (files.length === 0) return null;
+
+  const toastId = toast.info(`正在导入 ${files.length} 个 Markdown 附件 ZIP…`, 0);
+  let result: Awaited<ReturnType<typeof importMarkdownZipFilesIntoKnowledgeTree>>;
+  try {
+    result = await importMarkdownZipFilesIntoKnowledgeTree(files, options.parent?.id ?? null);
+  } finally {
+    toast.dismiss(toastId);
+  }
+
+  if (result.imported.length === 0) {
+    throw new Error(
+      result.failures.length > 0
+        ? formatMarkdownImportFailures(result.failures)
+        : "Markdown 附件 ZIP 导入失败",
+    );
+  }
+  if (result.failures.length > 0) {
+    toast.warning(
+      `成功导入 ${result.imported.length} 篇笔记，${result.failures.length} 个失败：${formatMarkdownImportFailures(result.failures)}`,
+      8000,
+    );
+  } else {
+    toast.success(`已从 ZIP 导入 ${result.imported.length} 篇笔记`);
+  }
+  return result.imported[0];
 }
 
 export async function importWeChatArticleIntoKnowledgeTree(

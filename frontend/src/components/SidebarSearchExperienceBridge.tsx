@@ -3,13 +3,17 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreePanel";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
+import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {
   applySidebarSearchExperience,
   KNOWLEDGE_TREE_FILTER_SELECTOR,
   SIDEBAR_SEARCH_SURFACE_SELECTOR,
 } from "@/lib/sidebarSearchExperience";
 import {
+  loadMobileKnowledgeTreeCompact,
   loadMobileKnowledgeTreeViewMode,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT,
+  MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY,
   MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
@@ -41,13 +45,25 @@ function collectSortSlots(): HTMLElement[] {
     const toolbar = filterSurface?.parentElement;
     if (!(filterSurface instanceof HTMLElement) || !(toolbar instanceof HTMLElement)) continue;
 
-    let slot = directChildWithAttribute(toolbar, SORT_SLOT_ATTRIBUTE);
+    const mobile = Boolean(input.closest<HTMLElement>('[data-knowledge-tree-variant="mobile"]'));
+    const treePanel = input.closest<HTMLElement>('[data-nowen-knowledge-tree="embedded"]');
+    const compactToolbar = treePanel?.dataset.knowledgeTreeCompactToolbar === "true";
+    if (compactToolbar) {
+      toolbar.querySelector<HTMLElement>(`[${SORT_SLOT_ATTRIBUTE}]`)?.remove();
+      continue;
+    }
+    let slot = treePanel?.querySelector<HTMLElement>(
+      `[${SORT_SLOT_ATTRIBUTE}="mobile-toolbar"]`,
+    ) || toolbar.querySelector<HTMLElement>(`[${SORT_SLOT_ATTRIBUTE}]`);
+    if (!slot && mobile) continue;
     if (!slot) {
       slot = document.createElement("span");
       slot.setAttribute(SORT_SLOT_ATTRIBUTE, "");
-      slot.dataset.knowledgeTreeSortSlotId = `sort-slot-${++sortSlotSequence}`;
       slot.className = "contents";
       toolbar.insertBefore(slot, filterSurface.nextSibling);
+    }
+    if (!slot.dataset.knowledgeTreeSortSlotId) {
+      slot.dataset.knowledgeTreeSortSlotId = `sort-slot-${++sortSlotSequence}`;
     }
     slots.push(slot);
   }
@@ -96,6 +112,7 @@ function sameMobileModeSurfaces(current: MobileModeSurface[], next: MobileModeSu
 
 function MobileKnowledgeTreeModeSurface({ surface }: { surface: MobileModeSurface }) {
   const [mode, setMode] = useState<MobileKnowledgeTreeViewMode>(() => loadMobileKnowledgeTreeViewMode());
+  const [compact, setCompact] = useState(() => loadMobileKnowledgeTreeCompact());
 
   useEffect(() => {
     const sync = (event: Event) => {
@@ -114,6 +131,24 @@ function MobileKnowledgeTreeModeSurface({ surface }: { surface: MobileModeSurfac
   }, []);
 
   useEffect(() => {
+    const syncCompact = (event: Event) => {
+      const next = (event as CustomEvent<{ compact?: boolean }>).detail?.compact;
+      setCompact(typeof next === "boolean" ? next : loadMobileKnowledgeTreeCompact());
+    };
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY) {
+        setCompact(loadMobileKnowledgeTreeCompact());
+      }
+    };
+    window.addEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  useEffect(() => {
     surface.navigatorSurface.style.display = mode === "tree" ? "none" : "";
     return () => {
       surface.navigatorSurface.style.display = "";
@@ -121,7 +156,10 @@ function MobileKnowledgeTreeModeSurface({ surface }: { surface: MobileModeSurfac
   }, [mode, surface.navigatorSurface]);
 
   return mode === "tree" && createPortal(
-    <KnowledgeTreePanel variant="mobile" className="nowen-mobile-tree-density" />,
+    <KnowledgeTreePanel
+      variant="mobile"
+      className={compact ? "nowen-mobile-tree-density" : undefined}
+    />,
     surface.treeSlot,
     `${surface.id}:tree`,
   );
@@ -167,12 +205,18 @@ export default function SidebarSearchExperienceBridge() {
 
     const observer = new MutationObserver((records) => {
       const relevant = records.some((record) => (
-        Array.from(record.addedNodes).some(mutationContainsRelevantSurface)
+        record.type === "attributes"
+        || Array.from(record.addedNodes).some(mutationContainsRelevantSurface)
         || Array.from(record.removedNodes).some(mutationContainsRelevantSurface)
       ));
       if (relevant) applyDocument();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-knowledge-tree-compact-toolbar"],
+      childList: true,
+      subtree: true,
+    });
 
     window.addEventListener("nowen:workspace-changed", applyDocument);
 
@@ -184,6 +228,7 @@ export default function SidebarSearchExperienceBridge() {
 
   return (
     <>
+      <TaskQuickCaptureBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,
         slot,

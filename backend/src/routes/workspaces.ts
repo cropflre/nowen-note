@@ -41,6 +41,7 @@ import {
   workspaceIconForRead,
 } from "../lib/workspace-icon";
 import { broadcastToUser } from "../services/realtime";
+import { transferWorkspaceNotesToOwner } from "../services/workspace-deletion";
 
 const app = new Hono();
 
@@ -229,12 +230,7 @@ app.delete("/:id", requireWorkspaceRole("owner"), (c) => {
 
   const tx = db.transaction(() => {
     // 把所有工作区笔记本和笔记归属权转给 owner 的个人空间
-    db.prepare(
-      "UPDATE notebooks SET workspaceId = NULL, userId = ? WHERE workspaceId = ?",
-    ).run(ws.ownerId, id);
-    db.prepare(
-      "UPDATE notes SET workspaceId = NULL, userId = ? WHERE workspaceId = ?",
-    ).run(ws.ownerId, id);
+    transferWorkspaceNotesToOwner(db, id, ws.ownerId);
     db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
   });
   tx();

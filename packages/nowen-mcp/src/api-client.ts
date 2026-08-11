@@ -280,6 +280,8 @@ export class NowenApiClient {
     isLocked?: number;
     isTrashed?: number;
     version?: number;
+    syncToYjs?: boolean;
+    writeSource?: "mcp";
   }): Promise<any> {
     return this.request(`/api/notes/${id}`, { method: "PUT", body: params });
   }

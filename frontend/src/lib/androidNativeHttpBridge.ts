@@ -1,7 +1,7 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 const BRIDGE_FLAG = "__nowenAndroidNativeHttpBridgeInstalled";
-const DEFAULT_NATIVE_TIMEOUT_MS = 6000;
+const DEFAULT_NATIVE_TIMEOUT_MS = 30_000;
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -38,6 +38,21 @@ function mergeRequestHeaders(input: FetchInput, init?: FetchInit): Record<string
     result[key] = value;
   });
   return result;
+}
+
+function getRequestBody(input: FetchInput, init?: FetchInit): BodyInit | null | undefined {
+  return init?.body ?? (isRequest(input) ? input.body : undefined);
+}
+
+function bodyToNativeData(body: BodyInit | null | undefined): unknown {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body !== "string") return body;
+  if (!body) return body;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
 }
 
 function normalizeResponseHeaders(headers: unknown): Headers {
@@ -102,36 +117,50 @@ export function isAndroidNativeRuntime(): boolean {
   }
 }
 
-function isJsonApiRead(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
+function isNativeCapacitorRuntime(): boolean {
+  try {
+    return Capacitor.isNativePlatform() && Capacitor.getPlatform() !== "web";
+  } catch {
+    return false;
+  }
+}
+
+function isJsonApiRequest(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
   if (!/(?:^|\/)api(?:\/|$)/.test(url.pathname)) return false;
 
   const headers = mergeRequestHeaders(input, init);
   const contentType = headers["content-type"] || "";
   const accept = headers.accept || "";
+  if (/text\/event-stream/i.test(accept) || /(?:^|\/)api\/ai(?:\/|$)/.test(url.pathname)) {
+    return false;
+  }
   if (/json/i.test(contentType) || /json/i.test(accept)) return true;
 
-  // These bootstrap reads are issued directly rather than through api.request(),
-  // so they do not carry Content-Type: application/json even though they return JSON.
-  return /(?:^|\/)api\/(?:auth\/verify|settings|health|version)\/?$/.test(url.pathname);
+  // 这些启动阶段请求直接通过 fetch 发出，不一定携带 JSON header。
+  return /(?:^|\/)api\/(?:auth\/(?:login|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
 }
 
 /**
- * Only JSON-style API reads are routed through CapacitorHttp.
+ * JSON API requests are routed through CapacitorHttp.
  *
- * Uploads, binary attachment reads, downloads, streaming responses and mutations
- * keep using the existing fetch path so body/stream semantics and the offline
- * queue remain unchanged.
+ * 上传、二进制附件、下载和流式响应继续使用现有 fetch，避免改变 body/stream
+ * 语义。普通 JSON 写请求仍由原有 API 层负责离线队列；这里只替换实际传输通道。
  */
 export function shouldUseAndroidNativeHttp(input: FetchInput, init?: FetchInit): boolean {
-  if (!isAndroidNativeRuntime()) return false;
+  if (!isNativeCapacitorRuntime()) return false;
 
   const method = getRequestMethod(input, init);
-  if (method !== "GET" && method !== "HEAD") return false;
+  if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(method)) return false;
+
+  const body = getRequestBody(input, init);
+  if (body !== undefined && body !== null && typeof body !== "string") {
+    return false;
+  }
 
   try {
     const url = new URL(getRequestUrl(input), window.location.href);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return isJsonApiRead(input, init, url);
+    return isJsonApiRequest(input, init, url);
   } catch {
     return false;
   }
@@ -150,6 +179,7 @@ async function androidNativeFetch(
       url,
       method,
       headers: mergeRequestHeaders(input, init),
+      data: bodyToNativeData(getRequestBody(input, init)),
       responseType: "text",
     }),
     signal,
@@ -161,7 +191,10 @@ async function androidNativeFetch(
   }
 
   const headers = normalizeResponseHeaders(nativeResponse.headers);
-  const body = method === "HEAD" || nativeResponse.status === 204 || nativeResponse.status === 205
+  const body = method === "HEAD"
+    || nativeResponse.status === 204
+    || nativeResponse.status === 205
+    || nativeResponse.status === 304
     ? null
     : nativeResponseBody(nativeResponse.data);
 
@@ -178,16 +211,16 @@ async function androidNativeFetch(
 /**
  * Installs a narrow fetch bridge before React mounts.
  *
- * Android WebView requests can remain pending on cellular networks when CORS,
- * DNS or IPv6 negotiation is unhealthy. JSON API GET/HEAD requests therefore
- * use CapacitorHttp first (which is not constrained by WebView CORS). If the
- * native request fails or times out, the original fetch implementation remains
- * as a compatibility fallback.
+ * Native WebView requests can remain pending on cellular networks when CORS,
+ * DNS or IPv6 negotiation is unhealthy. JSON API requests therefore
+ * use CapacitorHttp first (which is not constrained by WebView CORS). Read
+ * requests may fall back to the original fetch; writes never retry through a
+ * second transport, preventing duplicate mutations after an ambiguous timeout.
  */
 export function installAndroidNativeHttpBridge(
   options: AndroidNativeHttpBridgeOptions = {},
 ): (() => void) | null {
-  if (typeof window === "undefined" || !isAndroidNativeRuntime()) return null;
+  if (typeof window === "undefined" || !isNativeCapacitorRuntime()) return null;
 
   const runtime = window as typeof window & Record<string, unknown>;
   if (runtime[BRIDGE_FLAG]) return null;
@@ -206,8 +239,12 @@ export function installAndroidNativeHttpBridge(
       const signal = getRequestSignal(input, init);
       if (signal?.aborted) throw nativeError;
 
-      console.warn("[android-http] native request failed; falling back to WebView fetch", {
-        method: getRequestMethod(input, init),
+      // 写请求发出后无法判断服务端是否已经处理，不能再回退重发，避免重复创建/修改。
+      const method = getRequestMethod(input, init);
+      if (method !== "GET" && method !== "HEAD") throw nativeError;
+
+      console.warn("[native-http] native request failed; falling back to WebView fetch", {
+        method,
         url: getRequestUrl(input),
         errorName: (nativeError as { name?: string })?.name,
         errorMessage: (nativeError as { message?: string })?.message,

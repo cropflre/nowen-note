@@ -49,12 +49,12 @@ export default function KnowledgeTreeSortButton() {
   };
 
   return (
-    <span ref={rootRef} className="relative flex h-7 w-7 shrink-0 items-center justify-center">
+    <span ref={rootRef} className="relative flex h-7 w-6 shrink-0 items-center justify-center">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "flex h-7 w-7 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+          "flex h-7 w-6 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
           open && "bg-app-active text-tx-primary",
           mode !== "manual" && "text-accent-primary",
         )}

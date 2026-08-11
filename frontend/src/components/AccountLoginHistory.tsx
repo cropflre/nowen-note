@@ -13,6 +13,7 @@ import { getServerUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
+import { clearAuthTokens } from "@/lib/authSession";
 
 function serverLabel(serverUrl: string): string {
   try {
@@ -190,7 +191,7 @@ export function AccountLoginHistoryDialog({ open, onClose }: { open: boolean; on
 
   const handleAddAccount = () => {
     try {
-      localStorage.removeItem("nowen-token");
+      clearAuthTokens();
       localStorage.setItem("nowen-prefer-cloud", "1");
       window.dispatchEvent(new CustomEvent("nowen:token-changed"));
     } catch { /* ignore */ }

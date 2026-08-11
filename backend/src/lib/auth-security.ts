@@ -49,13 +49,20 @@ function resolveJwtSecret(): string {
 
 export const JWT_SECRET: string = resolveJwtSecret();
 
-// SEC-AUTH-01: JWT 有效期可配置，默认 14d
+// Access Token 保持短有效期；长期登录态由 30 天 Refresh Token + user_sessions 控制。
 function resolveJwtExpiresIn() {
   const fromEnv = process.env.JWT_EXPIRES_IN;
   if (fromEnv && /^\d+[dhms]$/.test(fromEnv)) return fromEnv;
-  return "14d" as const;
+  return "15m" as const;
 }
 export const JWT_EXPIRES_IN = resolveJwtExpiresIn();
+
+function resolveRefreshJwtExpiresIn() {
+  const fromEnv = process.env.REFRESH_JWT_EXPIRES_IN;
+  if (fromEnv && /^\d+[dhms]$/.test(fromEnv)) return fromEnv;
+  return "30d" as const;
+}
+export const REFRESH_JWT_EXPIRES_IN = resolveRefreshJwtExpiresIn();
 
 // ========== 多种 Token 的 typ 标签 ==========
 //
@@ -66,7 +73,15 @@ export const JWT_EXPIRES_IN = resolveJwtExpiresIn();
 //
 // 同时 share token 使用独立的 secret（SHARE_JWT_SECRET）：即便 JWT_SECRET 泄露也无法
 // 伪造登录 token，反之亦然；sudo token 则继续使用 JWT_SECRET 但通过 typ 区分。
-export type TokenType = "login" | "share" | "sudo";
+export type TokenType = "login" | "refresh" | "share" | "sudo";
+
+function resolveRefreshJwtSecret(): string {
+  const explicit = process.env.REFRESH_JWT_SECRET;
+  if (explicit && explicit.length >= 16) return explicit;
+  return crypto.createHmac("sha256", JWT_SECRET).update("nowen-refresh-token-v1").digest("hex");
+}
+
+export const REFRESH_JWT_SECRET: string = resolveRefreshJwtSecret();
 
 /** 派生独立的分享 token secret：
  *   - 若显式设置了 SHARE_JWT_SECRET（生产推荐），直接使用；
@@ -126,6 +141,45 @@ export function verifyLoginToken(token: string): LoginTokenPayload | null {
     const payload = jwt.verify(token, JWT_SECRET) as LoginTokenPayload;
     // C1: 非 login 类型的 token（sudo）不得用于登录认证
     if (payload.typ && payload.typ !== "login") return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export interface RefreshTokenPayload {
+  typ: "refresh";
+  userId: string;
+  username: string;
+  tver: number;
+  jti: string;
+  iat?: number;
+  exp?: number;
+}
+
+export function signRefreshToken(payload: {
+  userId: string;
+  username: string;
+  tokenVersion: number;
+  jti: string;
+}): string {
+  return jwt.sign(
+    {
+      typ: "refresh",
+      userId: payload.userId,
+      username: payload.username,
+      tver: payload.tokenVersion,
+      jti: payload.jti,
+    },
+    REFRESH_JWT_SECRET,
+    { expiresIn: REFRESH_JWT_EXPIRES_IN as any },
+  );
+}
+
+export function verifyRefreshToken(token: string): RefreshTokenPayload | null {
+  try {
+    const payload = jwt.verify(token, REFRESH_JWT_SECRET) as RefreshTokenPayload;
+    if (payload.typ !== "refresh" || !payload.userId || !payload.jti) return null;
     return payload;
   } catch {
     return null;

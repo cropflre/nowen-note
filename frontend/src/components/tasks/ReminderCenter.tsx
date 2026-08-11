@@ -5,6 +5,13 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { ReminderOverview, ReminderOverviewItem } from "@/types";
+import { emitTaskReminderScheduleChanged } from "@/lib/taskNotificationSchedule";
+import {
+  getTaskNotificationPermission,
+  getTaskNotificationSurface,
+  requestTaskNotificationPermission,
+  type TaskNotificationPermission,
+} from "@/lib/taskNotifications";
 
 interface ReminderCenterProps {
   open: boolean;
@@ -46,14 +53,15 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [notifPermission, setNotifPermission] = useState<string>(() => {
-    if (typeof window === "undefined") return "default";
-    if ((window as any).nowenDesktop?.taskNotify || (window as any).nowenDesktop?.taskNotifyPermission) return "electron";
-    return typeof Notification !== "undefined" ? Notification.permission : "default";
-  });
+  const [notificationSurface] = useState(() => getTaskNotificationSurface());
+  const [notifPermission, setNotifPermission] = useState<TaskNotificationPermission>("prompt");
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [snoozeMenuId, setSnoozeMenuId] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+
+  const refreshNotificationPermission = useCallback(async () => {
+    setNotifPermission(await getTaskNotificationPermission());
+  }, []);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -69,8 +77,13 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
   }, [t]);
 
   useEffect(() => {
-    if (open) { load(); setActionMenuId(null); setSnoozeMenuId(null); }
-  }, [open, load]);
+    if (open) {
+      load();
+      void refreshNotificationPermission();
+      setActionMenuId(null);
+      setSnoozeMenuId(null);
+    }
+  }, [open, load, refreshNotificationPermission]);
 
   const toggleGroup = (key: string) => {
     setCollapsed((prev) => {
@@ -82,11 +95,9 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
   };
 
   const handleEnableNotification = async () => {
-    if (typeof Notification === "undefined") return;
-    try {
-      const result = await Notification.requestPermission();
-      setNotifPermission(result);
-    } catch { /* ignore */ }
+    const result = await requestTaskNotificationPermission();
+    setNotifPermission(result);
+    if (result === "granted") emitTaskReminderScheduleChanged();
   };
 
   const handleClickItem = (item: ReminderOverviewItem) => {
@@ -188,25 +199,21 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
 
         {/* Notification permission */}
         <div className="px-4 py-2.5 border-b border-app-border bg-bg-primary text-xs">
-          {notifPermission === "electron" && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-green-500/10 px-2 py-1 font-medium text-green-700 dark:text-green-400">
-              <Monitor size={13} />
-              {t("tasks.reminderCenter.desktopNotificationEnabled")}
-            </div>
-          )}
           {notifPermission === "granted" && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-green-500/10 px-2 py-1 font-medium text-green-700 dark:text-green-400">
-              <Bell size={13} />
-              {t("tasks.reminderCenter.permissionEnabled")}
+              {notificationSurface === "electron" ? <Monitor size={13} /> : <Bell size={13} />}
+              {notificationSurface === "electron"
+                ? t("tasks.reminderCenter.desktopNotificationEnabled")
+                : t("tasks.reminderCenter.permissionEnabled")}
             </div>
           )}
-          {notifPermission === "denied" && (
+          {(notifPermission === "denied" || notifPermission === "unsupported") && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-red-500/10 px-2 py-1 font-medium text-red-600 dark:text-red-400">
               <BellOff size={13} />
               {t("tasks.reminderCenter.permissionDenied")}
             </div>
           )}
-          {notifPermission === "default" && (
+          {notifPermission === "prompt" && (
             <button
               type="button"
               onClick={handleEnableNotification}

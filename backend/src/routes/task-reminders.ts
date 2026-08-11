@@ -141,6 +141,54 @@ taskReminders.get("/overview", (c) => {
   return c.json({ missed, today, upcoming, disabled });
 });
 
+// GET /schedule -- all future reminders for the current user.
+// Native clients use this as the single source of truth when rebuilding Android/iOS schedules.
+taskReminders.get("/schedule", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const rows = db.prepare(`
+    SELECT r.id AS reminderId, r.taskId, r.offsetMinutes, r.snoozedUntil,
+           t.title AS taskTitle, t.dueAt, t.dueDate, t.workspaceId
+    FROM task_reminders r
+    JOIN tasks t ON t.id = r.taskId
+    WHERE r.userId = ?
+      AND r.enabled = 1
+      AND t.isCompleted = 0
+      AND (r.snoozedUntil IS NOT NULL OR t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
+  `).all(userId) as any[];
+
+  const now = Date.now();
+  const reminders = rows.flatMap((row) => {
+    if (row.workspaceId && !getUserWorkspaceRole(row.workspaceId, userId)) return [];
+
+    let reminderMs: number;
+    if (row.snoozedUntil) {
+      reminderMs = new Date(row.snoozedUntil).getTime();
+    } else {
+      const dueValue = row.dueAt || (row.dueDate ? `${row.dueDate}T23:59:59` : null);
+      if (!dueValue) return [];
+      reminderMs = new Date(dueValue).getTime() - Number(row.offsetMinutes || 0) * 60_000;
+    }
+
+    if (!Number.isFinite(reminderMs) || reminderMs <= now) return [];
+    return [{
+      reminderId: row.reminderId,
+      taskId: row.taskId,
+      taskTitle: row.taskTitle,
+      reminderAt: new Date(reminderMs).toISOString(),
+      dueAt: row.dueAt || null,
+      dueDate: row.dueDate || null,
+      snoozedUntil: row.snoozedUntil || null,
+      offsetMinutes: Number(row.offsetMinutes || 0),
+    }];
+  }).sort((a, b) => new Date(a.reminderAt).getTime() - new Date(b.reminderAt).getTime())
+    .slice(0, 1000);
+
+  return c.json({ reminders });
+});
+
 taskReminders.get("/:taskId", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;

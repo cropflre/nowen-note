@@ -34,7 +34,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        - "const p=process.env.PORT||'3001';fetch('http://127.0.0.1:'+p+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 12

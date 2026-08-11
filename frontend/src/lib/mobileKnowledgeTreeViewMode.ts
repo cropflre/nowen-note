@@ -3,6 +3,8 @@ export type DesktopKnowledgeTreeViewMode = "quick" | "tree";
 
 export const MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY = "nowen.mobileKnowledgeTree.viewMode.v1";
 export const MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT = "nowen:mobile-knowledge-tree-view-mode-changed";
+export const MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY = "nowen.mobileKnowledgeTree.compact.v1";
+export const MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT = "nowen:mobile-knowledge-tree-compact-changed";
 export const DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY = "nowen.desktopKnowledgeTree.viewMode.v1";
 export const DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT = "nowen:desktop-knowledge-tree-view-mode-changed";
 
@@ -31,6 +33,23 @@ export function saveMobileKnowledgeTreeViewMode(mode: MobileKnowledgeTreeViewMod
   }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, { detail: { mode } }));
+  }
+}
+
+export function loadMobileKnowledgeTreeCompact(): boolean {
+  return storage()?.getItem(MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY) === "true";
+}
+
+export function saveMobileKnowledgeTreeCompact(compact: boolean): void {
+  try {
+    storage()?.setItem(MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY, String(compact));
+  } catch {
+    // 存储不可用时，当前 React 状态仍会立即完成切换。
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, {
+      detail: { compact },
+    }));
   }
 }
 

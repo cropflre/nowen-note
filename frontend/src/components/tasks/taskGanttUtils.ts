@@ -1,11 +1,17 @@
 import type { Task } from "../../types";
+import { getDateValue, getDueTimeValue } from "./taskDateUtils";
+
+function preserveStartTime(dateValue: string, originalStartDate: string | null | undefined): string {
+  const timeValue = getDueTimeValue(originalStartDate);
+  return timeValue ? `${dateValue}T${timeValue}` : dateValue;
+}
 
 export function getTaskStartDate(task: Task): string | null {
-  return task.startDate || task.dueDate || null;
+  return getDateValue(task.startDate || task.dueDate) || null;
 }
 
 export function getTaskEndDate(task: Task): string | null {
-  return task.dueDate || task.startDate || null;
+  return getDateValue(task.dueDate || task.startDate) || null;
 }
 
 export function getTaskDurationDays(task: Task): number {
@@ -30,7 +36,7 @@ export function moveTaskDateRange(task: Task, targetStartDate: string): { startD
   const nm = String(newEndDate.getMonth() + 1).padStart(2, '0');
   const nd = String(newEndDate.getDate()).padStart(2, '0');
   const newEnd = ny + '-' + nm + '-' + nd;
-  return { startDate: targetStartDate, dueDate: newEnd };
+  return { startDate: preserveStartTime(targetStartDate, task.startDate), dueDate: newEnd };
 }
 
 export function isTaskScheduled(task: Task): boolean {
@@ -59,11 +65,11 @@ export function resizeTaskDateRange(
   if (side === "start") {
     const effectiveEnd = end || targetDate;
     if (targetDate > effectiveEnd) return null;
-    return { startDate: targetDate, dueDate: effectiveEnd };
+    return { startDate: preserveStartTime(targetDate, task.startDate), dueDate: effectiveEnd };
   } else {
     const effectiveStart = start || targetDate;
     if (effectiveStart > targetDate) return null;
-    return { startDate: effectiveStart, dueDate: targetDate };
+    return { startDate: preserveStartTime(effectiveStart, task.startDate), dueDate: targetDate };
   }
 }
 

@@ -3,16 +3,9 @@
  *
  * 设计要点：
  *   1. 房间模型：note:<noteId>, workspace:<workspaceId>
- *      - note 房间：订阅某篇笔记的 Presence 与更新广播
- *      - workspace 房间：订阅工作区级事件（成员变化、笔记列表增删）
  *   2. Presence：谁在线 + 谁在看哪篇笔记 + 谁正在编辑（软锁）
- *   3. 软锁：某用户进入编辑态时广播 editing=true；其它端显示"xx 正在编辑"提示，
- *      不阻塞保存（由后端 version 乐观锁兜底）。
- *   4. 广播：笔记保存成功后由业务路由调用 broadcastNoteUpdated，将最新版本号推给
- *      同房间其它客户端，让它们静默刷新或提示"已更新"。
- *   5. 心跳：每 30s ping；60s 未响应视为断线，清理 Presence。
- *
- * 20 人规模下，完全内存态，无需 Redis。若未来扩展到多节点，替换 broadcast / Hub 即可。
+ *   3. Y.js 更新只有写入 append-only 恢复日志后才 ACK 和广播
+ *   4. 心跳：每 30s ping；60s 未响应视为断线，清理 Presence
  */
 import type { IncomingMessage } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -22,8 +15,10 @@ import { getDb } from "../db/schema";
 import {
   getUserAccessibleWorkspaceIds,
   resolveNotePermission,
+  resolveNotebookPermission,
 } from "../middleware/acl";
-import { yJoin, yLeave, yApplyUpdate, yFlushAll, yEncodeDiffSinceStateVector } from "./yjs";
+import { yJoin, yLeave, yFlushAll, yEncodeDiffSinceStateVector } from "./yjs";
+import { yApplyUpdateDurably } from "./yjsDurability";
 
 // ---------------- 类型 ----------------
 export interface ClientInfo {
@@ -39,7 +34,7 @@ export interface ClientInfo {
   lastSeen: number;
   /** 加入的房间集合 */
   rooms: Set<string>;
-  /** Phase 3: 已加入的 CRDT 笔记房间集合（用于断线时批量释放） */
+  /** 已加入的 CRDT 笔记房间集合（用于断线时批量释放） */
   yRooms: Set<string>;
 }
 
@@ -60,9 +55,11 @@ interface ClientMessage {
   noteId?: string | null;
   editing?: boolean;
   cursor?: { line?: number; ch?: number; selection?: string };
-  /** Phase 3: Base64 Y update 或 awareness update 或 stateVector */
+  /** Base64 Y update 或 awareness update */
   update?: string;
-  /** Phase 3: y:sync-step1 携带的客户端 stateVector（Base64） */
+  /** 客户端为一次持久化发送生成的唯一 ID，服务端原样回传 y:ack/error */
+  operationId?: string;
+  /** y:sync-step1 携带的客户端 stateVector（Base64） */
   stateVector?: string;
 }
 
@@ -79,25 +76,18 @@ interface ServerMessage {
     | "y:sync"
     | "y:sync-step2"
     | "y:update"
+    | "y:ack"
     | "y:awareness"
     | "force-logout";
   [key: string]: any;
 }
 
-// ---------------- 全局状态 ----------------
-
-// connectionId → { ws, info }
 const clients = new Map<string, { ws: WebSocket; info: ClientInfo }>();
-
-// room → Set<connectionId>
 const rooms = new Map<string, Set<string>>();
 
-// 心跳 / 超时
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const CLIENT_TIMEOUT_MS = 60_000;
 let heartbeatTimer: NodeJS.Timeout | null = null;
-
-// ---------------- 工具函数 ----------------
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -132,18 +122,49 @@ function leaveRoom(connectionId: string, room: string) {
   if (client) client.info.rooms.delete(room);
 }
 
-/** 向房间内所有客户端广播（可排除自己） */
+function canJoinNoteRoom(noteId: string, userId: string): boolean {
+  const { permission } = resolveNotePermission(noteId, userId);
+  return permission !== null;
+}
+
+function canJoinNotebookResource(notebookId: string, userId: string): boolean {
+  const { permission } = resolveNotebookPermission(notebookId, userId);
+  return permission !== null;
+}
+
+function canJoinWorkspaceRoom(workspaceId: string, userId: string): boolean {
+  const accessible = getUserAccessibleWorkspaceIds(userId);
+  return accessible.includes(workspaceId);
+}
+
+/**
+ * Re-check note access at send time, not only when the socket joined the room.
+ * Revoking a member must immediately stop presence, cursor and Yjs delivery even
+ * when the browser keeps an old WebSocket connection alive.
+ */
 function broadcastRoom(room: string, msg: ServerMessage, excludeConnectionId?: string) {
   const set = rooms.get(room);
   if (!set) return;
-  for (const cid of set) {
+  const noteId = room.startsWith("note:") ? room.slice(5) : null;
+  for (const cid of Array.from(set)) {
     if (cid === excludeConnectionId) continue;
     const client = clients.get(cid);
-    if (client) send(client.ws, msg);
+    if (!client) continue;
+    if (noteId && !canJoinNoteRoom(noteId, client.info.userId)) {
+      leaveRoom(cid, room);
+      if (client.info.yRooms.delete(noteId)) {
+        try { yLeave(noteId); } catch {}
+      }
+      if (client.info.activeNoteId === noteId) {
+        client.info.activeNoteId = null;
+        client.info.editing = false;
+      }
+      continue;
+    }
+    send(client.ws, msg);
   }
 }
 
-/** 构造某笔记房间的 Presence 快照 */
 function buildNotePresence(noteId: string) {
   const room = `note:${noteId}`;
   const set = rooms.get(room);
@@ -154,9 +175,16 @@ function buildNotePresence(noteId: string) {
     connectionId: string;
     editing: boolean;
   }> = [];
-  for (const cid of set) {
+  for (const cid of Array.from(set)) {
     const c = clients.get(cid);
     if (!c) continue;
+    if (!canJoinNoteRoom(noteId, c.info.userId)) {
+      leaveRoom(cid, room);
+      if (c.info.yRooms.delete(noteId)) {
+        try { yLeave(noteId); } catch {}
+      }
+      continue;
+    }
     users.push({
       userId: c.info.userId,
       username: c.info.username,
@@ -167,7 +195,6 @@ function buildNotePresence(noteId: string) {
   return users;
 }
 
-/** 向所有看这篇笔记的客户端广播 Presence */
 function broadcastPresence(noteId: string) {
   const users = buildNotePresence(noteId);
   broadcastRoom(`note:${noteId}`, {
@@ -177,27 +204,6 @@ function broadcastPresence(noteId: string) {
   });
 }
 
-// ---------------- 权限校验 ----------------
-
-/** 校验用户能否加入某笔记房间（至少 read 权限） */
-function canJoinNoteRoom(noteId: string, userId: string): boolean {
-  const { permission } = resolveNotePermission(noteId, userId);
-  return permission !== null; // read 以上都允许
-}
-
-/** 校验用户能否加入某工作区房间（成员即可） */
-function canJoinWorkspaceRoom(workspaceId: string, userId: string): boolean {
-  const accessible = getUserAccessibleWorkspaceIds(userId);
-  return accessible.includes(workspaceId);
-}
-
-// ---------------- 对外 API ----------------
-
-/**
- * 启动 WebSocket 服务，附加到一个已有的 HTTP server 上。
- * 挂载路径：/ws
- * 鉴权：Query 参数 ?token=<JWT>
- */
 export function attachRealtimeServer(server: import("http").Server) {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -208,7 +214,6 @@ export function attachRealtimeServer(server: import("http").Server) {
     }
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (url.pathname !== "/ws") {
-      // 非 /ws 路径直接丢弃，交还给其它 upgrade handler（当前没有）
       socket.destroy();
       return;
     }
@@ -227,7 +232,6 @@ export function attachRealtimeServer(server: import("http").Server) {
       return;
     }
 
-    // 验证用户仍然存在、未被禁用、tokenVersion 一致
     const db = getDb();
     const user = db
       .prepare("SELECT id, username, isDisabled, tokenVersion FROM users WHERE id = ?")
@@ -245,7 +249,6 @@ export function attachRealtimeServer(server: import("http").Server) {
     });
   });
 
-  // 启动心跳巡检
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
     const now = Date.now();
@@ -254,7 +257,6 @@ export function attachRealtimeServer(server: import("http").Server) {
         try { client.ws.terminate(); } catch {}
         cleanupClient(cid);
       } else {
-        // 发 ping（纯应用层，不依赖 TCP ping）
         send(client.ws, { type: "pong", t: now });
       }
     }
@@ -315,7 +317,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
         send(ws, { type: "error", error: "Missing room" });
         return;
       }
-      // 权限校验
       if (room.startsWith("note:")) {
         const noteId = room.slice(5);
         if (!canJoinNoteRoom(noteId, info.userId)) {
@@ -333,7 +334,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
         return;
       }
       joinRoom(connectionId, room);
-      // 笔记房间：广播 Presence
       if (room.startsWith("note:")) {
         const noteId = room.slice(5);
         info.activeNoteId = noteId;
@@ -358,41 +358,35 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
     }
 
     case "presence": {
-      // 客户端主动上报：{ type: 'presence', noteId, editing }
       const nextNoteId = msg.noteId ?? null;
       const prevNoteId = info.activeNoteId;
+      if (nextNoteId && !canJoinNoteRoom(nextNoteId, info.userId)) {
+        send(ws, { type: "error", error: "Forbidden", noteId: nextNoteId });
+        return;
+      }
       info.activeNoteId = nextNoteId;
       info.editing = !!msg.editing;
 
-      if (prevNoteId && prevNoteId !== nextNoteId) {
-        broadcastPresence(prevNoteId);
-      }
+      if (prevNoteId && prevNoteId !== nextNoteId) broadcastPresence(prevNoteId);
       if (nextNoteId) {
-        // 自动加入房间（若还没加）
         const room = `note:${nextNoteId}`;
-        if (!info.rooms.has(room)) {
-          if (canJoinNoteRoom(nextNoteId, info.userId)) {
-            joinRoom(connectionId, room);
-          }
-        }
+        if (!info.rooms.has(room)) joinRoom(connectionId, room);
         broadcastPresence(nextNoteId);
       }
       return;
     }
 
     case "editing": {
-      // 轻量编辑态：不切换笔记，只改 editing 标志
       const noteId = msg.noteId ?? info.activeNoteId;
-      if (!noteId) return;
+      if (!noteId || !canJoinNoteRoom(noteId, info.userId)) return;
       info.editing = !!msg.editing;
       broadcastPresence(noteId);
       return;
     }
 
     case "cursor": {
-      // 光标广播：只在房间内转发，不存状态
       const noteId = msg.noteId ?? info.activeNoteId;
-      if (!noteId) return;
+      if (!noteId || !canJoinNoteRoom(noteId, info.userId)) return;
       broadcastRoom(
         `note:${noteId}`,
         {
@@ -410,28 +404,28 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
       return;
     }
 
-    // --------- Phase 3: Y.js CRDT 协同 ---------
     case "y:join": {
       const noteId = msg.noteId;
       if (!noteId) {
         send(ws, { type: "error", error: "Missing noteId" });
         return;
       }
-      // 权限：至少 read（y:update 时再额外要求 write）
       if (!canJoinNoteRoom(noteId, info.userId)) {
         send(ws, { type: "error", error: "Forbidden", noteId });
         return;
       }
-      // 自动加入 note 房间（让 update 广播可达）
       const room = `note:${noteId}`;
-      if (!info.rooms.has(room)) {
-        joinRoom(connectionId, room);
-      }
+      if (!info.rooms.has(room)) joinRoom(connectionId, room);
       info.yRooms.add(noteId);
 
       try {
         const { stateBase64 } = yJoin(noteId, info.userId);
-        send(ws, { type: "y:sync", noteId, state: stateBase64 });
+        send(ws, {
+          type: "y:sync",
+          noteId,
+          state: stateBase64,
+          persistedAt: new Date().toISOString(),
+        });
       } catch (e) {
         console.warn("[realtime] y:join failed:", e);
         send(ws, { type: "error", error: "y:join failed", noteId });
@@ -451,30 +445,64 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
 
     case "y:update": {
       const noteId = msg.noteId;
+      const operationId = typeof msg.operationId === "string" && msg.operationId
+        ? msg.operationId
+        : null;
       if (!noteId || !msg.update) return;
-      // 二次权限校验：write 以上才能编辑
+
       const { permission } = resolveNotePermission(noteId, info.userId);
       if (permission !== "write" && permission !== "manage") {
-        send(ws, { type: "error", error: "Forbidden (write)", noteId });
+        send(ws, {
+          type: "error",
+          error: "Forbidden (write)",
+          noteId,
+          operationId,
+          code: "forbidden",
+        });
         return;
       }
       if (!info.yRooms.has(noteId)) {
-        // 没 join 就直接发 update？拒绝
-        send(ws, { type: "error", error: "Not joined", noteId });
+        send(ws, {
+          type: "error",
+          error: "Not joined",
+          noteId,
+          operationId,
+          code: "no_room",
+        });
         return;
       }
-      const result = yApplyUpdate(noteId, msg.update, info.userId);
-      if (result !== "ok") {
-        // 精细化错误码：too_large 让客户端知道是大小问题，不应重试
+
+      const result = yApplyUpdateDurably(noteId, msg.update, info.userId, operationId);
+      if (!result.ok) {
         const errMap: Record<string, string> = {
           too_large: "Update too large",
           invalid: "Bad update",
           no_room: "Not joined",
+          persist_failed: "Update persistence failed",
+          invalid_operation: "Invalid operation id",
+          operation_conflict: "Operation id was reused for different content",
         };
-        send(ws, { type: "error", error: errMap[result] || "Bad update", noteId, code: result });
+        send(ws, {
+          type: "error",
+          error: errMap[result.code] || "Bad update",
+          noteId,
+          operationId,
+          code: result.code,
+        });
         return;
       }
-      // 广播给同房间其它客户端
+
+      if (operationId) {
+        send(ws, {
+          type: "y:ack",
+          noteId,
+          operationId,
+          updateId: result.updateId,
+          persistedAt: result.persistedAt,
+          duplicate: result.duplicate,
+        });
+      }
+
       broadcastRoom(
         `note:${noteId}`,
         {
@@ -490,8 +518,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
     }
 
     case "y:sync-step1": {
-      // Phase 3 / P2-#6：双向 sync 第一步
-      // 客户端发自己的 stateVector，服务端返回 diff（服务端有而客户端没有的部分）
       const noteId = msg.noteId;
       if (!noteId || !msg.stateVector) return;
       if (!canJoinNoteRoom(noteId, info.userId)) {
@@ -515,7 +541,6 @@ function handleClientMessage(connectionId: string, msg: ClientMessage) {
       const noteId = msg.noteId;
       if (!noteId || !msg.update) return;
       if (!canJoinNoteRoom(noteId, info.userId)) return;
-      // awareness 只转发，不持久化
       broadcastRoom(
         `note:${noteId}`,
         {
@@ -537,31 +562,17 @@ function cleanupClient(connectionId: string) {
   if (!client) return;
   const { info } = client;
 
-  // Phase 3: 释放 CRDT 房间引用
   for (const noteId of Array.from(info.yRooms)) {
     try { yLeave(noteId); } catch {}
   }
   info.yRooms.clear();
 
-  // 离开所有房间
-  for (const room of Array.from(info.rooms)) {
-    leaveRoom(connectionId, room);
-  }
+  for (const room of Array.from(info.rooms)) leaveRoom(connectionId, room);
   clients.delete(connectionId);
 
-  // 如果客户端曾在看某篇笔记，广播 Presence 变更
-  if (info.activeNoteId) {
-    broadcastPresence(info.activeNoteId);
-  }
+  if (info.activeNoteId) broadcastPresence(info.activeNoteId);
 }
 
-// ---------------- 业务广播 API（供路由调用） ----------------
-
-/**
- * 笔记已被保存，通知同房间其它客户端静默刷新
- * @param actorUserId   触发保存的用户（前端可用于"忽略自己"）
- * @param actorConnectionId 可选：触发保存的连接，若提供则排除
- */
 export function broadcastNoteUpdated(
   noteId: string,
   payload: {
@@ -586,7 +597,6 @@ export function broadcastNoteUpdated(
   );
 }
 
-/** 笔记被删除/放入回收站 */
 export function broadcastNoteDeleted(
   noteId: string,
   payload: { actorUserId?: string; actorUsername?: string; trashed?: boolean } = {},
@@ -598,21 +608,16 @@ export function broadcastNoteDeleted(
     actorConnectionId: actorConnectionId || null,
     ...payload,
   };
-  console.log("[realtime] broadcastNoteDeleted", { noteId, actorUserId: payload.actorUserId, trashed: payload.trashed, actorConnectionId });
-  // 广播到 note:{noteId} 房间（正在打开该笔记的客户端）
+  console.log("[realtime] broadcastNoteDeleted", {
+    noteId,
+    actorUserId: payload.actorUserId,
+    trashed: payload.trashed,
+    actorConnectionId,
+  });
   broadcastRoom(`note:${noteId}`, deleteMsg, actorConnectionId);
-  // 同时广播到发起用户的所有连接（停留在列表页/其它笔记的客户端也能收到）
-  if (payload.actorUserId) {
-    broadcastToUser(payload.actorUserId, deleteMsg);
-  }
+  if (payload.actorUserId) broadcastToUser(payload.actorUserId, deleteMsg);
 }
 
-/**
- * 批量永久删除笔记。
- *
- * 清空回收站可能一次涉及数万条记录；逐条 broadcastNoteDeleted 会产生同等数量
- * 的 WebSocket 帧和日志。批量消息让同一用户的其它标签页只处理一次刷新。
- */
 export function broadcastNotesDeleted(
   noteIds: string[],
   payload: { actorUserId: string; workspaceId?: string; trashed?: boolean },
@@ -626,34 +631,19 @@ export function broadcastNotesDeleted(
     trashed: payload.trashed ?? false,
   } as const;
 
-  if (!payload.workspaceId) {
-    broadcastToUser(payload.actorUserId, message);
-    return;
+  // The actor needs exact IDs to update optimistic local state. Other workspace
+  // members receive only a generic refresh signal because deleted nodes may no
+  // longer be resolvable for an after-the-fact ACL check.
+  broadcastToUser(payload.actorUserId, message);
+  if (payload.workspaceId) {
+    broadcastRoom(`workspace:${payload.workspaceId}`, {
+      type: "workspace:updated",
+      workspaceId: payload.workspaceId,
+      kind: "note:deleted",
+    });
   }
-
-  const members = getDb().prepare(
-    "SELECT userId FROM workspace_members WHERE workspaceId = ?"
-  ).all(payload.workspaceId) as Array<{ userId: string }>;
-  const userIds = new Set(members.map((member) => member.userId));
-  userIds.add(payload.actorUserId);
-  for (const userId of userIds) broadcastToUser(userId, message);
 }
 
-/**
- * 广播一条"服务端主动产生"的 y:update 给 room 中所有订阅者。
- *
- * 当前唯一的触发路径是 EditorPane RTE→MD 切换：
- *   业务侧调用 yReplaceContentAsUpdate 把 Tiptap JSON 规范化后的 markdown 重新写入
- *   yText，产生一个 update。此时已经订阅了该笔记 room 的所有连接（包括发起切换的
- *   这个 tab 自己的 MarkdownEditor 在后续 y:join 前的同会话中、以及其他协作者的 RTE）
- *   都需要收到这个 update，否则它们的 yDoc 仍停留在旧状态。
- *
- * 注意：
- *   - actorUserId 填"server"，以便客户端日志可以识别来源（非人类编辑）。
- *   - 不 exclude 任何连接：发起方自己的连接也需要收到——切换发生在 REST 路径上，
- *     此时客户端还没 y:join 或已经 leave；如果自己当前还 join 着，收到自己的 update
- *     是幂等的（Y.applyUpdate 幂等），不会造成问题。
- */
 export function broadcastYjsUpdate(noteId: string, updateBase64: string) {
   broadcastRoom(`note:${noteId}`, {
     type: "y:update",
@@ -664,7 +654,6 @@ export function broadcastYjsUpdate(noteId: string, updateBase64: string) {
   });
 }
 
-/** 工作区级变更（成员变动、笔记本/笔记增删） */
 export function broadcastWorkspaceUpdated(
   workspaceId: string,
   payload: {
@@ -678,26 +667,37 @@ export function broadcastWorkspaceUpdated(
     [k: string]: any;
   },
 ) {
-  broadcastRoom(`workspace:${workspaceId}`, {
-    type: "workspace:updated",
-    workspaceId,
-    ...payload,
-  });
-}
+  const room = `workspace:${workspaceId}`;
+  const set = rooms.get(room);
+  if (!set) return;
+  const noteId = typeof payload.noteId === "string" ? payload.noteId : null;
+  const notebookId = typeof payload.notebookId === "string" ? payload.notebookId : null;
+  const noteIds = Array.isArray(payload.noteIds)
+    ? payload.noteIds.filter((id: unknown): id is string => typeof id === "string")
+    : null;
 
-/**
- * 向指定用户的所有 WebSocket 连接广播消息。
- * 用于不依赖房间订阅的场景（如导入笔记后通知前端刷新列表）。
- */
-export function broadcastToUser(userId: string, msg: ServerMessage) {
-  for (const [, client] of clients.entries()) {
-    if (client.info.userId === userId) {
-      send(client.ws, msg);
+  for (const cid of Array.from(set)) {
+    const client = clients.get(cid);
+    if (!client) continue;
+    let detailedPayload: Record<string, any> | null = payload;
+    if (noteId && !canJoinNoteRoom(noteId, client.info.userId)) detailedPayload = null;
+    if (notebookId && !canJoinNotebookResource(notebookId, client.info.userId)) detailedPayload = null;
+    if (noteIds) {
+      const visibleIds = noteIds.filter((id) => canJoinNoteRoom(id, client.info.userId));
+      detailedPayload = visibleIds.length > 0 ? { ...payload, noteIds: visibleIds } : null;
     }
+    send(client.ws, detailedPayload
+      ? { type: "workspace:updated", workspaceId, ...detailedPayload }
+      : { type: "workspace:updated", workspaceId, kind: payload.kind });
   }
 }
 
-/** 调试：返回当前 Hub 状态 */
+export function broadcastToUser(userId: string, msg: ServerMessage) {
+  for (const [, client] of clients.entries()) {
+    if (client.info.userId === userId) send(client.ws, msg);
+  }
+}
+
 export function getRealtimeStats() {
   return {
     clients: clients.size,
@@ -709,33 +709,18 @@ export function getRealtimeStats() {
   };
 }
 
-/**
- * 强制踢掉某用户的所有 WebSocket 连接。
- * 触发时机：
- *   - 管理员禁用 / 删除该用户
- *   - 管理员重置该用户密码
- *   - 用户自己 tokenVersion 被 bump（例如改密码后其它 tab）
- *
- * 行为：向每条连接发送一条 `force-logout` 消息（前端据此清 token + 刷新），
- *       然后关闭连接。前端也可监听此消息即时提示用户。
- */
 export function disconnectUser(
   userId: string,
   reason: "account_disabled" | "account_deleted" | "password_reset" | "session_revoked",
 ) {
   for (const [cid, client] of clients.entries()) {
     if (client.info.userId !== userId) continue;
-    try {
-      send(client.ws, { type: "force-logout", reason });
-    } catch {}
-    try {
-      client.ws.close(4401, reason);
-    } catch {}
+    try { send(client.ws, { type: "force-logout", reason }); } catch {}
+    try { client.ws.close(4401, reason); } catch {}
     cleanupClient(cid);
   }
 }
 
-/** 进程关闭钩子：flush Y.js 到磁盘（异步，caller 应 await） */
 export async function shutdownRealtime(): Promise<void> {
   try {
     await yFlushAll();

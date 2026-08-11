@@ -75,14 +75,20 @@ describe("EditorPane save safety", () => {
     expect(saveFailureFallback).toContain("contentFormat: currentNote.contentFormat");
   });
 
-  it("includes contentFormat when manually syncing active note content", () => {
+  it("manually syncs the live editor snapshot with the latest server version", () => {
     const manualSync = sourceBetween(
       editorPaneSource,
       "const handleManualSync = useCallback(async () => {",
       "const toggleFavorite = useCallback",
     );
 
-    expect(manualSync).toContain("contentFormat: activeNote.contentFormat");
+    expect(manualSync).toContain("editorHandleRef.current?.getSnapshot?.()");
+    expect(manualSync).toContain("editorHandleRef.current?.discardPending?.()");
+    expect(manualSync).toContain("const persisted = await api.getNote(currentNote.id)");
+    expect(manualSync).toContain("api.updateNoteConfirmed(currentNote.id");
+    expect(manualSync).toContain("contentFormat: currentNote.contentFormat");
+    expect(manualSync).toContain("version: persisted.version");
+    expect(manualSync).toContain("syncToYjs: true");
   });
 
   it("does not replay normalized content with a newer version after a 409", () => {

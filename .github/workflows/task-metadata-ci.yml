@@ -1,0 +1,81 @@
+name: Task Metadata CI
+
+on:
+  push:
+    branches:
+      - feature/task-labels-saved-views-v1
+      - feature/task-labels-saved-views-rebase
+    paths:
+      - "backend/src/db/taskMetadataMigration.ts"
+      - "backend/src/runtime/task-metadata-migration-bootstrap.ts"
+      - "backend/src/routes/task-metadata.ts"
+      - "backend/src/routes/user-preferences.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/db/postgres/schema.sql"
+      - "backend/tests/task-metadata.test.ts"
+      - "frontend/src/components/TaskCenter.tsx"
+      - "frontend/src/components/tasks/TaskMetadataWorkspace.tsx"
+      - "frontend/src/components/tasks/taskSavedViewFilter.ts"
+      - "frontend/src/components/tasks/__tests__/taskSavedViewFilter.test.ts"
+      - "frontend/src/lib/taskMetadataApi.ts"
+      - "frontend/tsconfig.task-metadata.json"
+      - ".github/workflows/task-metadata-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/taskMetadataMigration.ts"
+      - "backend/src/runtime/task-metadata-migration-bootstrap.ts"
+      - "backend/src/routes/task-metadata.ts"
+      - "backend/src/routes/user-preferences.ts"
+      - "backend/src/index.hardened.ts"
+      - "backend/src/db/postgres/schema.sql"
+      - "backend/tests/task-metadata.test.ts"
+      - "frontend/src/components/TaskCenter.tsx"
+      - "frontend/src/components/tasks/TaskMetadataWorkspace.tsx"
+      - "frontend/src/components/tasks/taskSavedViewFilter.ts"
+      - "frontend/src/components/tasks/__tests__/taskSavedViewFilter.test.ts"
+      - "frontend/src/lib/taskMetadataApi.ts"
+      - "frontend/tsconfig.task-metadata.json"
+      - ".github/workflows/task-metadata-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Backend typecheck
+        run: npm run build:tsc
+      - name: Test task metadata API
+        run: node --import tsx --test tests/task-metadata.test.ts
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Targeted TypeScript check
+        run: npx tsc -p tsconfig.task-metadata.json
+      - name: Vite production bundle
+        run: npx vite build
+      - name: Test saved view filtering
+        run: npx vitest run src/components/tasks/__tests__/taskSavedViewFilter.test.ts --reporter=verbose

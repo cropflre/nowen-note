@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const sidebarSource = readFileSync(path.resolve(__dirname, "../Sidebar.tsx"), "utf8");
 const quickPanelSource = readFileSync(path.resolve(__dirname, "../MobileKnowledgeTreePanel.tsx"), "utf8");
 const treePanelSource = readFileSync(path.resolve(__dirname, "../KnowledgeTreePanel.tsx"), "utf8");
+const expansionSource = readFileSync(path.resolve(__dirname, "../../lib/knowledgeTreeExpansion.ts"), "utf8");
 const settingsSource = readFileSync(path.resolve(__dirname, "../SettingsModal.tsx"), "utf8");
 const modeSource = readFileSync(path.resolve(__dirname, "../../lib/mobileKnowledgeTreeViewMode.ts"), "utf8");
 const zhSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/zh-CN.json"), "utf8");
@@ -34,10 +35,13 @@ describe("desktop knowledge tree browsing mode", () => {
     expect(quickPanelSource).toContain('data-nowen-desktop-knowledge-tree={variant === "desktop" ? "quick-navigation" : undefined}');
   });
 
-  it("expands and locates the active note when the recursive tree mounts again", () => {
-    expect(treePanelSource).toContain("const activeNode = nodes.find");
-    expect(treePanelSource).toContain("ancestorIds.add(parent.id)");
-    expect(treePanelSource).toContain('nodeElement?.scrollIntoView({ block: "nearest" })');
+  it("keeps user expansion state authoritative across refreshes and remounts", () => {
+    expect(treePanelSource).toContain("useSyncExternalStore");
+    expect(treePanelSource).toContain("initializeKnowledgeTreeExpansion");
+    expect(treePanelSource).not.toContain("ancestorIds.add(parent.id)");
+    expect(expansionSource).toContain("hasUserHistory");
+    expect(expansionSource).toContain("getKnowledgeTreeExpansionScope");
+    expect(expansionSource).toContain("saveKnowledgeTreeExpansion");
   });
 
   it("records tree-view opens for the shared recent list", () => {

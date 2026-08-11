@@ -15,7 +15,6 @@ export interface ContentScriptBridgeAdapter {
   getTab(tabId: number): Promise<ContentScriptBridgeTab>;
   sendMessage(tabId: number, message: unknown): Promise<unknown>;
   injectContentScript(tabId: number): Promise<void>;
-  delay(ms: number): Promise<void>;
 }
 
 export interface TabInjectionCapability {
@@ -123,7 +122,7 @@ function normalizeBridgeError(error: unknown): ContentScriptBridgeError {
   }
   return new ContentScriptBridgeError(
     "CONTENT_SCRIPT_UNAVAILABLE",
-    "页面剪藏组件未能启动。请刷新当前网页后重试；若刚更新插件，请重新加载页面。",
+    "页面剪藏组件通信失败，请重新打开剪藏弹窗后重试。",
     detail,
   );
 }
@@ -153,7 +152,7 @@ function mapInjectionError(url: string | undefined, error: unknown): ContentScri
   }
   return new ContentScriptBridgeError(
     "CONTENT_SCRIPT_UNAVAILABLE",
-    "无法启动页面剪藏组件。请刷新网页，或在扩展管理页重新加载插件后重试。",
+    "无法启动页面剪藏组件。请重新打开剪藏弹窗；若仍失败，请在扩展管理页重新加载插件。",
     detail,
   );
 }
@@ -171,16 +170,13 @@ const defaultAdapter: ContentScriptBridgeAdapter = {
     return { url: tab.url };
   },
   async sendMessage(tabId, message) {
-    return chrome.tabs.sendMessage(tabId, message);
+    return chrome.tabs.sendMessage(tabId, message, { frameId: 0 });
   },
   async injectContentScript(tabId) {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, frameIds: [0] },
       files: ["content.js"],
     });
-  },
-  delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   },
 };
 
@@ -222,14 +218,13 @@ export function createContentScriptBridge(adapter: ContentScriptBridgeAdapter = 
       throw mapInjectionError(tab.url, error);
     }
 
-    for (const delayMs of [0, 60, 140, 260]) {
-      if (delayMs > 0) await adapter.delay(delayMs);
-      if (await ping(tabId)) return;
-    }
+    // executeScript 仅在脚本执行结束后 resolve；此时 listener 已同步注册。
+    // 用实际 PONG 完成就绪握手，不依赖固定延时猜测初始化时机。
+    if (await ping(tabId)) return;
 
     throw new ContentScriptBridgeError(
       "CONTENT_SCRIPT_UNAVAILABLE",
-      "页面剪藏组件已尝试重新加载，但仍未响应。请刷新当前网页后重试。",
+      "页面剪藏组件已注入，但未完成就绪握手。请重新打开剪藏弹窗后重试。",
     );
   }
 
@@ -266,7 +261,7 @@ export async function requestExtractFromTab(
     if (!response || typeof response !== "object" || (response as ExtractResponse).type !== "EXTRACT_RESPONSE") {
       throw new ContentScriptBridgeError(
         "CONTENT_SCRIPT_RESPONSE_INVALID",
-        "页面剪藏组件返回了无效响应，请刷新网页后重试。",
+        "页面剪藏组件返回了无效响应，请重新打开剪藏弹窗后重试。",
       );
     }
     return response as ExtractResponse;

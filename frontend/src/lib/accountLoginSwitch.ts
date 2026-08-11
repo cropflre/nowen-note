@@ -2,6 +2,7 @@ import { setServerUrl } from "@/lib/api";
 import { getDeviceId } from "@/lib/deviceId";
 import { loadRememberedCredentials } from "@/lib/rememberLogin";
 import type { User } from "@/types";
+import { clearAuthTokens, refreshAccessToken, storeAuthTokens } from "@/lib/authSession";
 import {
   type AccountLoginHistoryItem,
   CURRENT_ACCOUNT_HISTORY_ID_KEY,
@@ -24,14 +25,23 @@ const AUTH_INVALID_CODES = new Set([
   "USER_NOT_FOUND",
   "TOKEN_INVALID",
   "SESSION_REVOKED",
+  "SESSION_EXPIRED",
   "UNAUTHENTICATED",
+]);
+
+const EXPLICIT_REAUTH_CODES = new Set([
+  "ACCOUNT_DISABLED",
+  "TOKEN_REVOKED",
+  "USER_NOT_FOUND",
+  "SESSION_REVOKED",
+  "SESSION_EXPIRED",
 ]);
 
 async function prepareReauth(account: AccountLoginHistoryItem, message?: string): Promise<AccountLoginSwitchResult> {
   await markAccountLoginRequiresReauth(account.id);
   setPendingAccountReauth({ id: account.id, serverUrl: account.serverUrl, username: account.username });
   setServerUrl(account.serverUrl);
-  localStorage.removeItem("nowen-token");
+  clearAuthTokens();
   if ((window as any).nowenDesktop?.isDesktop) {
     // 防止刷新到登录页时 Electron full 模式重新注入本地账号，覆盖目标服务器。
     localStorage.setItem("nowen-prefer-cloud", "1");
@@ -43,12 +53,13 @@ async function prepareReauth(account: AccountLoginHistoryItem, message?: string)
 async function commitSwitch(
   account: AccountLoginHistoryItem,
   token: string,
+  refreshToken: string | undefined,
   user: User,
 ): Promise<AccountLoginSwitchResult> {
   setServerUrl(account.serverUrl);
-  localStorage.setItem("nowen-token", token);
+  storeAuthTokens({ token, refreshToken: refreshToken ?? null });
   localStorage.setItem(CURRENT_ACCOUNT_HISTORY_ID_KEY, account.id);
-  await saveAccountLoginHistory({ serverUrl: account.serverUrl, token, user });
+  await saveAccountLoginHistory({ serverUrl: account.serverUrl, token, refreshToken, user });
   try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch { /* ignore */ }
   return { status: "switched", token, user };
 }
@@ -78,7 +89,7 @@ async function retryWithRememberedPassword(
     if (!response.ok || !body?.token || !body?.user?.id || !body?.user?.username) {
       return prepareReauth(account, body?.error || invalidMessage);
     }
-    return commitSwitch(account, body.token, body.user as User);
+    return commitSwitch(account, body.token, body.refreshToken, body.user as User);
   } catch (error: any) {
     return { status: "network_error", message: error?.message || "无法连接目标服务器" };
   }
@@ -103,6 +114,33 @@ export async function switchAccountLogin(account: AccountLoginHistoryItem): Prom
     const body = await response.json().catch(() => ({}));
     const code = typeof body?.code === "string" ? body.code : "";
     if (response.status === 401 || AUTH_INVALID_CODES.has(code)) {
+      if (EXPLICIT_REAUTH_CODES.has(code)) {
+        return prepareReauth(account, body?.error);
+      }
+      if (loaded.refreshToken) {
+        try {
+          const token = await refreshAccessToken(`${account.serverUrl}/api`, {
+            refreshToken: loaded.refreshToken,
+            persist: false,
+          });
+          if (token) {
+            const retry = await fetch(`${account.serverUrl}/api/me`, {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: controller.signal,
+            });
+            const retryBody = await retry.json().catch(() => ({}));
+            if (retry.ok && retryBody?.id && retryBody?.username) {
+              return commitSwitch(account, token, loaded.refreshToken, retryBody as User);
+            }
+            if (retry.status >= 500) {
+              return { status: "network_error", message: retryBody?.error || `HTTP ${retry.status}` };
+            }
+          }
+        } catch (refreshError: any) {
+          if (refreshError?.terminal) return prepareReauth(account, body?.error);
+          return { status: "network_error", message: refreshError?.message || "无法连接目标服务器" };
+        }
+      }
       return retryWithRememberedPassword(account, body?.error);
     }
     if (!response.ok) {
@@ -111,7 +149,7 @@ export async function switchAccountLogin(account: AccountLoginHistoryItem): Prom
     if (!body?.id || !body?.username) {
       return { status: "failed", message: "服务器返回的账号信息不完整" };
     }
-    return commitSwitch(account, loaded.token, body as User);
+    return commitSwitch(account, loaded.token, loaded.refreshToken, body as User);
   } catch (error: any) {
     return { status: "network_error", message: error?.message || "无法连接目标服务器" };
   } finally {

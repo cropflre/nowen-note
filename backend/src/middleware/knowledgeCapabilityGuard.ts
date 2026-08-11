@@ -3,10 +3,13 @@ import type { Context, Next } from "hono";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
   type KnowledgeCapabilityName,
 } from "../services/knowledgeCapabilities.js";
 
 const UUID_SEGMENT = "([0-9a-fA-F-]{36})";
+type GuardedResourceType = "note" | "notebook";
+type ResourceAccessOptions = { includeDeleted?: boolean };
 
 function forbidden(c: Context, required: KnowledgeCapabilityName, nodeId: string) {
   return c.json({
@@ -17,13 +20,20 @@ function forbidden(c: Context, required: KnowledgeCapabilityName, nodeId: string
   }, 403);
 }
 
+function hiddenResource(c: Context) {
+  return c.json({ error: "资源不存在", code: "NOT_FOUND" }, 404);
+}
+
 function resourceAccess(
-  resourceType: "note" | "notebook",
+  resourceType: GuardedResourceType,
   resourceId: string,
   userId: string,
   capability: KnowledgeCapabilityName,
+  options: ResourceAccessOptions = {},
 ) {
-  const access = resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
+  const access = options.includeDeleted
+    ? resolveResourceKnowledgeAccessForTombstone(resourceType, resourceId, userId)
+    : resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
   return { access, allowed: hasKnowledgeCapability(access, capability) };
 }
 
@@ -43,11 +53,63 @@ function notebookIdFromPath(path: string): string | null {
   return path.match(new RegExp(`^/api/notebooks/${UUID_SEGMENT}(?:/|$)`))?.[1] || null;
 }
 
+/**
+ * Legacy list routes query by workspace membership. Post-filter their JSON arrays
+ * through the unified knowledge capability resolver so restricted descendants do
+ * not leak into sidebar caches, search results or offline synchronization.
+ *
+ * Recycle-bin note rows are a special lifecycle view: their knowledge-tree node
+ * is intentionally tombstoned, but the user still needs the pre-delete ACL to
+ * view/restore/delete it. Only those rows opt into tombstone-aware resolution.
+ */
+async function filterCollectionResponse(
+  c: Context,
+  next: Next,
+  resourceType: GuardedResourceType,
+): Promise<void> {
+  await next();
+  if (!c.res.ok) return;
+  const contentType = c.res.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) return;
+
+  let payload: unknown;
+  try {
+    payload = await c.res.clone().json();
+  } catch {
+    return;
+  }
+  if (!Array.isArray(payload)) return;
+
+  const userId = c.req.header("X-User-Id") || "";
+  const filtered = payload.filter((row) => {
+    const id = row && typeof row === "object" && typeof (row as any).id === "string"
+      ? (row as any).id
+      : "";
+    if (!id) return false;
+    const includeDeleted = resourceType === "note" && Number((row as any).isTrashed) === 1;
+    return resourceAccess(resourceType, id, userId, "canView", { includeDeleted }).allowed;
+  });
+
+  if (filtered.length === payload.length) return;
+  const headers = new Headers(c.res.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json; charset=UTF-8");
+  c.res = new Response(JSON.stringify(filtered), {
+    status: c.res.status,
+    statusText: c.res.statusText,
+    headers,
+  });
+}
+
 export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
   const method = c.req.method.toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
   const userId = c.req.header("X-User-Id") || "";
   const path = c.req.path;
+
+  if (method === "GET" && /^\/api\/notes\/?$/.test(path)) {
+    return filterCollectionResponse(c, next, "note");
+  }
+  if (method === "OPTIONS") return next();
 
   if (method === "POST" && /^\/api\/notes\/?$/.test(path)) {
     const body = await clonedJson(c);
@@ -71,8 +133,15 @@ export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
   const noteId = noteIdFromPath(path);
   if (!noteId) return next();
 
+  if (method === "GET" || method === "HEAD") {
+    const checked = resourceAccess("note", noteId, userId, "canView");
+    return checked.allowed ? next() : hiddenResource(c);
+  }
+
   if (method === "DELETE") {
-    const checked = resourceAccess("note", noteId, userId, "canManageMembers");
+    // Permanent delete is a recycle-bin lifecycle action. The tree node may
+    // already be tombstoned, so evaluate the original ACL without resurfacing it.
+    const checked = resourceAccess("note", noteId, userId, "canManageMembers", { includeDeleted: true });
     return checked.allowed ? next() : forbidden(c, "canManageMembers", checked.access.nodeId);
   }
 
@@ -95,7 +164,11 @@ export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
   if (body.isFavorite !== undefined && requirements.size === 0) requirements.add("canView");
 
   for (const capability of requirements) {
-    const checked = resourceAccess("note", noteId, userId, capability);
+    // Soft-delete and restore share the isTrashed field. On restore the resource
+    // is already a tombstone, so only this lifecycle capability may look through
+    // the deleted marker. Edit/move/manage checks remain strict.
+    const includeDeleted = capability === "canDelete" && body.isTrashed !== undefined;
+    const checked = resourceAccess("note", noteId, userId, capability, { includeDeleted });
     if (!checked.allowed) return forbidden(c, capability, checked.access.nodeId);
   }
   if (typeof body.notebookId === "string" && body.notebookId) {
@@ -107,9 +180,13 @@ export async function enforceKnowledgeNoteCapabilities(c: Context, next: Next) {
 
 export async function enforceKnowledgeNotebookCapabilities(c: Context, next: Next) {
   const method = c.req.method.toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
   const userId = c.req.header("X-User-Id") || "";
   const path = c.req.path;
+
+  if (method === "GET" && /^\/api\/notebooks\/?$/.test(path)) {
+    return filterCollectionResponse(c, next, "notebook");
+  }
+  if (method === "OPTIONS") return next();
 
   if (method === "POST" && /^\/api\/notebooks\/?$/.test(path)) {
     const body = await clonedJson(c);
@@ -132,6 +209,11 @@ export async function enforceKnowledgeNotebookCapabilities(c: Context, next: Nex
 
   const notebookId = notebookIdFromPath(path);
   if (!notebookId) return next();
+
+  if (method === "GET" || method === "HEAD") {
+    const checked = resourceAccess("notebook", notebookId, userId, "canView");
+    return checked.allowed ? next() : hiddenResource(c);
+  }
 
   const memberOrShareMutation = /\/(members|share-link|publication|permission-overrides)(?:\/|$)/.test(path);
   if (memberOrShareMutation) {

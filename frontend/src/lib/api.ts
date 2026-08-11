@@ -4,6 +4,7 @@ import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from ".
 import { invalidateNotebooks } from "./notebookInvalidation";
 import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
 import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
+import { installTaskOfflineApi } from "./taskOfflineApi";
 import {
   fetchJsonWithUploadDeadline,
   isElectronFullLocalRuntime,
@@ -11,6 +12,7 @@ import {
   UploadRequestError,
 } from "./uploadRequest";
 import type { Note, SearchResult, Task } from "@/types";
+import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
 export type TaskActivityEvent = {
   id: string;
@@ -50,8 +52,8 @@ type EnhancedApi = typeof baseApi & {
 };
 
 async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("nowen-token");
-  const response = await fetch(`${getBaseUrl()}${path}`, {
+  const token = getAccessToken();
+  const response = await fetchWithAuthRefresh(`${getBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -59,7 +61,7 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
-  });
+  }, getBaseUrl());
   const text = await response.text();
   let payload: any = null;
   if (text) {
@@ -364,5 +366,10 @@ api.getHabitCheckinLog = ((params?: {
     to: params?.to || `${year}-12-31`,
   });
 }) as typeof baseApi.getHabitCheckinLog;
+
+installTaskOfflineApi(api, {
+  getServerUrl,
+  getWorkspaceId: getCurrentWorkspace,
+});
 
 export { api };

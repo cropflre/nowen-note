@@ -21,6 +21,9 @@
  */
 const path = require("path");
 const os = require("os");
+const {
+  verifySyncNotificationUi,
+} = require("../scripts/verify-sync-notification-ui.cjs");
 
 const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
 
@@ -55,6 +58,7 @@ module.exports = {
           `请先运行 npm run build:frontend（或通过 scripts/build-lite.mjs 统一触发）`,
       );
     }
+    verifySyncNotificationUi(path.dirname(feDist));
     return true;
   },
 

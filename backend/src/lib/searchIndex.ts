@@ -1,8 +1,13 @@
 import type Database from "better-sqlite3";
-import { plainTextFromNoteContent } from "./noteBlocks";
+import { plainTextFromNoteContent, syncNoteBlocks } from "./noteBlocks";
+import { stripLegacyInternalMarkdownMarkers } from "./markdownUserContent";
 import { normalizeSearchText } from "./searchQuery";
 
 const SEARCH_REBUILT_AT_KEY = "search_index_last_rebuilt_at";
+const SEARCH_CONTENT_EXTRACTOR_VERSION_KEY = "search_content_extractor_version";
+// Bump when user-visible text extraction semantics change. Startup will then
+// normalize affected Markdown, repair contentText and rebuild both search indexes once.
+const SEARCH_CONTENT_EXTRACTOR_VERSION = "2";
 const normalizedSearchFunctionDatabases = new WeakSet<object>();
 
 type SearchSourceRow = {
@@ -136,6 +141,28 @@ export function repairSearchContentText(db: Database.Database): SearchContentRep
   };
 }
 
+/**
+ * Upgrade obsolete compact Markdown block IDs into the current block-index model.
+ * Only notes whose visible projection actually changes are touched. syncNoteBlocks
+ * intentionally preserves note updatedAt/version while rebuilding block rows and
+ * contentText, so links/search stop leaking the historical metadata permanently.
+ */
+export function repairLegacyMarkdownBlockMetadata(db: Database.Database): number {
+  const rows = db.prepare(`
+    SELECT id, COALESCE(content, '') AS content
+    FROM notes
+    WHERE contentFormat = 'markdown' AND content LIKE '%^blk%'
+  `).all() as Array<{ id: string; content: string }>;
+
+  let repairedCount = 0;
+  for (const row of rows) {
+    if (stripLegacyInternalMarkdownMarkers(row.content) === row.content) continue;
+    syncNoteBlocks(db, row.id, row.content, "markdown");
+    repairedCount += 1;
+  }
+  return repairedCount;
+}
+
 function createNormalizedSearchFts(db: Database.Database): void {
   if (!normalizedSearchFunctionDatabases.has(db as object)) {
     db.function(
@@ -212,9 +239,48 @@ export function rebuildNormalizedSearchFts(db: Database.Database): void {
   `).run();
 }
 
+function readSystemSetting(db: Database.Database, key: string): string | null {
+  const row = db.prepare("SELECT value FROM system_settings WHERE key = ?")
+    .get(key) as { value?: string } | undefined;
+  return row?.value ?? null;
+}
+
+function writeSystemSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO system_settings (key, value, updatedAt)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updatedAt = datetime('now')
+  `).run(key, value);
+}
+
+/**
+ * Repair persisted user-visible text whenever extraction semantics are upgraded.
+ * The version marker is written last, making an interrupted startup safely retryable.
+ */
+function ensureSearchContentExtractorVersion(db: Database.Database): boolean {
+  if (readSystemSetting(db, SEARCH_CONTENT_EXTRACTOR_VERSION_KEY) === SEARCH_CONTENT_EXTRACTOR_VERSION) {
+    return false;
+  }
+
+  const markdownRepaired = repairLegacyMarkdownBlockMetadata(db);
+  const textRepair = repairSearchContentText(db);
+  db.prepare("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')").run();
+  rebuildNormalizedSearchFts(db);
+  markSearchIndexRebuilt(db);
+  writeSystemSetting(db, SEARCH_CONTENT_EXTRACTOR_VERSION_KEY, SEARCH_CONTENT_EXTRACTOR_VERSION);
+  console.log(
+    `[search] extractor v${SEARCH_CONTENT_EXTRACTOR_VERSION}: `
+      + `${markdownRepaired} markdown notes normalized, ${textRepair.repairedCount} text rows repaired`,
+  );
+  return true;
+}
+
 /** Ensure the normalized candidate index and its triggers exist after startup. */
 export function ensureNormalizedSearchFts(db: Database.Database): void {
   createNormalizedSearchFts(db);
+  if (ensureSearchContentExtractorVersion(db)) return;
   const noteCount = Number((db.prepare("SELECT COUNT(*) AS count FROM notes").get() as { count?: number })?.count) || 0;
   const indexCount = Number((db.prepare("SELECT COUNT(*) AS count FROM notes_search_fts").get() as { count?: number })?.count) || 0;
   if (noteCount !== indexCount) rebuildNormalizedSearchFts(db);

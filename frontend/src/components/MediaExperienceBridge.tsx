@@ -26,6 +26,7 @@ import { resolveAttachmentUrl } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { shouldShieldMediaButton } from "@/lib/editorMediaScopeGuard";
 import {
   appendDownloadFlag,
   dispatchMediaFilesToEditor,
@@ -500,7 +501,11 @@ export default function MediaExperienceBridge() {
       const target = event.target;
       if (!(target instanceof Element)) return;
       const button = target.closest<HTMLButtonElement>("button");
-      if (!button || button.closest("[data-nowen-media-sheet]")) return;
+      if (
+        !button
+        || button.closest("[data-nowen-media-sheet], [data-nowen-media-owner]")
+        || shouldShieldMediaButton(button)
+      ) return;
       const imageIcon = button.querySelector("svg.lucide-image-plus");
       const videoIcon = button.querySelector("svg.lucide-film");
       if (!imageIcon && !videoIcon) return;

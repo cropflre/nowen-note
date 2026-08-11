@@ -26,8 +26,8 @@ function findInputs(root: ParentNode, selector: string): HTMLInputElement[] {
  * 收敛侧栏搜索入口：
  *
  * - 旧的“搜索笔记”输入框会切换全文搜索视图，与统一内容树筛选框紧邻后语义冲突；
- * - 全文搜索继续由 Cmd/Ctrl+K 命令面板和桌面端原生菜单承载；
- * - 内容树输入框只负责当前树节点过滤，并显式标注作用范围。
+ * - 全文搜索由内容树搜索框的范围切换、Cmd/Ctrl+K 和桌面端原生菜单共同承载；
+ * - 内容树输入框默认负责当前树节点过滤，并通过范围控件显式区分全文搜索。
  *
  * 这里暂时保留旧输入节点供旧版 Sidebar 代码兼容，但从可见 UI 和键盘导航中退休。
  * Sidebar 后续拆除旧目录代码时，可以连同该兼容层一起删除。
@@ -67,19 +67,23 @@ export function applySidebarSearchExperience(root: ParentNode = document): boole
       filterSurface.dataset.treeFilterSurface = "true";
       changed = true;
     }
-    if (treeFilter.placeholder !== "筛选目录与文档…") {
-      treeFilter.placeholder = "筛选目录与文档…";
+    const contentScope = treeFilter.dataset.searchScope === "content";
+    const placeholder = contentScope ? "搜索笔记标题与正文…" : "筛选目录与文档…";
+    const ariaLabel = contentScope ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档";
+    const title = contentScope ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文";
+    if (treeFilter.placeholder !== placeholder) {
+      treeFilter.placeholder = placeholder;
       changed = true;
     }
-    if (treeFilter.getAttribute("aria-label") !== "筛选当前目录中的文件夹与文档") {
-      treeFilter.setAttribute("aria-label", "筛选当前目录中的文件夹与文档");
+    if (treeFilter.getAttribute("aria-label") !== ariaLabel) {
+      treeFilter.setAttribute("aria-label", ariaLabel);
       changed = true;
     }
-    if (treeFilter.title !== "仅筛选当前内容树，不搜索笔记正文") {
-      treeFilter.title = "仅筛选当前内容树，不搜索笔记正文";
+    if (treeFilter.title !== title) {
+      treeFilter.title = title;
       changed = true;
     }
-    if (treeFilter.dataset.searchScope !== "tree") {
+    if (!treeFilter.dataset.searchScope) {
       treeFilter.dataset.searchScope = "tree";
       changed = true;
     }

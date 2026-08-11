@@ -10,6 +10,8 @@
 //   mode:        "full" | "lite"          // full=自带后端；lite=连远端
 //   remoteUrl:   string                    // lite 模式下的远端基础 URL（例：http://192.168.1.10:3000）
 //   hideMenuBar: boolean                   // Windows/Linux 是否隐藏原生菜单栏（Alt 可临时唤出）
+//   offlineCacheDir: string                // 自定义 renderer 离线缓存目录；空字符串表示默认目录
+//   offlineCacheMigrationSource: string    // 更换目录后，仅供下一次启动迁移使用
 //
 // 设计：
 //   - 读：失败/字段缺失 → 默认值 { mode: "full", remoteUrl: "" }，永远不抛
@@ -25,6 +27,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   mode: "full",
   remoteUrl: "",
   hideMenuBar: true,
+  offlineCacheDir: "",
+  offlineCacheMigrationSource: "",
 });
 
 const VALID_MODES = new Set(["full", "lite"]);
@@ -56,6 +60,12 @@ function normalize(raw) {
     }
     if (typeof raw.hideMenuBar === "boolean") {
       out.hideMenuBar = raw.hideMenuBar;
+    }
+    if (typeof raw.offlineCacheDir === "string" && path.isAbsolute(raw.offlineCacheDir)) {
+      out.offlineCacheDir = path.resolve(raw.offlineCacheDir);
+    }
+    if (typeof raw.offlineCacheMigrationSource === "string" && path.isAbsolute(raw.offlineCacheMigrationSource)) {
+      out.offlineCacheMigrationSource = path.resolve(raw.offlineCacheMigrationSource);
     }
   }
   // 一致性：lite 模式但 url 为空 → 退回 full（防止用户手编 settings.json 出错卡死）

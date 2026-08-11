@@ -4,8 +4,10 @@ import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
 import { logAudit } from "../services/audit";
+import { logNoteWrite, normalizeNoteWriteSource } from "../services/note-write-observability";
 import {
   resolveNotePermission,
+  resolveTrashedNotePermission,
   resolveNotebookPermission,
   hasPermission,
   getUserWorkspaceRole,
@@ -13,6 +15,7 @@ import {
 } from "../middleware/acl";
 import { broadcastNoteUpdated, broadcastNoteDeleted, broadcastNotesDeleted, broadcastYjsUpdate, broadcastToUser } from "../services/realtime";
 import {
+  yAdvanceRoomBaseVersion,
   yApplySubdocumentUpdate,
   yDestroyDoc,
   yFlush,
@@ -44,6 +47,8 @@ import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favori
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
+import { resolveNotebookNoteScopeIds } from "../lib/notebookNoteScope";
+import { resolveKnowledgeTreeNoteScopeIds } from "../lib/knowledgeTreeNoteScope";
 
 const app = new Hono();
 
@@ -89,6 +94,11 @@ app.get("/", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const workspaceId = c.req.query("workspaceId");
   const notebookId = c.req.query("notebookId");
+  const treeParentIdParam = c.req.query("treeParentId");
+  const hasKnowledgeTreeScope = treeParentIdParam !== undefined;
+  const treeParentId = treeParentIdParam === "root" ? null : treeParentIdParam || null;
+  // 三栏式目录默认传 0：只显示当前文件夹直属笔记；未传时保持历史递归行为。
+  const includeDescendants = c.req.query("includeDescendants") !== "0";
   const isFavorite = c.req.query("isFavorite");
   const isTrashed = c.req.query("isTrashed");
   const search = c.req.query("search");
@@ -133,16 +143,35 @@ app.get("/", (c) => {
     notes.isLocked, notes.isArchived, notes.isTrashed, notes.version, notes.sortOrder,
     notes.createdAt, notes.updatedAt,
     notes.contentFormat,
+    (SELECT tree.parentId
+       FROM knowledge_tree_nodes tree
+      WHERE tree.resourceType = 'note' AND tree.resourceId = notes.id AND tree.isDeleted = 0
+      ORDER BY tree.updatedAt DESC
+      LIMIT 1) AS treeParentId,
     users.username AS creatorName
     FROM notes
     LEFT JOIN users ON users.id = notes.userId
     WHERE 1=1`;
   const params: any[] = [userId];
+  const useKnowledgeTreeScope =
+    hasKnowledgeTreeScope
+    && !search
+    && isTrashed !== "1"
+    && isFavorite !== "1"
+    && tagIds.length === 0;
   const useNotebookScope =
-    Boolean(notebookId) && !search && isTrashed !== "1" && isFavorite !== "1" && tagIds.length === 0;
+    !hasKnowledgeTreeScope
+    && Boolean(notebookId)
+    && !search
+    && isTrashed !== "1"
+    && isFavorite !== "1"
+    && tagIds.length === 0;
 
   // Scope 过滤
-  if (useNotebookScope && notebookId) {
+  if (useKnowledgeTreeScope) {
+    // Knowledge-tree access is checked per node below. Do not apply the physical
+    // notebook filter here: root documents deliberately live in a hidden notebook.
+  } else if (useNotebookScope && notebookId) {
     const { permission } = resolveNotebookPermission(notebookId, userId);
     if (!hasPermission(permission, "read")) {
       return c.json({ error: "Notebook not found or forbidden" }, 404);
@@ -185,19 +214,21 @@ app.get("/", (c) => {
     const placeholders = filteredNoteIds.map(() => "?").join(",");
     query += ` AND notes.id IN (${placeholders})`;
     params.push(...filteredNoteIds);
+  } else if (useKnowledgeTreeScope) {
+    const noteIds = resolveKnowledgeTreeNoteScopeIds(
+      db,
+      userId,
+      workspaceId && workspaceId !== "personal" ? workspaceId : null,
+      treeParentId,
+      includeDescendants,
+    );
+    if (noteIds === null) return c.json({ error: "Folder not found or forbidden" }, 404);
+    if (noteIds.length === 0) return c.json([]);
+    const placeholders = noteIds.map(() => "?").join(",");
+    query += ` AND notes.id IN (${placeholders}) AND notes.isTrashed = 0`;
+    params.push(...noteIds);
   } else if (notebookId) {
-    // 递归收集 notebookId 自身 + 全部后代笔记本，使笔记列表能展示子笔记本下的笔记
-    // 用 SQLite 的递归 CTE：从给定 id 出发沿 parentId 反向向下展开
-    const descendantRows = db.prepare(`
-      WITH RECURSIVE descendants(id) AS (
-        SELECT id FROM notebooks WHERE id = ?
-        UNION ALL
-        SELECT n.id FROM notebooks n
-        INNER JOIN descendants d ON n.parentId = d.id
-      )
-      SELECT id FROM descendants
-    `).all(notebookId) as { id: string }[];
-    const ids = descendantRows.map((r) => r.id);
+    const ids = resolveNotebookNoteScopeIds(db, notebookId, includeDescendants);
     if (ids.length === 0) {
       // 给的 notebookId 不存在 → 直接返回空，避免 IN () 语法错误
       return c.json([]);
@@ -232,7 +263,10 @@ app.get("/", (c) => {
     // updatedAt | createdAt
     query += ` ORDER BY notes.isPinned DESC, notes.${sortBy} ${sortDir}, notes.id ASC`;
   }
-  const notes = db.prepare(query).all(...params);
+  const notes = db.prepare(query).all(...params) as Array<Record<string, unknown>>;
+  if (useKnowledgeTreeScope && !includeDescendants) {
+    return c.json(notes.map((note) => ({ ...note, treeParentId })));
+  }
   return c.json(notes);
 });
 
@@ -677,9 +711,15 @@ app.put("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
   const body = await c.req.json();
+  const writeSource = normalizeNoteWriteSource(body.writeSource);
+  delete body.writeSource;
 
-  // 权限校验
-  const { permission, workspaceId: noteWorkspaceId } = resolveNotePermission(id, userId);
+  // 权限校验。恢复操作发生时知识树节点已经是 tombstone，必须显式使用
+  // 删除生命周期权限桥；其它编辑/软删仍保持普通严格权限。
+  const notePermissionResolver = body.isTrashed === 0
+    ? resolveTrashedNotePermission
+    : resolveNotePermission;
+  const { permission, workspaceId: noteWorkspaceId } = notePermissionResolver(id, userId);
 
   // 根据变更字段决定所需权限
   const writeFields = ["title", "content", "contentText", "contentFormat", "notebookId", "isPinned", "isFavorite",
@@ -702,7 +742,27 @@ app.put("/:id", async (c) => {
   const versionRequiredFields = ["title", "content", "contentText", "contentFormat"];
   const needsVersion = versionRequiredFields.some((f) => body[f] !== undefined);
 
+  // whole-save 校验版本前先落盘活动 Y.Doc。否则已 ACK、仍在 1.5 秒 debounce
+  // 中的 Live 修改尚未增加 notes.version，外部写入会错误地通过旧版本校验。
+  if (needsVersion) {
+    try { yFlush(id); } catch (error) {
+      console.warn("[notes.put] preflight yFlush failed:", error);
+    }
+  }
+
   if (needsVersion && body.version === undefined) {
+    const current = db.prepare("SELECT version FROM notes WHERE id = ?").get(id) as
+      | { version: number }
+      | undefined;
+    logNoteWrite({
+      noteId: id,
+      source: writeSource,
+      baseVersion: null,
+      oldVersion: current?.version ?? null,
+      newVersion: null,
+      outcome: "rejected",
+      reason: "version-required",
+    });
     return c.json(
       { error: "缺少 version 字段，无法安全保存", code: "VERSION_REQUIRED" },
       400,
@@ -713,6 +773,15 @@ app.put("/:id", async (c) => {
   if (body.version !== undefined) {
     const current = db.prepare("SELECT version FROM notes WHERE id = ?").get(id) as { version: number } | undefined;
     if (current && current.version !== body.version) {
+      logNoteWrite({
+        noteId: id,
+        source: writeSource,
+        baseVersion: body.version,
+        oldVersion: current.version,
+        newVersion: null,
+        outcome: "rejected",
+        reason: "version-conflict",
+      });
       return c.json(
         { error: "Version conflict", code: "VERSION_CONFLICT", currentVersion: current.version },
         409,
@@ -987,6 +1056,11 @@ app.put("/:id", async (c) => {
   // 切换 favorites 属于 per-user 操作，不应该 bump notes.version（会误触发其他协作者
   // 的乐观锁刷新），也不应广播 note.updated。因此仅当确有 notes 列要改时才 UPDATE。
   const hasNoteColumnChange = fields.length > 0;
+  const oldVersion = hasNoteColumnChange
+    ? (db.prepare("SELECT version FROM notes WHERE id = ?").get(id) as
+        | { version: number }
+        | undefined)?.version ?? null
+    : null;
 
   const needsLegacyHierarchySync = body.notebookId !== undefined
     || body.sortOrder !== undefined
@@ -1102,17 +1176,38 @@ app.put("/:id", async (c) => {
     FROM notes WHERE id = ?
   `).get(userId, id);
 
-  // syncToYjs：调用方（目前是 EditorPane RTE→MD 切换）显式要求把 body.content 作为
-  // markdown 同步写入 y room 的 yText。这里必须在 REST 落库成功之后才做，因为：
+  if (hasNoteColumnChange) {
+    const newVersion = typeof (note as any)?.version === "number" ? (note as any).version : null;
+    logNoteWrite({
+      noteId: id,
+      source: writeSource,
+      baseVersion: typeof body.version === "number" ? body.version : null,
+      oldVersion,
+      newVersion,
+      outcome: "committed",
+    });
+    if (
+      typeof oldVersion === "number"
+      && typeof newVersion === "number"
+      && body.content === undefined
+      && body.contentText === undefined
+    ) {
+      yAdvanceRoomBaseVersion(id, oldVersion, newVersion);
+    }
+  }
+
+  // Markdown whole-save 必须统一同步写入 y room 的 yText。不能只依赖某个调用方
+  // 记得传 syncToYjs，否则普通 API/旧 MCP 路径仍会留下可回写旧正文的活动 Y.Doc。
+  // 这里必须在 REST 落库成功之后才做，因为：
   //   1. 权限 / 乐观锁 / 版本历史都跑完了，失败已经早返回。
   //   2. 若 REST 成功而 yjs 失败，notes.content 与 yDoc 暂不一致——但客户端下次 room
   //      空闲销毁重启时，loadDocFromDb 会从 note_yupdates 恢复，最坏情况是 MD 编辑器
   //      里短暂看到旧内容；客户端仍可从 REST 拉 notes.content 得到正确值作为后备 UX。
   //     （对"彻底解决切换看不到最新内容"的主诉求已经不致命。）
   //
-  // 只在 body.content 存在（即本次 PUT 带了新的 markdown 内容）且 syncToYjs=true 时触发。
+  // 只在本次 PUT 带了新的 markdown 内容时触发；syncToYjs 保留为旧客户端兼容字段。
   // updateBase64 拿到后调用 realtime 广播给房间内其它连接，使它们的 yDoc 一次性对齐。
-  if (body.syncToYjs === true && typeof body.content === "string") {
+  if ((note as any)?.contentFormat === "markdown" && typeof body.content === "string") {
     try {
       const result = yReplaceContentAsUpdate(id, body.content, userId || null);
       if (result) {
@@ -1477,7 +1572,8 @@ app.delete("/:id", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const { permission } = resolveNotePermission(id, userId);
+  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
+  const { permission } = resolveTrashedNotePermission(id, userId);
   if (!hasPermission(permission, "manage")) {
     // editor 不能永久删除，只能放入回收站
     return c.json({ error: "仅笔记 owner 或工作区管理员可永久删除", code: "FORBIDDEN" }, 403);

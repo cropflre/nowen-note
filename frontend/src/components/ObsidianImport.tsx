@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, CloudUpload, FileArchive, FolderOpen, Loader2, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
-import type { ImportProgress } from "@/lib/importService";
+import type { ImportProgress, ImportTargetContentFormat } from "@/lib/importService";
 import {
   formatObsidianFileSize, runObsidianImport, scanObsidianFolder, scanObsidianZip,
   type ObsidianImportResult, type ObsidianScanResult,
@@ -9,6 +9,16 @@ import {
 import { useAppActions } from "@/store/AppContext";
 
 type Phase = "idle" | "scanning" | "ready" | "importing" | "done" | "error";
+const OBSIDIAN_FORMAT_STORAGE_KEY = "nowen-import-format:obsidian";
+
+function readObsidianFormat(): ImportTargetContentFormat {
+  try {
+    const value = window.localStorage.getItem(OBSIDIAN_FORMAT_STORAGE_KEY);
+    return value === "tiptap-json" || value === "markdown" ? value : "markdown";
+  } catch {
+    return "markdown";
+  }
+}
 
 export default function ObsidianImport() {
   const actions = useAppActions();
@@ -20,6 +30,11 @@ export default function ObsidianImport() {
   const [message, setMessage] = useState("");
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [result, setResult] = useState<ObsidianImportResult | null>(null);
+  const [contentFormat, setContentFormat] = useState<ImportTargetContentFormat>(readObsidianFormat);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(OBSIDIAN_FORMAT_STORAGE_KEY, contentFormat); } catch { /* ignore */ }
+  }, [contentFormat]);
 
   const reset = useCallback(() => {
     setPhase("idle"); setScan(null); setRootName(""); setMessage(""); setProgress(null); setResult(null);
@@ -57,12 +72,12 @@ export default function ObsidianImport() {
     if (!scan) return;
     setPhase("importing"); setResult(null); setMessage("正在导入 Obsidian Vault…");
     try {
-      const imported = await runObsidianImport(scan, { rootName, onProgress: setProgress });
+      const imported = await runObsidianImport(scan, { rootName, contentFormat, onProgress: setProgress });
       setResult(imported); setPhase(imported.errors.length ? "error" : "done");
       setMessage(imported.errors.length ? `已导入 ${imported.noteCount} 篇，存在 ${imported.errors.length} 条错误` : `成功导入 ${imported.noteCount} 篇笔记和 ${imported.attachmentCount} 个附件`);
       try { actions.setNotebooks(await api.getNotebooks()); actions.refreshNotes(); } catch { /* next refresh */ }
     } catch (error) { setPhase("error"); setMessage((error as Error).message || "导入失败"); }
-  }, [actions, rootName, scan]);
+  }, [actions, contentFormat, rootName, scan]);
 
   const notes = useMemo(() => scan?.entries.filter((entry) => entry.kind === "note") || [], [scan]);
   const selected = notes.filter((entry) => entry.selected).length;
@@ -83,6 +98,16 @@ export default function ObsidianImport() {
         <label className="block text-xs text-zinc-500">最外层笔记本名称
           <input value={rootName} onChange={(e) => setRootName(e.target.value)} disabled={phase === "importing"} className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
         </label>
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">导入后笔记格式</p>
+          <div className="inline-flex overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <button type="button" disabled={phase === "importing"} onClick={() => setContentFormat("markdown")} className={`px-3 py-1.5 text-xs font-medium transition-colors ${contentFormat === "markdown" ? "bg-violet-600 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}>Markdown（推荐）</button>
+            <button type="button" disabled={phase === "importing"} onClick={() => setContentFormat("tiptap-json")} className={`border-l border-zinc-200 px-3 py-1.5 text-xs font-medium transition-colors dark:border-zinc-700 ${contentFormat === "tiptap-json" ? "bg-violet-600 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}>富文本</button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+            {contentFormat === "markdown" ? "保留原始 Markdown、Frontmatter 和链接语法，附件地址会自动迁移。" : "转换为可视化编辑格式；部分 Obsidian 专有语法可能降级。"}
+          </p>
+        </div>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           <Stat n={scan.stats.notes} label="笔记"/><Stat n={scan.stats.folders} label="目录"/><Stat n={scan.stats.attachments} label="附件"/>
           <Stat n={scan.stats.images} label="图片"/><Stat n={scan.stats.videos + scan.stats.pdfs} label="视频 / PDF"/><Stat n={formatObsidianFileSize(scan.stats.totalBytes)} label="总大小"/>

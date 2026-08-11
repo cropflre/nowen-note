@@ -376,8 +376,13 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
     if (!state.active || !view) return;
     const handler = (e: KeyboardEvent) => {
       if (!state.active) return;
-      // 中文输入法确认候选词时也会触发 Enter，不能把它当作菜单选择。
-      if (e.isComposing || e.keyCode === 229) return;
+      // 中文输入法确认候选词时也会触发 Enter。监听器与 CodeMirror 位于同一节点，
+      // 需要阻断同节点后续监听器，避免回车被编辑器处理为换行并关闭菜单。
+      const isImeComposing = e.isComposing || view.composing;
+      if (isImeComposing) {
+        if (e.key === "Enter") e.stopImmediatePropagation();
+        return;
+      }
       if (filtered.length === 0) {
         if (e.key === "Escape") {
           onClose();

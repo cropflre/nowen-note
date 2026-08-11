@@ -4,7 +4,7 @@
  * 覆盖：
  *   - URL `?md=1|0` 强制优先于 localStorage
  *   - localStorage 合法值 / 非法值回落默认
- *   - persistEditorMode 写入 + 读回
+ *   - persistEditorMode 全局写入与当前笔记作用域隔离
  *   - clearForcedModeFromUrl 删 md=，保留其他参数
  *   - nextEditorMode 两向切换
  */
@@ -15,6 +15,7 @@ import {
   nextEditorMode,
   persistEditorMode,
   resolveEditorMode,
+  setActiveNoteEditorModeOverride,
 } from "@/lib/editorMode";
 
 function setLocation(url: string) {
@@ -23,6 +24,7 @@ function setLocation(url: string) {
 }
 
 beforeEach(() => {
+  setActiveNoteEditorModeOverride(null);
   localStorage.clear();
   setLocation("/");
 });
@@ -70,6 +72,19 @@ describe("persistEditorMode", () => {
 
     persistEditorMode("tiptap");
     expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
+    expect(resolveEditorMode()).toBe("tiptap");
+  });
+
+  it("当前笔记格式切换不会覆盖全局编辑器偏好", () => {
+    localStorage.setItem(EDITOR_MODE_KEY, "tiptap");
+    setActiveNoteEditorModeOverride("tiptap");
+
+    persistEditorMode("md");
+
+    expect(resolveEditorMode()).toBe("md");
+    expect(localStorage.getItem(EDITOR_MODE_KEY)).toBe("tiptap");
+
+    setActiveNoteEditorModeOverride(null);
     expect(resolveEditorMode()).toBe("tiptap");
   });
 });

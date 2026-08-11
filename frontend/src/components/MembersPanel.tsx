@@ -4,7 +4,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Trash2, Plus, UserPlus, Shield, ChevronDown } from "lucide-react";
+import { Copy, Trash2, Plus, ChevronDown } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
@@ -21,14 +22,6 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 
-const ROLE_LABEL: Record<WorkspaceRole, string> = {
-  owner: "所有者",
-  admin: "管理员",
-  editor: "编辑者",
-  commenter: "评论者",
-  viewer: "查看者",
-};
-
 const ROLE_BADGE_CLASS: Record<WorkspaceRole, string> = {
   owner: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
   admin: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
@@ -43,6 +36,7 @@ interface Props {
 }
 
 export default function MembersPanel({ workspaceId, onClose }: Props) {
+  const { t, i18n } = useTranslation();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [invites, setInvites] = useState<WorkspaceInvite[]>([]);
@@ -51,6 +45,7 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [showCreateInvite, setShowCreateInvite] = useState(false);
 
+  const locale = i18n.resolvedLanguage || i18n.language;
   const isManager = workspace?.role === "owner" || workspace?.role === "admin";
   // 功能开关：按后端约束，仅 owner 可改；admin 可见但只读（保持信息透明）。
   const isOwner = workspace?.role === "owner";
@@ -77,11 +72,11 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
           const feat = await api.getWorkspaceFeatures(workspaceId);
           setFeatures(feat);
         } catch {
-          // 后端暂不可用时，降级为 null，Tab 显示 "加载失败" 即可，不阻断成员管理。
+          // 后端暂不可用时，降级为 null，不阻断成员管理。
         }
       }
     } catch (e: any) {
-      toast.error(e.message || "加载失败");
+      toast.error(e.message || t("workspaceMembers.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -94,42 +89,42 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
   const handleRoleChange = async (userId: string, role: WorkspaceRole) => {
     try {
       await api.updateWorkspaceMember(workspaceId, userId, role);
-      toast.success("角色已更新");
+      toast.success(t("workspaceMembers.roleUpdated"));
       loadAll();
     } catch (e: any) {
-      toast.error(e.message || "更新失败");
+      toast.error(e.message || t("workspaceMembers.updateFailed"));
     }
   };
 
   const handleRemove = async (userId: string, username: string) => {
     const ok = await confirmDialog({
-      title: `确定要移除成员「${username}」吗？`,
-      confirmText: "移除",
+      title: t("workspaceMembers.removeConfirm", { username }),
+      confirmText: t("workspaceMembers.remove"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.removeWorkspaceMember(workspaceId, userId);
-      toast.success("已移除");
+      toast.success(t("workspaceMembers.removed"));
       loadAll();
     } catch (e: any) {
-      toast.error(e.message || "移除失败");
+      toast.error(e.message || t("workspaceMembers.removeFailed"));
     }
   };
 
   const handleDeleteInvite = async (inviteId: string) => {
     const ok = await confirmDialog({
-      title: "确定要撤销这个邀请码吗？",
-      confirmText: "撤销",
+      title: t("workspaceMembers.revokeInviteConfirm"),
+      confirmText: t("workspaceMembers.revoke"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.deleteWorkspaceInvite(workspaceId, inviteId);
-      toast.success("邀请码已撤销");
+      toast.success(t("workspaceMembers.inviteRevoked"));
       loadAll();
     } catch (e: any) {
-      toast.error(e.message || "操作失败");
+      toast.error(e.message || t("workspaceMembers.actionFailed"));
     }
   };
 
@@ -144,7 +139,6 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
     setFeatures(next);
     try {
       const saved = await api.updateWorkspaceFeatures(workspaceId, { [key]: value });
-      // 后端归一化结果为准，避免本地与服务端漂移
       setFeatures(saved);
       window.dispatchEvent(
         new CustomEvent("nowen:workspace-features-changed", {
@@ -153,82 +147,82 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       );
     } catch (e: any) {
       setFeatures(prev);
-      toast.error(e?.message || "保存失败");
+      toast.error(e?.message || t("workspaceMembers.saveFailed"));
     }
   };
 
   return (
     <Modal
-      title={workspace ? `${workspace.icon} ${workspace.name}` : "工作区"}
+      title={workspace ? `${workspace.icon} ${workspace.name}` : t("workspaceMembers.workspace")}
       onClose={onClose}
       widthClass="max-w-2xl"
       heightClass="h-[80vh]"
     >
       {loading ? (
-        <div className="py-8 text-center text-muted-foreground">加载中...</div>
+        <div className="py-8 text-center text-muted-foreground">{t("workspaceMembers.loading")}</div>
       ) : (
-        // 纵向填满 Modal body：tab 条固定在顶，面板区 flex-1 内部滚动，
-        // 让弹窗整体高度稳定在 80vh，不再随 tab 内容伸缩。
         <div className="flex flex-col h-full min-h-0">
-          {/* Tab */}
           <div className="flex gap-1 mb-4 border-b border-border shrink-0">
             <TabBtn active={tab === "members"} onClick={() => setTab("members")}>
-              成员 ({members.length})
+              {t("workspaceMembers.membersCount", { count: members.length })}
             </TabBtn>
             {isManager && (
               <TabBtn active={tab === "invites"} onClick={() => setTab("invites")}>
-                邀请码 ({invites.length})
+                {t("workspaceMembers.invitesCount", { count: invites.length })}
               </TabBtn>
             )}
             {isManager && (
               <TabBtn active={tab === "features"} onClick={() => setTab("features")}>
-                功能模块
+                {t("workspaceMembers.featureModules")}
               </TabBtn>
             )}
           </div>
 
           {tab === "members" && (
             <div className="space-y-1 flex-1 min-h-0 overflow-auto">
-              {members.map((m) => (
-                <div
-                  key={m.userId}
-                  className="flex items-center gap-3 p-2 rounded hover:bg-accent/50"
-                >
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold">
-                    {m.username.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{m.username}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {m.email || "无邮箱"} · 加入于 {new Date(m.joinedAt).toLocaleDateString()}
+              {members.map((m) => {
+                const joinedDate = new Date(m.joinedAt).toLocaleDateString(locale);
+                return (
+                  <div
+                    key={m.userId}
+                    className="flex items-center gap-3 p-2 rounded hover:bg-accent/50"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold">
+                      {m.username.slice(0, 2).toUpperCase()}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{m.username}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {m.email || t("workspaceMembers.noEmail")} · {t("workspaceMembers.joinedAt", { date: joinedDate })}
+                      </div>
+                    </div>
+                    {isManager && m.role !== "owner" ? (
+                      <RoleSelect
+                        value={m.role}
+                        onChange={(role) => handleRoleChange(m.userId, role)}
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          "px-2 py-0.5 rounded text-xs font-medium",
+                          ROLE_BADGE_CLASS[m.role],
+                        )}
+                      >
+                        {t(`workspaceMembers.roles.${m.role}`)}
+                      </span>
+                    )}
+                    {isManager && m.role !== "owner" && (
+                      <button
+                        onClick={() => handleRemove(m.userId, m.username)}
+                        className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
+                        title={t("workspaceMembers.removeMember")}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                  {isManager && m.role !== "owner" ? (
-                    <RoleSelect
-                      value={m.role}
-                      onChange={(role) => handleRoleChange(m.userId, role)}
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded text-xs font-medium",
-                        ROLE_BADGE_CLASS[m.role],
-                      )}
-                    >
-                      {ROLE_LABEL[m.role]}
-                    </span>
-                  )}
-                  {isManager && m.role !== "owner" && (
-                    <button
-                      onClick={() => handleRemove(m.userId, m.username)}
-                      className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
-                      title="移除成员"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -237,13 +231,13 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
               <div className="flex justify-end shrink-0">
                 <Button size="sm" onClick={() => setShowCreateInvite(true)}>
                   <Plus className="w-4 h-4 mr-1" />
-                  创建邀请码
+                  {t("workspaceMembers.createInvite")}
                 </Button>
               </div>
               <div className="space-y-2 flex-1 min-h-0 overflow-auto">
                 {invites.length === 0 && (
                   <div className="text-center text-sm text-muted-foreground py-8">
-                    暂无邀请码
+                    {t("workspaceMembers.noInvites")}
                   </div>
                 )}
                 {invites.map((inv) => (
@@ -261,15 +255,15 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
             <div className="space-y-3 flex-1 min-h-0 overflow-auto">
               {!features ? (
                 <div className="text-center text-sm text-muted-foreground py-8">
-                  功能开关暂不可用
+                  {t("workspaceMembers.featuresUnavailable")}
                 </div>
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    关闭的模块对所有成员隐藏入口，且无法读取/写入对应数据。
+                    {t("workspaceMembers.featureDisabledDesc")}
                     {!isOwner && (
                       <span className="ml-1 text-amber-600 dark:text-amber-400">
-                        仅所有者可修改。
+                        {t("workspaceMembers.ownerOnly")}
                       </span>
                     )}
                   </p>
@@ -277,8 +271,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
                     {WORKSPACE_FEATURE_META.map((meta) => (
                       <FeatureRow
                         key={meta.key}
-                        label={meta.label}
-                        description={meta.description}
+                        label={t(`workspaceMembers.features.${meta.key}.label`)}
+                        description={t(`workspaceMembers.features.${meta.key}.description`)}
                         enabled={features[meta.key]}
                         disabled={!isOwner}
                         onToggle={(v) => handleToggleFeature(meta.key, v)}
@@ -337,6 +331,7 @@ function RoleSelect({
   value: WorkspaceRole;
   onChange: (v: WorkspaceRole) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<
     { top: number; left: number; placement: "bottom" | "top" } | null
@@ -345,7 +340,6 @@ function RoleSelect({
   const menuRef = useRef<HTMLDivElement>(null);
   const options: WorkspaceRole[] = ["admin", "editor", "commenter", "viewer"];
 
-  // 菜单尺寸（与下面 className 保持一致）：min-w 100、估高 ~ 4*28 + 8 padding ≈ 120
   const MENU_MIN_WIDTH = 100;
   const MENU_EST_HEIGHT = 120;
 
@@ -359,7 +353,6 @@ function RoleSelect({
     const spaceAbove = rect.top;
     const placement: "bottom" | "top" =
       spaceBelow < MENU_EST_HEIGHT + 12 && spaceAbove > spaceBelow ? "top" : "bottom";
-    // 菜单右对齐按钮（与原 `right-0` 的视觉一致）
     const width = Math.max(MENU_MIN_WIDTH, rect.width);
     let left = rect.right - width;
     if (left < 8) left = 8;
@@ -368,15 +361,13 @@ function RoleSelect({
     setPos({ top, left, placement });
   };
 
-  // 打开时定位；外点 / ESC / scroll / resize 自动关闭。
-  // scroll 用 capture=true 能捕获任意祖先滚动容器（Modal body 滚动时直接关比跟随更稳）。
   useEffect(() => {
     if (!open) return;
     computePos();
     const handleDown = (e: MouseEvent | TouchEvent) => {
-      const t = e.target as Node;
-      if (menuRef.current?.contains(t)) return;
-      if (btnRef.current?.contains(t)) return;
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (btnRef.current?.contains(target)) return;
       setOpen(false);
     };
     const handleKey = (e: KeyboardEvent) => {
@@ -407,14 +398,9 @@ function RoleSelect({
           ROLE_BADGE_CLASS[value],
         )}
       >
-        {ROLE_LABEL[value]}
+        {t(`workspaceMembers.roles.${value}`)}
         <ChevronDown className="w-3 h-3" />
       </button>
-      {/*
-        菜单 portal 到 body，position:fixed + 按钮位置实时计算坐标。
-        这样可以绕开 Modal 内容器的 overflow 裁切与 stacking context 限制，
-        贴近视口底部时自动上翻，避免出现被"切半截"的现象。
-      */}
       {open && pos &&
         createPortal(
           <AnimatePresence>
@@ -436,7 +422,7 @@ function RoleSelect({
                   }}
                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
                 >
-                  {ROLE_LABEL[r]}
+                  {t(`workspaceMembers.roles.${r}`)}
                 </button>
               ))}
             </motion.div>
@@ -454,6 +440,8 @@ function InviteItem({
   invite: WorkspaceInvite;
   onDelete: () => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage || i18n.language;
   const expired =
     !!invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now();
   const exhausted = invite.maxUses > 0 && invite.useCount >= invite.maxUses;
@@ -461,7 +449,7 @@ function InviteItem({
 
   const copyCode = () => {
     navigator.clipboard.writeText(invite.code);
-    toast.success("邀请码已复制");
+    toast.success(t("workspaceMembers.inviteCopied"));
   };
 
   return (
@@ -476,35 +464,35 @@ function InviteItem({
           "px-2 py-1 rounded font-mono text-sm cursor-pointer bg-muted hover:bg-accent",
         )}
         onClick={copyCode}
-        title="点击复制"
+        title={t("workspaceMembers.clickToCopy")}
       >
         {invite.code}
       </code>
       <div className="flex-1 min-w-0 text-xs text-muted-foreground">
         <div>
-          角色：<span className="font-medium text-foreground">{ROLE_LABEL[invite.role]}</span>
+          {t("workspaceMembers.role")}：<span className="font-medium text-foreground">{t(`workspaceMembers.roles.${invite.role}`)}</span>
           {" · "}
-          使用 {invite.useCount}/{invite.maxUses || "∞"}
+          {t("workspaceMembers.uses", { used: invite.useCount, max: invite.maxUses || "∞" })}
         </div>
         <div>
           {invite.expiresAt
-            ? `有效期至 ${new Date(invite.expiresAt).toLocaleString()}`
-            : "永久有效"}
-          {expired && <span className="text-destructive ml-2">已过期</span>}
-          {exhausted && <span className="text-destructive ml-2">已用尽</span>}
+            ? t("workspaceMembers.validUntil", { date: new Date(invite.expiresAt).toLocaleString(locale) })
+            : t("workspaceMembers.permanent")}
+          {expired && <span className="text-destructive ml-2">{t("workspaceMembers.expired")}</span>}
+          {exhausted && <span className="text-destructive ml-2">{t("workspaceMembers.exhausted")}</span>}
         </div>
       </div>
       <button
         onClick={copyCode}
         className="p-1.5 rounded hover:bg-accent"
-        title="复制"
+        title={t("workspaceMembers.copy")}
       >
         <Copy className="w-4 h-4" />
       </button>
       <button
         onClick={onDelete}
         className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
-        title="撤销"
+        title={t("workspaceMembers.revoke")}
       >
         <Trash2 className="w-4 h-4" />
       </button>
@@ -512,7 +500,6 @@ function InviteItem({
   );
 }
 
-/* ========== 功能开关行（Phase 1）========== */
 function FeatureRow({
   label,
   description,
@@ -526,6 +513,7 @@ function FeatureRow({
   disabled: boolean;
   onToggle: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -537,7 +525,6 @@ function FeatureRow({
         <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-muted-foreground">{description}</div>
       </div>
-      {/* 纯 CSS toggle，不引额外组件库。disabled 下 onClick 不响应，且鼠标样式提示。 */}
       <button
         type="button"
         role="switch"
@@ -549,7 +536,7 @@ function FeatureRow({
           enabled ? "bg-primary" : "bg-muted",
           disabled ? "cursor-not-allowed" : "cursor-pointer",
         )}
-        title={disabled ? "仅所有者可修改" : undefined}
+        title={disabled ? t("workspaceMembers.ownerOnly") : undefined}
       >
         <span
           className={cn(
@@ -562,7 +549,6 @@ function FeatureRow({
   );
 }
 
-/* ========== 创建邀请码对话框 ========== */
 function CreateInviteDialog({
   workspaceId,
   onClose,
@@ -572,6 +558,7 @@ function CreateInviteDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useTranslation();
   const [role, setRole] = useState<WorkspaceRole>("editor");
   const [maxUses, setMaxUses] = useState(10);
   const [expireDays, setExpireDays] = useState(7);
@@ -589,10 +576,10 @@ function CreateInviteDialog({
         maxUses: maxUses || 10,
         expiresAt,
       });
-      toast.success("邀请码已生成");
+      toast.success(t("workspaceMembers.inviteGenerated"));
       onCreated();
     } catch (e: any) {
-      toast.error(e.message || "创建失败");
+      toast.error(e.message || t("workspaceMembers.createFailed"));
     } finally {
       setLoading(false);
     }
@@ -601,10 +588,10 @@ function CreateInviteDialog({
   const roleOptions: WorkspaceRole[] = ["admin", "editor", "commenter", "viewer"];
 
   return (
-    <Modal title="创建邀请码" onClose={onClose}>
+    <Modal title={t("workspaceMembers.createInviteTitle")} onClose={onClose}>
       <div className="space-y-3">
         <div>
-          <label className="text-sm mb-1 block">角色</label>
+          <label className="text-sm mb-1 block">{t("workspaceMembers.role")}</label>
           <div className="flex gap-2 flex-wrap">
             {roleOptions.map((r) => (
               <button
@@ -617,13 +604,13 @@ function CreateInviteDialog({
                     : "bg-background border-border hover:bg-accent",
                 )}
               >
-                {ROLE_LABEL[r]}
+                {t(`workspaceMembers.roles.${r}`)}
               </button>
             ))}
           </div>
         </div>
         <div>
-          <label className="text-sm mb-1 block">最大使用次数</label>
+          <label className="text-sm mb-1 block">{t("workspaceMembers.maxUses")}</label>
           <Input
             type="number"
             min={1}
@@ -632,22 +619,22 @@ function CreateInviteDialog({
           />
         </div>
         <div>
-          <label className="text-sm mb-1 block">有效期（天）</label>
+          <label className="text-sm mb-1 block">{t("workspaceMembers.expiryDays")}</label>
           <Input
             type="number"
             min={0}
             value={expireDays}
             onChange={(e) => setExpireDays(parseInt(e.target.value) || 0)}
-            placeholder="0 表示永久"
+            placeholder={t("workspaceMembers.permanentPlaceholder")}
           />
-          <p className="text-xs text-muted-foreground mt-1">0 表示永久有效</p>
+          <p className="text-xs text-muted-foreground mt-1">{t("workspaceMembers.permanentHint")}</p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+            {t("workspaceMembers.cancel")}
           </Button>
           <Button onClick={handleCreate} disabled={loading}>
-            {loading ? "创建中..." : "生成邀请码"}
+            {loading ? t("workspaceMembers.creating") : t("workspaceMembers.generateInvite")}
           </Button>
         </div>
       </div>

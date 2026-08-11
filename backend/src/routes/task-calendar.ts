@@ -44,33 +44,6 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function formatLocalDateTime(date: Date): string {
-  return [
-    date.getFullYear(),
-    pad2(date.getMonth() + 1),
-    pad2(date.getDate()),
-    "T",
-    pad2(date.getHours()),
-    pad2(date.getMinutes()),
-    pad2(date.getSeconds()),
-  ].join("");
-}
-
-function addMinutesToIcsDateTime(value: string, minutes: number): string {
-  const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
-  if (!match) return value;
-  const [, year, month, day, hour, minute, second] = match;
-  const date = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute) + minutes,
-    Number(second),
-  );
-  return formatLocalDateTime(date);
-}
-
 function addDaysToIcsDate(value: string, days: number): string {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (!match) return value;
@@ -79,14 +52,44 @@ function addDaysToIcsDate(value: string, days: number): string {
   return [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join("");
 }
 
+function formatUtcIcsDate(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    pad2(date.getUTCMonth() + 1),
+    pad2(date.getUTCDate()),
+    "T",
+    pad2(date.getUTCHours()),
+    pad2(date.getUTCMinutes()),
+    pad2(date.getUTCSeconds()),
+    "Z",
+  ].join("");
+}
+
 function toIcsDate(dateStr: string): { value: string; isDateTime: boolean } {
-  const normalized = dateStr.trim().replace(" ", "T").replace(/Z$/, "");
-  const dateTime = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (dateTime) {
-    const [, year, month, day, hour, minute, second = "00"] = dateTime;
-    return { value: `${year}${month}${day}T${hour}${minute}${second}`, isDateTime: true };
+  const normalized = dateStr.trim().replace(" ", "T");
+  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return { value: `${year}${month}${day}`, isDateTime: false };
   }
-  return { value: normalized.replace(/-/g, ""), isDateTime: false };
+
+  const dateTime = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$/i,
+  );
+  if (dateTime) {
+    const [, year, month, day, hour, minute, second = "00", , zone] = dateTime;
+    const base = `${year}${month}${day}T${hour}${minute}${second}`;
+    if (!zone) return { value: base, isDateTime: true };
+    if (zone.toUpperCase() === "Z") return { value: `${base}Z`, isDateTime: true };
+
+    const normalizedZone = zone.includes(":") ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+    const parsed = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${normalizedZone}`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return { value: formatUtcIcsDate(parsed), isDateTime: true };
+    }
+  }
+
+  return { value: normalized.replace(/[-:]/g, ""), isDateTime: normalized.includes("T") };
 }
 
 function buildVEvent(task: any, feed: any, reminders: any[]): string {
@@ -99,18 +102,37 @@ function buildVEvent(task: any, feed: any, reminders: any[]): string {
     lines.push(icsFold(`DESCRIPTION:${icsEscape(task.description)}`));
   }
 
-  const dt = toIcsDate(task.dueAt || task.dueDate);
-  if (dt.isDateTime) {
-    lines.push(icsFold(`DTSTART:${dt.value}`));
-    lines.push(icsFold(`DTEND:${addMinutesToIcsDateTime(dt.value, 1)}`));
-  } else {
-    lines.push(icsFold(`DTSTART;VALUE=DATE:${dt.value}`));
-    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(dt.value, 1)}`));
+  const start = task.startDate ? toIcsDate(task.startDate) : null;
+  const endSource = task.dueAt || task.dueDate;
+  const end = endSource ? toIcsDate(endSource) : null;
+
+  if (start?.isDateTime) {
+    lines.push(icsFold(`DTSTART:${start.value}`));
+    if (end?.isDateTime && end.value !== start.value) {
+      lines.push(icsFold(`DTEND:${end.value}`));
+    } else if (end && !end.isDateTime) {
+      lines.push(icsFold(`DTEND:${addDaysToIcsDate(end.value, 1)}T000000`));
+    }
+  } else if (start && end?.isDateTime) {
+    lines.push(icsFold(`DTSTART:${start.value}T000000`));
+    lines.push(icsFold(`DTEND:${end.value}`));
+  } else if (start) {
+    lines.push(icsFold(`DTSTART;VALUE=DATE:${start.value}`));
+    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end?.value || start.value, 1)}`));
+  } else if (end?.isDateTime) {
+    // A task with only a due time is an instant event. Do not invent a
+    // one-minute duration: RFC 5545 allows VEVENT without DTEND.
+    lines.push(icsFold(`DTSTART:${end.value}`));
+  } else if (end) {
+    lines.push(icsFold(`DTSTART;VALUE=DATE:${end.value}`));
+    lines.push(icsFold(`DTEND;VALUE=DATE:${addDaysToIcsDate(end.value, 1)}`));
   }
 
   if (task.updatedAt) {
-    const lm = task.updatedAt.replace(/[-:]/g, "").replace(" ", "T").replace("Z", "");
-    lines.push(icsFold(`LAST-MODIFIED:${lm}`));
+    const lastModified = toIcsDate(task.updatedAt);
+    if (lastModified.isDateTime) {
+      lines.push(icsFold(`LAST-MODIFIED:${lastModified.value}`));
+    }
   }
 
   lines.push("STATUS:CONFIRMED");
@@ -257,10 +279,10 @@ taskCalendar.get("/feed/:token", (c) => {
 
   // Query tasks
   let sql = `
-    SELECT t.id, t.title, t.description, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
+    SELECT t.id, t.title, t.description, t.startDate, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
     FROM tasks t
     WHERE t.userId = ?
-      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
+      AND (t.startDate IS NOT NULL OR t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
   `;
   const params: any[] = [feed.userId];
 
@@ -271,7 +293,7 @@ taskCalendar.get("/feed/:token", (c) => {
     sql += " AND t.workspaceId = ?";
     params.push(feed.workspaceId);
   }
-  sql += " ORDER BY COALESCE(t.dueAt, t.dueDate) ASC";
+  sql += " ORDER BY COALESCE(t.startDate, t.dueAt, t.dueDate) ASC";
 
   const tasks = db.prepare(sql).all(...params) as any[];
 
@@ -409,15 +431,15 @@ export function buildIcsForToken(token: string): { body: string; feedId: string 
   } catch { /* ignore */ }
 
   let sql = `
-    SELECT t.id, t.title, t.description, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
+    SELECT t.id, t.title, t.description, t.startDate, t.dueDate, t.dueAt, t.updatedAt, t.isCompleted
     FROM tasks t
     WHERE t.userId = ?
-      AND (t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
+      AND (t.startDate IS NOT NULL OR t.dueAt IS NOT NULL OR t.dueDate IS NOT NULL)
   `;
   const params: any[] = [feed.userId];
   if (!feed.includeCompleted) sql += " AND t.isCompleted = 0";
   if (feed.workspaceId) { sql += " AND t.workspaceId = ?"; params.push(feed.workspaceId); }
-  sql += " ORDER BY COALESCE(t.dueAt, t.dueDate) ASC";
+  sql += " ORDER BY COALESCE(t.startDate, t.dueAt, t.dueDate) ASC";
 
   const tasks = db.prepare(sql).all(...params) as any[];
 

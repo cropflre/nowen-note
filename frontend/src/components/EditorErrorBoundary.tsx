@@ -15,6 +15,7 @@
  *   - 把 error 与诊断窗口对象一起暴露到 console，方便排查。
  */
 import { Component, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   /** 切换它会让 boundary 自动重置；通常传 activeNote.id */
@@ -35,6 +36,10 @@ export interface EditorErrorPresentation {
 
 const RUNTIME_COMPATIBILITY_ERROR_RE = /(?:\.findLast(?:Index)?\s+is not a function|\.(?:toSorted|toReversed)\s+is not a function)/i;
 
+/**
+ * 保留这个纯函数的既有中文输出，避免改变诊断测试和非 React 调用方的契约。
+ * 真正展示给用户的默认 fallback 使用下方 LocalizedEditorErrorFallback。
+ */
 export function getEditorErrorPresentation(error: Error): EditorErrorPresentation {
   if (RUNTIME_COMPATIBILITY_ERROR_RE.test(error.message)) {
     return {
@@ -51,6 +56,52 @@ export function getEditorErrorPresentation(error: Error): EditorErrorPresentatio
       </>
     ),
   };
+}
+
+function LocalizedEditorErrorFallback({ error, retry }: { error: Error; retry: () => void }) {
+  const { t } = useTranslation();
+  const runtimeCompatibilityError = RUNTIME_COMPATIBILITY_ERROR_RE.test(error.message);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+      <div className="max-w-md">
+        <div className="w-12 h-12 mx-auto rounded-full bg-red-500/10 flex items-center justify-center mb-3">
+          <span className="text-red-500 text-xl">!</span>
+        </div>
+        <h3 className="text-base font-semibold text-tx-primary mb-2">
+          {t("editorError.title")}
+        </h3>
+        <p className="text-sm text-tx-secondary mb-4 break-words">
+          {runtimeCompatibilityError
+            ? t("editorError.runtimeDescription")
+            : t("editorError.invalidDescription")}
+          <br />
+          <span className="text-xs text-tx-tertiary font-mono mt-1 block">
+            {error.message}
+          </span>
+        </p>
+        <div className="flex gap-2 justify-center">
+          <button
+            onClick={retry}
+            className="px-3 py-1.5 text-sm rounded-md bg-accent-primary text-white hover:opacity-90 transition-opacity"
+          >
+            {t("editorError.retry")}
+          </button>
+        </div>
+        <p className="text-xs text-tx-tertiary mt-3">
+          {runtimeCompatibilityError ? (
+            t("editorError.runtimeHint")
+          ) : (
+            <>
+              {t("editorError.invalidHintPrefix")} {" "}
+              <code className="font-mono">window.__lastDirtyDoc</code>{" "}
+              {t("editorError.invalidHintSuffix")}
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export class EditorErrorBoundary extends Component<Props, State> {
@@ -89,38 +140,7 @@ export class EditorErrorBoundary extends Component<Props, State> {
 
     if (this.props.fallback) return this.props.fallback(error, this.retry);
 
-    const presentation = getEditorErrorPresentation(error);
-
-    return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-        <div className="max-w-md">
-          <div className="w-12 h-12 mx-auto rounded-full bg-red-500/10 flex items-center justify-center mb-3">
-            <span className="text-red-500 text-xl">!</span>
-          </div>
-          <h3 className="text-base font-semibold text-tx-primary mb-2">
-            编辑器加载失败
-          </h3>
-          <p className="text-sm text-tx-secondary mb-4 break-words">
-            {presentation.description}
-            <br />
-            <span className="text-xs text-tx-tertiary font-mono mt-1 block">
-              {error.message}
-            </span>
-          </p>
-          <div className="flex gap-2 justify-center">
-            <button
-              onClick={this.retry}
-              className="px-3 py-1.5 text-sm rounded-md bg-accent-primary text-white hover:opacity-90 transition-opacity"
-            >
-              重试
-            </button>
-          </div>
-          <p className="text-xs text-tx-tertiary mt-3">
-            {presentation.hint}
-          </p>
-        </div>
-      </div>
-    );
+    return <LocalizedEditorErrorFallback error={error} retry={this.retry} />;
   }
 }
 

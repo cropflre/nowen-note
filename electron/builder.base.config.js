@@ -5,6 +5,9 @@
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const {
+  verifySyncNotificationUi,
+} = require("../scripts/verify-sync-notification-ui.cjs");
 
 const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
 
@@ -287,7 +290,7 @@ const OUT_DIR = process.env.NOWEN_BUILD_OUT
 //
 // 环境变量：
 //   NOWEN_SKIP_RCEDIT=1         完全跳过 rcedit（exe 图标/版本信息用 electron 默认）
-//                               （适合没配 CSC、且首次 debian 打包想快速出包时）
+//                               （适合没配 CSC、且首次 debian 打包想快速出包时可用）
 //   CSC_LINK / CSC_KEY_PASSWORD 有则正常签名；没配则 electron-builder 自动跳过
 //
 // 判定策略：
@@ -372,6 +375,7 @@ module.exports = {
   // 打包前自动校验原生模块，避免漏跑 rebuild:native 导致安装后崩溃
   beforeBuild() {
     checkNativeModule();
+    verifySyncNotificationUi();
     return true; // 返回 true 表示继续打包
   },
   directories: {

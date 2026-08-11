@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
@@ -88,6 +89,8 @@ export default function SearchCenter() {
 
   const copy = useMemo(() => (isZh ? {
     title: "全文搜索",
+    treeScope: "目录",
+    contentScope: "全文",
     placeholder: "搜索笔记标题与正文…",
     result: "个搜索结果",
     filteredResult: "个筛选结果",
@@ -111,6 +114,8 @@ export default function SearchCenter() {
     shortcut: "↑↓ 选择 · Enter 打开 · Esc 退出",
   } : {
     title: "Full-text search",
+    treeScope: "Tree",
+    contentScope: "Full text",
     placeholder: "Search note titles and content…",
     result: " results",
     filteredResult: " filtered results",
@@ -253,6 +258,23 @@ export default function SearchCenter() {
     actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
   }, [actions, setSearchQuery, state.selectedNotebookId]);
 
+  const openTreeSearch = useCallback(() => {
+    const nextQuery = query;
+    actions.setSearchQuery("");
+    actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+    updateMountedSidebarSearch("");
+    if (desktop) {
+      if (state.sidebarCollapsed) actions.toggleSidebar();
+    } else {
+      actions.setMobileSidebar(true);
+    }
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("nowen:focus-knowledge-tree", {
+        detail: { query: nextQuery },
+      }));
+    }, 0);
+  }, [actions, desktop, query, state.selectedNotebookId, state.sidebarCollapsed]);
+
   const openResult = useCallback(async (result: EnhancedSearchResult) => {
     setOpeningId(result.id);
     actions.setSelectedNotebook(result.notebookId);
@@ -351,7 +373,14 @@ export default function SearchCenter() {
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-[1040px] px-4 py-5 md:px-8 md:py-8">
           <div className="rounded-2xl border border-app-border bg-app-surface shadow-sm">
-            <div className="flex items-center gap-3 px-4 py-3 md:px-5 md:py-4">
+            <div className="flex items-center gap-2 px-3 py-3 md:gap-3 md:px-5 md:py-4">
+              <KnowledgeSearchScopeSwitch
+                scope="content"
+                treeLabel={copy.treeScope}
+                contentLabel={copy.contentScope}
+                onChange={(scope) => { if (scope === "tree") openTreeSearch(); }}
+              />
+              <span className="h-6 w-px shrink-0 bg-app-border" aria-hidden="true" />
               <Search size={20} className="shrink-0 text-tx-tertiary" />
               <input
                 ref={inputRef}

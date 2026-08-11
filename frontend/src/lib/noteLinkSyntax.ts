@@ -12,6 +12,8 @@ export interface ParsedInternalNoteHref {
 
 const INTERNAL_HREF_RE = /^note:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:#blk:([A-Za-z0-9_-]+))?$/i;
 const WIKI_LINK_RE = /(!?)\[\[(note:[0-9a-f-]{36}(?:#blk:[A-Za-z0-9_-]+)?)(?:\|((?:\\\]|[^\]])*))?\]\]/gi;
+const WIKI_LINK_INPUT_TRIGGERS = ["[[", "【【"] as const;
+const WIKI_LINK_INPUT_CLOSERS = ["]]", "】】"] as const;
 
 export function parseNoteLinkQuery(query: string): ParsedNoteLinkQuery {
   const pipe = query.indexOf("|");
@@ -78,10 +80,18 @@ export function detectActiveWikiNoteQuery(
   absoluteCursor: number,
   lineStart: number,
 ): { query: string; from: number; to: number } | null {
-  const trigger = lineTextBeforeCursor.lastIndexOf("[[");
+  let trigger = -1;
+  let triggerLength = 0;
+  for (const candidate of WIKI_LINK_INPUT_TRIGGERS) {
+    const candidateIndex = lineTextBeforeCursor.lastIndexOf(candidate);
+    if (candidateIndex > trigger) {
+      trigger = candidateIndex;
+      triggerLength = candidate.length;
+    }
+  }
   if (trigger < 0) return null;
-  const tail = lineTextBeforeCursor.slice(trigger + 2);
-  if (tail.includes("]]")) return null;
+  const tail = lineTextBeforeCursor.slice(trigger + triggerLength);
+  if (WIKI_LINK_INPUT_CLOSERS.some((closer) => tail.includes(closer))) return null;
   return {
     query: tail,
     from: lineStart + trigger,

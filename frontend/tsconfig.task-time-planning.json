@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.task-time-planning.tsbuildinfo"
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/lunar-javascript.d.ts",
+    "src/components/TaskCenter.tsx",
+    "src/components/tasks/TaskTimePlanner.tsx",
+    "src/components/tasks/taskTimePlanning.ts",
+    "src/lib/taskTimePlanningApi.ts"
+  ]
+}

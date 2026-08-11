@@ -1,4 +1,5 @@
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
 
@@ -38,17 +39,38 @@ import {
   readNote as _readNote,
 } from "@/lib/offlineRead";
 
-import { normalizeServerBaseUrl as _normalizeBase } from "@/lib/serverUrl";
+import {
+  inferBrowserServerBaseUrl as _inferBrowserServerBaseUrl,
+  normalizeServerBaseUrl as _normalizeBase,
+} from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
 import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "@/lib/knowledgeTreePassword";
+import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 import {
   registerAttachmentAccessUrls,
   resolveAttachmentAccessUrl,
 } from "@/lib/noteAttachmentAccessBridge";
+import {
+  clearAuthTokens,
+  fetchWithAuthRefresh,
+  getAccessToken,
+  getRefreshToken,
+  storeAuthTokens,
+} from "@/lib/authSession";
+
+// 本模块所有显式携带 Authorization 的请求共享同一套 401 刷新与单飞锁；
+// 公共请求不带 Authorization，authSession 会原样透传。
+const fetch: typeof globalThis.fetch = (input, init) =>
+  fetchWithAuthRefresh(input, init, getBaseUrl());
 
 // 服务器地址管理
 const SERVER_URL_KEY = "nowen-server-url";
 export const SERVER_URL_CHANGED_EVENT = "nowen:server-url-changed";
+
+function dispatchTaskReminderScheduleChanged(): void {
+  if (typeof window === "undefined") return;
+  queueMicrotask(() => window.dispatchEvent(new Event(TASK_REMINDER_SYNC_EVENT)));
+}
 
 // ========== 当前工作区（Phase 1 协作） ==========
 const WORKSPACE_KEY = "nowen-current-workspace";
@@ -98,7 +120,7 @@ function readServerUrlFromQuery(): string {
 function isLoopbackServerUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || (u.hostname === "::1" || u.hostname === "[::1]");
   } catch {
     return false;
   }
@@ -127,7 +149,7 @@ export function getServerUrl(): string {
   const injected = readServerUrlFromQuery();
   const stored = localStorage.getItem(SERVER_URL_KEY) || "";
   const raw = shouldPreferInjectedServerUrl(stored, injected) ? injected : stored;
-  return _normalizeBase(raw);
+  return _normalizeBase(raw) || _inferBrowserServerBaseUrl();
 }
 
 /**
@@ -196,7 +218,7 @@ export function isAndroidInvalidServerUrl(url: string): boolean {
   if (!url) return true;
   try {
     const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || (u.hostname === "::1" || u.hostname === "[::1]");
   } catch {
     return true;
   }
@@ -593,7 +615,7 @@ function reconcileAcknowledgedDeletion(
 }
 
 function getToken(): string | null {
-  return localStorage.getItem("nowen-token");
+  return getAccessToken();
 }
 
 /**
@@ -622,11 +644,16 @@ export function broadcastLogout(reason?: string): Promise<void> {
   // Phase 6: 登出时顺便告诉后端吊销当前 session（不等待结果，失败忽略）。
   //   注意必须在 removeItem 前拿到 token；使用 keepalive 以让浏览器关闭时也尽量发出去。
   try {
-    const token = localStorage.getItem("nowen-token");
-    if (token) {
+    const token = getAccessToken();
+    const refreshToken = getRefreshToken();
+    if (token || refreshToken) {
       fetch(`${getBaseUrl()}/auth/logout`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refreshToken }),
         keepalive: true,
       }).catch(() => { });
     }
@@ -634,7 +661,7 @@ export function broadcastLogout(reason?: string): Promise<void> {
     /* ignore */
   }
   try {
-    localStorage.removeItem("nowen-token");
+    clearAuthTokens();
     // 清理所有用户缓存（nowen-auth-user:*），防止切换账号后旧缓存被复用
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -784,7 +811,11 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       }
     };
     try {
-      res = await fetch(fullUrl, { ...restOptions, signal: linkedController.signal, headers: buildHeaders(true) });
+      res = await fetchWithAuthRefresh(
+        fullUrl,
+        { ...restOptions, signal: linkedController.signal, headers: buildHeaders(true) },
+        getBaseUrl(),
+      );
     } catch (firstErr: any) {
       // 兜底：当后端 CORS allowHeaders 没把 X-Connection-Id 加进白名单时，
       //   带它的请求会在 OPTIONS 预检阶段直接被浏览器/WebView 拦下，抛
@@ -795,7 +826,11 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       //   只在 connId 存在时才尝试，否则跳过直接走原错误路径，避免无谓重试。
       if (connId) {
         try {
-          res = await fetch(fullUrl, { ...restOptions, signal: linkedController.signal, headers: buildHeaders(false) });
+          res = await fetchWithAuthRefresh(
+            fullUrl,
+            { ...restOptions, signal: linkedController.signal, headers: buildHeaders(false) },
+            getBaseUrl(),
+          );
           // eslint-disable-next-line no-console
           console.warn(
             "[api] retry without X-Connection-Id succeeded — backend CORS likely missing this header in allowHeaders. Disabling injection for this session.",
@@ -870,7 +905,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       code === "USER_NOT_FOUND" ||
       code === "TOKEN_INVALID" ||
       code === "UNAUTHENTICATED";
-    if (sessionRevoked && !isSharePage) {
+    if (token && sessionRevoked && !isSharePage) {
       // L10: session 被后端吊销 → 广播给其他 tab 一起下线
       // 桌面端必须等主进程清除本地认证缓存后再刷新，避免旧 token 被重新注入形成循环。
       await broadcastLogout("session_revoked");
@@ -1014,6 +1049,65 @@ type ImportNotesResponse = {
   notes: any[];
   workspaceId?: string | null;
 };
+
+type SiyuanImportResult = ImportNotesResponse & {
+  warnings?: string[];
+  stats?: {
+    syFiles: number;
+    importedDocuments: number;
+    assets: number;
+    importedAssets: number;
+    unresolvedAssets: number;
+    unsupportedNodes?: Record<string, number>;
+  };
+};
+
+type SiyuanImportJob = {
+  id: string;
+  requestId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  phase: string;
+  message: string;
+  result: SiyuanImportResult | null;
+  error: string | null;
+  updatedAt: string;
+};
+
+type SiyuanImportRecovery = {
+  requestId: string;
+  jobId: string | null;
+  baseUrl: string;
+  filename: string;
+  size: number;
+  lastModified: number;
+  workspaceId: string;
+  targetNotebookId: string;
+  contentFormat: "tiptap-json" | "markdown";
+};
+
+const SIYUAN_IMPORT_RECOVERY_KEY = "nowen-siyuan-import-recovery";
+const SIYUAN_IMPORT_CREATE_RECOVERY_MS = 2 * 60_000;
+const SIYUAN_IMPORT_STATUS_SILENCE_MS = 2 * 60_000;
+const SIYUAN_IMPORT_MAX_WAIT_MS = 2 * 60 * 60_000;
+
+function readSiyuanImportRecovery(): SiyuanImportRecovery | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SIYUAN_IMPORT_RECOVERY_KEY) || "null") as SiyuanImportRecovery | null;
+    return parsed?.requestId && parsed.baseUrl ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSiyuanImportRecovery(value: SiyuanImportRecovery): void {
+  try { localStorage.setItem(SIYUAN_IMPORT_RECOVERY_KEY, JSON.stringify(value)); } catch {}
+}
+
+function clearSiyuanImportRecovery(requestId: string): void {
+  const current = readSiyuanImportRecovery();
+  if (!current || current.requestId !== requestId) return;
+  try { localStorage.removeItem(SIYUAN_IMPORT_RECOVERY_KEY); } catch {}
+}
 
 const IMPORT_NOTES_MAX_BATCH_BODY_CHARS = 8 * 1024 * 1024;
 const IMPORT_NOTES_MAX_BATCH_COUNT = 20;
@@ -1384,7 +1478,18 @@ export const api = {
         ? !n.workspaceId
         : n.workspaceId === offlineWorkspace;
       if (!wsMatch) return false;
-      if (finalParams.notebookId && n.notebookId !== finalParams.notebookId) return false;
+      if (finalParams.treeParentId) {
+        const requestedParentId = finalParams.treeParentId === "root" ? null : finalParams.treeParentId;
+        const recursiveRoot = requestedParentId === null && finalParams.includeDescendants !== "0";
+        const cachedParentId = n.treeParentId !== undefined
+          ? n.treeParentId
+          : isRootDocumentNotebookId(n.notebookId)
+            ? null
+            : undefined;
+        if (!recursiveRoot && cachedParentId !== requestedParentId) return false;
+      } else if (finalParams.notebookId && n.notebookId !== finalParams.notebookId) {
+        return false;
+      }
       if (finalParams.isFavorite === "1" && !n.isFavorite) return false;
       if (finalParams.isTrashed === "1" && !n.isTrashed) return false;
       // 默认返回未在垃圾桶的（服务端默认过滤）
@@ -1632,14 +1737,32 @@ export const api = {
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Task>(`/tasks${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
-  updateTask: (id: string, data: Partial<Task>) => request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  updateTask: async (id: string, data: Partial<Task>) => {
+    const result = await request<TaskMutationResponse>(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   reorderTasks: (items: { id: string; sortOrder: number }[]) =>
     request<{ success: boolean; affected: number }>("/tasks/reorder/batch", { method: "PUT", body: JSON.stringify({ items }) }),
-  toggleTask: (id: string) => request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" }),
+  toggleTask: async (id: string) => {
+    const result = await request<TaskMutationResponse>(`/tasks/${id}/toggle`, { method: "PATCH" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   aiBreakdownTask: (id: string, lang?: string) => request<{ subtasks: { title: string; priority: number; dueDate: string | null; reason: string }[] }>(`/tasks/${id}/ai-breakdown`, { method: "POST", body: JSON.stringify({ lang }) }),
-  deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
-  batchTasks: (ids: string[], action: "complete" | "delete") =>
-    request<{ success: boolean; affected: number; generatedCount?: number }>("/tasks/batch", { method: "POST", body: JSON.stringify({ ids, action }) }),
+  deleteTask: async (id: string) => {
+    const result = await request(`/tasks/${id}`, { method: "DELETE" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  batchTasks: async (ids: string[], action: "complete" | "delete") => {
+    const result = await request<{ success: boolean; affected: number; generatedCount?: number }>(
+      "/tasks/batch",
+      { method: "POST", body: JSON.stringify({ ids, action }) },
+    );
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   // Task projects
   getTaskProjects: () => {
     const ws = getCurrentWorkspace();
@@ -1689,18 +1812,40 @@ export const api = {
     return request<{ success: boolean }>(`/task-dependencies/${id}`, { method: "DELETE" });
   },
   // Task reminders
+  getTaskReminderSchedule: () =>
+    request<{ reminders: TaskReminderScheduleItem[] }>("/task-reminders/schedule"),
+  ackRecentReminders: (reminderIds: string[]) =>
+    request<{ success: boolean; acked: number }>("/task-reminders/recent/ack", {
+      method: "POST",
+      body: JSON.stringify({ reminderIds }),
+    }),
   getRecentReminders: (since: number) =>
     request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number; type?: string }> }>(
       `/task-reminders/recent?since=${since}`
     ),
   getTaskReminders: (taskId: string) =>
     request<import("@/types").TaskReminder[]>(`/task-reminders/${taskId}`),
-  createTaskReminder: (taskId: string, offsetMinutes: number) =>
-    request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, { method: "POST", body: JSON.stringify({ offsetMinutes }) }),
-  updateTaskReminder: (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean; snoozedUntil?: string | null }) =>
-    request<import("@/types").TaskReminder>(`/task-reminders/${reminderId}`, { method: "PUT", body: JSON.stringify(data) }),
-  deleteTaskReminder: (reminderId: string) =>
-    request(`/task-reminders/${reminderId}`, { method: "DELETE" }),
+  createTaskReminder: async (taskId: string, offsetMinutes: number) => {
+    const result = await request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, {
+      method: "POST",
+      body: JSON.stringify({ offsetMinutes }),
+    });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  updateTaskReminder: async (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean; snoozedUntil?: string | null }) => {
+    const result = await request<import("@/types").TaskReminder>(`/task-reminders/${reminderId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
+  deleteTaskReminder: async (reminderId: string) => {
+    const result = await request(`/task-reminders/${reminderId}`, { method: "DELETE" });
+    dispatchTaskReminderScheduleChanged();
+    return result;
+  },
   getReminderOverview: (days?: number) => {
     const ws = getCurrentWorkspace();
     const params: string[] = [];
@@ -1895,24 +2040,24 @@ export const api = {
     newEmail?: string | null;
     newDisplayName?: string | null;
   }) => {
-    const res = await request<{ success: boolean; message: string; token?: string }>(
+    const res = await request<{ success: boolean; message: string; token?: string; refreshToken?: string }>(
       "/auth/change-password",
       { method: "POST", body: JSON.stringify(data) },
     );
     if (res.token) {
-      try { localStorage.setItem("nowen-token", res.token); } catch { }
+      storeAuthTokens({ token: res.token, refreshToken: res.refreshToken ?? null });
     }
     return res;
   },
   factoryReset: async (confirmText: string, sudoToken?: string) => {
     // factory-reset 同样会 bump tokenVersion 并下发新 token，必须更新本地存储，
     // 否则管理员当前 tab 会立刻收到 401 被踢下线。
-    const res = await request<{ success: boolean; message: string; token?: string; mustChangePassword?: boolean }>(
+    const res = await request<{ success: boolean; message: string; token?: string; refreshToken?: string; mustChangePassword?: boolean }>(
       "/auth/factory-reset",
       { method: "POST", body: JSON.stringify({ confirmText }), sudoToken },
     );
     if (res.token) {
-      try { localStorage.setItem("nowen-token", res.token); } catch { }
+      storeAuthTokens({ token: res.token, refreshToken: res.refreshToken ?? null });
     }
     return res;
   },
@@ -2144,21 +2289,16 @@ export const api = {
 
     return mergeImportNoteResponses(results);
   },
-  /** 服务端导入思源 .sy 数据包：用于大 zip，避免浏览器解压和 base64 JSON 膨胀。 */
+  /** 服务端任务化导入思源 .sy 数据包：流式上传后按任务状态等待最终结果。 */
   importSiyuanPackage: async (
     file: File,
-    opts?: { targetNotebookId?: string; workspaceId?: string; contentFormat?: "tiptap-json" | "markdown" },
-  ): Promise<ImportNotesResponse & {
-    warnings?: string[];
-    stats?: {
-      syFiles: number;
-      importedDocuments: number;
-      assets: number;
-      importedAssets: number;
-      unresolvedAssets: number;
-      unsupportedNodes?: Record<string, number>;
-    };
-  }> => {
+    opts?: {
+      targetNotebookId?: string;
+      workspaceId?: string;
+      contentFormat?: "tiptap-json" | "markdown";
+      onProgress?: (job: SiyuanImportJob) => void;
+    },
+  ): Promise<SiyuanImportResult> => {
     const token = getToken();
     const ws = opts?.workspaceId ?? getCurrentWorkspace();
     const params = new URLSearchParams();
@@ -2168,15 +2308,179 @@ export const api = {
     const qs = params.toString() ? `?${params.toString()}` : "";
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${getBaseUrl()}/export/import/siyuan-package${qs}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
+    const baseUrl = getBaseUrl();
+    const targetWorkspaceId = ws || "personal";
+    const targetNotebookId = opts?.targetNotebookId || "";
+    const contentFormat = opts?.contentFormat || "tiptap-json";
+    const storedRecovery = readSiyuanImportRecovery();
+    const canResume = !!storedRecovery
+      && storedRecovery.baseUrl === baseUrl
+      && storedRecovery.filename === file.name
+      && storedRecovery.size === file.size
+      && storedRecovery.lastModified === file.lastModified
+      && storedRecovery.workspaceId === targetWorkspaceId
+      && storedRecovery.targetNotebookId === targetNotebookId
+      && storedRecovery.contentFormat === contentFormat;
+    let recovery: SiyuanImportRecovery = canResume
+      ? storedRecovery!
+      : {
+        requestId: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `siyuan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        jobId: null,
+        baseUrl,
+        filename: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+        workspaceId: targetWorkspaceId,
+        targetNotebookId,
+        contentFormat,
+      };
+    if (!canResume) writeSiyuanImportRecovery(recovery);
+    const requestHeaders = () => ({
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-Import-Request-Id": recovery.requestId,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    return data;
+    const wait = (ms: number) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
+    const httpError = (message: string, status: number): Error & { status: number } =>
+      Object.assign(new Error(message), { status });
+    const isClientHttpError = (error: unknown): boolean => {
+      const status = Number((error as { status?: number } | null)?.status);
+      return status >= 400 && status < 500;
+    };
+
+    const readJobResponse = async (url: string): Promise<{ job: SiyuanImportJob | null; status: number }> => {
+      const response = await fetch(url, { credentials: "include", headers: requestHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) return { job: data.job as SiyuanImportJob, status: response.status };
+      if (response.status === 404 || response.status >= 500) return { job: null, status: response.status };
+      throw httpError(data.error || `HTTP ${response.status}`, response.status);
+    };
+
+    const createTask = async (): Promise<SiyuanImportJob | null> => {
+      const response = await fetch(`${baseUrl}/export/import/siyuan-package${qs}`, {
+        method: "POST",
+        credentials: "include",
+        headers: requestHeaders(),
+        body: form,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) return data.job as SiyuanImportJob;
+      if (response.status >= 500) return null;
+      throw httpError(data.error || `HTTP ${response.status}`, response.status);
+    };
+
+    let job: SiyuanImportJob | null = null;
+    let shouldCreateTask = !canResume;
+    if (canResume) {
+      try {
+        const recovered = await readJobResponse(
+          recovery.jobId
+            ? `${baseUrl}/export/import/siyuan-package/jobs/${encodeURIComponent(recovery.jobId)}`
+            : `${baseUrl}/export/import/siyuan-package/jobs/by-request/${encodeURIComponent(recovery.requestId)}`,
+        );
+        job = recovered.job;
+        if (!job && recovered.status === 404 && recovery.jobId) {
+          const byRequest = await readJobResponse(
+            `${baseUrl}/export/import/siyuan-package/jobs/by-request/${encodeURIComponent(recovery.requestId)}`,
+          );
+          job = byRequest.job;
+          if (!job && byRequest.status === 404) {
+            clearSiyuanImportRecovery(recovery.requestId);
+            shouldCreateTask = true;
+          }
+        } else if (!job && recovered.status === 404) {
+          clearSiyuanImportRecovery(recovery.requestId);
+          shouldCreateTask = true;
+        }
+      } catch (error) {
+        if (isClientHttpError(error)) throw error;
+      }
+    }
+
+    if (!job && shouldCreateTask) {
+      if (canResume) {
+        recovery = {
+          ...recovery,
+          requestId: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `siyuan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          jobId: null,
+        };
+      }
+      writeSiyuanImportRecovery(recovery);
+      try {
+        job = await createTask();
+      } catch (error) {
+        if (isClientHttpError(error)) throw error;
+      }
+    }
+
+    const recoveryStartedAt = Date.now();
+    let recoveryAttempts = 0;
+    while (!job) {
+      try {
+        const recovered = await readJobResponse(
+          `${baseUrl}/export/import/siyuan-package/jobs/by-request/${encodeURIComponent(recovery.requestId)}`,
+        );
+        job = recovered.job;
+        if (recovered.status === 404 && Date.now() - recoveryStartedAt >= SIYUAN_IMPORT_CREATE_RECOVERY_MS) {
+          clearSiyuanImportRecovery(recovery.requestId);
+          throw httpError("思源导入任务创建失败，服务端未找到对应任务", 404);
+        }
+      } catch (error) {
+        if (isClientHttpError(error)) throw error;
+      }
+      if (job) break;
+      recoveryAttempts += 1;
+      if (Date.now() - recoveryStartedAt >= SIYUAN_IMPORT_CREATE_RECOVERY_MS) {
+        throw new Error("思源导入任务状态查询超时，可重新查询状态");
+      }
+      await wait(Math.min(10_000, 1_000 * 2 ** Math.min(Math.floor(recoveryAttempts / 5), 3)));
+    }
+
+    recovery = { ...recovery, jobId: job.id };
+    writeSiyuanImportRecovery(recovery);
+
+    const pollingStartedAt = Date.now();
+    let lastSuccessfulQueryAt = Date.now();
+    let pollingDelay = 1_200;
+    while (true) {
+      opts?.onProgress?.(job);
+      if (job.status === "failed") {
+        clearSiyuanImportRecovery(recovery.requestId);
+        throw new Error(job.error || job.message || "思源导入失败");
+      }
+      if (job.status === "completed") {
+        if (!job.result) throw new Error("思源导入任务已完成，但结果缺失");
+        clearSiyuanImportRecovery(recovery.requestId);
+        return job.result;
+      }
+      if (Date.now() - pollingStartedAt >= SIYUAN_IMPORT_MAX_WAIT_MS) {
+        throw new Error(`思源导入任务等待超时，可重新查询状态（任务 ${job.id}）`);
+      }
+      await wait(pollingDelay);
+      try {
+        const current = await readJobResponse(
+          `${baseUrl}/export/import/siyuan-package/jobs/${encodeURIComponent(job.id)}`,
+        );
+        if (current.job) {
+          job = current.job;
+          lastSuccessfulQueryAt = Date.now();
+          pollingDelay = 1_200;
+        } else if (current.status === 404) {
+          throw httpError("思源导入任务不存在，无法继续查询", 404);
+        } else {
+          pollingDelay = Math.min(15_000, pollingDelay * 2);
+        }
+      } catch (error) {
+        if (isClientHttpError(error)) throw error;
+        pollingDelay = Math.min(15_000, pollingDelay * 2);
+      }
+      if (Date.now() - lastSuccessfulQueryAt >= SIYUAN_IMPORT_STATUS_SILENCE_MS) {
+        throw new Error(`思源导入任务状态长时间未更新，可重新查询状态（任务 ${job.id}）`);
+      }
+    }
   },
   /** Nowen 数据包 dry-run 预检 */
   dryRunNowenPackage: async (file: File) => {
@@ -2583,16 +2887,110 @@ export const api = {
   // 今日日记
   journals: {
     /** 获取或创建今日日记（POST 语义，避免 GET 副作用） */
-    getOrCreateToday: (localDate?: string) =>
-      request<{ id: string; title: string; existed: boolean;[key: string]: any }>("/journals/today", {
+    getOrCreateToday: async (localDate?: string) => {
+      const result = await request<{ id: string; title: string; existed: boolean;[key: string]: any }>("/journals/today", {
         method: "POST",
         body: JSON.stringify({ localDate }),
-      }),
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+          detail: { reason: result.existed ? "journal-archive-repaired" : "journal-created" },
+        }));
+      }
+      return result;
+    },
     /** 检查今日日记是否存在（只读，不创建） */
     checkToday: (date?: string) => {
       const qs = date ? `?date=${encodeURIComponent(date)}` : "";
       return request<{ exists: boolean; noteId: string | null; title: string | null }>(`/journals/check${qs}`);
     },
+    /** 获取或创建当前工作区的共享日期日记 */
+    getOrCreateWorkspace: async (workspaceId: string, localDate: string) => {
+      const result = await request<{
+        id: string;
+        title: string;
+        existed: boolean;
+        canWrite: boolean;
+        role: string;
+        workspaceId: string;
+        scope: "workspace";
+        [key: string]: any;
+      }>(`/journals/workspace/${encodeURIComponent(workspaceId)}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ localDate }),
+      });
+      if (typeof window !== "undefined" && result.canWrite) {
+        window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+          detail: {
+            reason: result.existed ? "workspace-journal-repaired" : "workspace-journal-created",
+            workspaceId,
+          },
+        }));
+      }
+      return result;
+    },
+    /** 检查工作区共享日记是否存在；只读成员也可调用 */
+    checkWorkspace: (workspaceId: string, date?: string) => {
+      const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+      return request<{
+        exists: boolean;
+        noteId: string | null;
+        title: string | null;
+        canWrite: boolean;
+        role: string;
+        scope: "workspace";
+        workspaceId: string;
+      }>(`/journals/workspace/${encodeURIComponent(workspaceId)}/check${qs}`);
+    },
+    /** 将已有日记迁移到真实的个人日记 / 年 / 月目录 */
+    organizeArchive: () => request<{
+      success: boolean;
+      total: number;
+      organized: number;
+      moved: number;
+      alreadyOrganized: number;
+      skippedInvalidDate: number;
+      skippedWorkspaceJournal: number;
+      foldersCreated: number;
+      foldersAdopted: number;
+      foldersReused: number;
+      rootNotebookId: string | null;
+    }>("/journals/organize", { method: "POST" }),
+    /** 预览迁移后可安全清理的旧空目录 */
+    previewArchiveCleanup: () => request<{
+      previewToken: string;
+      candidateCount: number;
+      blockedCount: number;
+      candidates: Array<{
+        id: string;
+        name: string;
+        parentId: string | null;
+        updatedAt: string;
+        evidenceCount: number;
+      }>;
+      blocked: Array<{
+        id: string;
+        name: string;
+        reasons: string[];
+      }>;
+    }>("/journals/cleanup-preview"),
+    /** 按预览令牌软删除已确认的空旧目录 */
+    cleanupArchive: (data: { previewToken: string; candidateIds?: string[] }) => request<{
+      success: boolean;
+      cleanupId: string;
+      cleaned: number;
+      alreadyDeleted: number;
+      cleanedNotebooks: Array<{ id: string; name: string }>;
+    }>("/journals/cleanup", { method: "POST", body: JSON.stringify(data) }),
+    /** 撤销一次旧目录清理 */
+    restoreArchiveCleanup: (cleanupId: string) => request<{
+      success: boolean;
+      cleanupId: string;
+      restored: number;
+      alreadyActive: number;
+      missing: number;
+      restoredNotebooks: Array<{ id: string; name: string }>;
+    }>("/journals/cleanup/restore", { method: "POST", body: JSON.stringify({ cleanupId }) }),
     /** 获取日记列表 */
     list: (cursor?: string, limit?: number) => {
       const params = new URLSearchParams();
@@ -4261,14 +4659,24 @@ export async function withSudo<T>(
 
 // 测试服务器连接（不需要 token）
 export async function testServerConnection(serverUrl: string): Promise<{ ok: boolean; error?: string }> {
-  const url = `${serverUrl.replace(/\/+$/, "")}/api/health`;
+  const base = _normalizeBase(serverUrl);
+  if (!base) return { ok: false, error: "服务器地址格式无效" };
+  const url = `${base}/api/health`;
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-    const data = await res.json();
+    if (contentType.includes("text/html") || /^\s*</.test(text)) {
+      return {
+        ok: false,
+        error: "该地址返回的是 NAS 门户页面，不是可供客户端直连的 Nowen Note API",
+      };
+    }
+    const data = JSON.parse(text);
     if (data.status === "ok") return { ok: true };
     return { ok: false, error: "Invalid response" };
   } catch (e: any) {
@@ -4364,7 +4772,7 @@ export async function diagnoseConnection(serverUrl: string): Promise<DiagnosisRe
 export async function registerAccount(
   data: { username: string; password: string; email?: string; displayName?: string },
   baseUrlOverride?: string,
-): Promise<{ token: string; user: User }> {
+): Promise<{ token: string; refreshToken: string; user: User }> {
   const base = baseUrlOverride ? `${baseUrlOverride.replace(/\/+$/, "")}/api` : getBaseUrl();
   const res = await fetch(`${base}/auth/register`, {
     method: "POST",

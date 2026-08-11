@@ -6,6 +6,7 @@ on:
       - "backend/src/index.hardened.ts"
       - "backend/src/runtime/notebook-permission-management.ts"
       - "backend/src/runtime/knowledge-tree-migration-bootstrap.ts"
+      - "backend/src/runtime/task-stats-hardening.ts"
       - "backend/src/services/notebookOwnershipTransfer.ts"
       - "backend/tests/migration-bootstrap-order.test.ts"
       - "backend/tests/notebook-owner-transfer.test.ts"

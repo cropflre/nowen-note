@@ -14,6 +14,7 @@ import { isMermaidLang } from "@/lib/mermaidRenderer";
 import { replaceCodeBlockWithPlainText } from "@/lib/tiptapEditorCommands";
 import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
 import { formatCodeBlockLanguageLabel } from "@/lib/codeBlockLowlight";
+import { copyText } from "@/lib/clipboard";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 import {
   getEditorEditableSnapshot,
@@ -171,29 +172,13 @@ export function CodeBlockView(props: NodeViewProps) {
   }, [availableLanguages, langFilter]);
 
   const handleCopy = useCallback(async () => {
-    try {
-      const text = node.textContent;
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        // 降级：textarea + execCommand
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        try {
-          document.execCommand("copy");
-        } finally {
-          document.body.removeChild(ta);
-        }
-      }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error("Copy code block failed:", err);
+    const ok = await copyText(node.textContent);
+    if (!ok) {
+      console.error("Copy code block failed: clipboard API unavailable");
+      return;
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }, [node]);
 
   const handleSelectLanguage = useCallback(

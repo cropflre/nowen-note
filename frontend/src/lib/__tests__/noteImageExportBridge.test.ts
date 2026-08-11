@@ -6,6 +6,7 @@ import {
   cancelAllNoteImageExportRequests,
   normalizeNoteImageExportSource,
   normalizeNoteImageExportTimestamp,
+  prepareNoteImageExportSource,
   requestNoteImageExport,
   settleNoteImageExportRequest,
   type NoteImageExportRequestDetail,
@@ -13,6 +14,7 @@ import {
 
 afterEach(() => {
   cancelAllNoteImageExportRequests();
+  localStorage.clear();
 });
 
 describe("NOTE-EXPORT-TIME-01 image export timestamp regression", () => {
@@ -74,28 +76,45 @@ describe("NOTE-EXPORT-TIME-01 image export timestamp regression", () => {
     expect(JSON.stringify(normalized)).not.toContain("Invalid Date");
   });
 
-  it("dispatches only normalized timestamps to the shared image export center", async () => {
-    let detail: NoteImageExportRequestDetail | null = null;
-    const listener = (event: Event) => {
-      detail = (event as CustomEvent<NoteImageExportRequestDetail>).detail;
+  it("renders Markdown footnotes in an isolated export copy", () => {
+    const note = {
+      id: "note-footnotes",
+      title: "脚注",
+      contentFormat: "markdown",
+      content: "正文。[^1]\n\n[^1]: 脚注内容",
+      contentText: "正文。[^1]\n\n[^1]: 脚注内容",
     };
-    window.addEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, listener);
 
-    try {
-      const result = requestNoteImageExport({
-        id: "note-request",
-        title: "导出请求",
-        content: "",
-        contentText: "",
-        updatedAt: "2026-07-16 02:56:52",
-      });
+    const prepared = prepareNoteImageExportSource(note);
 
-      expect(detail).not.toBeNull();
-      expect(detail!.note.updatedAt).toBe("2026-07-16T02:56:52.000Z");
-      settleNoteImageExportRequest(detail!.requestId, true);
-      await expect(result).resolves.toBe(true);
-    } finally {
-      window.removeEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, listener);
-    }
+    expect(prepared).not.toBe(note);
+    expect(prepared.content).toContain("data-footnote-ref");
+    expect(prepared.content).toContain("class=\"footnotes\"");
+    expect(prepared.content).toContain("脚注内容");
+    expect(prepared.content).not.toContain("[^1]:");
+    expect(note.content).toContain("[^1]: 脚注内容");
+  });
+
+  it("dispatches only prepared timestamps to the shared image export center", async () => {
+    const detailPromise = new Promise<NoteImageExportRequestDetail>((resolve) => {
+      const listener = (event: Event) => {
+        window.removeEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, listener);
+        resolve((event as CustomEvent<NoteImageExportRequestDetail>).detail);
+      };
+      window.addEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, listener);
+    });
+
+    const result = requestNoteImageExport({
+      id: "note-request",
+      title: "导出请求",
+      content: "",
+      contentText: "",
+      updatedAt: "2026-07-16 02:56:52",
+    });
+
+    const detail = await detailPromise;
+    expect(detail.note.updatedAt).toBe("2026-07-16T02:56:52.000Z");
+    settleNoteImageExportRequest(detail.requestId, true);
+    await expect(result).resolves.toBe(true);
   });
 });

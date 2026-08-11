@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
 import {
   setCurrentUser,
   putNotebooks,
@@ -27,6 +27,11 @@ import {
 import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
 import { resolveQueuedNoteConflicts } from "@/lib/conflictResolution";
 import type { Note, User } from "@/types";
+import {
+  setOfflineSyncUser,
+  stopOfflineWorkspaceSync,
+  syncOfflineWorkspace,
+} from "@/lib/offlineWorkspaceSync";
 
 type SyncState = "idle" | "bootstrapping" | "ready" | "error";
 let state: SyncState = "idle";
@@ -162,6 +167,10 @@ export function subscribeSyncSummary(listener: (summary: SyncSummary) => void): 
 }
 
 async function pullServerSnapshot(): Promise<void> {
+  const currentWorkspace = getCurrentWorkspace();
+  const currentWorkspaceId = currentWorkspace === "personal" ? null : currentWorkspace;
+  const isCurrentScope = (value: { workspaceId?: string | null }) =>
+    (value.workspaceId ?? null) === currentWorkspaceId;
   const [notebooksResult, notesResult, tagsResult] = await Promise.allSettled([
     api.getNotebooks(),
     api.getNotes(),
@@ -171,7 +180,7 @@ async function pullServerSnapshot(): Promise<void> {
   const pullErrors: string[] = [];
 
   if (notebooksResult.status === "fulfilled") {
-    const local = await getAllNotebooks();
+    const local = (await getAllNotebooks()).filter(isCurrentScope);
     const remoteIds = new Set(notebooksResult.value.map((notebook) => notebook.id));
     for (const notebook of local) {
       if (!remoteIds.has(notebook.id)) await deleteNotebook(notebook.id);
@@ -183,7 +192,7 @@ async function pullServerSnapshot(): Promise<void> {
   }
 
   if (notesResult.status === "fulfilled") {
-    const local = await getAllNotes();
+    const local = (await getAllNotes()).filter(isCurrentScope);
     // 兼容修复前遗留状态：本地缓存已经明确记录为回收站的笔记，不应继续保留
     // 它此前的更新冲突。不能仅根据远端普通列表缺失来判断，避免误删离线新建内容。
     const locallyDeletedQueueIds = findLocallyDeletedQueuedNoteIds(local, getOfflineQueue());
@@ -208,7 +217,7 @@ async function pullServerSnapshot(): Promise<void> {
   }
 
   if (tagsResult.status === "fulfilled") {
-    const local = await getAllTags();
+    const local = (await getAllTags()).filter(isCurrentScope);
     const remoteIds = new Set(tagsResult.value.map((tag) => tag.id));
     for (const tag of local) {
       if (!remoteIds.has(tag.id)) await deleteTag(tag.id);
@@ -241,6 +250,7 @@ async function pullServerSnapshot(): Promise<void> {
 
 export async function bootstrap(user: User): Promise<void> {
   setCurrentUser(user.id);
+  setOfflineSyncUser(user.id);
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     setState("ready");
     return;
@@ -255,6 +265,9 @@ export async function bootstrap(user: User): Promise<void> {
     }
     if (getOfflineQueue().length > 0) await resolveConfiguredVersionConflicts();
     await pullServerSnapshot();
+    void syncOfflineWorkspace({ reason: "bootstrap" }).catch((error) => {
+      console.warn("[syncEngine] complete offline bootstrap failed", error);
+    });
     const pending = getQueueLength();
     const versionConflicts = countVersionConflicts(getFailedQueueItems());
     if (pending > versionConflicts) setState("error", describePendingQueue(pending));
@@ -289,6 +302,10 @@ export async function syncNow(): Promise<{
     if (getQueueLength() > 0) await flushQueue(offlineQueueFetch);
     if (getQueueLength() > 0) await resolveConfiguredVersionConflicts();
     await pullServerSnapshot();
+    const offlineResult = await syncOfflineWorkspace({ force: true, reason: "manual" });
+    if (offlineResult.state === "error") {
+      throw new Error(offlineResult.lastError || "离线副本同步失败");
+    }
 
     const pending = getQueueLength();
     const versionConflicts = countVersionConflicts(getFailedQueueItems());
@@ -323,6 +340,8 @@ async function getQueuedNoteIds(): Promise<Set<string>> {
 }
 
 export function teardown(): void {
+  stopOfflineWorkspaceSync();
+  setOfflineSyncUser(null);
   setCurrentUser(null);
   setState("idle");
 }

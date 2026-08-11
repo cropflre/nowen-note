@@ -1,6 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { NodeViewWrapper, NodeViewProps } from "@tiptap/react";
+import { Capacitor } from "@capacitor/core";
 import { resolveAttachmentUrl, getServerUrl } from "@/lib/api";
+import {
+  getAttachmentAccessSnapshot,
+  subscribeAttachmentAccess,
+} from "@/lib/noteAttachmentAccessBridge";
 import {
   getPersistentImageTransform,
   normalizeImageFlipX,
@@ -190,18 +195,24 @@ export function ResizableImageView(props: NodeViewProps) {
     dragStateRef.current = null;
   }, [handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
-  const [imgError, setImgError] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [blobSrc, setBlobSrc] = useState<string | null>(null);
+  useSyncExternalStore(
+    subscribeAttachmentAccess,
+    getAttachmentAccessSnapshot,
+    getAttachmentAccessSnapshot,
+  );
   const resolvedSrc = resolveAttachmentUrl(src);
 
   // In progressive modes an offscreen attachment image must not start a fetch/blob conversion.
   useEffect(() => {
-    setImgError(false);
+    setFailedSrc(null);
     setBlobSrc(null);
     if (!src || !shouldRenderHeavyContent) return;
 
     const serverUrl = getServerUrl();
-    if (serverUrl && isAttachmentPath(src)) {
+    const needsAndroidBlobFallback = Capacitor.getPlatform() === "android";
+    if (needsAndroidBlobFallback && serverUrl && isAttachmentPath(src) && /^https?:/i.test(resolvedSrc)) {
       let cancelled = false;
       fetchImageAsBlob(resolvedSrc)
         .then((url) => {
@@ -213,7 +224,6 @@ export function ResizableImageView(props: NodeViewProps) {
             resolvedSrc,
             error: err,
           });
-          if (!cancelled) setImgError(true);
         });
       return () => {
         cancelled = true;
@@ -226,6 +236,11 @@ export function ResizableImageView(props: NodeViewProps) {
   }, [blobSrc]);
 
   const finalSrc = blobSrc || resolvedSrc;
+  useEffect(() => {
+    // 当前渲染地址变化时，上一地址的失败状态不能污染新的加载结果。
+    setFailedSrc(null);
+  }, [finalSrc]);
+  const imgError = !!finalSrc && failedSrc === finalSrc;
   const displayWidth = draftWidth ?? (typeof initialWidth === "number" ? initialWidth : null);
   const placeholderWidth = Math.max(120, Math.min(displayWidth || 320, 640));
   const placeholderHeight = Math.max(96, Math.min(Math.round(placeholderWidth * 0.56), 360));
@@ -274,6 +289,7 @@ export function ResizableImageView(props: NodeViewProps) {
     >
       {shouldRenderHeavyContent ? (
         <img
+          key={finalSrc}
           ref={imgRef}
           src={finalSrc}
           alt={alt ?? ""}
@@ -291,12 +307,17 @@ export function ResizableImageView(props: NodeViewProps) {
             outlineOffset: 0,
           }}
           draggable={false}
+          onLoad={() => {
+            // 只有最终交给 img 的地址成功加载，才确认清除失败状态。
+            setFailedSrc((current) => current === finalSrc ? null : current);
+          }}
           onError={() => {
             console.error("[ResizableImageView] img load failed:", {
               originalSrc: src,
               resolvedSrc,
             });
-            setImgError(true);
+            // 错误状态绑定到触发失败的地址，不能覆盖随后切换成功的新地址。
+            setFailedSrc(finalSrc);
           }}
         />
       ) : (

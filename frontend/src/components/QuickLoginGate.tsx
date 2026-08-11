@@ -32,6 +32,7 @@ import {
 import { setServerUrl, getServerUrl } from "@/lib/api";
 import { hasActiveTwoFactorLoginChallenge } from "@/lib/twoFactorLoginChallenge";
 import type { User } from "@/types";
+import { fetchWithAuthRefresh, getAccessToken, storeAuthTokens } from "@/lib/authSession";
 
 interface Props {
   /** 是否处于客户端模式（Electron / Capacitor / 曾配置过服务器地址） */
@@ -137,10 +138,11 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
       try {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 8000);
-        const res = await fetch(verifyUrl, {
+        storeAuthTokens({ token: result.token, refreshToken: result.refreshToken ?? null });
+        const res = await fetchWithAuthRefresh(verifyUrl, {
           headers: { Authorization: `Bearer ${result.token}` },
           signal: ctrl.signal,
-        });
+        }, baseUrl ? `${baseUrl}/api` : "/api");
         clearTimeout(timer);
         if (!res.ok) {
           // 401 / 403：token 已被吊销 / 改密。secure storage 凭据失效 → 清空
@@ -154,13 +156,7 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
         }
         const data = await res.json();
         if (cancelled) return;
-        // 同步到 localStorage：项目其它地方还是从 nowen-token 读
-        try {
-          localStorage.setItem("nowen-token", result.token);
-        } catch {
-          /* ignore */
-        }
-        onSettled(true, { token: result.token, user: data });
+        onSettled(true, { token: getAccessToken() || result.token, user: data });
       } catch (e: any) {
         if (cancelled) return;
         setErrorMsg(

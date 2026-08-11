@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildDueAtFromDateAndTime,
   buildDueDatePatch,
+  buildStartDateFromDateAndTime,
   compareTasksByDueTime,
+  getDateValue,
   getDueTimeValue,
+  getTaskScheduleMode,
+  isTaskAllDay,
+  isTaskDateRangeInvalid,
 } from "../taskDateUtils";
 import type { Task } from "@/types";
 
@@ -47,6 +52,19 @@ describe("due time helpers", () => {
     expect(buildDueAtFromDateAndTime("2026-06-17", "")).toBeNull();
   });
 
+  it("splits and rebuilds a start date with an optional time", () => {
+    expect(getDateValue("2026-06-17T09:15")).toBe("2026-06-17");
+    expect(getDueTimeValue("2026-06-17 09:15:00")).toBe("09:15");
+    expect(buildStartDateFromDateAndTime("2026-06-17", "09:15")).toBe("2026-06-17T09:15");
+    expect(buildStartDateFromDateAndTime("2026-06-17", "")).toBe("2026-06-17");
+  });
+
+  it("validates exact start and due times on the same day", () => {
+    expect(isTaskDateRangeInvalid("2026-06-17T18:01", "2026-06-17", "2026-06-17T18:00")).toBe(true);
+    expect(isTaskDateRangeInvalid("2026-06-17T17:00", "2026-06-17", "2026-06-17T18:00")).toBe(false);
+    expect(isTaskDateRangeInvalid("2026-06-17T17:00", "2026-06-17", null)).toBe(false);
+  });
+
   it("clearing dueDate also clears dueAt and disables repeat", () => {
     const task = makeTask({ dueDate: "2026-06-17", dueAt: "2026-06-17T17:00", repeatRule: "weekly", repeatEndCount: 5 });
     expect(buildDueDatePatch(task, "")).toEqual({
@@ -68,5 +86,25 @@ describe("due time helpers", () => {
       .map((t) => t.id);
 
     expect(rootIds).toEqual(["time", "date", "none"]);
+  });
+});
+
+
+describe("task schedule mode", () => {
+  it("does not treat an unscheduled task as all-day", () => {
+    const task = makeTask({ startDate: null, dueDate: null, dueAt: null });
+    expect(getTaskScheduleMode(task)).toBe("unscheduled");
+    expect(isTaskAllDay(task)).toBe(false);
+  });
+
+  it("recognizes date-only tasks as all-day", () => {
+    const task = makeTask({ startDate: "2026-08-03", dueDate: "2026-08-03", dueAt: null });
+    expect(getTaskScheduleMode(task)).toBe("all-day");
+    expect(isTaskAllDay(task)).toBe(true);
+  });
+
+  it("recognizes ISO and legacy space timestamps as timed", () => {
+    expect(getTaskScheduleMode(makeTask({ dueDate: "2026-08-03", dueAt: "2026-08-03T09:30" }))).toBe("timed");
+    expect(getTaskScheduleMode(makeTask({ startDate: "2026-08-03 09:30:00", dueDate: "2026-08-03" }))).toBe("timed");
   });
 });

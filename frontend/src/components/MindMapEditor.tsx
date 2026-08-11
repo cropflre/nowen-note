@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   BrainCircuit, Plus, Trash2, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
@@ -467,27 +467,37 @@ function MarkerIcons({ markers }: { markers?: string[] }) {
 }
 
 /* ===== 连线组件 ===== */
-const Edge = React.memo(function Edge({ from, to }: { from: LayoutNode; to: LayoutNode }) {
+export interface MindMapEdgeGeometry {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  controlX: number;
+}
+
+/** 节点和连线共用同一份布局边界，避免宽度/方向计算分叉。 */
+export function getMindMapEdgeGeometry(
+  from: Pick<LayoutNode, "x" | "y" | "width" | "height">,
+  to: Pick<LayoutNode, "x" | "y" | "width" | "height">,
+): MindMapEdgeGeometry {
   const toIsLeft = to.x + to.width < from.x;
-  let x1: number, y1: number, x2: number, y2: number;
-  if (toIsLeft) {
-    x1 = from.x;
-    y1 = from.y + from.height / 2;
-    x2 = to.x + to.width;
-    y2 = to.y + to.height / 2;
-  } else {
-    x1 = from.x + from.width;
-    y1 = from.y + from.height / 2;
-    x2 = to.x;
-    y2 = to.y + to.height / 2;
-  }
-  const mx = (x1 + x2) / 2;
+  const x1 = toIsLeft ? from.x : from.x + from.width;
+  const y1 = from.y + from.height / 2;
+  const x2 = toIsLeft ? to.x + to.width : to.x;
+  const y2 = to.y + to.height / 2;
+  return { x1, y1, x2, y2, controlX: (x1 + x2) / 2 };
+}
+
+const Edge = React.memo(function Edge({ from, to }: { from: LayoutNode; to: LayoutNode }) {
+  const { x1, y1, x2, y2, controlX: mx } = getMindMapEdgeGeometry(from, to);
   return (
     <path
       d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
       fill="none"
       stroke={MT.edgeStroke}
       strokeWidth={MT.edgeWidth}
+      vectorEffect="non-scaling-stroke"
+      shapeRendering="geometricPrecision"
       className=""
     />
   );
@@ -541,14 +551,24 @@ const NodeBox = React.memo(function NodeBox({
 
   return (
     <g>
-      <foreignObject x={node.x} y={node.y} width={node.width} height={node.height}>
+      <foreignObject
+        x={node.x}
+        y={node.y}
+        width={node.width}
+        height={node.height}
+        overflow="visible"
+      >
         <div
           data-mindmap-node-id={node.id}
+          data-mindmap-node-surface="true"
           className={cn(
-            "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-all duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
+            "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-colors duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
             isSearchMatch && "ring-2 ring-amber-400/70", isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20", isDragTarget && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20"
           )}
           style={{
+            width: "100%",
+            height: "100%",
+            boxSizing: "border-box",
             background: isRoot ? (nodeData?.style?.bg || MT.rootBg) : (nodeData?.style?.bg || color.bg),
             color: isRoot ? (nodeData?.style?.color || MT.rootText) : (nodeData?.style?.color || color.text),
             border: `1px solid ${nodeData?.style?.border || color.border}`,
@@ -2941,7 +2961,8 @@ export default function MindMapCenter() {
                   ref={svgRef}
                   width="100%"
                   height="100%"
-                  viewBox={`0 0 ${Math.max(1, canvasSize.width)} ${Math.max(1, canvasSize.height)}`}
+                  data-mindmap-canvas-svg="true"
+                  className="block overflow-visible"
                 >
                 <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
                 {/* Edges */}

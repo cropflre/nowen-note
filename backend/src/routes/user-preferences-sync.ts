@@ -4,6 +4,7 @@ import { getDb } from "../db/schema";
 type MarkdownViewMode = "source" | "preview" | "split";
 type ReadingDensity = "cozy" | "compact";
 type EditorMode = "md" | "tiptap";
+type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 type CodeBlockTheme =
   | "github-dark"
   | "github-light"
@@ -17,6 +18,8 @@ export interface SyncedUserPreferences {
   noteTitleAsAppTitle: boolean;
   outlineDefaultOpen: boolean;
   lockOnOpen: boolean;
+  folderAutoLockMinutes: FolderAutoLockMinutes;
+  folderLockOnBackground: boolean;
   showNotesInNotebookTree: boolean;
   readingDensity: ReadingDensity;
   showNoteListUpdatedTime: boolean;
@@ -53,6 +56,8 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   noteTitleAsAppTitle: false,
   outlineDefaultOpen: false,
   lockOnOpen: false,
+  folderAutoLockMinutes: 15,
+  folderLockOnBackground: true,
   showNotesInNotebookTree: false,
   readingDensity: "cozy",
   showNoteListUpdatedTime: true,
@@ -88,11 +93,18 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "noteTitleAsAppTitle":
     case "outlineDefaultOpen":
     case "lockOnOpen":
+    case "folderLockOnBackground":
     case "showNotesInNotebookTree":
     case "showNoteListUpdatedTime":
     case "enableNoteTabs":
     case "noteListTitleOnly":
       return (typeof value === "boolean" ? value : fallback) as SyncedUserPreferences[K];
+    case "folderAutoLockMinutes":
+      return (
+        value === 0 || value === 5 || value === 15 || value === 30 || value === 60
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
     case "readingDensity":
       return (value === "cozy" || value === "compact" ? value : fallback) as SyncedUserPreferences[K];
     case "markdownDefaultViewMode":

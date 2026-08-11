@@ -1,0 +1,33 @@
+/*
+ * Issue #337 / #629: rich-text Mermaid preview should read like an inline diagram,
+ * not like a source-code card. The runtime shell adds the data attribute only while
+ * a Mermaid code block is in preview mode inside ProseMirror, so ordinary code blocks,
+ * Markdown/shared previews and the standalone mind-map module are unaffected.
+ */
+.ProseMirror .code-block-wrapper[data-nowen-mermaid-inline-preview="true"] {
+  background: transparent !important;
+  border-width: 0 !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.ProseMirror .code-block-wrapper[data-nowen-mermaid-inline-preview="true"]:hover {
+  box-shadow: none !important;
+}
+
+.ProseMirror .code-block-wrapper[data-nowen-mermaid-inline-preview="true"] > .code-block-toolbar {
+  display: none !important;
+}
+
+.ProseMirror .code-block-wrapper[data-nowen-mermaid-inline-preview="true"] > .mermaid-preview-host {
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
+
+.ProseMirror .code-block-wrapper[data-nowen-mermaid-inline-preview="true"] .mermaid-view {
+  overflow: visible;
+}

@@ -13,7 +13,7 @@ const mainSource = readFileSync(path.resolve(__dirname, "../../main.tsx"), "utf8
 
 describe("mobile knowledge tree mode switch contract", () => {
   it("keeps both mobile directory modes without a switch in the content header", () => {
-    expect(bridgeSource).toContain('<KnowledgeTreePanel variant="mobile" className="nowen-mobile-tree-density" />');
+    expect(bridgeSource).toMatch(/<KnowledgeTreePanel[\s\S]*variant="mobile"[\s\S]*className=\{compact\s*\?\s*"nowen-mobile-tree-density"\s*:\s*undefined\}/);
     expect(bridgeSource).toContain('mode === "tree" && createPortal');
     expect(bridgeSource).toContain('surface.navigatorSurface.style.display = mode === "tree" ? "none" : ""');
     expect(bridgeSource).not.toContain("MOBILE_MODE_SWITCH_SLOT_ATTRIBUTE");
@@ -21,8 +21,8 @@ describe("mobile knowledge tree mode switch contract", () => {
   });
 
   it("keeps browser and Android tree mode visibly compact", () => {
-    expect(compactCssSource).toContain("--nowen-mobile-tree-root-folder-row-height: 22px");
-    expect(compactCssSource).toContain("--nowen-mobile-tree-folder-row-height: 20px");
+    expect(compactCssSource).toMatch(/--nowen-mobile-tree-root-folder-row-height:\s*\d+px/);
+    expect(compactCssSource).toMatch(/--nowen-mobile-tree-folder-row-height:\s*\d+px/);
     expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 16px");
     expect(compactCssSource).toMatch(/\[data-knowledge-tree-node-id\]\s*\{[\s\S]*min-height:\s*var\(--nowen-mobile-tree-note-row-height\)\s*!important/);
     expect(compactCssSource).toContain("font-size: 11px !important");

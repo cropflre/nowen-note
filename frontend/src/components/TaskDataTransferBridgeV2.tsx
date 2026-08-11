@@ -15,7 +15,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { TASK_CENTER_ROOT_CLASS } from "@/lib/taskLayout";
 import {
   buildTaskCsv,
   collectTaskBackup,
@@ -33,20 +32,11 @@ import {
   type AnyTaskImportPreview,
   type TaskArchiveImportResult,
 } from "@/lib/taskDataTransferArchive";
+import { OPEN_TASK_DATA_TRANSFER_EVENT } from "@/lib/taskDataTransferBridge";
 import { cn } from "@/lib/utils";
-
-const TASK_ROOT_CLASSES = TASK_CENTER_ROOT_CLASS.split(/\s+/).filter(Boolean);
 
 type ExportFormat = "zip" | "json" | "csv";
 type ImportResult = TaskImportResult | TaskArchiveImportResult;
-
-export function findTaskCenterRootV2(root: ParentNode = document): HTMLElement | null {
-  const candidates = root.querySelectorAll<HTMLElement>("div");
-  for (const candidate of candidates) {
-    if (TASK_ROOT_CLASSES.every((className) => candidate.classList.contains(className))) return candidate;
-  }
-  return null;
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -131,42 +121,7 @@ function ResultSummary({ result }: { result: ImportResult }) {
   );
 }
 
-function useTaskCenterRoot(): HTMLElement | null {
-  const [taskRoot, setTaskRoot] = useState<HTMLElement | null>(null);
-  const rootRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    let frame = 0;
-    const scan = () => {
-      frame = 0;
-      if (rootRef.current?.isConnected) return;
-      const next = findTaskCenterRootV2(document);
-      rootRef.current = next;
-      setTaskRoot(next);
-    };
-    const scheduleScan = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(scan);
-    };
-
-    scan();
-    const observer = new MutationObserver(() => {
-      if (rootRef.current?.isConnected) return;
-      scheduleScan();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => {
-      observer.disconnect();
-      if (frame) window.cancelAnimationFrame(frame);
-      rootRef.current = null;
-    };
-  }, []);
-
-  return taskRoot;
-}
-
 export default function TaskDataTransferBridgeV2() {
-  const taskRoot = useTaskCenterRoot();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<ExportFormat | "import" | null>(null);
   const [progress, setProgress] = useState<TaskTransferProgress | null>(null);
@@ -186,10 +141,6 @@ export default function TaskDataTransferBridgeV2() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, open]);
 
-  useEffect(() => {
-    if (!taskRoot && !busy) setOpen(false);
-  }, [busy, taskRoot]);
-
   const resetImport = useCallback(() => {
     setPreview(null);
     setResult(null);
@@ -198,6 +149,15 @@ export default function TaskDataTransferBridgeV2() {
     setDuplicateMode("skip");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
+
+  useEffect(() => {
+    const handleOpen = () => {
+      resetImport();
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_TASK_DATA_TRANSFER_EVENT, handleOpen);
+    return () => window.removeEventListener(OPEN_TASK_DATA_TRANSFER_EVENT, handleOpen);
+  }, [resetImport]);
 
   const handleExport = useCallback(async (format: ExportFormat) => {
     setBusy(format);
@@ -256,20 +216,6 @@ export default function TaskDataTransferBridgeV2() {
       setProgress(null);
     }
   }, [duplicateMode, preview]);
-
-  const launcher = taskRoot && !open ? createPortal(
-    <button
-      type="button"
-      onClick={() => { resetImport(); setOpen(true); }}
-      className="absolute bottom-[calc(var(--safe-area-bottom)+16px)] right-4 z-[46] inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-elevated/95 px-3.5 text-sm font-medium text-tx-secondary shadow-xl shadow-black/10 backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-accent-primary/35 hover:text-accent-primary hover:shadow-2xl active:translate-y-0 md:bottom-5 md:right-5"
-      title="待办数据导入导出"
-      aria-label="待办数据导入导出"
-    >
-      <DatabaseBackup size={17} />
-      <span className="hidden sm:inline">导入 / 导出</span>
-    </button>,
-    taskRoot,
-  ) : null;
 
   const dialog = open ? createPortal(
     <div
@@ -518,5 +464,5 @@ export default function TaskDataTransferBridgeV2() {
     document.body,
   ) : null;
 
-  return <>{launcher}{dialog}</>;
+  return dialog;
 }

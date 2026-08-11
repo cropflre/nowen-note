@@ -7,6 +7,7 @@ import {
   applyKnowledgeTreeSort,
   compareKnowledgeTreePinnedPriority,
   loadKnowledgeTreeSortMode,
+  planKnowledgeTreeSiblingReorder,
   saveKnowledgeTreeSortMode,
 } from "@/lib/knowledgeTreeSort";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
@@ -70,6 +71,24 @@ describe("knowledgeTreeSort", () => {
     const nodes = [node("b", "Beta", 0), node("a", "Alpha", 1)];
     expect(applyKnowledgeTreeSort(nodes)).toBe(nodes);
     expect(orderedTitles(nodes, null)).toEqual(["Beta", "Alpha"]);
+  });
+
+  it("reorders manual-sort siblings without changing their parent", () => {
+    const nodes = [node("a", "A", 0), node("b", "B", 1), node("c", "C", 2)];
+    const plan = planKnowledgeTreeSiblingReorder(nodes, "c", "a", "before");
+
+    expect(plan).not.toBeNull();
+    expect(orderedTitles(plan!.nodes, null)).toEqual(["C", "A", "B"]);
+    expect(plan!.nodes.every((item) => item.parentId === null)).toBe(true);
+  });
+
+  it("rejects drag reorder across hierarchy levels", () => {
+    const nodes = [
+      node("root", "Root", 0),
+      node("child", "Child", 0, { parentId: "root" }),
+    ];
+
+    expect(planKnowledgeTreeSiblingReorder(nodes, "child", "root", "before")).toBeNull();
   });
 
   it("sorts every sibling group by title without flattening hierarchy", () => {

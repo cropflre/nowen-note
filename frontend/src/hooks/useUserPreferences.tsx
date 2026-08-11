@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { api } from "@/lib/api";
+import { installKnowledgeTreeAutoLock } from "@/lib/knowledgeTreeAutoLock";
 import {
   DEFAULT_USER_PREFERENCES,
   LEGACY_CODE_BLOCK_THEME_KEY,
@@ -31,6 +32,7 @@ import {
 export type {
   CodeBlockThemeId,
   EditorMode,
+  FolderAutoLockMinutes,
   MarkdownViewMode,
   ReadingDensity,
   UserPreferences,
@@ -126,6 +128,13 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     const cls = "density-compact";
     document.body.classList.toggle(cls, prefs.readingDensity === "compact");
   }, [prefs.readingDensity]);
+
+  // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
+  // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。
+  useEffect(() => installKnowledgeTreeAutoLock({
+    idleMinutes: prefs.folderAutoLockMinutes,
+    lockOnBackground: prefs.folderLockOnBackground,
+  }), [prefs.folderAutoLockMinutes, prefs.folderLockOnBackground]);
 
   // 兼容已经存在的编辑器模式、代码块主题和标题列表模块。它们继续使用原来的
   // localStorage key，但值由账号偏好回填；用户在旧入口修改时由下方事件监听反向同步。

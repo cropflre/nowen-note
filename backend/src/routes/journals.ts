@@ -19,6 +19,22 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
+import {
+  ensureJournalArchiveFolders,
+  ensureJournalArchivePlacement,
+  organizeJournalArchive,
+  parseJournalDateKey,
+} from "../services/journalArchiveTree.js";
+import {
+  applyJournalArchiveCleanup,
+  previewJournalArchiveCleanup,
+  restoreJournalArchiveCleanup,
+} from "../services/journalArchiveCleanup.js";
+import {
+  checkWorkspaceJournal,
+  getOrCreateWorkspaceJournal,
+  WorkspaceJournalError,
+} from "../services/workspaceJournals.js";
 
 const app = new Hono();
 
@@ -32,14 +48,9 @@ const app = new Hono();
  * @returns YYYY-MM-DD 格式的本地日期字符串
  */
 function getLocalDateKey(dateStr?: string): string {
-  let date: Date;
+  if (dateStr !== undefined) return parseJournalDateKey(dateStr).dateKey;
 
-  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    // 前端传入的 YYYY-MM-DD 格式，直接使用
-    return dateStr;
-  }
-
-  date = new Date();
+  const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -78,7 +89,12 @@ app.post("/today", async (c) => {
     // body 解析失败不阻塞，使用服务端日期
   }
 
-  const today = getLocalDateKey(localDate);
+  let today: string;
+  try {
+    today = getLocalDateKey(localDate);
+  } catch {
+    return c.json({ error: "日期格式无效，请使用 YYYY-MM-DD" }, 400);
+  }
 
   // 查询是否已有今日日记
   const existing = db.prepare(`
@@ -91,48 +107,64 @@ app.post("/today", async (c) => {
   `).get(userId, today) as any;
 
   if (existing) {
-    return c.json({
-      ...existing,
-      existed: true,
+    const archive = ensureJournalArchivePlacement({
+      db,
+      userId,
+      noteId: existing.id,
+      dateKey: today,
     });
-  }
-
-  // 不存在，创建新日记
-  const id = uuid();
-  const title = today; // 标题使用日期格式 "2026-06-26"
-
-  // 查找用户的默认笔记本（个人空间）
-  const defaultNotebook = db.prepare(`
-    SELECT id FROM notebooks
-    WHERE userId = ? AND workspaceId IS NULL AND isDeleted = 0
-    ORDER BY sortOrder ASC, createdAt ASC
-    LIMIT 1
-  `).get(userId) as { id: string } | undefined;
-
-  if (!defaultNotebook) {
-    return c.json({ error: "请先创建一个笔记本" }, 400);
-  }
-
-  try {
-    db.prepare(`
-      INSERT INTO notes (id, userId, notebookId, title, content, contentText, note_type, journal_date)
-      VALUES (?, ?, ?, ?, '{}', '', 'journal', ?)
-    `).run(id, userId, defaultNotebook.id, title, today);
-
-    const created = db.prepare(`
+    const refreshed = db.prepare(`
       SELECT id, userId, notebookId, workspaceId, title, content, contentText,
              isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
              createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
       FROM notes
       WHERE id = ?
-    `).get(id);
+    `).get(existing.id);
+    return c.json({
+      ...refreshed as any,
+      existed: true,
+      archive,
+    });
+  }
+
+  // 不存在，创建新日记。目录与日记在同一事务内落地：
+  // 个人日记 / YYYY年 / YYYY年MM月 / YYYY-MM-DD。
+  const id = uuid();
+  const title = today;
+
+  try {
+    const result = db.transaction(() => {
+      const folders = ensureJournalArchiveFolders({ db, userId, dateKey: today });
+      db.prepare(`
+        INSERT INTO notes (
+          id, userId, notebookId, title, content, contentText,
+          note_type, journal_date, sortOrder
+        ) VALUES (?, ?, ?, ?, '{}', '', 'journal', ?, 0)
+      `).run(id, userId, folders.monthNotebookId, title, today);
+
+      const archive = ensureJournalArchivePlacement({
+        db,
+        userId,
+        noteId: id,
+        dateKey: today,
+      });
+      const created = db.prepare(`
+        SELECT id, userId, notebookId, workspaceId, title, content, contentText,
+               isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
+               createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
+        FROM notes
+        WHERE id = ?
+      `).get(id);
+      return { created, archive };
+    })();
 
     return c.json({
-      ...created as any,
+      ...result.created as any,
       existed: false,
+      archive: result.archive,
     }, 201);
   } catch (err: any) {
-    // UNIQUE 约束冲突：并发创建时触发，回退查询已有日记
+    // UNIQUE 约束冲突：并发创建时回退查询已有日记并修复目录归属。
     if (String(err?.code || "").startsWith("SQLITE_CONSTRAINT")) {
       const retry = db.prepare(`
         SELECT id, userId, notebookId, workspaceId, title, content, contentText,
@@ -141,11 +173,25 @@ app.post("/today", async (c) => {
         FROM notes
         WHERE userId = ? AND note_type = 'journal' AND journal_date = ?
           AND isTrashed = 0
-      `).get(userId, today);
-
+      `).get(userId, today) as any;
+      if (!retry?.id) throw err;
+      const archive = ensureJournalArchivePlacement({
+        db,
+        userId,
+        noteId: retry.id,
+        dateKey: today,
+      });
+      const refreshedRetry = db.prepare(`
+        SELECT id, userId, notebookId, workspaceId, title, content, contentText,
+               isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
+               createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
+        FROM notes
+        WHERE id = ?
+      `).get(retry.id);
       return c.json({
-        ...retry as any,
+        ...refreshedRetry as any,
         existed: true,
+        archive,
       });
     }
     throw err;
@@ -167,7 +213,12 @@ app.get("/check", (c) => {
   }
 
   const dateParam = c.req.query("date");
-  const today = getLocalDateKey(dateParam);
+  let today: string;
+  try {
+    today = getLocalDateKey(dateParam);
+  } catch {
+    return c.json({ error: "日期格式无效，请使用 YYYY-MM-DD" }, 400);
+  }
 
   const existing = db.prepare(`
     SELECT id, title
@@ -181,6 +232,154 @@ app.get("/check", (c) => {
     noteId: existing?.id || null,
     title: existing?.title || null,
   });
+});
+
+function workspaceJournalErrorResponse(c: any, error: unknown) {
+  if (error instanceof WorkspaceJournalError) {
+    return c.json({ error: error.message, code: error.code }, error.status);
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith("INVALID_JOURNAL_DATE:")) {
+    return c.json({ error: "日期格式无效，请使用 YYYY-MM-DD", code: "INVALID_JOURNAL_DATE" }, 400);
+  }
+  throw error;
+}
+
+/** 检查当前成员能否访问指定工作区的某日日记；只读，不创建。 */
+app.get("/workspace/:workspaceId/check", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const workspaceId = c.req.param("workspaceId");
+  let dateKey: string;
+  try {
+    dateKey = getLocalDateKey(c.req.query("date"));
+    const result = checkWorkspaceJournal({
+      db, workspaceId, actorUserId: userId, dateKey,
+    });
+    return c.json({
+      ...result,
+      scope: "workspace",
+      workspaceId,
+    });
+  } catch (error) {
+    return workspaceJournalErrorResponse(c, error);
+  }
+});
+
+/** 获取或创建工作区共享日记。只读成员可打开已有日记，但不能创建缺失日期。 */
+app.post("/workspace/:workspaceId/resolve", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const workspaceId = c.req.param("workspaceId");
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const dateKey = getLocalDateKey(body?.localDate);
+    const result = getOrCreateWorkspaceJournal({
+      db, workspaceId, actorUserId: userId, dateKey,
+    });
+    return c.json({
+      ...result.note,
+      existed: result.existed,
+      canWrite: result.canWrite,
+      role: result.role,
+      archive: result.archive,
+      scope: "workspace",
+    }, result.existed ? 200 : 201);
+  } catch (error) {
+    return workspaceJournalErrorResponse(c, error);
+  }
+});
+
+/**
+ * 将已有日记整理为真实的知识树实体目录。
+ *
+ * 显式 POST，重复执行安全；不会修改日记正文和标题，也不会删除旧空笔记本。
+ */
+app.post("/organize", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+
+  const result = organizeJournalArchive({ db, userId });
+  return c.json({ success: true, ...result });
+});
+
+/**
+ * 预览迁移后可安全清理的旧空笔记本。
+ *
+ * 只有具备 journal_archive 移动历史、仍为空、没有子目录、共享、密码或 ACL 的
+ * 个人笔记本才会进入候选列表。GET 只读，不产生删除副作用。
+ */
+app.get("/cleanup-preview", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  return c.json(previewJournalArchiveCleanup({ db, userId }));
+});
+
+/**
+ * 按最新预览执行安全清理。
+ *
+ * previewToken 用于防止预览后目录又新增内容时仍按旧状态删除。清理只软删除空笔记本，
+ * 不移动或删除任何笔记，并返回 cleanupId 供撤销。
+ */
+app.post("/cleanup", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+
+  const body = await c.req.json().catch(() => ({}));
+  const previewToken = typeof body?.previewToken === "string" ? body.previewToken.trim() : "";
+  const candidateIds = Array.isArray(body?.candidateIds)
+    ? body.candidateIds.filter((value: unknown): value is string => typeof value === "string" && value.length > 0)
+    : undefined;
+  if (!/^[0-9a-f]{64}$/i.test(previewToken)) {
+    return c.json({ error: "预览令牌无效" }, 400);
+  }
+  if (candidateIds && candidateIds.length > 100) {
+    return c.json({ error: "单次最多清理 100 个目录" }, 400);
+  }
+
+  try {
+    const result = applyJournalArchiveCleanup({ db, userId, previewToken, candidateIds });
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    if (message === "JOURNAL_ARCHIVE_CLEANUP_STALE_PREVIEW") {
+      return c.json({ error: "目录状态已经变化，请重新预览", code: message }, 409);
+    }
+    if (message === "JOURNAL_ARCHIVE_CLEANUP_INVALID_SELECTION") {
+      return c.json({ error: "清理范围包含不安全目录", code: message }, 400);
+    }
+    throw error;
+  }
+});
+
+/** 撤销一次日记旧目录清理。 */
+app.post("/cleanup/restore", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const cleanupId = typeof body?.cleanupId === "string" ? body.cleanupId.trim() : "";
+  if (!/^[0-9a-f-]{36}$/i.test(cleanupId)) {
+    return c.json({ error: "清理记录无效" }, 400);
+  }
+  try {
+    const result = restoreJournalArchiveCleanup({ db, userId, cleanupId });
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    if (message === "JOURNAL_ARCHIVE_CLEANUP_NOT_FOUND") {
+      return c.json({ error: "找不到可撤销的清理记录", code: message }, 404);
+    }
+    if (message.startsWith("JOURNAL_ARCHIVE_CLEANUP_PARENT_UNAVAILABLE")) {
+      return c.json({ error: "原父目录不可用，无法安全撤销", code: message }, 409);
+    }
+    throw error;
+  }
 });
 
 /**
