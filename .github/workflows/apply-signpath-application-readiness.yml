@@ -1,0 +1,134 @@
+name: Apply SignPath Application Readiness
+
+on:
+  push:
+    branches:
+      - codex/github-signpath-windows-update-signing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/github-signpath-windows-update-signing
+          fetch-depth: 0
+
+      - name: Apply targeted SignPath readiness patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow_path = Path('.github/workflows/release.yml')
+          source = workflow_path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '#              SIGNPATH_SIGNING_POLICY_SLUG / SIGNPATH_ARTIFACT_CONFIGURATION_SLUG /\n#              NOWEN_WINDOWS_PUBLISHER_NAME',
+                  '#              SIGNPATH_SIGNING_POLICY_SLUG / SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG /\n#              SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG / NOWEN_WINDOWS_PUBLISHER_NAME',
+              ),
+              (
+                  '          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}\n          NOWEN_WINDOWS_PUBLISHER_NAME:',
+                  '          SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}\n          SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}\n          NOWEN_WINDOWS_PUBLISHER_NAME:',
+              ),
+          ]
+          for old, new in replacements:
+              if source.count(old) != 1:
+                  raise SystemExit(f'workflow replacement anchor count={source.count(old)} for {old!r}')
+              source = source.replace(old, new, 1)
+
+          node_setup = '''      - name: Setup Node.js
+                  uses: actions/setup-node@v4
+                  with:
+                    node-version: "20"
+                    cache: "npm"
+
+          '''
+          version_step = '''      - name: Resolve package version for SignPath
+                  id: package_version
+                  shell: bash
+                  run: echo "version=$(node -p 'require(\\"./package.json\\").version')" >> "$GITHUB_OUTPUT"
+
+          '''
+          if source.count(node_setup) != 1:
+              raise SystemExit(f'build setup-node anchor count={source.count(node_setup)}')
+          source = source.replace(node_setup, node_setup + version_step, 1)
+
+          full_slug = '          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}\n          github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}'
+          full_new = '          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}\n          github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}\n          parameters: |\n            version: ${{ toJSON(steps.package_version.outputs.version) }}'
+          if source.count(full_slug) != 1:
+              raise SystemExit(f'full artifact slug anchor count={source.count(full_slug)}')
+          source = source.replace(full_slug, full_new, 1)
+
+          lite_slug = '          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}\n          github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}'
+          lite_new = '          artifact-configuration-slug: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}\n          github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}\n          parameters: |\n            version: ${{ toJSON(steps.package_version.outputs.version) }}'
+          if source.count(lite_slug) != 1:
+              raise SystemExit(f'lite artifact slug anchor count={source.count(lite_slug)}')
+          source = source.replace(lite_slug, lite_new, 1)
+
+          upload_anchor = '''      - name: Upload allowlisted Release assets
+          '''
+          release_policy_step = '''      - name: Ensure Release code signing policy
+                  env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    TAG: ${{ steps.version.outputs.tag }}
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    CURRENT_NOTES="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')"
+                    if ! grep -q '^## Code signing policy$' <<<"$CURRENT_NOTES"; then
+                      NOTES_FILE="$(mktemp)"
+                      {
+                        printf '%s\\n\\n' '## Code signing policy'
+                        printf '%s\\n\\n' 'Free code signing provided by SignPath.io, certificate by SignPath Foundation.'
+                        printf '%s\\n\\n' 'Policy: https://github.com/cropflre/nowen-note/blob/main/docs/CODE_SIGNING.md'
+                        printf '%s\\n\\n' 'Privacy: https://github.com/cropflre/nowen-note/blob/main/docs/PRIVACY.md'
+                        printf '%s\\n' "$CURRENT_NOTES"
+                      } > "$NOTES_FILE"
+                      gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$NOTES_FILE"
+                      rm -f "$NOTES_FILE"
+                    fi
+
+          '''
+          if source.count(upload_anchor) != 1:
+              raise SystemExit(f'upload assets anchor count={source.count(upload_anchor)}')
+          source = source.replace(upload_anchor, release_policy_step + upload_anchor, 1)
+
+          workflow_path.write_text(source, encoding='utf-8')
+
+          package_path = Path('package.json')
+          package_source = package_path.read_text(encoding='utf-8')
+          old_test = 'scripts/tests/signpath-policy-docs.test.cjs"'
+          new_test = 'scripts/tests/signpath-policy-docs.test.cjs scripts/tests/signpath-artifact-config.test.cjs"'
+          if package_source.count(old_test) != 1:
+              raise SystemExit(f'package test anchor count={package_source.count(old_test)}')
+          package_path.write_text(package_source.replace(old_test, new_test, 1), encoding='utf-8')
+
+          Path('.github/workflows/apply-signpath-application-readiness.yml').unlink()
+          PY
+
+      - name: Verify targeted patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n "SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml
+          grep -n "SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG" .github/workflows/release.yml
+          grep -n "version:.*toJSON(steps.package_version.outputs.version)" .github/workflows/release.yml
+          grep -n "Ensure Release code signing policy" .github/workflows/release.yml
+          node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/release.yml','utf8')); console.log('release.yml ok')"
+          git diff --check
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/release.yml package.json .github/workflows/apply-signpath-application-readiness.yml
+          git commit -m "fix(signpath): 强化申请就绪发布约束"
+          git push origin HEAD:codex/github-signpath-windows-update-signing
