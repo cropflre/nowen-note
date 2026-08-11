@@ -44,15 +44,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if rg -n -F -- "--publish always" .github/workflows/release.yml; then
+          if grep -nF -- "--publish always" .github/workflows/release.yml; then
             echo "forbidden direct publish flag found" >&2
             exit 1
           fi
-          if rg -n "WIN_CSC_LINK|WIN_CSC_KEY_PASSWORD|publisherName:\\s*[\"']Nowen" .github/workflows/release.yml electron scripts; then
+          if grep -RInE "WIN_CSC_LINK|WIN_CSC_KEY_PASSWORD|publisherName:.*Nowen" .github/workflows/release.yml electron scripts; then
             echo "legacy Windows signing configuration found" >&2
             exit 1
           fi
-          rg -n "SIGNPATH_API_TOKEN|NOWEN_WINDOWS_PUBLISHER_NAME|github-action-submit-signing-request@v2" .github/workflows/release.yml
+          grep -nE "SIGNPATH_API_TOKEN|NOWEN_WINDOWS_PUBLISHER_NAME|github-action-submit-signing-request@v2" .github/workflows/release.yml
           git diff --check origin/${{ github.base_ref }}...HEAD
 
   windows-fail-closed:
