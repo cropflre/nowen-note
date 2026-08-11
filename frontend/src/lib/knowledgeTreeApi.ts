@@ -1,5 +1,9 @@
 import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
+import {
+  getOfflineKnowledgeTree,
+  putCompleteOfflineKnowledgeTree,
+} from "@/lib/localStore";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
 export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin" | "deny";
@@ -85,19 +89,29 @@ function token(): string {
   }
 }
 
+type KnowledgeTreeRequestError = Error & {
+  status?: number;
+  code?: string;
+  payload?: unknown;
+  isNetworkError?: true;
+};
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers || {});
   const bearer = token();
   if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
   if (init.body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${apiBase()}${path}`, { ...init, headers, cache: "no-store" });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase()}${path}`, { ...init, headers, cache: "no-store" });
+  } catch (cause) {
+    const error = new Error(cause instanceof Error ? cause.message : "网络请求失败") as KnowledgeTreeRequestError;
+    error.isNetworkError = true;
+    throw error;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload?.error || `请求失败 (${response.status})`) as Error & {
-      status?: number;
-      code?: string;
-      payload?: unknown;
-    };
+    const error = new Error(payload?.error || `请求失败 (${response.status})`) as KnowledgeTreeRequestError;
     error.status = response.status;
     error.code = payload?.code;
     error.payload = payload;
@@ -117,15 +131,45 @@ function withDisplaySort(result: { nodes: KnowledgeTreeNode[] }): { nodes: Knowl
   return { nodes: applyKnowledgeTreeSort(result.nodes) };
 }
 
+function canUseOfflineFallback(error: unknown): boolean {
+  const requestError = error as KnowledgeTreeRequestError;
+  if (requestError?.isNetworkError) return true;
+  const status = requestError?.status;
+  return status === 408 || status === 429 || (typeof status === "number" && status >= 500 && status < 600);
+}
+
+async function listWithOfflineFallback(
+  workspaceId: string,
+  includeDeleted: boolean,
+): Promise<{ nodes: KnowledgeTreeNode[] }> {
+  try {
+    const result = await request<{ nodes: KnowledgeTreeNode[] }>(
+      `/?${workspaceQuery(includeDeleted, workspaceId)}`,
+    );
+    if (!includeDeleted) {
+      try {
+        await putCompleteOfflineKnowledgeTree(workspaceId, result.nodes);
+      } catch (error) {
+        console.warn("[knowledgeTreeApi] failed to cache knowledge tree:", error);
+      }
+    }
+    return withDisplaySort(result);
+  } catch (error) {
+    if (!includeDeleted && canUseOfflineFallback(error)) {
+      const cachedNodes = await getOfflineKnowledgeTree(workspaceId);
+      if (cachedNodes) return withDisplaySort({ nodes: cachedNodes });
+    }
+    throw error;
+  }
+}
+
 export const knowledgeTreeApi = {
   list(includeDeleted = false) {
-    return request<{ nodes: KnowledgeTreeNode[] }>(`/?${workspaceQuery(includeDeleted)}`).then(withDisplaySort);
+    return listWithOfflineFallback(getCurrentWorkspace(), includeDeleted);
   },
 
   listForWorkspace(workspaceId: string, includeDeleted = false) {
-    return request<{ nodes: KnowledgeTreeNode[] }>(
-      `/?${workspaceQuery(includeDeleted, workspaceId)}`,
-    ).then(withDisplaySort);
+    return listWithOfflineFallback(workspaceId, includeDeleted);
   },
 
   listShared() {

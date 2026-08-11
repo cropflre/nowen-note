@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isOfflineAttachmentWanted,
@@ -31,5 +32,15 @@ describe("complete offline workspace settings", () => {
     expect(isOfflineAttachmentWanted(image, normalizeOfflineSyncSettings({ attachmentMode: "images" }))).toBe(true);
     expect(isOfflineAttachmentWanted(pdf, normalizeOfflineSyncSettings({ attachmentMode: "images" }))).toBe(false);
     expect(isOfflineAttachmentWanted(image, normalizeOfflineSyncSettings({ attachmentMode: "none" }))).toBe(false);
+  });
+
+  it("syncs the knowledge tree before note data", () => {
+    const source = readFileSync("src/lib/offlineWorkspaceSync.ts", "utf8");
+    const syncTarget = source.slice(source.indexOf("async function syncTarget("));
+    const knowledgeTreeSync = syncTarget.indexOf("`/knowledge-tree/?${scopeQuery(target.workspaceId)}`");
+    const notebookSync = syncTarget.indexOf("await putCompleteOfflineNotebooks(plan.notebooks);");
+
+    expect(knowledgeTreeSync).toBeGreaterThan(-1);
+    expect(notebookSync).toBeGreaterThan(knowledgeTreeSync);
   });
 });

@@ -22,6 +22,8 @@ on:
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
+      - "frontend/src/lib/offlineWorkspaceSync.ts"
+      - "frontend/src/lib/__tests__/offlineWorkspaceSync.test.ts"
       - ".github/workflows/knowledge-tree-ci.yml"
   pull_request:
     paths:
@@ -40,6 +42,8 @@ on:
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
+      - "frontend/src/lib/offlineWorkspaceSync.ts"
+      - "frontend/src/lib/__tests__/offlineWorkspaceSync.test.ts"
       - ".github/workflows/knowledge-tree-ci.yml"
 
 permissions:
@@ -148,6 +152,8 @@ jobs:
           npm run test:run --
           src/lib/__tests__/knowledgeTreeModel.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
+          src/lib/__tests__/knowledgeTreeApi.test.ts
+          src/lib/__tests__/offlineWorkspaceSync.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b

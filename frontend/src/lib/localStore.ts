@@ -1,4 +1,5 @@
 import { openDB, type IDBPDatabase, type DBSchema } from "idb";
+import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import type { Note, NoteListItem, Notebook, Tag } from "@/types";
 
 /** Extra IndexedDB-only metadata. It is never sent to the server. */
@@ -97,6 +98,7 @@ interface NowenCacheSchema extends DBSchema {
 
 const DB_NAME_PREFIX = "nowen-cache-v2-";
 const DB_VERSION = 2;
+const OFFLINE_KNOWLEDGE_TREE_META_PREFIX = "offlineKnowledgeTree:";
 
 let currentUserId: string | null = null;
 let currentCacheIdentity: string | null = null;
@@ -388,6 +390,30 @@ export async function getMeta<T = unknown>(key: string): Promise<T | undefined> 
   }, undefined, "getMeta");
 }
 
+function offlineKnowledgeTreeMetaKey(workspaceId: string | null): string {
+  return `${OFFLINE_KNOWLEDGE_TREE_META_PREFIX}${workspaceId || "personal"}`;
+}
+
+export async function putCompleteOfflineKnowledgeTree(
+  workspaceId: string | null,
+  nodes: KnowledgeTreeNode[],
+): Promise<void> {
+  const connection = getDb();
+  if (!connection) throw new Error("离线数据库尚未初始化");
+  await (await connection).put("meta", {
+    key: offlineKnowledgeTreeMetaKey(workspaceId),
+    value: { nodes },
+    updatedAt: Date.now(),
+  });
+}
+
+export async function getOfflineKnowledgeTree(
+  workspaceId: string | null,
+): Promise<KnowledgeTreeNode[] | undefined> {
+  const snapshot = await getMeta<{ nodes?: unknown }>(offlineKnowledgeTreeMetaKey(workspaceId));
+  return Array.isArray(snapshot?.nodes) ? snapshot.nodes as KnowledgeTreeNode[] : undefined;
+}
+
 export async function clearAll(): Promise<void> {
   const connection = getDb();
   if (!connection) return;
@@ -669,12 +695,19 @@ export async function clearOfflineScope(
   workspaceId: string | null,
   preserveNoteIds: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
-  return reconcileOfflineScope(workspaceId, {
+  const removedAttachmentIds = await reconcileOfflineScope(workspaceId, {
     noteIds: new Set(),
     notebookIds: new Set(),
     tagIds: new Set(),
     preserveNoteIds,
   });
+  const connection = getDb();
+  if (connection) {
+    await safe(async () => {
+      await (await connection).delete("meta", offlineKnowledgeTreeMetaKey(workspaceId));
+    }, undefined, "clearOfflineKnowledgeTree");
+  }
+  return removedAttachmentIds;
 }
 
 export async function getOfflineStorageStats(): Promise<OfflineStorageStats> {

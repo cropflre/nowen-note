@@ -11,6 +11,7 @@ import {
   putCompleteOfflineNote,
   putCompleteOfflineNotebooks,
   putCompleteOfflineTags,
+  putCompleteOfflineKnowledgeTree,
   putOfflineAttachment,
   putOfflineAttachmentJob,
   reconcileOfflineAttachmentJobs,
@@ -23,6 +24,7 @@ import {
   type OfflineStorageStats,
 } from "@/lib/localStore";
 import { getQueue } from "@/lib/offlineQueue";
+import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import type { Note, Notebook, Tag, Workspace } from "@/types";
 
 export type OfflineAttachmentMode = "none" | "images" | "all";
@@ -701,6 +703,13 @@ async function syncTarget(
     {},
     signal,
   );
+  const knowledgeTree = await requestJson<{ nodes: KnowledgeTreeNode[] }>(
+    `/knowledge-tree/?${scopeQuery(target.workspaceId)}`,
+    {},
+    signal,
+  );
+  await putCompleteOfflineKnowledgeTree(target.workspaceId, knowledgeTree.nodes);
+
   await putCompleteOfflineNotebooks(plan.notebooks);
   await putCompleteOfflineTags(plan.tags);
   await reconcileOfflineScope(target.workspaceId, {
