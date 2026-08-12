@@ -415,7 +415,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const titleRef = useRef<HTMLInputElement | null>(null);
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
 
@@ -1561,7 +1561,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, []);
 
   const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         viewRef.current?.focus();
@@ -1975,8 +1975,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         data-markdown-mobile-title=""
         className={cn("px-4 md:px-8 pb-2", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
       >
-        <input
+        <textarea
           ref={titleRef}
+          rows={1}
           defaultValue={note.title}
           placeholder={tr("tiptap.titlePlaceholder") || "�ޱ���"}
           onBlur={handleTitleBlur}
@@ -1986,7 +1987,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
+            "w-full resize-none overflow-hidden [field-sizing:content] bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
             compactMobileEditing && "text-lg leading-7",
           )}
         />
