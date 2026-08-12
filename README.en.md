@@ -30,18 +30,18 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.4.6 is available
+## v1.4.10 is available
 
-v1.4.6 focuses on **performance, sync reliability, mobile usability, permission hardening, and localization**, with a large set of fixes driven by real-world usage feedback.
+v1.4.10 focuses on **faster editing, more reliable mobile media uploads, offline attachment recovery, knowledge-tree usability, and reminder correctness**, while expanding templates, import/export, and desktop integration.
 
-- Reduced startup cost by lazy-loading the editor, navigation, tasks, journals, file management, AI, and other feature centers, with improved static caching and Brotli/Gzip precompression.
-- Fixed false conflicts that could appear with only one active client, duplicate conflict copies, and inconsistent save states; format transitions now preserve Yjs document history more safely.
-- Added a unified Android image viewer with in-app preview, pinch-to-zoom, and pan gestures, plus native system scheduling for task reminders.
-- Expanded knowledge ACLs with Restricted mode and explicit deny rules, then applied permission filtering consistently to search, files, attachments, exports, tags, and offline sync.
-- Improved three-column navigation, editor outline behavior, desktop code-block copy, Markdown image export, orphan attachment handling, and UGREEN remote gateway compatibility.
-- Completed another broad localization pass across workspace, security, import, download, large-document, and journal Markdown surfaces, backed by regression tests.
+- Added duplicate-title prefix warnings while typing, automatic wrapping for long titles, improved Markdown find/replace, and current-directory note search.
+- Added drag-to-change hierarchy in the knowledge tree and tightened visibility rules for notes inside encrypted directories.
+- Added image rotation and independent reset controls; rich-text paste now preserves text color and cross-note formatting more consistently. Desktop builds also gain native text context menus and system-default opening for local office files.
+- Hardened Android/mobile image and video uploads by preserving original file identity, stabilizing multipart uploads, and exposing image/video actions in the compact toolbar.
+- Added offline attachment validation, quarantine, and recovery signaling so broken cached blobs do not leak into online rendering. Offline sync now starts disabled until explicitly enabled.
+- Made reminder creation timezone-aware with safer date-only deadlines and PostgreSQL schema parity, while fixing backup retention, SiYuan import feedback, and Markdown attachment ZIP round trips.
 
-See [GitHub Releases](https://github.com/cropflre/nowen-note/releases) and the [full changelog](./CHANGELOG.md).
+See the [v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10) and the [full changelog](./CHANGELOG.md).
 
 ## Connect AI clients to Nowen Note
 
@@ -66,37 +66,54 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 
 | Module | Current capabilities |
 | --- | --- |
-| **Unified knowledge tree** | Mixed folders, rich-text notes, and Markdown notes; root-level documents, unlimited nesting, drag sorting, a unified create menu, expand/collapse all, Markdown drag-and-drop or file import, filtering, search, note counts, trash, shared tree views, and three-column browsing with child-folder scope. |
+| **Unified knowledge tree** | Mixed folders, rich-text notes, and Markdown notes; root-level documents, unlimited nesting, drag sorting, drag-to-change hierarchy, a unified create menu, expand/collapse all, Markdown drag-and-drop or file import, filtering, search, note counts, trash, shared tree views, and three-column browsing with child-folder scope. |
 | **Folder security and access control** | Folder passwords, short-lived unlock tokens, directory ACLs, Restricted mode, explicit allow/deny rules, inherited policy evaluation, and protected import/export flows. |
-| **Rich text and Markdown** | Tiptap 3, CodeMirror 6, per-note format conversion, live preview, split view, outline navigation, format painter, slash commands, tables, code blocks, KaTeX, Mermaid, footnotes, Callouts, media embeds, comments, and version history. |
+| **Rich text and Markdown** | Tiptap 3, CodeMirror 6, per-note format conversion, live preview, split view, outline navigation, format painter, slash commands, tables, code blocks, KaTeX, Mermaid, footnotes, Callouts, media embeds, cross-note format-preserving paste, duplicate-title prefix warnings, comments, and version history. |
 | **Long documents and editor stability** | Complexity detection, Worker analysis, viewport rendering, windowed editing, incremental saves, large-document safe modes, outline navigation, and recovery logic for hidden Markdown markers and cursor state. |
 | **Performance and delivery** | Lazy-loaded workspace, editor, task, journal, file, AI, and sharing surfaces; cache validators, Gzip/Brotli precompression, and bundle-budget checks reduce startup and repeated transfer cost. |
 | **Image editing** | Crop images and add text, freehand drawing, arrows, shapes, and mosaic effects. Existing remote images can be migrated into local attachments or object storage. |
-| **Knowledge organization and search** | Colored tags, favorites, pinning, full-text search, in-document find and replace, backlinks, block references, reverse links, and a knowledge graph. Permission-aware search hides restricted resources before result limits are applied. |
+| **Knowledge organization and search** | Colored tags, favorites, pinning, full-text search, current-directory note search, improved in-document find and replace, backlinks, block references, reverse links, and a knowledge graph. Permission-aware search hides restricted resources before result limits are applied. |
 | **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama. Features include continuation, rewriting, translation, title and tag generation, summaries, embeddings, and RAG knowledge Q&A. |
-| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, AI task breakdown, My Day, Inbox, time planning, offline tasks/habits, native Android reminder scheduling, and mind maps. |
+| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, AI task breakdown, My Day, Inbox, time planning, offline tasks/habits, native Android reminder scheduling with creator-timezone/date-only deadline consistency, and mind maps. |
 | **Collaboration, permissions, and sharing** | Yjs + WebSocket collaboration, workspaces and roles, directory ACLs, Restricted access, explicit allow/deny policies, ownership transfer, centralized share management, passwords and expiration, guest comments, public knowledge spaces, and rich-text/Markdown inline comments. |
-| **Sync and edit protection** | Incremental sync, persistence acknowledgements, draft recovery, and version checks. v1.4.6 hardens false-conflict handling, duplicate-copy prevention, serial saves, and Yjs state preservation across Markdown/rich-text format transitions. |
+| **Sync and edit protection** | Incremental sync, persistence acknowledgements, draft recovery, and version checks. v1.4.10 adds offline attachment validation, quarantine, and recovery signaling while keeping serial saves and Yjs state protection across Markdown/rich-text format transitions. |
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. |
-| **Attachments and storage** | Local attachments organized under `YYYY/MM`; reusable attachment-library insertion, thumbnails, note ownership, reference checks, orphan rescans and cleanup, protected manual uploads, and local disk or S3/R2/MinIO storage. |
+| **Attachments and storage** | Local attachments organized under `YYYY/MM`; reusable attachment-library insertion, thumbnails, note ownership, reference checks, orphan rescans and cleanup, protected manual uploads, local disk or S3/R2/MinIO storage, plus hardened mobile image/video file identity and multipart uploads. |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, protected attachment access, and concealment of restricted-resource existence. |
 | **Backups, automation, and developer APIs** | Local backups, full ZIP backups, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, [MCP Server](./docs/tutorials/mcp.en.md), and a browser clipper. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect through IPv4, IPv6, or a domain name. Android includes in-app gesture image preview and native task notifications. |
 
 ## Recent highlights
 
-### v1.4.6 · 2026-08-07
+### v1.4.10 · 2026-08-12
 
-- Lazy-loaded major frontend feature centers and added precompressed static delivery to reduce startup work and repeated asset transfer.
-- Fixed false single-client conflicts, duplicate conflict copies, save-state inconsistencies, and Markdown/rich-text round-trip duplication risks.
-- Added a unified Android image viewer with pinch zoom and pan gestures, plus native system scheduling for task reminders.
-- Expanded knowledge ACLs with Restricted mode and explicit deny rules, applying access filtering to search, files, attachments, export, tags, and offline sync.
-- Improved three-column navigation, editor outline placement and positioning, tab indentation persistence, code-block copy, Markdown image export, and Mermaid previews.
-- Protected manual uploads from orphan cleanup and improved attachment cache revalidation, signed-URL reuse, and remote thumbnail fallback behavior.
-- Completed a broad localization pass across security, workspace, large-document, journal Markdown, Xiaomi Cloud, Youdao, download, and LAN surfaces.
-- Hardened Linux native-module compatibility checks and standardized Capacitor 8 Android release builds on a Node.js 22 baseline.
+#### Editing and search
 
-See [CHANGELOG.md](./CHANGELOG.md) and [GitHub Releases](https://github.com/cropflre/nowen-note/releases) for complete release history.
+- Duplicate-title prefix warnings surface possible duplicates while a title is being entered, and long titles now wrap within the editor instead of overflowing.
+- Markdown find/replace has a more resilient narrow-width layout, and search can be scoped to notes in the current directory.
+- Rich-text copy/paste between notes preserves formatting and text colors more consistently.
+
+#### Images, attachments, and mobile
+
+- The image viewer adds rotation and independent reset controls, with rotation state preserved correctly in fullscreen mode.
+- Mobile image/video uploads keep original File identity across DataTransfer, queue, progress, and multipart boundaries, with real uploaded video size validation.
+- Image and video actions are available in the compact mobile toolbar, while short-viewport menus and scrolling settings surfaces receive additional layout fixes.
+- Offline attachment blobs are validated, quarantined when corrupted, and surfaced through a recovery signal instead of contaminating online rendering.
+
+#### Knowledge tree, templates, and import/export
+
+- Knowledge-tree nodes can be dragged across hierarchy levels, and encrypted-directory visibility boundaries are tightened.
+- Note templates support saving, creating notes from templates, mobile entry points, an in-app save dialog, and cleanup protection for template attachments.
+- Markdown attachment ZIP round-trip import is fixed, while SiYuan import gets better drag recognition, recovery-directory persistence, and no-response feedback.
+
+#### Tasks, backups, and desktop integration
+
+- Reminder scheduling now preserves creator timezone context, date-only deadline semantics, and PostgreSQL migration/schema parity across normal creation and quick capture.
+- db-only backup retention is unified for automatic and manual backups, including persistence of disabled backup settings.
+- Desktop builds add a native text context menu and can open local office attachments with the operating system's default application.
+- Release downloads gain stronger GitHub asset fallback and stable platform/install-type grouping.
+
+See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10) for complete details.
 
 ## Screenshots
 
@@ -175,10 +192,10 @@ docker compose up -d
 To pin the current stable release:
 
 ```bash
-NOWEN_IMAGE_TAG=v1.4.6 docker compose up -d
+NOWEN_IMAGE_TAG=v1.4.10 docker compose up -d
 ```
 
-> v1.4.6 specifically improves conflict handling, permissions, frontend loading, Android image preview, and task reminders. After upgrading, verify sign-in, note editing, attachments, tasks, daily records, permissions, and backups. Rolling back an image does not roll back the database.
+> v1.4.10 specifically improves title and Markdown editing, knowledge-tree hierarchy changes, mobile media uploads, offline attachment recovery, and timezone-aware reminders. After upgrading, verify sign-in, note editing, image/video uploads, offline attachments, reminders, templates, import/export, and backups. Rolling back an image does not roll back the database.
 
 ### Managed Docker updates (optional)
 
@@ -187,7 +204,7 @@ Managed updates only support the official [`docker-compose.yml`](./docker-compos
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.4.6 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.4.10 docker compose --profile updater up -d
 ```
 
 Administrators can then run preflight checks, create a full backup, update, verify health, and roll back the image from Settings → About → Version.
@@ -205,7 +222,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.4.6
+  cropflre/nowen-note:v1.4.10
 ```
 
 ## Data, backups, and configuration
