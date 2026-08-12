@@ -1,0 +1,73 @@
+name: Apply long note title wrapping patch
+
+on:
+  push:
+    branches:
+      - fix/wrap-long-note-title
+    paths:
+      - .github/workflows/patch-wrap-long-note-title.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/wrap-long-note-title
+
+      - name: Patch note title fields
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          tiptap = "frontend/src/components/TiptapEditor.tsx"
+          replace_once(
+              tiptap,
+              'const titleRef = useRef<HTMLInputElement>(null);',
+              'const titleRef = useRef<HTMLTextAreaElement>(null);',
+          )
+          replace_once(
+              tiptap,
+              '''        <input\n          ref={titleRef}\n          defaultValue={note.title}\n          onBlur={handleTitleBlur}\n          onCompositionStart={handleTitleCompositionStart}\n          onCompositionEnd={handleTitleCompositionEnd}\n          placeholder={t('tiptap.titlePlaceholder')}\n          spellCheck={false}\n          readOnly={!editable}\n          className={cn(\n            \"w-full bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring\",\n            compactMobileEditing && \"text-lg leading-7\",\n            !editable && \"cursor-default\"\n          )}\n        />''',
+              '''        <textarea\n          ref={titleRef}\n          rows={1}\n          defaultValue={note.title}\n          onBlur={handleTitleBlur}\n          onCompositionStart={handleTitleCompositionStart}\n          onCompositionEnd={handleTitleCompositionEnd}\n          onKeyDown={(event) => {\n            if (event.key === \"Enter\") event.preventDefault();\n          }}\n          placeholder={t('tiptap.titlePlaceholder')}\n          spellCheck={false}\n          readOnly={!editable}\n          className={cn(\n            \"w-full resize-none overflow-hidden [field-sizing:content] bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring\",\n            compactMobileEditing && \"text-lg leading-7\",\n            !editable && \"cursor-default\"\n          )}\n        />''',
+          )
+
+          markdown = "frontend/src/components/MarkdownEditorImpl.tsx"
+          replace_once(
+              markdown,
+              'const titleRef = useRef<HTMLInputElement | null>(null);',
+              'const titleRef = useRef<HTMLTextAreaElement | null>(null);',
+          )
+          replace_once(
+              markdown,
+              '(e: React.KeyboardEvent<HTMLInputElement>) => {',
+              '(e: React.KeyboardEvent<HTMLTextAreaElement>) => {',
+          )
+          replace_once(
+              markdown,
+              '''        <input\n          ref={titleRef}\n          defaultValue={note.title}\n          placeholder={tr(\"tiptap.titlePlaceholder\") || \"�ޱ���\"}\n          onBlur={handleTitleBlur}\n          onCompositionStart={handleTitleCompositionStart}\n          onCompositionEnd={handleTitleCompositionEnd}\n          onKeyDown={handleTitleKeyDown}\n          spellCheck={false}\n          readOnly={!editable}\n          className={cn(\n            \"w-full bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60\",\n            compactMobileEditing && \"text-lg leading-7\",\n          )}\n        />''',
+              '''        <textarea\n          ref={titleRef}\n          rows={1}\n          defaultValue={note.title}\n          placeholder={tr(\"tiptap.titlePlaceholder\") || \"�ޱ���\"}\n          onBlur={handleTitleBlur}\n          onCompositionStart={handleTitleCompositionStart}\n          onCompositionEnd={handleTitleCompositionEnd}\n          onKeyDown={handleTitleKeyDown}\n          spellCheck={false}\n          readOnly={!editable}\n          className={cn(\n            \"w-full resize-none overflow-hidden [field-sizing:content] bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60\",\n            compactMobileEditing && \"text-lg leading-7\",\n          )}\n        />''',
+          )
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/TiptapEditor.tsx frontend/src/components/MarkdownEditorImpl.tsx
+          git diff --cached --check
+          git commit -m "fix: wrap long note titles"
+          git push origin HEAD:fix/wrap-long-note-title
