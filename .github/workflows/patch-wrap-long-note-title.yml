@@ -71,3 +71,5 @@ jobs:
           git diff --cached --check
           git commit -m "fix: wrap long note titles"
           git push origin HEAD:fix/wrap-long-note-title
+
+# trigger
