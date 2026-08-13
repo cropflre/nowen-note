@@ -1,0 +1,103 @@
+name: Fast mount validated PostgreSQL attachment runtime
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-attachment-mount-fast.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  mount:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-attachment-runtime-test-secret-please-change
+      ATTACHMENT_SIGNING_SECRET: pg-attachment-signing-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Mount attachment runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+          import_marker = 'import createTagsRuntimeRouter from "./routes/tags-runtime";\n'
+          import_line = 'import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";\n'
+          if import_line not in text:
+              text = text.replace(import_marker, import_marker + import_line, 1)
+          route_marker = 'app.route("/api/tags", createTagsRuntimeRouter(adapter));\n\n'
+          route_lines = '''app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
+
+          app.use("/api/attachments", authenticateApiRequest);
+          app.use("/api/attachments/*", authenticateApiRequest);
+          app.route("/api/attachments", createAttachmentsRuntimeRouter(adapter));
+
+          '''.replace('          ', '')
+          if 'app.get("/api/attachments/:id"' not in text:
+              text = text.replace(route_marker, route_marker + route_lines, 1)
+          migrated_marker = '        "GET /api/tags (personal/workspace scope)",\n'
+          if '"GET /api/attachments/:id (signed/Bearer, Range/ETag)"' not in text:
+              text = text.replace(migrated_marker, migrated_marker + (
+                  '        "GET /api/attachments/:id (signed/Bearer, Range/ETag)",\n'
+                  '        "GET /api/attachments/access/urls (user signed URLs)",\n'
+                  '        "POST /api/attachments (upload/dedup)",\n'
+                  '        "DELETE /api/attachments/:id",\n'
+              ), 1)
+          capability_marker = '        "tag and attachment search with Unicode-safe literal fallback",\n'
+          if '"signed user attachment upload/read/revoke/dedup across local and S3 storage"' not in text:
+              text = text.replace(capability_marker, capability_marker + '        "signed user attachment upload/read/revoke/dedup across local and S3 storage",\n', 1)
+          path.write_text(text)
+          PY
+      - name: TypeScript after mount
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Real attachment lifecycle after mount
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/attachments-runtime-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Push attachment mount
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/index.postgres-runtime.ts; then
+            echo "attachment runtime already mounted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/index.postgres-runtime.ts
+          git commit -m "feat(pg): mount signed attachment runtime"
+          git push origin HEAD:pg-migration-unified
