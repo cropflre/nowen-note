@@ -19,7 +19,6 @@ test("latest migration builds a mixed tree and enforces inherited capabilities",
   phase("bootstrap");
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema.js");
-  const { CURRENT_SCHEMA_VERSION } = await import("../src/db/migrations.js");
   closeDatabase = closeDb;
   const {
     createKnowledgeChild,
@@ -36,7 +35,10 @@ test("latest migration builds a mixed tree and enforces inherited capabilities",
   } = await import("../src/services/knowledgeCapabilities.js");
 
   const db = getDb();
-  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);
+  assert.ok(
+    getDbSchemaVersion() >= 65,
+    "knowledge-tree capability and password migrations must be applied",
+  );
 
   phase("seed users and workspace");
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")

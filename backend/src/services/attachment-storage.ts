@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { getDb } from "../db/schema";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 const SETTING_KEY = "attachmentStorage:config";
 const DATA_DIR = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
@@ -104,9 +104,7 @@ function getEnvS3Config(): (S3Config & { updatedAt: null }) | null {
 
 function readPersistedObjectStorageConfig(): (S3Config & { enabled: boolean; updatedAt: string | null }) | null {
   try {
-    const row = getDb()
-      .prepare("SELECT value, updatedAt FROM system_settings WHERE key = ?")
-      .get(SETTING_KEY) as { value: string; updatedAt: string } | undefined;
+    const row = systemSettingsRepository.get(SETTING_KEY);
     if (!row) return null;
     const parsed = JSON.parse(row.value || "{}") as Partial<S3Config> & {
       enabled?: boolean;
@@ -337,19 +335,13 @@ export function writeObjectStorageConfig(input: WriteObjectStorageConfigInput): 
     prefix: (input.prefix || "").trim().replace(/^\/+|\/+$/g, ""),
   });
 
-  getDb()
-    .prepare(
-      `INSERT INTO system_settings (key, value, updatedAt)
-       VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')`,
-    )
-    .run(SETTING_KEY, value);
+  systemSettingsRepository.set(SETTING_KEY, value);
 
   return readObjectStorageConfigPublic();
 }
 
 export function deleteObjectStorageConfig(): ObjectStorageConfigPublic {
-  getDb().prepare("DELETE FROM system_settings WHERE key = ?").run(SETTING_KEY);
+  systemSettingsRepository.delete(SETTING_KEY);
   return readObjectStorageConfigPublic();
 }
 

@@ -1,12 +1,14 @@
 import fs from "fs";
 import path from "path";
 import { v4 as uuid } from "uuid";
-import type Database from "better-sqlite3";
-import { getDb } from "../db/schema";
-import { getUserWorkspaceRole, hasPermission, hasRole, resolveNotebookPermission } from "../middleware/acl";
-import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
-import { syncNoteLinks } from "../lib/noteLinks";
-import { ensureAttachmentsDir, getAttachmentsDir, getUploadMonthPath } from "./attachment-storage";
+import {
+  getUserWorkspaceRole,
+  hasPermission,
+  hasRole,
+  resolveNotebookPermission,
+} from "../middleware/acl";
+import { workspaceNotebookTransferRepository } from "../repositories/workspaceNotebookTransferRepository";
+import { ensureAttachmentsDir, getUploadMonthPath } from "./attachment-storage";
 import { logAudit } from "./audit";
 
 type TransferStatus = 400 | 403 | 404 | 409 | 500;
@@ -94,19 +96,35 @@ export interface CopyPersonalNotebookResult {
   warnings: string[];
 }
 
-const UUID_RE = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
-const ATTACHMENT_URL_RE = new RegExp(`\\/api\\/attachments\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`, "gi");
+const UUID_RE =
+  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const ATTACHMENT_URL_RE = new RegExp(
+  `\\/api\\/attachments\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`,
+  "gi",
+);
 const NOTE_SCHEME_RE = new RegExp(`note:\\/\\/(${UUID_RE})`, "gi");
 const NOTE_URI_RE = new RegExp(`note:(${UUID_RE})`, "gi");
-const NOTE_PATH_RE = new RegExp(`\\/notes\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`, "gi");
-const NOTE_API_RE = new RegExp(`\\/api\\/notes\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`, "gi");
+const NOTE_PATH_RE = new RegExp(
+  `\\/notes\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`,
+  "gi",
+);
+const NOTE_API_RE = new RegExp(
+  `\\/api\\/notes\\/(${UUID_RE})(\\?[^"'\\s)<>\\]]*)?`,
+  "gi",
+);
 
-export function rewriteAttachmentUrls(content: string, idMap: Map<string, string>): string {
+export function rewriteAttachmentUrls(
+  content: string,
+  idMap: Map<string, string>,
+): string {
   if (!content) return content;
-  return content.replace(ATTACHMENT_URL_RE, (match, id: string, query: string = "") => {
-    const next = idMap.get(id.toLowerCase());
-    return next ? `/api/attachments/${next}${query}` : match;
-  });
+  return content.replace(
+    ATTACHMENT_URL_RE,
+    (match, id: string, query: string = "") => {
+      const next = idMap.get(id.toLowerCase());
+      return next ? `/api/attachments/${next}${query}` : match;
+    },
+  );
 }
 
 export function rewriteInternalNoteLinks(
@@ -125,10 +143,20 @@ export function rewriteInternalNoteLinks(
     return `${prefix}${next}${suffix}`;
   };
 
-  let nextContent = content.replace(NOTE_SCHEME_RE, (_match, id: string) => rewrite("note://", id));
-  nextContent = nextContent.replace(NOTE_URI_RE, (_match, id: string) => rewrite("note:", id));
-  nextContent = nextContent.replace(NOTE_PATH_RE, (_match, id: string, query: string = "") => rewrite("/notes/", id, query));
-  nextContent = nextContent.replace(NOTE_API_RE, (_match, id: string, query: string = "") => rewrite("/api/notes/", id, query));
+  let nextContent = content.replace(NOTE_SCHEME_RE, (_match, id: string) =>
+    rewrite("note://", id),
+  );
+  nextContent = nextContent.replace(NOTE_URI_RE, (_match, id: string) =>
+    rewrite("note:", id),
+  );
+  nextContent = nextContent.replace(
+    NOTE_PATH_RE,
+    (_match, id: string, query: string = "") => rewrite("/notes/", id, query),
+  );
+  nextContent = nextContent.replace(
+    NOTE_API_RE,
+    (_match, id: string, query: string = "") => rewrite("/api/notes/", id, query),
+  );
 
   return { content: nextContent, externalNoteLinkCount: external.size };
 }
@@ -137,42 +165,54 @@ function fail(status: TransferStatus, code: string, message: string): never {
   throw new WorkspaceNotebookTransferError(status, code, message);
 }
 
-function cleanupCreatedFiles(files: string[]) {
+function cleanupCreatedFiles(files: string[]): void {
   for (const file of files.reverse()) {
     try {
       if (fs.existsSync(file)) fs.unlinkSync(file);
     } catch {
-      /* ignore cleanup failure */
+      // 文件清理失败不能覆盖原始搬迁错误。
     }
   }
 }
 
-function collectNotebookTree(db: Database.Database, source: NotebookRow): NotebookRow[] {
-  const all = db
-    .prepare("SELECT * FROM notebooks WHERE userId = ? AND workspaceId IS NULL AND isDeleted = 0")
-    .all(source.userId) as NotebookRow[];
+function collectNotebookTree(source: NotebookRow): NotebookRow[] {
+  const all =
+    workspaceNotebookTransferRepository.listPersonalNotebooks<NotebookRow>(
+      source.userId,
+    );
   const byParent = new Map<string | null, NotebookRow[]>();
-  for (const nb of all) {
-    const list = byParent.get(nb.parentId ?? null) || [];
-    list.push(nb);
-    byParent.set(nb.parentId ?? null, list);
+  for (const notebook of all) {
+    const list = byParent.get(notebook.parentId ?? null) || [];
+    list.push(notebook);
+    byParent.set(notebook.parentId ?? null, list);
   }
 
-  const out: NotebookRow[] = [];
-  const visit = (nb: NotebookRow) => {
-    out.push(nb);
-    const children = (byParent.get(nb.id) || []).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  const output: NotebookRow[] = [];
+  const visit = (notebook: NotebookRow) => {
+    output.push(notebook);
+    const children = (byParent.get(notebook.id) || []).sort(
+      (left, right) => (left.sortOrder || 0) - (right.sortOrder || 0),
+    );
     for (const child of children) visit(child);
   };
   visit(source);
-  return out;
+  return output;
 }
 
-function copyAttachmentFile(sourceRelPath: string, newAttachmentId: string, filename: string, createdFiles: string[]): string {
+function copyAttachmentFile(
+  sourceRelPath: string,
+  newAttachmentId: string,
+  filename: string,
+  createdFiles: string[],
+): string {
   const attachmentsDir = ensureAttachmentsDir();
   const sourceAbs = path.join(attachmentsDir, sourceRelPath);
   if (!fs.existsSync(sourceAbs)) {
-    fail(409, "ATTACHMENT_FILE_MISSING", `attachment file missing: ${sourceRelPath}`);
+    fail(
+      409,
+      "ATTACHMENT_FILE_MISSING",
+      `attachment file missing: ${sourceRelPath}`,
+    );
   }
 
   const ext = path.extname(sourceRelPath) || path.extname(filename) || ".bin";
@@ -186,7 +226,9 @@ function copyAttachmentFile(sourceRelPath: string, newAttachmentId: string, file
   return targetRelPath;
 }
 
-export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput): CopyPersonalNotebookResult {
+export function copyPersonalNotebookToWorkspace(
+  input: CopyPersonalNotebookInput,
+): CopyPersonalNotebookResult {
   const mode = input.mode || "copy";
   if (mode === "move") {
     fail(400, "MOVE_NOT_SUPPORTED", "mode move is not supported yet");
@@ -195,10 +237,18 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
     fail(400, "INVALID_MODE", "mode must be copy");
   }
   if (input.includeVersions === true) {
-    fail(400, "VERSIONS_NOT_SUPPORTED", "includeVersions is not supported in V1");
+    fail(
+      400,
+      "VERSIONS_NOT_SUPPORTED",
+      "includeVersions is not supported in V1",
+    );
   }
   if (!input.targetWorkspaceId) {
-    fail(400, "TARGET_WORKSPACE_REQUIRED", "targetWorkspaceId is required");
+    fail(
+      400,
+      "TARGET_WORKSPACE_REQUIRED",
+      "targetWorkspaceId is required",
+    );
   }
 
   const actorUserId = input.actorUserId;
@@ -206,111 +256,133 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
   const includeTags = input.includeTags !== false;
   const includeAttachments = input.includeAttachments !== false;
   const targetParentId = input.targetParentId ?? null;
-  const db = getDb();
   const createdFiles: string[] = [];
 
   try {
-    const result = db.transaction(() => {
+    return workspaceNotebookTransferRepository.runAtomically(() => {
       const warnings: string[] = [];
-      const source = db
-        .prepare("SELECT * FROM notebooks WHERE id = ?")
-        .get(input.sourceNotebookId) as NotebookRow | undefined;
-      if (!source || source.isDeleted === 1) {
+      const sourceNotebook =
+        workspaceNotebookTransferRepository.findNotebook<NotebookRow>(
+          input.sourceNotebookId,
+        );
+      if (!sourceNotebook || sourceNotebook.isDeleted === 1) {
         fail(404, "SOURCE_NOTEBOOK_NOT_FOUND", "source notebook not found");
       }
-      if (source.workspaceId !== null) {
-        fail(400, "SOURCE_MUST_BE_PERSONAL", "source notebook must be in personal workspace");
+      if (sourceNotebook.workspaceId !== null) {
+        fail(
+          400,
+          "SOURCE_MUST_BE_PERSONAL",
+          "source notebook must be in personal workspace",
+        );
       }
-      if (source.userId !== actorUserId) {
-        fail(403, "SOURCE_FORBIDDEN", "source notebook is not owned by actor");
+      if (sourceNotebook.userId !== actorUserId) {
+        fail(
+          403,
+          "SOURCE_FORBIDDEN",
+          "source notebook is not owned by actor",
+        );
       }
 
       const targetRole = getUserWorkspaceRole(targetWorkspaceId, actorUserId);
       if (!hasRole(targetRole, "editor")) {
-        fail(403, "TARGET_WORKSPACE_FORBIDDEN", "target workspace requires editor permission");
+        fail(
+          403,
+          "TARGET_WORKSPACE_FORBIDDEN",
+          "target workspace requires editor permission",
+        );
       }
 
       if (targetParentId) {
-        const parent = db
-          .prepare("SELECT id, workspaceId, isDeleted FROM notebooks WHERE id = ?")
-          .get(targetParentId) as { id: string; workspaceId: string | null; isDeleted: number } | undefined;
+        const parent = workspaceNotebookTransferRepository.findTargetParent<{
+          id: string;
+          workspaceId: string | null;
+          isDeleted: number;
+        }>(targetParentId);
         if (!parent || parent.isDeleted === 1) {
-          fail(404, "TARGET_PARENT_NOT_FOUND", "target parent notebook not found");
+          fail(
+            404,
+            "TARGET_PARENT_NOT_FOUND",
+            "target parent notebook not found",
+          );
         }
         if ((parent.workspaceId || null) !== targetWorkspaceId) {
-          fail(400, "TARGET_PARENT_WORKSPACE_MISMATCH", "target parent must belong to target workspace");
+          fail(
+            400,
+            "TARGET_PARENT_WORKSPACE_MISMATCH",
+            "target parent must belong to target workspace",
+          );
         }
-        const parentPerm = resolveNotebookPermission(targetParentId, actorUserId);
-        if (!hasPermission(parentPerm.permission, "write")) {
-          fail(403, "TARGET_PARENT_FORBIDDEN", "target parent requires write permission");
+        const parentPermission = resolveNotebookPermission(
+          targetParentId,
+          actorUserId,
+        );
+        if (!hasPermission(parentPermission.permission, "write")) {
+          fail(
+            403,
+            "TARGET_PARENT_FORBIDDEN",
+            "target parent requires write permission",
+          );
         }
       }
 
-      const notebookTree = collectNotebookTree(db, source);
+      const notebookTree = collectNotebookTree(sourceNotebook);
       const notebookIdMap = new Map<string, string>();
       const noteIdMap = new Map<string, string>();
       const attachmentIdMap = new Map<string, string>();
       const tagIdMap = new Map<string, string>();
 
-      for (const nb of notebookTree) {
-        notebookIdMap.set(nb.id, uuid());
+      for (const notebook of notebookTree) {
+        notebookIdMap.set(notebook.id, uuid());
       }
 
-      const insertNotebook = db.prepare(`
-        INSERT INTO notebooks (id, userId, workspaceId, parentId, name, description, icon, color, sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, datetime('now'), datetime('now'))
-      `);
-      for (const nb of notebookTree) {
-        const newId = notebookIdMap.get(nb.id)!;
-        const newParentId = nb.id === source.id ? targetParentId : notebookIdMap.get(nb.parentId || "") || null;
-        insertNotebook.run(
-          newId,
+      for (const notebook of notebookTree) {
+        const newId = notebookIdMap.get(notebook.id)!;
+        const newParentId =
+          notebook.id === sourceNotebook.id
+            ? targetParentId
+            : notebookIdMap.get(notebook.parentId || "") || null;
+        workspaceNotebookTransferRepository.insertNotebook({
+          id: newId,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+          parentId: newParentId,
+          name: notebook.name,
+          description: notebook.description,
+          icon: notebook.icon,
+          color: notebook.color,
+          sortOrder: notebook.sortOrder || 0,
+          isExpanded: notebook.isExpanded ?? 1,
+        });
+      }
+
+      const sourceNotes =
+        workspaceNotebookTransferRepository.listSourceNotes<NoteRow>(
+          notebookTree.map((notebook) => notebook.id),
           actorUserId,
-          targetWorkspaceId,
-          newParentId,
-          nb.name,
-          nb.description,
-          nb.icon,
-          nb.color,
-          nb.sortOrder || 0,
-          nb.isExpanded ?? 1,
         );
-      }
-
-      const oldNotebookIds = notebookTree.map((nb) => nb.id);
-      const notebookPlaceholders = oldNotebookIds.map(() => "?").join(",");
-      const sourceNotes = oldNotebookIds.length
-        ? db
-            .prepare(
-              `SELECT id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, isPinned, sortOrder
-                 FROM notes
-                WHERE notebookId IN (${notebookPlaceholders})
-                  AND userId = ?
-                  AND workspaceId IS NULL
-                  AND isTrashed = 0`,
-            )
-            .all(...oldNotebookIds, actorUserId) as NoteRow[]
-        : [];
-
       for (const note of sourceNotes) {
         noteIdMap.set(note.id.toLowerCase(), uuid());
       }
 
       const attachmentsByOldNote = new Map<string, AttachmentRow[]>();
       if (sourceNotes.length > 0 && includeAttachments) {
-        const oldNoteIds = sourceNotes.map((n) => n.id);
-        const notePlaceholders = oldNoteIds.map(() => "?").join(",");
-        const rows = db
-          .prepare(`SELECT * FROM attachments WHERE noteId IN (${notePlaceholders})`)
-          .all(...oldNoteIds) as AttachmentRow[];
-        for (const row of rows) {
-          const list = attachmentsByOldNote.get(row.noteId) || [];
-          list.push(row);
-          attachmentsByOldNote.set(row.noteId, list);
+        const attachments =
+          workspaceNotebookTransferRepository.listAttachmentsByNoteIds<AttachmentRow>(
+            sourceNotes.map((note) => note.id),
+          );
+        for (const attachment of attachments) {
+          const list = attachmentsByOldNote.get(attachment.noteId) || [];
+          list.push(attachment);
+          attachmentsByOldNote.set(attachment.noteId, list);
         }
       }
 
-      const pendingNotes: Array<{ oldNote: NoteRow; newId: string; content: string; contentText: string }> = [];
+      const pendingNotes: Array<{
+        oldNote: NoteRow;
+        newId: string;
+        content: string;
+        contentText: string;
+      }> = [];
       const pendingAttachments: Array<{
         id: string;
         noteId: string;
@@ -320,27 +392,28 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
         path: string;
         hash: string | null;
       }> = [];
-      const insertAttachment = db.prepare(`
-        INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, workspaceId, hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
 
       for (const note of sourceNotes) {
         const newNoteId = noteIdMap.get(note.id.toLowerCase())!;
         const sourceAttachments = attachmentsByOldNote.get(note.id) || [];
 
-        for (const att of sourceAttachments) {
+        for (const attachment of sourceAttachments) {
           const newAttachmentId = uuid();
-          const newPath = copyAttachmentFile(att.path, newAttachmentId, att.filename, createdFiles);
-          attachmentIdMap.set(att.id.toLowerCase(), newAttachmentId);
+          const newPath = copyAttachmentFile(
+            attachment.path,
+            newAttachmentId,
+            attachment.filename,
+            createdFiles,
+          );
+          attachmentIdMap.set(attachment.id.toLowerCase(), newAttachmentId);
           pendingAttachments.push({
             id: newAttachmentId,
             noteId: newNoteId,
-            filename: att.filename,
-            mimeType: att.mimeType,
-            size: att.size,
+            filename: attachment.filename,
+            mimeType: attachment.mimeType,
+            size: attachment.size,
             path: newPath,
-            hash: att.hash || null,
+            hash: attachment.hash || null,
           });
         }
 
@@ -349,114 +422,128 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
         if (includeAttachments) {
           content = rewriteAttachmentUrls(content, attachmentIdMap);
           contentText = rewriteAttachmentUrls(contentText, attachmentIdMap);
-        } else if (content.indexOf("/api/attachments/") >= 0 || contentText.indexOf("/api/attachments/") >= 0) {
+        } else if (
+          content.indexOf("/api/attachments/") >= 0 ||
+          contentText.indexOf("/api/attachments/") >= 0
+        ) {
           warnings.push(`attachments_not_copied_for_note:${note.id}`);
         }
 
         const rewritten = rewriteInternalNoteLinks(content, noteIdMap);
         content = rewritten.content;
         if (rewritten.externalNoteLinkCount > 0) {
-          warnings.push(`external_note_links_preserved:${note.id}:${rewritten.externalNoteLinkCount}`);
+          warnings.push(
+            `external_note_links_preserved:${note.id}:${rewritten.externalNoteLinkCount}`,
+          );
         }
         contentText = rewriteInternalNoteLinks(contentText, noteIdMap).content;
-
-        pendingNotes.push({ oldNote: note, newId: newNoteId, content, contentText });
+        pendingNotes.push({
+          oldNote: note,
+          newId: newNoteId,
+          content,
+          contentText,
+        });
       }
 
-      const insertNote = db.prepare(`
-        INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, isPinned, isFavorite, isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, ?, datetime('now'), datetime('now'))
-      `);
       for (const item of pendingNotes) {
-        insertNote.run(
-          item.newId,
-          actorUserId,
-          targetWorkspaceId,
-          notebookIdMap.get(item.oldNote.notebookId)!,
-          item.oldNote.title,
-          item.content,
-          item.contentText,
-          item.oldNote.contentFormat || "tiptap-json",
-          item.oldNote.isPinned || 0,
-          item.oldNote.sortOrder || 0,
-        );
+        workspaceNotebookTransferRepository.insertNote({
+          id: item.newId,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+          notebookId: notebookIdMap.get(item.oldNote.notebookId)!,
+          title: item.oldNote.title,
+          content: item.content,
+          contentText: item.contentText,
+          contentFormat: item.oldNote.contentFormat || "tiptap-json",
+          isPinned: item.oldNote.isPinned || 0,
+          sortOrder: item.oldNote.sortOrder || 0,
+        });
       }
 
-      for (const att of pendingAttachments) {
-        insertAttachment.run(
-          att.id,
-          att.noteId,
-          actorUserId,
-          att.filename,
-          att.mimeType,
-          att.size,
-          att.path,
-          targetWorkspaceId,
-          att.hash,
-        );
+      for (const attachment of pendingAttachments) {
+        workspaceNotebookTransferRepository.insertAttachment({
+          ...attachment,
+          userId: actorUserId,
+          workspaceId: targetWorkspaceId,
+        });
       }
 
       let tagCount = 0;
       if (includeTags && sourceNotes.length > 0) {
-        const oldNoteIds = sourceNotes.map((n) => n.id);
-        const notePlaceholders = oldNoteIds.map(() => "?").join(",");
-        const noteTags = db
-          .prepare(`SELECT noteId, tagId FROM note_tags WHERE noteId IN (${notePlaceholders})`)
-          .all(...oldNoteIds) as Array<{ noteId: string; tagId: string }>;
-        const oldTagIds = Array.from(new Set(noteTags.map((nt) => nt.tagId)));
-        const selectTargetTag = db.prepare(
-          "SELECT * FROM tags WHERE userId = ? AND name = ? AND workspaceId = ? LIMIT 1",
+        const noteTags = workspaceNotebookTransferRepository.listNoteTags(
+          sourceNotes.map((note) => note.id),
         );
-        const selectPersonalTargetTag = db.prepare(
-          "SELECT * FROM tags WHERE userId = ? AND name = ? AND workspaceId IS NULL LIMIT 1",
-        );
-        const selectAnyTagByName = db.prepare("SELECT * FROM tags WHERE userId = ? AND name = ? LIMIT 1");
-        const insertTag = db.prepare(
-          "INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)",
+        const oldTagIds = Array.from(
+          new Set(noteTags.map((noteTag) => noteTag.tagId)),
         );
 
         if (oldTagIds.length > 0) {
-          const tagPlaceholders = oldTagIds.map(() => "?").join(",");
-          const tags = db
-            .prepare(`SELECT * FROM tags WHERE id IN (${tagPlaceholders})`)
-            .all(...oldTagIds) as TagRow[];
+          const tags =
+            workspaceNotebookTransferRepository.listTagsByIds<TagRow>(
+              oldTagIds,
+            );
           for (const tag of tags) {
-            let targetTag = targetWorkspaceId
-              ? (selectTargetTag.get(actorUserId, tag.name, targetWorkspaceId) as TagRow | undefined)
-              : (selectPersonalTargetTag.get(actorUserId, tag.name) as TagRow | undefined);
+            let targetTag =
+              workspaceNotebookTransferRepository.findWorkspaceTagByName<TagRow>(
+                actorUserId,
+                tag.name,
+                targetWorkspaceId,
+              );
             if (!targetTag) {
               const newTagId = uuid();
               try {
-                insertTag.run(newTagId, actorUserId, targetWorkspaceId, tag.name, tag.color || "#58a6ff");
-                targetTag = { ...tag, id: newTagId, userId: actorUserId, workspaceId: targetWorkspaceId };
+                workspaceNotebookTransferRepository.insertTag({
+                  id: newTagId,
+                  userId: actorUserId,
+                  workspaceId: targetWorkspaceId,
+                  name: tag.name,
+                  color: tag.color || "#58a6ff",
+                });
+                targetTag = {
+                  ...tag,
+                  id: newTagId,
+                  userId: actorUserId,
+                  workspaceId: targetWorkspaceId,
+                };
                 tagCount++;
               } catch (error) {
-                targetTag = selectAnyTagByName.get(actorUserId, tag.name) as TagRow | undefined;
+                targetTag =
+                  workspaceNotebookTransferRepository.findAnyTagByName<TagRow>(
+                    actorUserId,
+                    tag.name,
+                  );
                 if (!targetTag) throw error;
-                warnings.push(`tag_reused_due_unique_constraint:${tag.name}`);
+                warnings.push(
+                  `tag_reused_due_unique_constraint:${tag.name}`,
+                );
               }
             }
             tagIdMap.set(tag.id, targetTag.id);
           }
         }
 
-        const insertNoteTag = db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)");
-        for (const nt of noteTags) {
-          const newNoteId = noteIdMap.get(nt.noteId.toLowerCase());
-          const targetTagId = tagIdMap.get(nt.tagId);
-          if (newNoteId && targetTagId) insertNoteTag.run(newNoteId, targetTagId);
+        for (const noteTag of noteTags) {
+          const newNoteId = noteIdMap.get(noteTag.noteId.toLowerCase());
+          const targetTagId = tagIdMap.get(noteTag.tagId);
+          if (newNoteId && targetTagId) {
+            workspaceNotebookTransferRepository.insertNoteTag(
+              newNoteId,
+              targetTagId,
+            );
+          }
         }
       }
 
       for (const item of pendingNotes) {
-        if (item.content.indexOf("/api/attachments/") >= 0) {
-          syncAttachmentReferences(db, item.newId, item.content);
-        }
-        syncNoteLinks(db, actorUserId, item.newId, item.content);
+        workspaceNotebookTransferRepository.syncDerivedReferences(
+          actorUserId,
+          item.newId,
+          item.content,
+        );
       }
 
-      const targetNotebookId = notebookIdMap.get(source.id)!;
-      const out: CopyPersonalNotebookResult = {
+      const targetNotebookId = notebookIdMap.get(sourceNotebook.id)!;
+      const result: CopyPersonalNotebookResult = {
         success: true,
         mode: "copy",
         targetNotebookId,
@@ -472,14 +559,14 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
         "notebook",
         "notebook.transfer_copy",
         {
-          sourceNotebookId: source.id,
+          sourceNotebookId: sourceNotebook.id,
           targetWorkspaceId,
           targetParentId,
           targetNotebookId,
-          notebookCount: out.notebookCount,
-          noteCount: out.noteCount,
-          attachmentCount: out.attachmentCount,
-          tagCount: out.tagCount,
+          notebookCount: result.notebookCount,
+          noteCount: result.noteCount,
+          attachmentCount: result.attachmentCount,
+          tagCount: result.tagCount,
           includeTags,
           includeAttachments,
           includeVersions: false,
@@ -488,12 +575,10 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
         { targetType: "notebook", targetId: targetNotebookId },
       );
 
-      return out;
-    })();
-
-    return result;
-  } catch (err) {
+      return result;
+    });
+  } catch (error) {
     cleanupCreatedFiles(createdFiles);
-    throw err;
+    throw error;
   }
 }

@@ -82,8 +82,8 @@ test("installer patches both resolver families once and can execute in Node", ()
 
 test("installs the compatibility layer before the legacy URL-import route is evaluated", () => {
   const entry = readFileSync(new URL("../src/index.hardened.ts", import.meta.url), "utf8");
-  const compatIndex = entry.indexOf('import "./runtime/url-import-dns-compat.js"');
-  const legacyIndex = entry.indexOf('import "./index.js"');
+  const compatIndex = entry.indexOf('await import("./runtime/url-import-dns-compat.js")');
+  const legacyIndex = entry.indexOf('await import("./index.js")');
   assert.ok(compatIndex >= 0, "DNS compatibility bootstrap must be imported");
   assert.ok(legacyIndex > compatIndex, "DNS compatibility must load before index.js and url-import.ts");
 });

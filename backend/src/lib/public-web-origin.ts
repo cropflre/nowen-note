@@ -1,4 +1,4 @@
-import { getDb } from "../db/schema";
+import { systemSettingsRepository } from "../repositories/systemSettingsRepository";
 
 export const PUBLIC_WEB_ORIGIN_KEY = "site_public_web_origin";
 export const PUBLIC_WEB_ORIGIN_SOURCE_KEY = "site_public_web_origin_source";
@@ -63,33 +63,14 @@ export function resolveRuntimePublicWebOrigin(input: {
   return { origin: "", source: "current" };
 }
 
-function readSetting(key: string): string {
-  const row = getDb()
-    .prepare("SELECT value FROM system_settings WHERE key = ?")
-    .get(key) as { value: string } | undefined;
-  return row?.value || "";
-}
-
-function writeSettings(entries: Array<{ key: string; value: string }>): void {
-  if (entries.length === 0) return;
-  const db = getDb();
-  const upsert = db.prepare(`
-    INSERT INTO system_settings (key, value, "updatedAt")
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      "updatedAt" = datetime('now')
-  `);
-  db.transaction(() => {
-    for (const entry of entries) upsert.run(entry.key, entry.value);
-  })();
-}
-
-export function syncRuntimePublicWebOriginSetting(
+export async function syncRuntimePublicWebOriginSetting(
   env: NodeJS.ProcessEnv = process.env,
-): RuntimePublicWebOriginResolution {
-  const storedOrigin = readSetting(PUBLIC_WEB_ORIGIN_KEY);
-  const storedSource = readSetting(PUBLIC_WEB_ORIGIN_SOURCE_KEY);
+): Promise<RuntimePublicWebOriginResolution> {
+  const storedRows = await systemSettingsRepository.getManyAsync([
+    PUBLIC_WEB_ORIGIN_KEY,
+    PUBLIC_WEB_ORIGIN_SOURCE_KEY,
+  ]);
+  const stored = new Map(storedRows.map((row) => [row.key, row.value]));
   const rawEnv = env.PUBLIC_WEB_ORIGIN || env.NOWEN_PUBLIC_WEB_ORIGIN || "";
   const envOrigin = normalizePublicWebOrigin(rawEnv);
 
@@ -100,11 +81,11 @@ export function syncRuntimePublicWebOriginSetting(
   }
 
   const resolved = resolveRuntimePublicWebOrigin({
-    storedOrigin,
-    storedSource,
+    storedOrigin: stored.get(PUBLIC_WEB_ORIGIN_KEY),
+    storedSource: stored.get(PUBLIC_WEB_ORIGIN_SOURCE_KEY),
     envOrigin,
   });
-  writeSettings([
+  await systemSettingsRepository.setManyAsync([
     { key: PUBLIC_WEB_ORIGIN_KEY, value: resolved.origin },
     { key: PUBLIC_WEB_ORIGIN_SOURCE_KEY, value: resolved.source },
   ]);

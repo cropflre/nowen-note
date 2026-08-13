@@ -8,10 +8,10 @@
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
 export const workspaceMembersRepository = {
@@ -180,11 +180,11 @@ export const workspaceMembersRepository = {
   },
 
   async countByWorkspaceAsync(workspaceId: string): Promise<number> {
-    const row = await getAdapter().queryOne<{ c: number }>(
+    const row = await getAdapter().queryOne<{ c: number | string }>(
       "SELECT COUNT(*) as c FROM workspace_members WHERE \"workspaceId\" = ?",
       [workspaceId],
     );
-    return row?.c ?? 0;
+    return Number(row?.c ?? 0);
   },
 
   async getRoleAsync(workspaceId: string, userId: string): Promise<{ role: string } | undefined> {
@@ -216,11 +216,11 @@ export const workspaceMembersRepository = {
   },
 
   async countByUserAsync(userId: string): Promise<number> {
-    const row = await getAdapter().queryOne<{ c: number }>(
+    const row = await getAdapter().queryOne<{ c: number | string }>(
       "SELECT COUNT(*) as c FROM workspace_members WHERE \"userId\" = ?",
       [userId],
     );
-    return row?.c ?? 0;
+    return Number(row?.c ?? 0);
   },
 
   async listWorkspaceIdsByUserAsync(userId: string): Promise<string[]> {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
-import { getDb } from "../db/schema";
 import { noteVersionsRepository, noteYupdatesRepository } from "../repositories";
+import { yjsPersistenceRepository } from "../repositories/yjsPersistenceRepository";
 import { yApplyUpdate, yDestroyDoc, yFlush, type YApplyResult } from "./yjs";
 
 export type DurableYApplyFailureCode =
@@ -147,27 +147,9 @@ export function scheduleYjsRecoveryCheckpoint(noteId: string, userId: string | n
         if (!Number.isNaN(lastTs) && Date.now() - lastTs < CHECKPOINT_INTERVAL_MS) return;
       }
 
-      const db = getDb();
-      const note = db.prepare(
-        `SELECT id, userId, title, content, contentText, contentFormat, version
-         FROM notes WHERE id = ?`,
-      ).get(noteId) as
-        | {
-            id: string;
-            userId: string;
-            title: string;
-            content: string;
-            contentText: string;
-            contentFormat: string;
-            version: number;
-          }
-        | undefined;
+      const note = yjsPersistenceRepository.getCheckpointNote(noteId);
       if (!note) return;
-
-      const duplicate = db.prepare(
-        `SELECT id FROM note_versions WHERE "noteId" = ? AND version = ? LIMIT 1`,
-      ).get(noteId, note.version) as { id: string } | undefined;
-      if (duplicate) return;
+      if (yjsPersistenceRepository.hasVersionCheckpoint(noteId, note.version)) return;
 
       noteVersionsRepository.create({
         id: uuid(),

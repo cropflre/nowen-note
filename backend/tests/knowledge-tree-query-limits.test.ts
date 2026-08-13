@@ -76,8 +76,8 @@ test("knowledge access filtering runs before file pagination and search result l
     actorUserId: ownerId,
     db,
   });
-  db.prepare("UPDATE notes SET contentText = ?, updatedAt = ? WHERE id = ?")
-    .run("limitneedle", "2020-01-01 00:00:00", visibleNote.resourceId);
+  db.prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = ? WHERE id = ?")
+    .run("limitneedle", "limitneedle", "2020-01-01 00:00:00", visibleNote.resourceId);
 
   const hiddenNotes: Array<{ id: string; resourceId: string }> = [];
   for (let index = 0; index < 1001; index += 1) {
@@ -89,9 +89,11 @@ test("knowledge access filtering runs before file pagination and search result l
       title: "limitneedle limitneedle limitneedle",
       db,
     });
-    db.prepare("UPDATE notes SET contentText = ?, updatedAt = ? WHERE id = ?")
+    const hiddenContent = `${"limitneedle ".repeat(12)}hidden ${index}`;
+    db.prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = ? WHERE id = ?")
       .run(
-        `${"limitneedle ".repeat(12)}hidden ${index}`,
+        hiddenContent,
+        hiddenContent,
         `2026-08-04 12:${String(index % 60).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`,
         note.resourceId,
       );

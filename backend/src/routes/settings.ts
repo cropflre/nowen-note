@@ -45,20 +45,22 @@ const DEFAULTS: SiteSettings = {
   web_ui_enabled: "true",
 };
 
-try {
-  syncRuntimePublicWebOriginSetting();
-} catch (error) {
-  console.warn("[settings] failed to initialize PUBLIC_WEB_ORIGIN:", error);
-}
+async function readSettings(): Promise<Record<string, string>> {
+  try {
+    await syncRuntimePublicWebOriginSetting();
+  } catch (error) {
+    console.warn("[settings] failed to initialize PUBLIC_WEB_ORIGIN:", error);
+  }
 
-function readSettings(): Record<string, string> {
-  const rows = systemSettingsRepository.getByPrefixes([
-    "site_",
-    "editor_",
-    "feature_",
-    "debug_",
+  const [rows, webUiSetting] = await Promise.all([
+    systemSettingsRepository.getByPrefixesAsync([
+      "site_",
+      "editor_",
+      "feature_",
+      "debug_",
+    ]),
+    systemSettingsRepository.getAsync("web_ui_enabled"),
   ]);
-  const webUiSetting = systemSettingsRepository.get("web_ui_enabled");
 
   const result: Record<string, string> = { ...DEFAULTS };
   for (const row of rows) result[row.key] = row.value;
@@ -66,7 +68,7 @@ function readSettings(): Record<string, string> {
   return result;
 }
 
-settings.get("/", (c) => c.json(readSettings()));
+settings.get("/", async (c) => c.json(await readSettings()));
 
 settings.put("/", async (c) => {
   const body = await c.req.json() as Partial<SiteSettings>;
@@ -119,8 +121,8 @@ settings.put("/", async (c) => {
     });
   }
 
-  if (entries.length > 0) systemSettingsRepository.setMany(entries);
-  return c.json(readSettings());
+  if (entries.length > 0) await systemSettingsRepository.setManyAsync(entries);
+  return c.json(await readSettings());
 });
 
 // 管理员专用 Docker 在线升级控制面。挂在 settings 路由下可复用现有 JWT 中间件，

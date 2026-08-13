@@ -12,6 +12,7 @@ import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
+import SidebarSearchExperienceBridge from "./components/SidebarSearchExperienceBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
@@ -56,6 +57,7 @@ import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
 import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
 import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
 import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
+import { installWorkspaceRealtimeSubscription } from "./lib/workspaceRealtimeSubscription";
 import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
 import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
@@ -87,6 +89,7 @@ function MainRouteFallback() {
 }
 
 installKnowledgeTreeScrollbarBridge();
+installWorkspaceRealtimeSubscription();
 installKnowledgeTreeMarkdownDrop();
 installNodeViewMutationGuard();
 installEditorMediaScopeGuard();
@@ -141,34 +144,35 @@ const publicRoute = resolvePublicNotebookRoute();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SiteSettingsProvider>
-      <ConfirmProvider>
-        <BootSplashReadinessObserver />
-        {publicRoute.matched ? (
-          <ThemeProvider>
-            <React.Suspense fallback={<MainRouteFallback />}>
-              <PublicNotebookView token={publicRoute.token} />
-            </React.Suspense>
-            <Toaster />
-          </ThemeProvider>
-        ) : (
-          <>
-            <NoteIconBridge />
-            <EmbedPasswordBridge />
-            <MediaExperienceBridge />
-            <EditorImageTransformBridge />
-            <DesktopUpdateCenter />
-            <DockerUpdateCenter />
-            <TwoFactorLoginChallengeCenter />
-            <AndroidShareImportCenter />
-            <DeferredGlobalFeatureCentersMount />
-            <SiyuanRichTextCalloutBridge />
-            <InlineCommentBridge />
-            <React.Suspense fallback={<MainRouteFallback />}>
-              <App />
-            </React.Suspense>
-          </>
-        )}
-      </ConfirmProvider>
+      <BootSplashReadinessObserver />
+      {publicRoute.matched ? (
+        <ThemeProvider>
+          <React.Suspense fallback={<MainRouteFallback />}>
+            <PublicNotebookView token={publicRoute.token} />
+          </React.Suspense>
+          <Toaster />
+        </ThemeProvider>
+      ) : (
+        <>
+          <NoteIconBridge />
+          <SidebarSearchExperienceBridge />
+          <EmbedPasswordBridge />
+          <ImageExperienceBridge />
+          <MobileImageViewerBridge />
+          <MediaExperienceBridge />
+          <EditorImageTransformBridge />
+          <DesktopUpdateCenter />
+          <DockerUpdateCenter />
+          <TwoFactorLoginChallengeCenter />
+          <AndroidShareImportCenter />
+          <DeferredGlobalFeatureCentersMount />
+          <SiyuanRichTextCalloutBridge />
+          <InlineCommentBridge />
+          <React.Suspense fallback={<MainRouteFallback />}>
+            <App />
+          </React.Suspense>
+        </>
+      )}
     </SiteSettingsProvider>
   </React.StrictMode>,
 );

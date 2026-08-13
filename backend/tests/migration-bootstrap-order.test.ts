@@ -53,8 +53,8 @@ test("permission routes load after migration bootstrap in hardened and legacy en
 
   assertOrderedImports(
     hardenedIndexSource,
-    'import "./runtime/knowledge-tree-migration-bootstrap.js";',
-    'import "./runtime/notebook-permission-management.js";',
+    'await import("./runtime/knowledge-tree-migration-bootstrap.js")',
+    'await import("./runtime/notebook-permission-management.js")',
     "index.hardened",
   );
   assertOrderedImports(

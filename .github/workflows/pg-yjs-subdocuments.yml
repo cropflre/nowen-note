@@ -1,0 +1,97 @@
+name: PostgreSQL Yjs Subdocuments
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations/0014_yjs_subdocument_structure_operations.sql"
+      - "backend/src/db/postgres/migrations.ts"
+      - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/postgresSubdocumentWebsocketRepository.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocument-structure-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-yjs-subdocuments.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/postgres/migrations/0013_yjs_subdocuments.sql"
+      - "backend/src/db/postgres/migrations/0014_yjs_subdocument_structure_operations.sql"
+      - "backend/src/db/postgres/migrations.ts"
+      - "backend/src/db/postgres/schemaLoader.ts"
+      - "backend/src/index.postgres-runtime.ts"
+      - "backend/src/repositories/postgresSubdocumentWebsocketRepository.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-runtime.ts"
+      - "backend/src/services/postgres-yjs-subdocuments-websocket-runtime.ts"
+      - "backend/tests/postgres-migrations.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-runtime-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocument-structure-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-websocket-pg.test.ts"
+      - "backend/tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-yjs-subdocuments.yml"
+  workflow_dispatch:
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      DB_PATH: /tmp/nowen-subdocument-ws-test.db
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+      - name: Migration bootstrap and idempotency
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Stable-section and structure subdocument transactions
+        run: |
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocument-structure-pg.test.ts
+      - name: Subdocument websocket protocols and concurrent join stress
+        run: |
+          for attempt in 1 2 3; do
+            echo "subdocument websocket join stress ${attempt}/3"
+            node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          done
+          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
+      - name: Build production backend bundle
+        run: npm run build
+      - name: Verify subdocument migrations are packaged
+        run: |
+          test -f dist/postgres/migrations/0013_yjs_subdocuments.sql
+          test -f dist/postgres/migrations/0014_yjs_subdocument_structure_operations.sql

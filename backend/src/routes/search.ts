@@ -411,8 +411,10 @@ function shouldUseLiteralFallback(
   const normalized = normalizeSearchText(term);
   const tokens = normalized.match(/[\p{L}\p{N}_]+/gu) || [];
   const tokenizerPreservesTerm = tokens.length === 1 && tokens[0] === normalized;
-  return ftsCandidateCount === 0
-    || normalized.length < 3
+  // A tokenizer-safe long term with zero FTS hits is an authoritative miss.
+  // Falling back to a full-body literal scan in that case turns ordinary misses
+  // into O(document body) work and defeats the bounded candidate pipeline.
+  return normalized.length < 3
     || hasHanText(normalized)
     || !tokenizerPreservesTerm;
 }

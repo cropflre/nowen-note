@@ -1,0 +1,89 @@
+name: PostgreSQL Permissions
+
+on:
+  push:
+    branches:
+      - pg-migration-unified
+    paths:
+      - "backend/src/db/dialect.ts"
+      - "backend/src/db/postgres/**"
+      - "backend/src/repositories/noteAclRepository.ts"
+      - "backend/src/repositories/workspaceMembersRepository.ts"
+      - "backend/src/repositories/notebookMembersRepository.ts"
+      - "backend/src/repositories/notebookShareLinksRepository.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
+      - "backend/src/repositories/userSessionsRepository.ts"
+      - "backend/tests/sql-dialect.test.ts"
+      - "backend/tests/repository-permissions-pg.test.ts"
+      - "backend/tests/repository-access-session-pg.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-permissions.yml"
+  pull_request:
+    paths:
+      - "backend/src/db/dialect.ts"
+      - "backend/src/db/postgres/**"
+      - "backend/src/repositories/noteAclRepository.ts"
+      - "backend/src/repositories/workspaceMembersRepository.ts"
+      - "backend/src/repositories/notebookMembersRepository.ts"
+      - "backend/src/repositories/notebookShareLinksRepository.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
+      - "backend/src/repositories/userSessionsRepository.ts"
+      - "backend/tests/sql-dialect.test.ts"
+      - "backend/tests/repository-permissions-pg.test.ts"
+      - "backend/tests/repository-access-session-pg.test.ts"
+      - "backend/build.bundle.mjs"
+      - ".github/workflows/pg-permissions.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  permissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build:tsc -- --noEmit
+      - run: npm run audit:sqlite-boundaries
+      - run: npm run audit:pg-schema-parity
+      - run: node --import tsx --test --test-concurrency=1 tests/sql-dialect.test.ts tests/postgres-migrations.test.ts tests/repository-permissions-pg.test.ts tests/repository-access-session-pg.test.ts
+      - run: npm run test:serial
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+      - run: npm run build
+      - run: test -f dist/postgres/migrations/0004_notebook_members_unique.sql

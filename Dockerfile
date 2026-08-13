@@ -43,7 +43,9 @@ RUN apk del .build-deps
 # ---------- Stage 3: 运行时镜像 ----------
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache tini tzdata
+# PostgreSQL Runtime 的备份/恢复预检依赖 pg_dump 与 pg_restore。
+# 使用 Alpine 的 postgresql-client 元包，不把 DATABASE_URL 或密码写入镜像层。
+RUN apk add --no-cache tini tzdata postgresql-client
 
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/

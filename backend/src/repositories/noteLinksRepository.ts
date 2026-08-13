@@ -15,6 +15,13 @@ function getAdapter() {
 }
 
 export const noteLinksRepository = {
+  getSourceNoteUserId(noteId: string): string | null {
+    const row = getDb().prepare("SELECT userId FROM notes WHERE id = ?").get(noteId) as
+      | { userId?: string }
+      | undefined;
+    return row?.userId ? String(row.userId) : null;
+  },
+
   getBacklinks(
     _userId: string,
     targetNoteId: string,

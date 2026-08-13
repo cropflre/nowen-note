@@ -8,10 +8,10 @@
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
 /** task_dependencies 记录 */

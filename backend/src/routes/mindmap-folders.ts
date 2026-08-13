@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { v4 as uuidv4 } from "uuid";
 import {
   canManageResource,
@@ -7,23 +6,15 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { ensureMindmapSchema } from "../lib/mindmap-schema";
-import { mindmapFoldersRepository } from "../repositories";
+import {
+  mindmapFolderOperationsRepository,
+  mindmapFoldersRepository,
+} from "../repositories";
 
 const app = new Hono();
 
 // 初始化表（统一兜底：mindmaps + starred + folderId + mindmap_folders）
 ensureMindmapSchema();
-
-interface FolderRow {
-  id: string;
-  userId: string;
-  workspaceId: string | null;
-  parentId: string | null;
-  name: string;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
 
 function resolveScope(
   workspaceIdRaw: string,
@@ -37,22 +28,21 @@ function resolveScope(
 }
 
 // ---------- 列表 ----------
-app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
-  const db = getDb();
+app.get("/", requireWorkspaceFeature("mindmaps"), async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const scope = resolveScope(c.req.query("workspaceId") || "", userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
-  const rows = mindmapFoldersRepository.listByUser(userId, scope.workspaceId);
+  const rows = await mindmapFoldersRepository.listByUserAsync(userId, scope.workspaceId);
+  const counts = await mindmapFolderOperationsRepository.listCountsByFolderIdsAsync(
+    rows.map((row) => row.id),
+  );
+  const countMap = new Map(counts.map((row) => [row.folderId, row.count]));
 
-  // 附加每个文件夹内的导图数量
-  const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM mindmaps WHERE folderId = ?");
-  const result = rows.map((r) => ({
-    ...r,
-    mindmapCount: (countStmt.get(r.id) as any).cnt,
-  }));
-
-  return c.json(result);
+  return c.json(rows.map((row) => ({
+    ...row,
+    mindmapCount: countMap.get(row.id) || 0,
+  })));
 });
 
 // ---------- 创建 ----------
@@ -63,14 +53,20 @@ app.post("/", requireWorkspaceFeature("mindmaps"), async (c) => {
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
   const parentId = body.parentId || null;
-  const depth = mindmapFoldersRepository.getFolderDepth(parentId);
+  const depth = await mindmapFoldersRepository.getFolderDepthAsync(parentId);
   if (depth >= 3) return c.json({ error: "最多支持三级文件夹" }, 400);
 
   const id = uuidv4();
   const name = body.name || "未命名文件夹";
-  mindmapFoldersRepository.create({ id, userId, workspaceId: scope.workspaceId, parentId, name });
+  await mindmapFoldersRepository.createAsync({
+    id,
+    userId,
+    workspaceId: scope.workspaceId,
+    parentId,
+    name,
+  });
 
-  const row = mindmapFoldersRepository.getById(id);
+  const row = await mindmapFoldersRepository.getByIdAsync(id);
   return c.json(row, 201);
 });
 
@@ -80,44 +76,40 @@ app.patch("/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
 
-  const existing = mindmapFoldersRepository.getById(id);
+  const existing = await mindmapFoldersRepository.getByIdAsync(id);
   if (!existing) return c.json({ error: "文件夹不存在" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权修改此文件夹", code: "FORBIDDEN" }, 403);
   }
 
   if (body.name !== undefined) {
-    mindmapFoldersRepository.updateName(id, body.name);
+    await mindmapFoldersRepository.updateNameAsync(id, body.name);
   }
   if (body.parentId !== undefined) {
-    const newDepth = mindmapFoldersRepository.getFolderDepth(body.parentId);
+    const newDepth = await mindmapFoldersRepository.getFolderDepthAsync(body.parentId);
     if (newDepth >= 3) return c.json({ error: "最多支持三级文件夹" }, 400);
-    mindmapFoldersRepository.updateParentId(id, body.parentId);
+    await mindmapFoldersRepository.updateParentIdAsync(id, body.parentId);
   }
   if (body.sortOrder !== undefined) {
-    mindmapFoldersRepository.updateSortOrder(id, body.sortOrder);
+    await mindmapFoldersRepository.updateSortOrderAsync(id, body.sortOrder);
   }
 
-  const row = mindmapFoldersRepository.getById(id);
+  const row = await mindmapFoldersRepository.getByIdAsync(id);
   return c.json(row);
 });
 
 // ---------- 删除（导图移到未分类） ----------
-app.delete("/:id", (c) => {
-  const db = getDb();
+app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const existing = mindmapFoldersRepository.getById(id);
+  const existing = await mindmapFoldersRepository.getByIdAsync(id);
   if (!existing) return c.json({ error: "文件夹不存在" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权删除此文件夹", code: "FORBIDDEN" }, 403);
   }
 
-  // 把文件夹内的导图移到未分类
-  db.prepare("UPDATE mindmaps SET folderId = NULL, updatedAt = datetime('now') WHERE folderId = ?").run(id);
-  // 删除文件夹（Repository 会处理子文件夹移到顶层）
-  mindmapFoldersRepository.delete(id);
+  await mindmapFolderOperationsRepository.deleteFolderAndUnassignAsync(id);
   return c.json({ success: true });
 });
 

@@ -14,6 +14,7 @@ process.env.NOWEN_INSTANCE_ID = "permission-transfer-v2-instance";
 let closeDb: typeof import("../src/db/schema").closeDb;
 
 async function modules() {
+  await import("../src/runtime/knowledge-tree-migration-bootstrap");
   const schema = await import("../src/db/schema");
   closeDb = schema.closeDb;
   const permission = await import("../src/services/roundTripPermissionTransfer");

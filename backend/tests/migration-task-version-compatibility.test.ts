@@ -31,7 +31,9 @@ test("supports databases that recorded task migrations as versions 71 through 73
     db.exec("DROP TABLE yjs_operation_receipts");
 
     assert.doesNotThrow(() => runMigrations(db));
-    assert.equal(CURRENT_SCHEMA_VERSION, 77);
+    const applied = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number | null };
+    assert.equal(applied.version, CURRENT_SCHEMA_VERSION);
+    assert.ok(CURRENT_SCHEMA_VERSION >= 77);
     for (const table of ["yjs_operation_receipts", "task_labels", "task_time_blocks", "task_inbox_items"]) {
       assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
     }

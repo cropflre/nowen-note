@@ -249,15 +249,43 @@ test("route import matches service behavior for target notebook and workspace wr
   );
 
   const textBody = await res.text();
-  assert.equal(res.status, 201, textBody);
-  const result = JSON.parse(textBody) as {
-    success: boolean;
-    count: number;
-    notebookId: string;
-    notebookIds: string[];
-    workspaceId: string | null;
-    stats: { importedAssets: number; unresolvedAssets: number; unsupportedNodes: Record<string, number> };
+  assert.equal(res.status, 202, textBody);
+  const accepted = JSON.parse(textBody) as {
+    job: { id: string; status: "queued" | "running" | "completed" | "failed" };
+    reused: boolean;
   };
+  assert.equal(accepted.reused, false);
+  assert.ok(accepted.job.id);
+
+  let jobPayload: {
+    job: {
+      status: "queued" | "running" | "completed" | "failed";
+      error: string | null;
+      result: null | {
+        success: boolean;
+        count: number;
+        notebookId: string;
+        notebookIds: string[];
+        workspaceId: string | null;
+        stats: { importedAssets: number; unresolvedAssets: number; unsupportedNodes: Record<string, number> };
+      };
+    };
+  } | null = null;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const poll = await app.request(`/export/import/siyuan-package/jobs/${accepted.job.id}`, {
+      headers: { "X-User-Id": USER_ID },
+    });
+    const pollText = await poll.text();
+    assert.equal(poll.status, 200, pollText);
+    jobPayload = JSON.parse(pollText) as typeof jobPayload;
+    if (jobPayload && ["completed", "failed"].includes(jobPayload.job.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.ok(jobPayload, "missing Siyuan import job payload");
+  assert.equal(jobPayload.job.status, "completed", jobPayload.job.error || "Siyuan import job did not complete");
+  const result = jobPayload.job.result;
+  assert.ok(result);
   assert.equal(result.success, true);
   assert.equal(result.count, 3);
   assert.equal(result.workspaceId, WORKSPACE_ID);

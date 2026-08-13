@@ -33,27 +33,24 @@ before(async () => {
       ('ws-1', 'user-2', 'owner'),
       ('ws-1', 'user-1', 'editor');
 
-    INSERT OR IGNORE INTO notebooks (id, userId, name, isDeleted)
+    INSERT OR IGNORE INTO notebooks (id, userId, parentId, name, isDeleted)
     VALUES
-      ('nb-a', 'user-1', 'Allowed', 0),
-      ('nb-b', 'user-1', 'Denied', 0),
-      ('nb-a-child', 'user-1', 'Allowed child', 0);
-    UPDATE notebooks SET parentId = 'nb-a' WHERE id = 'nb-a-child';
+      ('nb-a', 'user-1', NULL, 'Allowed', 0),
+      ('nb-b', 'user-1', NULL, 'Denied', 0),
+      ('nb-a-child', 'user-1', 'nb-a', 'Allowed child', 0);
 
-    INSERT OR IGNORE INTO notebooks (id, userId, workspaceId, name, isDeleted)
+    INSERT OR IGNORE INTO notebooks (id, userId, workspaceId, parentId, name, isDeleted)
     VALUES
-      ('nb-ws', 'user-2', 'ws-1', 'Workspace Allowed', 0),
-      ('nb-ws-child', 'user-2', 'ws-1', 'Workspace Child', 0);
-    UPDATE notebooks SET parentId = 'nb-ws' WHERE id = 'nb-ws-child';
+      ('nb-ws', 'user-2', 'ws-1', NULL, 'Workspace Allowed', 0),
+      ('nb-ws-child', 'user-2', 'ws-1', 'nb-ws', 'Workspace Child', 0);
 
-    INSERT OR IGNORE INTO notes (id, userId, notebookId, title)
+    INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId)
     VALUES
-      ('note-a', 'user-1', 'nb-a', 'Allowed note'),
-      ('note-b', 'user-1', 'nb-b', 'Denied note'),
-      ('note-child', 'user-1', 'nb-a-child', 'Child note'),
-      ('note-ws', 'user-2', 'nb-ws', 'Workspace note'),
-      ('note-ws-child', 'user-2', 'nb-ws-child', 'Workspace child note');
-    UPDATE notes SET workspaceId = 'ws-1' WHERE id IN ('note-ws', 'note-ws-child');
+      ('note-a', 'user-1', 'nb-a', 'Allowed note', NULL),
+      ('note-b', 'user-1', 'nb-b', 'Denied note', NULL),
+      ('note-child', 'user-1', 'nb-a-child', 'Child note', NULL),
+      ('note-ws', 'user-2', 'nb-ws', 'Workspace note', 'ws-1'),
+      ('note-ws-child', 'user-2', 'nb-ws-child', 'Workspace child note', 'ws-1');
 
     INSERT OR IGNORE INTO api_tokens
       (id, userId, name, tokenHash, scopes, resourceMode)

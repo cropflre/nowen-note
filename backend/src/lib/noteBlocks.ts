@@ -129,10 +129,14 @@ function parseTiptap(noteId: string, content: string): {
   };
 
   visit(doc.content, null, []);
+  // Block Authority materializes Tiptap documents with JSON.stringify(). Canonicalize
+  // every valid Tiptap document here as well so harmless JSON whitespace/formatting
+  // cannot create a permanent byte-level authority hash mismatch.
+  const normalizedContent = JSON.stringify(doc);
   return {
-    normalizedContent: changed ? JSON.stringify(doc) : content,
+    normalizedContent,
     candidates,
-    changed,
+    changed: changed || normalizedContent !== content,
   };
 }
 

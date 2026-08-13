@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db/schema";
-import { hasPermission, resolveNotePermission, resolveNotebookPermission } from "../middleware/acl";
+import {
+  hasPermission,
+  resolveNotePermission,
+  resolveNotebookPermission,
+  resolveTrashedNotePermission,
+} from "../middleware/acl";
 import { scanRemoteImages, type RemoteImageScanResult } from "../lib/remote-image-localization";
 import { yFlush } from "./yjs";
 
@@ -305,11 +310,22 @@ function scanOneNote(userId: string, noteId: string, expectedVersion?: number): 
   try { yFlush(noteId); } catch {}
   const row = readNote(noteId);
   if (!row) return { noteId, title: "", version: 0, contentFormat: "unknown", status: "not_found", reason: "笔记不存在", scan: emptyScan() };
+
+  // Normal ACL intentionally hides tombstones. For an explicitly requested trashed
+  // note we still need to distinguish an authorized lifecycle skip from an
+  // unauthorized resource probe, so use the tombstone-aware permission resolver.
+  if (row.isTrashed) {
+    const { permission } = resolveTrashedNotePermission(noteId, userId);
+    if (!hasPermission(permission, "write")) {
+      return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "forbidden", reason: "没有写权限", scan: emptyScan(row.contentFormat) };
+    }
+    return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "trashed", reason: "笔记位于回收站", scan: emptyScan(row.contentFormat) };
+  }
+
   const { permission } = resolveNotePermission(noteId, userId);
   if (!hasPermission(permission, "write")) {
     return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "forbidden", reason: "没有写权限", scan: emptyScan(row.contentFormat) };
   }
-  if (row.isTrashed) return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "trashed", reason: "笔记位于回收站", scan: emptyScan(row.contentFormat) };
   if (row.isLocked) return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "locked", reason: "笔记已锁定", scan: emptyScan(row.contentFormat) };
   if (expectedVersion !== undefined && expectedVersion !== row.version) {
     return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "conflict", reason: `预期版本 ${expectedVersion}，当前版本 ${row.version}`, scan: emptyScan(row.contentFormat) };
@@ -365,9 +381,30 @@ export function createInitialNoteResult(scan: LocalizationNoteScan): Localizatio
     localizedReferences: 0,
     localizedUrls: 0,
     deduplicatedAttachments: 0,
-    failedUrls: 0,
-    skippedUrls: scan.status === "ready" && scan.scan.remoteReferenceCount === 0 ? 0 : scan.scan.remoteUrls.length,
+    failedUrls: scan.status === "parse_error" ? scan.scan.remoteReferenceCount : 0,
+    skippedUrls: scan.scan.remoteReferenceCount,
     failures,
     warnings: [],
   };
+}
+
+export function cleanupOldJobs(): void {
+  const cutoff = Date.now() - JOB_RETENTION_MS;
+  for (const [id, job] of jobs) {
+    if ((job.status === "queued" || job.status === "running") || new Date(job.updatedAt).getTime() >= cutoff) continue;
+    jobs.delete(id);
+    try { fs.unlinkSync(jobPath(id)); } catch {}
+  }
+}
+
+export function collectUniqueRemoteUrls(noteResults: LocalizationNoteResult[]): string[] {
+  const urls = new Set<string>();
+  for (const result of noteResults) {
+    if (result.status !== "queued") continue;
+    const row = readNote(result.noteId);
+    if (!row) continue;
+    const scan = scanRemoteImages(row.content || "", row.contentFormat || "tiptap-json");
+    for (const url of scan.remoteUrls) urls.add(url);
+  }
+  return [...urls];
 }

@@ -10,28 +10,50 @@ import "./noteWriteSafety";
 
 export { systemSettingsRepository } from "./systemSettingsRepository";
 export { userAISettingsRepository } from "./userAISettingsRepository";
+export { serverInstanceRepository } from "./serverInstanceRepository";
 export { customFontsRepository } from "./customFontsRepository";
 export { apiTokensRepository } from "./apiTokensRepository";
+export { apiTokenResourcesRepository } from "./apiTokenResourcesRepository";
+export { apiTokenSchemaRepository } from "./apiTokenSchemaRepository";
+export { authSecurityRepository } from "./authSecurityRepository";
+export { aclQueryRepository } from "./aclQueryRepository";
+export { auditRepository } from "./auditRepository";
+export { webhookRepository } from "./webhookRepository";
+export { yjsPersistenceRepository } from "./yjsPersistenceRepository";
+export { workspaceNotebookTransferRepository } from "./workspaceNotebookTransferRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
 export { noteTagsRepository } from "./noteTagsRepository";
+export { tagOperationsRepository } from "./tagOperationsRepository";
 export { aiCustomPromptsRepository } from "./aiCustomPromptsRepository";
 export { noteVersionsRepository } from "./noteVersionsRepository";
 export { favoritesRepository } from "./favoritesRepository";
 export { userSessionsRepository } from "./userSessionsRepository";
+export { userSecurityRepository } from "./userSecurityRepository";
 export { taskRemindersRepository } from "./taskRemindersRepository";
+export { taskReminderOperationsRepository } from "./taskReminderOperationsRepository";
 export { taskProjectsRepository } from "./taskProjectsRepository";
 export { taskTemplatesRepository } from "./taskTemplatesRepository";
+export { taskTemplateApplyRepository } from "./taskTemplateApplyRepository";
 export { folderSyncFilesRepository } from "./folderSyncFilesRepository";
 export { attachmentFoldersRepository } from "./attachmentFoldersRepository";
+export { attachmentFolderOperationsRepository } from "./attachmentFolderOperationsRepository";
+export { attachmentMediaRepository } from "./attachmentMediaRepository";
+export { attachmentSignedAccessRepository } from "./attachmentSignedAccessRepository";
+export { attachmentQueryRepository } from "./attachmentQueryRepository";
+export { memberQueryRepository } from "./memberQueryRepository";
+export { mindmapSchemaRepository } from "./mindmapSchemaRepository";
 export { mindmapFoldersRepository } from "./mindmapFoldersRepository";
+export { mindmapFolderOperationsRepository } from "./mindmapFolderOperationsRepository";
 export { taskCalendarFeedsRepository } from "./taskCalendarFeedsRepository";
 export { taskDependenciesRepository } from "./taskDependenciesRepository";
+export { taskDependencyOperationsRepository } from "./taskDependencyOperationsRepository";
 export { workspaceInvitesRepository } from "./workspaceInvitesRepository";
 export { notebookShareLinksRepository } from "./notebookShareLinksRepository";
 export { noteAclRepository } from "./noteAclRepository";
 export { taskAttachmentsRepository } from "./taskAttachmentsRepository";
+export { taskAttachmentOperationsRepository } from "./taskAttachmentOperationsRepository";
 export { attachmentReferencesRepository } from "./attachmentReferencesRepository";
 export { noteYsnapshotsRepository } from "./noteYsnapshotsRepository";
 export { attachmentChunksRepository } from "./attachmentChunksRepository";
@@ -45,6 +67,7 @@ export {
   blockAuthorityRepository,
   createBlockAuthorityRepository,
 } from "./blockAuthorityRepository";
+export { roundTripPermissionMappingRepository } from "./roundTripPermissionMappingRepository";
 
 // 类型导出
 export type {
@@ -66,6 +89,22 @@ export type {
   TagWithCount,
   UpdateTagInput,
 } from "./types";
+export type {
+  ApiTokenResourceInput,
+  ApiTokenResourceMode,
+  ApiTokenResourcePermission,
+  ApiTokenResourceRecord,
+  ApiTokenWithResourceMode,
+  ApiTokenNotebookOption,
+} from "./apiTokenResourcesRepository";
+export type { ApiTokenSchemaDatabase } from "./apiTokenSchemaRepository";
+export type { AuthSecurityDatabase } from "./authSecurityRepository";
+export type { MindmapSchemaDatabase } from "./mindmapSchemaRepository";
 export type { AiCustomPromptRecord } from "./aiCustomPromptsRepository";
 export type { UserAISetting } from "./userAISettingsRepository";
 export type { NoteVersionListItem, NoteVersionRecord } from "./noteVersionsRepository";
+export type {
+  RoundTripPermissionMemberRow,
+  RoundTripPermissionTargetUserRow,
+  RoundTripWorkspaceAccessRow,
+} from "./roundTripPermissionMappingRepository";

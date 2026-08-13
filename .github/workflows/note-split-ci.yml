@@ -2,7 +2,7 @@ name: Note Split CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, pg-migration-unified]
     paths:
       - "backend/src/index.hardened.ts"
       - "backend/src/lib/noteSplit.ts"

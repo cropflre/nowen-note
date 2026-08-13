@@ -152,7 +152,10 @@ test("restoring a markdown version restores contentFormat and returns it", async
   assert.equal(restoreRes.json.contentFormat, "markdown");
   const row = db().prepare("SELECT title, content, contentText, contentFormat, version FROM notes WHERE id = ?").get(NOTE_ID) as any;
   assert.equal(row.title, "Markdown title");
-  assert.equal(row.content, "# Markdown title");
+  assert.equal(
+    row.content.replace(/\s+\^blk_[A-Za-z0-9_-]+(?=\n|$)/g, ""),
+    "# Markdown title",
+  );
   assert.equal(row.contentText, "Markdown title");
   assert.equal(row.contentFormat, "markdown");
   assert.equal(row.version, 2);
@@ -199,8 +202,14 @@ test("restore creates a reversible snapshot of the current content", async () =>
 
   assert.equal(restoreB.status, 200);
   assert.equal(restoreB.json.title, "Content B");
-  assert.equal(restoreB.json.content, "## B\n\ncurrent");
-  assert.equal(restoreB.json.contentText, "B current");
+  assert.equal(
+    restoreB.json.content.replace(/\s+\^blk_[A-Za-z0-9_-]+(?=\n|$)/g, ""),
+    "## B\n\ncurrent",
+  );
+  assert.equal(
+    restoreB.json.contentText.replace(/\s+/g, " ").trim(),
+    "B current",
+  );
   assert.equal(restoreB.json.contentFormat, "markdown");
   assert.equal(restoreB.json.version, 4);
 });
@@ -229,7 +238,11 @@ test("restoring a rich text version keeps tiptap-json contentFormat", async () =
   assert.equal(restoreRes.json.contentFormat, "tiptap-json");
   const row = db().prepare("SELECT title, content, contentText, contentFormat, version FROM notes WHERE id = ?").get(NOTE_ID) as any;
   assert.equal(row.title, "Rich text title");
-  assert.equal(row.content, richTextContent);
+  const restoredDoc = JSON.parse(row.content);
+  assert.equal(restoredDoc.type, "doc");
+  assert.equal(restoredDoc.content?.[0]?.type, "paragraph");
+  assert.equal(restoredDoc.content?.[0]?.content?.[0]?.text, "Rich text");
+  assert.match(String(restoredDoc.content?.[0]?.attrs?.blockId || ""), /^blk_/);
   assert.equal(row.contentText, "Rich text");
   assert.equal(row.contentFormat, "tiptap-json");
   assert.equal(row.version, 2);
