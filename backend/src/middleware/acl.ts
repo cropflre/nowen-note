@@ -139,6 +139,30 @@ export function resolveNotePermission(
 }
 
 /**
+ * 解析已进入回收站笔记的生命周期权限。
+ * 普通权限解析继续隐藏 tombstone；恢复/永久删除显式走 tombstone-aware ACL。
+ */
+export function resolveTrashedNotePermission(
+  noteId: string,
+  userId: string,
+): { permission: Permission | null; workspaceId: string | null; noteOwnerId: string | null } {
+  const note = aclQueryRepository.getNoteOwnerScope(noteId);
+  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };
+
+  const knowledgeAccess = resolveResourceKnowledgeAccessForTombstone("note", noteId, userId);
+  if (knowledgeAccess.nodeId) {
+    return {
+      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),
+      workspaceId: note.workspaceId,
+      noteOwnerId: note.userId,
+    };
+  }
+
+  // 尚未生成统一知识树节点的历史资源继续沿用旧 ACL 回退。
+  return resolveNotePermission(noteId, userId);
+}
+
+/**
  * 解析笔记本的有效权限（与笔记类似，但直接基于 notebooks.workspaceId）
  */
 export function resolveNotebookPermission(

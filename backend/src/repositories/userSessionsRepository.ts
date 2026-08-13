@@ -100,10 +100,20 @@ export const userSessionsRepository = {
     }
   },
 
-  getByIdAndUser(sessionId: string, userId: string): { id: string; revokedAt: string | null } | undefined {
-    return getDb().prepare(
-      `SELECT id, "revokedAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,
-    ).get(sessionId, userId) as any;
+  getByIdAndUser(
+    sessionId: string,
+    userId: string,
+  ): { id: string; revokedAt: string | null; expiresAt: string | null } | undefined {
+    const row = getDb().prepare(
+      `SELECT id, "revokedAt", "expiresAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,
+    ).get(sessionId, userId) as { id: string; revokedAt: unknown; expiresAt: unknown } | undefined;
+    return row
+      ? {
+          id: row.id,
+          revokedAt: timestampString(row.revokedAt),
+          expiresAt: timestampString(row.expiresAt),
+        }
+      : undefined;
   },
 
   getById(sessionId: string): { id: string; userId: string; revokedAt: string | null } | undefined {
@@ -211,12 +221,18 @@ export const userSessionsRepository = {
   async getByIdAndUserAsync(
     sessionId: string,
     userId: string,
-  ): Promise<{ id: string; revokedAt: string | null } | undefined> {
-    const row = await getAdapter().queryOne<{ id: string; revokedAt: unknown }>(
-      `SELECT id, "revokedAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,
+  ): Promise<{ id: string; revokedAt: string | null; expiresAt: string | null } | undefined> {
+    const row = await getAdapter().queryOne<{ id: string; revokedAt: unknown; expiresAt: unknown }>(
+      `SELECT id, "revokedAt", "expiresAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,
       [sessionId, userId],
     );
-    return row ? { id: row.id, revokedAt: timestampString(row.revokedAt) } : undefined;
+    return row
+      ? {
+          id: row.id,
+          revokedAt: timestampString(row.revokedAt),
+          expiresAt: timestampString(row.expiresAt),
+        }
+      : undefined;
   },
 
   async getByIdAsync(

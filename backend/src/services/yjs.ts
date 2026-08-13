@@ -461,6 +461,23 @@ export function yFlush(noteId: string) {
   } catch {}
 }
 
+/**
+ * 标题、置顶等 metadata-only REST 写入会增加 notes.version。
+ * PostgreSQL migration 分支的 legacy Yjs bridge 以持久化正文 identity 防止重复回写，
+ * 不维护 main 分支的 room baseVersion CAS；保留该入口以兼容共享 notes route。
+ */
+export function yAdvanceRoomBaseVersion(
+  noteId: string,
+  previousVersion: number,
+  nextVersion: number,
+): void {
+  // Intentionally no-op for the legacy bridge. Native PostgreSQL Yjs persistence
+  // uses its dedicated runtime/repository path rather than this in-memory baseVersion.
+  void noteId;
+  void previousVersion;
+  void nextVersion;
+}
+
 /** 进程退出时调用：把所有房间 flush 到磁盘。返回 Promise，便于 caller await。 */
 export function yFlushAll(): Promise<void> {
   const ids = Array.from(rooms.keys());
