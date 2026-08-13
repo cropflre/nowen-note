@@ -55,7 +55,7 @@ jobs:
           elif [[ -n "${MANUAL_VERSION:-}" ]]; then
             VERSION="${MANUAL_VERSION#v}"
           else
-            VERSION=$(node -p "require('./package.json').version")
+            VERSION=$(plutil -extract version raw package.json)
           fi
 
           # CFBundleShortVersionString 使用三段数字；预发布后缀由 Build Number 区分。
