@@ -1,0 +1,129 @@
+name: Validate PostgreSQL authenticated startup surfaces
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-startup-surfaces-validate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-startup-runtime-test-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript before mount
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Real PostgreSQL startup surfaces
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-startup-surfaces-pg.test.ts
+      - name: Mount validated startup surfaces
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+
+          import_marker = 'import createSettingsRuntimeRouter from "./routes/settings-runtime";\n'
+          import_lines = (
+              'import createMeRuntimeRouter from "./routes/me-runtime";\n'
+              'import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";\n'
+              'import userPreferencesSyncRoutes from "./routes/user-preferences-sync";\n'
+          )
+          if 'import createMeRuntimeRouter from "./routes/me-runtime";' not in text:
+              if import_marker not in text:
+                  raise SystemExit("settings runtime import marker missing")
+              text = text.replace(import_marker, import_marker + import_lines, 1)
+
+          route_marker = 'app.route("/api/settings", createSettingsRuntimeRouter(adapter));\n\n'
+          route_lines = '''app.use("/api/me", authenticateApiRequest);
+          app.route("/api/me", createMeRuntimeRouter(adapter));
+
+          app.use("/api/user-preferences", authenticateApiRequest);
+          app.use("/api/user-preferences/*", authenticateApiRequest);
+          app.route("/api/user-preferences", userPreferencesSyncRoutes);
+
+          app.use("/api/workspaces", authenticateApiRequest);
+          app.use("/api/workspaces/*", authenticateApiRequest);
+          app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter));
+
+          '''
+          route_lines = route_lines.replace('          ', '')
+          if 'app.route("/api/me", createMeRuntimeRouter(adapter));' not in text:
+              if route_marker not in text:
+                  raise SystemExit("settings route marker missing")
+              text = text.replace(route_marker, route_marker + route_lines, 1)
+
+          migrated_marker = '        "PUT /api/settings (authenticated; admin guard for system settings)",\n'
+          migrated_lines = migrated_marker + (
+              '        "GET /api/me",\n'
+              '        "GET /api/user-preferences",\n'
+              '        "PUT/PATCH /api/user-preferences",\n'
+              '        "GET /api/workspaces",\n'
+          )
+          if '"GET /api/me"' not in text:
+              if migrated_marker not in text:
+                  raise SystemExit("settings migrated route marker missing")
+              text = text.replace(migrated_marker, migrated_lines, 1)
+
+          path.write_text(text)
+          PY
+      - name: TypeScript after mount
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Auth settings and startup regression
+        working-directory: backend
+        run: |
+          node --import tsx --test --test-concurrency=1 tests/auth-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/settings-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-startup-surfaces-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit validated startup surface mount
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/index.postgres-runtime.ts; then
+            echo "startup surfaces already mounted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/index.postgres-runtime.ts
+          git commit -m "feat(pg): mount authenticated startup surfaces"
+          git push origin HEAD:pg-migration-unified
