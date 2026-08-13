@@ -94,7 +94,7 @@ export function createTaskDependenciesRuntimeRouter(adapter: DatabaseAdapter) {
   app.post("/", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const predecessorTaskId = typeof body.predecessorTaskId === "string" ? body.predecessorTaskId : "";
     const successorTaskId = typeof body.successorTaskId === "string" ? body.successorTaskId : "";
     const type = body.type === undefined ? "finish_to_start" : String(body.type);
