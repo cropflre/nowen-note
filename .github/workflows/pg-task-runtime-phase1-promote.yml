@@ -1,0 +1,132 @@
+name: Validate and Promote PostgreSQL Task Runtime Phase 1
+
+on:
+  push:
+    branches: [pg-task-runtime-phase1-validation-20260813]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-runtime-promote-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-task-runtime-phase1-validation-20260813
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: cd backend && npm ci --no-audit --no-fund
+      - name: Validate isolated Task candidate
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Build candidate on latest PostgreSQL branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin pg-migration-unified pg-task-runtime-phase1-validation-20260813
+          git checkout -B pg-migration-unified origin/pg-migration-unified
+          git checkout origin/pg-task-runtime-phase1-validation-20260813 -- \
+            backend/src/services/task-recurrence-runtime.ts \
+            backend/src/routes/tasks-runtime.ts \
+            backend/tests/task-core-runtime-pg.test.ts \
+            .github/workflows/pg-task-runtime.yml
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+
+          import_anchor = 'import createTagsRuntimeRouter from "./routes/tags-runtime";\n'
+          import_line = 'import createTasksRuntimeRouter from "./routes/tasks-runtime";\n'
+          if import_line not in text:
+              if import_anchor not in text:
+                  raise SystemExit("Task import anchor missing")
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          health_anchor = '        "POST/DELETE /api/tags/note/:noteId/tag/:tagId",\n'
+          health_lines = (
+              '        "GET /api/tasks (personal/workspace scope and filters)",\n'
+              '        "GET /api/tasks/stats/summary",\n'
+              '        "GET /api/tasks/:id (children included)",\n'
+              '        "POST /api/tasks",\n'
+              '        "PUT /api/tasks/:id (status/completion + recurrence)",\n'
+              '        "PATCH /api/tasks/:id/toggle (recurrence-safe)",\n'
+              '        "PUT /api/tasks/reorder/batch",\n'
+              '        "POST /api/tasks/batch (complete/delete)",\n'
+              '        "DELETE /api/tasks/:id",\n'
+          )
+          if '"GET /api/tasks (personal/workspace scope and filters)"' not in text:
+              if health_anchor not in text:
+                  raise SystemExit("Task health anchor missing")
+              text = text.replace(health_anchor, health_anchor + health_lines, 1)
+
+          mount_anchor = 'app.route("/api/tags", createTagsRuntimeRouter(adapter));\n\n'
+          mount = (
+              'app.use("/api/tasks", authenticateApiRequest);\n'
+              'app.use("/api/tasks/*", authenticateApiRequest);\n'
+              'app.route("/api/tasks", createTasksRuntimeRouter(adapter));\n\n'
+          )
+          if 'app.route("/api/tasks", createTasksRuntimeRouter(adapter));' not in text:
+              if mount_anchor not in text:
+                  raise SystemExit("Task mount anchor missing")
+              text = text.replace(mount_anchor, mount_anchor + mount, 1)
+
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Validate mounted candidate on latest PostgreSQL branch
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+          npm run build
+      - name: Promote verified Task runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            backend/src/services/task-recurrence-runtime.ts \
+            backend/src/routes/tasks-runtime.ts \
+            backend/src/index.postgres-runtime.ts \
+            backend/tests/task-core-runtime-pg.test.ts \
+            .github/workflows/pg-task-runtime.yml
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Task runtime already promoted"
+            exit 0
+          fi
+          git commit -m "feat(pg): expose task core runtime with recurrence"
+          git push origin HEAD:pg-migration-unified
