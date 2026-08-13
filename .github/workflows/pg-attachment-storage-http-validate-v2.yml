@@ -1,0 +1,209 @@
+name: Validate PostgreSQL attachment HTTP storage primitives v2
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-attachment-storage-http-validate-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  storage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-attachment-storage-test-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Patch storage runtime and add regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/src/services/attachment-storage-runtime.ts')
+          text = path.read_text()
+
+          signature = '''async function signedRequest(
+            method: "GET" | "PUT" | "DELETE" | "HEAD",
+            relativePath: string,
+            config: S3Config,
+            fetchImpl: typeof fetch,
+            extraHeaders: Record<string, string> = {},
+          ): Promise<Response> {'''
+          replacement = '''async function signedRequest(
+            method: "GET" | "PUT" | "DELETE" | "HEAD",
+            relativePath: string,
+            config: S3Config,
+            fetchImpl: typeof fetch,
+            extraHeaders: Record<string, string> = {},
+            body?: Buffer,
+            contentType?: string,
+          ): Promise<Response> {'''
+          if signature not in text:
+              raise SystemExit('signedRequest signature marker missing')
+          text = text.replace(signature, replacement, 1)
+
+          payload = '  const payloadHash = crypto.createHash("sha256").update("").digest("hex");'
+          if payload not in text:
+              raise SystemExit('payload marker missing')
+          text = text.replace(payload, '  const payloadHash = crypto.createHash("sha256").update(body || "").digest("hex");', 1)
+
+          header_marker = '  for (const [key, value] of Object.entries(extraHeaders)) {'
+          if header_marker not in text:
+              raise SystemExit('header marker missing')
+          text = text.replace(header_marker, '  if (contentType) headers["content-type"] = contentType;\n' + header_marker, 1)
+
+          signed_start = text.index('  return fetchImpl(url, {', text.index('async function signedRequest'))
+          signed_end = text.index('\n  });\n}', signed_start)
+          signed_block = text[signed_start:signed_end + len('\n  });')]
+          if 'body: body as BodyInit | undefined' not in signed_block:
+              signed_block_new = signed_block[:-len('\n  });')] + '\n    body: body as BodyInit | undefined,\n  });'
+              text = text[:signed_start] + signed_block_new + text[signed_end + len('\n  });'):]
+
+          marker = '''    async copyAndVerify(input: {
+              sourcePath: string;
+              stagedPath: string;
+              expectedSize: number;
+              expectedHash: string | null;
+            }): Promise<AttachmentStageCopyResult> {'''
+          if marker not in text:
+              # source uses two-space method indentation in some formatter revisions
+              marker = '''  async copyAndVerify(input: {
+                sourcePath: string;
+                stagedPath: string;
+                expectedSize: number;
+                expectedHash: string | null;
+              }): Promise<AttachmentStageCopyResult> {'''
+          if marker not in text:
+              raise SystemExit('copyAndVerify marker missing')
+          indent = marker.split('async copyAndVerify', 1)[0]
+          methods = f'''{indent}async readObject(relativePath: string): Promise<Buffer | null> {{
+          {indent}  const normalized = normalizeRelativePath(relativePath);
+          {indent}  const config = await runtimeS3Config(db);
+          {indent}  if (!config) {{
+          {indent}    const filePath = localPath(root, normalized);
+          {indent}    try {{
+          {indent}      const stat = await fs.promises.lstat(filePath);
+          {indent}      if (!stat.isFile() || stat.isSymbolicLink()) return null;
+          {indent}      return await fs.promises.readFile(filePath);
+          {indent}    }} catch (error: any) {{
+          {indent}      if (error?.code === "ENOENT") return null;
+          {indent}      throw error;
+          {indent}    }}
+          {indent}  }}
+
+          {indent}  const response = await signedRequest("GET", normalized, config, fetchImpl);
+          {indent}  if (response.status === 404) {{
+          {indent}    const fallback = localPath(root, normalized);
+          {indent}    try {{
+          {indent}      const stat = await fs.promises.lstat(fallback);
+          {indent}      if (stat.isFile() && !stat.isSymbolicLink()) return await fs.promises.readFile(fallback);
+          {indent}    }} catch {{
+          {indent}      // no local fallback
+          {indent}    }}
+          {indent}    return null;
+          {indent}  }}
+          {indent}  if (!response.ok) throw await responseFailure("S3 GET failed", response);
+          {indent}  return Buffer.from(await response.arrayBuffer());
+          {indent}}},
+
+          {indent}async writeObject(relativePath: string, buffer: Buffer, contentType?: string): Promise<void> {{
+          {indent}  const normalized = normalizeRelativePath(relativePath);
+          {indent}  const config = await runtimeS3Config(db);
+          {indent}  if (!config) {{
+          {indent}    const filePath = localPath(root, normalized);
+          {indent}    await fs.promises.mkdir(path.dirname(filePath), {{ recursive: true }});
+          {indent}    await fs.promises.writeFile(filePath, buffer);
+          {indent}    return;
+          {indent}  }}
+          {indent}  const response = await signedRequest("PUT", normalized, config, fetchImpl, {{}}, buffer, contentType);
+          {indent}  if (!response.ok) throw await responseFailure("S3 PUT failed", response);
+          {indent}}},
+
+          '''
+          text = text.replace(marker, methods + marker, 1)
+          path.write_text(text)
+          PY
+
+          cat > backend/tests/attachment-storage-http-runtime-pg.test.ts <<'EOF'
+          import assert from "node:assert/strict";
+          import fs from "node:fs";
+          import os from "node:os";
+          import path from "node:path";
+          import test from "node:test";
+          import { PostgresAdapter } from "../src/db/postgresAdapter";
+          import { createAttachmentStorageRuntime } from "../src/services/attachment-storage-runtime";
+          import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-db";
+
+          test("PostgreSQL attachment storage runtime writes and reads local HTTP objects safely", { skip: !hasPg }, async () => {
+            const pool = await getPgPool();
+            assert.ok(pool);
+            const dataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nowen-pg-att-http-"));
+            try {
+              await initPgSchema(pool);
+              await pool.query(`DELETE FROM system_settings WHERE key = 'attachmentStorage:config'`);
+              const storage = createAttachmentStorageRuntime(new PostgresAdapter(pool), { dataDir });
+              const body = Buffer.from("nowen-pg-attachment-body");
+              await storage.writeObject("2026/08/test.bin", body, "application/octet-stream");
+              assert.deepEqual(await storage.readObject("2026/08/test.bin"), body);
+              assert.equal((await storage.checkExists("2026/08/test.bin")).exists, true);
+              await storage.deleteObject("2026/08/test.bin");
+              assert.equal(await storage.readObject("2026/08/test.bin"), null);
+              assert.equal((await storage.checkExists("2026/08/test.bin")).exists, false);
+              await assert.rejects(() => storage.writeObject("../escape.bin", body), /安全|越过|path/i);
+            } finally {
+              await fs.promises.rm(dataDir, { recursive: true, force: true });
+              await closePgPool(pool);
+            }
+          });
+          EOF
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Real PostgreSQL attachment storage read/write
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/attachment-storage-http-runtime-pg.test.ts
+      - name: Existing note transfer attachment staging regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/note-transfer-attachment-staging-runtime-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit verified storage primitives
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/attachment-storage-runtime.ts backend/tests/attachment-storage-http-runtime-pg.test.ts
+          git commit -m "feat(pg): add attachment HTTP storage primitives"
+          git push origin HEAD:pg-migration-unified
