@@ -1,0 +1,149 @@
+name: Finalize PostgreSQL Reminder Delivery Integration
+
+on:
+  push:
+    branches: [pg-task-reminder-delivery-validation-20260813]
+    paths:
+      - ".github/workflows/pg-task-reminder-delivery-finalize.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-reminder-delivery-finalize-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Apply permanent integration patches
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          schema = Path('backend/src/db/postgres/schema.base.sql')
+          s = schema.read_text()
+          marker = 'CREATE INDEX IF NOT EXISTS idx_task_reminders_enabled ON task_reminders(enabled);\n'
+          block = '''CREATE INDEX IF NOT EXISTS idx_task_reminders_enabled ON task_reminders(enabled);\n\nCREATE TABLE IF NOT EXISTS task_reminder_delivery_state (\n    "reminderId" TEXT PRIMARY KEY REFERENCES task_reminders(id) ON DELETE CASCADE,\n    "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,\n    "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n    "taskTitle" TEXT NOT NULL DEFAULT '',\n    "scheduledFor" TIMESTAMPTZ NOT NULL,\n    "triggeredAt" TIMESTAMPTZ,\n    "ackedAt" TIMESTAMPTZ,\n    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n\nCREATE INDEX IF NOT EXISTS idx_task_reminder_delivery_user_pending\n    ON task_reminder_delivery_state("userId", "triggeredAt")\n    WHERE "ackedAt" IS NULL AND "triggeredAt" IS NOT NULL;\n\nCREATE TABLE IF NOT EXISTS task_reminder_scanner_leases (\n    name TEXT PRIMARY KEY,\n    "ownerId" TEXT NOT NULL,\n    "leaseUntil" TIMESTAMPTZ NOT NULL,\n    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n'''
+          if 'CREATE TABLE IF NOT EXISTS task_reminder_delivery_state' not in s:
+              if marker not in s: raise SystemExit('schema marker missing')
+              s = s.replace(marker, block, 1)
+              schema.write_text(s)
+
+          test = Path('backend/tests/postgres-migrations.test.ts')
+          s = test.read_text()
+          if '"0058_task_reminder_delivery_runtime"' not in s:
+              s = s.replace('  "0057_task_reminder_runtime_parity",\n', '  "0057_task_reminder_runtime_parity",\n  "0058_task_reminder_delivery_runtime",\n', 1)
+          if '    "task_reminder_delivery_state",' not in s:
+              s = s.replace('    "roundtrip_import_links",\n', '    "roundtrip_import_links",\n    "task_reminder_delivery_state",\n    "task_reminder_scanner_leases",\n', 1)
+          if '    "idx_task_reminder_delivery_user_pending",' not in s:
+              s = s.replace('    "idx_tags_search_vector",\n', '    "idx_tags_search_vector",\n    "idx_task_reminder_delivery_user_pending",\n', 1)
+          test.write_text(s)
+
+          workflow = Path('.github/workflows/pg-task-runtime.yml')
+          s = workflow.read_text()
+          for anchor, addition in [
+              ('      - "backend/src/routes/task-reminders-runtime.ts"\n', '      - "backend/src/routes/task-reminder-delivery-runtime.ts"\n'),
+              ('      - "backend/src/services/task-module-access-runtime.ts"\n', '      - "backend/src/services/task-reminder-delivery-runtime.ts"\n'),
+              ('      - "backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql"\n', '      - "backend/src/db/postgres/migrations/0058_task_reminder_delivery_runtime.sql"\n'),
+              ('      - "backend/tests/task-module-phase2-runtime-pg.test.ts"\n', '      - "backend/tests/task-reminder-delivery-runtime-pg.test.ts"\n'),
+          ]:
+              if addition.strip() not in s:
+                  # add to both push and pull_request path lists
+                  s = s.replace(anchor, anchor + addition)
+          step_anchor = '      - name: Task templates runtime\n        run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts\n'
+          delivery_step = '      - name: Durable task reminder delivery runtime\n        run: node --import tsx --test --test-concurrency=1 tests/task-reminder-delivery-runtime-pg.test.ts\n'
+          if delivery_step.strip() not in s:
+              if step_anchor not in s: raise SystemExit('task workflow step marker missing')
+              s = s.replace(step_anchor, step_anchor + delivery_step, 1)
+          workflow.write_text(s)
+
+          index = Path('backend/src/index.postgres-runtime.ts')
+          s = index.read_text()
+          import_anchor = 'import createTaskRemindersRuntimeRouter from "./routes/task-reminders-runtime";\n'
+          route_import = 'import createTaskReminderDeliveryRuntimeRouter from "./routes/task-reminder-delivery-runtime";\n'
+          if route_import not in s:
+              s = s.replace(import_anchor, import_anchor + route_import, 1)
+          service_anchor = 'import { createPostgresYjsSubdocumentWebsocketRuntime } from "./services/postgres-yjs-subdocuments-websocket-runtime";\n'
+          service_import = 'import { createTaskReminderDeliveryRuntime } from "./services/task-reminder-delivery-runtime";\n'
+          if service_import not in s:
+              s = s.replace(service_anchor, service_anchor + service_import, 1)
+          instantiate_anchor = 'const adapter = getDatabaseAdapter();\n'
+          instantiate = 'const reminderDelivery = createTaskReminderDeliveryRuntime(adapter);\nreminderDelivery.start();\n'
+          if 'const reminderDelivery = createTaskReminderDeliveryRuntime(adapter);' not in s:
+              s = s.replace(instantiate_anchor, instantiate_anchor + instantiate, 1)
+          mount_anchor = 'app.route("/api/task-reminders", createTaskRemindersRuntimeRouter(adapter));\n'
+          delivery_mount = 'app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery));\n'
+          if delivery_mount not in s:
+              s = s.replace(mount_anchor, delivery_mount + mount_anchor, 1)
+          health_anchor = '        "GET /api/task-reminders/schedule",\n'
+          health = '        "GET /api/task-reminders/recent (durable pending delivery)",\n        "POST /api/task-reminders/recent/ack (delivery ACK)",\n'
+          if 'durable pending delivery' not in s:
+              if health_anchor not in s: raise SystemExit('health reminder marker missing')
+              s = s.replace(health_anchor, health_anchor + health, 1)
+          shutdown_anchor = '    await transferOrchestration.shutdown();\n'
+          shutdown = '    await reminderDelivery.shutdown();\n'
+          if shutdown.strip() not in s:
+              s = s.replace(shutdown_anchor, shutdown_anchor + shutdown, 1)
+          index.write_text(s)
+          PY
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Task core regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+      - name: Task phase 2 regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+      - name: Task templates regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
+      - name: Durable reminder delivery regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-reminder-delivery-runtime-pg.test.ts
+      - name: PostgreSQL migration regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Production bundle regression
+        working-directory: backend
+        run: npm run build
+      - name: Commit finalized integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/db/postgres/schema.base.sql backend/tests/postgres-migrations.test.ts .github/workflows/pg-task-runtime.yml backend/src/index.postgres-runtime.ts
+          if git diff --cached --quiet; then
+            echo "No finalize changes needed"
+          else
+            git commit -m "feat(pg): wire durable task reminder delivery"
+            git push origin HEAD:pg-task-reminder-delivery-validation-20260813
+          fi
