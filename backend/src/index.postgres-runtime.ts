@@ -16,6 +16,8 @@ import createAuthRuntimeRouter from "./routes/auth-runtime";
 import createSettingsRuntimeRouter from "./routes/settings-runtime";
 import createMeRuntimeRouter from "./routes/me-runtime";
 import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
+import createNotebooksRuntimeRouter from "./routes/notebooks-runtime";
+import createTagsRuntimeRouter from "./routes/tags-runtime";
 import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
@@ -110,6 +112,8 @@ app.get("/api/health", async (c) => {
         "GET /api/user-preferences",
         "PUT/PATCH /api/user-preferences",
         "GET /api/workspaces",
+        "GET /api/notebooks (personal/workspace recursive counts)",
+        "GET /api/tags (personal/workspace scope)",
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/trash/summary",
@@ -289,6 +293,14 @@ app.route("/api/user-preferences", userPreferencesSyncRoutes);
 app.use("/api/workspaces", authenticateApiRequest);
 app.use("/api/workspaces/*", authenticateApiRequest);
 app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter));
+
+app.use("/api/notebooks", authenticateApiRequest);
+app.use("/api/notebooks/*", authenticateApiRequest);
+app.route("/api/notebooks", createNotebooksRuntimeRouter(adapter));
+
+app.use("/api/tags", authenticateApiRequest);
+app.use("/api/tags/*", authenticateApiRequest);
+app.route("/api/tags", createTagsRuntimeRouter(adapter));
 
 app.use("/api/notes", authenticateApiRequest);
 app.use("/api/notes/*", authenticateApiRequest);
