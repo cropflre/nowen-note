@@ -197,8 +197,8 @@ test("tag, attachment filename and extracted attachment text expose their hit re
 test("editing, trashing, restoring and deleting a note never leaves ghost results", async () => {
   assert.equal((await search(OWNER_ID, "unique-old-keyword")).json[0]?.id, MUTABLE_NOTE_ID);
 
-  db().prepare("UPDATE notes SET contentText = ?, updatedAt = datetime('now') WHERE id = ?")
-    .run("after unique-new-keyword", MUTABLE_NOTE_ID);
+  db().prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = datetime('now') WHERE id = ?")
+    .run("after unique-new-keyword", "after unique-new-keyword", MUTABLE_NOTE_ID);
   assert.deepEqual((await search(OWNER_ID, "unique-old-keyword")).json, []);
   assert.equal((await search(OWNER_ID, "unique-new-keyword")).json[0]?.id, MUTABLE_NOTE_ID);
 
