@@ -1,0 +1,5 @@
+ALTER TABLE task_reminders
+  ADD COLUMN IF NOT EXISTS "timezoneOffsetMinutes" INTEGER;
+
+ALTER TABLE task_reminders
+  ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW();
