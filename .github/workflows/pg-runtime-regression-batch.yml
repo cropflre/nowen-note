@@ -1,4 +1,4 @@
-name: Reconcile runtime regression batch
+name: PostgreSQL isolated runtime gates
 
 on:
   push:
@@ -7,70 +7,133 @@ on:
       - ".github/workflows/pg-runtime-regression-batch.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix:
+  runtime:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
         with:
           ref: pg-migration-unified
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
-        working-directory: backend
         run: npm ci --no-audit --no-fund
-      - name: Canonicalize Tiptap blocks and repair search fixture
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          blocks = Path("backend/src/lib/noteBlocks.ts")
-          text = blocks.read_text()
-          old = '''  visit(doc.content, null, []);\n  return {\n    normalizedContent: changed ? JSON.stringify(doc) : content,\n    candidates,\n    changed,\n  };'''
-          new = '''  visit(doc.content, null, []);\n  // Block Authority materializes Tiptap documents with JSON.stringify(). Canonicalize\n  // every valid Tiptap document here as well so harmless JSON whitespace/formatting\n  // cannot create a permanent byte-level authority hash mismatch.\n  const normalizedContent = JSON.stringify(doc);\n  return {\n    normalizedContent,\n    candidates,\n    changed: changed || normalizedContent !== content,\n  };'''
-          if old not in text:
-              raise SystemExit("Tiptap normalization block not found")
-          blocks.write_text(text.replace(old, new, 1))
-
-          test_path = Path("backend/tests/knowledge-tree-query-limits.test.ts")
-          text = test_path.read_text()
-          old = '''  db.prepare("UPDATE notes SET contentText = ?, updatedAt = ? WHERE id = ?")\n    .run("limitneedle", "2020-01-01 00:00:00", visibleNote.resourceId);'''
-          new = '''  db.prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = ? WHERE id = ?")\n    .run("limitneedle", "limitneedle", "2020-01-01 00:00:00", visibleNote.resourceId);'''
-          if old not in text:
-              raise SystemExit("visible search fixture block not found")
-          text = text.replace(old, new, 1)
-
-          old = '''    db.prepare("UPDATE notes SET contentText = ?, updatedAt = ? WHERE id = ?")\n      .run(\n        `${"limitneedle ".repeat(12)}hidden ${index}`,\n        `2026-08-04 12:${String(index % 60).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`,\n        note.resourceId,\n      );'''
-          new = '''    const hiddenContent = `${"limitneedle ".repeat(12)}hidden ${index}`;\n    db.prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = ? WHERE id = ?")\n      .run(\n        hiddenContent,\n        hiddenContent,\n        `2026-08-04 12:${String(index % 60).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`,\n        note.resourceId,\n      );'''
-          if old not in text:
-              raise SystemExit("hidden search fixture block not found")
-          test_path.write_text(text.replace(old, new, 1))
-          PY
-      - name: TypeScript and targeted regressions
-        working-directory: backend
+      - name: TypeScript and database boundaries
         run: |
           npm run build:tsc -- --noEmit
-          node --import tsx --test --test-concurrency=1 \
-            tests/block-authority-store.test.ts \
-            tests/knowledge-tree-query-limits.test.ts
-      - name: Commit verified fixes
+          npm run audit:sqlite-boundaries
+          npm run audit:pg-schema-parity
+      - name: Runtime and SQL dialect unit tests
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/database-runtime.test.ts
+          tests/repository-runtime-provider.test.ts
+          tests/sql-dialect.test.ts
+      - name: Full SQLite regression suite
+        env:
+          DB_DRIVER: sqlite
+          DATABASE_URL: ""
+          TEST_PG_DATABASE_URL: ""
+        run: npm run test:serial
+      - name: Real PostgreSQL adapter, migrations and repository tests
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-adapter.test.ts
+          tests/postgres-migrations.test.ts
+          tests/repository-batch-a-pg.test.ts
+          tests/repository-batch-b-pg.test.ts
+          tests/repository-permissions-pg.test.ts
+          tests/repository-access-session-pg.test.ts
+          tests/api-token-resources-pg.test.ts
+          tests/system-settings-repository-pg.test.ts
+          tests/public-web-origin-pg.test.ts
+          tests/nowen-instance-identity-pg.test.ts
+          tests/roundtrip-import-batches-repository-pg.test.ts
+          tests/roundtrip-permission-mapping-pg.test.ts
+          tests/custom-fonts-repository-pg.test.ts
+          tests/favorites-repository-pg.test.ts
+          tests/note-tags-repository-pg.test.ts
+          tests/note-link-titles-runtime-pg.test.ts
+          tests/note-core-runtime-pg.test.ts
+          tests/note-core-runtime-formats-pg.test.ts
+          tests/note-collection-runtime-pg.test.ts
+          tests/note-lifecycle-runtime-pg.test.ts
+          tests/note-deletion-runtime-pg.test.ts
+          tests/note-trash-empty-runtime-pg.test.ts
+          tests/note-deletion-effects-runtime-pg.test.ts
+          tests/note-deletion-realtime-runtime-pg.test.ts
+          tests/note-realtime-route-pg.test.ts
+          tests/knowledge-tree-surfaces-runtime-pg.test.ts
+          tests/note-transfer-preview-runtime-pg.test.ts
+          tests/postgres-yjs-read-runtime-pg.test.ts
+          tests/postgres-realtime-yjs-pg.test.ts
+          tests/postgres-yjs-compaction-runtime-pg.test.ts
+          tests/postgres-yjs-subdocuments-runtime-pg.test.ts
+          tests/postgres-yjs-subdocument-structure-pg.test.ts
+          tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
+      - name: Production bundle and packaged PostgreSQL resources
+        run: |
+          npm run build
+          test -f dist/postgres/schema.sql
+          test -f dist/postgres/schema.base.sql
+          test -f dist/postgres/migrations/0026_notes_full_text_search.sql
+      - name: PostgreSQL runtime-only startup smoke
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/pg-runtime-regression-batch.yml
-          git add backend/src/lib/noteBlocks.ts backend/tests/knowledge-tree-query-limits.test.ts
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(sqlite): canonicalize block content and search fixtures"
-          git fetch origin pg-migration-unified
-          git rebase origin/pg-migration-unified
-          git push origin HEAD:pg-migration-unified
+          export DB_DRIVER=postgres
+          export PORT=3101
+          export DB_PATH=/tmp/nowen-pg-runtime-must-not-create-sqlite.db
+          rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
+          node dist/index.js > /tmp/nowen-pg-runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true; wait "$runtime_pid" 2>/dev/null || true; cat /tmp/nowen-pg-runtime.log' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3101/api/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          node -e '
+            const fs = require("node:fs");
+            const health = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
+            if (health.status !== "ok") throw new Error(`unexpected health status: ${health.status}`);
+            if (health.database?.driver !== "postgres" || health.database?.ok !== true) throw new Error(`unexpected database health: ${JSON.stringify(health.database)}`);
+            if (health.runtime?.mode !== "postgres-runtime-only" || health.runtime?.businessRoutesReady !== false) throw new Error(`unexpected runtime mode: ${JSON.stringify(health.runtime)}`);
+            if (health.runtime?.realtime?.attached !== true) throw new Error(`realtime not attached: ${JSON.stringify(health.runtime?.realtime)}`);
+            if (health.runtime?.subdocuments?.attached !== true) throw new Error(`subdocuments not attached: ${JSON.stringify(health.runtime?.subdocuments)}`);
+          '
+          status=$(curl --silent --output /tmp/unauthenticated.json --write-out "%{http_code}" http://127.0.0.1:3101/api/notes)
+          test "$status" = "401"
+          test ! -e "$DB_PATH"
+          test ! -e "$DB_PATH-wal"
+          test ! -e "$DB_PATH-shm"
+          kill -TERM "$runtime_pid"
+          wait "$runtime_pid"
+          trap - EXIT
+          cat /tmp/nowen-pg-runtime.log
