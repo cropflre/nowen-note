@@ -296,6 +296,12 @@ export function createPostgresYjsSubdocumentContentUpdate(
 export function createPostgresYjsSubdocumentRuntime(
   adapter: DatabaseAdapter,
 ): PostgresYjsSubdocumentRuntime {
+  // Preparing an unmaterialized note is a read-plan-delete-insert sequence. Multiple
+  // websocket clients can join the same note at once, so serialize prepares per note
+  // inside this runtime instance. Different notes remain fully concurrent, and queued
+  // callers still execute with their own maxBlocks value.
+  const prepareTails = new Map<string, Promise<void>>();
+
   async function readRows(noteId: string): Promise<SectionRow[]> {
     return adapter.queryMany<SectionRow>(
       `SELECT "sectionId" AS "sectionId", guid, "blockStart" AS "blockStart",
@@ -319,7 +325,7 @@ export function createPostgresYjsSubdocumentRuntime(
     );
   }
 
-  async function prepare(noteId: string, maxBlocks = 250): Promise<PostgresYjsSubdocumentManifest | null> {
+  async function prepareOnce(noteId: string, maxBlocks = 250): Promise<PostgresYjsSubdocumentManifest | null> {
     const note = await adapter.queryOne<NoteRow>(
       `SELECT content, "contentFormat" AS "contentFormat", "contentText" AS "contentText",
               title, "userId" AS "userId", version
@@ -450,6 +456,27 @@ export function createPostgresYjsSubdocumentRuntime(
         endBlock,
       })),
     };
+  }
+
+  async function prepare(
+    noteId: string,
+    maxBlocks = 250,
+  ): Promise<PostgresYjsSubdocumentManifest | null> {
+    const previous = prepareTails.get(noteId) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current, () => current);
+    prepareTails.set(noteId, tail);
+
+    await previous.catch(() => undefined);
+    try {
+      return await prepareOnce(noteId, maxBlocks);
+    } finally {
+      release();
+      if (prepareTails.get(noteId) === tail) prepareTails.delete(noteId);
+    }
   }
 
   async function getState(noteId: string, sectionId: string) {
