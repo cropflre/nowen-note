@@ -43,8 +43,9 @@ test("PostgreSQL auth runtime supports register, login, verify, refresh, session
     const app = createApp(new PostgresAdapter(pool));
 
     const config = await app.request("/api/auth/register/config");
-    assert.equal(config.status, 200);
-    const configBody = await config.json() as { allowRegistration: boolean; hasUsers: boolean };
+    const configText = await config.text();
+    assert.equal(config.status, 200, configText);
+    const configBody = JSON.parse(configText) as { allowRegistration: boolean; hasUsers: boolean };
     assert.equal(configBody.allowRegistration, true);
     assert.equal(configBody.hasUsers, true);
 
@@ -58,8 +59,9 @@ test("PostgreSQL auth runtime supports register, login, verify, refresh, session
         displayName: "PG Auth User",
       }),
     });
-    assert.equal(register.status, 201, await register.text());
-    const registered = await register.json() as { token: string; refreshToken: string; user: { username: string; role: string } };
+    const registerText = await register.text();
+    assert.equal(register.status, 201, registerText);
+    const registered = JSON.parse(registerText) as { token: string; refreshToken: string; user: { username: string; role: string } };
     assert.equal(registered.user.username, USERNAME);
     assert.equal(registered.user.role, "user");
     assert.ok(registered.token);
@@ -77,21 +79,24 @@ test("PostgreSQL auth runtime supports register, login, verify, refresh, session
       headers: { "Content-Type": "application/json", "User-Agent": "pg-auth-test" },
       body: JSON.stringify({ username: USERNAME, password: PASSWORD, deviceId: "test-device" }),
     });
-    assert.equal(login.status, 200, await login.text());
-    const loggedIn = await login.json() as { token: string; refreshToken: string; user: { username: string } };
+    const loginText = await login.text();
+    assert.equal(login.status, 200, loginText);
+    const loggedIn = JSON.parse(loginText) as { token: string; refreshToken: string; user: { username: string } };
     assert.equal(loggedIn.user.username, USERNAME);
 
     const verify = await app.request("/api/auth/verify", {
       headers: { Authorization: `Bearer ${loggedIn.token}` },
     });
-    assert.equal(verify.status, 200, await verify.text());
-    assert.equal(((await verify.json()) as any).user.username, USERNAME);
+    const verifyText = await verify.text();
+    assert.equal(verify.status, 200, verifyText);
+    assert.equal((JSON.parse(verifyText) as any).user.username, USERNAME);
 
     const sessions = await app.request("/api/auth/sessions", {
       headers: { Authorization: `Bearer ${loggedIn.token}` },
     });
-    assert.equal(sessions.status, 200, await sessions.text());
-    const sessionBody = await sessions.json() as { sessions: Array<{ id: string; current: boolean }>; currentSessionId: string };
+    const sessionsText = await sessions.text();
+    assert.equal(sessions.status, 200, sessionsText);
+    const sessionBody = JSON.parse(sessionsText) as { sessions: Array<{ id: string; current: boolean }>; currentSessionId: string };
     assert.ok(sessionBody.sessions.some((session) => session.current));
     assert.ok(sessionBody.currentSessionId);
 
@@ -100,8 +105,9 @@ test("PostgreSQL auth runtime supports register, login, verify, refresh, session
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: loggedIn.refreshToken }),
     });
-    assert.equal(refresh.status, 200, await refresh.text());
-    assert.ok(((await refresh.json()) as any).token);
+    const refreshText = await refresh.text();
+    assert.equal(refresh.status, 200, refreshText);
+    assert.ok((JSON.parse(refreshText) as any).token);
 
     const logout = await app.request("/api/auth/logout", {
       method: "POST",
