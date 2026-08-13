@@ -2,7 +2,7 @@ name: Reconcile runtime regression batch
 
 on:
   push:
-    branches: [pg-migration-unified]
+    branches: [pg-validation-runtime-batch]
     paths:
       - ".github/workflows/pg-runtime-regression-batch.yml"
 
