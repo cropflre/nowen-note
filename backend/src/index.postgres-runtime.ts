@@ -19,6 +19,7 @@ import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
 import createNotebooksRuntimeRouter from "./routes/notebooks-runtime";
 import createTagsRuntimeRouter from "./routes/tags-runtime";
 import createTasksRuntimeRouter from "./routes/tasks-runtime";
+import createTaskTemplatesRuntimeRouter from "./routes/task-templates-runtime";
 import createTaskProjectsRuntimeRouter from "./routes/task-projects-runtime";
 import createTaskDependenciesRuntimeRouter from "./routes/task-dependencies-runtime";
 import createTaskRemindersRuntimeRouter from "./routes/task-reminders-runtime";
@@ -135,6 +136,11 @@ app.get("/api/health", async (c) => {
         "PUT /api/tasks/reorder/batch",
         "POST /api/tasks/batch (complete/delete)",
         "DELETE /api/tasks/:id",
+        "GET /api/task-templates",
+        "POST /api/task-templates",
+        "PUT /api/task-templates/:id",
+        "DELETE /api/task-templates/:id",
+        "POST /api/task-templates/:id/apply",
         "GET/POST /api/task-projects (personal/workspace scope)",
         "PUT/DELETE /api/task-projects/:id",
         "PUT /api/task-projects/reorder/batch",
@@ -342,6 +348,10 @@ app.route("/api/tags", createTagsRuntimeRouter(adapter));
 app.use("/api/tasks", authenticateApiRequest);
 app.use("/api/tasks/*", authenticateApiRequest);
 app.route("/api/tasks", createTasksRuntimeRouter(adapter));
+
+app.use("/api/task-templates", authenticateApiRequest);
+app.use("/api/task-templates/*", authenticateApiRequest);
+app.route("/api/task-templates", createTaskTemplatesRuntimeRouter(adapter));
 
 app.use("/api/task-projects", authenticateApiRequest);
 app.use("/api/task-projects/*", authenticateApiRequest);
