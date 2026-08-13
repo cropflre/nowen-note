@@ -207,16 +207,19 @@ async function signedRequest(
   config: S3Config,
   fetchImpl: typeof fetch,
   extraHeaders: Record<string, string> = {},
+  body?: Buffer,
+  contentType?: string,
 ): Promise<Response> {
   const url = objectUrl(relativePath, config);
   const now = new Date();
   const date = dateStamp(now);
-  const payloadHash = crypto.createHash("sha256").update("").digest("hex");
+  const payloadHash = crypto.createHash("sha256").update(body || "").digest("hex");
   const headers: Record<string, string> = {
     host: url.host,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate(now),
   };
+  if (contentType) headers["content-type"] = contentType;
   for (const [key, value] of Object.entries(extraHeaders)) {
     headers[key.toLowerCase()] = value;
   }
@@ -251,6 +254,7 @@ async function signedRequest(
         `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, `
         + `SignedHeaders=${signedHeaders}, Signature=${signature}`,
     },
+    body: body as BodyInit | undefined,
   });
 }
 
@@ -504,7 +508,50 @@ export function createAttachmentStorageRuntime(
       }
     },
 
-    async copyAndVerify(input: {
+    async readObject(relativePath: string): Promise<Buffer | null> {
+    const normalized = normalizeRelativePath(relativePath);
+    const config = await runtimeS3Config(db);
+    if (!config) {
+      const filePath = localPath(root, normalized);
+      try {
+        const stat = await fs.promises.lstat(filePath);
+        if (!stat.isFile() || stat.isSymbolicLink()) return null;
+        return await fs.promises.readFile(filePath);
+      } catch (error: any) {
+        if (error?.code === "ENOENT") return null;
+        throw error;
+      }
+    }
+
+    const response = await signedRequest("GET", normalized, config, fetchImpl);
+    if (response.status === 404) {
+      const fallback = localPath(root, normalized);
+      try {
+        const stat = await fs.promises.lstat(fallback);
+        if (stat.isFile() && !stat.isSymbolicLink()) return await fs.promises.readFile(fallback);
+      } catch {
+        // no local fallback
+      }
+      return null;
+    }
+    if (!response.ok) throw await responseFailure("S3 GET failed", response);
+    return Buffer.from(await response.arrayBuffer());
+  },
+
+  async writeObject(relativePath: string, buffer: Buffer, contentType?: string): Promise<void> {
+    const normalized = normalizeRelativePath(relativePath);
+    const config = await runtimeS3Config(db);
+    if (!config) {
+      const filePath = localPath(root, normalized);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, buffer);
+      return;
+    }
+    const response = await signedRequest("PUT", normalized, config, fetchImpl, {}, buffer, contentType);
+    if (!response.ok) throw await responseFailure("S3 PUT failed", response);
+  },
+
+  async copyAndVerify(input: {
       sourcePath: string;
       stagedPath: string;
       expectedSize: number;
