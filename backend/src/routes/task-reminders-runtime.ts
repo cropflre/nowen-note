@@ -125,8 +125,8 @@ function serializeReminder(row: ReminderRow) {
     ...row,
     enabled: enabledValue(row.enabled) ? 1 : 0,
     lastNotifiedAt: dateValue(row.lastNotifiedAt),
-    createdAt: dateValue(row.createdAt as any),
-    updatedAt: dateValue(row.updatedAt as any),
+    createdAt: dateValue(row.createdAt),
+    updatedAt: dateValue(row.updatedAt),
     snoozedUntil: dateValue(row.snoozedUntil),
   };
 }
@@ -270,7 +270,7 @@ export function createTaskRemindersRuntimeRouter(adapter: DatabaseAdapter) {
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
     const task = await taskScope(c.req.param("taskId"));
     if (!task || !(await access.canRead(task, userId))) return c.json({ error: "Task not found" }, 404);
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const offsetMinutes = normalizeOffsetMinutes(body.offsetMinutes, 30);
     if (offsetMinutes === null) {
       return c.json({ error: `offsetMinutes must be an integer between 0 and ${MAX_REMINDER_OFFSET_MINUTES}`, code: "INVALID_REMINDER_OFFSET" }, 400);
@@ -301,7 +301,7 @@ export function createTaskRemindersRuntimeRouter(adapter: DatabaseAdapter) {
     if (existing.userId !== userId) return c.json({ error: "无权修改", code: "FORBIDDEN" }, 403);
     const task = await taskScope(existing.taskId);
     if (!task || !(await access.canRead(task, userId))) return c.json({ error: "Task not found" }, 404);
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const offsetMinutes = normalizeOffsetMinutes(body.offsetMinutes, existing.offsetMinutes);
     if (offsetMinutes === null) {
       return c.json({ error: `offsetMinutes must be an integer between 0 and ${MAX_REMINDER_OFFSET_MINUTES}`, code: "INVALID_REMINDER_OFFSET" }, 400);
