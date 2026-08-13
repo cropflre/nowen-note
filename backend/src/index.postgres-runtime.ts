@@ -113,8 +113,15 @@ app.get("/api/health", async (c) => {
         "GET /api/user-preferences",
         "PUT/PATCH /api/user-preferences",
         "GET /api/workspaces",
+        "POST /api/workspaces",
+        "GET /api/workspaces/:id",
+        "PUT /api/workspaces/:id",
         "GET /api/notebooks (personal/workspace recursive counts)",
         "GET /api/tags (personal/workspace scope)",
+        "POST /api/tags",
+        "PUT /api/tags/:id",
+        "DELETE /api/tags/:id",
+        "POST/DELETE /api/tags/note/:noteId/tag/:tagId",
         "GET /api/attachments/:id (signed/Bearer, Range/ETag)",
         "GET /api/attachments/access/urls (user signed URLs)",
         "POST /api/attachments (upload/dedup)",
@@ -298,7 +305,9 @@ app.route("/api/user-preferences", userPreferencesSyncRoutes);
 
 app.use("/api/workspaces", authenticateApiRequest);
 app.use("/api/workspaces/*", authenticateApiRequest);
-app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter));
+app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter, {
+  publishToUser: hub.publishToUser,
+}));
 
 app.use("/api/notebooks", authenticateApiRequest);
 app.use("/api/notebooks/*", authenticateApiRequest);
