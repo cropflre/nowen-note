@@ -142,7 +142,9 @@ test("PostgreSQL attachment runtime completes signed upload/read/revoke/dedup/de
     assert.deepEqual(Buffer.from(await range.arrayBuffer()), Buffer.from(bytes.slice(2, 6)));
 
     const tampered = new URL(first.accessUrls[first.id], "http://nowen.test");
-    tampered.searchParams.set("sig", `${tampered.searchParams.get("sig")?.slice(0, -1) || ""}0`);
+    const originalSig = tampered.searchParams.get("sig") || "";
+    assert.ok(originalSig);
+    tampered.searchParams.set("sig", `${originalSig[0] === "0" ? "1" : "0"}${originalSig.slice(1)}`);
     const tamperedResponse = await app.request(`${tampered.pathname}${tampered.search}`);
     assert.equal(tamperedResponse.status, 403);
 
