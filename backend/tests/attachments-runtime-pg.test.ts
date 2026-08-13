@@ -17,6 +17,7 @@ import { closePgPool, getPgPool, hasPg, initPgSchema } from "./helpers/pg-test-d
 const OWNER = "pg-attachment-owner";
 const READER = "pg-attachment-reader";
 const OTHER = "pg-attachment-other";
+const WORKSPACE = "pg-attachment-workspace";
 const NOTEBOOK = "pg-attachment-notebook";
 const NOTE = "11111111-aaaa-4111-8111-111111111111";
 
@@ -30,14 +31,22 @@ async function resetFixture(pool: import("pg").Pool) {
     [OWNER, READER, OTHER],
   );
   await pool.query(
-    `INSERT INTO notebooks (id, "userId", name) VALUES ($1, $2, 'Attachments')`,
-    [NOTEBOOK, OWNER],
+    `INSERT INTO workspaces (id, name, "ownerId") VALUES ($1, 'Attachment Workspace', $2)`,
+    [WORKSPACE, OWNER],
+  );
+  await pool.query(
+    `INSERT INTO workspace_members ("workspaceId", "userId", role) VALUES ($1, $2, 'owner')`,
+    [WORKSPACE, OWNER],
+  );
+  await pool.query(
+    `INSERT INTO notebooks (id, "userId", name, "workspaceId") VALUES ($1, $2, 'Attachments', $3)`,
+    [NOTEBOOK, OWNER, WORKSPACE],
   );
   await pool.query(
     `INSERT INTO notes (
-       id, "userId", "notebookId", title, content, "contentText", "contentFormat", version
-     ) VALUES ($1, $2, $3, 'Attachment note', '{}', '', 'tiptap-json', 1)`,
-    [NOTE, OWNER, NOTEBOOK],
+       id, "userId", "notebookId", title, content, "contentText", "contentFormat", version, "workspaceId"
+     ) VALUES ($1, $2, $3, 'Attachment note', '{}', '', 'tiptap-json', 1, $4)`,
+    [NOTE, OWNER, NOTEBOOK, WORKSPACE],
   );
   await pool.query(
     `INSERT INTO note_acl ("noteId", "userId", permission, "grantedBy") VALUES ($1, $2, 'read', $3)`,
