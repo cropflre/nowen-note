@@ -61,6 +61,10 @@ export function createTagsRuntimeRouter(adapter: DatabaseAdapter) {
     return hasRole(await workspaceRole(tag.workspaceId, userId), "editor");
   }
 
+  async function readJsonBody(c: Parameters<Parameters<typeof app.post>[1]>[0]): Promise<Record<string, unknown>> {
+    return c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  }
+
   app.get("/", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
@@ -80,7 +84,7 @@ export function createTagsRuntimeRouter(adapter: DatabaseAdapter) {
     const userId = c.req.header("X-User-Id") || "";
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
 
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await readJsonBody(c);
     const name = normalizeTagName(body.name);
     if (!name) return c.json({ error: "标签名称不能为空" }, 400);
     if (name.length > 30) return c.json({ error: "标签最多 30 个字符" }, 400);
@@ -122,7 +126,7 @@ export function createTagsRuntimeRouter(adapter: DatabaseAdapter) {
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
 
     const id = c.req.param("id");
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await readJsonBody(c);
     const patch: { name?: string; color?: string } = {};
 
     if (body.name !== undefined) {
