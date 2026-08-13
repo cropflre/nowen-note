@@ -1,8 +1,5 @@
-import type {
-  DatabaseAdapter,
-  DatabaseDriver,
-} from "../db/adapters/types";
-
+import type { DatabaseAdapter } from "../db/adapters/types";
+import type { DatabaseDialect } from "../db/dialect";
 export type TaskScope =
   | { kind: "personal"; userId: string; workspaceId: null }
   | { kind: "workspace"; userId: string; workspaceId: string };
@@ -90,7 +87,7 @@ export interface UpdateTaskCorePatch {
   repeatRuleJson?: string | null;
 }
 
-function boolPredicate(driver: DatabaseDriver, expression: string, value: boolean): string {
+function boolPredicate(driver: DatabaseDialect, expression: string, value: boolean): string {
   if (driver === "postgres") return `${expression} = ${value ? "TRUE" : "FALSE"}`;
   return `${expression} = ${value ? "1" : "0"}`;
 }
@@ -99,7 +96,7 @@ function duePresentSql(): string {
   return '(t."dueAt" IS NOT NULL OR NULLIF(t."dueDate", \'\') IS NOT NULL)';
 }
 
-function dateCondition(driver: DatabaseDriver, filter: TaskListFilter): string | null {
+function dateCondition(driver: DatabaseDialect, filter: TaskListFilter): string | null {
   if (filter === "completed") return boolPredicate(driver, 't."isCompleted"', true);
   if (filter === "all") return null;
 
@@ -153,7 +150,7 @@ function normalizeRow(row: TaskCoreRow): TaskCoreRow {
 
 export function createTaskCoreRepository(
   adapter: DatabaseAdapter,
-  driver: DatabaseDriver,
+  driver: DatabaseDialect,
 ) {
   const reminderEnabled = boolPredicate(driver, 'tr.enabled', true);
 
@@ -391,15 +388,13 @@ export function createTaskCoreRepository(
     },
 
     async reorder(items: Array<{ id: string; sortOrder: number }>): Promise<void> {
-      await adapter.transaction(async (tx) => {
-        for (const item of items) {
-          await tx.execute(
-            'UPDATE tasks SET "sortOrder" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?',
-            [item.sortOrder, item.id],
-          );
-        }
-      });
-    },
+    if (items.length === 0) return;
+    await adapter.executeStatements(items.map((item) => ({
+      sql: 'UPDATE tasks SET "sortOrder" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?',
+      params: [item.sortOrder, item.id],
+      requireChanges: 1,
+    })));
+  },
 
     async collectDescendantIds(rootId: string): Promise<string[]> {
       const rows = await adapter.queryMany<{ id: string }>(
