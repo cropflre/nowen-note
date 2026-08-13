@@ -1,0 +1,82 @@
+name: PostgreSQL main contract reconcile
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - .github/workflows/pg-contract-reconcile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Reconcile main contracts with PostgreSQL branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str):
+              text = path.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected block not found in {path}: {old[:120]!r}")
+              path.write_text(text.replace(old, new, 1))
+
+          sessions = Path("backend/src/repositories/userSessionsRepository.ts")
+          replace_once(
+              sessions,
+              '''  getByIdAndUser(sessionId: string, userId: string): { id: string; revokedAt: string | null } | undefined {\n    return getDb().prepare(\n      `SELECT id, "revokedAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,\n    ).get(sessionId, userId) as any;\n  },''',
+              '''  getByIdAndUser(\n    sessionId: string,\n    userId: string,\n  ): { id: string; revokedAt: string | null; expiresAt: string | null } | undefined {\n    const row = getDb().prepare(\n      `SELECT id, "revokedAt", "expiresAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,\n    ).get(sessionId, userId) as { id: string; revokedAt: unknown; expiresAt: unknown } | undefined;\n    return row\n      ? {\n          id: row.id,\n          revokedAt: timestampString(row.revokedAt),\n          expiresAt: timestampString(row.expiresAt),\n        }\n      : undefined;\n  },''',
+          )
+          replace_once(
+              sessions,
+              '''  async getByIdAndUserAsync(\n    sessionId: string,\n    userId: string,\n  ): Promise<{ id: string; revokedAt: string | null } | undefined> {\n    const row = await getAdapter().queryOne<{ id: string; revokedAt: unknown }>(\n      `SELECT id, "revokedAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,\n      [sessionId, userId],\n    );\n    return row ? { id: row.id, revokedAt: timestampString(row.revokedAt) } : undefined;\n  },''',
+              '''  async getByIdAndUserAsync(\n    sessionId: string,\n    userId: string,\n  ): Promise<{ id: string; revokedAt: string | null; expiresAt: string | null } | undefined> {\n    const row = await getAdapter().queryOne<{ id: string; revokedAt: unknown; expiresAt: unknown }>(\n      `SELECT id, "revokedAt", "expiresAt" FROM user_sessions WHERE id = ? AND "userId" = ?`,\n      [sessionId, userId],\n    );\n    return row\n      ? {\n          id: row.id,\n          revokedAt: timestampString(row.revokedAt),\n          expiresAt: timestampString(row.expiresAt),\n        }\n      : undefined;\n  },''',
+          )
+
+          acl = Path("backend/src/middleware/acl.ts")
+          marker = '''  return { permission: roleToPermission(role), workspaceId: note.workspaceId, noteOwnerId: note.userId };\n}\n\n/**\n * 解析笔记本的有效权限（与笔记类似，但直接基于 notebooks.workspaceId）\n */'''
+          replacement = '''  return { permission: roleToPermission(role), workspaceId: note.workspaceId, noteOwnerId: note.userId };\n}\n\n/**\n * 解析已进入回收站笔记的生命周期权限。\n * 普通权限解析继续隐藏 tombstone；恢复/永久删除显式走 tombstone-aware ACL。\n */\nexport function resolveTrashedNotePermission(\n  noteId: string,\n  userId: string,\n): { permission: Permission | null; workspaceId: string | null; noteOwnerId: string | null } {\n  const note = aclQueryRepository.getNoteOwnerScope(noteId);\n  if (!note) return { permission: null, workspaceId: null, noteOwnerId: null };\n\n  const knowledgeAccess = resolveResourceKnowledgeAccessForTombstone("note", noteId, userId);\n  if (knowledgeAccess.nodeId) {\n    return {\n      permission: capabilitiesToLegacyPermission(knowledgeAccess.capabilities),\n      workspaceId: note.workspaceId,\n      noteOwnerId: note.userId,\n    };\n  }\n\n  // 尚未生成统一知识树节点的历史资源继续沿用旧 ACL 回退。\n  return resolveNotePermission(noteId, userId);\n}\n\n/**\n * 解析笔记本的有效权限（与笔记类似，但直接基于 notebooks.workspaceId）\n */'''
+          replace_once(acl, marker, replacement)
+
+          yjs = Path("backend/src/services/yjs.ts")
+          marker = '''/** 进程退出时调用：把所有房间 flush 到磁盘。返回 Promise，便于 caller await。 */\nexport function yFlushAll(): Promise<void> {'''
+          replacement = '''/**\n * 标题、置顶等 metadata-only REST 写入会增加 notes.version。\n * PostgreSQL migration 分支的 legacy Yjs bridge 以持久化正文 identity 防止重复回写，\n * 不维护 main 分支的 room baseVersion CAS；保留该入口以兼容共享 notes route。\n */\nexport function yAdvanceRoomBaseVersion(\n  noteId: string,\n  previousVersion: number,\n  nextVersion: number,\n): void {\n  // Intentionally no-op for the legacy bridge. Native PostgreSQL Yjs persistence\n  // uses its dedicated runtime/repository path rather than this in-memory baseVersion.\n  void noteId;\n  void previousVersion;\n  void nextVersion;\n}\n\n/** 进程退出时调用：把所有房间 flush 到磁盘。返回 Promise，便于 caller await。 */\nexport function yFlushAll(): Promise<void> {'''
+          replace_once(yjs, marker, replacement)
+          PY
+
+      - name: TypeScript contract check
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+
+      - name: Commit reconciled contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/pg-contract-reconcile.yml
+          git add backend/src/repositories/userSessionsRepository.ts backend/src/middleware/acl.ts backend/src/services/yjs.ts
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(pg): reconcile main runtime contracts"
+          git push origin HEAD:pg-migration-unified
