@@ -1,3 +1,4 @@
+-- Durable task automation deliveries are keyed for idempotent restart-safe notification.
 CREATE TABLE IF NOT EXISTS task_automation_delivery_state (
     "deliveryId" TEXT PRIMARY KEY,
     "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
