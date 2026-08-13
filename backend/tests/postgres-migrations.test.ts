@@ -31,6 +31,7 @@ const EXPECTED_MIGRATIONS = [
   "0023_sqlite_postgres_migration_runs",
   "0024_sqlite_postgres_migration_rollback",
   "0025_sqlite_postgres_nonempty_recovery",
+  "0026_notes_full_text_search",
 ];
 
 test("PG migrations bootstrap an empty database and are idempotent", { skip }, async () => {
@@ -99,6 +100,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
   const requiredIndexes = [
     "idx_api_token_resources_resource",
     "idx_api_token_resources_token",
+    "idx_attachment_chunks_search_vector",
+    "idx_attachments_filename_search_vector",
     "idx_block_operations_note",
     "idx_note_blocks_hash",
     "idx_note_blocks_note_order",
@@ -124,6 +127,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "idx_note_y_subdocument_structure_operations_created",
     "idx_note_y_subdocument_updates_section",
     "idx_note_y_subdocuments_order",
+    "idx_notes_search_vector",
     "idx_notebook_members_notebook_user",
     "idx_roundtrip_import_batches_scope_time",
     "idx_roundtrip_import_batches_source",
@@ -135,6 +139,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "idx_sqlite_pg_migration_runs_claim",
     "idx_sqlite_pg_migration_runs_source",
     "idx_sqlite_pg_migration_tables_claim",
+    "idx_tags_search_vector",
   ];
   const indexRows = await pool.query<{ indexname: string }>(
     `SELECT indexname
@@ -153,6 +158,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     ["api_tokens", "resourceMode"],
     ["api_tokens", "scopes"],
     ["api_tokens", "tokenHash"],
+    ["notes", "searchVector"],
     ["note_transfer_operations", "orchestrationAttempts"],
     ["note_transfer_operations", "orchestrationAvailableAt"],
     ["note_transfer_operations", "orchestrationLastAdvancedAt"],
