@@ -82,9 +82,12 @@ jobs:
         run: |
           node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-runtime-pg.test.ts
           node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocument-structure-pg.test.ts
-      - name: Subdocument websocket protocols
+      - name: Subdocument websocket protocols and concurrent join stress
         run: |
-          node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          for attempt in 1 2 3; do
+            echo "subdocument websocket join stress ${attempt}/3"
+            node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          done
           node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-structure-websocket-pg.test.ts
       - name: Build production backend bundle
         run: npm run build
