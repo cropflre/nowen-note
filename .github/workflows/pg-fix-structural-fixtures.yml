@@ -1,0 +1,70 @@
+name: Reconcile structural guard fixtures
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/workflows/pg-fix-structural-fixtures.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Reconcile test fixtures with structural guards
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected fixture block not found: {path}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+            "backend/tests/api-token-resource-scope.test.ts",
+            '''    INSERT OR IGNORE INTO notebooks (id, userId, name, isDeleted)\n    VALUES\n      ('nb-a', 'user-1', 'Allowed', 0),\n      ('nb-b', 'user-1', 'Denied', 0),\n      ('nb-a-child', 'user-1', 'Allowed child', 0);\n    UPDATE notebooks SET parentId = 'nb-a' WHERE id = 'nb-a-child';\n\n    INSERT OR IGNORE INTO notebooks (id, userId, workspaceId, name, isDeleted)\n    VALUES\n      ('nb-ws', 'user-2', 'ws-1', 'Workspace Allowed', 0),\n      ('nb-ws-child', 'user-2', 'ws-1', 'Workspace Child', 0);\n    UPDATE notebooks SET parentId = 'nb-ws' WHERE id = 'nb-ws-child';\n\n    INSERT OR IGNORE INTO notes (id, userId, notebookId, title)\n    VALUES\n      ('note-a', 'user-1', 'nb-a', 'Allowed note'),\n      ('note-b', 'user-1', 'nb-b', 'Denied note'),\n      ('note-child', 'user-1', 'nb-a-child', 'Child note'),\n      ('note-ws', 'user-2', 'nb-ws', 'Workspace note'),\n      ('note-ws-child', 'user-2', 'nb-ws-child', 'Workspace child note');\n    UPDATE notes SET workspaceId = 'ws-1' WHERE id IN ('note-ws', 'note-ws-child');''',
+            '''    INSERT OR IGNORE INTO notebooks (id, userId, parentId, name, isDeleted)\n    VALUES\n      ('nb-a', 'user-1', NULL, 'Allowed', 0),\n      ('nb-b', 'user-1', NULL, 'Denied', 0),\n      ('nb-a-child', 'user-1', 'nb-a', 'Allowed child', 0);\n\n    INSERT OR IGNORE INTO notebooks (id, userId, workspaceId, parentId, name, isDeleted)\n    VALUES\n      ('nb-ws', 'user-2', 'ws-1', NULL, 'Workspace Allowed', 0),\n      ('nb-ws-child', 'user-2', 'ws-1', 'nb-ws', 'Workspace Child', 0);\n\n    INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId)\n    VALUES\n      ('note-a', 'user-1', 'nb-a', 'Allowed note', NULL),\n      ('note-b', 'user-1', 'nb-b', 'Denied note', NULL),\n      ('note-child', 'user-1', 'nb-a-child', 'Child note', NULL),\n      ('note-ws', 'user-2', 'nb-ws', 'Workspace note', 'ws-1'),\n      ('note-ws-child', 'user-2', 'nb-ws-child', 'Workspace child note', 'ws-1');'''
+          )
+
+          replace_once(
+            "backend/tests/note-acl-repository-async.test.ts",
+            '''  // Create a note in the workspace\n  const noteWs = "note-ws-acl";\n  getDb().prepare("INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId) VALUES (?, ?, ?, ?, ?)").run(noteWs, USER_ID, "nb-acl", "WS Note", wsId);''',
+            '''  // Create a scope-consistent notebook and note in the workspace.\n  const notebookWs = "nb-ws-acl";\n  getDb().prepare("INSERT OR IGNORE INTO notebooks (id, userId, name, workspaceId) VALUES (?, ?, ?, ?)")\n    .run(notebookWs, USER_ID, "WS NB", wsId);\n  const noteWs = "note-ws-acl";\n  getDb().prepare("INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId) VALUES (?, ?, ?, ?, ?)")\n    .run(noteWs, USER_ID, notebookWs, "WS Note", wsId);'''
+          )
+          PY
+      - name: Run guarded fixture regressions
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/api-token-resource-scope.test.ts
+          tests/note-acl-repository-async.test.ts
+      - name: Commit verified fixture fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/pg-fix-structural-fixtures.yml
+          git add backend/tests/api-token-resource-scope.test.ts backend/tests/note-acl-repository-async.test.ts
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "test(sqlite): honor knowledge-tree scope guards"
+          git push origin HEAD:pg-migration-unified
