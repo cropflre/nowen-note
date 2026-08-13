@@ -1,25 +1,37 @@
-name: PostgreSQL Task Core Runtime
+name: PostgreSQL Task Runtime
 
 on:
   push:
     branches: [pg-migration-unified]
     paths:
       - "backend/src/routes/tasks-runtime.ts"
+      - "backend/src/routes/task-projects-runtime.ts"
+      - "backend/src/routes/task-dependencies-runtime.ts"
+      - "backend/src/routes/task-reminders-runtime.ts"
       - "backend/src/services/task-recurrence-runtime.ts"
+      - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
+      - "backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
+      - "backend/tests/task-module-phase2-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
   pull_request:
     paths:
       - "backend/src/routes/tasks-runtime.ts"
+      - "backend/src/routes/task-projects-runtime.ts"
+      - "backend/src/routes/task-dependencies-runtime.ts"
+      - "backend/src/routes/task-reminders-runtime.ts"
       - "backend/src/services/task-recurrence-runtime.ts"
+      - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
+      - "backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
+      - "backend/tests/task-module-phase2-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
   workflow_dispatch:
@@ -62,8 +74,10 @@ jobs:
         run: npm run build:tsc -- --noEmit
       - name: Task repository foundation regression
         run: node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
-      - name: Task runtime API and recurrence lifecycle
+      - name: Task core API and recurrence lifecycle
         run: node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+      - name: Task module phase 2 runtime
+        run: node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
       - name: PostgreSQL migration regression
         run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
       - name: Build production backend bundle

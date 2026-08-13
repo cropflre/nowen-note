@@ -19,6 +19,9 @@ import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
 import createNotebooksRuntimeRouter from "./routes/notebooks-runtime";
 import createTagsRuntimeRouter from "./routes/tags-runtime";
 import createTasksRuntimeRouter from "./routes/tasks-runtime";
+import createTaskProjectsRuntimeRouter from "./routes/task-projects-runtime";
+import createTaskDependenciesRuntimeRouter from "./routes/task-dependencies-runtime";
+import createTaskRemindersRuntimeRouter from "./routes/task-reminders-runtime";
 import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";
 import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
@@ -132,6 +135,15 @@ app.get("/api/health", async (c) => {
         "PUT /api/tasks/reorder/batch",
         "POST /api/tasks/batch (complete/delete)",
         "DELETE /api/tasks/:id",
+        "GET/POST /api/task-projects (personal/workspace scope)",
+        "PUT/DELETE /api/task-projects/:id",
+        "PUT /api/task-projects/reorder/batch",
+        "GET/POST /api/task-dependencies",
+        "DELETE /api/task-dependencies/:id",
+        "GET /api/task-reminders/overview",
+        "GET /api/task-reminders/schedule",
+        "GET/POST /api/task-reminders/:taskId",
+        "PUT/DELETE /api/task-reminders/:reminderId",
         "GET /api/attachments/:id (signed/Bearer, Range/ETag)",
         "GET /api/attachments/access/urls (user signed URLs)",
         "POST /api/attachments (upload/dedup)",
@@ -330,6 +342,18 @@ app.route("/api/tags", createTagsRuntimeRouter(adapter));
 app.use("/api/tasks", authenticateApiRequest);
 app.use("/api/tasks/*", authenticateApiRequest);
 app.route("/api/tasks", createTasksRuntimeRouter(adapter));
+
+app.use("/api/task-projects", authenticateApiRequest);
+app.use("/api/task-projects/*", authenticateApiRequest);
+app.route("/api/task-projects", createTaskProjectsRuntimeRouter(adapter));
+
+app.use("/api/task-dependencies", authenticateApiRequest);
+app.use("/api/task-dependencies/*", authenticateApiRequest);
+app.route("/api/task-dependencies", createTaskDependenciesRuntimeRouter(adapter));
+
+app.use("/api/task-reminders", authenticateApiRequest);
+app.use("/api/task-reminders/*", authenticateApiRequest);
+app.route("/api/task-reminders", createTaskRemindersRuntimeRouter(adapter));
 
 app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
 

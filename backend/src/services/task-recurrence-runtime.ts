@@ -26,6 +26,7 @@ export interface TaskCustomRepeatRule {
 interface TaskReminderRow {
   userId: string;
   offsetMinutes: number;
+  timezoneOffsetMinutes: number | null;
   enabled: boolean | number;
 }
 
@@ -280,7 +281,10 @@ export function createTaskRecurrenceRuntime(adapter: DatabaseAdapter) {
       const nextId = randomUUID();
       const nextSequence = currentSequence + 1;
       const reminders = await adapter.queryMany<TaskReminderRow>(
-        `SELECT "userId" AS "userId", "offsetMinutes" AS "offsetMinutes", enabled
+        `SELECT "userId" AS "userId",
+                "offsetMinutes" AS "offsetMinutes",
+                "timezoneOffsetMinutes" AS "timezoneOffsetMinutes",
+                enabled
            FROM task_reminders
           WHERE "taskId" = ?`,
         [task.id],
@@ -327,13 +331,15 @@ export function createTaskRecurrenceRuntime(adapter: DatabaseAdapter) {
         },
         ...reminders.map((reminder): DbStatement => ({
           sql: `INSERT INTO task_reminders (
-                  id, "taskId", "userId", "offsetMinutes", enabled, "lastNotifiedAt", "createdAt", "snoozedUntil"
-                ) VALUES (?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)`,
+                  id, "taskId", "userId", "offsetMinutes", "timezoneOffsetMinutes",
+                  enabled, "lastNotifiedAt", "createdAt", "updatedAt", "snoozedUntil"
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)`,
           params: [
             randomUUID(),
             nextId,
             reminder.userId,
             reminder.offsetMinutes,
+            reminder.timezoneOffsetMinutes,
             reminder.enabled === true || reminder.enabled === 1,
           ],
           requireChanges: 1,
