@@ -93,5 +93,4 @@ jobs:
         run: npm run build
 
       - name: Verify container PostgreSQL client dependency
-        working-directory: ..
-        run: grep -F "postgresql-client" Dockerfile
+        run: grep -F "postgresql-client" ../Dockerfile
