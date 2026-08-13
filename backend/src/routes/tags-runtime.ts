@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { v4 as uuid } from "uuid";
 
 import type { DatabaseAdapter } from "../db/adapters/types";
@@ -61,7 +61,7 @@ export function createTagsRuntimeRouter(adapter: DatabaseAdapter) {
     return hasRole(await workspaceRole(tag.workspaceId, userId), "editor");
   }
 
-  async function readJsonBody(c: Parameters<Parameters<typeof app.post>[1]>[0]): Promise<Record<string, unknown>> {
+  async function readJsonBody(c: Context): Promise<Record<string, unknown>> {
     return c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
   }
 
