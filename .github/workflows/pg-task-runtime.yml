@@ -8,6 +8,7 @@ on:
       - "backend/src/routes/task-projects-runtime.ts"
       - "backend/src/routes/task-dependencies-runtime.ts"
       - "backend/src/routes/task-reminders-runtime.ts"
+      - "backend/src/routes/task-templates-runtime.ts"
       - "backend/src/services/task-recurrence-runtime.ts"
       - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
@@ -16,6 +17,7 @@ on:
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
       - "backend/tests/task-module-phase2-runtime-pg.test.ts"
+      - "backend/tests/task-templates-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
   pull_request:
@@ -24,6 +26,7 @@ on:
       - "backend/src/routes/task-projects-runtime.ts"
       - "backend/src/routes/task-dependencies-runtime.ts"
       - "backend/src/routes/task-reminders-runtime.ts"
+      - "backend/src/routes/task-templates-runtime.ts"
       - "backend/src/services/task-recurrence-runtime.ts"
       - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
@@ -32,6 +35,7 @@ on:
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
       - "backend/tests/task-module-phase2-runtime-pg.test.ts"
+      - "backend/tests/task-templates-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
   workflow_dispatch:
@@ -78,6 +82,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
       - name: Task module phase 2 runtime
         run: node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+      - name: Task templates runtime
+        run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
       - name: PostgreSQL migration regression
         run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
       - name: Build production backend bundle
