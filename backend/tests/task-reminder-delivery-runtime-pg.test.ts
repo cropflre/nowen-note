@@ -30,7 +30,7 @@ async function resetFixture(pool: import("pg").Pool) {
     `INSERT INTO tasks (
        id, "userId", title, "isCompleted", "dueAt", "dueDate", "workspaceId", status
      ) VALUES ($1, $2, 'Durable reminder', false, $3, NULL, NULL, 'todo')`,
-    [TASK, USER, "2026-08-13T08:00:00.000Z"],
+    [TASK, USER, "2030-08-13T08:00:00.000Z"],
   );
   await pool.query(
     `INSERT INTO task_reminders (
@@ -71,7 +71,7 @@ test("PostgreSQL reminder delivery survives restarts and is multi-instance/ACK s
       leaseMs: 45_000,
     });
 
-    const firstNow = new Date("2026-08-13T09:00:00.000Z");
+    const firstNow = new Date("2030-08-13T09:00:00.000Z");
     const [scanA, scanB] = await Promise.all([
       runtimeA.scanOnce(firstNow),
       runtimeB.scanOnce(firstNow),
@@ -121,20 +121,20 @@ test("PostgreSQL reminder delivery survives restarts and is multi-instance/ACK s
     assert.ok(reminderAfterAck.rows[0]?.lastNotifiedAt, "ACK must update the compatibility lastNotifiedAt marker");
     assert.equal((await runtimeA.listRecent(USER)).length, 0);
 
-    const snoozeAt = "2026-08-13T09:30:00.000Z";
+    const snoozeAt = "2030-08-13T09:30:00.000Z";
     await pool.query(
       `UPDATE task_reminders SET "snoozedUntil" = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2`,
       [snoozeAt, REMINDER],
     );
-    const beforeSnoozeDue = await runtimeB.scanOnce(new Date("2026-08-13T09:10:00.000Z"));
+    const beforeSnoozeDue = await runtimeB.scanOnce(new Date("2030-08-13T09:10:00.000Z"));
     assert.equal(beforeSnoozeDue.acquired, true);
     assert.equal((await runtimeB.listRecent(USER)).length, 0, "future snooze must reset delivery but not trigger early");
 
-    const afterSnoozeDue = await runtimeA.scanOnce(new Date("2026-08-13T09:31:00.000Z"));
+    const afterSnoozeDue = await runtimeA.scanOnce(new Date("2030-08-13T09:31:00.000Z"));
     assert.equal(afterSnoozeDue.acquired, true);
     assert.equal((await runtimeA.listRecent(USER)).length, 1, "changed snooze schedule must create a fresh pending delivery");
 
-    const laterSnooze = "2026-08-13T10:00:00.000Z";
+    const laterSnooze = "2030-08-13T10:00:00.000Z";
     await pool.query(`UPDATE task_reminders SET "snoozedUntil" = $1 WHERE id = $2`, [laterSnooze, REMINDER]);
     assert.equal(await runtimeA.acknowledge(USER, [REMINDER]), 1);
     const preservedSnooze = await pool.query<{ snoozedUntil: Date | null }>(
@@ -147,9 +147,9 @@ test("PostgreSQL reminder delivery survives restarts and is multi-instance/ACK s
       "ACK for an older delivery must not clear a newer snooze chosen by the user",
     );
 
-    await runtimeB.scanOnce(new Date("2026-08-13T09:32:00.000Z"));
+    await runtimeB.scanOnce(new Date("2030-08-13T09:32:00.000Z"));
     assert.equal((await runtimeB.listRecent(USER)).length, 0);
-    await runtimeA.scanOnce(new Date("2026-08-13T10:01:00.000Z"));
+    await runtimeA.scanOnce(new Date("2030-08-13T10:01:00.000Z"));
     assert.equal((await runtimeA.listRecent(USER)).length, 1);
     assert.equal(await runtimeA.acknowledge(USER, [REMINDER]), 1);
     const consumedSnooze = await pool.query<{ snoozedUntil: Date | null }>(
@@ -159,7 +159,7 @@ test("PostgreSQL reminder delivery survives restarts and is multi-instance/ACK s
     assert.equal(consumedSnooze.rows[0]?.snoozedUntil, null, "ACK must clear the snooze that produced the delivered event");
 
     await pool.query(`UPDATE tasks SET "isCompleted" = true, status = 'done' WHERE id = $1`, [TASK]);
-    await runtimeB.scanOnce(new Date("2026-08-13T10:02:00.000Z"));
+    await runtimeB.scanOnce(new Date("2030-08-13T10:02:00.000Z"));
     const staleState = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM task_reminder_delivery_state WHERE "reminderId" = $1`,
       [REMINDER],

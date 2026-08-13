@@ -13,14 +13,18 @@ on:
       - "backend/src/services/task-recurrence-runtime.ts"
       - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/services/task-reminder-delivery-runtime.ts"
+      - "backend/src/services/task-automation-delivery-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
+      - "backend/src/db/postgres/schema.base.sql"
       - "backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql"
       - "backend/src/db/postgres/migrations/0058_task_reminder_delivery_runtime.sql"
+      - "backend/src/db/postgres/migrations/0059_task_automation_delivery_runtime.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
       - "backend/tests/task-module-phase2-runtime-pg.test.ts"
       - "backend/tests/task-reminder-delivery-runtime-pg.test.ts"
+      - "backend/tests/task-automation-delivery-runtime-pg.test.ts"
       - "backend/tests/task-templates-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
@@ -35,14 +39,18 @@ on:
       - "backend/src/services/task-recurrence-runtime.ts"
       - "backend/src/services/task-module-access-runtime.ts"
       - "backend/src/services/task-reminder-delivery-runtime.ts"
+      - "backend/src/services/task-automation-delivery-runtime.ts"
       - "backend/src/repositories/taskCoreRepository.ts"
+      - "backend/src/db/postgres/schema.base.sql"
       - "backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql"
       - "backend/src/db/postgres/migrations/0058_task_reminder_delivery_runtime.sql"
+      - "backend/src/db/postgres/migrations/0059_task_automation_delivery_runtime.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/task-core-repository-pg.test.ts"
       - "backend/tests/task-core-runtime-pg.test.ts"
       - "backend/tests/task-module-phase2-runtime-pg.test.ts"
       - "backend/tests/task-reminder-delivery-runtime-pg.test.ts"
+      - "backend/tests/task-automation-delivery-runtime-pg.test.ts"
       - "backend/tests/task-templates-runtime-pg.test.ts"
       - "backend/tests/postgres-migrations.test.ts"
       - ".github/workflows/pg-task-runtime.yml"
@@ -94,6 +102,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
       - name: Durable task reminder delivery runtime
         run: node --import tsx --test --test-concurrency=1 tests/task-reminder-delivery-runtime-pg.test.ts
+      - name: Durable task automation notifications
+        run: node --import tsx --test --test-concurrency=1 tests/task-automation-delivery-runtime-pg.test.ts
       - name: PostgreSQL migration regression
         run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
       - name: Build production backend bundle
